@@ -250,6 +250,14 @@ export class JobCardService {
     return this.repository.listActivity(actor.organizationId, jobCardId);
   }
 
+  async listReferenceCustomers(actor: JobCardActor) {
+    return this.repository.listReferenceCustomers(actor.organizationId);
+  }
+
+  async listReferenceProducts(actor: JobCardActor) {
+    return this.repository.listReferenceProducts(actor.organizationId);
+  }
+
   async submitForApproval(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
     return this.runLifecycle(actor, jobCardId, input, {
       command: 'SUBMIT_FOR_APPROVAL', operationKey: 'JOB_SUBMIT_FOR_APPROVAL',

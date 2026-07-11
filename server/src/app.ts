@@ -14,6 +14,7 @@ import type { JobCardRepository } from './modules/job-cards/repository.js';
 import { JobCardService } from './modules/job-cards/service.js';
 import { jobCardRoutes } from './modules/job-cards/routes.js';
 import { requireAuthentication } from './modules/auth/middleware.js';
+import { referenceRoutes } from './modules/job-cards/reference-routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -67,10 +68,17 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       config,
     });
     if (dependencies.jobCardRepository) {
+      const jobCardService = new JobCardService(dependencies.jobCardRepository);
+      const authenticate = requireAuthentication(authService);
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',
-        service: new JobCardService(dependencies.jobCardRepository),
-        authenticate: requireAuthentication(authService),
+        service: jobCardService,
+        authenticate,
+      });
+      await app.register(referenceRoutes, {
+        prefix: '/api/reference',
+        service: jobCardService,
+        authenticate,
       });
     }
   }
