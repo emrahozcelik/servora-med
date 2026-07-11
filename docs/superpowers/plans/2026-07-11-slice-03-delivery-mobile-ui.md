@@ -43,10 +43,10 @@
 
 ## Task 6: Manager review flow
 
-- [ ] Show submitted delivery purpose, product snapshot, quantity, delivered time, and activity.
-- [ ] Commercial data is read-only in `WAITING_APPROVAL`.
-- [ ] Approve or request revision with mandatory reason.
-- [ ] Keyboard alternatives exist for every action; no drag-and-drop is required.
+- [x] Show submitted delivery purpose, product snapshot, quantity, delivered time, and activity.
+- [x] Commercial data is read-only in `WAITING_APPROVAL`.
+- [x] Approve or request revision with mandatory reason.
+- [x] Keyboard alternatives exist for every action; no drag-and-drop is required.
 
 ## Task 7: Responsive and accessibility verification
 

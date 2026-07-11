@@ -121,6 +121,16 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .delivery-lines dl div { display: grid; align-content: start; gap: 0.25rem; }
 .detail-action { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
 .detail-action p { max-width: 55ch; margin: 0; color: var(--muted); line-height: 1.55; }
+.activity-timeline { margin-top: 2.5rem; }
+.activity-timeline h2, .manager-review h2 { margin: 0 0 1rem; font-size: 1.125rem; }
+.activity-timeline ol { padding: 0; margin: 0; border-top: 1px solid var(--rule); list-style: none; }
+.activity-timeline li { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-block: 0.8rem; border-bottom: 1px solid var(--rule); }
+.activity-timeline li span { font-weight: 650; }
+.activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.manager-review { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
+.review-buttons { display: flex; justify-content: flex-end; gap: 0.75rem; }
+.revision-form { max-width: 38rem; }
+.revision-form .review-buttons { margin-top: 1rem; }
 
 @media (max-width: 720px) {
   .login-layout { display: block; }
@@ -143,6 +153,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .delivery-lines dl div:last-child { grid-column: 1 / -1; }
   .detail-action { align-items: stretch; flex-direction: column; }
   .detail-action .primary-button { width: 100%; }
+  .activity-timeline li { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
+  .review-buttons { align-items: stretch; flex-direction: column-reverse; }
+  .review-buttons button { width: 100%; }
 }
 
 @media (max-width: 390px) {

@@ -1,11 +1,16 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type FormEvent } from 'react';
 
 import {
   ApiError,
+  approveJobCard,
   getJobCard,
+  listActivity,
   listDeliveryItems,
+  requestJobCardRevision,
   startJobCard,
   submitJobCardForApproval,
+  type Activity,
+  type CurrentUser,
   type DeliveryItem,
   type JobCard,
 } from './services/api';
@@ -37,14 +42,73 @@ export async function runStaffJobCommand(job: JobCard, command: StaffCommand, de
   }
 }
 
+type ManagerCommand = 'approve' | 'revise';
+type ManagerCommandDependencies = {
+  approve: typeof approveJobCard;
+  revise: typeof requestJobCardRevision;
+  refresh: typeof getJobCard;
+  createActionId: () => string;
+};
+const managerCommandDependencies: ManagerCommandDependencies = {
+  approve: approveJobCard, revise: requestJobCardRevision, refresh: getJobCard,
+  createActionId: () => crypto.randomUUID(),
+};
+
+export async function runManagerJobCommand(job: JobCard, command: ManagerCommand, revisionReason: string, dependencies: ManagerCommandDependencies = managerCommandDependencies) {
+  const base = { clientActionId: dependencies.createActionId(), expectedVersion: job.version };
+  try {
+    const updated = command === 'approve'
+      ? await dependencies.approve(job.id, base)
+      : await dependencies.revise(job.id, { ...base, revisionReason: revisionReason.trim() });
+    return { kind: 'success' as const, job: updated };
+  } catch (error) {
+    if (error instanceof ApiError && error.code === 'VERSION_CONFLICT') {
+      return { kind: 'conflict' as const, job: await dependencies.refresh(job.id) };
+    }
+    throw error;
+  }
+}
+
 const purposeLabels = { SALE: 'Satış', SAMPLE: 'Numune', CONSIGNMENT: 'Konsinye', RETURN: 'İade', OTHER: 'Diğer' } as const;
 const statusLabels = { NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor', REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi' } as const;
+const activityLabels: Record<string, string> = {
+  JOB_CREATED: 'İş oluşturuldu', DELIVERY_ITEM_ADDED: 'Teslim ürünü eklendi', JOB_STARTED: 'İş başlatıldı',
+  JOB_SUBMITTED_FOR_APPROVAL: 'Onaya gönderildi', JOB_APPROVED: 'Yönetici onayladı', JOB_REVISION_REQUESTED: 'Düzeltme istendi',
+};
 
-export function JobDetailPanel({ job, items, pending, message, messageIsError = false, onBack, onCommand }: {
-  job: JobCard; items: DeliveryItem[]; pending: boolean; message: string; messageIsError?: boolean;
-  onBack: () => void; onCommand: (command: StaffCommand) => void;
+export function ManagerReviewActions({ activities, pending, revisionOpen, onApprove, onOpenRevision, onCancelRevision, onRequestRevision }: {
+  activities: Activity[]; pending: boolean; revisionOpen: boolean;
+  onApprove: () => void; onOpenRevision: () => void; onCancelRevision: () => void; onRequestRevision: (reason: string) => void;
 }) {
-  const command = job.status === 'NEW' || job.status === 'PLANNED' ? 'start' : job.status === 'IN_PROGRESS' ? 'submit' : null;
+  function submitRevision(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const reason = String(new FormData(event.currentTarget).get('revisionReason') ?? '');
+    onRequestRevision(reason);
+  }
+  return <>
+    <section className="activity-timeline" aria-labelledby="activity-title"><h2 id="activity-title">İşlem geçmişi</h2>
+      <ol>{activities.map((activity) => <li key={activity.id}><span>{activityLabels[activity.eventType] ?? activity.eventType}</span>
+        <time dateTime={activity.createdAt}>{new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit', timeZone: 'UTC' }).format(new Date(activity.createdAt))}</time></li>)}</ol></section>
+    <section className="manager-review" aria-labelledby="review-title"><h2 id="review-title">Yönetici kararı</h2>
+      {!revisionOpen ? <div className="review-buttons"><button className="secondary-button" type="button" disabled={pending} onClick={onOpenRevision}>Düzeltme iste</button>
+        <button className="primary-button compact-button" type="button" disabled={pending} onClick={onApprove}>{pending ? 'İşleniyor…' : 'Onayla'}</button></div>
+        : <form className="revision-form" onSubmit={submitRevision}><div className="field-group"><label htmlFor="revision-reason">Düzeltme nedeni</label>
+          <textarea id="revision-reason" name="revisionReason" rows={3} required disabled={pending} aria-describedby="revision-help" /></div>
+          <p className="form-help" id="revision-help">Personelin neyi düzeltmesi gerektiğini açıkça belirtin.</p>
+          <div className="review-buttons"><button className="secondary-button" type="button" onClick={onCancelRevision} disabled={pending}>Vazgeç</button>
+            <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'Gönderiliyor…' : 'Düzeltme talebini gönder'}</button></div></form>}
+    </section>
+  </>;
+}
+
+export function JobDetailPanel({ job, items, activities = [], viewerRole = 'STAFF', pending, message, messageIsError = false, revisionOpen = false,
+  onBack, onCommand, onApprove = () => {}, onOpenRevision = () => {}, onCancelRevision = () => {}, onRequestRevision = () => {} }: {
+  job: JobCard; items: DeliveryItem[]; pending: boolean; message: string; messageIsError?: boolean;
+  activities?: Activity[]; viewerRole?: CurrentUser['role']; revisionOpen?: boolean;
+  onBack: () => void; onCommand: (command: StaffCommand) => void; onApprove?: () => void;
+  onOpenRevision?: () => void; onCancelRevision?: () => void; onRequestRevision?: (reason: string) => void;
+}) {
+  const command = viewerRole === 'STAFF' ? (job.status === 'NEW' || job.status === 'PLANNED' ? 'start' : job.status === 'IN_PROGRESS' ? 'submit' : null) : null;
   return <main className="job-detail">
     <div className="detail-heading"><div><p className="eyebrow">Ürün teslimi</p><h1>{job.title}</h1></div>
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
@@ -58,22 +122,25 @@ export function JobDetailPanel({ job, items, pending, message, messageIsError = 
     {command && <div className="detail-action"><p>{command === 'start' ? 'Teslim çalışmasına başladığınızda kart devam ediyor durumuna geçer.' : 'Bilgileri kontrol edin. Gönderimden sonra ticari alanlar yönetici incelemesi boyunca kilitlenir.'}</p>
       <button className="primary-button compact-button" type="button" disabled={pending} onClick={() => onCommand(command)}>
         {pending ? 'İşleniyor…' : command === 'start' ? 'İşi başlat' : 'Onaya gönder'}</button></div>}
-    {job.status === 'WAITING_APPROVAL' && <div className="workspace-message" role="status"><h2>Yönetici onayı bekleniyor</h2><p>Teslim bilgileri inceleme tamamlanana kadar değiştirilemez.</p></div>}
+    {job.status === 'WAITING_APPROVAL' && viewerRole === 'STAFF' && <div className="workspace-message" role="status"><h2>Yönetici onayı bekleniyor</h2><p>Teslim bilgileri inceleme tamamlanana kadar değiştirilemez.</p></div>}
+    {job.status === 'WAITING_APPROVAL' && viewerRole !== 'STAFF' && <ManagerReviewActions activities={activities} pending={pending} revisionOpen={revisionOpen}
+      onApprove={onApprove} onOpenRevision={onOpenRevision} onCancelRevision={onCancelRevision} onRequestRevision={onRequestRevision} />}
   </main>;
 }
 
-type DetailState = { kind: 'loading' } | { kind: 'ready'; job: JobCard; items: DeliveryItem[] } | { kind: 'error'; message: string; retryable: boolean };
+type DetailState = { kind: 'loading' } | { kind: 'ready'; job: JobCard; items: DeliveryItem[]; activities: Activity[] } | { kind: 'error'; message: string; retryable: boolean };
 
-export function JobDetailScreen({ jobId, onBack, onChanged }: { jobId: string; onBack: () => void; onChanged: () => void }) {
+export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: string; user: CurrentUser; onBack: () => void; onChanged: () => void }) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
   const [reloadKey, setReloadKey] = useState(0);
+  const [revisionOpen, setRevisionOpen] = useState(false);
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
-    Promise.all([getJobCard(jobId), listDeliveryItems(jobId)])
-      .then(([job, items]) => { if (active) setState({ kind: 'ready', job, items }); })
+    Promise.all([getJobCard(jobId), listDeliveryItems(jobId), listActivity(jobId)])
+      .then(([job, items, activities]) => { if (active) setState({ kind: 'ready', job, items, activities }); })
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof Error ? error.message : 'İş yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
     return () => { active = false; };
   }, [jobId, reloadKey]);
@@ -91,5 +158,21 @@ export function JobDetailScreen({ jobId, onBack, onChanged }: { jobId: string; o
     } catch (error) { setMessage(error instanceof Error ? error.message : 'İşlem tamamlanamadı.'); setMessageIsError(true); }
     finally { setPending(false); }
   }
-  return <JobDetailPanel job={state.job} items={state.items} pending={pending} message={message} messageIsError={messageIsError} onBack={onBack} onCommand={(value) => void command(value)} />;
+  async function managerCommand(commandName: ManagerCommand, reason = '') {
+    if (state.kind !== 'ready') return;
+    setPending(true); setMessage(''); setMessageIsError(false);
+    try {
+      const result = await runManagerJobCommand(state.job, commandName, reason);
+      const activities = result.kind === 'success' ? await listActivity(jobId) : state.activities;
+      setState({ ...state, job: result.job, activities });
+      setRevisionOpen(false);
+      setMessage(result.kind === 'conflict' ? 'Bu iş başka bir cihazda güncellendi. En güncel durum gösteriliyor.' : commandName === 'approve' ? 'İş onaylandı.' : 'İş düzeltme için personele gönderildi.');
+      onChanged();
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'İşlem tamamlanamadı.'); setMessageIsError(true); }
+    finally { setPending(false); }
+  }
+  return <JobDetailPanel job={state.job} items={state.items} activities={state.activities} viewerRole={user.role} pending={pending}
+    message={message} messageIsError={messageIsError} revisionOpen={revisionOpen} onBack={onBack} onCommand={(value) => void command(value)}
+    onApprove={() => void managerCommand('approve')} onOpenRevision={() => setRevisionOpen(true)} onCancelRevision={() => setRevisionOpen(false)}
+    onRequestRevision={(reason) => void managerCommand('revise', reason)} />;
 }

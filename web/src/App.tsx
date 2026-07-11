@@ -171,7 +171,7 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
       </header>
       {screen === 'create' ? <DeliveryCreateView user={user} customers={references.customers} products={references.products}
         onCancel={() => setScreen('list')} onCreated={() => { setNotice('Teslim kaydı oluşturuldu.'); setScreen('list'); setReloadKey((value) => value + 1); }} />
-        : screen === 'detail' && selectedJobId ? <JobDetailScreen jobId={selectedJobId} onBack={() => setScreen('list')} onChanged={() => setReloadKey((value) => value + 1)} />
+        : screen === 'detail' && selectedJobId ? <JobDetailScreen jobId={selectedJobId} user={user} onBack={() => setScreen('list')} onChanged={() => setReloadKey((value) => value + 1)} />
           : <WorkspaceView user={user} state={workspace} notice={notice} onCreate={user.role === 'STAFF' && workspace.kind === 'ready' ? () => { setNotice(''); setScreen('create'); } : undefined}
             onOpen={(jobId) => { setSelectedJobId(jobId); setScreen('detail'); }} onRetry={() => setReloadKey((value) => value + 1)} />}
       {error && <div className="shell-error form-error" role="alert">{error}</div>}
