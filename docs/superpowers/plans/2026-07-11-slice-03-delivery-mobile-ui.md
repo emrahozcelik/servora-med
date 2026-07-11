@@ -11,7 +11,7 @@
 - [x] Add organization-scoped read-only customer and active-product endpoints.
 - [x] Staff, Manager, and Admin may read; no mutation endpoint is introduced.
 - [x] Return only fields required by the tracer form.
-- [ ] Add route/service tests and live PostgreSQL coverage.
+- [x] Add route/service tests and live PostgreSQL coverage.
 
 ## Task 2: Typed tracer API client and error model
 
@@ -58,7 +58,20 @@
 
 ## Task 8: Live tracer, documentation, and closeout
 
-- [ ] Run component/API tests, web build, server regression tests, and audits.
+- [x] Run component/API tests, web build, server regression tests, and audits.
 - [ ] Run browser flow against disposable PostgreSQL for Staff create/start/submit and Manager approve/revision.
 - [ ] Update README, MVP slice status, DESIGN implementation tokens, and exact manual-check record.
 - [ ] Reindex server/web Codebase Memory and commit a slice-scoped checkpoint.
+
+## Verification Record (2026-07-11)
+
+- Web tests: 8 files, 30 tests passed.
+- Web production build: passed.
+- Server tests: 17 files, 96 tests passed.
+- Server build: passed.
+- Server and web production dependency audits: 0 vulnerabilities.
+- Automated accessibility contract: 44 CSS px control minimum, visible focus outline, mobile single-column form/detail reflow, and reduced-motion CSS passed.
+- Disposable PostgreSQL 16 live verification: migrations 001/002, development seed, Staff login, authenticated customer/product reference reads, JobCard create, delivery add, start, submit, Manager login, approve, activity read, and a second revision-request flow passed.
+- Live reference result: one active customer and one active product returned within the authenticated organization scope.
+- Live tracer result: one `COMPLETED` JobCard with five expected events and one `REVISION_REQUESTED` JobCard. Disposable server and database were stopped and removed.
+- Browser runtime was not callable in this session. Real browser Staff/Manager interaction, 390 CSS px inspection, keyboard focus order, 200/400 percent zoom, touch measurement, and screen-reader checks remain open and are not claimed as passed.
