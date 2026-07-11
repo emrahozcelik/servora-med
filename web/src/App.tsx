@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { DeliveryCreateView } from './DeliveryCreate';
+import { JobDetailScreen } from './JobDetail';
 import { ApiError, getCurrentUser, listJobCards, listReferenceCustomers, listReferenceProducts, login, logout, type CurrentUser, type JobCard, type ReferenceCustomer, type ReferenceProduct } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
@@ -97,7 +98,7 @@ function formatDueDate(value: string | null) {
   return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
 }
 
-export function WorkspaceView({ user, state, onRetry, onCreate, notice = '' }: { user: CurrentUser; state: WorkspaceState; onRetry: () => void; onCreate?: () => void; notice?: string }) {
+export function WorkspaceView({ user, state, onRetry, onCreate, onOpen, notice = '' }: { user: CurrentUser; state: WorkspaceState; onRetry: () => void; onCreate?: () => void; onOpen?: (jobId: string) => void; notice?: string }) {
   const reviewMode = user.role !== 'STAFF';
   const heading = reviewMode ? 'Onay kuyruğu' : 'İşlerim';
   if (state.kind === 'loading') return (
@@ -126,7 +127,8 @@ export function WorkspaceView({ user, state, onRetry, onCreate, notice = '' }: {
           <div className="job-main"><div className="job-signals"><span className={`status status-${job.status.toLowerCase()}`}>{statusLabels[job.status]}</span>
             <span className={`priority priority-${job.priority}`}>{priorityLabels[job.priority]}</span></div>
             <h2>{job.title}</h2><p>{job.customerId ? state.customerNames[job.customerId] ?? 'Müşteri kaydı' : 'Müşteri belirtilmedi'}</p></div>
-          <dl className="job-meta"><div><dt>Sürüm</dt><dd>{job.version}</dd></div>{job.dueDate && <div><dt>Termin</dt><dd>{formatDueDate(job.dueDate)}</dd></div>}</dl>
+          <div className="job-row-actions"><dl className="job-meta"><div><dt>Sürüm</dt><dd>{job.version}</dd></div>{job.dueDate && <div><dt>Termin</dt><dd>{formatDueDate(job.dueDate)}</dd></div>}</dl>
+            {onOpen && <button className="secondary-button" type="button" onClick={() => onOpen(job.id)} aria-label={`${job.title} işini aç`}>İşi aç</button>}</div>
         </article></li>)}</ul>}
   </main>;
 }
@@ -136,7 +138,8 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   const [error, setError] = useState('');
   const [workspace, setWorkspace] = useState<WorkspaceState>({ kind: 'loading' });
   const [references, setReferences] = useState<{ customers: ReferenceCustomer[]; products: ReferenceProduct[] }>({ customers: [], products: [] });
-  const [screen, setScreen] = useState<'list' | 'create'>('list');
+  const [screen, setScreen] = useState<'list' | 'create' | 'detail'>('list');
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
@@ -168,8 +171,9 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
       </header>
       {screen === 'create' ? <DeliveryCreateView user={user} customers={references.customers} products={references.products}
         onCancel={() => setScreen('list')} onCreated={() => { setNotice('Teslim kaydı oluşturuldu.'); setScreen('list'); setReloadKey((value) => value + 1); }} />
-        : <WorkspaceView user={user} state={workspace} notice={notice} onCreate={user.role === 'STAFF' && workspace.kind === 'ready' ? () => { setNotice(''); setScreen('create'); } : undefined}
-          onRetry={() => setReloadKey((value) => value + 1)} />}
+        : screen === 'detail' && selectedJobId ? <JobDetailScreen jobId={selectedJobId} onBack={() => setScreen('list')} onChanged={() => setReloadKey((value) => value + 1)} />
+          : <WorkspaceView user={user} state={workspace} notice={notice} onCreate={user.role === 'STAFF' && workspace.kind === 'ready' ? () => { setNotice(''); setScreen('create'); } : undefined}
+            onOpen={(jobId) => { setSelectedJobId(jobId); setScreen('detail'); }} onRetry={() => setReloadKey((value) => value + 1)} />}
       {error && <div className="shell-error form-error" role="alert">{error}</div>}
     </div>
   );

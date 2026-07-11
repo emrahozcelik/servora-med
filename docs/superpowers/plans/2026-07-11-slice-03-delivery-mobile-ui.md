@@ -36,10 +36,10 @@
 
 ## Task 5: Staff start and approval-submission flow
 
-- [ ] Show immutable backend status/version and next valid command.
-- [ ] Start then submit for approval with pending/success/error feedback.
-- [ ] Reconcile stale version by refetching and explaining the conflict.
-- [ ] No optimistic lifecycle transition without backend confirmation.
+- [x] Show immutable backend status/version and next valid command.
+- [x] Start then submit for approval with pending/success/error feedback.
+- [x] Reconcile stale version by refetching and explaining the conflict.
+- [x] No optimistic lifecycle transition without backend confirmation.
 
 ## Task 6: Manager review flow
 

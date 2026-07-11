@@ -94,6 +94,7 @@ export async function patchJobCard(id: string, input: { expectedVersion: number;
 type DeliveryInput = { expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; lotNo?: string | null; serialNo?: string | null; expiryDate?: string | null; deliveryNote?: string | null };
 function parseDeliveryMutation(value: unknown) { const v = object(value); return { item: parseDelivery(v.item), jobCardVersion: number(v.jobCardVersion, 'jobCardVersion') }; }
 export async function addDeliveryItem(jobId: string, input: DeliveryInput & { clientActionId: string }) { return parseDeliveryMutation(await request(`/api/job-cards/${jobId}/delivery-items`, json('POST', input))); }
+export async function listDeliveryItems(jobId: string) { return items(await request(`/api/job-cards/${jobId}/delivery-items`)).map(parseDelivery); }
 export async function patchDeliveryItem(jobId: string, itemId: string, input: { expectedVersion: number } & Partial<Omit<DeliveryInput, 'expectedVersion'>>) { return parseDeliveryMutation(await request(`/api/job-cards/${jobId}/delivery-items/${itemId}`, json('PATCH', input))); }
 export async function removeDeliveryItem(jobId: string, itemId: string, expectedVersion: number) { const v = object(await request(`/api/job-cards/${jobId}/delivery-items/${itemId}`, json('DELETE', { expectedVersion }))); return { id: string(v.id, 'id'), jobCardVersion: number(v.jobCardVersion, 'jobCardVersion') }; }
 
