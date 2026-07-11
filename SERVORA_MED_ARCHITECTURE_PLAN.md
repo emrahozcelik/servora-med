@@ -1,0 +1,315 @@
+# Servora-Med Architecture Plan
+
+> Date: 2026-07-10  
+> Status: Approved Phase 0 architecture  
+> Responsibility: Technical and architectural decision SSOT
+
+## 1. Responsibility Map
+
+| Concern | Source of truth |
+| --- | --- |
+| Product scope and workflows | `PRODUCT_REQUIREMENTS.md` |
+| Product design context | `PRODUCT.md` |
+| Durable decisions | `DECISIONS.md` |
+| Architecture | `SERVORA_MED_ARCHITECTURE_PLAN.md` |
+| Data model | `SERVORA_MED_SCHEMA_DRAFT.md` |
+| API contract | `SERVORA_MED_API_DRAFT.md` |
+| Delivery order and acceptance | `SERVORA_MED_MVP_SLICES.md` |
+| Agent discipline | `AGENTS.md` |
+| Historical planning inputs | `docs/archive/inputs/` |
+
+This document does not duplicate complete schema columns, endpoint payloads, or slice acceptance criteria.
+
+## 2. Architecture Goals
+
+Servora-Med is a VPS-ready browser application for medical and dental B2B operations. Its core qualities are:
+
+- reliable backend-owned domain rules
+- structured product-delivery data
+- mandatory manager approval
+- append-only operational history
+- mobile usability for field staff
+- clear organization ownership boundaries
+- small, testable vertical slices
+
+The system remains a modular monolith until the MVP is stable.
+
+## 3. System Topology
+
+```text
+[Mobile and Desktop Browser]
+            |
+           HTTPS
+            |
+      [Nginx or Caddy]
+       |            |
+  [React SPA]   [/api -> Fastify]
+                       |
+                  [PostgreSQL]
+```
+
+Target runtime:
+
+- Node.js 22.12 or newer
+- Fastify with TypeScript
+- PostgreSQL 16 or newer
+- React and Vite
+- Nginx or Caddy for TLS and reverse proxy
+- systemd for process supervision
+- external backup destination controlled by an operations script
+
+Native mobile, Electron, Tauri, and LAN-first store-server deployment are outside scope.
+
+## 4. Greenfield Boundary and Servora-POS Reference
+
+Servora-Med is a greenfield application, not a Servora-POS refactor.
+
+Servora-POS may be consulted for proven technical patterns:
+
+- Fastify boot and plugin wiring
+- PostgreSQL pool and migration runner
+- modular route, handler, service, and type separation
+- atomic idempotency claim pattern
+- error mapping and safe logging
+- rate limiting, CORS, and graceful shutdown
+- Vitest and test-database setup
+- VPS backup script structure
+
+Restaurant domain code is not copied or renamed. Tables, orders, menu items, payments, shifts, printers, kitchen flows, and restaurant roles have no place in Servora-Med.
+
+## 5. Backend Module Contract
+
+Each business module follows this responsibility split:
+
+| File | Responsibility |
+| --- | --- |
+| `routes.ts` | URL, method, schema, authentication, and middleware wiring |
+| `handlers.ts` | Translate HTTP input and service output |
+| `service.ts` | Domain behavior, authorization decisions, transactions, and invariants |
+| `types.ts` | DTOs, row types, command types, and mappers |
+
+Rules:
+
+- Handlers do not contain SQL or domain decisions.
+- Services do not depend on Fastify request objects.
+- Database access is not performed by frontend code.
+- Business-critical validation is enforced by service logic and supported by database constraints where practical.
+- Multi-step mutations and their activity events share one transaction.
+
+Initial modules:
+
+```text
+auth
+users
+staff
+customers
+contacts
+products
+job-cards
+reports
+health
+```
+
+## 6. Frontend Contract
+
+| Area | Responsibility |
+| --- | --- |
+| `pages/` | Route-level workflow composition |
+| `components/` | Reusable UI and domain presentation |
+| `hooks/` | Reusable client behavior and server-state coordination |
+| `services/` | API contracts and command calls |
+| `store/` | UI state such as filters and selected records |
+
+Frontend rules:
+
+- Backend state is authoritative.
+- Frontend does not maintain a second transition engine.
+- Optimistic UI is used only when reconciliation and rollback are safe.
+- Critical actions expose loading, success, validation, authorization, retry, and version-conflict states.
+- Drag and drop is optional and never the only status-change mechanism.
+- Mobile is a dedicated layout mode, not a compressed desktop board.
+- UI strategy and accessibility are governed by `PRODUCT.md` and `DECISIONS.md`.
+
+## 7. Domain Boundaries
+
+### 7.1 JobCard core
+
+`JobCard` is the central domain object. Pilot-core types are:
+
+- `PRODUCT_DELIVERY`
+- `GENERAL_TASK`
+
+`SALES_MEETING` is a later structured slice. Quote follow-up, collection follow-up, warehouse, accounting, and configurable record types are outside MVP.
+
+### 7.2 State machine
+
+```text
+NEW -> PLANNED -> IN_PROGRESS -> WAITING_APPROVAL -> COMPLETED
+                              -> REVISION_REQUESTED -> IN_PROGRESS
+NEW | PLANNED | IN_PROGRESS | REVISION_REQUESTED -> CANCELLED
+```
+
+Transitions use named backend commands. A generic status patch or generic transition endpoint is not supported.
+
+Required invariants:
+
+- Staff cannot approve.
+- Approval starts only from `WAITING_APPROVAL`.
+- Revision requires a reason.
+- Type-specific submit requirements are validated before state changes.
+- Staff and manager cannot edit commercial fields in `WAITING_APPROVAL`.
+- Manager can only approve or request revision while reviewing.
+- `COMPLETED` and `CANCELLED` are immutable in MVP.
+
+### 7.3 Product delivery
+
+Product delivery stores purpose, positive quantity, product snapshot, and actual `delivered_at`. `staff_completed_at` remains the approval-submission time and is not treated as delivery time.
+
+Delivery purposes are `SALE`, `SAMPLE`, `CONSIGNMENT`, `RETURN`, and `OTHER`. They are operational classifications. No purpose creates inventory, invoice, payment, revenue, or commission side effects in MVP.
+
+### 7.4 Activity timeline
+
+Critical JobCard commands append a canonical activity event in the same transaction. Lifecycle events carry old and new status, so no second generic status-change event is created.
+
+JobCard activity is scoped to JobCard operations. Organization-level configuration audit requires a separate future design.
+
+## 8. Authentication and Session Security
+
+Authentication uses email and password with an adaptive password hash. Session behavior:
+
+- The server creates a high-entropy opaque token.
+- Only `token_hash` is persisted.
+- The raw token is delivered in an `HttpOnly`, `Secure`, `SameSite=Lax` cookie.
+- Login, logout, expiration, revocation, and cleanup behavior are explicit.
+- Login is rate limited.
+- Passwords, password hashes, raw tokens, cookies, and session identifiers are redacted from logs.
+- Credentialed CORS is restricted to the configured production origin.
+- Cookie-based mutations follow the CSRF posture defined in the API contract.
+
+The frontend does not store authentication tokens in Web Storage.
+
+## 9. Organization Ownership Boundary
+
+V1 runs one organization per deployment. It is not presented as SaaS multi-tenancy.
+
+`organization_id` remains an ownership boundary so every query and relationship is scoped explicitly. The organization identity comes from the authenticated session, never from a trusted client body field.
+
+Required ownership invariants:
+
+- Login email is globally unique case-insensitively in V1.
+- JobCard, customer, contact, product, delivery item, and assigned user belong to the same organization.
+- Staff queries are additionally scoped to their authenticated user where required.
+- Service validation protects cross-organization relationships; composite database constraints are used where they stay understandable and maintainable.
+
+## 10. Idempotency and Concurrency
+
+These mechanisms solve different problems.
+
+### Idempotency
+
+Atomic processed-action claims protect business-event commands against retry and double tap:
+
+- JobCard creation
+- delivery-item creation
+- submit for approval
+- manager approval
+- revision request
+- cancellation
+
+The service claims the action before side effects, performs the mutation and activity append transactionally, then stores the completed response. Concurrent duplicate execution returns a clear in-progress conflict.
+
+Ordinary profile, customer, contact, and product field updates do not use full response-caching idempotency unless a later side effect justifies it.
+
+### Optimistic concurrency
+
+JobCard uses an integer `version`. Field updates and named lifecycle commands provide `expectedVersion`. The database update includes the expected version and increments it atomically.
+
+If the stored version differs, the operation performs no mutation and returns `409 VERSION_CONFLICT`. This prevents two different clients from silently overwriting one another even when their action identifiers are different.
+
+## 11. Data and Migration Strategy
+
+- PostgreSQL migrations are append-only after application.
+- Migrations are grouped by executable slice dependency, not one monolithic initial schema and not one file per table.
+- Development/demo data is loaded by `npm run db:seed:dev`, which refuses production execution.
+- Production first-admin setup uses a separate bootstrap CLI or environment-controlled one-shot operation.
+- Critical relational and numeric invariants use database constraints where practical.
+- DTO, row type, and schema draft terminology stay aligned.
+- Business records use status-based deactivation or soft delete when history matters.
+
+No production migration installs known demo credentials.
+
+## 12. Realtime Boundary
+
+Polling or manual refresh is sufficient for the pilot until measured usage proves otherwise. PostgreSQL remains the source of truth.
+
+WebSocket event replay is an optional later slice. It is not a dependency of JobCard correctness, approval, board usability, or pilot readiness.
+
+## 13. Configurability Boundary
+
+The product may later support controlled saved views and display preferences. Configuration cannot alter:
+
+- canonical fields and enums
+- state machine transitions
+- manager approval
+- role boundaries
+- delivery submit invariants
+- ownership boundaries
+- idempotency and concurrency rules
+- activity obligations
+- completed and cancelled immutability
+
+General JSON settings bags, custom fields, user-created database tables, form builders, and workflow designers are outside MVP.
+
+## 14. Deployment and Operations
+
+Production assumptions:
+
+- TLS terminates at Nginx or Caddy.
+- Fastify trusts only the configured proxy topology.
+- CORS allows only the production web origin with credentials.
+- Health output is generic for unauthenticated callers.
+- Process handles graceful termination.
+- Database backup runs on a schedule and writes exit status, timestamp, and destination to external operations logs.
+- Backup copies leave the VPS according to the restore plan.
+- Restore is rehearsed, not merely documented.
+
+Backup status does not require a product-domain database table in MVP.
+
+## 15. Verification Strategy
+
+Minimum implementation commands:
+
+```bash
+cd server && npm run build
+cd server && npm test -- --run
+cd web && npm run build
+```
+
+Critical automated coverage:
+
+- authentication and role boundaries
+- staff data visibility
+- transition matrix and invalid transitions
+- staff approval rejection
+- product-delivery submit requirements
+- immutable review and terminal states
+- activity event transactionality
+- idempotent command replay and concurrent duplicate handling
+- stale `expectedVersion`
+- cross-organization relationship rejection
+- report query correctness
+
+Critical UI coverage includes mobile width, keyboard completion, visible focus, zoom/reflow, reduced motion, and error states.
+
+## 16. Explicitly Out of Scope
+
+- warehouse and stock movements
+- accounting, invoices, payments, and financial performance
+- attachment upload in pilot core
+- native mobile and offline-first database
+- multi-tenant SaaS administration
+- user-defined tables, custom fields, and workflow design
+- mandatory drag and drop
+- mandatory WebSocket realtime
+- advanced BI
+- restaurant POS domain and infrastructure

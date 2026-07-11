@@ -1,0 +1,562 @@
+# Servora-Med API Draft
+
+> Date: 2026-07-10  
+> Status: Approved Phase 0 API contract; routes not implemented  
+> Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT
+
+## 1. General Contract
+
+### Base
+
+- Prefix: `/api`
+- JSON: camelCase
+- Database mapping: snake_case in module `types.ts`
+- Default content type: `application/json`
+- Organization identity: authenticated session only
+- Date-time values: ISO 8601 with offset or `Z`
+
+### Authentication cookie
+
+Successful login sets a high-entropy opaque token in a cookie:
+
+```text
+HttpOnly
+Secure in production
+SameSite=Lax
+Path=/
+explicit Max-Age or Expires
+```
+
+Only the token hash is persisted. Login JSON does not return the token. Frontend requests use browser credentials.
+
+### CSRF and CORS posture
+
+- Production allows one configured web origin with credentials.
+- Unsafe methods (`POST`, `PATCH`, `PUT`, `DELETE`) require an `Origin` matching the configured web origin.
+- Production rejects a missing or mismatched `Origin` on unsafe browser requests.
+- Mutation bodies use `application/json`; simple cross-site form payloads are not accepted.
+- `SameSite=Lax` is defense in depth, not the only origin check.
+- If later deployment requires multiple origins or cross-site embedding, CSRF design is revisited before enabling it.
+
+### Pagination
+
+Request:
+
+```text
+?limit=50&offset=0
+```
+
+Response:
+
+```json
+{
+  "items": [],
+  "total": 0,
+  "limit": 50,
+  "offset": 0
+}
+```
+
+Default limit is 50; maximum is 200.
+
+### Error shape
+
+```json
+{
+  "error": "Kullanıcıya yönelik Türkçe açıklama",
+  "code": "VALIDATION_ERROR",
+  "details": null
+}
+```
+
+Canonical codes:
+
+```text
+UNAUTHORIZED
+FORBIDDEN
+NOT_FOUND
+VALIDATION_ERROR
+CONFLICT
+ACTION_IN_PROGRESS
+INVALID_TRANSITION
+INVARIANT_VIOLATION
+VERSION_CONFLICT
+```
+
+Validation details may identify fields but must not expose SQL, stack traces, hashes, tokens, cookies, or internal infrastructure.
+
+## 2. Idempotency Contract
+
+Critical business commands include `clientActionId` in their JSON body:
+
+- JobCard creation
+- delivery-item creation
+- submit for approval
+- approve
+- request revision
+- cancel
+
+Rules:
+
+- trimmed string, 1 to 255 characters
+- scoped by organization, user, operation, and action identifier
+- atomic processing claim before business side effects
+- completed duplicate returns the original status and response body
+- concurrent duplicate returns `409 ACTION_IN_PROGRESS`
+- a failed command may return its recorded failure according to the processed-action policy
+
+Ordinary profile, customer, contact, product, note, and field updates do not use full processed-response caching by default. Their validation, authorization, database constraints, and JobCard version checks still apply.
+
+## 3. JobCard Concurrency Contract
+
+Every JobCard DTO contains `version`.
+
+These requests require `expectedVersion`:
+
+- JobCard field patch
+- delivery-item add, patch, and removal
+- note addition when it updates JobCard activity/version
+- every named lifecycle command
+
+The service updates with a version predicate and increments atomically. A stale request returns:
+
+```http
+HTTP/1.1 409 Conflict
+```
+
+```json
+{
+  "error": "İş kartı başka bir kullanıcı tarafından güncellendi. Güncel veriyi yükleyip tekrar deneyin.",
+  "code": "VERSION_CONFLICT",
+  "details": {
+    "currentVersion": 8
+  }
+}
+```
+
+No partial mutation or activity event is written on version conflict.
+
+## 4. Auth `/api/auth`
+
+| Method | Path | Auth | Behavior |
+| --- | --- | --- | --- |
+| POST | `/login` | public | email/password; rate limited; sets session cookie |
+| POST | `/logout` | session | revokes session and clears cookie |
+| GET | `/me` | session | current safe user and staff profile summary |
+| POST | `/change-password` | session | validates current password and changes hash |
+
+### POST `/api/auth/login`
+
+Request:
+
+```json
+{
+  "email": "staff@demo.local",
+  "password": "user-supplied-secret"
+}
+```
+
+Response:
+
+```json
+{
+  "user": {
+    "id": "uuid",
+    "name": "Ayşe Yılmaz",
+    "email": "staff@demo.local",
+    "role": "staff",
+    "organizationId": "uuid",
+    "mustChangePassword": false
+  },
+  "staffProfile": {
+    "id": "uuid",
+    "title": "Saha Uzmanı",
+    "region": "İstanbul Avrupa"
+  }
+}
+```
+
+Email comparison is case-insensitive. Failure returns a generic `401 UNAUTHORIZED` message. The response never reveals whether the email exists.
+
+### POST `/api/auth/logout`
+
+Logout is safe to repeat. It revokes the current session when present and clears the cookie.
+
+## 5. Users `/api/users`
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/` | admin, manager | organization user list |
+| POST | `/` | admin | create user and optional staff profile |
+| GET | `/:userId` | admin, manager | safe detail |
+| PATCH | `/:userId` | admin | update name, role, active state |
+| POST | `/:userId/reset-password` | admin | temporary password and forced change |
+
+Staff reads their identity through `/api/auth/me` and profile through `/api/staff/me`.
+
+## 6. Staff `/api/staff`
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/` | admin, manager | organization staff list |
+| GET | `/me` | authenticated | own profile and counters |
+| GET | `/:userId` | admin, manager, self | profile and operational summary |
+| PATCH | `/:userId` | admin, manager | title, phone, region, manager, notes |
+| GET | `/:userId/job-cards` | admin, manager, self | scoped JobCards |
+
+No undefined monthly target field is accepted.
+
+## 7. Customers `/api/customers`
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/` | authenticated | list/search; staff read organization records |
+| POST | `/` | admin, manager | create |
+| GET | `/:customerId` | authenticated | detail and contact summary |
+| PATCH | `/:customerId` | admin, manager | update |
+| DELETE | `/:customerId` | admin | set status to inactive |
+
+Filters:
+
+```text
+q
+status
+assignedStaffUserId
+city
+limit
+offset
+```
+
+Customer lifecycle uses `status`; the API does not expose a duplicate active flag.
+
+## 8. Contacts `/api/contacts`
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/` | authenticated | filter by customer and search |
+| POST | `/` | admin, manager | create under same-organization customer |
+| GET | `/:contactId` | authenticated | detail |
+| PATCH | `/:contactId` | admin, manager | update |
+| DELETE | `/:contactId` | admin, manager | deactivate |
+
+## 9. Products `/api/products`
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/` | authenticated | catalog search |
+| POST | `/` | admin, manager | create |
+| GET | `/:productId` | authenticated | detail |
+| PATCH | `/:productId` | admin, manager | update |
+| DELETE | `/:productId` | admin | deactivate |
+
+Filters:
+
+```text
+q
+brand
+category
+isActive
+limit
+offset
+```
+
+There are no stock or tracking-requirement endpoints in MVP.
+
+## 10. JobCards `/api/job-cards`
+
+### Visibility
+
+| Resource | Staff | Manager and admin |
+| --- | --- | --- |
+| JobCard list | assigned to self | all organization records |
+| JobCard detail | assigned to self | all organization records |
+| Delivery items | visible JobCard | visible JobCard |
+| Notes and activity | visible JobCard | visible JobCard |
+| Approval commands | forbidden | allowed by transition rules |
+
+Staff-provided `assignedTo` filters never broaden server-enforced self scope.
+
+### CRUD and list
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/` | authenticated | scoped list with filters |
+| POST | `/` | authenticated | idempotent JobCard creation |
+| GET | `/:jobCardId` | visibility | detail with optional related sections |
+| PATCH | `/:jobCardId` | edit policy | fields only; requires expected version |
+| GET | `/board` | authenticated | optional grouped read projection |
+
+List filters:
+
+```text
+status
+type
+assignedTo
+customerId
+priority
+dueBefore
+q
+limit
+offset
+```
+
+### POST `/api/job-cards`
+
+Request:
+
+```json
+{
+  "clientActionId": "uuid",
+  "type": "PRODUCT_DELIVERY",
+  "title": "ABC Klinik ürün teslimi",
+  "description": "İmplant seti teslimi",
+  "customerId": "uuid",
+  "contactId": "uuid",
+  "assignedTo": "uuid",
+  "priority": "high",
+  "dueDate": "2026-07-15"
+}
+```
+
+Delivery items are not accepted in this request. Staff can assign only themselves; manager and admin can assign an eligible user in the same organization.
+
+Response creates `JOB_CREATED` with the initial assignee in event metadata. Initial assignment does not create a second activity row.
+
+### PATCH `/api/job-cards/:jobCardId`
+
+Request:
+
+```json
+{
+  "expectedVersion": 3,
+  "title": "ABC Klinik ürün ve numune teslimi",
+  "priority": "urgent",
+  "dueDate": "2026-07-16"
+}
+```
+
+Allowed only in `NEW`, `PLANNED`, `IN_PROGRESS`, and `REVISION_REQUESTED` according to role and assignment. Status is not accepted. `WAITING_APPROVAL`, `COMPLETED`, and `CANCELLED` reject field patches.
+
+When `assignedTo` changes, the successful patch appends `JOB_ASSIGNED`. Other meaningful field changes append `JOB_FIELDS_UPDATED` with bounded old/new values. A patch that changes assignment and other fields may append both canonical events in the same transaction because they represent different business facts.
+
+## 11. Delivery Items
+
+| Method | Path | Roles | Idempotency |
+| --- | --- | --- | --- |
+| GET | `/:jobCardId/delivery-items` | visibility | none |
+| POST | `/:jobCardId/delivery-items` | edit policy | required |
+| PATCH | `/:jobCardId/delivery-items/:itemId` | edit policy | not processed-cache by default |
+| DELETE | `/:jobCardId/delivery-items/:itemId` | edit policy | not processed-cache by default |
+
+### POST delivery item
+
+```json
+{
+  "clientActionId": "uuid",
+  "expectedVersion": 1,
+  "productId": "uuid",
+  "deliveryPurpose": "SAMPLE",
+  "deliveredAt": "2026-07-10T11:30:00+03:00",
+  "quantity": 2,
+  "lotNo": "L-001",
+  "serialNo": null,
+  "expiryDate": "2028-06-30",
+  "deliveryNote": "Doktor değerlendirmesi için bırakıldı"
+}
+```
+
+Rules:
+
+- Parent type must be `PRODUCT_DELIVERY`.
+- Parent must be in an editable state.
+- Product belongs to the authenticated organization and is active at creation.
+- Quantity is greater than zero.
+- Purpose is one canonical delivery purpose.
+- Delivered time is present and valid.
+- Product name, SKU, model, and unit snapshots come from the catalog.
+- Price and financial fields are rejected as unknown input.
+
+Successful commands append `DELIVERY_ITEM_ADDED`, `DELIVERY_ITEM_UPDATED`, or `DELIVERY_ITEM_REMOVED` and increment JobCard version atomically.
+
+## 12. Notes and Activity
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/:jobCardId/notes` | visibility | paginated notes |
+| POST | `/:jobCardId/notes` | note policy | append non-empty note |
+| GET | `/:jobCardId/activity` | visibility | paginated immutable timeline |
+
+Note request:
+
+```json
+{
+  "expectedVersion": 5,
+  "note": "Teslim alan kişi bilgisi düzeltme notunda belirtildi."
+}
+```
+
+Staff may add a note to their assigned JobCard in `WAITING_APPROVAL`; this does not unlock commercial fields. Successful addition appends `NOTE_ADDED`.
+
+## 13. Named JobCard Commands
+
+There is no generic transition route.
+
+| Method | Path | From | To | Roles |
+| --- | --- | --- | --- | --- |
+| POST | `/:id/plan` | NEW | PLANNED | staff own, manager, admin |
+| POST | `/:id/start` | NEW or PLANNED | IN_PROGRESS | staff own, manager, admin |
+| POST | `/:id/submit-for-approval` | IN_PROGRESS | WAITING_APPROVAL | staff own, manager, admin |
+| POST | `/:id/approve` | WAITING_APPROVAL | COMPLETED | manager, admin |
+| POST | `/:id/request-revision` | WAITING_APPROVAL | REVISION_REQUESTED | manager, admin |
+| POST | `/:id/resume` | REVISION_REQUESTED | IN_PROGRESS | staff own, manager, admin |
+| POST | `/:id/cancel` | active non-review state | CANCELLED | manager, admin; limited staff policy |
+
+Base lifecycle command body:
+
+```json
+{
+  "clientActionId": "uuid",
+  "expectedVersion": 6,
+  "note": "İşlem açıklaması"
+}
+```
+
+`request-revision` requires `revisionReason`; `cancel` requires `cancelReason` according to cancellation policy.
+
+### Submit requirements
+
+For `PRODUCT_DELIVERY`:
+
+- customer exists in the same organization
+- assignee exists in the same organization
+- at least one delivery item
+- every item has product, canonical purpose, delivered time, and positive quantity
+
+For `GENERAL_TASK`:
+
+- non-empty title
+- eligible assignee
+
+Submit records staff completion identity/time, changes status, increments version, and appends `JOB_SUBMITTED_FOR_APPROVAL` in one transaction.
+
+### Approval and revision review lock
+
+While `WAITING_APPROVAL`:
+
+- Staff cannot patch commercial fields or delivery items.
+- Manager and admin cannot patch commercial fields or delivery items.
+- Manager and admin can approve or request revision.
+- Notes follow the documented note policy.
+
+Approval appends `JOB_APPROVED`. Revision appends `JOB_REVISION_REQUESTED`. Resume appends `JOB_RESUMED`. Cancel appends `JOB_CANCELLED`. Plan and start append `JOB_PLANNED` and `JOB_STARTED`.
+
+## 14. Board Read Projection
+
+`GET /api/job-cards/board` may return grouped lists without becoming a second data source:
+
+```json
+{
+  "columns": {
+    "NEW": { "items": [], "count": 0 },
+    "PLANNED": { "items": [], "count": 0 },
+    "IN_PROGRESS": { "items": [], "count": 0 },
+    "WAITING_APPROVAL": { "items": [], "count": 0 },
+    "REVISION_REQUESTED": { "items": [], "count": 0 },
+    "COMPLETED": { "items": [], "count": 0 },
+    "CANCELLED": { "items": [], "count": 0 }
+  }
+}
+```
+
+Completed and cancelled records are time-limited or paginated by default. Mobile clients can use the same data as filtered lists rather than seven columns.
+
+## 15. Reports `/api/reports`
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/dashboard` | admin, manager | organization operational counters |
+| GET | `/staff/:userId` | admin, manager, self | scoped staff summary |
+| GET | `/deliveries` | admin, manager | quantity by date, product, staff, and purpose |
+| GET | `/approvals` | admin, manager | pending approval age and counts |
+
+Delivery reports use persisted `deliveredAt`, purpose, and quantity. They do not return revenue, margin, commission, invoice, or payment metrics.
+
+## 16. Health `/api/health`
+
+| Method | Path | Auth | Behavior |
+| --- | --- | --- | --- |
+| GET | `/` | public | generic status only |
+| GET | `/detailed` | admin | bounded database and migration state |
+
+Unauthenticated health responses do not expose environment, host, filesystem, database name, migration filenames, or dependency versions.
+
+## 17. DTO Shape
+
+Conceptual JobCard response:
+
+```ts
+type JobCardDto = {
+  id: string
+  organizationId: string
+  type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK'
+  status: JobCardStatus
+  version: number
+  title: string
+  description: string | null
+  customerId: string | null
+  contactId: string | null
+  assignedTo: string
+  createdBy: string
+  priority: JobCardPriority
+  dueDate: string | null
+  plannedAt: string | null
+  startedAt: string | null
+  staffCompletedAt: string | null
+  staffCompletedBy: string | null
+  staffCompletionNote: string | null
+  managerApprovedAt: string | null
+  managerApprovedBy: string | null
+  managerApprovalNote: string | null
+  revisionRequestedAt: string | null
+  revisionRequestedBy: string | null
+  revisionReason: string | null
+  cancelledAt: string | null
+  cancelledBy: string | null
+  cancelReason: string | null
+  createdAt: string
+  updatedAt: string
+}
+```
+
+Conceptual delivery-item response:
+
+```ts
+type DeliveryItemDto = {
+  id: string
+  jobCardId: string
+  productId: string
+  deliveryPurpose: 'SALE' | 'SAMPLE' | 'CONSIGNMENT' | 'RETURN' | 'OTHER'
+  deliveredAt: string
+  quantity: string
+  unit: string
+  productNameSnapshot: string
+  productSkuSnapshot: string | null
+  productModelSnapshot: string | null
+  lotNo: string | null
+  serialNo: string | null
+  expiryDate: string | null
+  deliveryNote: string | null
+}
+```
+
+## 18. Explicitly Absent API Areas
+
+- stock and warehouse mutations
+- invoices, payments, revenue, margins, and commissions
+- attachment upload
+- notification preferences without a notification system
+- user-defined tables, fields, forms, or workflows
+- generic JobCard transition endpoint
+- public unauthenticated CRM endpoints
+- restaurant tables, orders, payments, shifts, and printer routes
+- WebSocket as an MVP requirement
