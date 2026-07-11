@@ -8,9 +8,9 @@
 
 ## Task 1: Minimum authenticated reference reads
 
-- [ ] Add organization-scoped read-only customer and active-product endpoints.
-- [ ] Staff, Manager, and Admin may read; no mutation endpoint is introduced.
-- [ ] Return only fields required by the tracer form.
+- [x] Add organization-scoped read-only customer and active-product endpoints.
+- [x] Staff, Manager, and Admin may read; no mutation endpoint is introduced.
+- [x] Return only fields required by the tracer form.
 - [ ] Add route/service tests and live PostgreSQL coverage.
 
 ## Task 2: Typed tracer API client and error model
@@ -22,17 +22,17 @@
 
 ## Task 3: Role-aware application shell and work lists
 
-- [ ] Staff landing shows only own JobCards with clear status/date/customer hierarchy.
-- [ ] Manager landing prioritizes `WAITING_APPROVAL` without fake metrics.
-- [ ] Loading skeleton, empty, forbidden, and retry states are explicit.
-- [ ] Mobile navigation is structural, not a compressed desktop sidebar.
+- [x] Staff landing shows only own JobCards with clear status/date/customer hierarchy.
+- [x] Manager landing prioritizes `WAITING_APPROVAL` without fake metrics.
+- [x] Loading skeleton, empty, forbidden, and retry states are explicit.
+- [x] Mobile navigation is structural, not a compressed desktop sidebar.
 
 ## Task 4: Staff Product Delivery creation flow
 
-- [ ] Select seeded/readable customer and active product.
-- [ ] Enter delivery purpose, positive quantity, and delivered time with explicit labels.
-- [ ] Create JobCard, add delivery item, and preserve returned versions.
-- [ ] Reject/describe validation errors without relying on color.
+- [x] Select seeded/readable customer and active product.
+- [x] Enter delivery purpose, positive quantity, and delivered time with explicit labels.
+- [x] Create JobCard, add delivery item, and preserve returned versions.
+- [x] Reject/describe validation errors without relying on color.
 
 ## Task 5: Staff start and approval-submission flow
 
