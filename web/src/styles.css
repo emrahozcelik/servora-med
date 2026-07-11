@@ -137,6 +137,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .login-introduction { min-height: auto; padding: 1rem; border-right: 0; border-bottom: 1px solid var(--rule); }
   .login-context, .context-note { display: none; }
   .login-panel { min-height: calc(100vh - 4.1rem); place-items: start center; padding: clamp(2.5rem, 12vh, 5rem) 1rem 2rem; }
+  .app-header { flex-wrap: wrap; }
   .account-area > div { display: none; }
   .secondary-button { min-width: auto; }
   .workspace { margin-top: 2rem; }

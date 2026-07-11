@@ -131,6 +131,12 @@ Authenticated JobCard routes are available under `/api/job-cards`. The tracer su
 
 Slice 02 was verified against a disposable local PostgreSQL 16.13 database through migration, development seed, Staff/Manager login, approved delivery flow, revision flow, and direct activity/constraint queries. The disposable database was removed after verification.
 
+## Product Delivery Mobile UI
+
+Slice 03 provides the first role-aware browser tracer. Staff can create a structured product delivery, select its purpose and quantity, start it, and submit it for manager approval. Managers receive an approval queue with immutable delivery details and activity history, then approve or return the work with a required revision reason.
+
+The flow was manually verified in Chromium at a 390 by 844 CSS px viewport against disposable PostgreSQL. It also passed keyboard navigation, visible focus, 44 CSS px target, 200 percent text-size, 320 CSS px effective 400-percent reflow, reduced-motion, and semantic accessibility snapshot checks. The verification record is maintained in `docs/superpowers/plans/2026-07-11-slice-03-delivery-mobile-ui.md`.
+
 ## Verification
 
 ```bash

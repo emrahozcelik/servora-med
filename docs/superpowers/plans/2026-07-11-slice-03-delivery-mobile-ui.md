@@ -50,18 +50,18 @@
 
 ## Task 7: Responsive and accessibility verification
 
-- [ ] Verify approximately 390 CSS px without horizontal page scrolling.
-- [ ] Verify 44 by 44 CSS px primary targets, labels, logical focus, and non-color errors.
-- [ ] Verify keyboard-only Staff and Manager critical flows.
-- [ ] Verify 200 percent text size and supported 400 percent zoom reflow.
-- [ ] Verify `prefers-reduced-motion` and screen-reader semantics.
+- [x] Verify approximately 390 CSS px without horizontal page scrolling.
+- [x] Verify 44 by 44 CSS px primary targets, labels, logical focus, and non-color errors.
+- [x] Verify keyboard-only Staff and Manager critical flows.
+- [x] Verify 200 percent text size and supported 400 percent zoom reflow.
+- [x] Verify `prefers-reduced-motion` and screen-reader semantics.
 
 ## Task 8: Live tracer, documentation, and closeout
 
 - [x] Run component/API tests, web build, server regression tests, and audits.
-- [ ] Run browser flow against disposable PostgreSQL for Staff create/start/submit and Manager approve/revision.
-- [ ] Update README, MVP slice status, DESIGN implementation tokens, and exact manual-check record.
-- [ ] Reindex server/web Codebase Memory and commit a slice-scoped checkpoint.
+- [x] Run browser flow against disposable PostgreSQL for Staff create/start/submit and Manager approve/revision.
+- [x] Update README, MVP slice status, DESIGN implementation tokens, and exact manual-check record.
+- [x] Reindex server/web Codebase Memory and commit a slice-scoped checkpoint.
 
 ## Verification Record (2026-07-11)
 
@@ -74,4 +74,9 @@
 - Disposable PostgreSQL 16 live verification: migrations 001/002, development seed, Staff login, authenticated customer/product reference reads, JobCard create, delivery add, start, submit, Manager login, approve, activity read, and a second revision-request flow passed.
 - Live reference result: one active customer and one active product returned within the authenticated organization scope.
 - Live tracer result: one `COMPLETED` JobCard with five expected events and one `REVISION_REQUESTED` JobCard. Disposable server and database were stopped and removed.
-- Browser runtime was not callable in this session. Real browser Staff/Manager interaction, 390 CSS px inspection, keyboard focus order, 200/400 percent zoom, touch measurement, and screen-reader checks remain open and are not claimed as passed.
+- Playwright Chromium at a 390 by 844 CSS px viewport completed two Staff delivery flows through create, start, and submit. Manager review then approved the sale delivery and returned the sample delivery with a required revision reason.
+- The 390 CSS px screens had no horizontal document overflow. Measured buttons, inputs, selects, and text areas in the delivery form were at least 44 CSS px high; controls had explicit accessible names and result messages exposed status semantics.
+- Keyboard checks confirmed logical login order (`E-posta`, `Parola`, `Giriş yap`), visible 3 CSS px focus outlines, keyboard activation, and sequential delivery-form access. Manager decisions are native buttons and revision reason is a labeled text control; drag and drop is not required.
+- At 200 percent root text size, the header initially overflowed. Mobile header wrapping was added with a regression contract, then the browser recheck passed with `scrollWidth === clientWidth`. A 320 CSS px effective reflow viewport, representing a supported 1280 CSS px layout at 400 percent zoom, retained all primary actions without horizontal overflow.
+- Chromium `prefers-reduced-motion: reduce` matched and nonessential transition duration resolved to 0.01 ms. Accessibility snapshots exposed semantic banner/main/region/heading/list/form/status structures for login, delivery, approval queue, review, and feedback.
+- Codebase Memory reindex completed with 294 nodes / 594 edges for the server and 111 nodes / 219 edges for the web application. Browser server, Vite process, and disposable database were stopped and removed after verification.

@@ -19,6 +19,7 @@ describe('shared accessibility CSS contract', () => {
 
   it('has a structural mobile breakpoint and single-column detail/form reflow', () => {
     expect(css).toContain('@media (max-width: 720px)');
+    expect(css).toMatch(/\.app-header \{[^}]*flex-wrap: wrap;/);
     expect(css).toMatch(/\.delivery-pair \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.delivery-lines > ul > li \{ grid-template-columns: 1fr;/);
   });
