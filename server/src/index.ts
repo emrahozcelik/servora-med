@@ -6,13 +6,21 @@ import { closeDatabase, createDatabase } from './db/index.js';
 import { runMigrations } from './db/migrate-runner.js';
 import { PostgresAuthRepository } from './modules/auth/repository.js';
 import { PostgresJobCardRepository } from './modules/job-cards/repository.js';
+import {
+  AuthCredentialAdministration,
+  PostgresSessionRevocationPort,
+} from './modules/auth/admin-ports.js';
+import { PostgresPeopleRepository } from './modules/people/repository.js';
 
 async function main() {
   const config = loadConfig();
   const database = createDatabase(config.databaseUrl);
+  const credentials = new AuthCredentialAdministration();
+  const sessions = new PostgresSessionRevocationPort();
   const app = await buildApp(config, {
     authRepository: new PostgresAuthRepository(database.pool),
     jobCardRepository: new PostgresJobCardRepository(database.pool),
+    peopleRepository: new PostgresPeopleRepository(database.pool, credentials, sessions),
   });
   const migrationsDirectory = fileURLToPath(new URL('./db/migrations/', import.meta.url));
   let shuttingDown = false;

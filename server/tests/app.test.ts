@@ -40,6 +40,7 @@ describe('logger security defaults', () => {
         'req.body.password',
         'req.body.currentPassword',
         'req.body.newPassword',
+        'req.body.temporaryPassword',
         'req.body.token',
         'req.body.sessionToken',
       ]),

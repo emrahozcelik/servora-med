@@ -360,7 +360,7 @@ git commit -m "feat: enforce mandatory password change"
 - Produces the exact routes in the approved spec.
 - Consumes `PeopleService`, `requireAuthentication`, `requirePasswordChanged`.
 
-- [ ] **Step 1: Write failing route acceptance tests**
+- [x] **Step 1: Write failing route acceptance tests**
 
 Test safe DTOs, unknown-field rejection, integer `expectedVersion > 0`, Admin-only `/users`, Manager-only active Staff filtering, Staff-only `/staff/me`, cross-organization 404 concealment, each named command, and stable errors. Verify `temporaryPassword` never appears in response/log serialization.
 
@@ -381,12 +381,12 @@ app.get('/staff/:userId', ...);
 app.patch('/staff/:userId', ...);
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd server && npm test -- --run tests/people-routes.test.ts tests/app.test.ts`  
 Expected: FAIL with 404/missing People dependencies.
 
-- [ ] **Step 3: Implement validation, handlers, routes, and wiring**
+- [x] **Step 3: Implement validation, handlers, routes, and wiring**
 
 Extend dependencies without constructing hidden global state:
 
@@ -400,7 +400,7 @@ export type AppDependencies = {
 
 Apply pre-handlers in this order: authentication, mandatory-password guard, handler-owned role policy. Add `req.body.temporaryPassword` to log redaction. Update API documentation and remove Manager `/users`, Staff ID-self access, timestamp concurrency, and generic activation PATCH language.
 
-- [ ] **Step 4: Verify GREEN and complete server checkpoint**
+- [x] **Step 4: Verify GREEN and complete server checkpoint**
 
 Run:
 
@@ -412,7 +412,7 @@ cd server && npm run build
 
 Expected: all server tests and build PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/app.ts server/src/modules/people server/tests/people-routes.test.ts server/tests/app.test.ts SERVORA_MED_API_DRAFT.md

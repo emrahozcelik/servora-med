@@ -81,6 +81,19 @@ ACTION_IN_PROGRESS
 INVALID_TRANSITION
 INVARIANT_VIOLATION
 VERSION_CONFLICT
+EMAIL_ALREADY_EXISTS
+STAFF_PROFILE_REQUIRED
+STAFF_PROFILE_NOT_ALLOWED
+MANAGER_NOT_ELIGIBLE
+STAFF_ROLE_CHANGE_NOT_SUPPORTED
+USER_HAS_ACTIVE_JOB_CARDS
+MANAGER_HAS_ASSIGNED_STAFF
+SELF_ROLE_CHANGE_FORBIDDEN
+SELF_DEACTIVATION_FORBIDDEN
+LAST_ACTIVE_ADMIN_REQUIRED
+USER_VERSION_CONFLICT
+STAFF_PROFILE_VERSION_CONFLICT
+PASSWORD_CHANGE_REQUIRED
 ```
 
 Validation details may identify fields but must not expose SQL, stack traces, hashes, tokens, cookies, or internal infrastructure.
@@ -142,8 +155,18 @@ No partial mutation or activity event is written on version conflict.
 | --- | --- | --- | --- |
 | POST | `/login` | public | email/password; rate limited; sets session cookie |
 | POST | `/logout` | session | revokes session and clears cookie |
-| GET | `/me` | session | current safe user and staff profile summary |
+| GET | `/me` | session | current safe user identity |
 | POST | `/change-password` | session | validates current password and changes hash |
+
+### Mandatory password change guard
+
+After session authentication, requests from a user whose `mustChangePassword` value is `true` return `403 PASSWORD_CHANGE_REQUIRED` before domain authorization or handler execution. Only these endpoints remain available:
+
+- `GET /api/auth/me`
+- `POST /api/auth/change-password`
+- `POST /api/auth/logout`
+
+A successful password change clears the mandatory-change flag, revokes every session including the current one, clears the current cookie, and requires a new login.
 
 ### POST `/api/auth/login`
 
@@ -186,25 +209,59 @@ Logout is safe to repeat. It revokes the current session when present and clears
 
 | Method | Path | Roles | Behavior |
 | --- | --- | --- | --- |
-| GET | `/` | admin, manager | organization user list |
-| POST | `/` | admin | create user and optional staff profile |
-| GET | `/:userId` | admin, manager | safe detail |
-| PATCH | `/:userId` | admin | update name, role, active state |
-| POST | `/:userId/reset-password` | admin | temporary password and forced change |
+| GET | `/` | admin | safe organization user list |
+| POST | `/` | admin | create user and required or forbidden Staff profile according to role |
+| GET | `/:userId` | admin | safe organization user detail |
+| PATCH | `/:userId` | admin | update only `name` |
+| POST | `/:userId/change-role` | admin | apply an allowed Admin/Manager role command |
+| POST | `/:userId/activate` | admin | activate an eligible user |
+| POST | `/:userId/deactivate` | admin | deactivate an eligible user and revoke all sessions |
+| POST | `/:userId/reset-password` | admin | set an Admin-provided temporary password and revoke all sessions |
 
 Staff reads their identity through `/api/auth/me` and profile through `/api/staff/me`.
+
+Safe user responses include `id`, `organizationId`, `name`, normalized `email`, `role`, `isActive`, `mustChangePassword`, `lastLoginAt`, `version`, `createdAt`, and `updatedAt`. Password hashes, temporary passwords, tokens, cookies, and session data are never returned.
+
+Every mutation requires `expectedVersion`, performs an atomic version-predicate update, and increments `version`. A stale mutation returns `409 USER_VERSION_CONFLICT`. Named commands accept only the fields required for that command; role and activation changes cannot be combined with a general patch.
+
+Role changes to or from `STAFF` are rejected with `STAFF_ROLE_CHANGE_NOT_SUPPORTED`. An Admin cannot change their own role or deactivate their own account. The final active Admin, a Staff user with active JobCards, and a Manager with assigned active Staff are protected by their corresponding conflict codes.
 
 ## 6. Staff `/api/staff`
 
 | Method | Path | Roles | Behavior |
 | --- | --- | --- | --- |
-| GET | `/` | admin, manager | organization staff list |
-| GET | `/me` | authenticated | own profile and counters |
-| GET | `/:userId` | admin, manager, self | profile and operational summary |
-| PATCH | `/:userId` | admin, manager | title, phone, region, manager, notes |
-| GET | `/:userId/job-cards` | admin, manager, self | scoped JobCards |
+| GET | `/` | admin, manager | organization Staff list with role-aware status filtering |
+| GET | `/me` | staff | own profile and counters |
+| GET | `/:userId` | admin, manager | organization-scoped profile and operational summary |
+| PATCH | `/:userId` | admin, manager | update title, phone, region, and manager |
 
-No undefined monthly target field is accepted.
+Staff cannot use the ID routes or edit profiles in this slice. No `notes` or undefined monthly-target field is accepted.
+
+`GET /api/staff` defaults to `status=active`. Admin may request `status=active`, `status=inactive`, or `status=all`; Manager may request only `status=active`. Inactive Staff remain resolvable where historical JobCard records need their persisted identity.
+
+Staff profile responses include backend-derived counters:
+
+```json
+{
+  "counters": {
+    "open": 0,
+    "waitingApproval": 0,
+    "revisionRequested": 0,
+    "completedThisMonth": 0,
+    "overdue": 0
+  }
+}
+```
+
+- `open`: assigned JobCards in `NEW`, `PLANNED`, or `IN_PROGRESS`
+- `waitingApproval`: assigned JobCards in `WAITING_APPROVAL`
+- `revisionRequested`: assigned JobCards in `REVISION_REQUESTED`
+- `completedThisMonth`: assigned JobCards approved into `COMPLETED` during the current organization-local calendar month
+- `overdue`: assigned JobCards whose `dueDate` is before the organization-local current date and whose status is neither `COMPLETED` nor `CANCELLED`
+
+`CANCELLED` contributes to no counter. An overdue card may also contribute to a lifecycle counter. The backend calculates timezone boundaries; the frontend does not derive these values.
+
+`PATCH /api/staff/:userId` requires `expectedVersion`, increments the profile `version` atomically, and returns `409 STAFF_PROFILE_VERSION_CONFLICT` when stale. A supplied manager must be an active Manager in the same organization.
 
 ## 7. Customers `/api/customers`
 
@@ -475,7 +532,7 @@ Completed and cancelled records are time-limited or paginated by default. Mobile
 | Method | Path | Roles | Behavior |
 | --- | --- | --- | --- |
 | GET | `/dashboard` | admin, manager | organization operational counters |
-| GET | `/staff/:userId` | admin, manager, self | scoped staff summary |
+| GET | `/staff/:userId` | admin, manager | scoped staff summary |
 | GET | `/deliveries` | admin, manager | quantity by date, product, staff, and purpose |
 | GET | `/approvals` | admin, manager | pending approval age and counts |
 
