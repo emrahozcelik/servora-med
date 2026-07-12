@@ -1,7 +1,7 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
-import { OwnStaffProfileView, StaffDirectoryView, StaffProfileEditView } from '../src/StaffProfiles';
+import { OwnStaffProfileView, StaffDirectoryView, StaffProfileEditRoute, StaffProfileEditView } from '../src/StaffProfiles';
 import type { StaffProfile } from '../src/services/people-api';
 
 const profile: StaffProfile = { id: 'profile-1', user: { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'staff@example.com', role: 'STAFF',
@@ -23,5 +23,14 @@ describe('Staff profile views', () => {
     const html = renderToStaticMarkup(<StaffProfileEditView profile={profile} managers={[]} onBack={() => {}} onChanged={() => {}} />);
     for (const label of ['Unvan', 'Telefon', 'Bölge', 'Yönetici']) expect(html).toContain(label);
     expect(html).not.toContain('Rol'); expect(html).not.toContain('Parola');
+  });
+  it('changes the edit form identity when route navigation selects another Staff user', () => {
+    const first = StaffProfileEditRoute({ profile, managers: [], onBack: () => {}, onChanged: () => {} });
+    const second = StaffProfileEditRoute({
+      profile: { ...profile, id: 'profile-2', user: { ...profile.user, id: 'staff-2', name: 'Bora' } },
+      managers: [], onBack: () => {}, onChanged: () => {},
+    });
+    expect(first.key).toBe('staff-1');
+    expect(second.key).toBe('staff-2');
   });
 });

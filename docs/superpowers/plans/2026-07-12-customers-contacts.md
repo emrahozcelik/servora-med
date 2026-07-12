@@ -708,7 +708,7 @@ git add web/package.json web/package-lock.json web/src/AppRouter.tsx web/src/mai
 git commit -m "feat: add routed application navigation"
 ```
 
-**Task 8 verification (2026-07-12):** route/App and existing-screen regression suite passed 6 files/32 tests; the full web suite passed 13 files/58 tests; TypeScript/Vite production build passed. React Router DOM is pinned to approved version 7.18.1.
+**Task 8 verification (2026-07-12):** route/App and existing-screen regression suite passed, the routed Staff identity regression passed, the full web suite passed 13 files/59 tests, and the TypeScript/Vite production build passed. React Router DOM is pinned to approved version 7.18.1.
 
 ### Task 9: Runtime-validated CRM web client
 

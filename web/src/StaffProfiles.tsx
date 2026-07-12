@@ -43,6 +43,15 @@ export function StaffProfileEditView({ profile: initial, managers, onBack, onCha
   </main>;
 }
 
+export function StaffProfileEditRoute(props: {
+  profile: StaffProfile;
+  managers: ManagedUser[];
+  onBack: () => void;
+  onChanged: (profile: StaffProfile) => void;
+}) {
+  return <StaffProfileEditView key={props.profile.user.id} {...props} />;
+}
+
 export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenProfile, onProfileBack }: {
   user: CurrentUser;
   onBack: () => void;
@@ -61,7 +70,7 @@ export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenPr
   if (loading) return <main className="workspace" aria-busy="true"><h1>{initialStaffUserId ? 'Personel profili yükleniyor' : 'Personel bilgileri yükleniyor'}</h1></main>;
   if (error) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Personel bilgileri yüklenemedi</h1><p>{error}</p></div></main>;
   if (user.role === 'STAFF' && own) return <OwnStaffProfileView profile={own} onBack={onBack} />;
-  if (selected) return <StaffProfileEditView profile={selected} managers={managers} onBack={() => { setSelected(null); onProfileBack?.(); }} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} />;
+  if (selected) return <StaffProfileEditRoute profile={selected} managers={managers} onBack={() => { setSelected(null); onProfileBack?.(); }} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} />;
   return <StaffDirectoryView profiles={profiles} status={status} canFilterInactive={user.role === 'ADMIN'} onStatusChange={setStatus} onBack={onBack}
     onOpen={(id) => { if (onOpenProfile) onOpenProfile(id); else void getStaffProfile(id).then(setSelected).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')); }} />;
 }
