@@ -1,10 +1,22 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { getCurrentUser, login, logout, type CurrentUser } from './services/api';
+import { DeliveryCreateView } from './DeliveryCreate';
+import { JobDetailScreen } from './JobDetail';
+import { PasswordChangeScreen } from './PasswordChange';
+import { UserManagementScreen } from './UserManagement';
+import { StaffProfilesScreen } from './StaffProfiles';
+import { ApiError, getCurrentUser, listJobCards, listReferenceCustomers, listReferenceProducts, login, logout, type CurrentUser, type JobCard, type ReferenceCustomer, type ReferenceProduct } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
 
 const roleLabels = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
+const statusLabels = { NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor', REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi' } as const;
+const priorityLabels = { low: 'Düşük öncelik', normal: 'Normal öncelik', high: 'Yüksek öncelik', urgent: 'Acil öncelik' } as const;
+
+export type WorkspaceState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; jobs: JobCard[]; customerNames: Record<string, string> }
+  | { kind: 'error'; code: string; message: string; retryable: boolean };
 
 function BrandMark() {
   return <span className="brand-mark" aria-hidden="true">S</span>;
@@ -84,9 +96,66 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
   );
 }
 
+function formatDueDate(value: string | null) {
+  if (!value) return null;
+  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
+}
+
+export function WorkspaceView({ user, state, onRetry, onCreate, onOpen, notice = '' }: { user: CurrentUser; state: WorkspaceState; onRetry: () => void; onCreate?: () => void; onOpen?: (jobId: string) => void; notice?: string }) {
+  const reviewMode = user.role !== 'STAFF';
+  const heading = reviewMode ? 'Onay kuyruğu' : 'İşlerim';
+  if (state.kind === 'loading') return (
+    <main className="workspace" aria-busy="true" aria-live="polite">
+      <p className="eyebrow">{heading}</p><h1>{reviewMode ? 'Onay bekleyen işler yükleniyor' : 'İşleriniz yükleniyor'}</h1>
+      <div className="job-list-loading" aria-hidden="true"><span /><span /><span /></div>
+    </main>
+  );
+  if (state.kind === 'error') {
+    const forbidden = state.code === 'FORBIDDEN';
+    return <main className="workspace"><p className="eyebrow">{heading}</p><div className="workspace-message" role="alert">
+      <h1>{forbidden ? 'Bu alana erişim yetkiniz yok' : 'İşler yüklenemedi'}</h1><p>{state.message}</p>
+      {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}
+    </div></main>;
+  }
+  const visibleJobs = reviewMode ? state.jobs.filter((job) => job.status === 'WAITING_APPROVAL') : state.jobs;
+  return <main className="workspace">
+    {notice && <div className="success-message" role="status">{notice}</div>}
+    <div className="workspace-heading"><div><p className="eyebrow">Çalışma alanı</p><h1>{heading}</h1></div>
+      {user.role === 'STAFF' && <div className="workspace-actions"><span className="scope-note">Yalnız size atanan işler</span>
+        {onCreate && <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni teslim</button>}</div>}</div>
+    {visibleJobs.length === 0 ? <div className="workspace-message"><h2>{reviewMode ? 'Onay bekleyen iş yok' : 'Henüz atanmış işiniz yok'}</h2>
+      <p>{reviewMode ? 'Personel tarafından gönderilen işler burada görünecek.' : 'Yeni bir iş atandığında burada görünecek.'}</p></div>
+      : <ul className="job-list">{visibleJobs.map((job) => <li key={job.id}>
+        <article className="job-row" data-job-id={job.id}>
+          <div className="job-main"><div className="job-signals"><span className={`status status-${job.status.toLowerCase()}`}>{statusLabels[job.status]}</span>
+            <span className={`priority priority-${job.priority}`}>{priorityLabels[job.priority]}</span></div>
+            <h2>{job.title}</h2><p>{job.customerId ? state.customerNames[job.customerId] ?? 'Müşteri kaydı' : 'Müşteri belirtilmedi'}</p></div>
+          <div className="job-row-actions"><dl className="job-meta"><div><dt>Sürüm</dt><dd>{job.version}</dd></div>{job.dueDate && <div><dt>Termin</dt><dd>{formatDueDate(job.dueDate)}</dd></div>}</dl>
+            {onOpen && <button className="secondary-button" type="button" onClick={() => onOpen(job.id)} aria-label={`${job.title} işini aç`}>İşi aç</button>}</div>
+        </article></li>)}</ul>}
+  </main>;
+}
+
 function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut: () => void }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [workspace, setWorkspace] = useState<WorkspaceState>({ kind: 'loading' });
+  const [references, setReferences] = useState<{ customers: ReferenceCustomer[]; products: ReferenceProduct[] }>({ customers: [], products: [] });
+  const [screen, setScreen] = useState<'list' | 'create' | 'detail' | 'users' | 'staffProfiles'>('list');
+  const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
+  const [notice, setNotice] = useState('');
+  const [reloadKey, setReloadKey] = useState(0);
+  useEffect(() => {
+    let active = true; setWorkspace({ kind: 'loading' });
+    Promise.all([listJobCards(), listReferenceCustomers(), listReferenceProducts()]).then(([jobs, customers, products]) => {
+      if (active) { setReferences({ customers, products }); setWorkspace({ kind: 'ready', jobs, customerNames: Object.fromEntries(customers.map((customer) => [customer.id, customer.name])) }); }
+    }).catch((caught) => {
+      if (!active) return;
+      const apiError = caught instanceof ApiError ? caught : new ApiError(0, 'UNKNOWN_ERROR', 'İşler yüklenemedi.', true);
+      setWorkspace({ kind: 'error', code: apiError.code, message: apiError.message, retryable: apiError.retryable });
+    });
+    return () => { active = false; };
+  }, [reloadKey]);
   async function signOut() {
     setPending(true); setError('');
     try { await logout(); onSignedOut(); }
@@ -103,12 +172,18 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
           </button>
         </div>
       </header>
-      <main className="workspace-empty">
-        <p className="eyebrow">Çalışma alanı</p>
-        <h1>Operasyon alanı hazırlanıyor.</h1>
-        <p>Kullanıma açılan iş akışları burada yer alacak.</p>
-        {error && <div className="form-error" role="alert">{error}</div>}
-      </main>
+      {screen === 'list' && <nav className="section-nav" aria-label="Çalışma alanları">
+        {user.role === 'ADMIN' && <button className="secondary-button" onClick={() => setScreen('users')}>Kullanıcılar</button>}
+        <button className="secondary-button" onClick={() => setScreen('staffProfiles')}>{user.role === 'STAFF' ? 'Profilim' : 'Personel'}</button>
+      </nav>}
+      {screen === 'users' && user.role === 'ADMIN' ? <UserManagementScreen onBack={() => setScreen('list')} />
+        : screen === 'staffProfiles' ? <StaffProfilesScreen user={user} onBack={() => setScreen('list')} />
+        : screen === 'create' ? <DeliveryCreateView user={user} customers={references.customers} products={references.products}
+        onCancel={() => setScreen('list')} onCreated={() => { setNotice('Teslim kaydı oluşturuldu.'); setScreen('list'); setReloadKey((value) => value + 1); }} />
+        : screen === 'detail' && selectedJobId ? <JobDetailScreen jobId={selectedJobId} user={user} onBack={() => setScreen('list')} onChanged={() => setReloadKey((value) => value + 1)} />
+          : <WorkspaceView user={user} state={workspace} notice={notice} onCreate={user.role === 'STAFF' && workspace.kind === 'ready' ? () => { setNotice(''); setScreen('create'); } : undefined}
+            onOpen={(jobId) => { setSelectedJobId(jobId); setScreen('detail'); }} onRetry={() => setReloadKey((value) => value + 1)} />}
+      {error && <div className="shell-error form-error" role="alert">{error}</div>}
     </div>
   );
 }
@@ -128,5 +203,6 @@ export function App({ initialUser }: AppProps) {
 
   if (user === undefined) return <LoadingScreen />;
   if (user === null) return <LoginScreen onAuthenticated={setUser} initialError={identityError} />;
+  if (user.mustChangePassword) return <PasswordChangeScreen user={user} onChanged={() => setUser(null)} onSignedOut={() => setUser(null)} />;
   return <ProtectedShell user={user} onSignedOut={() => setUser(null)} />;
 }

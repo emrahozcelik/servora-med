@@ -16,3 +16,15 @@ export function requireAuthentication(authService: AuthService) {
     request.sessionTokenHash = authenticated.tokenHash;
   };
 }
+
+export function requirePasswordChanged() {
+  return async function passwordChanged(request: FastifyRequest, _reply: FastifyReply) {
+    if (request.currentUser?.mustChangePassword) {
+      throw new AppError(
+        'PASSWORD_CHANGE_REQUIRED',
+        403,
+        'Devam etmek için parolanızı değiştirin.',
+      );
+    }
+  };
+}

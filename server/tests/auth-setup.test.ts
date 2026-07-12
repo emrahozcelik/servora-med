@@ -58,9 +58,20 @@ describe('auth setup', () => {
     }, 'development');
     expect(repository.requests[0]!.users.map((user) => user.role)).toEqual(['ADMIN', 'MANAGER', 'STAFF']);
     expect(repository.requests[0]!.users.every((user) => user.mustChangePassword)).toBe(true);
+    expect(repository.requests[0]!.staffProfile).toEqual({
+      title: 'Saha Personeli', phone: null, region: null, managerRole: 'MANAGER',
+    });
     expect(repository.requests[0]!.referenceData).toEqual({
       customer: { name: 'Demo Dental Klinik', customerType: 'clinic', status: 'active' },
       product: { sku: 'DEMO-001', name: 'Demo İmplant Seti', unit: 'adet' },
     });
+  });
+
+  it('does not create a Staff profile for Admin bootstrap', async () => {
+    const repository = new MemorySetupRepository();
+    await bootstrapAdmin(repository, {
+      organizationName: 'Org', name: 'Admin', email: 'admin@example.com', password: 'secure-bootstrap-password',
+    });
+    expect(repository.requests[0]!.staffProfile).toBeUndefined();
   });
 });

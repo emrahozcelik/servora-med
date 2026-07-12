@@ -13,7 +13,12 @@ import { AppError } from './errors/index.js';
 import type { JobCardRepository } from './modules/job-cards/repository.js';
 import { JobCardService } from './modules/job-cards/service.js';
 import { jobCardRoutes } from './modules/job-cards/routes.js';
-import { requireAuthentication } from './modules/auth/middleware.js';
+import { requireAuthentication, requirePasswordChanged } from './modules/auth/middleware.js';
+import { referenceRoutes } from './modules/job-cards/reference-routes.js';
+import type { PeopleRepository } from './modules/people/repository.js';
+import { PeopleService } from './modules/people/service.js';
+import { peopleRoutes } from './modules/people/routes.js';
+import { AuthCredentialAdministration } from './modules/auth/admin-ports.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -22,11 +27,16 @@ export const LOGGER_REDACT_PATHS = [
   'req.body.password',
   'req.body.currentPassword',
   'req.body.newPassword',
+  'req.body.temporaryPassword',
   'req.body.token',
   'req.body.sessionToken',
 ];
 
-export type AppDependencies = { authRepository?: AuthRepository; jobCardRepository?: JobCardRepository };
+export type AppDependencies = {
+  authRepository?: AuthRepository;
+  jobCardRepository?: JobCardRepository;
+  peopleRepository?: PeopleRepository;
+};
 
 export async function buildApp(config: AppConfig, dependencies: AppDependencies = {}) {
   const app = Fastify({
@@ -66,11 +76,30 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       authService,
       config,
     });
+    const authenticate = requireAuthentication(authService);
+    const passwordChanged = requirePasswordChanged();
+    const authenticateDomain = async (...args: Parameters<typeof authenticate>) => {
+      await authenticate(...args);
+      await passwordChanged(...args);
+    };
     if (dependencies.jobCardRepository) {
+      const jobCardService = new JobCardService(dependencies.jobCardRepository);
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',
-        service: new JobCardService(dependencies.jobCardRepository),
-        authenticate: requireAuthentication(authService),
+        service: jobCardService,
+        authenticate: authenticateDomain,
+      });
+      await app.register(referenceRoutes, {
+        prefix: '/api/reference',
+        service: jobCardService,
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.peopleRepository) {
+      await app.register(peopleRoutes, {
+        prefix: '/api',
+        service: new PeopleService(dependencies.peopleRepository, new AuthCredentialAdministration()),
+        authenticate: authenticateDomain,
       });
     }
   }

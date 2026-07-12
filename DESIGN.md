@@ -1,4 +1,3 @@
-<!-- SEED: re-run /impeccable document once there's code to capture the actual tokens and components. -->
 ---
 name: Servora-Med
 description: Reliable, simple, and orderly product UI for mobile field action and desktop operational oversight.
@@ -29,26 +28,26 @@ Motion energy is responsive: immediate press and state feedback, short transitio
 
 ## Colors
 
-The palette uses warm, lightly tinted neutrals and a low-chroma mineral-blue accent. Exact values are `[to be resolved during implementation]` and must be tested in context before becoming tokens.
+The implemented palette uses warm, lightly tinted neutrals and a low-chroma mineral-blue accent. Values below are the current CSS tokens and remain subject to WCAG contrast regression checks when components change.
 
 ### Primary
 
-- **Mineral Blue** (`[to be resolved during implementation]`): Primary actions, current selection, focus emphasis, and the smallest set of active state indicators. It must not resemble bright medical turquoise or formal bank navy.
+- **Mineral Blue** (`oklch(47% 0.105 238deg)`): Primary actions, current selection, and the smallest set of active state indicators. Focus uses the related `oklch(58% 0.14 238deg)` token.
 
 ### Neutral
 
-- **Daylight Paper** (`[to be resolved during implementation]`): Main content background; softly tinted rather than pure white.
-- **Quiet Canvas** (`[to be resolved during implementation]`): Navigation, toolbar, and grouped-workflow background.
-- **Graphite Ink** (`[to be resolved during implementation]`): Primary text; tinted rather than pure black.
-- **Muted Record** (`[to be resolved during implementation]`): Secondary text and supporting metadata, subject to WCAG contrast.
-- **Soft Rule** (`[to be resolved during implementation]`): Borders and dividers that clarify grouping without boxing every element.
+- **Daylight Paper** (`oklch(98.5% 0.004 235deg)`): Main content background; softly tinted rather than pure white.
+- **Quiet Canvas** (`oklch(95.5% 0.009 235deg)`): Navigation, toolbar, and grouped-workflow background.
+- **Graphite Ink** (`oklch(26% 0.016 246deg)`): Primary text; tinted rather than pure black.
+- **Muted Record** (`oklch(47% 0.018 246deg)`): Secondary text and supporting metadata.
+- **Soft Rule** (`oklch(86% 0.012 238deg)`): Borders and dividers that clarify grouping without boxing every element.
 
 ### Semantic
 
-- **Critical Red** (`[to be resolved during implementation]`): Errors and destructive outcomes only.
-- **Delay Amber** (`[to be resolved during implementation]`): Warnings, lateness, and attention states only.
-- **Confirmed Green** (`[to be resolved during implementation]`): Successful completion and approval only.
-- **Information Blue** (`[to be resolved during implementation]`): Neutral informational state when the primary accent would imply action.
+- **Critical Red** (`oklch(44% 0.14 28deg)`): Errors and destructive outcomes only.
+- **Delay Amber** (`oklch(39% 0.08 70deg)` on `oklch(95% 0.025 80deg)`): Warnings, lateness, and attention states only.
+- **Confirmed Green** (`oklch(38% 0.08 150deg)` on `oklch(95% 0.025 150deg)`): Successful completion and approval only.
+- **Information Blue** (`oklch(41% 0.105 238deg)` on `oklch(92% 0.025 238deg)`): Neutral informational state when the primary accent would imply action.
 
 **The Restrained Signal Rule.** Tinted neutrals carry the interface. Mineral Blue occupies no more than roughly ten percent of a typical task screen. Semantic colors are not decoration.
 
@@ -58,7 +57,7 @@ The palette uses warm, lightly tinted neutrals and a low-chroma mineral-blue acc
 
 ## Typography
 
-**Direction:** One humanist sans family across product UI, with platform-native fallbacks. Specific font selection is `[to be resolved during implementation]`.
+**Direction:** The implemented stack is `Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif`, preserving platform-native fallbacks when Inter is unavailable.
 
 **Character:** Clear and contemporary without feeling clinical, technical, or decorative. The family must remain highly legible in Turkish, dense operational lists, form labels, quantities, dates, and status metadata.
 

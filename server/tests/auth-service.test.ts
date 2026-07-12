@@ -44,6 +44,7 @@ class MemoryAuthRepository implements AuthRepository {
     if (!user || user.passwordHash !== expectedPasswordHash) return false;
     user.passwordHash = passwordHash;
     user.mustChangePassword = false;
+    user.version += 1;
     for (const session of this.sessions) {
       if (session.userId === userId && !session.revokedAt) session.revokedAt = revokedAt;
     }
@@ -61,7 +62,7 @@ describe('AuthService', () => {
     repository.users.push({
       id: 'user-1', organizationId: 'org-1', name: 'Admin User',
       email: 'admin@example.com', passwordHash: await hashPassword('correct-password'),
-      role: 'ADMIN', mustChangePassword: false, isActive: true,
+      role: 'ADMIN', mustChangePassword: false, isActive: true, version: 1,
     });
     service = new AuthService(repository, 28_800, () => now);
   });
@@ -123,6 +124,7 @@ describe('AuthService', () => {
     await expect(service.authenticateSession(login.rawToken)).rejects.toMatchObject({ code: 'UNAUTHENTICATED' });
     await expect(service.login('admin@example.com', 'new-secure-password')).resolves.toBeDefined();
     expect(repository.users[0]?.mustChangePassword).toBe(false);
+    expect(repository.users[0]?.version).toBe(2);
   });
 
   it('rejects password change when the current password is wrong', async () => {

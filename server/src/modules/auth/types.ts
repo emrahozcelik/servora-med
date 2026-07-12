@@ -11,9 +11,10 @@ export type AuthUserRecord = {
   role: UserRole;
   mustChangePassword: boolean;
   isActive: boolean;
+  version: number;
 };
 
-export type SafeUser = Omit<AuthUserRecord, 'passwordHash' | 'isActive'>;
+export type SafeUser = Omit<AuthUserRecord, 'passwordHash'>;
 
 export type SessionRecord = {
   id: string;

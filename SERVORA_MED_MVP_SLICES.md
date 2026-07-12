@@ -226,18 +226,18 @@ Focused tests cover the full tracer path, negative role checks, submit invariant
 
 ### Accessibility and responsive acceptance
 
-- [ ] Primary flow is usable at approximately 390 CSS px without horizontal page scrolling.
-- [ ] Primary controls have at least 44 by 44 CSS px interaction areas where applicable.
-- [ ] Every field has an accessible label; placeholder is not the label.
-- [ ] Required and error states are not communicated by color alone.
-- [ ] Visible focus follows the logical task order.
-- [ ] Staff and manager flows can be completed with keyboard without drag and drop.
-- [ ] Submit errors identify the problem and correction.
-- [ ] Loading skeleton, empty state, forbidden state, network retry, and stale-version state are designed.
-- [ ] `prefers-reduced-motion` removes nonessential movement without removing feedback.
-- [ ] At 200 percent text size the flow remains usable.
-- [ ] At supported 400 percent zoom the content reflows and primary actions remain available.
-- [ ] Screen-reader semantics are manually checked for login, delivery form, approval queue, and result feedback.
+- [x] Primary flow is usable at approximately 390 CSS px without horizontal page scrolling.
+- [x] Primary controls have at least 44 by 44 CSS px interaction areas where applicable.
+- [x] Every field has an accessible label; placeholder is not the label.
+- [x] Required and error states are not communicated by color alone.
+- [x] Visible focus follows the logical task order.
+- [x] Staff and manager flows can be completed with keyboard without drag and drop.
+- [x] Submit errors identify the problem and correction.
+- [x] Loading skeleton, empty state, forbidden state, network retry, and stale-version state are designed.
+- [x] `prefers-reduced-motion` removes nonessential movement without removing feedback.
+- [x] At 200 percent text size the flow remains usable.
+- [x] At supported 400 percent zoom the content reflows and primary actions remain available.
+- [x] Screen-reader semantics are manually checked for login, delivery form, approval queue, and result feedback.
 
 ### Verification
 
@@ -262,13 +262,13 @@ Run configured component tests and accessibility automation, then record manual 
 
 ### Acceptance
 
-- [ ] Admin creates manager and staff users.
-- [ ] Staff cannot create, role-change, or deactivate users.
-- [ ] Profile and manager belong to the same organization.
-- [ ] User inactive state controls profile availability; no duplicate profile active flag exists.
-- [ ] Profile contains no undefined generic monthly target.
-- [ ] Staff can view only their own profile unless explicitly authorized.
-- [ ] Forms meet the shared accessibility criteria.
+- [x] Admin creates manager and staff users.
+- [x] Staff cannot create, role-change, or deactivate users.
+- [x] Profile and manager belong to the same organization.
+- [x] User inactive state controls profile availability; no duplicate profile active flag exists.
+- [x] Profile contains no undefined generic monthly target.
+- [x] Staff can view only their own profile unless explicitly authorized.
+- [x] Forms meet the shared accessibility criteria.
 
 ## 8. Slice 05: Customers and Contacts
 
