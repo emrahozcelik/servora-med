@@ -624,14 +624,14 @@ git commit -m "test: verify CRM backend tracer"
 **05B live backend verification (2026-07-12):**
 
 - Disposable database `servora_med_slice05` applied migrations `001`–`004` and the development seed successfully.
-- Seed inspection returned 3 users, 1 Customer, 1 primary Contact, 1 Contact-linked JobCard, and 1 `JOB_CREATED` activity.
+- Focused PostgreSQL seed contract tests passed 2/2: they verified 3 users, 1 Staff profile, the Customer → active Staff assignment, 1 active primary doctor Contact with defaults, product `DEMO-001`, a Contact-linked `NEW` JobCard assigned to Staff, exactly 1 actor-linked `JOB_CREATED` activity, zero management `audit_events`, and full rollback after a late reference insert failure.
 - Production-protocol concurrency test ran with `TEST_DATABASE_URL`: 1/1 passed for concurrent JobCard create versus Customer/Contact deactivation, bounded completion, and persisted invariants.
-- Live HTTP verified Manager and Staff mandatory password change plus fresh login, normalized tax number `AB1234`, first-primary and primary replacement behavior, and cross-organization `404 CUSTOMER_NOT_FOUND` concealment.
+- Live HTTP verified Admin, Manager, and Staff mandatory password change plus fresh login. The focused Admin rerun returned `mustChangePassword=true` on the seeded-password login, `204` with session revocation on password change, then `mustChangePassword=false` and version 2 on fresh login. The tracer also verified normalized tax number `AB1234`, first-primary and primary replacement behavior, and cross-organization `404 CUSTOMER_NOT_FOUND` concealment.
 - Contact and Customer deactivation returned `409 CONTACT_HAS_ACTIVE_JOB_CARDS` and `409 CUSTOMER_HAS_ACTIVE_JOB_CARDS` while the JobCard was active.
 - Staff completed `IN_PROGRESS → WAITING_APPROVAL`; Manager approved `COMPLETED`; subsequent Contact/Customer deactivation succeeded and Customer reactivation returned `active`.
 - Admin Staff deactivation changed the Staff record to inactive/version 3, cleared both active and inactive Customer assignments, and wrote 2 `CUSTOMER_ASSIGNEE_CHANGED` events with `STAFF_DEACTIVATED` reason. CRM audit PII scan returned zero rows.
 - Login rate limiting returned `429 RATE_LIMIT_EXCEEDED` during repeated tracer logins; the local server was restarted before the remaining authorized checks.
-- Final server gate passed: 27 files/175 tests, 1 conditional PostgreSQL test skipped without `TEST_DATABASE_URL`, TypeScript build passed, and npm audit reported zero vulnerabilities. The same PostgreSQL test had already passed 1/1 against the disposable database.
+- Final server gate after review fixes passed: 27 files/175 tests, 2 conditional PostgreSQL files/3 tests skipped without `TEST_DATABASE_URL`, TypeScript build passed, and npm audit reported zero vulnerabilities. Against disposable PostgreSQL, the concurrency test passed 1/1 and the seed contract passed 2/2.
 - Test servers were stopped and the disposable database was dropped after final automated verification.
 
 ---
