@@ -28,6 +28,7 @@ function fixture(options: {
   customerHasJobs?: boolean;
   contactHasJobs?: boolean;
   uniqueTaxFailure?: boolean;
+  uniqueConstraint?: string;
 } = {}) {
   const audits: unknown[] = [];
   const calls: string[] = [];
@@ -36,9 +37,11 @@ function fixture(options: {
   const tx = {
     lockUser: async (_org: string, id: string) => id === 'staff-1'
       ? { id, organizationId: 'org-1', role: 'STAFF', isActive: true } : null,
-    lockCustomer: async () => currentCustomer,
+    lockCustomer: async (organizationId: string) => currentCustomer.organizationId === organizationId ? currentCustomer : null,
     createCustomer: async (input: Record<string, unknown>) => {
-      if (options.uniqueTaxFailure) throw Object.assign(new Error('unique'), { code: '23505', constraint: 'customers_organization_tax_number_unique' });
+      if (options.uniqueTaxFailure || options.uniqueConstraint) throw Object.assign(new Error('unique'), {
+        code: '23505', constraint: options.uniqueConstraint ?? 'customers_organization_tax_number_unique',
+      });
       currentCustomer = customer({ ...input, id: 'customer-created' } as Partial<Customer>);
       return currentCustomer;
     },
@@ -47,14 +50,15 @@ function fixture(options: {
     customerHasActiveJobs: async () => options.customerHasJobs ?? false,
     lockContact: async () => currentContact,
     lockActiveContacts: async () => options.activeContacts ?? [currentContact],
+    lockContactsForPrimary: async () => options.activeContacts ?? [currentContact],
     createContact: async (input: Record<string, unknown>) => {
       currentContact = contact({ ...input, id: 'contact-created' } as Partial<Contact>);
       return currentContact;
     },
     updateContact: async (input: Record<string, unknown>) => contact({ ...currentContact, ...input, version: currentContact.version + 1 } as Partial<Contact>),
     setContactActive: async (input: { isActive: boolean }) => contact({ ...currentContact, isActive: input.isActive, isPrimary: false, version: currentContact.version + 1 }),
-    clearPrimary: async (id: string) => { calls.push(`clear:${id}`); return contact({ id, isPrimary: false, version: 3 }); },
-    setPrimary: async (id: string) => { calls.push(`primary:${id}`); return contact({ id, isPrimary: true, version: currentContact.version + 1 }); },
+    clearPrimary: async (id: string) => { calls.push(`clear:${id}:3`); return contact({ id, isPrimary: false, version: 3 }); },
+    setPrimary: async (id: string) => { calls.push(`primary:${id}:${currentContact.version + 1}`); return contact({ id, isPrimary: true, version: currentContact.version + 1 }); },
     contactHasActiveJobs: async () => options.contactHasJobs ?? false,
     appendAudit: async (input: unknown) => { audits.push(input); },
   };
@@ -78,11 +82,37 @@ describe('CRM service policy', () => {
 
   it('keeps Staff CRM access read-only', async () => {
     const { service } = fixture();
-    await expect(service.createCustomer(staff, {
+    const createCustomerInput = {
       name: 'Klinik', customerType: 'clinic', status: 'prospect', taxNumber: null,
       phone: null, email: null, city: null, district: null, address: null,
       assignedStaffUserId: null,
-    })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    } as const;
+    const updateCustomerInput = { ...createCustomerInput, expectedVersion: 1 };
+    const createContactInput = { name: 'Dr. Ayşe', title: null, phone: null, email: null };
+    const updateContactInput = { ...createContactInput, expectedVersion: 1 };
+    const mutations = [
+      () => service.createCustomer(staff, createCustomerInput),
+      () => service.updateCustomer(staff, 'customer-1', updateCustomerInput),
+      () => service.activateCustomer(staff, 'customer-1', 1),
+      () => service.deactivateCustomer(staff, 'customer-1', 1),
+      () => service.createContact(staff, 'customer-1', createContactInput),
+      () => service.updateContact(staff, 'customer-1', 'contact-1', updateContactInput),
+      () => service.activateContact(staff, 'customer-1', 'contact-1', 1),
+      () => service.deactivateContact(staff, 'customer-1', 'contact-1', 1),
+      () => service.makePrimary(staff, 'customer-1', 'contact-1', 1),
+    ];
+    for (const mutate of mutations) {
+      await expect(Promise.resolve().then(mutate)).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    }
+  });
+
+  it('conceals a cross-organization Customer as not found', async () => {
+    const { service } = fixture({ currentCustomer: customer({ organizationId: 'org-2' }) });
+    await expect(service.updateCustomer(manager, 'customer-1', {
+      expectedVersion: 1, name: 'Klinik', customerType: 'clinic', taxNumber: null,
+      phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null,
+    })).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND' });
   });
 
   it('requires prospect or active initial status and an eligible Staff assignee', async () => {
@@ -136,17 +166,27 @@ describe('CRM service policy', () => {
       .rejects.toMatchObject({ code: 'CONTACT_HAS_ACTIVE_JOB_CARDS' });
   });
 
-  it('replaces the primary Contact and returns both versions safely', async () => {
+  it('increments both primary rows and audits only old and new Contact IDs', async () => {
     const previous = contact({ id: 'contact-old', isPrimary: true, version: 2 });
     const target = contact({ id: 'contact-new', isPrimary: false, version: 5 });
     const { service, calls, audits } = fixture({ currentContact: target, activeContacts: [previous, target] });
 
     const result = await service.makePrimary(manager, 'customer-1', 'contact-new', 5);
 
-    expect(calls).toEqual(['clear:contact-old', 'primary:contact-new']);
+    expect(calls).toEqual(['clear:contact-old:3', 'primary:contact-new:6']);
     expect(result.previousPrimaryContactId).toBe('contact-old');
     expect(result.contact.isPrimary).toBe(true);
-    expect(JSON.stringify(audits[0])).not.toMatch(/phone|email|address/i);
+    expect(result.contact.version).toBe(6);
+    expect(audits[0]).toMatchObject({
+      oldValue: { contactId: 'contact-old' }, newValue: { contactId: 'contact-new' }, metadata: {},
+    });
+  });
+
+  it('rejects an inactive primary target with the canonical error', async () => {
+    const inactive = contact({ id: 'contact-inactive', isActive: false, version: 4 });
+    const { service } = fixture({ currentContact: inactive, activeContacts: [inactive] });
+    await expect(service.makePrimary(manager, 'customer-1', inactive.id, 4))
+      .rejects.toMatchObject({ code: 'CONTACT_PRIMARY_REQUIRES_ACTIVE' });
   });
 
   it('maps only the tax-number unique constraint to the stable conflict', async () => {
@@ -156,5 +196,12 @@ describe('CRM service policy', () => {
       phone: null, email: null, city: null, district: null, address: null,
       assignedStaffUserId: null,
     })).rejects.toMatchObject({ code: 'CUSTOMER_TAX_NUMBER_EXISTS' });
+
+    const other = fixture({ uniqueConstraint: 'another_unique_constraint' });
+    await expect(other.service.createCustomer(manager, {
+      name: 'Klinik', customerType: 'clinic', status: 'prospect', taxNumber: '123',
+      phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null,
+    })).rejects.toMatchObject({ code: '23505', constraint: 'another_unique_constraint' });
   });
 });

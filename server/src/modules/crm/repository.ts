@@ -43,6 +43,7 @@ export interface CrmTransaction {
   customerHasActiveJobs(organizationId: string, customerId: string): Promise<boolean>;
   lockContact(organizationId: string, customerId: string, contactId: string): Promise<Contact | null>;
   lockActiveContacts(organizationId: string, customerId: string): Promise<Contact[]>;
+  lockContactsForPrimary(organizationId: string, customerId: string, targetContactId: string): Promise<Contact[]>;
   createContact(input: CreateContactRecord): Promise<Contact>;
   updateContact(input: UpdateContactRecord): Promise<Contact | null>;
   setContactActive(input: SetContactActiveRecord): Promise<Contact | null>;
@@ -143,6 +144,16 @@ class PostgresCrmTransaction implements CrmTransaction {
       `SELECT ${CONTACT_COLUMNS} FROM contacts
        WHERE organization_id=$1 AND customer_id=$2 AND is_active=TRUE ORDER BY id FOR UPDATE`,
       [organizationId, customerId],
+    );
+    return result.rows.map(mapContact);
+  }
+
+  async lockContactsForPrimary(organizationId: string, customerId: string, targetContactId: string) {
+    const result = await this.client.query<ContactRow>(
+      `SELECT ${CONTACT_COLUMNS} FROM contacts
+       WHERE organization_id=$1 AND customer_id=$2 AND (id=$3 OR (is_primary=TRUE AND is_active=TRUE))
+       ORDER BY id FOR UPDATE`,
+      [organizationId, customerId, targetContactId],
     );
     return result.rows.map(mapContact);
   }

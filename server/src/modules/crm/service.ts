@@ -244,17 +244,20 @@ export class CrmService {
     requireWriter(actor);
     return this.repository.execute(async (tx) => {
       await this.requireCustomer(tx, actor, customerId);
-      const contacts = await tx.lockActiveContacts(actor.organizationId, customerId);
+      const contacts = await tx.lockContactsForPrimary(actor.organizationId, customerId, contactId);
       const target = contacts.find((item) => item.id === contactId);
       if (!target) throw contactNotFound();
+      if (!target.isActive) {
+        throw new AppError('CONTACT_PRIMARY_REQUIRES_ACTIVE', 409, 'Yalnız aktif ilgili kişi birincil yapılabilir.');
+      }
       if (target.version !== expectedVersion) throw versionConflict(target.version);
       if (target.isPrimary) throw new AppError('CONTACT_ALREADY_PRIMARY', 409, 'İlgili kişi zaten birincil.');
-      const previous = contacts.find((item) => item.isPrimary) ?? null;
+      const previous = contacts.find((item) => item.isPrimary && item.isActive) ?? null;
       if (previous) await tx.clearPrimary(previous.id);
       const updated = await tx.setPrimary(target.id, expectedVersion);
       if (!updated) throw versionConflict();
       await tx.appendAudit(audit(actor, 'CONTACT', updated.id, 'CONTACT_MADE_PRIMARY',
-        { contactId: previous?.id ?? null }, { contactId: updated.id }, { customerId }));
+        { contactId: previous?.id ?? null }, { contactId: updated.id }));
       return { contact: updated, previousPrimaryContactId: previous?.id ?? null };
     });
   }
