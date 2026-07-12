@@ -1,0 +1,160 @@
+import { describe, expect, it } from 'vitest';
+
+import { CrmService } from '../src/modules/crm/service.js';
+import type { Contact, Customer } from '../src/modules/crm/types.js';
+
+const now = new Date('2026-07-12T10:00:00Z');
+const manager = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' as const };
+const staff = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const };
+
+function customer(overrides: Partial<Customer> = {}): Customer {
+  return { id: 'customer-1', organizationId: 'org-1', name: 'Demo Klinik',
+    customerType: 'clinic', taxNumber: null, phone: null, email: null, city: null,
+    district: null, address: null, assignedStaffUserId: null, status: 'prospect',
+    version: 1, createdAt: now, updatedAt: now, ...overrides };
+}
+
+function contact(overrides: Partial<Contact> = {}): Contact {
+  return { id: 'contact-1', organizationId: 'org-1', customerId: 'customer-1',
+    name: 'Dr. Ayşe', title: 'Doktor', phone: null, email: null,
+    isPrimary: false, isActive: true, version: 1, createdAt: now, updatedAt: now,
+    ...overrides };
+}
+
+function fixture(options: {
+  currentCustomer?: Customer;
+  currentContact?: Contact;
+  activeContacts?: Contact[];
+  customerHasJobs?: boolean;
+  contactHasJobs?: boolean;
+  uniqueTaxFailure?: boolean;
+} = {}) {
+  const audits: unknown[] = [];
+  const calls: string[] = [];
+  let currentCustomer = options.currentCustomer ?? customer();
+  let currentContact = options.currentContact ?? contact();
+  const tx = {
+    lockUser: async (_org: string, id: string) => id === 'staff-1'
+      ? { id, organizationId: 'org-1', role: 'STAFF', isActive: true } : null,
+    lockCustomer: async () => currentCustomer,
+    createCustomer: async (input: Record<string, unknown>) => {
+      if (options.uniqueTaxFailure) throw Object.assign(new Error('unique'), { code: '23505', constraint: 'customers_organization_tax_number_unique' });
+      currentCustomer = customer({ ...input, id: 'customer-created' } as Partial<Customer>);
+      return currentCustomer;
+    },
+    updateCustomer: async (input: Record<string, unknown>) => customer({ ...currentCustomer, ...input, version: currentCustomer.version + 1 } as Partial<Customer>),
+    setCustomerStatus: async (input: { status: Customer['status'] }) => customer({ ...currentCustomer, status: input.status, version: currentCustomer.version + 1 }),
+    customerHasActiveJobs: async () => options.customerHasJobs ?? false,
+    lockContact: async () => currentContact,
+    lockActiveContacts: async () => options.activeContacts ?? [currentContact],
+    createContact: async (input: Record<string, unknown>) => {
+      currentContact = contact({ ...input, id: 'contact-created' } as Partial<Contact>);
+      return currentContact;
+    },
+    updateContact: async (input: Record<string, unknown>) => contact({ ...currentContact, ...input, version: currentContact.version + 1 } as Partial<Contact>),
+    setContactActive: async (input: { isActive: boolean }) => contact({ ...currentContact, isActive: input.isActive, isPrimary: false, version: currentContact.version + 1 }),
+    clearPrimary: async (id: string) => { calls.push(`clear:${id}`); return contact({ id, isPrimary: false, version: 3 }); },
+    setPrimary: async (id: string) => { calls.push(`primary:${id}`); return contact({ id, isPrimary: true, version: currentContact.version + 1 }); },
+    contactHasActiveJobs: async () => options.contactHasJobs ?? false,
+    appendAudit: async (input: unknown) => { audits.push(input); },
+  };
+  const repository = {
+    execute: async <T>(work: (value: typeof tx) => Promise<T>) => work(tx),
+    listCustomers: async () => ({ items: [], total: 0, limit: 50, offset: 0 }),
+    getCustomerDetail: async () => null,
+    listContacts: async () => ({ items: [], total: 0, limit: 50, offset: 0 }),
+    getContact: async () => null,
+  };
+  return { service: new CrmService(repository as never), audits, calls };
+}
+
+describe('CRM service policy', () => {
+  it('conceals a missing or cross-organization Customer on nested Contact lists', async () => {
+    const { service } = fixture();
+    await expect(service.listContacts(manager, 'missing-customer', {
+      q: null, status: 'active', limit: 50, offset: 0,
+    })).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND' });
+  });
+
+  it('keeps Staff CRM access read-only', async () => {
+    const { service } = fixture();
+    await expect(service.createCustomer(staff, {
+      name: 'Klinik', customerType: 'clinic', status: 'prospect', taxNumber: null,
+      phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null,
+    })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('requires prospect or active initial status and an eligible Staff assignee', async () => {
+    const { service, audits } = fixture();
+    await expect(service.createCustomer(manager, {
+      name: 'Klinik', customerType: 'clinic', status: 'inactive', taxNumber: null,
+      phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null,
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+
+    const created = await service.createCustomer(manager, {
+      name: ' Klinik ', customerType: 'clinic', status: 'active', taxNumber: ' ab-12 ',
+      phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: 'staff-1',
+    });
+    expect(created.assignedStaffUserId).toBe('staff-1');
+    expect(audits).toHaveLength(1);
+    expect(JSON.stringify(audits[0])).not.toMatch(/AB12|phone|email|address/i);
+  });
+
+  it('enforces Customer status transitions, versions, and active JobCard guard', async () => {
+    const guarded = fixture({ currentCustomer: customer({ status: 'active', version: 4 }), customerHasJobs: true });
+    await expect(guarded.service.deactivateCustomer(manager, 'customer-1', 4))
+      .rejects.toMatchObject({ code: 'CUSTOMER_HAS_ACTIVE_JOB_CARDS' });
+
+    const stale = fixture({ currentCustomer: customer({ status: 'inactive', version: 4 }) });
+    await expect(stale.service.activateCustomer(manager, 'customer-1', 3))
+      .rejects.toMatchObject({ code: 'VERSION_CONFLICT', details: { currentVersion: 4 } });
+
+    const invalid = fixture({ currentCustomer: customer({ status: 'active', version: 4 }) });
+    await expect(invalid.service.activateCustomer(manager, 'customer-1', 4))
+      .rejects.toMatchObject({ code: 'INVALID_CUSTOMER_STATUS_TRANSITION' });
+  });
+
+  it('makes the first Contact primary and never makes a reactivated Contact primary', async () => {
+    const first = fixture({ activeContacts: [] });
+    const created = await first.service.createContact(manager, 'customer-1', {
+      name: 'Dr. Ayşe', title: null, phone: null, email: null,
+    });
+    expect(created.isActive).toBe(true);
+    expect(created.isPrimary).toBe(true);
+
+    const inactive = fixture({ currentContact: contact({ isActive: false, isPrimary: false, version: 2 }) });
+    const activated = await inactive.service.activateContact(manager, 'customer-1', 'contact-1', 2);
+    expect(activated.isPrimary).toBe(false);
+  });
+
+  it('blocks Contact deactivation while active JobCards reference it', async () => {
+    const { service } = fixture({ contactHasJobs: true });
+    await expect(service.deactivateContact(manager, 'customer-1', 'contact-1', 1))
+      .rejects.toMatchObject({ code: 'CONTACT_HAS_ACTIVE_JOB_CARDS' });
+  });
+
+  it('replaces the primary Contact and returns both versions safely', async () => {
+    const previous = contact({ id: 'contact-old', isPrimary: true, version: 2 });
+    const target = contact({ id: 'contact-new', isPrimary: false, version: 5 });
+    const { service, calls, audits } = fixture({ currentContact: target, activeContacts: [previous, target] });
+
+    const result = await service.makePrimary(manager, 'customer-1', 'contact-new', 5);
+
+    expect(calls).toEqual(['clear:contact-old', 'primary:contact-new']);
+    expect(result.previousPrimaryContactId).toBe('contact-old');
+    expect(result.contact.isPrimary).toBe(true);
+    expect(JSON.stringify(audits[0])).not.toMatch(/phone|email|address/i);
+  });
+
+  it('maps only the tax-number unique constraint to the stable conflict', async () => {
+    const { service } = fixture({ uniqueTaxFailure: true });
+    await expect(service.createCustomer(manager, {
+      name: 'Klinik', customerType: 'clinic', status: 'prospect', taxNumber: '123',
+      phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null,
+    })).rejects.toMatchObject({ code: 'CUSTOMER_TAX_NUMBER_EXISTS' });
+  });
+});

@@ -3,6 +3,7 @@ export class AppError extends Error {
     public readonly code: string,
     public readonly statusCode: number,
     message: string,
+    public readonly details: Record<string, unknown> | null = null,
   ) {
     super(message);
     this.name = 'AppError';
@@ -14,6 +15,7 @@ export type ErrorResponse = {
   body: {
     error: string;
     code: string;
+    details?: Record<string, unknown> | null;
   };
 };
 
@@ -24,6 +26,7 @@ export function toErrorResponse(error: unknown): ErrorResponse {
       body: {
         error: error.message,
         code: error.code,
+        ...(error.details === null ? {} : { details: error.details }),
       },
     };
   }
