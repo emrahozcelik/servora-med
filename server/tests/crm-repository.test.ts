@@ -115,4 +115,24 @@ describe('CRM persistence', () => {
     expect(JSON.stringify(audit.values)).not.toMatch(/phone|email|address|password|token|cookie|session/i);
     expect(audit.values.at(-1)).toEqual({ changedFields: ['name'] });
   });
+
+  it('caps Customer and Contact pagination at 200 records', async () => {
+    const recorded = recordingPool((text) => text.includes('COUNT(*)') ? [{ total: '0' }] : []);
+    const repository = new PostgresCrmRepository(recorded.pool);
+
+    const customers = await repository.listCustomers('org-1', {
+      q: null, status: null, customerType: null, assignedStaffUserId: null,
+      city: null, unassigned: false, limit: 999, offset: 0,
+    });
+    const contacts = await repository.listContacts('org-1', 'customer-1', {
+      q: null, status: 'active', limit: 999, offset: 0,
+    });
+
+    expect(customers.limit).toBe(200);
+    expect(contacts.limit).toBe(200);
+    const pageQueries = recorded.calls.filter((call) => /\bLIMIT \$\d+/.test(call.text));
+    expect(pageQueries).toHaveLength(2);
+    expect(pageQueries.every((call) => call.values.includes(200))).toBe(true);
+    expect(pageQueries.every((call) => !call.values.includes(999))).toBe(true);
+  });
 });

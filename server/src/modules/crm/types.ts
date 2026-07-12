@@ -65,6 +65,66 @@ export type CustomerDetail = CustomerSummary & {
   completedJobs: CustomerJobSummary[];
 };
 
+export type CustomerRow = {
+  id: string; organization_id: string; name: string; customer_type: CustomerType;
+  tax_number: string | null; phone: string | null; email: string | null;
+  city: string | null; district: string | null; address: string | null;
+  assigned_staff_user_id: string | null; status: CustomerStatus; version: number;
+  created_at: Date; updated_at: Date; assigned_staff_name?: string | null;
+  primary_contact_id?: string | null; primary_contact_name?: string | null;
+  primary_contact_title?: string | null;
+};
+
+export type ContactRow = {
+  id: string; organization_id: string; customer_id: string; name: string;
+  title: string | null; phone: string | null; email: string | null;
+  is_primary: boolean; is_active: boolean; version: number;
+  created_at: Date; updated_at: Date;
+};
+
+export type JobSummaryRow = {
+  id: string; title: string; status: JobCardStatus; assigned_to: string;
+  due_date: string | null; created_at: Date; updated_at: Date;
+  manager_approved_at: Date | null;
+};
+
+export function mapCustomer(row: CustomerRow): Customer {
+  return {
+    id: row.id, organizationId: row.organization_id, name: row.name,
+    customerType: row.customer_type, taxNumber: row.tax_number, phone: row.phone,
+    email: row.email, city: row.city, district: row.district, address: row.address,
+    assignedStaffUserId: row.assigned_staff_user_id, status: row.status,
+    version: row.version, createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+export function mapCustomerSummary(row: CustomerRow): CustomerSummary {
+  return {
+    ...mapCustomer(row),
+    assignedStaffName: row.assigned_staff_name ?? null,
+    primaryContact: row.primary_contact_id && row.primary_contact_name
+      ? { id: row.primary_contact_id, name: row.primary_contact_name, title: row.primary_contact_title ?? null }
+      : null,
+  };
+}
+
+export function mapContact(row: ContactRow): Contact {
+  return {
+    id: row.id, organizationId: row.organization_id, customerId: row.customer_id,
+    name: row.name, title: row.title, phone: row.phone, email: row.email,
+    isPrimary: row.is_primary, isActive: row.is_active, version: row.version,
+    createdAt: row.created_at, updatedAt: row.updated_at,
+  };
+}
+
+export function mapJobSummary(row: JobSummaryRow): CustomerJobSummary {
+  return {
+    id: row.id, title: row.title, status: row.status, assignedTo: row.assigned_to,
+    dueDate: row.due_date, createdAt: row.created_at, updatedAt: row.updated_at,
+    managerApprovedAt: row.manager_approved_at,
+  };
+}
+
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
 
 export type CustomerFilters = {

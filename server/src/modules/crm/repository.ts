@@ -4,6 +4,7 @@ import type {
   AppendCrmAuditInput,
   Contact,
   ContactFilters,
+  ContactRow,
   CreateContactRecord,
   CreateCustomerRecord,
   CrmActor,
@@ -11,37 +12,16 @@ import type {
   Customer,
   CustomerDetail,
   CustomerFilters,
-  CustomerJobSummary,
+  CustomerRow,
   CustomerSummary,
+  JobSummaryRow,
   Paginated,
   SetContactActiveRecord,
   SetCustomerStatusRecord,
   UpdateContactRecord,
   UpdateCustomerRecord,
 } from './types.js';
-import { normalizeTaxNumber } from './types.js';
-
-type CustomerRow = {
-  id: string; organization_id: string; name: string; customer_type: Customer['customerType'];
-  tax_number: string | null; phone: string | null; email: string | null;
-  city: string | null; district: string | null; address: string | null;
-  assigned_staff_user_id: string | null; status: Customer['status']; version: number;
-  created_at: Date; updated_at: Date; assigned_staff_name?: string | null;
-  primary_contact_id?: string | null; primary_contact_name?: string | null;
-  primary_contact_title?: string | null;
-};
-
-type ContactRow = {
-  id: string; organization_id: string; customer_id: string; name: string;
-  title: string | null; phone: string | null; email: string | null;
-  is_primary: boolean; is_active: boolean; version: number;
-  created_at: Date; updated_at: Date;
-};
-
-type JobSummaryRow = {
-  id: string; title: string; status: CustomerJobSummary['status']; assigned_to: string;
-  due_date: string | null; created_at: Date; updated_at: Date; manager_approved_at: Date | null;
-};
+import { mapContact, mapCustomer, mapCustomerSummary, mapJobSummary, normalizeTaxNumber } from './types.js';
 
 const CUSTOMER_COLUMNS = `c.id, c.organization_id, c.name, c.customer_type, c.tax_number,
   c.phone, c.email, c.city, c.district, c.address, c.assigned_staff_user_id,
@@ -49,42 +29,10 @@ const CUSTOMER_COLUMNS = `c.id, c.organization_id, c.name, c.customer_type, c.ta
 const CONTACT_COLUMNS = `id, organization_id, customer_id, name, title, phone, email,
   is_primary, is_active, version, created_at, updated_at`;
 
-function mapCustomer(row: CustomerRow): Customer {
-  return {
-    id: row.id, organizationId: row.organization_id, name: row.name,
-    customerType: row.customer_type, taxNumber: row.tax_number, phone: row.phone,
-    email: row.email, city: row.city, district: row.district, address: row.address,
-    assignedStaffUserId: row.assigned_staff_user_id, status: row.status,
-    version: row.version, createdAt: row.created_at, updatedAt: row.updated_at,
-  };
+function boundedLimit(limit: number) {
+  return Math.min(Math.max(limit, 1), 200);
 }
 
-function mapCustomerSummary(row: CustomerRow): CustomerSummary {
-  return {
-    ...mapCustomer(row),
-    assignedStaffName: row.assigned_staff_name ?? null,
-    primaryContact: row.primary_contact_id && row.primary_contact_name
-      ? { id: row.primary_contact_id, name: row.primary_contact_name, title: row.primary_contact_title ?? null }
-      : null,
-  };
-}
-
-function mapContact(row: ContactRow): Contact {
-  return {
-    id: row.id, organizationId: row.organization_id, customerId: row.customer_id,
-    name: row.name, title: row.title, phone: row.phone, email: row.email,
-    isPrimary: row.is_primary, isActive: row.is_active, version: row.version,
-    createdAt: row.created_at, updatedAt: row.updated_at,
-  };
-}
-
-function mapJobSummary(row: JobSummaryRow): CustomerJobSummary {
-  return {
-    id: row.id, title: row.title, status: row.status, assignedTo: row.assigned_to,
-    dueDate: row.due_date, createdAt: row.created_at, updatedAt: row.updated_at,
-    managerApprovedAt: row.manager_approved_at,
-  };
-}
 
 export interface CrmTransaction {
   lockUser(organizationId: string, userId: string): Promise<CrmUserRecord | null>;
@@ -287,6 +235,7 @@ export class PostgresCrmRepository implements CrmRepository {
   }
 
   async listCustomers(organizationId: string, filters: CustomerFilters) {
+    const limit = boundedLimit(filters.limit);
     const values: unknown[] = [organizationId];
     const where = ['c.organization_id = $1'];
     const add = (value: unknown) => { values.push(value); return `$${values.length}`; };
@@ -317,7 +266,7 @@ export class PostgresCrmRepository implements CrmRepository {
     const count = await this.pool.query<{ total: string }>(
       `SELECT COUNT(*)::text AS total FROM customers c WHERE ${condition}`, values,
     );
-    const pageValues = [...values, filters.limit, filters.offset];
+    const pageValues = [...values, limit, filters.offset];
     const items = await this.pool.query<CustomerRow>(
       `SELECT ${CUSTOMER_COLUMNS}, u.name AS assigned_staff_name,
          pc.id AS primary_contact_id, pc.name AS primary_contact_name, pc.title AS primary_contact_title
@@ -330,7 +279,7 @@ export class PostgresCrmRepository implements CrmRepository {
       pageValues,
     );
     return { items: items.rows.map(mapCustomerSummary), total: Number(count.rows[0]?.total ?? 0),
-      limit: filters.limit, offset: filters.offset };
+      limit, offset: filters.offset };
   }
 
   async getCustomerDetail(actor: CrmActor, customerId: string) {
@@ -368,6 +317,7 @@ export class PostgresCrmRepository implements CrmRepository {
   }
 
   async listContacts(organizationId: string, customerId: string, filters: ContactFilters) {
+    const limit = boundedLimit(filters.limit);
     const values: unknown[] = [organizationId, customerId];
     const where = ['organization_id=$1', 'customer_id=$2'];
     const add = (value: unknown) => { values.push(value); return `$${values.length}`; };
@@ -382,14 +332,14 @@ export class PostgresCrmRepository implements CrmRepository {
     const count = await this.pool.query<{ total: string }>(
       `SELECT COUNT(*)::text AS total FROM contacts WHERE ${condition}`, values,
     );
-    const pageValues = [...values, filters.limit, filters.offset];
+    const pageValues = [...values, limit, filters.offset];
     const items = await this.pool.query<ContactRow>(
       `SELECT ${CONTACT_COLUMNS} FROM contacts WHERE ${condition}
        ORDER BY is_primary DESC, name, id LIMIT $${pageValues.length - 1} OFFSET $${pageValues.length}`,
       pageValues,
     );
     return { items: items.rows.map(mapContact), total: Number(count.rows[0]?.total ?? 0),
-      limit: filters.limit, offset: filters.offset };
+      limit, offset: filters.offset };
   }
 
   async getContact(organizationId: string, customerId: string, contactId: string) {
