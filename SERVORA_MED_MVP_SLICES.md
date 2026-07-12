@@ -262,13 +262,13 @@ Run configured component tests and accessibility automation, then record manual 
 
 ### Acceptance
 
-- [ ] Admin creates manager and staff users.
-- [ ] Staff cannot create, role-change, or deactivate users.
-- [ ] Profile and manager belong to the same organization.
-- [ ] User inactive state controls profile availability; no duplicate profile active flag exists.
-- [ ] Profile contains no undefined generic monthly target.
-- [ ] Staff can view only their own profile unless explicitly authorized.
-- [ ] Forms meet the shared accessibility criteria.
+- [x] Admin creates manager and staff users.
+- [x] Staff cannot create, role-change, or deactivate users.
+- [x] Profile and manager belong to the same organization.
+- [x] User inactive state controls profile availability; no duplicate profile active flag exists.
+- [x] Profile contains no undefined generic monthly target.
+- [x] Staff can view only their own profile unless explicitly authorized.
+- [x] Forms meet the shared accessibility criteria.
 
 ## 8. Slice 05: Customers and Contacts
 

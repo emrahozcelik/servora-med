@@ -143,6 +143,8 @@ Slice 04 adds Admin-only user administration and Admin/Manager Staff profile API
 
 The development seed creates one Staff profile linked to the demo Manager in the same transaction as the demo users. A disposable PostgreSQL tracer verified forced password change, Staff creation/profile reads, Manager profile update, assigned-Staff lifecycle protection, eligible deactivation, session revocation, inactive login rejection, and atomic People audit events. The disposable database is removed after verification.
 
+The role-aware web workspace now provides Admin user management, Admin/Manager Staff profile maintenance, Staff own-profile counters, and a mandatory first-login password screen. Playwright verified the complete three-role flow at 390×844 CSS px, keyboard focus order, 44 CSS px controls, 200% text enlargement, 320 CSS px effective 400% reflow, reduced motion, and semantic form/status structures.
+
 ## Verification
 
 ```bash

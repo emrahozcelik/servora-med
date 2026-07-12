@@ -669,7 +669,7 @@ git commit -m "feat: add staff profile workspaces"
 **Interfaces:**
 - Completes Slice 04 only; does not begin Slice 05.
 
-- [ ] **Step 1: Run full automated verification**
+- [x] **Step 1: Run full automated verification**
 
 ```bash
 cd server && npm test -- --run
@@ -682,15 +682,15 @@ cd web && npm audit --omit=dev
 
 Expected: every command exits 0 and both audits report 0 vulnerabilities.
 
-- [ ] **Step 2: Run disposable PostgreSQL tracer**
+- [x] **Step 2: Run disposable PostgreSQL tracer**
 
 Verify migration → seed → Admin create Staff → forced login/change/fresh login → five counters → Manager profile update → lifecycle guards → eligible deactivate → revoked session/login rejection → audit inspection. Drop the database afterward.
 
-- [ ] **Step 3: Run Playwright MCP acceptance**
+- [x] **Step 3: Run Playwright MCP acceptance**
 
 At 390×844 CSS px verify Admin create/detail/commands, forced password screen, Staff own profile, Manager profile update, keyboard-only activation, visible focus, ≥44 CSS px primary targets, no horizontal overflow, 200% text size, 320 CSS px effective 400% reflow, reduced motion, and semantic accessibility snapshots.
 
-- [ ] **Step 4: Security and scope scans**
+- [x] **Step 4: Security and scope scans**
 
 ```bash
 rg -n -i 'restaurant|menu_item|sessionStorage|localStorage|Bearer ' server/src web/src
@@ -701,11 +701,11 @@ git diff --check
 
 Expected: no forbidden domain/storage/concurrency terms; credential identifiers occur only in typed credential-port calls and redaction tests, never audit payload construction.
 
-- [ ] **Step 5: Update canonical docs and verification record**
+- [x] **Step 5: Update canonical docs and verification record**
 
 Mark only proven acceptance criteria complete. Record exact test totals, builds, audits, PostgreSQL flow, Playwright checks, and any residual risk. Ensure API/schema drafts match named commands, version fields, audit, filters, five counters, and removed notes.
 
-- [ ] **Step 6: Refresh Codebase Memory and commit**
+- [x] **Step 6: Refresh Codebase Memory and commit**
 
 Reindex `server/` and `web/`, confirm clean generated artifacts, then:
 
@@ -716,3 +716,15 @@ git status --short --branch
 ```
 
 Expected: clean worktree. Do not push without explicit authorization.
+
+**Slice 04 final verification (2026-07-12):**
+
+- Server: 23 files, 129 tests passed; production build passed; production dependency audit reported 0 vulnerabilities.
+- Web: 12 files, 43 tests passed; production build passed; production dependency audit reported 0 vulnerabilities.
+- Disposable PostgreSQL browser database applied migrations `001`–`003`, seeded successfully, and was removed after the run.
+- Playwright Chromium at 390×844 CSS px verified Admin forced password change, Staff creation with Manager assignment, Staff forced password change and five-counter own profile, Manager-only Staff directory/update with no Users control, Admin deactivation, and inactive Staff login rejection.
+- Measured primary form controls were at least 44 CSS px high and the 390 CSS px flow had no horizontal overflow.
+- Keyboard login order was `E-posta` → `Parola` → `Giriş yap`, each with a visible 3 CSS px outline; activation by Enter passed.
+- A browser check found and fixed People heading/body reflow defects. The regression check then passed at 200% root text size and a 320 CSS px effective 400% reflow viewport with `scrollWidth === clientWidth`.
+- `prefers-reduced-motion: reduce` matched and transition duration resolved to 0.01 ms. Accessibility snapshots exposed labeled forms, headings, lists, navigation, alerts, and status feedback.
+- Browser console errors were limited to expected signed-out `GET /api/auth/me` 401 responses; no application exception was observed.
