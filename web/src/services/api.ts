@@ -1,5 +1,5 @@
 export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF';
-export type CurrentUser = { id: string; organizationId: string; name: string; email: string; role: UserRole; mustChangePassword: boolean };
+export type CurrentUser = { id: string; organizationId: string; name: string; email: string; role: UserRole; mustChangePassword: boolean; isActive: boolean; version: number };
 export type JobCardStatus = 'NEW' | 'PLANNED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'REVISION_REQUESTED' | 'COMPLETED' | 'CANCELLED';
 export type DeliveryPurpose = 'SALE' | 'SAMPLE' | 'CONSIGNMENT' | 'RETURN' | 'OTHER';
 export type JobCard = { id: string; organizationId: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus; version: number; title: string; description: string | null; customerId: string | null; assignedTo: string; createdBy: string; priority: 'low' | 'normal' | 'high' | 'urgent'; dueDate: string | null };
@@ -14,23 +14,27 @@ export class ApiError extends Error {
   }
 }
 
-function object(value: unknown): Record<string, unknown> {
+export function object(value: unknown): Record<string, unknown> {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz yanıt alındı.');
   return value as Record<string, unknown>;
 }
-function string(value: unknown, field: string) {
+export function string(value: unknown, field: string) {
   if (typeof value !== 'string' || !value) throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
   return value;
 }
-function nullableString(value: unknown, field: string): string | null {
+export function nullableString(value: unknown, field: string): string | null {
   if (value === null) return null;
   return string(value, field);
 }
-function number(value: unknown, field: string) {
+export function number(value: unknown, field: string) {
   if (typeof value !== 'number' || !Number.isFinite(value)) throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
   return value;
 }
-function items(value: unknown) {
+export function boolean(value: unknown, field: string) {
+  if (typeof value !== 'boolean') throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
+  return value;
+}
+export function items(value: unknown) {
   const list = object(value).items;
   if (!Array.isArray(list)) throw new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz liste yanıtı alındı.');
   return list;
@@ -54,7 +58,7 @@ function parseDelivery(value: unknown): DeliveryItem {
     serialNo: nullableString(v.serialNo, 'serialNo'), expiryDate: nullableString(v.expiryDate, 'expiryDate'), deliveryNote: nullableString(v.deliveryNote, 'deliveryNote') };
 }
 
-async function request(path: string, init: RequestInit = {}) {
+export async function request(path: string, init: RequestInit = {}) {
   let response: Response;
   try { response = await fetch(path, { ...init, credentials: 'include' }); }
   catch { throw new ApiError(0, 'NETWORK_ERROR', 'Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.', true); }
@@ -67,7 +71,7 @@ async function request(path: string, init: RequestInit = {}) {
   try { return await response.json() as unknown; }
   catch { throw new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz yanıt alındı.'); }
 }
-const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
+export const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
 export async function login(credentials: { email: string; password: string }) {
   const body = object(await request('/api/auth/login', json('POST', credentials)));
@@ -78,6 +82,7 @@ export async function getCurrentUser(): Promise<CurrentUser | null> {
   catch (error) { if (error instanceof ApiError && error.status === 401) return null; throw error; }
 }
 export async function logout() { await request('/api/auth/logout', { method: 'POST' }); }
+export async function changePassword(input: { currentPassword: string; newPassword: string }) { await request('/api/auth/change-password', json('POST', input)); }
 
 export async function listReferenceCustomers() {
   return items(await request('/api/reference/customers')).map((entry) => { const v = object(entry); return { id: string(v.id, 'id'), name: string(v.name, 'name'), customerType: string(v.customerType, 'customerType'), status: string(v.status, 'status') }; });

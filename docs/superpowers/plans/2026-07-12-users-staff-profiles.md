@@ -478,7 +478,7 @@ git commit -m "test: verify people backend tracer"
 - Produces typed list/detail/create/update/command functions and `changePassword`.
 - Reuses exported `request`, `object`, `string`, `number`, `nullableString`, `items`, and `json`; make these exports without changing behavior.
 
-- [ ] **Step 1: Write failing client contract tests**
+- [x] **Step 1: Write failing client contract tests**
 
 Define and validate:
 
@@ -501,21 +501,21 @@ export type StaffProfile = {
 
 Test credentials included, malformed response rejection, named command URLs, and error propagation.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd web && npm test -- --run tests/people-client.test.ts`  
 Expected: FAIL because `people-api.ts` is missing.
 
-- [ ] **Step 3: Implement minimal parsers and calls**
+- [x] **Step 3: Implement minimal parsers and calls**
 
 Include `listUsers`, `createUser`, `getUser`, `updateUser`, `changeUserRole`, `activateUser`, `deactivateUser`, `resetUserPassword`, `listStaff`, `getOwnStaffProfile`, `getStaffProfile`, `updateStaffProfile`, and `changePassword`.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd web && npm test -- --run tests/people-client.test.ts tests/auth-client.test.ts tests/tracer-client.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/services/api.ts web/src/services/people-api.ts web/tests/people-client.test.ts
