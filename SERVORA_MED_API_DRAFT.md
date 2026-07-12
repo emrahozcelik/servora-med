@@ -104,6 +104,7 @@ INVALID_CUSTOMER_STATUS_TRANSITION
 INVALID_CONTACT_STATUS_TRANSITION
 CONTACT_PRIMARY_REQUIRES_ACTIVE
 CONTACT_ALREADY_PRIMARY
+CUSTOMER_ASSIGNEE_NOT_ELIGIBLE
 ```
 
 Validation details may identify fields but must not expose SQL, stack traces, hashes, tokens, cookies, or internal infrastructure.
@@ -314,6 +315,10 @@ patches require a positive integer `expectedVersion`; successful mutations incre
 `version`, while stale requests return `409 VERSION_CONFLICT` with `currentVersion`.
 Customers with active JobCards cannot be deactivated. Customer mutation bodies use
 an exact allowlist and never accept or return a `notes` field.
+
+`assignedStaffUserId` accepts only `null` or a non-empty string. The referenced user
+must be an active Staff user in the same organization; a missing, inactive,
+cross-organization, or non-Staff user returns `409 CUSTOMER_ASSIGNEE_NOT_ELIGIBLE`.
 
 ## 8. Contacts `/api/customers/:customerId/contacts`
 

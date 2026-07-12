@@ -130,6 +130,25 @@ describe('CRM HTTP routes', () => {
   });
 
   it.each([
+    ['POST', '/api/customers', ''],
+    ['POST', '/api/customers', '   '],
+    ['PATCH', '/api/customers/customer-1', ''],
+    ['PATCH', '/api/customers/customer-1', '   '],
+  ])('rejects an empty assignedStaffUserId on %s %s', async (method, url, assignedStaffUserId) => {
+    const { app, service } = await createApp();
+    const payload = { name: 'Klinik', customerType: 'clinic', taxNumber: null, phone: null,
+      email: null, city: null, district: null, address: null, assignedStaffUserId,
+      ...(method === 'PATCH' ? { expectedVersion: 1 } : {}) };
+
+    const response = await app.inject({ method, url, payload });
+
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.createCustomer).not.toHaveBeenCalled();
+    expect(service.updateCustomer).not.toHaveBeenCalled();
+  });
+
+  it.each([
     ['/api/customers/customer-1/activate', 'activateCustomer'],
     ['/api/customers/customer-1/deactivate', 'deactivateCustomer'],
     ['/api/customers/customer-1/contacts/contact-1/activate', 'activateContact'],

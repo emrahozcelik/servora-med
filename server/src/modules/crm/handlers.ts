@@ -47,6 +47,12 @@ function nullableString(value: unknown, field: string) {
   return value as string;
 }
 
+function nullableNonEmptyString(value: unknown, field: string) {
+  const result = nullableString(value, field);
+  if (result !== null && !result.trim()) validation(`${field} boş olamaz.`);
+  return result;
+}
+
 function version(value: unknown) {
   if (!Number.isInteger(value) || (value as number) < 1) {
     validation('expectedVersion pozitif bir tam sayı olmalıdır.');
@@ -92,7 +98,7 @@ function customerInput(value: Record<string, unknown>) {
     taxNumber: nullableString(value.taxNumber, 'taxNumber'), phone: nullableString(value.phone, 'phone'),
     email: nullableString(value.email, 'email'), city: nullableString(value.city, 'city'),
     district: nullableString(value.district, 'district'), address: nullableString(value.address, 'address'),
-    assignedStaffUserId: nullableString(value.assignedStaffUserId, 'assignedStaffUserId'),
+    assignedStaffUserId: nullableNonEmptyString(value.assignedStaffUserId, 'assignedStaffUserId'),
   };
 }
 
