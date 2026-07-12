@@ -98,7 +98,7 @@ The profile has no `is_active`, notes, or target column. Its lifecycle and avail
 | --- | --- | --- |
 | `id` | UUID | primary key |
 | `organization_id` | UUID | not null, references `organizations` |
-| `actor_user_id` | UUID | nullable only for a documented system actor, references `users` |
+| `actor_user_id` | UUID | not null, references `users` |
 | `subject_type` | VARCHAR(40) | not null |
 | `subject_id` | UUID | not null |
 | `event_type` | VARCHAR(80) | not null |

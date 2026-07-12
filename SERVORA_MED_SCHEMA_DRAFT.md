@@ -169,7 +169,7 @@ People and security administration uses an audit stream separate from JobCard ac
 | --- | --- | --- |
 | id | UUID PK | |
 | organization_id | UUID NOT NULL | FK to organizations |
-| actor_user_id | UUID NULL | same-organization FK to users; null only for documented system actors |
+| actor_user_id | UUID NOT NULL | same-organization FK to users |
 | subject_type | VARCHAR(40) NOT NULL | `USER` or `STAFF_PROFILE` |
 | subject_id | UUID NOT NULL | audited subject identifier |
 | event_type | VARCHAR(80) NOT NULL | canonical People audit event |

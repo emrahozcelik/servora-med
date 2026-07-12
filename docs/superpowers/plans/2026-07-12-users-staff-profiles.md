@@ -149,7 +149,7 @@ git commit -m "feat: add people schema"
 - Produces `PeopleRepository.execute<T>(work)`, `PeopleTransaction`, `SafeManagedUser`, `StaffProfileSummary`, `StaffCounters`, and `AuditEventType`.
 - Consumes a `pg.Pool` and never commits outside `execute`.
 
-- [ ] **Step 1: Define tests against the required repository interface**
+- [x] **Step 1: Define tests against the required repository interface**
 
 Use a recording transaction for unit behavior and disposable PostgreSQL for SQL integration. The public contract must be:
 
@@ -177,12 +177,12 @@ export interface PeopleRepository {
 
 Tests must prove versioned updates use `WHERE ... version = ...`, counter overlap is intentional, `COMPLETED` uses `manager_approved_at`, overdue compares organization-local date, and audit insert accepts only caller-provided safe values.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd server && npm test -- --run tests/people-repository.test.ts tests/people-counters.test.ts`  
 Expected: FAIL because the People contracts/repository do not exist.
 
-- [ ] **Step 3: Implement minimal mapping and SQL**
+- [x] **Step 3: Implement minimal mapping and SQL**
 
 Keep transaction methods explicit:
 
@@ -206,12 +206,12 @@ export interface PeopleTransaction {
 
 Use `BEGIN/COMMIT/ROLLBACK`, `SELECT ... FOR UPDATE` for command targets, and conditional version updates. `PostgresPeopleRepository` receives the auth-owned administration ports and delegates the two auth transaction methods with its active `PoolClient`; People repository code must not duplicate password or session SQL. Calculate month start/end with `Intl.DateTimeFormat`-based organization date helpers in `types.ts`; do not add a date dependency.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd server && npm test -- --run tests/people-repository.test.ts tests/people-counters.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/people server/tests/people-repository.test.ts server/tests/people-counters.test.ts

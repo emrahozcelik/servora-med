@@ -47,6 +47,7 @@ describe('003_people migration contract', () => {
 
     expect(auditTable).toContain('old_value JSONB');
     expect(auditTable).toContain('new_value JSONB');
+    expect(auditTable).toContain('actor_user_id UUID NOT NULL');
     expect(auditTable).toContain("metadata JSONB NOT NULL DEFAULT '{}'::jsonb");
     expect(auditTable).not.toMatch(/^\s*(password|password_hash|token|cookie|session_id)\s/im);
   });
