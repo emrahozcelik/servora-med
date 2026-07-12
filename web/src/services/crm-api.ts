@@ -1,6 +1,6 @@
 import {
-  ApiError, boolean, items, json, nullableString, number, object, request, string,
-  type JobCardStatus,
+  ApiError, boolean, items, JOB_CARD_STATUSES, json, nullableString, number, object, request,
+  string, type JobCardStatus,
 } from './api';
 
 export const CUSTOMER_TYPES = ['clinic', 'hospital', 'dealer', 'company', 'other'] as const;
@@ -99,7 +99,7 @@ function parseJobSummary(value: unknown): CustomerJobSummary {
   const v = object(value);
   return {
     id: string(v.id, 'id'), title: string(v.title, 'title'),
-    status: string(v.status, 'status') as JobCardStatus, assignedTo: string(v.assignedTo, 'assignedTo'),
+    status: oneOf(v.status, 'status', JOB_CARD_STATUSES), assignedTo: string(v.assignedTo, 'assignedTo'),
     dueDate: nullableString(v.dueDate, 'dueDate'), createdAt: string(v.createdAt, 'createdAt'),
     updatedAt: string(v.updatedAt, 'updatedAt'),
     managerApprovedAt: nullableString(v.managerApprovedAt, 'managerApprovedAt'),

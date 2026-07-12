@@ -764,7 +764,7 @@ git add web/src/services/api.ts web/src/services/crm-api.ts web/tests/crm-client
 git commit -m "feat: add CRM web client"
 ```
 
-**Task 9 verification (2026-07-12):** the focused CRM/JobCard/auth/People client suite passed 4 files/19 tests, the full web suite passed 14 files/65 tests, the TypeScript/Vite production build passed, and `npm audit --audit-level=high` reported zero vulnerabilities. Runtime parsers reject malformed CRM responses, mutation conflicts remain non-retryable, all list filters and nested identifiers are URL-encoded, and JobCard responses preserve nullable `contactId`.
+**Task 9 verification (2026-07-12):** the focused CRM/JobCard/auth/People client suite passed 4 files/22 tests, the full web suite passed 14 files/68 tests, the TypeScript/Vite production build passed, and `npm audit --audit-level=high` reported zero vulnerabilities. Runtime parsers reject malformed CRM responses and non-canonical JobCard summary statuses; mutation conflicts remain non-retryable while safe `details.currentVersion` data is preserved; malformed error details are ignored; all list filters and Customer/Contact identifiers are URL-encoded; and JobCard responses preserve nullable `contactId`.
 
 ### Task 10: Customer list, URL filters, and creation
 

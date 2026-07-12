@@ -1,6 +1,8 @@
 export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF';
 export type CurrentUser = { id: string; organizationId: string; name: string; email: string; role: UserRole; mustChangePassword: boolean; isActive: boolean; version: number };
-export type JobCardStatus = 'NEW' | 'PLANNED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'REVISION_REQUESTED' | 'COMPLETED' | 'CANCELLED';
+export const JOB_CARD_STATUSES = ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL',
+  'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED'] as const;
+export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
 export type DeliveryPurpose = 'SALE' | 'SAMPLE' | 'CONSIGNMENT' | 'RETURN' | 'OTHER';
 export type JobCard = { id: string; organizationId: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus; version: number; title: string; description: string | null; customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string; priority: 'low' | 'normal' | 'high' | 'urgent'; dueDate: string | null };
 export type DeliveryItem = { id: string; organizationId: string; jobCardId: string; productId: string; deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; unit: string; productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null; lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null };
@@ -9,7 +11,8 @@ export type ReferenceCustomer = { id: string; name: string; customerType: string
 export type ReferenceProduct = { id: string; name: string; sku: string; model: string | null; unit: string };
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, public readonly code: string, message: string, public readonly retryable = false) {
+  constructor(public readonly status: number, public readonly code: string, message: string,
+    public readonly retryable = false, public readonly details: Record<string, unknown> | null = null) {
     super(message); this.name = 'ApiError';
   }
 }
@@ -64,8 +67,16 @@ export async function request(path: string, init: RequestInit = {}) {
   catch { throw new ApiError(0, 'NETWORK_ERROR', 'Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.', true); }
   if (!response.ok) {
     let error = 'İşlem tamamlanamadı. Lütfen tekrar deneyin.'; let code = 'REQUEST_FAILED';
-    try { const body = object(await response.json()); if (typeof body.error === 'string') error = body.error; if (typeof body.code === 'string') code = body.code; } catch { /* use safe fallback */ }
-    throw new ApiError(response.status, code, error, response.status >= 500);
+    let details: Record<string, unknown> | null = null;
+    try {
+      const body = object(await response.json());
+      if (typeof body.error === 'string') error = body.error;
+      if (typeof body.code === 'string') code = body.code;
+      if (body.details && typeof body.details === 'object' && !Array.isArray(body.details)) {
+        details = body.details as Record<string, unknown>;
+      }
+    } catch { /* use safe fallback */ }
+    throw new ApiError(response.status, code, error, response.status >= 500, details);
   }
   if (response.status === 204) return null;
   try { return await response.json() as unknown; }

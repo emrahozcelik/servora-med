@@ -58,6 +58,15 @@ describe('CRM API client', () => {
     ]);
   });
 
+  it('encodes the top-level Customer detail route', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({ ...customer, assignedStaffName: null,
+      primaryContact: null, contacts: [], openJobs: [], completedJobs: [] }));
+    vi.stubGlobal('fetch', fetchMock);
+    await getCustomer('customer/1 + özel');
+    expect(fetchMock).toHaveBeenCalledWith('/api/customers/customer%2F1%20%2B%20%C3%B6zel',
+      expect.objectContaining({ credentials: 'include' }));
+  });
+
   it('sends exact Customer mutation and command bodies', async () => {
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(json(customer)));
     vi.stubGlobal('fetch', fetchMock);
@@ -112,14 +121,34 @@ describe('CRM API client', () => {
       .rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
+  it('rejects an unknown JobCard status in Customer detail summaries', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...customer, assignedStaffName: null,
+      primaryContact: null, contacts: [], completedJobs: [], openJobs: [{
+        id: 'job-1', title: 'Teslimat', status: 'BOGUS', assignedTo: 'staff-1', dueDate: null,
+        createdAt: '2026-07-12T08:00:00Z', updatedAt: '2026-07-12T08:00:00Z',
+        managerApprovedAt: null,
+      }] })));
+    await expect(getCustomer('customer-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it('propagates VERSION_CONFLICT without retrying the mutation', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({
       error: 'Kayıt başka bir kullanıcı tarafından güncellendi.', code: 'VERSION_CONFLICT',
+      details: { currentVersion: 4 },
     }, 409));
     vi.stubGlobal('fetch', fetchMock);
     await expect(deactivateCustomer('customer-1', 1)).rejects.toMatchObject<ApiError>({
-      status: 409, code: 'VERSION_CONFLICT', retryable: false,
+      status: 409, code: 'VERSION_CONFLICT', retryable: false, details: { currentVersion: 4 },
     });
     expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
+
+  it('ignores non-object error details while preserving the safe backend error', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      error: 'Sürüm çakıştı.', code: 'VERSION_CONFLICT', details: 'unsafe-shape',
+    }, 409)));
+    await expect(activateCustomer('customer-1', 1)).rejects.toMatchObject<ApiError>({
+      status: 409, code: 'VERSION_CONFLICT', details: null,
+    });
   });
 });
