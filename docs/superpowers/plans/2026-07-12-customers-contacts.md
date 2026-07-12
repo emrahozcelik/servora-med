@@ -779,7 +779,7 @@ git commit -m "feat: add CRM web client"
 - Produces `/customers` and `/customers/new` screens.
 - Consumes CRM client, People Staff list, `paths.customer`, and URL search parameters.
 
-- [ ] **Step 1: Write failing list/create view tests**
+- [x] **Step 1: Write failing list/create view tests**
 
 Tests cover loading, empty, no-results, retry, inactive default, status/type/city/Staff/unassigned filters, copied URL restoration, Staff read-only view, Manager/Admin create action, field-linked errors, similar-name warning, pending submit disablement, and unknown network-result refetch behavior.
 
@@ -792,26 +792,28 @@ expect(html).toContain('Sorumlu personel');
 expect(html).toContain('Birincil kişi');
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cd web && npm test -- --run tests/customer-list.test.tsx tests/accessibility-contract.test.ts`  
 Expected: FAIL because Customer screens do not exist.
 
-- [ ] **Step 3: Implement routed list and create states**
+- [x] **Step 3: Implement routed list and create states**
 
 Use `useSearchParams` as the single filter state. Debounce only text search with an existing React effect/timer; do not add a dependency. Render status/type with text labels, use a structured list rather than a table, and link each result to `paths.customer(id)`. Before create, query normal case-insensitive name search and display matches without blocking submit. Disable submit while pending and refetch after an unknown result before allowing resubmission.
 
-- [ ] **Step 4: Verify GREEN and responsive contract**
+- [x] **Step 4: Verify GREEN and responsive contract**
 
 Run: `cd web && npm test -- --run tests/customer-list.test.tsx tests/router.test.tsx tests/accessibility-contract.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/CustomerList.tsx web/src/AppRouter.tsx web/src/styles.css web/tests/customer-list.test.tsx web/tests/accessibility-contract.test.ts
 git commit -m "feat: add Customer list and creation"
 ```
+
+**Task 10 verification (2026-07-12):** focused Customer/router/accessibility tests passed 3 files/25 tests; the full web suite passed 15 files/74 tests; TypeScript/Vite build passed; npm audit reported zero vulnerabilities. Filters are URL-owned with debounced text search, create recovery refetches after ambiguous network results, and responsive CSS reflows filters, list rows, and form pairs to one column.
 
 ### Task 11: Customer detail and nested Contact management
 

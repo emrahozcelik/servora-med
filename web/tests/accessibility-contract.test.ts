@@ -25,6 +25,9 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.detail-heading \{[^}]*flex-wrap: wrap;/);
     expect(css).toMatch(/\.delivery-pair \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.delivery-lines > ul > li \{ grid-template-columns: 1fr;/);
+    expect(css).toMatch(/\.customer-filters \{ grid-template-columns: 1fr;/);
+    expect(css).toMatch(/\.customer-row \{ grid-template-columns: 1fr;/);
+    expect(css).toMatch(/\.customer-form-pair \{ grid-template-columns: 1fr;/);
   });
 
   it('honors reduced-motion preference', () => {

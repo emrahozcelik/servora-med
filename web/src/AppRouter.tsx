@@ -1,10 +1,14 @@
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 
 import { DeliveryCreateView } from './DeliveryCreate';
+import { CustomerCreateScreen, CustomerListScreen } from './CustomerList';
 import { JobDetailScreen } from './JobDetail';
 import { StaffProfilesScreen } from './StaffProfiles';
 import { UserManagementScreen } from './UserManagement';
+import { paths } from './paths';
 import type { CurrentUser, JobCard, ReferenceCustomer, ReferenceProduct } from './services/api';
+
+export { paths } from './paths';
 
 const statusLabels = { NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor', REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi' } as const;
 const priorityLabels = { low: 'Düşük öncelik', normal: 'Normal öncelik', high: 'Yüksek öncelik', urgent: 'Acil öncelik' } as const;
@@ -53,22 +57,6 @@ export function WorkspaceView({ user, state, onRetry, onCreate, onOpen, notice =
         </article></li>)}</ul>}
   </main>;
 }
-
-const encoded = (value: string) => encodeURIComponent(value);
-
-export const paths = {
-  jobs: '/jobs',
-  newDelivery: '/jobs/new-delivery',
-  users: '/users',
-  staff: '/staff',
-  customers: '/customers',
-  newCustomer: '/customers/new',
-  job: (id: string) => `/jobs/${encoded(id)}`,
-  staffProfile: (id: string) => `/staff/${encoded(id)}`,
-  customer: (id: string) => `/customers/${encoded(id)}`,
-  contact: (customerId: string, contactId: string) =>
-    `/customers/${encoded(customerId)}/contacts/${encoded(contactId)}`,
-} as const;
 
 type AppRouterProps = {
   user: CurrentUser;
@@ -147,8 +135,8 @@ export function AppRouter({ user, workspace, customers, products, notice, onRelo
         ? <UserManagementScreen onBack={() => navigate(paths.jobs)} /> : <ForbiddenView />} />
       <Route path={paths.staff} element={<StaffRoute user={user} />} />
       <Route path="/staff/:staffUserId" element={<StaffRoute user={user} />} />
-      <Route path={paths.customers} element={<CustomerPlaceholder kind="list" />} />
-      <Route path={paths.newCustomer} element={user.role === 'STAFF' ? <ForbiddenView /> : <CustomerPlaceholder kind="create" />} />
+      <Route path={paths.customers} element={<CustomerListScreen user={user} />} />
+      <Route path={paths.newCustomer} element={user.role === 'STAFF' ? <ForbiddenView /> : <CustomerCreateScreen user={user} />} />
       <Route path="/customers/:customerId" element={<CustomerPlaceholder kind="detail" />} />
       <Route path="/customers/:customerId/contacts/:contactId" element={<CustomerPlaceholder kind="contact" />} />
       <Route path="*" element={<NotFoundView />} />
