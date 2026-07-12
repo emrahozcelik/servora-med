@@ -5,8 +5,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   CustomerCreateForm,
   CustomerListView,
+  createRequestGate,
   createCustomerWithRecovery,
   customerFiltersFromParams,
+  customerInputFromFormData,
+  customerRequestFilters,
+  scheduleCustomerSearch,
   type CustomerListState,
 } from '../src/CustomerList';
 import { ApiError, type CurrentUser } from '../src/services/api';
@@ -60,10 +64,24 @@ describe('Customer list and creation', () => {
   });
 
   it('restores all URL filters and defaults status to active', () => {
-    expect(customerFiltersFromParams(new URLSearchParams())).toMatchObject({ status: 'active' });
+    expect(customerFiltersFromParams(new URLSearchParams())).toEqual({});
     expect(customerFiltersFromParams(new URLSearchParams(
       'q=Ay%C5%9Fe&status=inactive&customerType=clinic&city=Ankara&assignedStaffUserId=staff-1&unassigned=true',
     ))).toEqual({ q: 'Ayşe', status: 'inactive', customerType: 'clinic', city: 'Ankara', assignedStaffUserId: 'staff-1', unassigned: true });
+  });
+
+  it('maps copied/default URL state to the exact backend filter contract', () => {
+    expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams()), '')).toEqual({ q: undefined, status: undefined });
+    expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams('status=inactive&q=Eski')), 'Eski'))
+      .toMatchObject({ status: 'inactive', q: 'Eski' });
+  });
+
+  it('debounces text search and rejects stale similar-name generations', () => {
+    vi.useFakeTimers(); const callback = vi.fn(); scheduleCustomerSearch(callback);
+    vi.advanceTimersByTime(249); expect(callback).not.toHaveBeenCalled();
+    vi.advanceTimersByTime(1); expect(callback).toHaveBeenCalledOnce(); vi.useRealTimers();
+    const gate = createRequestGate(); const older = gate.next(); const latest = gate.next();
+    expect(gate.isCurrent(older)).toBe(false); expect(gate.isCurrent(latest)).toBe(true);
   });
 
   it('renders labeled filters and an accessible creation form with pending state', () => {
@@ -73,21 +91,35 @@ describe('Customer list and creation', () => {
     for (const label of ['Durum', 'Müşteri türü', 'Şehir', 'Sorumlu personel', 'Atanmamış müşteriler']) expect(filters).toContain(label);
 
     const form = renderToStaticMarkup(<MemoryRouter><CustomerCreateForm staff={[profile]} pending similarCustomers={[customer]}
-      fieldErrors={{ name: 'Müşteri adı zorunludur.' }} onCancel={() => {}} onSubmit={() => {}} /></MemoryRouter>);
+      fieldErrors={{ name: 'Müşteri adı zorunludur.' }} error="Sunucu alanları kabul etmedi."
+      onCancel={() => {}} onSubmit={() => {}} /></MemoryRouter>);
     expect(form).toContain('<label for="customer-name">Müşteri adı</label>');
     expect(form).toContain('Müşteri adı zorunludur.');
     expect(form).toContain('aria-describedby="customer-name-error"');
     expect(form).toContain('Benzer müşteri kayıtları');
     expect(form).toContain('Demo Dental Klinik');
     expect(form).toContain('disabled=""');
+    expect(form).toContain('role="alert"'); expect(form).toContain('tabindex="-1"');
   });
 
-  it('refetches after an unknown create result and returns the matching persisted Customer', async () => {
+  it('refetches after an unknown create result without claiming a same-name Customer identity', async () => {
     const create = vi.fn().mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı koptu.', true));
     const refetch = vi.fn().mockResolvedValue({ items: [customer], total: 1, limit: 25, offset: 0 });
     await expect(createCustomerWithRecovery({ ...customer, status: undefined }, { create, refetch }))
-      .resolves.toEqual({ customer, recovered: true });
+      .resolves.toEqual({ customer: null, resultUnknown: true, matches: [customer] });
     expect(create).toHaveBeenCalledTimes(1);
     expect(refetch).toHaveBeenCalledWith({ q: 'Demo Dental Klinik' });
+  });
+
+  it('builds the exact create payload and finishes no-match recovery before returning ambiguity', async () => {
+    const data = new FormData(); data.set('name', '  Yeni Klinik  '); data.set('customerType', 'clinic');
+    data.set('taxNumber', ' AB 123 '); data.set('email', ''); data.set('assignedStaffUserId', 'staff-1');
+    expect(customerInputFromFormData(data)).toEqual({ name: 'Yeni Klinik', customerType: 'clinic', taxNumber: 'AB 123',
+      phone: null, email: null, city: null, district: null, address: null, assignedStaffUserId: 'staff-1', status: 'prospect' });
+    const create = vi.fn().mockRejectedValue(new ApiError(0, 'INVALID_RESPONSE', 'Yanıt okunamadı.'));
+    const refetch = vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 });
+    await expect(createCustomerWithRecovery(customerInputFromFormData(data), { create, refetch }))
+      .resolves.toEqual({ customer: null, resultUnknown: true, matches: [] });
+    expect(refetch).toHaveBeenCalledTimes(1);
   });
 });

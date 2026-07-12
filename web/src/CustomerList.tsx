@@ -29,7 +29,7 @@ export function customerFiltersFromParams(params: URLSearchParams): CustomerFilt
   const offsetValue = params.get('offset'); const offset = offsetValue === null ? NaN : Number(offsetValue);
   return {
     ...(params.get('q') ? { q: params.get('q')! } : {}),
-    status: status === 'prospect' || status === 'inactive' || status === 'all' ? status : 'active',
+    ...(status === 'prospect' || status === 'active' || status === 'inactive' || status === 'all' ? { status } : {}),
     ...(customerType === 'clinic' || customerType === 'hospital' || customerType === 'dealer' || customerType === 'company' || customerType === 'other'
       ? { customerType } : {}),
     ...(params.get('city') ? { city: params.get('city')! } : {}),
@@ -49,8 +49,8 @@ function CustomerFiltersView({ filters, staff, onChange }: {
     <div className="field-group"><label htmlFor="customer-search">Müşteri ara</label>
       <input id="customer-search" type="search" value={filters.q ?? ''} onChange={(event) => onChange('q', event.target.value)} /></div>
     <label className="field-group" htmlFor="customer-status">Durum
-      <select id="customer-status" value={filters.status ?? 'active'} onChange={(event) => onChange('status', event.target.value)}>
-        <option value="active">Aktif</option><option value="prospect">Aday</option><option value="inactive">Pasif</option><option value="all">Tümü</option>
+      <select id="customer-status" value={filters.status ?? ''} onChange={(event) => onChange('status', event.target.value)}>
+        <option value="">Aktif ve aday</option><option value="active">Yalnız aktif</option><option value="prospect">Yalnız aday</option><option value="inactive">Pasif</option><option value="all">Tümü</option>
       </select>
     </label>
     <label className="field-group" htmlFor="customer-type">Müşteri türü
@@ -150,18 +150,40 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
 export async function createCustomerWithRecovery(input: CreateCustomerInput, dependencies = {
   create: createCustomer, refetch: listCustomers,
 }) {
-  try { return { customer: await dependencies.create(input), recovered: false }; }
+  try { return { customer: await dependencies.create(input), resultUnknown: false, matches: [] as CustomerSummary[] }; }
   catch (error) {
     if (!(error instanceof ApiError) || (error.code !== 'NETWORK_ERROR' && error.code !== 'INVALID_RESPONSE')) throw error;
     const result = await dependencies.refetch({ q: input.name });
-    const match = result.items.find((customer) => customer.name.trim().toLocaleLowerCase('tr-TR') === input.name.trim().toLocaleLowerCase('tr-TR'));
-    if (match) return { customer: match, recovered: true };
-    throw error;
+    return { customer: null, resultUnknown: true, matches: result.items };
   }
+}
+
+export function customerRequestFilters(filters: CustomerFilterValues, debouncedQuery: string): CustomerFilters {
+  return { ...filters, q: debouncedQuery || undefined, status: filters.status === 'all' ? undefined : filters.status };
+}
+
+export function scheduleCustomerSearch(callback: () => void, delay = 250) {
+  const timer = setTimeout(callback, delay);
+  return () => clearTimeout(timer);
+}
+
+export function createRequestGate() {
+  let generation = 0;
+  return { next: () => ++generation, isCurrent: (candidate: number) => candidate === generation };
 }
 
 function nullable(data: FormData, name: string) {
   return String(data.get(name) ?? '').trim() || null;
+}
+
+export function customerInputFromFormData(data: FormData): CreateCustomerInput {
+  return {
+    name: String(data.get('name') ?? '').trim(),
+    customerType: String(data.get('customerType')) as CustomerType,
+    taxNumber: nullable(data, 'taxNumber'), phone: nullable(data, 'phone'), email: nullable(data, 'email'),
+    city: nullable(data, 'city'), district: nullable(data, 'district'), address: nullable(data, 'address'),
+    assignedStaffUserId: nullable(data, 'assignedStaffUserId'), status: 'prospect',
+  };
 }
 
 export function CustomerListScreen({ user }: { user: CurrentUser }) {
@@ -172,11 +194,10 @@ export function CustomerListScreen({ user }: { user: CurrentUser }) {
   const [state, setState] = useState<CustomerListState>({ kind: 'loading' });
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
-  useEffect(() => { const timer = setTimeout(() => setDebouncedQuery(filters.q ?? ''), 250); return () => clearTimeout(timer); }, [filters.q]);
+  useEffect(() => scheduleCustomerSearch(() => setDebouncedQuery(filters.q ?? '')), [filters.q]);
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
-    const requestFilters: CustomerFilters = { ...filters, q: debouncedQuery || undefined,
-      status: filters.status === 'all' ? undefined : filters.status };
+    const requestFilters = customerRequestFilters(filters, debouncedQuery);
     Promise.all([listCustomers(requestFilters), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')])
       .then(([result, profiles]) => { if (active) { setState({ kind: 'ready', customers: result.items }); setStaff(profiles); } })
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof Error ? error.message : 'Müşteriler yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
@@ -184,11 +205,11 @@ export function CustomerListScreen({ user }: { user: CurrentUser }) {
   }, [debouncedQuery, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role]);
   function changeFilter(name: string, value: string | boolean) {
     const next = new URLSearchParams(params);
-    if (value === '' || value === false || (name === 'status' && value === 'active')) next.delete(name); else next.set(name, String(value));
+    if (value === '' || value === false) next.delete(name); else next.set(name, String(value));
     if (name === 'unassigned' && value === true) next.delete('assignedStaffUserId');
     next.delete('offset'); setParams(next);
   }
-  const hasFilters = Boolean(filters.q || filters.customerType || filters.city || filters.assignedStaffUserId || filters.unassigned || filters.status !== 'active');
+  const hasFilters = Boolean(filters.q || filters.customerType || filters.city || filters.assignedStaffUserId || filters.unassigned || filters.status);
   return <CustomerListView state={state} user={user} hasFilters={hasFilters} filters={filters} staff={staff}
     onFilterChange={changeFilter} onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)} />;
 }
@@ -204,16 +225,21 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
   useEffect(() => { void listStaff('active').then(setStaff).catch(() => setStaff([])); }, []);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const similarRequestGate = useRef(createRequestGate());
+  useEffect(() => () => { if (searchTimer.current) clearTimeout(searchTimer.current); similarRequestGate.current.next(); }, []);
   function nameChanged(name: string) {
     if (searchTimer.current) clearTimeout(searchTimer.current);
+    const requestGeneration = similarRequestGate.current.next();
     searchTimer.current = setTimeout(() => {
       if (name.trim().length < 2) { setSimilar([]); return; }
-      void listCustomers({ q: name.trim(), limit: 5, offset: 0 }).then((result) => setSimilar(result.items)).catch(() => setSimilar([]));
+      void listCustomers({ q: name.trim(), limit: 5, offset: 0 })
+        .then((result) => { if (similarRequestGate.current.isCurrent(requestGeneration)) setSimilar(result.items); })
+        .catch(() => { if (similarRequestGate.current.isCurrent(requestGeneration)) setSimilar([]); });
     }, 250);
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setFieldErrors({});
-    const data = new FormData(event.currentTarget); const name = String(data.get('name') ?? '').trim(); const email = nullable(data, 'email');
+    const data = new FormData(event.currentTarget); const input = customerInputFromFormData(data); const { name, email } = input;
     const errors: CustomerFieldErrors = {};
     if (!name) errors.name = 'Müşteri adı zorunludur.';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Geçerli bir e-posta adresi yazın.';
@@ -225,10 +251,9 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
     }
     setPending(true);
     try {
-      const result = await createCustomerWithRecovery({ name, customerType: String(data.get('customerType')) as CustomerType,
-        taxNumber: nullable(data, 'taxNumber'), phone: nullable(data, 'phone'), email, city: nullable(data, 'city'),
-        district: nullable(data, 'district'), address: nullable(data, 'address'), assignedStaffUserId: nullable(data, 'assignedStaffUserId'), status: 'prospect' });
-      navigate(paths.customer(result.customer.id));
+      const result = await createCustomerWithRecovery(input);
+      if (result.customer) navigate(paths.customer(result.customer.id));
+      else { setSimilar(result.matches); setError('Kayıt isteğinin sonucu doğrulanamadı. Benzer kayıtları kontrol edip gerekirse yeniden deneyin.'); }
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Müşteri oluşturulamadı. Tekrar deneyin.'); }
     finally { setPending(false); }
   }

@@ -813,7 +813,7 @@ git add web/src/CustomerList.tsx web/src/AppRouter.tsx web/src/styles.css web/te
 git commit -m "feat: add Customer list and creation"
 ```
 
-**Task 10 verification (2026-07-12):** focused Customer/router/accessibility tests passed 3 files/25 tests; the full web suite passed 15 files/74 tests; TypeScript/Vite build passed; npm audit reported zero vulnerabilities. Filters are URL-owned with debounced text search, create recovery refetches after ambiguous network results, and responsive CSS reflows filters, list rows, and form pairs to one column.
+**Task 10 verification (2026-07-12):** focused Customer/router/accessibility tests passed 3 files/28 tests; the full web suite passed 15 files/77 tests; TypeScript/Vite build passed; npm audit reported zero vulnerabilities. Filters are URL-owned, the parameterless default delegates to the backend's prospect-plus-active scope, and only text search is debounced. Similar-name searches reject stale generations. Ambiguous create results refetch but never claim identity from a non-unique name, and responsive CSS reflows filters, list rows, and form pairs to one column.
 
 ### Task 11: Customer detail and nested Contact management
 
