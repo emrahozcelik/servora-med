@@ -1,7 +1,7 @@
 # Servora-Med Customers and Contacts Design
 
 **Date:** 2026-07-12
-**Status:** Approved design, awaiting written-spec review
+**Status:** Approved revised design
 **Slice:** 05 — Customers and Contacts
 
 ## 1. Goal
@@ -25,8 +25,9 @@ Manager creates a customer
 
 - Customer types `clinic`, `hospital`, `dealer`, `company`, and `other`
 - Customer lifecycle `prospect`, `active`, and `inactive`
-- Optional one-to-one primary responsible Staff assignment on the customer
+- Optional many-to-one responsible Staff assignment: each Customer may have zero or one responsible Staff user; one Staff user may be responsible for multiple Customers
 - Nested Contact management under a Customer aggregate
+- Optional Contact association on JobCards, constrained to the selected Customer
 - Zero or one active primary Contact per customer
 - Search, status, assignee, city, and unassigned filters
 - Customer and Contact optimistic concurrency
@@ -41,7 +42,7 @@ Manager creates a customer
 - Customer-level or Contact-level free-form notes
 - JobCard note implementation and JobCard activity UI
 - Confidential Staff-profile note implementation
-- Related follow-up JobCard implementation
+- Related follow-up JobCard implementation beyond persisting the current Contact relationship
 - Bulk import, merge, deduplication workflow, tags, custom fields, or attachments
 - Geographic maps, route planning, realtime updates, or external CRM synchronization
 - Customer deletion or Contact deletion
@@ -66,7 +67,7 @@ Customers are business entities. A solo doctor's practice is represented as a Cu
 
 ## 4. Data Model
 
-Migration `004_crm_contacts.sql` extends the minimal seeded `customers` table and creates `contacts`.
+Migration `004_crm_contacts.sql` extends the minimal seeded `customers` table, creates `contacts`, adds the missing `job_cards.contact_id` relationship already present in the schema draft, and extends management-audit constraints for CRM subjects and events. The migration does not edit already-applied migrations.
 
 ### Customers
 
@@ -88,7 +89,7 @@ Migration `004_crm_contacts.sql` extends the minimal seeded `customers` table an
 | `created_at` | TIMESTAMPTZ | not null, default current time |
 | `updated_at` | TIMESTAMPTZ | not null, default current time |
 
-There is no `customers.notes` or duplicate `is_active` column. Customer name, phone, and email are not unique. When present, a normalized tax number is unique within the organization through a partial unique index. Normalization removes whitespace and common separators before persistence. Existing case-insensitive name matches from the normal search endpoint produce a non-blocking warning in the creation experience rather than a database rejection; MVP does not add fuzzy-search infrastructure.
+There is no `customers.notes` or duplicate `is_active` column. Customer name, phone, and email are not unique. When present, a normalized tax number is unique within the organization through a partial unique index. Tax-number normalization trims the input, removes every whitespace character plus `.`, `-`, and `/`, uppercases letters, and persists `NULL` when the result is empty. Existing case-insensitive name matches from the normal search endpoint produce a non-blocking warning in the creation experience rather than a database rejection; MVP does not add fuzzy-search infrastructure.
 
 ### Contacts
 
@@ -107,7 +108,28 @@ There is no `customers.notes` or duplicate `is_active` column. Customer name, ph
 | `created_at` | TIMESTAMPTZ | not null, default current time |
 | `updated_at` | TIMESTAMPTZ | not null, default current time |
 
-There is no `contacts.notes`. Contact lifecycle uses only `is_active`; unlike Customer, Contact has no prospect state. A partial unique index enforces at most one row per customer where `is_primary = true AND is_active = true`. Organization/customer composite ownership is protected by composite keys or equivalent database constraints where practical and is always validated by the service.
+There is no `contacts.notes`. Contact lifecycle uses only `is_active`; unlike Customer, Contact has no prospect state. A partial unique index enforces at most one row per customer where `is_primary = true AND is_active = true`.
+
+### JobCard Contact relationship
+
+`job_cards` gains nullable `contact_id`. When present, the Contact must belong to the authenticated organization and to the JobCard's selected Customer. Historical JobCards continue to resolve an inactive Contact. New or edited active JobCards may select only an active Contact under an eligible Customer.
+
+### Database ownership constraints
+
+Organization ownership is protected at the database layer as well as in service validation:
+
+```text
+contacts (organization_id, customer_id)
+  → customers (organization_id, id)
+
+customers (organization_id, assigned_staff_user_id)
+  → users (organization_id, id)
+
+job_cards (organization_id, contact_id)
+  → contacts (organization_id, id)
+```
+
+Parent tables expose the required `UNIQUE (organization_id, id)` keys. `customers` and `users` already provide these keys in applied migrations; migration 004 adds them where still required. The service additionally validates that `job_cards.customer_id` equals the selected Contact's `customer_id`, because separate organization-level foreign keys alone cannot express that equality.
 
 ## 5. Ownership and Lifecycle Rules
 
@@ -116,7 +138,7 @@ There is no `contacts.notes`. Contact lifecycle uses only `is_active`; unlike Cu
 - `assigned_staff_user_id` is optional and represents one primary responsible Staff user.
 - The assignee must be an active `STAFF` user in the authenticated organization.
 - Admin and Manager may change the assignment; Staff may not.
-- Deactivating a Staff user atomically clears that user from active customer assignments.
+- Deactivating a Staff user atomically clears that user from every Customer assignment, including inactive Customers, because the field represents current ownership rather than history.
 - Historical JobCard assignments are not changed.
 - Multiple Staff assignments and assignment roles are deferred until pilot evidence requires `customer_staff_assignments`.
 
@@ -129,7 +151,23 @@ When management creates a JobCard, the customer assignee may be suggested as the
 - Making another active Contact primary clears the previous primary in the same transaction.
 - An inactive Contact cannot become primary.
 - Deactivating the primary Contact leaves the customer without a primary Contact; the system does not guess a replacement.
+- Reactivating a Contact does not make it primary; management uses the explicit `make-primary` command when required.
 - A customer's active primary Contact may be suggested when creating a JobCard, but the submitted Contact must still be active, organization-owned, and attached to that Customer.
+
+Contact creation always produces an active Contact. `POST` does not accept `isActive`; it accepts no lifecycle override. `PATCH` changes only `name`, `title`, `phone`, and `email` and rejects `isActive`, `isPrimary`, `customerId`, and `organizationId`. Activation, deactivation, and primary selection occur only through their named commands.
+
+### Customer status state machine
+
+Customer creation accepts an initial status of `prospect` or `active`; omission defaults to `prospect`. Lifecycle status is never accepted by general `PATCH`.
+
+```text
+prospect → activate   → active
+active   → deactivate → inactive
+prospect → deactivate → inactive
+inactive → activate   → active
+```
+
+Commands outside the listed transitions return `409 INVALID_CUSTOMER_STATUS_TRANSITION` without mutation or audit. Reactivation always returns to `active`, never to `prospect`.
 
 ### Customer deactivation
 
@@ -144,6 +182,12 @@ REVISION_REQUESTED
 ```
 
 The command returns `409 CUSTOMER_HAS_ACTIVE_JOB_CARDS`. Management must complete, cancel, or intentionally move the active work before deactivation. Inactive customers and their historical JobCards remain readable, but inactive customers are excluded from new JobCard selectors. A customer may later be reactivated.
+
+Customer deactivation does not cascade to Contacts. The Customer's Contacts retain their individual lifecycle state, are excluded from new JobCard selectors while the parent Customer is inactive, and become eligible again according to their own active state if the Customer is reactivated.
+
+### Contact deactivation
+
+A Contact cannot be deactivated while referenced by a JobCard in `NEW`, `PLANNED`, `IN_PROGRESS`, `WAITING_APPROVAL`, or `REVISION_REQUESTED`. The command returns `409 CONTACT_HAS_ACTIVE_JOB_CARDS`. Completed and cancelled JobCards retain and display the historical Contact even after later deactivation.
 
 ## 6. Authorization and Visibility
 
@@ -169,12 +213,14 @@ Customer detail does not widen JobCard visibility. Management may see all organi
 | --- | --- | --- | --- |
 | `GET` | `/api/customers` | authenticated | paginated organization list/search |
 | `POST` | `/api/customers` | Admin, Manager | create customer |
-| `GET` | `/api/customers/:customerId` | authenticated | customer detail and Contact summary |
+| `GET` | `/api/customers/:customerId` | authenticated | customer detail, Contact summary, and role-scoped JobCard summaries |
 | `PATCH` | `/api/customers/:customerId` | Admin, Manager | update editable fields |
 | `POST` | `/api/customers/:customerId/activate` | Admin, Manager | activate eligible customer |
 | `POST` | `/api/customers/:customerId/deactivate` | Admin, Manager | deactivate eligible customer |
 
-Filters are `q`, `status`, `assignedStaffUserId`, `city`, `unassigned`, `limit`, and `offset`. The default status view includes `prospect` and `active` and hides `inactive`. Explicit filters can request inactive records.
+Filters are `q`, `status`, `customerType`, `assignedStaffUserId`, `city`, `unassigned`, `limit`, and `offset`. The default status view includes `prospect` and `active` and hides `inactive`. Explicit filters can request inactive records. Customer `q` searches Customer name, normalized tax number, phone, and email plus Contact name, title, phone, and email through an organization-scoped `EXISTS` query. Search is case-insensitive and contains-based; fuzzy search is not part of MVP.
+
+Customer `PATCH` accepts only `name`, `customerType`, `taxNumber`, `phone`, `email`, `city`, `district`, `address`, and `assignedStaffUserId`. It rejects `status`, `version`, `organizationId`, and lifecycle fields.
 
 ### Contacts nested under Customer
 
@@ -188,9 +234,17 @@ Filters are `q`, `status`, `assignedStaffUserId`, `city`, `unassigned`, `limit`,
 | `POST` | `/api/customers/:customerId/contacts/:contactId/deactivate` | Admin, Manager | deactivate Contact |
 | `POST` | `/api/customers/:customerId/contacts/:contactId/make-primary` | Admin, Manager | atomically select primary |
 
-Contact list filters are `q`, `status=active|inactive|all`, `limit`, and `offset`; the default hides inactive Contacts.
+Contact list filters are `q`, `status=active|inactive|all`, `limit`, and `offset`; the default hides inactive Contacts. Contact `q` searches name, title, phone, and email case-insensitively. Contact `POST` creates an active Contact and does not accept `isActive` or `isPrimary`. Contact `PATCH` accepts only name, title, phone, and email.
 
 Every DTO exposes `version`. `PATCH` and command requests require `expectedVersion`; the SQL mutation includes the version predicate and increments the affected record. Stale writes return `409 VERSION_CONFLICT` with `currentVersion` when safely available. Ordinary CRM CRUD does not use processed-action response caching.
+
+The frontend disables a CRM submit action while its request is pending and does not automatically retry `POST` mutations. If a network result is unknown, it refetches the relevant list/detail before offering another submission. Create-command idempotency must be revisited before adding offline queues or automatic mutation retries.
+
+### Existing JobCard contract extension
+
+JobCard create and editable-field patch accept nullable `contactId`. When `contactId` is present, `customerId` must also be present and the locked Contact must be active and belong to that Customer and organization. Changing `customerId` without also supplying a compatible `contactId` clears the old Contact explicitly; the API never silently carries a Contact to a different Customer. JobCard responses include the persisted `contactId` for historical resolution.
+
+Customer detail includes two bounded, backend-scoped collections: up to five JobCards in active workflow statuses and up to five most recently completed JobCards. Management receives organization-visible summaries; Staff receives only assigned JobCards. These summaries contain identifiers, title, status, assignee, due date, and relevant timestamps, not notes or full activity.
 
 ## 8. Error Contract
 
@@ -200,8 +254,10 @@ Canonical Slice 05 errors include:
 CUSTOMER_TAX_NUMBER_EXISTS
 CUSTOMER_HAS_ACTIVE_JOB_CARDS
 CUSTOMER_ASSIGNEE_NOT_ELIGIBLE
+INVALID_CUSTOMER_STATUS_TRANSITION
 CONTACT_NOT_IN_CUSTOMER
 CONTACT_PRIMARY_REQUIRES_ACTIVE
+CONTACT_HAS_ACTIVE_JOB_CARDS
 VERSION_CONFLICT
 ```
 
@@ -226,6 +282,8 @@ CONTACT_DEACTIVATED
 
 They use the existing `audit_events` management stream and never enter the JobCard activity timeline. Each successful mutation and its audit event commit in the same transaction.
 
+Migration 004 replaces the existing `audit_events.subject_type` and `audit_events.event_type` CHECK constraints with expanded constraints containing the People events plus the new `CUSTOMER` and `CONTACT` subjects and CRM events. Existing People audit rows remain valid throughout the migration.
+
 Audit data includes organization, actor, subject type and ID, event type, timestamp, and safe changed-field names. It does not copy old/new phone, email, address, or full request payloads. Assignee changes may retain old/new user IDs; primary changes may retain old/new Contact IDs.
 
 Atomic operations include:
@@ -236,13 +294,64 @@ Atomic operations include:
 - first Contact creation, automatic primary selection, and audit
 - primary replacement, both Contact updates, version handling, and audit
 - Contact activation/deactivation plus primary invariant and audit
-- Staff deactivation plus clearing active customer assignments, as an extension of the People transaction
+- Staff deactivation plus clearing every current customer assignment, as an extension of the People transaction
 
 Any failure rolls back the entire operation.
 
+People does not import or call the CRM repository directly. It depends on a narrow port implemented by CRM:
+
+```text
+CustomerAssignmentCleanupPort
+  clearAssignmentsForDeactivatedStaff(organizationId, staffUserId, actorId, transaction)
+```
+
+The implementation clears every matching `assigned_staff_user_id`, increments affected Customer versions, and emits one `CUSTOMER_ASSIGNEE_CHANGED` event per Customer with old/new Staff IDs and `reason: STAFF_DEACTIVATED`. User deactivation, session revocation, assignment cleanup, People audit, and CRM audit share the caller-supplied transaction.
+
+### Shared row-lock protocol
+
+Services use one lock order to prevent check-then-act races and reduce deadlock risk:
+
+```text
+users → customers → contacts → job_cards
+```
+
+Rows of the same type are locked in stable UUID order when more than one may be touched.
+
+- JobCard creation locks the assignee User, then selected Customer, then optional Contact. It verifies Staff eligibility, Customer eligibility, Contact activity, and Customer/Contact equality before insertion.
+- Customer assignment changes lock the proposed assignee User before the Customer. Staff deactivation locks the User before all assigned Customer rows.
+- Customer deactivation locks the Customer before checking active JobCards and updating status.
+- Contact creation, activation, deactivation, and `make-primary` lock the parent Customer before Contact rows.
+- Contact deactivation checks active JobCard references while holding the parent and Contact locks.
+- JobCard relationship patches acquire Customer and optional Contact locks before the JobCard lock; ordinary JobCard lifecycle commands that do not change those relationships keep their existing JobCard lock behavior.
+
+The partial primary-Contact unique index and composite foreign keys remain final database defenses, not substitutes for the locking protocol.
+
+`make-primary` locks the parent Customer, then the target and current primary Contact rows in stable order. It validates the target's `expectedVersion`, activity, ownership, and parent; clears the previous primary with a version increment; sets the target primary with a version increment; writes one audit event; and returns the target's new version plus the previous primary Contact ID. The client does not submit the previous primary version because the transaction owns and locks that state.
+
 ## 10. Frontend Design
 
-The workspace adds a `Müşteriler` section without a new router or UI framework.
+The workspace adds a `Müşteriler` section and introduces React Router as the application's navigation layer. This is the slice where list, customer detail, Contact detail/edit, browser Back, refresh restoration, direct links, and URL-persisted filters become required. Reimplementing those semantics over the native History API would create application-specific routing infrastructure with higher maintenance and accessibility risk.
+
+React Router is the only new runtime dependency approved by this design. It replaces the growing top-level `screen` state navigation; it does not introduce a UI framework, data store, or server-rendering architecture. Existing login, forced-password, JobCard, Users, and Staff views receive stable routes without changing their domain behavior.
+
+Initial route map:
+
+```text
+/login
+/change-password
+/jobs
+/jobs/new-delivery
+/jobs/:jobCardId
+/users
+/staff
+/staff/:staffUserId
+/customers
+/customers/new
+/customers/:customerId
+/customers/:customerId/contacts/:contactId
+```
+
+Role guards remain backend-owned and are mirrored only for navigation usability. Direct navigation to a forbidden frontend route renders the established forbidden state rather than leaking data or silently redirecting to an unrelated screen. Customer filters use URL search parameters so Back, Forward, refresh, and copied links preserve the list context.
 
 ### Customer list
 
@@ -263,6 +372,8 @@ Contacts
 Accessible open work
 Accessible JobCard history
 ```
+
+The JobCard area is summary-only in Slice 05: at most five active JobCard summaries and five most recently completed JobCard summaries, constrained by the viewer's existing JobCard visibility. There is no JobCard note editor, activity timeline, reporting, or follow-up creation here. The full filtered JobCard-list destination and its `Tümünü gör` navigation are added with Slice 07; Slice 05 does not render a dead or misleading link.
 
 There is no generic Customer notes editor. Operational notes remain attached to accessible JobCards. CRM audit is not exposed as a Staff timeline in this slice.
 
@@ -303,9 +414,13 @@ Server tests cover:
 - role and organization boundaries
 - customer and Contact CRUD
 - normalized tax-number uniqueness
+- customer status transitions and lifecycle-field payload rejection
 - responsible-Staff eligibility and clearing on Staff deactivation
 - primary Contact creation, replacement, deactivation, and concurrent protection
-- active-JobCard customer-deactivation guard
+- active-JobCard customer and Contact deactivation guards
+- JobCard Contact association and Customer/Contact mismatch rejection
+- shared lock ordering under concurrent create/deactivate/assignment scenarios
+- composite organization foreign-key enforcement
 - inactive default filters and explicit filtering
 - version conflicts with no partial mutation or audit
 - transaction rollback and canonical audit creation
@@ -316,6 +431,7 @@ Frontend tests cover:
 - customer search and filters
 - create/edit/deactivate/reactivate flows
 - nested Contact and make-primary flows
+- direct routes, browser Back/Forward, refresh restoration, and URL-persisted filters
 - loading, empty, error, conflict, and retry states
 - JobCard selector defaults and inactive-record exclusion
 - accessibility contracts and critical keyboard flows
