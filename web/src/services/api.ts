@@ -2,7 +2,7 @@ export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF';
 export type CurrentUser = { id: string; organizationId: string; name: string; email: string; role: UserRole; mustChangePassword: boolean; isActive: boolean; version: number };
 export type JobCardStatus = 'NEW' | 'PLANNED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'REVISION_REQUESTED' | 'COMPLETED' | 'CANCELLED';
 export type DeliveryPurpose = 'SALE' | 'SAMPLE' | 'CONSIGNMENT' | 'RETURN' | 'OTHER';
-export type JobCard = { id: string; organizationId: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus; version: number; title: string; description: string | null; customerId: string | null; assignedTo: string; createdBy: string; priority: 'low' | 'normal' | 'high' | 'urgent'; dueDate: string | null };
+export type JobCard = { id: string; organizationId: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus; version: number; title: string; description: string | null; customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string; priority: 'low' | 'normal' | 'high' | 'urgent'; dueDate: string | null };
 export type DeliveryItem = { id: string; organizationId: string; jobCardId: string; productId: string; deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; unit: string; productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null; lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null };
 export type Activity = { id: string; jobCardId: string; actorId: string | null; eventType: string; oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: string };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
@@ -45,7 +45,7 @@ function parseJobCard(value: unknown): JobCard {
   return { id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
     type: string(v.type, 'type') as JobCard['type'], status: string(v.status, 'status') as JobCardStatus,
     version: number(v.version, 'version'), title: string(v.title, 'title'), description: nullableString(v.description, 'description'),
-    customerId: nullableString(v.customerId, 'customerId'), assignedTo: string(v.assignedTo, 'assignedTo'),
+    customerId: nullableString(v.customerId, 'customerId'), contactId: nullableString(v.contactId, 'contactId'), assignedTo: string(v.assignedTo, 'assignedTo'),
     createdBy: string(v.createdBy, 'createdBy'), priority: string(v.priority, 'priority') as JobCard['priority'], dueDate: nullableString(v.dueDate, 'dueDate') };
 }
 function parseDelivery(value: unknown): DeliveryItem {

@@ -722,7 +722,7 @@ git commit -m "feat: add routed application navigation"
 - Produces typed Customer/Contact list, detail, mutation, and command functions.
 - Adds nullable `contactId` to JobCard clients without duplicating shared request/parser helpers.
 
-- [ ] **Step 1: Write failing client contract tests**
+- [x] **Step 1: Write failing client contract tests**
 
 Define runtime-validated DTOs:
 
@@ -743,26 +743,28 @@ export type Contact = {
 
 Test credentials inclusion, URL encoding for every filter, nested route URLs, exact command bodies, malformed response rejection, `VERSION_CONFLICT` propagation, and JobCard `contactId` parsing.
 
-- [ ] **Step 2: Run client tests and verify RED**
+- [x] **Step 2: Run client tests and verify RED**
 
 Run: `cd web && npm test -- --run tests/crm-client.test.ts tests/tracer-client.test.ts`  
 Expected: FAIL because `crm-api.ts` and JobCard `contactId` parsing do not exist.
 
-- [ ] **Step 3: Implement minimal parsers and calls**
+- [x] **Step 3: Implement minimal parsers and calls**
 
 Export `listCustomers`, `getCustomer`, `createCustomer`, `updateCustomer`, `activateCustomer`, `deactivateCustomer`, `listContacts`, `getContact`, `createContact`, `updateContact`, `activateContact`, `deactivateContact`, and `makePrimaryContact`. Build filters with `URLSearchParams`; omit empty optional values; never automatically retry mutations.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd web && npm test -- --run tests/crm-client.test.ts tests/tracer-client.test.ts tests/auth-client.test.ts tests/people-client.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/services/api.ts web/src/services/crm-api.ts web/tests/crm-client.test.ts web/tests/tracer-client.test.ts
 git commit -m "feat: add CRM web client"
 ```
+
+**Task 9 verification (2026-07-12):** the focused CRM/JobCard/auth/People client suite passed 4 files/19 tests, the full web suite passed 14 files/65 tests, the TypeScript/Vite production build passed, and `npm audit --audit-level=high` reported zero vulnerabilities. Runtime parsers reject malformed CRM responses, mutation conflicts remain non-retryable, all list filters and nested identifiers are URL-encoded, and JobCard responses preserve nullable `contactId`.
 
 ### Task 10: Customer list, URL filters, and creation
 
