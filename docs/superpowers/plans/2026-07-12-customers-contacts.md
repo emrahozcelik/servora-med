@@ -653,7 +653,7 @@ git commit -m "test: verify CRM backend tracer"
 - Produces stable paths and route helpers consumed by CRM screens.
 - Keeps `App` responsible for identity, forced password change, and logout; `BrowserRouter` is mounted exactly once in `main.tsx`.
 
-- [ ] **Step 1: Write failing route behavior tests**
+- [x] **Step 1: Write failing route behavior tests**
 
 Wrap route tests with `MemoryRouter`:
 
@@ -668,7 +668,7 @@ expect(html).toContain('Müşteriler');
 
 Test `/jobs`, `/jobs/new-delivery`, `/jobs/:jobCardId`, `/users`, `/staff`, `/staff/:staffUserId`, `/customers`, `/customers/new`, `/customers/:customerId`, and nested Contact detail. Prove forbidden direct routes render the established forbidden state and unknown routes return a safe not-found view.
 
-- [ ] **Step 2: Install the approved dependency and verify RED**
+- [x] **Step 2: Install the approved dependency and verify RED**
 
 Run:
 
@@ -679,7 +679,7 @@ cd web && npm test -- --run tests/router.test.tsx tests/App.test.tsx
 
 Expected: dependency installation succeeds and tests FAIL because `AppRouter.tsx` and stable routes do not exist.
 
-- [ ] **Step 3: Add the route tree and remove local screen navigation**
+- [x] **Step 3: Add the route tree and remove local screen navigation**
 
 Export a single path map:
 
@@ -696,17 +696,19 @@ export const paths = {
 
 Mount `<BrowserRouter><App /></BrowserRouter>` in `main.tsx`. Replace `screen`/`selectedJobId` state with `<Routes>`, `<Route>`, `<Outlet>`, `<Link>`, and `useNavigate`. Preserve login and forced-password interception before protected data requests. Keep route guards as UI affordances only; APIs remain authoritative.
 
-- [ ] **Step 4: Verify GREEN and existing-screen regressions**
+- [x] **Step 4: Verify GREEN and existing-screen regressions**
 
 Run: `cd web && npm test -- --run tests/router.test.tsx tests/App.test.tsx tests/workspace-view.test.tsx tests/user-management.test.tsx tests/staff-profiles.test.tsx tests/job-detail.test.tsx`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/package.json web/package-lock.json web/src/AppRouter.tsx web/src/main.tsx web/src/App.tsx web/tests/router.test.tsx web/tests/App.test.tsx
 git commit -m "feat: add routed application navigation"
 ```
+
+**Task 8 verification (2026-07-12):** route/App and existing-screen regression suite passed 6 files/32 tests; the full web suite passed 13 files/58 tests; TypeScript/Vite production build passed. React Router DOM is pinned to approved version 7.18.1.
 
 ### Task 9: Runtime-validated CRM web client
 

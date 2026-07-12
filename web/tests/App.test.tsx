@@ -1,11 +1,17 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
+import type { ReactNode } from 'react';
 import { describe, expect, it } from 'vitest';
 
 import { App } from '../src/App';
 
+function renderApp(element: ReactNode) {
+  return renderToStaticMarkup(<MemoryRouter initialEntries={['/jobs']}>{element}</MemoryRouter>);
+}
+
 describe('App', () => {
   it('renders an accessible labeled login form for a signed-out user', () => {
-    const html = renderToStaticMarkup(<App initialUser={null} />);
+    const html = renderApp(<App initialUser={null} />);
 
     expect(html).toContain('<main');
     expect(html).toContain('>Hesabınıza giriş yapın</h1>');
@@ -17,7 +23,7 @@ describe('App', () => {
   });
 
   it('renders a backend-derived protected shell without fake metrics', () => {
-    const html = renderToStaticMarkup(<App initialUser={{
+    const html = renderApp(<App initialUser={{
       id: 'user-1', organizationId: 'org-1', name: 'Emrah Admin',
       email: 'admin@example.com', role: 'ADMIN', mustChangePassword: false,
     }} />);
