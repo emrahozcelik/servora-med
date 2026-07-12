@@ -1,7 +1,7 @@
 # Servora-Med Schema Draft
 
 > Date: 2026-07-10  
-> Status: Approved Phase 0 schema contract; migration SQL not written  
+> Status: Living schema contract; implemented incrementally through slice migrations
 > Responsibility: Data model, database constraints, and persisted invariant SSOT
 
 Product behavior is defined in `PRODUCT_REQUIREMENTS.md`. Architecture boundaries are defined in `SERVORA_MED_ARCHITECTURE_PLAN.md`. API JSON uses camelCase; database columns use snake_case.
@@ -116,6 +116,7 @@ One organization per V1 deployment.
 | role | VARCHAR(20) NOT NULL | `user_role` check |
 | must_change_password | BOOLEAN NOT NULL | default false |
 | is_active | BOOLEAN NOT NULL | default true |
+| version | INTEGER NOT NULL | default 1; optimistic concurrency |
 | last_login_at | TIMESTAMPTZ NULL | |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 | updated_at | TIMESTAMPTZ NOT NULL | default now |
@@ -154,13 +155,32 @@ Indexes:
 | phone | VARCHAR(50) NULL | |
 | region | VARCHAR(100) NULL | |
 | manager_user_id | UUID NULL | FK to users |
-| notes | TEXT NULL | |
+| version | INTEGER NOT NULL | default 1; optimistic concurrency |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 | updated_at | TIMESTAMPTZ NOT NULL | default now |
 
-Profile lifecycle follows `users.is_active`. No duplicate active flag or undefined target value is stored.
+Profile lifecycle follows `users.is_active`. No duplicate active flag, internal notes, or undefined target value is stored. Profile user and optional manager must belong to the same organization; the user must have role `STAFF`, and the manager must be an active `MANAGER` according to backend invariants.
 
-### 3.5 customers
+### 3.5 audit_events
+
+People and security administration uses an audit stream separate from JobCard activity.
+
+| Column | Type | Rules |
+| --- | --- | --- |
+| id | UUID PK | |
+| organization_id | UUID NOT NULL | FK to organizations |
+| actor_user_id | UUID NULL | same-organization FK to users; null only for documented system actors |
+| subject_type | VARCHAR(40) NOT NULL | `USER` or `STAFF_PROFILE` |
+| subject_id | UUID NOT NULL | audited subject identifier |
+| event_type | VARCHAR(80) NOT NULL | canonical People audit event |
+| old_value | JSONB NULL | safe changed fields only |
+| new_value | JSONB NULL | safe changed fields only |
+| metadata | JSONB NOT NULL | default empty object |
+| created_at | TIMESTAMPTZ NOT NULL | default now |
+
+Passwords, password hashes, temporary passwords, tokens, cookies, and session identifiers are forbidden in audit payloads.
+
+### 3.6 customers
 
 | Column | Type | Rules |
 | --- | --- | --- |
@@ -188,7 +208,7 @@ Indexes:
 - `(organization_id, assigned_staff_user_id)`
 - `(organization_id, status)`
 
-### 3.6 contacts
+### 3.7 contacts
 
 | Column | Type | Rules |
 | --- | --- | --- |
@@ -207,7 +227,7 @@ Indexes:
 
 The contact and its customer must belong to the same organization.
 
-### 3.7 products
+### 3.8 products
 
 Catalog only; no stock quantity.
 
@@ -230,7 +250,7 @@ Constraint: unique `(organization_id, sku)`.
 
 Product-level lot, serial, and expiry requirement flags are not part of MVP.
 
-### 3.8 job_cards
+### 3.9 job_cards
 
 Optimistic concurrency column:
 
@@ -289,7 +309,7 @@ Persisted integrity:
 
 The service remains responsible for transition order, authorization, type-specific submit requirements, and immutable-state rules.
 
-### 3.9 job_card_delivery_items
+### 3.10 job_card_delivery_items
 
 Only `PRODUCT_DELIVERY` JobCards can own delivery items.
 
@@ -323,7 +343,7 @@ Indexes:
 
 There are no unit-price, discount, line-total, stock-movement, invoice, or payment fields.
 
-### 3.10 job_card_notes
+### 3.11 job_card_notes
 
 | Column | Type | Rules |
 | --- | --- | --- |
@@ -336,7 +356,7 @@ There are no unit-price, discount, line-total, stock-movement, invoice, or payme
 
 Notes are append-only in MVP. Staff may add a note to their own JobCard in `WAITING_APPROVAL`, but cannot edit commercial fields.
 
-### 3.11 job_card_activity_logs
+### 3.12 job_card_activity_logs
 
 | Column | Type | Rules |
 | --- | --- | --- |
@@ -359,7 +379,7 @@ Indexes:
 
 Application permissions expose no update or delete path.
 
-### 3.12 processed_actions
+### 3.13 processed_actions
 
 Used only for critical business commands.
 
@@ -458,10 +478,11 @@ Recommended slice-aligned groups:
 | --- | --- |
 | 001_auth_foundation | organizations, users, sessions, auth indexes |
 | 002_delivery_tracer | minimal customers, products, job_cards, delivery_items, activity, processed_actions |
-| 003_people_and_crm | staff_profiles, contacts, remaining CRM indexes |
-| 004_notes_and_reporting | notes and report-support indexes |
-| 005_general_task | type support and type-specific constraints if required |
-| 006_sales_meeting | deferred enum value and structured details |
+| 003_people | user versions, organization timezone, staff_profiles, audit_events |
+| 004_crm_contacts | contacts and remaining CRM indexes |
+| 005_notes_and_reporting | notes and report-support indexes |
+| 006_general_task | type support and type-specific constraints if required |
+| 007_sales_meeting | deferred enum value and structured details |
 
 Exact migration filenames are assigned when each implementation slice begins. Applied files are immutable.
 

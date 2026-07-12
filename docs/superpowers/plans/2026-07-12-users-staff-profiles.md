@@ -68,7 +68,7 @@
 - Produces `users.version`, `staff_profiles`, and `audit_events` for all later tasks.
 - Preserves migration checksum/history behavior in `server/src/db/migrate.ts`.
 
-- [ ] **Step 1: Write the failing schema test**
+- [x] **Step 1: Write the failing schema test**
 
 Read the migration text and assert all non-negotiable constraints:
 
@@ -85,12 +85,12 @@ it('adds versioned Staff profiles and safe People audit storage', async () => {
 });
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd server && npm test -- --run tests/people-schema.test.ts`  
 Expected: FAIL because `003_people.sql` does not exist.
 
-- [ ] **Step 3: Add the migration**
+- [x] **Step 3: Add the migration**
 
 Implement the exact columns from the approved spec. Include:
 
@@ -125,12 +125,12 @@ CREATE TABLE audit_events (
 
 Add indexes for organization/role user lookup, active Staff lookup, manager assignment, subject audit history, and organization audit chronology. Update the schema draft with `version`, removed `notes`, and `audit_events`.
 
-- [ ] **Step 4: Verify GREEN and migration runner regression**
+- [x] **Step 4: Verify GREEN and migration runner regression**
 
 Run: `cd server && npm test -- --run tests/people-schema.test.ts tests/migrate-runner.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/db/migrations/003_people.sql server/tests/people-schema.test.ts SERVORA_MED_SCHEMA_DRAFT.md
