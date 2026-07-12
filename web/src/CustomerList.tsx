@@ -16,7 +16,7 @@ const customerStatusLabels: Record<CustomerStatus, string> = {
   prospect: 'Aday', active: 'Aktif', inactive: 'Pasif',
 };
 
-export type CustomerFilterValues = Omit<Partial<CustomerFilters>, 'status'> & { status?: CustomerStatus | 'all' };
+export type CustomerFilterValues = Partial<CustomerFilters>;
 export type CustomerListState =
   | { kind: 'loading' }
   | { kind: 'ready'; customers: CustomerSummary[] }
@@ -29,7 +29,7 @@ export function customerFiltersFromParams(params: URLSearchParams): CustomerFilt
   const offsetValue = params.get('offset'); const offset = offsetValue === null ? NaN : Number(offsetValue);
   return {
     ...(params.get('q') ? { q: params.get('q')! } : {}),
-    ...(status === 'prospect' || status === 'active' || status === 'inactive' || status === 'all' ? { status } : {}),
+    ...(status === 'prospect' || status === 'active' || status === 'inactive' ? { status } : {}),
     ...(customerType === 'clinic' || customerType === 'hospital' || customerType === 'dealer' || customerType === 'company' || customerType === 'other'
       ? { customerType } : {}),
     ...(params.get('city') ? { city: params.get('city')! } : {}),
@@ -50,7 +50,7 @@ function CustomerFiltersView({ filters, staff, onChange }: {
       <input id="customer-search" type="search" value={filters.q ?? ''} onChange={(event) => onChange('q', event.target.value)} /></div>
     <label className="field-group" htmlFor="customer-status">Durum
       <select id="customer-status" value={filters.status ?? ''} onChange={(event) => onChange('status', event.target.value)}>
-        <option value="">Aktif ve aday</option><option value="active">Yalnız aktif</option><option value="prospect">Yalnız aday</option><option value="inactive">Pasif</option><option value="all">Tümü</option>
+        <option value="">Aktif ve aday</option><option value="active">Yalnız aktif</option><option value="prospect">Yalnız aday</option><option value="inactive">Pasif</option>
       </select>
     </label>
     <label className="field-group" htmlFor="customer-type">Müşteri türü
@@ -159,7 +159,7 @@ export async function createCustomerWithRecovery(input: CreateCustomerInput, dep
 }
 
 export function customerRequestFilters(filters: CustomerFilterValues, debouncedQuery: string): CustomerFilters {
-  return { ...filters, q: debouncedQuery || undefined, status: filters.status === 'all' ? undefined : filters.status };
+  return { ...filters, q: debouncedQuery || undefined };
 }
 
 export function scheduleCustomerSearch(callback: () => void, delay = 250) {

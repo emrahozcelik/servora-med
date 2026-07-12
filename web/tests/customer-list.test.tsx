@@ -89,6 +89,7 @@ describe('Customer list and creation', () => {
       hasFilters={false} onRetry={() => {}} onCreate={() => {}} filters={{ status: 'active' }} staff={[profile]} onFilterChange={() => {}} />);
     expect(filters).toContain('<label for="customer-search">Müşteri ara</label>');
     for (const label of ['Durum', 'Müşteri türü', 'Şehir', 'Sorumlu personel', 'Atanmamış müşteriler']) expect(filters).toContain(label);
+    expect(filters).not.toContain('<option value="all">');
 
     const form = renderToStaticMarkup(<MemoryRouter><CustomerCreateForm staff={[profile]} pending similarCustomers={[customer]}
       fieldErrors={{ name: 'Müşteri adı zorunludur.' }} error="Sunucu alanları kabul etmedi."
