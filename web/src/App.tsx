@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { DeliveryCreateView } from './DeliveryCreate';
 import { JobDetailScreen } from './JobDetail';
+import { PasswordChangeScreen } from './PasswordChange';
 import { ApiError, getCurrentUser, listJobCards, listReferenceCustomers, listReferenceProducts, login, logout, type CurrentUser, type JobCard, type ReferenceCustomer, type ReferenceProduct } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
@@ -194,5 +195,6 @@ export function App({ initialUser }: AppProps) {
 
   if (user === undefined) return <LoadingScreen />;
   if (user === null) return <LoginScreen onAuthenticated={setUser} initialError={identityError} />;
+  if (user.mustChangePassword) return <PasswordChangeScreen user={user} onChanged={() => setUser(null)} onSignedOut={() => setUser(null)} />;
   return <ProtectedShell user={user} onSignedOut={() => setUser(null)} />;
 }

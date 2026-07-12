@@ -534,16 +534,16 @@ git commit -m "feat: add people web client"
 - Produces `PasswordChangeScreen({ user, onChanged, onSignedOut })`.
 - Consumes `changePassword` and never renders the protected workspace while forced change is active.
 
-- [ ] **Step 1: Write failing rendering and behavior tests**
+- [x] **Step 1: Write failing rendering and behavior tests**
 
 Assert visible labels for current/new/confirm password, `autocomplete` values, mismatch validation before API call, alert focus target, pending state, successful cookie-clearing result, and no workspace data for `mustChangePassword: true`.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd web && npm test -- --run tests/password-change.test.tsx tests/App.test.tsx`  
 Expected: FAIL because forced users currently render `ProtectedShell`.
 
-- [ ] **Step 3: Implement the isolated screen and App interception**
+- [x] **Step 3: Implement the isolated screen and App interception**
 
 ```tsx
 if (user.mustChangePassword) {
@@ -553,12 +553,12 @@ if (user.mustChangePassword) {
 
 Use existing field/error/button classes, focus the error summary, and require fresh login after success.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd web && npm test -- --run tests/password-change.test.tsx tests/App.test.tsx`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/PasswordChange.tsx web/src/App.tsx web/tests/password-change.test.tsx web/tests/App.test.tsx
