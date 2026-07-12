@@ -580,20 +580,20 @@ git commit -m "feat: expose nested CRM API"
 - Produces representative development Customer/Contact references after migrations 001–004.
 - Uses the existing production refusal and never inserts demo credentials through a migration.
 
-- [ ] **Step 1: Write failing development-seed tests**
+- [x] **Step 1: Write failing development-seed tests**
 
 Assert the development seed creates a clinic Customer, one active primary doctor Contact, an optional responsible Staff assignment, and no Customer/Contact notes. Assert production still refuses development seeding.
 
-- [ ] **Step 2: Run seed tests and verify RED**
+- [x] **Step 2: Run seed tests and verify RED**
 
 Run: `cd server && npm test -- --run tests/auth-setup.test.ts`  
 Expected: FAIL because no Contact is seeded.
 
-- [ ] **Step 3: Extend the seed in its existing transaction**
+- [x] **Step 3: Extend the seed in its existing transaction**
 
 Insert `Demo Dental Klinik`, assign the demo Staff, insert `Dr. Ayşe Yılmaz` as active primary Contact, and attach that Contact to the representative seeded JobCard when the JobCard is created. Do not emit actor audit events for environment bootstrap records.
 
-- [ ] **Step 4: Execute the disposable PostgreSQL tracer**
+- [x] **Step 4: Execute the disposable PostgreSQL tracer**
 
 Create a disposable database, run migrations 001–004 and the development seed, then exercise authenticated HTTP:
 
@@ -614,12 +614,25 @@ Admin forced password change and fresh login
 
 Also execute two-client race tests from `crm-concurrency.test.ts`. Record exact pass counts and tracer results in this plan, stop the server, and drop the disposable database.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/auth/setup.ts server/tests/auth-setup.test.ts README.md docs/superpowers/plans/2026-07-12-customers-contacts.md
 git commit -m "test: verify CRM backend tracer"
 ```
+
+**05B live backend verification (2026-07-12):**
+
+- Disposable database `servora_med_slice05` applied migrations `001`–`004` and the development seed successfully.
+- Seed inspection returned 3 users, 1 Customer, 1 primary Contact, 1 Contact-linked JobCard, and 1 `JOB_CREATED` activity.
+- Production-protocol concurrency test ran with `TEST_DATABASE_URL`: 1/1 passed for concurrent JobCard create versus Customer/Contact deactivation, bounded completion, and persisted invariants.
+- Live HTTP verified Manager and Staff mandatory password change plus fresh login, normalized tax number `AB1234`, first-primary and primary replacement behavior, and cross-organization `404 CUSTOMER_NOT_FOUND` concealment.
+- Contact and Customer deactivation returned `409 CONTACT_HAS_ACTIVE_JOB_CARDS` and `409 CUSTOMER_HAS_ACTIVE_JOB_CARDS` while the JobCard was active.
+- Staff completed `IN_PROGRESS → WAITING_APPROVAL`; Manager approved `COMPLETED`; subsequent Contact/Customer deactivation succeeded and Customer reactivation returned `active`.
+- Admin Staff deactivation changed the Staff record to inactive/version 3, cleared both active and inactive Customer assignments, and wrote 2 `CUSTOMER_ASSIGNEE_CHANGED` events with `STAFF_DEACTIVATED` reason. CRM audit PII scan returned zero rows.
+- Login rate limiting returned `429 RATE_LIMIT_EXCEEDED` during repeated tracer logins; the local server was restarted before the remaining authorized checks.
+- Final server gate passed: 27 files/175 tests, 1 conditional PostgreSQL test skipped without `TEST_DATABASE_URL`, TypeScript build passed, and npm audit reported zero vulnerabilities. The same PostgreSQL test had already passed 1/1 against the disposable database.
+- Test servers were stopped and the disposable database was dropped after final automated verification.
 
 ---
 

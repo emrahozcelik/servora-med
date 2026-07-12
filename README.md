@@ -84,6 +84,8 @@ This creates development-only users:
 
 All three are created with the `mustChangePassword` flag. The command refuses `NODE_ENV=production` and refuses a database that already contains users.
 
+The development seed also creates one Staff profile assigned to the demo Manager, `Demo Dental Klinik`, primary Contact `Dr. Ayşe Yılmaz`, one catalog product, and one Contact-linked `NEW` Product Delivery JobCard with its `JOB_CREATED` activity. These are local reference records, not production migration data.
+
 Public health:
 
 ```text

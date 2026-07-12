@@ -63,7 +63,9 @@ describe('auth setup', () => {
     });
     expect(repository.requests[0]!.referenceData).toEqual({
       customer: { name: 'Demo Dental Klinik', customerType: 'clinic', status: 'active' },
+      contact: { name: 'Dr. Ayşe Yılmaz', title: 'Doktor', isPrimary: true },
       product: { sku: 'DEMO-001', name: 'Demo İmplant Seti', unit: 'adet' },
+      jobCard: { type: 'PRODUCT_DELIVERY', title: 'Demo ürün teslimi', status: 'NEW', priority: 'normal' },
     });
   });
 
