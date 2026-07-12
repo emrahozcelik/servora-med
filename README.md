@@ -137,6 +137,12 @@ Slice 03 provides the first role-aware browser tracer. Staff can create a struct
 
 The flow was manually verified in Chromium at a 390 by 844 CSS px viewport against disposable PostgreSQL. It also passed keyboard navigation, visible focus, 44 CSS px target, 200 percent text-size, 320 CSS px effective 400-percent reflow, reduced-motion, and semantic accessibility snapshot checks. The verification record is maintained in `docs/superpowers/plans/2026-07-11-slice-03-delivery-mobile-ui.md`.
 
+## People Backend
+
+Slice 04 adds Admin-only user administration and Admin/Manager Staff profile APIs. Security-sensitive user changes use named role, activation, deactivation, and password-reset commands with integer optimistic versions. Staff profile summaries expose backend-derived open, waiting-approval, revision, completed-this-month, and overdue counters.
+
+The development seed creates one Staff profile linked to the demo Manager in the same transaction as the demo users. A disposable PostgreSQL tracer verified forced password change, Staff creation/profile reads, Manager profile update, assigned-Staff lifecycle protection, eligible deactivation, session revocation, inactive login rejection, and atomic People audit events. The disposable database is removed after verification.
+
 ## Verification
 
 ```bash

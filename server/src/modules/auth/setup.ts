@@ -21,6 +21,12 @@ export type SetupReferenceData = {
 export type SetupRequest = {
   organizationName: string;
   users: SetupUser[];
+  staffProfile?: {
+    title: string | null;
+    phone: string | null;
+    region: string | null;
+    managerRole: 'MANAGER';
+  };
   referenceData?: SetupReferenceData;
 };
 
@@ -76,6 +82,9 @@ export async function seedDevelopment(repository: SetupRepository, input: SeedIn
   await repository.createOrganizationWithUsers({
     organizationName,
     users,
+    staffProfile: {
+      title: 'Saha Personeli', phone: null, region: null, managerRole: 'MANAGER',
+    },
     referenceData: {
       customer: { name: 'Demo Dental Klinik', customerType: 'clinic', status: 'active' },
       product: { sku: 'DEMO-001', name: 'Demo İmplant Seti', unit: 'adet' },
@@ -113,6 +122,20 @@ export class PostgresSetupRepository implements SetupRepository {
           [organization.rows[0]!.id, user.name, user.email, user.passwordHash, user.role, user.mustChangePassword],
         );
         userIds.set(user.role, inserted.rows[0]!.id);
+      }
+      if (request.staffProfile) {
+        const staffUserId = userIds.get('STAFF');
+        const managerUserId = userIds.get(request.staffProfile.managerRole);
+        if (!staffUserId || !managerUserId) {
+          throw new AppError('INVALID_SETUP_INPUT', 400, 'Development personel profili kullanıcıları eksik.');
+        }
+        await client.query(
+          `INSERT INTO staff_profiles
+             (organization_id, user_id, title, phone, region, manager_user_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [organization.rows[0]!.id, staffUserId, request.staffProfile.title,
+            request.staffProfile.phone, request.staffProfile.region, managerUserId],
+        );
       }
       if (request.referenceData) {
         const { customer, product } = request.referenceData;

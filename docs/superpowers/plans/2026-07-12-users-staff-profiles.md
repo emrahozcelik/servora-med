@@ -430,29 +430,38 @@ git commit -m "feat: expose people API"
 - Produces Staff profiles for development Admin/Manager/Staff users after migration `003`.
 - Uses no production migration seed and refuses production as before.
 
-- [ ] **Step 1: Write failing setup tests**
+- [x] **Step 1: Write failing setup tests**
 
 Assert the development seed creates one Staff profile, assigns the demo Manager, and remains atomic; bootstrap Admin creates no Staff profile.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd server && npm test -- --run tests/auth-setup.test.ts`  
 Expected: FAIL because seed does not create `staff_profiles`.
 
-- [ ] **Step 3: Extend the development seed minimally**
+- [x] **Step 3: Extend the development seed minimally**
 
 Insert the demo Staff profile in the existing organization/users transaction after user IDs are known. Do not insert People audit for development seed bootstrap data; document it as environment setup rather than an actor command.
 
-- [ ] **Step 4: Verify GREEN and disposable PostgreSQL**
+- [x] **Step 4: Verify GREEN and disposable PostgreSQL**
 
 Create `servora_med_slice04`, run migration and dev seed, then use HTTP requests to verify Admin creates a second Staff, forced-change guard, Staff `/me`, Manager Staff update, audit rows, and guarded deactivation. Record exact commands/results in the plan verification record and drop the database.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/auth/setup.ts server/tests/auth-setup.test.ts README.md docs/superpowers/plans/2026-07-12-users-staff-profiles.md
 git commit -m "test: verify people backend tracer"
 ```
+
+**04C backend verification (2026-07-12):**
+
+- Server regression: 23 files, 128 tests passed; TypeScript build passed.
+- Disposable PostgreSQL: migrations `001`–`003` and development seed passed.
+- Seed produced Admin, Manager, and Staff users plus one Staff profile assigned to the demo Manager.
+- Real HTTP verified forced-password guard, Admin password change and fresh login, Staff creation, Staff forced password change, five zero-value counters, Manager Staff read/update, `MANAGER_HAS_ASSIGNED_STAFF`, eligible Staff deactivation, session revocation, and inactive login rejection.
+- Audit inspection returned `USER_CREATED`, `STAFF_PROFILE_UPDATED`, and `USER_DEACTIVATED` for the tracer subject; credential material was absent.
+- Local test server was stopped and `servora_med_slice04` was dropped.
 
 ---
 
