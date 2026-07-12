@@ -4,6 +4,7 @@ import { DeliveryCreateView } from './DeliveryCreate';
 import { JobDetailScreen } from './JobDetail';
 import { PasswordChangeScreen } from './PasswordChange';
 import { UserManagementScreen } from './UserManagement';
+import { StaffProfilesScreen } from './StaffProfiles';
 import { ApiError, getCurrentUser, listJobCards, listReferenceCustomers, listReferenceProducts, login, logout, type CurrentUser, type JobCard, type ReferenceCustomer, type ReferenceProduct } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
@@ -140,7 +141,7 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   const [error, setError] = useState('');
   const [workspace, setWorkspace] = useState<WorkspaceState>({ kind: 'loading' });
   const [references, setReferences] = useState<{ customers: ReferenceCustomer[]; products: ReferenceProduct[] }>({ customers: [], products: [] });
-  const [screen, setScreen] = useState<'list' | 'create' | 'detail' | 'users'>('list');
+  const [screen, setScreen] = useState<'list' | 'create' | 'detail' | 'users' | 'staffProfiles'>('list');
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [notice, setNotice] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
@@ -171,8 +172,12 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
           </button>
         </div>
       </header>
-      {user.role === 'ADMIN' && screen === 'list' && <nav className="section-nav" aria-label="Yönetim alanları"><button className="secondary-button" onClick={() => setScreen('users')}>Kullanıcılar</button></nav>}
+      {screen === 'list' && <nav className="section-nav" aria-label="Çalışma alanları">
+        {user.role === 'ADMIN' && <button className="secondary-button" onClick={() => setScreen('users')}>Kullanıcılar</button>}
+        <button className="secondary-button" onClick={() => setScreen('staffProfiles')}>{user.role === 'STAFF' ? 'Profilim' : 'Personel'}</button>
+      </nav>}
       {screen === 'users' && user.role === 'ADMIN' ? <UserManagementScreen onBack={() => setScreen('list')} />
+        : screen === 'staffProfiles' ? <StaffProfilesScreen user={user} onBack={() => setScreen('list')} />
         : screen === 'create' ? <DeliveryCreateView user={user} customers={references.customers} products={references.products}
         onCancel={() => setScreen('list')} onCreated={() => { setNotice('Teslim kaydı oluşturuldu.'); setScreen('list'); setReloadKey((value) => value + 1); }} />
         : screen === 'detail' && selectedJobId ? <JobDetailScreen jobId={selectedJobId} user={user} onBack={() => setScreen('list')} onChanged={() => setReloadKey((value) => value + 1)} />

@@ -625,20 +625,20 @@ git commit -m "feat: add admin user management"
 - Produces Manager/Admin `StaffDirectoryScreen` and Staff `OwnStaffProfileScreen`.
 - Consumes only `/staff` APIs; Manager never calls `/users`.
 
-- [ ] **Step 1: Write failing role-specific tests**
+- [x] **Step 1: Write failing role-specific tests**
 
 Assert Staff sees five backend counters and no edit/navigation to others; Manager sees active Staff only and editable title/phone/region/manager; Admin can request inactive/all; notes are absent; conflict/retry/empty states are explicit.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd web && npm test -- --run tests/staff-profiles.test.tsx tests/workspace-view.test.tsx`  
 Expected: FAIL because Staff profile screens are missing.
 
-- [ ] **Step 3: Implement role-aware People navigation**
+- [x] **Step 3: Implement role-aware People navigation**
 
 Add compact shell navigation: `İşler`, Admin-only `Kullanıcılar`, Admin/Manager `Personel`, Staff-only `Profilim`. Keep current JobCard screen behavior intact and use buttons/landmarks, not drag/drop.
 
-- [ ] **Step 4: Verify GREEN and full web regression**
+- [x] **Step 4: Verify GREEN and full web regression**
 
 Run:
 
@@ -650,7 +650,7 @@ cd web && npm run build
 
 Expected: all web tests and build PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/StaffProfiles.tsx web/src/App.tsx web/src/styles.css web/tests/staff-profiles.test.tsx web/tests/workspace-view.test.tsx
