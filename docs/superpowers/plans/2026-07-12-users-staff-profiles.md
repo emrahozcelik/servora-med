@@ -577,16 +577,16 @@ git commit -m "feat: add mandatory password screen"
 - Produces `UserManagementScreen({ currentUser, onBack })` for Admin only.
 - Consumes People client functions and exposes no Manager entry point.
 
-- [ ] **Step 1: Write failing Admin UI tests**
+- [x] **Step 1: Write failing Admin UI tests**
 
 Cover loading/empty/retry, structured list, Staff-conditioned profile fields, explicit confirmation for deactivate/reset, allowed Admin↔Manager roles only, stable conflict messages, field-linked validation, and success announcements. Assert temporary password is absent after successful submit.
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd web && npm test -- --run tests/user-management.test.tsx`  
 Expected: FAIL because the screen is missing.
 
-- [ ] **Step 3: Implement list/create/detail command states**
+- [x] **Step 3: Implement list/create/detail command states**
 
 Keep page state local:
 
@@ -600,12 +600,12 @@ type UserScreen =
 
 Do not combine security commands in the general edit form. Preserve `expectedVersion` from the last backend response after every mutation.
 
-- [ ] **Step 4: Verify GREEN and responsive CSS contract**
+- [x] **Step 4: Verify GREEN and responsive CSS contract**
 
 Run: `cd web && npm test -- --run tests/user-management.test.tsx tests/accessibility-contract.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/UserManagement.tsx web/src/App.tsx web/src/styles.css web/tests/user-management.test.tsx web/tests/accessibility-contract.test.ts
