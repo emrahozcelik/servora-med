@@ -27,6 +27,17 @@ function recordingPool(rows: unknown[] = []) {
 }
 
 describe('PostgresPeopleRepository transactions', () => {
+  it('fails closed when Customer cleanup wiring is missing', async () => {
+    const recorded = recordingPool();
+    const repository = new PostgresPeopleRepository(
+      recorded.pool, recorded.credentials, recorded.sessions,
+    );
+    await expect(repository.execute((tx) => tx.clearCustomerAssignments({
+      organizationId: 'org-1', staffUserId: 'staff-1', actorUserId: 'admin-1',
+    }))).rejects.toThrow('Customer assignment cleanup port is required');
+    expect(recorded.calls.map((call) => call.text)).toEqual(['BEGIN', 'ROLLBACK']);
+  });
+
   it('delegates Customer cleanup with the active transaction client', async () => {
     const recorded = recordingPool(); let receivedClient: unknown;
     const cleanup = {

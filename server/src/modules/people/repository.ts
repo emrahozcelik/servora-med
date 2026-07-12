@@ -294,7 +294,9 @@ export class PostgresPeopleRepository implements PeopleRepository {
     private readonly credentials: CredentialAdministrationPort,
     private readonly sessions: SessionRevocationPort,
     private readonly customerAssignments: CustomerAssignmentCleanupPort = {
-      clearAssignmentsForDeactivatedStaff: async () => [],
+      clearAssignmentsForDeactivatedStaff: async () => {
+        throw new Error('Customer assignment cleanup port is required');
+      },
     },
   ) {}
 
