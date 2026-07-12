@@ -13,7 +13,7 @@ const SCRYPT_PARALLELIZATION = 1;
 const SCRYPT_KEY_LENGTH = 64;
 const SCRYPT_MAX_MEMORY = 32 * 1024 * 1024;
 
-function validatePassword(password: string): void {
+export function validatePassword(password: string): void {
   if (
     password.length < PASSWORD_MIN_LENGTH ||
     password.length > PASSWORD_MAX_LENGTH

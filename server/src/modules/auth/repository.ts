@@ -29,6 +29,7 @@ type UserRow = {
   role: AuthUserRecord['role'];
   must_change_password: boolean;
   is_active: boolean;
+  version: number;
 };
 
 type SessionRow = {
@@ -49,6 +50,7 @@ function mapUser(row: UserRow): AuthUserRecord {
     role: row.role,
     mustChangePassword: row.must_change_password,
     isActive: row.is_active,
+    version: row.version,
   };
 }
 
@@ -65,6 +67,7 @@ function mapSession(row: SessionRow): SessionRecord {
 const USER_COLUMNS = `
   id, organization_id, name, email, password_hash, role,
   must_change_password, is_active
+  , version
 `;
 
 export class PostgresAuthRepository implements AuthRepository {
@@ -101,7 +104,7 @@ export class PostgresAuthRepository implements AuthRepository {
       `SELECT
          s.id, s.user_id, s.token_hash, s.expires_at, s.revoked_at,
          u.id AS user_record_id, u.organization_id, u.name, u.email,
-         u.password_hash, u.role, u.must_change_password, u.is_active
+         u.password_hash, u.role, u.must_change_password, u.is_active, u.version
        FROM sessions s
        JOIN users u ON u.id = s.user_id
        WHERE s.token_hash = $1
@@ -157,7 +160,8 @@ export class PostgresAuthRepository implements AuthRepository {
   ) {
     const result = await client.query(
       `UPDATE users
-       SET password_hash = $3, must_change_password = FALSE, updated_at = NOW()
+       SET password_hash = $3, must_change_password = FALSE,
+           version = version + 1, updated_at = NOW()
        WHERE id = $1 AND password_hash = $2`,
       [userId, expectedPasswordHash, passwordHash],
     );

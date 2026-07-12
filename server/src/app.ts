@@ -13,7 +13,7 @@ import { AppError } from './errors/index.js';
 import type { JobCardRepository } from './modules/job-cards/repository.js';
 import { JobCardService } from './modules/job-cards/service.js';
 import { jobCardRoutes } from './modules/job-cards/routes.js';
-import { requireAuthentication } from './modules/auth/middleware.js';
+import { requireAuthentication, requirePasswordChanged } from './modules/auth/middleware.js';
 import { referenceRoutes } from './modules/job-cards/reference-routes.js';
 
 export const LOGGER_REDACT_PATHS = [
@@ -23,6 +23,7 @@ export const LOGGER_REDACT_PATHS = [
   'req.body.password',
   'req.body.currentPassword',
   'req.body.newPassword',
+  'req.body.temporaryPassword',
   'req.body.token',
   'req.body.sessionToken',
 ];
@@ -70,15 +71,20 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
     if (dependencies.jobCardRepository) {
       const jobCardService = new JobCardService(dependencies.jobCardRepository);
       const authenticate = requireAuthentication(authService);
+      const passwordChanged = requirePasswordChanged();
+      const authenticateDomain = async (...args: Parameters<typeof authenticate>) => {
+        await authenticate(...args);
+        await passwordChanged(...args);
+      };
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',
         service: jobCardService,
-        authenticate,
+        authenticate: authenticateDomain,
       });
       await app.register(referenceRoutes, {
         prefix: '/api/reference',
         service: jobCardService,
-        authenticate,
+        authenticate: authenticateDomain,
       });
     }
   }

@@ -27,6 +27,7 @@ class MemoryRepository implements AuthRepository {
     if (id !== this.user.id || expected !== this.user.passwordHash) return false;
     this.user.passwordHash = passwordHash;
     this.user.mustChangePassword = false;
+    this.user.version += 1;
     this.sessions.forEach((session) => { session.revokedAt ??= at; });
     return true;
   }
@@ -48,7 +49,7 @@ describe('auth HTTP routes', () => {
     repository.user = {
       id: 'user-1', organizationId: 'org-1', name: 'Admin', email: 'admin@example.com',
       passwordHash: await hashPassword('correct-password'), role: 'ADMIN',
-      mustChangePassword: false, isActive: true,
+      mustChangePassword: false, isActive: true, version: 1,
     };
     app = await buildApp(baseConfig, { authRepository: repository });
   });
@@ -61,7 +62,9 @@ describe('auth HTTP routes', () => {
       payload: { email: 'admin@example.com', password: 'correct-password' },
     });
     expect(response.statusCode).toBe(200);
-    expect(response.json()).toEqual({ user: expect.objectContaining({ email: 'admin@example.com', role: 'ADMIN' }) });
+    expect(response.json()).toEqual({ user: expect.objectContaining({
+      email: 'admin@example.com', role: 'ADMIN', isActive: true, version: 1,
+    }) });
     expect(response.body).not.toContain('passwordHash');
     expect(response.headers['set-cookie']).toMatch(/servora_session=.*HttpOnly.*SameSite=Lax/i);
   });

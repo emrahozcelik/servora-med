@@ -27,6 +27,8 @@ function toSafeUser(user: AuthUserRecord): SafeUser {
     email: user.email,
     role: user.role,
     mustChangePassword: user.mustChangePassword,
+    isActive: user.isActive,
+    version: user.version,
   };
 }
 

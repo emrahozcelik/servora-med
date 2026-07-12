@@ -293,7 +293,7 @@ git commit -m "feat: enforce people lifecycle policy"
 - Produces `CredentialAdministrationPort`, `SessionRevocationPort`, `requirePasswordChanged`, version-aware `SafeUser`.
 - Consumes existing `validatePassword`, `hashPassword`, and PostgreSQL transaction clients.
 
-- [ ] **Step 1: Write failing auth integration tests**
+- [x] **Step 1: Write failing auth integration tests**
 
 Prove: forced-change login succeeds; `/me`, `/change-password`, `/logout` remain allowed; domain routes return `403 PASSWORD_CHANGE_REQUIRED`; successful change clears the flag, increments user version, revokes every session, clears cookie, and requires fresh login.
 
@@ -309,12 +309,12 @@ export function requirePasswordChanged() {
 }
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd server && npm test -- --run tests/password-change-guard.test.ts tests/auth-service.test.ts tests/auth-routes.test.ts`  
 Expected: FAIL on missing guard/ports/version behavior.
 
-- [ ] **Step 3: Implement the auth-owned ports**
+- [x] **Step 3: Implement the auth-owned ports**
 
 ```ts
 export interface CredentialAdministrationPort {
@@ -330,12 +330,12 @@ export interface SessionRevocationPort {
 
 Add `version` and `isActive` to the safe authenticated user mapping needed by guards/UI. Ensure `LOGGER_REDACT_PATHS` later includes `req.body.temporaryPassword`. Keep auth change-password transaction-owned by auth and increment user version.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd server && npm test -- --run tests/password-change-guard.test.ts tests/auth-service.test.ts tests/auth-routes.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/auth server/src/types/fastify.d.ts server/tests/password-change-guard.test.ts server/tests/auth-service.test.ts server/tests/auth-routes.test.ts
