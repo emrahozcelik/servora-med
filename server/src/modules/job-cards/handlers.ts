@@ -22,8 +22,8 @@ function body(request: FastifyRequest, allowed: readonly string[]) {
   return value;
 }
 
-const CREATE_FIELDS = ['clientActionId', 'type', 'title', 'description', 'customerId', 'assignedTo', 'priority', 'dueDate'];
-const PATCH_FIELDS = ['expectedVersion', 'title', 'description', 'customerId', 'assignedTo', 'priority', 'dueDate'];
+const CREATE_FIELDS = ['clientActionId', 'type', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
+const PATCH_FIELDS = ['expectedVersion', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 
 export function createJobCardHandlers(service: JobCardService) {

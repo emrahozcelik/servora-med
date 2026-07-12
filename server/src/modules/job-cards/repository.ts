@@ -31,13 +31,13 @@ export type ActivityInput = {
 
 export type CreateJobCardRecord = {
   organizationId: string; type: JobCard['type']; title: string; description: string | null;
-  customerId: string | null; assignedTo: string; createdBy: string;
+  customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string;
   priority: JobCardPriority; dueDate: string | null;
 };
 
 export type JobCardListScope = { organizationId: string; assignedTo?: string };
 export type UpdateJobCardFields = Partial<Pick<
-  JobCard, 'title' | 'description' | 'customerId' | 'assignedTo' | 'priority' | 'dueDate'
+  JobCard, 'title' | 'description' | 'customerId' | 'contactId' | 'assignedTo' | 'priority' | 'dueDate'
 >>;
 export type UpdateJobCardInput = {
   organizationId: string; jobCardId: string; expectedVersion: number; fields: UpdateJobCardFields;
@@ -58,13 +58,19 @@ export type ActivityRecord = {
 };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 export type ReferenceProduct = { id: string; name: string; sku: string; model: string | null; unit: string };
+export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
+export type JobContactReference = { id: string; customerId: string; isActive: boolean };
 
 export interface JobCardTransaction {
+  getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
   appendActivity(input: ActivityInput): Promise<void>;
+  getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
+  getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
   customerExists(organizationId: string, customerId: string): Promise<boolean>;
+  getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
   createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
   getProduct(organizationId: string, productId: string): Promise<ProductReference | null>;
@@ -97,7 +103,7 @@ export interface JobCardRepository {
 
 type JobCardRow = {
   id: string; organization_id: string; type: JobCard['type']; status: JobCardStatus;
-  version: number; title: string; description: string | null; customer_id: string | null;
+  version: number; title: string; description: string | null; customer_id: string | null; contact_id: string | null;
   assigned_to: string; created_by: string; priority: JobCardPriority; due_date: string | null;
 };
 type DeliveryRow = {
@@ -122,7 +128,7 @@ function mapJobCard(row: JobCardRow): JobCard {
   return {
     id: row.id, organizationId: row.organization_id, type: row.type, status: row.status,
     version: row.version, title: row.title, description: row.description,
-    customerId: row.customer_id, assignedTo: row.assigned_to, createdBy: row.created_by,
+    customerId: row.customer_id, contactId: row.contact_id, assignedTo: row.assigned_to, createdBy: row.created_by,
     priority: row.priority, dueDate: row.due_date,
   };
 }
@@ -130,9 +136,18 @@ function mapJobCard(row: JobCardRow): JobCard {
 class PostgresJobCardTransaction implements JobCardTransaction {
   constructor(private readonly client: PoolClient) {}
 
+  async getJob(organizationId: string, jobCardId: string) {
+    const result = await this.client.query<JobCardRow>(
+      `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
+              assigned_to, created_by, priority, due_date
+       FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
   async getJobForUpdate(organizationId: string, jobCardId: string) {
     const result = await this.client.query<JobCardRow>(
-      `SELECT id, organization_id, type, status, version, title, description, customer_id,
+      `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
               assigned_to, created_by, priority, due_date
        FROM job_cards WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
       [organizationId, jobCardId],
@@ -157,7 +172,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
            revision_reason = CASE WHEN $4 = 'REVISION_REQUESTED' THEN $8 ELSE revision_reason END,
            updated_at = $5
        WHERE organization_id = $1 AND id = $2 AND version = $3
-       RETURNING id, organization_id, type, status, version, title, description, customer_id,
+       RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
                  assigned_to, created_by, priority, due_date`,
       [input.organizationId, input.jobCardId, input.expectedVersion, input.status, input.occurredAt,
         input.actorId ?? null, input.note ?? null, input.revisionReason ?? null],
@@ -175,41 +190,66 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     );
   }
 
-  async getAssignee(organizationId: string, userId: string) {
+  async getAssigneeForUpdate(organizationId: string, userId: string) {
     const result = await this.client.query<{
       id: string; organization_id: string; role: JobCardAssignee['role']; is_active: boolean;
     }>(
       `SELECT id, organization_id, role, is_active FROM users
-       WHERE organization_id = $1 AND id = $2`, [organizationId, userId],
+       WHERE organization_id = $1 AND id = $2 FOR UPDATE`, [organizationId, userId],
     );
     const row = result.rows[0];
     return row ? { id: row.id, organizationId: row.organization_id, role: row.role, isActive: row.is_active } : null;
   }
 
-  async customerExists(organizationId: string, customerId: string) {
-    const result = await this.client.query(
-      `SELECT 1 FROM customers WHERE organization_id = $1 AND id = $2 LIMIT 1`,
+  async getAssignee(organizationId: string, userId: string) {
+    const result = await this.client.query<{
+      id: string; organization_id: string; role: JobCardAssignee['role']; is_active: boolean;
+    }>(`SELECT id, organization_id, role, is_active FROM users
+        WHERE organization_id = $1 AND id = $2`, [organizationId, userId]);
+    const row = result.rows[0];
+    return row ? { id: row.id, organizationId: row.organization_id, role: row.role, isActive: row.is_active } : null;
+  }
+
+  async getCustomerForUpdate(organizationId: string, customerId: string) {
+    const result = await this.client.query<{ id: string; status: JobCustomerReference['status'] }>(
+      `SELECT id, status FROM customers WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
       [organizationId, customerId],
     );
-    return result.rowCount === 1;
+    return result.rows[0] ?? null;
+  }
+
+  async customerExists(organizationId: string, customerId: string) {
+    const result = await this.client.query(
+      `SELECT 1 FROM customers WHERE organization_id=$1 AND id=$2 LIMIT 1`, [organizationId, customerId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async getContactForUpdate(organizationId: string, contactId: string) {
+    const result = await this.client.query<{ id: string; customer_id: string; is_active: boolean }>(
+      `SELECT id, customer_id, is_active FROM contacts
+       WHERE organization_id = $1 AND id = $2 FOR UPDATE`, [organizationId, contactId],
+    );
+    const row = result.rows[0];
+    return row ? { id: row.id, customerId: row.customer_id, isActive: row.is_active } : null;
   }
 
   async createJobCard(input: CreateJobCardRecord) {
     const result = await this.client.query<JobCardRow>(
       `INSERT INTO job_cards
-         (organization_id, type, title, description, customer_id, assigned_to, created_by, priority, due_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-       RETURNING id, organization_id, type, status, version, title, description, customer_id,
+         (organization_id, type, title, description, customer_id, contact_id, assigned_to, created_by, priority, due_date)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
                  assigned_to, created_by, priority, due_date`,
       [input.organizationId, input.type, input.title, input.description, input.customerId,
-        input.assignedTo, input.createdBy, input.priority, input.dueDate],
+        input.contactId, input.assignedTo, input.createdBy, input.priority, input.dueDate],
     );
     return mapJobCard(result.rows[0]!);
   }
 
   async updateFieldsWithVersion(input: UpdateJobCardInput) {
     const columns: Record<keyof UpdateJobCardFields, string> = {
-      title: 'title', description: 'description', customerId: 'customer_id',
+      title: 'title', description: 'description', customerId: 'customer_id', contactId: 'contact_id',
       assignedTo: 'assigned_to', priority: 'priority', dueDate: 'due_date',
     };
     const values: unknown[] = [input.organizationId, input.jobCardId, input.expectedVersion];
@@ -220,7 +260,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const result = await this.client.query<JobCardRow>(
       `UPDATE job_cards SET ${assignments.join(', ')}, version = version + 1, updated_at = NOW()
        WHERE organization_id = $1 AND id = $2 AND version = $3
-       RETURNING id, organization_id, type, status, version, title, description, customer_id,
+       RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
                  assigned_to, created_by, priority, due_date`, values,
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
@@ -273,7 +313,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const result = await this.client.query<JobCardRow>(
       `UPDATE job_cards SET version=version+1, updated_at=NOW()
        WHERE organization_id=$1 AND id=$2 AND version=$3
-       RETURNING id, organization_id, type, status, version, title, description, customer_id,
+       RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
                  assigned_to, created_by, priority, due_date`, [organizationId, jobCardId, expectedVersion]);
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
@@ -346,7 +386,7 @@ export class PostgresJobCardRepository implements JobCardRepository {
     const assignedFilter = scope.assignedTo ? ' AND assigned_to = $2' : '';
     if (scope.assignedTo) values.push(scope.assignedTo);
     const result = await this.pool.query<JobCardRow>(
-      `SELECT id, organization_id, type, status, version, title, description, customer_id,
+      `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
               assigned_to, created_by, priority, due_date
        FROM job_cards WHERE organization_id = $1${assignedFilter}
        ORDER BY created_at DESC, id DESC`, values,
@@ -356,7 +396,7 @@ export class PostgresJobCardRepository implements JobCardRepository {
 
   async findJobCard(organizationId: string, jobCardId: string) {
     const result = await this.pool.query<JobCardRow>(
-      `SELECT id, organization_id, type, status, version, title, description, customer_id,
+      `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
               assigned_to, created_by, priority, due_date
        FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
     );
