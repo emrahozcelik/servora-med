@@ -170,9 +170,9 @@ People and security administration uses an audit stream separate from JobCard ac
 | id | UUID PK | |
 | organization_id | UUID NOT NULL | FK to organizations |
 | actor_user_id | UUID NOT NULL | same-organization FK to users |
-| subject_type | VARCHAR(40) NOT NULL | `USER` or `STAFF_PROFILE` |
+| subject_type | VARCHAR(40) NOT NULL | `USER`, `STAFF_PROFILE`, `CUSTOMER`, or `CONTACT` |
 | subject_id | UUID NOT NULL | audited subject identifier |
-| event_type | VARCHAR(80) NOT NULL | canonical People audit event |
+| event_type | VARCHAR(80) NOT NULL | canonical People or CRM audit event |
 | old_value | JSONB NULL | safe changed fields only |
 | new_value | JSONB NULL | safe changed fields only |
 | metadata | JSONB NOT NULL | default empty object |
@@ -196,11 +196,12 @@ Passwords, password hashes, temporary passwords, tokens, cookies, and session id
 | address | TEXT NULL | |
 | assigned_staff_user_id | UUID NULL | FK to users |
 | status | VARCHAR(20) NOT NULL | `customer_status` check |
-| notes | TEXT NULL | |
+| version | INTEGER NOT NULL | default 1; optimistic concurrency |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 | updated_at | TIMESTAMPTZ NOT NULL | default now |
 
 Customer lifecycle has one source: `status`. There is no second `is_active` field.
+Customer tax numbers are normalized before persistence and unique per organization when present. Customer references use composite organization-scoped foreign keys.
 
 Indexes:
 
@@ -219,13 +220,13 @@ Indexes:
 | title | VARCHAR(255) NULL | |
 | phone | VARCHAR(50) NULL | |
 | email | VARCHAR(255) NULL | |
-| notes | TEXT NULL | |
 | is_primary | BOOLEAN NOT NULL | default false |
 | is_active | BOOLEAN NOT NULL | default true |
+| version | INTEGER NOT NULL | default 1; optimistic concurrency |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 | updated_at | TIMESTAMPTZ NOT NULL | default now |
 
-The contact and its customer must belong to the same organization.
+The contact and its customer must belong to the same organization through a composite foreign key. At most one active primary Contact may exist per Customer, enforced by a partial unique index on `(organization_id, customer_id)` where `is_primary = true` and `is_active = true`.
 
 ### 3.8 products
 
@@ -268,7 +269,7 @@ version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)
 | title | VARCHAR(255) NOT NULL | |
 | description | TEXT NULL | |
 | customer_id | UUID NULL | FK to customers |
-| contact_id | UUID NULL | FK to contacts |
+| contact_id | UUID NULL | composite organization-scoped FK to contacts |
 | assigned_to | UUID NOT NULL | FK to users |
 | created_by | UUID NOT NULL | FK to users |
 | priority | VARCHAR(20) NOT NULL | default `normal` |
