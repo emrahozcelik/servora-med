@@ -94,6 +94,16 @@ LAST_ACTIVE_ADMIN_REQUIRED
 USER_VERSION_CONFLICT
 STAFF_PROFILE_VERSION_CONFLICT
 PASSWORD_CHANGE_REQUIRED
+CUSTOMER_NOT_FOUND
+CONTACT_NOT_FOUND
+CUSTOMER_TAX_NUMBER_EXISTS
+CUSTOMER_HAS_ACTIVE_JOB_CARDS
+CONTACT_HAS_ACTIVE_JOB_CARDS
+CUSTOMER_INACTIVE
+INVALID_CUSTOMER_STATUS_TRANSITION
+INVALID_CONTACT_STATUS_TRANSITION
+CONTACT_PRIMARY_REQUIRES_ACTIVE
+CONTACT_ALREADY_PRIMARY
 ```
 
 Validation details may identify fields but must not expose SQL, stack traces, hashes, tokens, cookies, or internal infrastructure.
@@ -271,30 +281,58 @@ Staff profile responses include backend-derived counters:
 | POST | `/` | admin, manager | create |
 | GET | `/:customerId` | authenticated | detail and contact summary |
 | PATCH | `/:customerId` | admin, manager | update |
-| DELETE | `/:customerId` | admin | set status to inactive |
+| POST | `/:customerId/activate` | admin, manager | named activation command |
+| POST | `/:customerId/deactivate` | admin, manager | named deactivation command |
+| GET | `/:customerId/contacts` | authenticated | nested Contact list |
+| POST | `/:customerId/contacts` | admin, manager | create nested Contact |
+| GET | `/:customerId/contacts/:contactId` | authenticated | nested Contact detail |
+| PATCH | `/:customerId/contacts/:contactId` | admin, manager | update nested Contact |
+| POST | `/:customerId/contacts/:contactId/activate` | admin, manager | named activation command |
+| POST | `/:customerId/contacts/:contactId/deactivate` | admin, manager | named deactivation command |
+| POST | `/:customerId/contacts/:contactId/make-primary` | admin, manager | select the active primary Contact |
 
 Filters:
 
 ```text
 q
 status
+customerType
 assignedStaffUserId
 city
+unassigned
 limit
 offset
 ```
 
-Customer lifecycle uses `status`; the API does not expose a duplicate active flag.
+`limit` defaults to 50 and must be between 1 and 200; `offset` defaults to 0 and must
+be a non-negative integer. Unknown query parameters are rejected.
 
-## 8. Contacts `/api/contacts`
+Customer lifecycle uses the `prospect`, `active`, and `inactive` state machine. Activation
+is permitted only from `inactive`; deactivation is permitted from `prospect` or `active`.
+The API does not expose a duplicate active flag. Lifecycle commands and
+patches require a positive integer `expectedVersion`; successful mutations increment
+`version`, while stale requests return `409 VERSION_CONFLICT` with `currentVersion`.
+Customers with active JobCards cannot be deactivated. Customer mutation bodies use
+an exact allowlist and never accept or return a `notes` field.
 
-| Method | Path | Roles | Behavior |
-| --- | --- | --- | --- |
-| GET | `/` | authenticated | filter by customer and search |
-| POST | `/` | admin, manager | create under same-organization customer |
-| GET | `/:contactId` | authenticated | detail |
-| PATCH | `/:contactId` | admin, manager | update |
-| DELETE | `/:contactId` | admin, manager | deactivate |
+## 8. Contacts `/api/customers/:customerId/contacts`
+
+Contacts are always addressed beneath their parent Customer; there is no top-level
+`/api/contacts` collection. `contactId` is valid only together with the path's
+`customerId`. Reads are organization-scoped and cross-organization parents or records
+are concealed with `404 CUSTOMER_NOT_FOUND` or `404 CONTACT_NOT_FOUND`.
+
+List filters are `q`, `status=active|inactive|all`, `limit`, and `offset`; status defaults
+to `active`, and the same pagination bounds as Customers apply. Contact active state is
+changed only through the named `activate` and `deactivate` commands. A deactivated
+Contact is never primary, cannot be made primary, and cannot be deactivated while an
+active JobCard references it. Creating the first active Contact makes it primary;
+reactivation does not. `make-primary` atomically clears the previous primary Contact.
+
+Contact patches and all named commands require a positive integer `expectedVersion`.
+Successful mutations increment `version`; stale requests return `409 VERSION_CONFLICT`.
+Mutation bodies use exact allowlists and never accept or return a `notes` field. Staff
+may read Customers and Contacts but every CRM mutation returns `403 FORBIDDEN`.
 
 ## 9. Products `/api/products`
 
