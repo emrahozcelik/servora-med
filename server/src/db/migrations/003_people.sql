@@ -32,7 +32,7 @@ CREATE INDEX staff_profiles_manager_idx ON staff_profiles (organization_id, mana
 CREATE TABLE audit_events (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id UUID NOT NULL REFERENCES organizations(id),
-  actor_user_id UUID,
+  actor_user_id UUID NOT NULL,
   subject_type VARCHAR(40) NOT NULL
     CHECK (subject_type IN ('USER', 'STAFF_PROFILE')),
   subject_id UUID NOT NULL,

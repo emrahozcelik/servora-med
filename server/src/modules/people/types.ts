@@ -85,6 +85,25 @@ export type UpdateStaffProfileRecord = CreateStaffProfileRecord & {
   expectedVersion: number;
 };
 
+export type StaffProfileInput = {
+  title: string | null;
+  phone: string | null;
+  region: string | null;
+  managerUserId: string | null;
+};
+
+export type CreateUserInput = {
+  name: string;
+  email: string;
+  role: UserRole;
+  temporaryPassword: string;
+  staffProfile?: StaffProfileInput;
+};
+
+export type UpdateStaffProfileInput = StaffProfileInput & {
+  expectedVersion: number;
+};
+
 export type AppendAuditInput = {
   organizationId: string;
   actorUserId: string;

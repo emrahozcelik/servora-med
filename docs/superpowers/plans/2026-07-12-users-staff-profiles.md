@@ -228,7 +228,7 @@ git commit -m "feat: add people persistence"
 - Produces `PeopleService` methods used verbatim by handlers.
 - Consumes `PeopleRepository`, `CredentialAdministrationPort` for new-user password preparation, and `now`; transaction-bound reset/revocation is exposed through `PeopleTransaction` and implemented by auth ports.
 
-- [ ] **Step 1: Write failing policy tests**
+- [x] **Step 1: Write failing policy tests**
 
 Cover one behavior per test: Admin-only create; Staff profile required/forbidden; duplicate email; eligible manager; Admin/Manager-only role matrix; self guards; last Admin; active JobCards; assigned Staff; version conflict; atomic audit; Staff self read; Manager active-only filter.
 
@@ -251,21 +251,21 @@ class PeopleService {
 }
 ```
 
-- [ ] **Step 2: Verify RED**
+- [x] **Step 2: Verify RED**
 
 Run: `cd server && npm test -- --run tests/people-service.test.ts`  
 Expected: FAIL because `PeopleService` is missing.
 
-- [ ] **Step 3: Implement minimal policy and stable errors**
+- [x] **Step 3: Implement minimal policy and stable errors**
 
 Centralize only repeated checks (`requireAdmin`, `requireAdminOrManager`, organization concealment, version conflict). Insert canonical audit events in the same transaction. For profile updates, insert `STAFF_PROFILE_UPDATED` for title/phone/region changes and `STAFF_MANAGER_CHANGED` for manager changes; insert both when both categories change.
 
-- [ ] **Step 4: Verify GREEN and backend regression**
+- [x] **Step 4: Verify GREEN and backend regression**
 
 Run: `cd server && npm test -- --run tests/people-service.test.ts tests/job-card-service.test.ts tests/auth-service.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/people/service.ts server/tests/people-service.test.ts

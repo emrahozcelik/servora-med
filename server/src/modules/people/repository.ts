@@ -83,6 +83,8 @@ function mapSummary(row: StaffSummaryRow): StaffProfileSummary {
 
 export interface PeopleTransaction {
   lockUser(organizationId: string, userId: string): Promise<ManagedUserRecord | null>;
+  findUserByEmail(normalizedEmail: string): Promise<ManagedUserRecord | null>;
+  lockStaffProfile(organizationId: string, userId: string): Promise<StaffProfileRecord | null>;
   createUser(input: CreateUserRecord): Promise<ManagedUserRecord>;
   createStaffProfile(input: CreateStaffProfileRecord): Promise<StaffProfileRecord>;
   updateUserName(userId: string, expectedVersion: number, name: string): Promise<ManagedUserRecord | null>;
@@ -118,6 +120,24 @@ class PostgresPeopleTransaction implements PeopleTransaction {
       [organizationId, userId],
     );
     return result.rows[0] ? mapUser(result.rows[0]) : null;
+  }
+
+  async findUserByEmail(normalizedEmail: string) {
+    const result = await this.client.query<UserRow>(
+      `SELECT ${USER_COLUMNS} FROM users WHERE lower(email) = $1 LIMIT 1`,
+      [normalizedEmail],
+    );
+    return result.rows[0] ? mapUser(result.rows[0]) : null;
+  }
+
+  async lockStaffProfile(organizationId: string, userId: string) {
+    const result = await this.client.query<StaffProfileRow>(
+      `SELECT id, organization_id, user_id, title, phone, region, manager_user_id,
+              version, created_at, updated_at
+       FROM staff_profiles WHERE organization_id = $1 AND user_id = $2 FOR UPDATE`,
+      [organizationId, userId],
+    );
+    return result.rows[0] ? mapProfile(result.rows[0]) : null;
   }
 
   async createUser(input: CreateUserRecord) {
