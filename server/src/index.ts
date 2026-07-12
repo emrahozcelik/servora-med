@@ -11,16 +11,18 @@ import {
   PostgresSessionRevocationPort,
 } from './modules/auth/admin-ports.js';
 import { PostgresPeopleRepository } from './modules/people/repository.js';
+import { PostgresCustomerAssignmentCleanup } from './modules/crm/people-adapter.js';
 
 async function main() {
   const config = loadConfig();
   const database = createDatabase(config.databaseUrl);
   const credentials = new AuthCredentialAdministration();
   const sessions = new PostgresSessionRevocationPort();
+  const customerAssignments = new PostgresCustomerAssignmentCleanup();
   const app = await buildApp(config, {
     authRepository: new PostgresAuthRepository(database.pool),
     jobCardRepository: new PostgresJobCardRepository(database.pool),
-    peopleRepository: new PostgresPeopleRepository(database.pool, credentials, sessions),
+    peopleRepository: new PostgresPeopleRepository(database.pool, credentials, sessions, customerAssignments),
   });
   const migrationsDirectory = fileURLToPath(new URL('./db/migrations/', import.meta.url));
   let shuttingDown = false;

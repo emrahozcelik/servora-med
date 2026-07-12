@@ -16,6 +16,7 @@ import type {
   StaffStatusFilter,
   UpdateStaffProfileRecord,
 } from './types.js';
+import type { ClearCustomerAssignmentsInput, CustomerAssignmentCleanupPort } from './customer-assignment-port.js';
 
 type UserRow = {
   id: string; organization_id: string; name: string; email: string; password_hash: string;
@@ -96,6 +97,7 @@ export interface PeopleTransaction {
   hasAssignedActiveStaff(managerUserId: string): Promise<boolean>;
   resetTemporaryPassword(userId: string, expectedVersion: number, temporaryPassword: string, revokedAt: Date): Promise<ManagedUserRecord | null>;
   revokeAllSessions(userId: string, revokedAt: Date): Promise<void>;
+  clearCustomerAssignments(input: ClearCustomerAssignmentsInput): Promise<Array<{ customerId: string; nextVersion: number }>>;
   appendAudit(input: AppendAuditInput): Promise<void>;
 }
 
@@ -112,6 +114,7 @@ class PostgresPeopleTransaction implements PeopleTransaction {
     private readonly client: PoolClient,
     private readonly credentials: CredentialAdministrationPort,
     private readonly sessions: SessionRevocationPort,
+    private readonly customerAssignments: CustomerAssignmentCleanupPort,
   ) {}
 
   async lockUser(organizationId: string, userId: string) {
@@ -246,6 +249,10 @@ class PostgresPeopleTransaction implements PeopleTransaction {
     await this.sessions.revokeAllSessions(this.client, userId, revokedAt);
   }
 
+  clearCustomerAssignments(input: ClearCustomerAssignmentsInput) {
+    return this.customerAssignments.clearAssignmentsForDeactivatedStaff(this.client, input);
+  }
+
   async appendAudit(input: AppendAuditInput) {
     await this.client.query(
       `INSERT INTO audit_events
@@ -286,13 +293,18 @@ export class PostgresPeopleRepository implements PeopleRepository {
     private readonly pool: Pool,
     private readonly credentials: CredentialAdministrationPort,
     private readonly sessions: SessionRevocationPort,
+    private readonly customerAssignments: CustomerAssignmentCleanupPort = {
+      clearAssignmentsForDeactivatedStaff: async () => [],
+    },
   ) {}
 
   async execute<T>(work: (tx: PeopleTransaction) => Promise<T>) {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
-      const result = await work(new PostgresPeopleTransaction(client, this.credentials, this.sessions));
+      const result = await work(new PostgresPeopleTransaction(
+        client, this.credentials, this.sessions, this.customerAssignments,
+      ));
       await client.query('COMMIT');
       return result;
     } catch (error) {

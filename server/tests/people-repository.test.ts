@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import { PostgresPeopleRepository } from '../src/modules/people/repository.js';
+import { PostgresCustomerAssignmentCleanup } from '../src/modules/crm/people-adapter.js';
 
 type QueryCall = { text: string; values: unknown[] };
 
@@ -26,6 +27,56 @@ function recordingPool(rows: unknown[] = []) {
 }
 
 describe('PostgresPeopleRepository transactions', () => {
+  it('delegates Customer cleanup with the active transaction client', async () => {
+    const recorded = recordingPool(); let receivedClient: unknown;
+    const cleanup = {
+      clearAssignmentsForDeactivatedStaff: async (client: unknown) => {
+        receivedClient = client; return [{ customerId: 'customer-1', nextVersion: 2 }];
+      },
+    };
+    const repository = new PostgresPeopleRepository(
+      recorded.pool, recorded.credentials, recorded.sessions, cleanup as never,
+    );
+
+    await expect(repository.execute((tx) => tx.clearCustomerAssignments({
+      organizationId: 'org-1', staffUserId: 'staff-1', actorUserId: 'admin-1',
+    }))).resolves.toEqual([{ customerId: 'customer-1', nextVersion: 2 }]);
+    expect(receivedClient).toBeDefined();
+    expect(recorded.calls.map((call) => call.text)).toEqual(['BEGIN', 'COMMIT']);
+  });
+
+  it('clears every current assignment with versions and ID-only audit events', async () => {
+    const calls: QueryCall[] = [];
+    const client = {
+      query: async (text: string, values: unknown[] = []) => {
+        calls.push({ text, values });
+        if (text.includes('SELECT id, version FROM customers')) {
+          return { rows: [{ id: 'customer-active', version: 2 }, { id: 'customer-inactive', version: 7 }], rowCount: 2 };
+        }
+        if (text.includes('UPDATE customers')) {
+          return { rows: [{ version: Number(values[2]) + 1 }], rowCount: 1 };
+        }
+        return { rows: [], rowCount: 1 };
+      },
+    };
+
+    const result = await new PostgresCustomerAssignmentCleanup().clearAssignmentsForDeactivatedStaff(
+      client as never, { organizationId: 'org-1', staffUserId: 'staff-1', actorUserId: 'admin-1' },
+    );
+
+    expect(result).toEqual([
+      { customerId: 'customer-active', nextVersion: 3 },
+      { customerId: 'customer-inactive', nextVersion: 8 },
+    ]);
+    const lock = calls.find((call) => call.text.includes('SELECT id, version FROM customers'))!;
+    expect(lock.text).toMatch(/ORDER BY id FOR UPDATE/);
+    expect(lock.text).not.toMatch(/status/i);
+    const audits = calls.filter((call) => call.text.includes('INSERT INTO audit_events'));
+    expect(audits).toHaveLength(2);
+    expect(audits.every((call) => call.values.at(-1)?.reason === 'STAFF_DEACTIVATED')).toBe(true);
+    expect(JSON.stringify(audits)).not.toMatch(/phone|email|address|password|token|session/i);
+  });
+
   it('commits successful work and rolls back failed work', async () => {
     const success = recordingPool();
     const repository = new PostgresPeopleRepository(
