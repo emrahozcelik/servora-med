@@ -15,10 +15,16 @@ class CrudMemoryRepository implements JobCardRepository {
     { id: 'staff-1', organizationId: 'org-1', role: 'STAFF', isActive: true },
     { id: 'staff-2', organizationId: 'org-1', role: 'STAFF', isActive: true },
   ];
-  customers = [{ id: 'customer-1', organizationId: 'org-1', status: 'active' as const }];
+  customers = [
+    { id: 'customer-1', organizationId: 'org-1', status: 'active' as const },
+    { id: 'customer-2', organizationId: 'org-1', status: 'active' as const },
+    { id: 'customer-inactive', organizationId: 'org-1', status: 'inactive' as const },
+  ];
   contacts = [
     { id: 'contact-1', organizationId: 'org-1', customerId: 'customer-1', isActive: true },
     { id: 'contact-2', organizationId: 'org-1', customerId: 'customer-2', isActive: true },
+    { id: 'contact-inactive', organizationId: 'org-1', customerId: 'customer-1', isActive: false },
+    { id: 'contact-cross-org', organizationId: 'org-2', customerId: 'customer-1', isActive: true },
   ];
   jobs: JobCard[] = [];
   activities: string[] = [];
@@ -118,6 +124,33 @@ describe('JobCardService create and reads', () => {
     await expect(service.create(staff, {
       ...createInput, clientActionId: 'create-contact-mismatch', contactId: 'contact-2',
     } as never)).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER' });
+  });
+
+  it('rejects inactive and cross-organization references', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    await expect(service.create(staff, {
+      ...createInput, clientActionId: 'inactive-customer', customerId: 'customer-inactive',
+    })).rejects.toMatchObject({ code: 'CUSTOMER_INACTIVE' });
+    await expect(service.create(staff, {
+      ...createInput, clientActionId: 'inactive-contact', contactId: 'contact-inactive',
+    } as never)).rejects.toMatchObject({ code: 'CONTACT_INACTIVE' });
+    await expect(service.create(staff, {
+      ...createInput, clientActionId: 'cross-contact', contactId: 'contact-cross-org',
+    } as never)).rejects.toMatchObject({ code: 'CONTACT_NOT_FOUND' });
+  });
+
+  it('patches a compatible Contact and clears it when Customer changes without one', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const created = await service.create(staff, createInput);
+    const withContact = await service.patch(staff, created.id, {
+      expectedVersion: 1, contactId: 'contact-1',
+    } as never);
+    expect(withContact).toMatchObject({ contactId: 'contact-1', version: 2 });
+
+    const moved = await service.patch(staff, created.id, {
+      expectedVersion: 2, customerId: 'customer-2',
+    });
+    expect(moved).toMatchObject({ customerId: 'customer-2', contactId: null, version: 3 });
   });
 
   it('scopes staff list and detail to their own assignments', async () => {
