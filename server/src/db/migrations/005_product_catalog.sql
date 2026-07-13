@@ -1,0 +1,35 @@
+ALTER TABLE products
+  ADD COLUMN version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0),
+  DROP CONSTRAINT products_organization_id_sku_key,
+  ALTER COLUMN sku DROP NOT NULL,
+  ALTER COLUMN unit DROP DEFAULT,
+  ALTER COLUMN unit DROP NOT NULL;
+
+ALTER TABLE products
+  ADD CONSTRAINT products_default_price_nonnegative_check
+  CHECK (default_price IS NULL OR default_price >= 0);
+
+ALTER TABLE job_card_delivery_items
+  ALTER COLUMN unit DROP NOT NULL;
+
+ALTER TABLE audit_events DROP CONSTRAINT audit_events_subject_type_check;
+ALTER TABLE audit_events DROP CONSTRAINT audit_events_event_type_check;
+
+ALTER TABLE audit_events
+  ADD CONSTRAINT audit_events_subject_type_check CHECK (
+    subject_type IN ('USER', 'STAFF_PROFILE', 'CUSTOMER', 'CONTACT', 'PRODUCT')
+  );
+
+ALTER TABLE audit_events
+  ADD CONSTRAINT audit_events_event_type_check CHECK (event_type IN (
+    'USER_CREATED', 'USER_ROLE_CHANGED', 'USER_ACTIVATED',
+    'USER_DEACTIVATED', 'USER_PASSWORD_RESET',
+    'STAFF_PROFILE_UPDATED', 'STAFF_MANAGER_CHANGED',
+    'CUSTOMER_CREATED', 'CUSTOMER_FIELDS_UPDATED',
+    'CUSTOMER_ASSIGNEE_CHANGED', 'CUSTOMER_ACTIVATED',
+    'CUSTOMER_DEACTIVATED', 'CONTACT_CREATED',
+    'CONTACT_FIELDS_UPDATED', 'CONTACT_MADE_PRIMARY',
+    'CONTACT_ACTIVATED', 'CONTACT_DEACTIVATED',
+    'PRODUCT_CREATED', 'PRODUCT_FIELDS_UPDATED',
+    'PRODUCT_ACTIVATED', 'PRODUCT_DEACTIVATED'
+  ));
