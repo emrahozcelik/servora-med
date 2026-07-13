@@ -36,6 +36,19 @@ describe('Product API client', () => {
     expect(fetchMock).toHaveBeenLastCalledWith('/api/products', expect.anything());
   });
 
+  it('does not serialize unknown runtime filter properties', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      items: [product], total: 1, limit: 50, offset: 0,
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+    const widenedFilters = { q: 'İmplant', status: 'all' as const,
+      organizationId: 'org-unsafe', isActive: false };
+
+    await listProducts(widenedFilters);
+    expect(fetchMock).toHaveBeenCalledWith('/api/products?q=%C4%B0mplant&status=all',
+      expect.anything());
+  });
+
   it('accepts populated nullable fields and parses the canonical page metadata', async () => {
     const populated = { ...product, sku: 'SKU-1', brand: 'Servora', category: 'İmplant',
       model: 'M/1', unit: 'adet', referencePrice: 1250.5 };
@@ -71,6 +84,22 @@ describe('Product API client', () => {
     await createProduct(nullable);
     expect(fetchMock.mock.calls.map(([, init]) => init.body)).toEqual([
       JSON.stringify(minimal), JSON.stringify(nullable),
+    ]);
+  });
+
+  it('projects create and patch bodies onto their canonical runtime fields', async () => {
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(json(product)));
+    vi.stubGlobal('fetch', fetchMock);
+    const widenedCreate = { name: 'Dental İmplant', sku: null, expectedVersion: 99,
+      isActive: false, organizationId: 'org-unsafe' };
+    const widenedPatch = { expectedVersion: 3, brand: null, isActive: false,
+      organizationId: 'org-unsafe', createdAt: 'unsafe' };
+
+    await createProduct(widenedCreate);
+    await updateProduct('product-1', widenedPatch);
+    expect(fetchMock.mock.calls.map(([, init]) => init.body)).toEqual([
+      JSON.stringify({ name: 'Dental İmplant', sku: null }),
+      JSON.stringify({ expectedVersion: 3, brand: null }),
     ]);
   });
 

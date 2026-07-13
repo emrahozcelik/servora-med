@@ -20,6 +20,20 @@ type MutableProductFields = {
 export type CreateProductInput = MutableProductFields & { name: string };
 export type UpdateProductInput = MutableProductFields & { expectedVersion: number };
 
+const MUTABLE_FIELDS = [
+  'name', 'sku', 'brand', 'category', 'model', 'unit', 'referencePrice',
+] as const;
+const FILTER_FIELDS = ['q', 'status', 'limit', 'offset'] as const;
+
+function projectMutableFields(input: MutableProductFields): MutableProductFields {
+  const source = input as Record<string, unknown>;
+  const projected: Record<string, unknown> = {};
+  for (const field of MUTABLE_FIELDS) {
+    if (Object.prototype.hasOwnProperty.call(source, field)) projected[field] = source[field];
+  }
+  return projected as MutableProductFields;
+}
+
 function nullableNumber(value: unknown, field: string): number | null {
   if (value === null) return null;
   return number(value, field);
@@ -48,7 +62,8 @@ function parsePage(value: unknown): Paginated<Product> {
 
 function query(filters: ProductFilters) {
   const params = new URLSearchParams();
-  for (const [key, value] of Object.entries(filters)) {
+  for (const key of FILTER_FIELDS) {
+    const value = filters[key];
     if (value !== undefined && value !== '') params.set(key, String(value));
   }
   const encoded = params.toString();
@@ -61,9 +76,11 @@ export const listProducts = async (filters: ProductFilters = {}) =>
   parsePage(await request(`/api/products${query(filters)}`));
 export const getProduct = async (id: string) => parseProduct(await request(productPath(id)));
 export const createProduct = async (input: CreateProductInput) =>
-  parseProduct(await request('/api/products', json('POST', input)));
+  parseProduct(await request('/api/products', json('POST', projectMutableFields(input))));
 export const updateProduct = async (id: string, input: UpdateProductInput) =>
-  parseProduct(await request(productPath(id), json('PATCH', input)));
+  parseProduct(await request(productPath(id), json('PATCH', {
+    expectedVersion: input.expectedVersion, ...projectMutableFields(input),
+  })));
 export const activateProduct = async (id: string, expectedVersion: number) =>
   parseProduct(await request(`${productPath(id)}/activate`, json('POST', { expectedVersion })));
 export const deactivateProduct = async (id: string, expectedVersion: number) =>
