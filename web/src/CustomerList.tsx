@@ -8,6 +8,9 @@ import {
   type CustomerStatus, type CustomerSummary, type CustomerType,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
+import { createRequestGate } from './services/request-gate';
+
+export { createRequestGate } from './services/request-gate';
 
 const customerTypeLabels: Record<CustomerType, string> = {
   clinic: 'Klinik', hospital: 'Hastane', dealer: 'Bayi', company: 'Firma', other: 'Diğer',
@@ -165,11 +168,6 @@ export function customerRequestFilters(filters: CustomerFilterValues, debouncedQ
 export function scheduleCustomerSearch(callback: () => void, delay = 250) {
   const timer = setTimeout(callback, delay);
   return () => clearTimeout(timer);
-}
-
-export function createRequestGate() {
-  let generation = 0;
-  return { next: () => ++generation, isCurrent: (candidate: number) => candidate === generation };
 }
 
 function nullable(data: FormData, name: string) {

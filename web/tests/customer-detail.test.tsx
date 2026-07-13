@@ -4,7 +4,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   CustomerDetailView, customerFieldsFromFormData, confirmCustomerLifecycle,
-  customerMutationErrorMessage,
+  customerMutationErrorMessage, mergeCustomerDetailUpdate,
 } from '../src/CustomerDetail';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import type { CustomerDetail } from '../src/services/crm-api';
@@ -60,5 +60,21 @@ describe('Customer detail', () => {
     expect(confirm.mock.calls[0]![0]).toContain('yeni iş ve ilgili kişi işlemleri');
     expect(customerMutationErrorMessage(new ApiError(409, 'CUSTOMER_HAS_ACTIVE_JOB_CARDS', 'Açık işler var.'))).toContain('açık işleri');
     expect(customerMutationErrorMessage(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.', false, { currentVersion: 5 }))).toContain('güncellendi');
+  });
+
+  it('updates the assignee display from trusted Staff data after PATCH', () => {
+    const next = mergeCustomerDetailUpdate(customer, { ...customer, assignedStaffUserId: 'staff-2', version: 4 }, [
+      { id: 'profile-2', user: { ...staff, id: 'staff-2', name: 'Bora Personel', lastLoginAt: null, createdAt: '', updatedAt: '' }, title: null, phone: null, region: null, managerUserId: null, managerName: null, version: 1,
+        counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 } },
+    ]);
+    expect(next.assignedStaffName).toBe('Bora Personel'); expect(next.version).toBe(4);
+  });
+
+  it('keeps stale form values blocked behind an explicit current-values action', () => {
+    const html = renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={manager} staff={[]}
+      pending={false} error="Kayıt güncellendi." notice="" conflict onBack={() => {}} onSave={() => {}}
+      onLifecycle={() => {}} onCreateContact={() => {}} onReloadCurrent={() => {}} /></MemoryRouter>);
+    expect(html).toContain('value="Demo Dental Klinik"');
+    expect(html).toContain('Güncel değerleri yükle');
   });
 });

@@ -7,6 +7,7 @@ import {
   activateContact, createContact, deactivateContact, getContact, getCustomer, makePrimaryContact,
   updateContact, type Contact, type ContactFields,
 } from './services/crm-api';
+import { createRequestGate } from './services/request-gate';
 
 export type ContactListState =
   | { kind: 'loading' }
@@ -50,7 +51,7 @@ export function confirmContactLifecycle(contact: Contact, action: 'activate' | '
 
 export function contactMutationErrorMessage(error: unknown) {
   if (error instanceof ApiError && error.code === 'CONTACT_HAS_ACTIVE_JOB_CARDS') return 'İlgili kişi açık iş kartlarında kullanıldığı için pasifleştirilemez. Önce bu işleri tamamlayın veya iptal edin.';
-  if (error instanceof ApiError && error.code === 'VERSION_CONFLICT') return 'Kayıt başka bir kullanıcı tarafından güncellendi. Güncel sürüm yüklendi; formdaki değişiklikleriniz korunuyor.';
+  if (error instanceof ApiError && error.code === 'VERSION_CONFLICT') return 'Kayıt başka bir kullanıcı tarafından güncellendi; formdaki değişiklikleriniz korunuyor. Devam etmek için güncel değerleri yükleyin.';
   return error instanceof Error ? error.message : 'İşlem tamamlanamadı. Tekrar deneyin.';
 }
 
@@ -59,7 +60,7 @@ export function ContactCreateForm({ pending, error, onCancel, onSubmit }: {
 }) {
   return <section className="inline-record-form" aria-labelledby="new-contact-title"><h2 id="new-contact-title">İlgili kişi ekle</h2>
     {error && <div className="form-error" role="alert">{error}</div>}
-    <form onSubmit={onSubmit}><label className="field-group" htmlFor="new-contact-name">Ad soyad<input id="new-contact-name" name="name" required disabled={pending} /></label>
+    <form onSubmit={onSubmit}><label className="field-group" htmlFor="new-contact-name">Ad soyad<input id="new-contact-name" name="name" required disabled={pending} autoFocus /></label>
       <label className="field-group" htmlFor="new-contact-title-field">Görev veya unvan<input id="new-contact-title-field" name="title" disabled={pending} /></label>
       <div className="customer-form-pair"><label className="field-group" htmlFor="new-contact-phone">Telefon<input id="new-contact-phone" name="phone" type="tel" disabled={pending} /></label>
         <label className="field-group" htmlFor="new-contact-email">E-posta<input id="new-contact-email" name="email" type="email" disabled={pending} /></label></div>
@@ -68,31 +69,36 @@ export function ContactCreateForm({ pending, error, onCancel, onSubmit }: {
   </section>;
 }
 
-export function ContactDetailView({ contact, customerName, pending, error, notice, canManage = true, errorRef, onBack, onSave, onLifecycle, onMakePrimary }: {
+export function ContactDetailView({ contact, customerName, pending, error, notice, conflict = false, canManage = true, errorRef, commandsRef, onBack, onSave, onLifecycle, onMakePrimary, onReloadCurrent }: {
   contact: Contact; customerName: string; pending: boolean; error: string; notice: string;
+  conflict?: boolean;
   canManage?: boolean;
   errorRef?: RefObject<HTMLDivElement | null>;
+  commandsRef?: RefObject<HTMLElement | null>;
   onBack: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void;
   onLifecycle: (action: 'activate' | 'deactivate', trigger: HTMLButtonElement) => void;
   onMakePrimary: (trigger: HTMLButtonElement) => void;
+  onReloadCurrent?: () => void;
 }) {
   return <main className="customer-detail"><button className="back-link" type="button" onClick={onBack}>{customerName} kaydına dön</button>
     <div className="detail-heading"><div><p className="eyebrow">İlgili kişi</p><h1>{contact.name}</h1></div>
       <div className="record-status"><span>{contact.isActive ? 'Aktif' : 'Pasif'}</span>{contact.isPrimary && <span className="status" aria-label="Birincil kişi">Birincil kişi</span>}</div></div>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
+    {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
+      <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
     <section className="record-section" aria-labelledby="contact-fields-title"><h2 id="contact-fields-title">İlgili kişi bilgileri</h2>
-      {canManage ? <form onSubmit={onSave}><label className="field-group" htmlFor="contact-name">Ad soyad<input id="contact-name" name="name" defaultValue={contact.name} required disabled={pending} /></label>
+      {canManage ? <form key={contact.version} onSubmit={onSave}><label className="field-group" htmlFor="contact-name">Ad soyad<input id="contact-name" name="name" defaultValue={contact.name} required disabled={pending} /></label>
         <label className="field-group" htmlFor="contact-title">Görev veya unvan<input id="contact-title" name="title" defaultValue={contact.title ?? ''} disabled={pending} /></label>
         <div className="customer-form-pair"><label className="field-group" htmlFor="contact-phone">Telefon<input id="contact-phone" name="phone" type="tel" defaultValue={contact.phone ?? ''} disabled={pending} /></label>
           <label className="field-group" htmlFor="contact-email">E-posta<input id="contact-email" name="email" type="email" defaultValue={contact.email ?? ''} disabled={pending} /></label></div>
-        <button className="primary-button compact-button" disabled={pending}>Bilgileri kaydet</button></form>
+        <button className="primary-button compact-button" disabled={pending || conflict}>Bilgileri kaydet</button></form>
         : <dl className="record-facts"><div><dt>Ad soyad</dt><dd>{contact.name}</dd></div><div><dt>Görev veya unvan</dt><dd>{contact.title ?? 'Belirtilmedi'}</dd></div>
           <div><dt>Telefon</dt><dd>{contact.phone ?? 'Belirtilmedi'}</dd></div><div><dt>E-posta</dt><dd>{contact.email ?? 'Belirtilmedi'}</dd></div></dl>}
     </section>
-    {canManage && <section className="record-section record-commands" aria-labelledby="contact-commands-title"><h2 id="contact-commands-title">Durum ve varsayılan kişi</h2>
+    {canManage && <section className="record-section record-commands" ref={commandsRef} tabIndex={-1} aria-labelledby="contact-commands-title"><h2 id="contact-commands-title">Durum ve varsayılan kişi</h2>
       <p>Bu komutlar iş kartlarında seçilebilirliği ve müşterinin varsayılan ilgili kişisini değiştirir.</p>
-      <div>{contact.isActive && !contact.isPrimary && <button className="secondary-button" type="button" disabled={pending} onClick={(event) => onMakePrimary(event.currentTarget)}>Birincil kişi yap</button>}
-        <button className="secondary-button" type="button" disabled={pending} onClick={(event) => onLifecycle(contact.isActive ? 'deactivate' : 'activate', event.currentTarget)}>
+      <div>{contact.isActive && !contact.isPrimary && <button className="secondary-button" type="button" disabled={pending || conflict} onClick={(event) => onMakePrimary(event.currentTarget)}>Birincil kişi yap</button>}
+        <button className="secondary-button" type="button" disabled={pending || conflict} onClick={(event) => onLifecycle(contact.isActive ? 'deactivate' : 'activate', event.currentTarget)}>
           {contact.isActive ? 'İlgili kişiyi pasifleştir' : 'İlgili kişiyi aktifleştir'}</button></div>
     </section>}
   </main>;
@@ -100,27 +106,70 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
 
 export function ContactDetailScreen({ customerId, contactId, canManage }: { customerId: string; contactId: string; canManage: boolean }) {
   const navigate = useNavigate(); const [contact, setContact] = useState<Contact | null>(null); const [customerName, setCustomerName] = useState('Müşteri'); const [loading, setLoading] = useState(true);
-  const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const errorRef = useRef<HTMLDivElement>(null);
-  const load = () => { setLoading(true); setContact(null); setError(''); Promise.all([getContact(customerId, contactId), getCustomer(customerId)])
-    .then(([nextContact, customer]) => { setContact(nextContact); setCustomerName(customer.name); })
-    .catch((caught) => setError(caught instanceof Error ? caught.message : 'İlgili kişi yüklenemedi.')).finally(() => setLoading(false)); };
-  useEffect(load, [customerId, contactId]); useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
-  if (loading) return <main className="customer-detail" aria-busy="true"><h1>İlgili kişi yükleniyor</h1></main>;
-  if (!contact) return <main className="customer-detail"><div className="workspace-message" role="alert"><h1>İlgili kişi yüklenemedi</h1><p>{error}</p><button className="secondary-button" onClick={load}>Tekrar dene</button></div></main>;
-  async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setPending(true); setError(''); setNotice('');
-    try { setContact(await updateContact(customerId, contactId, contactFieldsFromFormData(new FormData(event.currentTarget), contact!.version))); setNotice('İlgili kişi bilgileri güncellendi.'); }
-    catch (caught) { if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') await getContact(customerId, contactId).then(setContact).catch(() => undefined); setError(contactMutationErrorMessage(caught)); }
-    finally { setPending(false); } }
-  async function lifecycle(action: 'activate' | 'deactivate', trigger: HTMLButtonElement) {
-    if (!confirmContactLifecycle(contact!, action)) { trigger.focus(); return; } setPending(true); setError('');
-    try { setContact(action === 'activate' ? await activateContact(customerId, contactId, contact!.version) : await deactivateContact(customerId, contactId, contact!.version)); setNotice(action === 'activate' ? 'İlgili kişi aktifleştirildi.' : 'İlgili kişi pasifleştirildi.'); }
-    catch (caught) { if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') await getContact(customerId, contactId).then(setContact).catch(() => undefined); setError(contactMutationErrorMessage(caught)); } finally { setPending(false); trigger.focus(); }
+  const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [conflict, setConflict] = useState(false);
+  const errorRef = useRef<HTMLDivElement>(null); const commandsRef = useRef<HTMLElement>(null); const requestGate = useRef(createRequestGate());
+  async function load() {
+    const generation = requestGate.current.next(); setLoading(true); setContact(null); setError(''); setNotice(''); setConflict(false);
+    try {
+      const [nextContact, customer] = await Promise.all([getContact(customerId, contactId), getCustomer(customerId)]);
+      if (!requestGate.current.isCurrent(generation)) return;
+      setContact(nextContact); setCustomerName(customer.name);
+    } catch (caught) {
+      if (requestGate.current.isCurrent(generation)) setError(caught instanceof Error ? caught.message : 'İlgili kişi yüklenemedi.');
+    } finally {
+      if (requestGate.current.isCurrent(generation)) setLoading(false);
+    }
   }
-  async function makePrimary(trigger: HTMLButtonElement) { setPending(true); setError('');
-    try { const result = await makePrimaryContact(customerId, contactId, contact!.version); setContact(result.contact); setNotice('Birincil ilgili kişi güncellendi.'); }
-    catch (caught) { if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') await getContact(customerId, contactId).then(setContact).catch(() => undefined); setError(contactMutationErrorMessage(caught)); } finally { setPending(false); trigger.focus(); } }
-  return <ContactDetailView contact={contact} customerName={customerName} pending={pending} error={error} notice={notice} canManage={canManage} errorRef={errorRef}
-    onBack={() => navigate(paths.customer(customerId))} onSave={(event) => void save(event)} onLifecycle={(action, trigger) => void lifecycle(action, trigger)} onMakePrimary={(trigger) => void makePrimary(trigger)} />;
+  useEffect(() => { void load(); return () => { requestGate.current.next(); }; }, [customerId, contactId]);
+  useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  if (loading) return <main className="customer-detail" aria-busy="true"><h1>İlgili kişi yükleniyor</h1></main>;
+  if (!contact) return <main className="customer-detail"><div className="workspace-message" role="alert"><h1>İlgili kişi yüklenemedi</h1><p>{error}</p><button className="secondary-button" onClick={() => void load()}>Tekrar dene</button></div></main>;
+  async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (conflict) return;
+    const generation = requestGate.current.current(); setPending(true); setError(''); setNotice('');
+    try {
+      const updated = await updateContact(customerId, contactId, contactFieldsFromFormData(new FormData(event.currentTarget), contact!.version));
+      if (!requestGate.current.isCurrent(generation)) return;
+      setContact(updated); setNotice('İlgili kişi bilgileri güncellendi.');
+    } catch (caught) {
+      if (!requestGate.current.isCurrent(generation)) return;
+      if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') setConflict(true);
+      setError(contactMutationErrorMessage(caught));
+    } finally { if (requestGate.current.isCurrent(generation)) setPending(false); }
+  }
+  async function lifecycle(action: 'activate' | 'deactivate', trigger: HTMLButtonElement) {
+    if (conflict || !confirmContactLifecycle(contact!, action)) { trigger.focus(); return; }
+    const generation = requestGate.current.current(); setPending(true); setError(''); setNotice('');
+    try {
+      const updated = action === 'activate' ? await activateContact(customerId, contactId, contact!.version) : await deactivateContact(customerId, contactId, contact!.version);
+      if (!requestGate.current.isCurrent(generation)) return;
+      setContact(updated); setNotice(action === 'activate' ? 'İlgili kişi aktifleştirildi.' : 'İlgili kişi pasifleştirildi.');
+    } catch (caught) {
+      if (!requestGate.current.isCurrent(generation)) return;
+      if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') setConflict(true);
+      setError(contactMutationErrorMessage(caught));
+    } finally { if (requestGate.current.isCurrent(generation)) { setPending(false); trigger.focus(); } }
+  }
+  async function makePrimary(trigger: HTMLButtonElement) {
+    if (conflict) return;
+    const generation = requestGate.current.current(); let completed = false; setPending(true); setError(''); setNotice('');
+    try {
+      const result = await makePrimaryContact(customerId, contactId, contact!.version);
+      if (!requestGate.current.isCurrent(generation)) return;
+      setContact(result.contact); setNotice('Birincil ilgili kişi güncellendi.'); completed = true;
+    } catch (caught) {
+      if (!requestGate.current.isCurrent(generation)) return;
+      if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') setConflict(true);
+      setError(contactMutationErrorMessage(caught));
+    } finally {
+      if (requestGate.current.isCurrent(generation)) {
+        setPending(false);
+        if (completed) window.setTimeout(() => commandsRef.current?.focus(), 0); else trigger.focus();
+      }
+    }
+  }
+  return <ContactDetailView contact={contact} customerName={customerName} pending={pending} error={error} notice={notice} conflict={conflict} canManage={canManage} errorRef={errorRef} commandsRef={commandsRef}
+    onBack={() => navigate(paths.customer(customerId))} onSave={(event) => void save(event)} onLifecycle={(action, trigger) => void lifecycle(action, trigger)} onMakePrimary={(trigger) => void makePrimary(trigger)}
+    onReloadCurrent={() => void load()} />;
 }
 
 export async function addContact(customerId: string, data: FormData) {

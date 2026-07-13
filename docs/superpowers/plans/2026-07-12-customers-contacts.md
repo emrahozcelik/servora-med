@@ -820,9 +820,11 @@ git commit -m "feat: add Customer list and creation"
 **Files:**
 - Create: `web/src/CustomerDetail.tsx`
 - Create: `web/src/ContactManagement.tsx`
+- Create: `web/src/services/request-gate.ts`
 - Create: `web/tests/customer-detail.test.tsx`
 - Create: `web/tests/contact-management.test.tsx`
 - Modify: `web/src/AppRouter.tsx`
+- Modify: `web/src/CustomerList.tsx`
 - Modify: `web/src/styles.css`
 - Modify: `web/tests/accessibility-contract.test.ts`
 
@@ -863,7 +865,7 @@ git add web/src/CustomerDetail.tsx web/src/ContactManagement.tsx web/src/AppRout
 git commit -m "feat: add Customer and Contact detail flows"
 ```
 
-**Task 11 verification (2026-07-13):** focused Customer/Contact/router/accessibility tests passed 4 files/27 tests; the full web suite passed 17 files/85 tests; TypeScript/Vite build passed; npm audit reported zero vulnerabilities. Customer fields, Customer lifecycle, Contact fields, Contact lifecycle, and make-primary remain separate commands. Staff receives read-only CRM detail, JobCard summaries are capped at five per group, stale route loads clear prior records, and version conflicts refetch current versions without remounting uncontrolled form inputs.
+**Task 11 verification (2026-07-13):** focused Customer/Contact/router/accessibility tests passed 4 files/31 tests; the full web suite passed 17 files/89 tests; TypeScript/Vite build passed; npm audit reported zero vulnerabilities. Customer fields, Customer lifecycle, Contact fields, Contact lifecycle, and make-primary remain separate commands. Staff receives read-only CRM detail and JobCard summaries are capped at five per group. A shared request-generation gate prevents stale route and mutation responses from replacing newer records. Version conflicts preserve the user's uncontrolled form values, block stale resubmission, and require an explicit current-values reload before editing continues. Customer assignee labels are reconciled from trusted Staff data, make-primary restores focus to a permanent command region, and the inline Contact form focuses its first field.
 
 ### Task 12: JobCard Customer defaults and Contact selector
 

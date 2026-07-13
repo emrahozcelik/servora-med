@@ -113,6 +113,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-list-loading span { display: block; height: 4.75rem; border-block: 1px solid var(--rule); background: var(--canvas); }
 .shell-error { width: min(100% - 2rem, 68rem); margin: 0 auto 2rem; }
 .success-message { margin-bottom: 1.5rem; padding: 0.8rem 0.9rem; border: 1px solid oklch(77% 0.065 150deg); border-radius: 0.6rem; color: oklch(38% 0.08 150deg); background: oklch(95% 0.025 150deg); }
+.conflict-actions { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-bottom: 1.5rem; padding: 0.9rem; border: 1px solid oklch(78% 0.07 80deg); border-radius: 0.6rem; background: oklch(96% 0.025 80deg); }
+.conflict-actions p { margin: 0; color: var(--text); line-height: 1.5; }
+.record-commands:focus { outline: 3px solid var(--focus); outline-offset: 3px; }
 .delivery-create { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 6vh, 4rem) auto; }
 .delivery-heading { display: flex; align-items: end; justify-content: space-between; gap: 1rem; }
 .delivery-heading h1 { margin: 0; font-size: 1.75rem; letter-spacing: -0.025em; }
@@ -253,6 +256,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .contact-open { width: 100%; }
   .record-commands > div { align-items: stretch; flex-direction: column; }
   .record-commands button { width: 100%; }
+  .conflict-actions { align-items: stretch; flex-direction: column; }
+  .conflict-actions button { width: 100%; }
 }
 
 @media (max-width: 390px) {

@@ -2,10 +2,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it, vi } from 'vitest';
 
-import {
-  ContactDetailView, ContactListView, confirmContactLifecycle, contactFieldsFromFormData,
-  contactMutationErrorMessage,
-} from '../src/ContactManagement';
+import { ContactCreateForm, ContactDetailView, ContactListView, confirmContactLifecycle, contactFieldsFromFormData,
+  contactMutationErrorMessage } from '../src/ContactManagement';
 import { ApiError } from '../src/services/api';
 import type { Contact } from '../src/services/crm-api';
 
@@ -44,5 +42,18 @@ describe('Contact management', () => {
     expect(confirm.mock.calls[0]![0]).toContain('Selin Ak'); expect(confirm.mock.calls[0]![0]).toContain('iş kartlarında seçilemez');
     expect(contactMutationErrorMessage(new ApiError(409, 'CONTACT_HAS_ACTIVE_JOB_CARDS', 'Açık iş var.'))).toContain('açık iş kartlarında');
     expect(contactMutationErrorMessage(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.'))).toContain('formdaki değişiklikleriniz korunuyor');
+  });
+
+  it('blocks stale resubmission behind reload and keeps a permanent focus target for make-primary', () => {
+    const html = renderToStaticMarkup(<ContactDetailView contact={secondary} customerName="Demo Klinik" pending={false}
+      error="Kayıt güncellendi." notice="" conflict onBack={() => {}} onSave={() => {}} onLifecycle={() => {}}
+      onMakePrimary={() => {}} onReloadCurrent={() => {}} />);
+    expect(html).toContain('value="Selin Ak"'); expect(html).toContain('Güncel değerleri yükle');
+    expect(html).toMatch(/class="record-section record-commands"[^>]*tabindex="-1"/);
+  });
+
+  it('moves focus into the inline Contact form when it opens', () => {
+    const html = renderToStaticMarkup(<ContactCreateForm pending={false} error="" onCancel={() => {}} onSubmit={() => {}} />);
+    expect(html).toContain('autofocus=""');
   });
 });
