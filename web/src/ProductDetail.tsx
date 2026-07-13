@@ -77,7 +77,17 @@ function DeactivateDialog({ product, pending, onCancel, onConfirm, trigger }: {
   const cancelRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => { cancelRef.current?.focus(); }, []);
-  useEffect(() => () => { trigger.current?.focus(); }, [trigger]);
+  useEffect(() => {
+    function keepFocusInside(event: FocusEvent) {
+      if (dialogRef.current?.contains(event.target as Node)) return;
+      (cancelRef.current ?? dialogRef.current)?.focus();
+    }
+    document.addEventListener('focusin', keepFocusInside);
+    return () => {
+      document.removeEventListener('focusin', keepFocusInside);
+      trigger.current?.focus();
+    };
+  }, [trigger]);
 
   function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
     if (event.key === 'Escape' && !pending) { event.preventDefault(); onCancel(); return; }
@@ -120,12 +130,14 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   const [dialogOpen, setDialogOpen] = useState(false);
   const deactivateTriggerRef = useRef<HTMLButtonElement>(null);
   const editErrorRef = useRef<HTMLDivElement>(null);
-  const [focusEditError, setFocusEditError] = useState(false);
+  const [editFocusTarget, setEditFocusTarget] = useState<'summary' | 'name' | 'referencePrice' | null>(null);
 
   useEffect(() => {
-    if (!focusEditError) return;
-    editErrorRef.current?.focus(); setFocusEditError(false);
-  }, [focusEditError, error, fieldErrors]);
+    if (editFocusTarget === 'summary') editErrorRef.current?.focus();
+    if (editFocusTarget === 'name') document.getElementById('product-name')?.focus();
+    if (editFocusTarget === 'referencePrice') document.getElementById('product-reference-price')?.focus();
+    if (editFocusTarget) setEditFocusTarget(null);
+  }, [editFocusTarget, error, fieldErrors]);
 
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
@@ -151,11 +163,13 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
     let input: CreateProductInput;
     try {
       input = productInputFromFormData(new FormData(event.currentTarget));
-      if (!input.name) { setError('Ürün adı zorunludur.'); setFieldErrors({ name: 'Ürün adı zorunludur.' }); return; }
+      if (!input.name) {
+        setError('Ürün adı zorunludur.'); setFieldErrors({ name: 'Ürün adı zorunludur.' }); setEditFocusTarget('name'); return;
+      }
     } catch (caught) {
       const message = caught instanceof Error ? caught.message : 'Alanları kontrol edin.';
       setError('Ürün güncellenemedi. Alanları kontrol edin.');
-      setFieldErrors({ referencePrice: message }); setFocusEditError(true); return;
+      setFieldErrors({ referencePrice: message }); setEditFocusTarget('summary'); return;
     }
     setPending(true);
     try {
@@ -166,7 +180,11 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
       if (next.code === 'VERSION_CONFLICT') {
         setConflictVersion(safeCurrentVersion(next));
         setError('');
-      } else { setError(next.message); setFieldErrors(productServerFieldErrors(next)); }
+      } else {
+        const nextFieldErrors = productServerFieldErrors(next);
+        setError(next.message); setFieldErrors(nextFieldErrors);
+        setEditFocusTarget(nextFieldErrors.name ? 'name' : nextFieldErrors.referencePrice ? 'referencePrice' : 'summary');
+      }
     } finally { setPending(false); }
   }
 

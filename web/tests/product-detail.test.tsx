@@ -147,6 +147,29 @@ describe('Product detail', () => {
     expect(document.activeElement).toBe(container.querySelector('[role="alert"]'));
   });
 
+  it('associates a blank edit name error and focuses the required field', async () => {
+    await render();
+    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Ürünü düzenle')!.click());
+    const name = container.querySelector<HTMLInputElement>('[name="name"]')!; name.value = '   ';
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    expect(name.getAttribute('aria-describedby')).toContain('product-name-error');
+    expect(document.activeElement).toBe(name);
+  });
+
+  it('focuses the first backend-invalid edit field', async () => {
+    const update = vi.fn().mockRejectedValue(new ApiError(400, 'VALIDATION_ERROR', 'Alanları kontrol edin.', false, {
+      fieldErrors: { name: 'Ürün adı kullanılamaz.', referencePrice: 'Referans fiyat geçersiz.' },
+    }));
+    await render(undefined, manager, { update });
+    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Ürünü düzenle')!.click());
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    const name = container.querySelector<HTMLInputElement>('[name="name"]')!;
+    expect(name.getAttribute('aria-invalid')).toBe('true');
+    expect(container.textContent).toContain('Ürün adı kullanılamaz.');
+    expect(document.activeElement).toBe(name);
+  });
+
   it('names the product and explains deactivation consequences before requiring explicit confirmation', async () => {
     const deactivate = vi.fn().mockResolvedValue({ ...product, isActive: false, version: 4 });
     await render(undefined, manager, { deactivate });
@@ -179,6 +202,21 @@ describe('Product detail', () => {
     expect(container.querySelector('[role="dialog"]')).toBeNull(); expect(document.activeElement).toBe(trigger);
   });
 
+  it('redirects real external focus while open and removes the guard after close', async () => {
+    await render();
+    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;
+    trigger.focus(); await act(async () => trigger.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    const outside = document.createElement('button'); document.body.append(outside);
+    await act(async () => outside.focus());
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(document.activeElement).toBe(trigger);
+    await act(async () => outside.focus());
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
   it('keeps focus inside the dialog while deactivation is pending', async () => {
     const request = deferred<Product>();
     await render(undefined, manager, { deactivate: vi.fn().mockReturnValue(request.promise) });
@@ -188,8 +226,8 @@ describe('Product detail', () => {
     const confirm = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;
     confirm.focus(); await act(async () => confirm.click());
     expect(container.querySelector('[role="dialog"]')).toBe(dialog);
-    const outside = document.createElement('button'); document.body.append(outside); outside.focus();
-    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
+    const outside = document.createElement('button'); document.body.append(outside);
+    await act(async () => outside.focus());
     expect(dialog.contains(document.activeElement)).toBe(true);
     outside.remove();
     await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })));
