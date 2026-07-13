@@ -209,9 +209,9 @@ describe('routed JobCard workspace', () => {
 
   it('replaces an out-of-range empty page with the last valid offset before rendering results', async () => {
     const load = vi.fn()
-      .mockResolvedValueOnce(page([], 75, 50))
+      .mockResolvedValueOnce(page([], 50, 50))
       .mockResolvedValueOnce(page([item], 25, 50));
-    const router = await mount('/jobs?offset=75', load);
+    const router = await mount('/jobs?offset=50', load);
     await act(async () => { await Promise.resolve(); });
     await act(async () => { await Promise.resolve(); });
     expect(router.state.location.search).toBe('?offset=25');
@@ -221,6 +221,27 @@ describe('routed JobCard workspace', () => {
     expect(container.textContent).not.toContain('Henüz iş kaydı yok');
     expect(container.textContent).not.toContain('Filtrelere uygun iş bulunamadı');
     expect(load).toHaveBeenNthCalledWith(2, { status: 'active', limit: 25, offset: 25 });
+  });
+
+  it.each([
+    ['/jobs?offset=25', '', 'Henüz iş kaydı yok', 'Filtrelere uygun iş bulunamadı'],
+    ['/jobs?q=klinik&offset=25', '?q=klinik', 'Filtrelere uygun iş bulunamadı', 'Henüz iş kaydı yok'],
+  ])('removes a positive offset before rendering an empty total for %s', async (initialEntry, expectedSearch, expectedEmpty, unexpectedEmpty) => {
+    const initial = deferred<Paginated<JobCardListItem>>();
+    const corrected = deferred<Paginated<JobCardListItem>>();
+    const load = vi.fn().mockReturnValueOnce(initial.promise).mockReturnValueOnce(corrected.promise);
+    const router = await mount(initialEntry, load);
+
+    await act(async () => initial.resolve(page([], 25, 0)));
+    expect(router.state.location.search).toBe(expectedSearch);
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(container.textContent).not.toContain('Henüz iş kaydı yok');
+    expect(container.textContent).not.toContain('Filtrelere uygun iş bulunamadı');
+
+    await act(async () => corrected.resolve(page([], 0, 0)));
+    expect(container.textContent).toContain(expectedEmpty);
+    expect(container.textContent).not.toContain(unexpectedEmpty);
+    expect(load).toHaveBeenCalledTimes(2);
   });
 
   it('keeps the Task 11 board boundary without issuing a list request', async () => {

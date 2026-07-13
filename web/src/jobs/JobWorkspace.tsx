@@ -48,8 +48,10 @@ export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = li
     if (user.role === 'STAFF') delete requestFilters.assignedTo;
     load({ ...requestFilters, limit: PAGE_SIZE }).then((page) => {
       if (!requestGate.current.isCurrent(generation)) return;
-      if (page.total > 0 && page.items.length === 0 && page.offset >= page.total) {
-        const lastOffset = Math.floor((page.total - 1) / page.limit) * page.limit;
+      const emptyTotalPastStart = page.total === 0 && page.items.length === 0 && filters.offset > 0;
+      const pastPositiveTotal = page.total > 0 && page.items.length === 0 && page.offset >= page.total;
+      if (emptyTotalPastStart || pastPositiveTotal) {
+        const lastOffset = page.total === 0 ? 0 : Math.floor((page.total - 1) / page.limit) * page.limit;
         const next = canonicalJobSearchParams(new URLSearchParams(queryKey));
         if (lastOffset > 0) next.set('offset', String(lastOffset));
         else next.delete('offset');
