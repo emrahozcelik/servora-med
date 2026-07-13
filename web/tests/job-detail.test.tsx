@@ -21,6 +21,13 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('İşi başlat');
   });
 
+  it('renders quantity without a fabricated unit when the Product unit is null', () => {
+    const html = renderToStaticMarkup(<JobDetailPanel job={job} items={[{ ...item, quantity: 3, unit: null }]} pending={false} message="" onBack={() => {}} onCommand={() => {}} />);
+    expect(html).toContain('<dd>3</dd>');
+    expect(html).not.toContain('3 adet');
+    expect(html).not.toContain('3 null');
+  });
+
   it('shows submit only after the backend status is IN_PROGRESS', () => {
     const html = renderToStaticMarkup(<JobDetailPanel job={{ ...job, status: 'IN_PROGRESS', version: 3 }} items={[item]} pending={false} message="" onBack={() => {}} onCommand={() => {}} />);
     expect(html).toContain('Onaya gönder');

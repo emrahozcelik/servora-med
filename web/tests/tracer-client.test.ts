@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   ApiError, addDeliveryItem, approveJobCard, createJobCard, getJobCard,
-  listActivity, listJobCards, listReferenceCustomers, listReferenceProducts,
+  listActivity, listJobCards, listReferenceCustomers,
   patchDeliveryItem, patchJobCard, removeDeliveryItem, requestJobCardRevision,
   startJobCard, submitJobCardForApproval,
 } from '../src/services/api';
@@ -18,15 +18,13 @@ function json(body: unknown, status = 200) {
 }
 
 describe('tracer API client', () => {
-  it('loads typed customer and product references with credentials', async () => {
+  it('loads typed customer references with credentials without a legacy Product request', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(json({ items: [{ id: 'c1', name: 'Klinik', customerType: 'clinic', status: 'active' }] }))
-      .mockResolvedValueOnce(json({ items: [{ id: 'p1', name: 'Set', sku: 'S1', model: null, unit: 'adet' }] }));
+      .mockResolvedValueOnce(json({ items: [{ id: 'c1', name: 'Klinik', customerType: 'clinic', status: 'active' }] }));
     vi.stubGlobal('fetch', fetchMock);
     await expect(listReferenceCustomers()).resolves.toHaveLength(1);
-    await expect(listReferenceProducts()).resolves.toHaveLength(1);
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/reference/customers', expect.objectContaining({ credentials: 'include' }));
-    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/reference/products', expect.objectContaining({ credentials: 'include' }));
+    expect(fetchMock).toHaveBeenCalledTimes(1);
   });
 
   it('supports JobCard create, list, detail, and patch contracts', async () => {

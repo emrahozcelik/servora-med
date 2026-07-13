@@ -57,9 +57,6 @@ export type ActivityRecord = {
   oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: Date;
 };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
-export type ReferenceProduct = {
-  id: string; name: string; sku: string | null; model: string | null; unit: string | null;
-};
 export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
 
@@ -100,7 +97,6 @@ export interface JobCardRepository {
   listDeliveryItems(organizationId: string, jobCardId: string): Promise<DeliveryItemRecord[]>;
   listActivity(organizationId: string, jobCardId: string): Promise<ActivityRecord[]>;
   listReferenceCustomers(organizationId: string): Promise<ReferenceCustomer[]>;
-  listReferenceProducts(organizationId: string): Promise<ReferenceProduct[]>;
 }
 
 type JobCardRow = {
@@ -446,12 +442,4 @@ export class PostgresJobCardRepository implements JobCardRepository {
     return result.rows.map((row) => ({ id: row.id, name: row.name, customerType: row.customer_type, status: row.status }));
   }
 
-  async listReferenceProducts(organizationId: string) {
-    const result = await this.pool.query<{
-      id: string; name: string; sku: string | null; model: string | null; unit: string | null;
-    }>(
-      `SELECT id, name, sku, model, unit FROM products
-       WHERE organization_id=$1 AND is_active=TRUE ORDER BY name, id`, [organizationId]);
-    return result.rows;
-  }
 }

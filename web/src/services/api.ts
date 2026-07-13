@@ -5,10 +5,9 @@ export const JOB_CARD_STATUSES = ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPR
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
 export type DeliveryPurpose = 'SALE' | 'SAMPLE' | 'CONSIGNMENT' | 'RETURN' | 'OTHER';
 export type JobCard = { id: string; organizationId: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus; version: number; title: string; description: string | null; customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string; priority: 'low' | 'normal' | 'high' | 'urgent'; dueDate: string | null };
-export type DeliveryItem = { id: string; organizationId: string; jobCardId: string; productId: string; deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; unit: string; productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null; lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null };
+export type DeliveryItem = { id: string; organizationId: string; jobCardId: string; productId: string; deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; unit: string | null; productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null; lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null };
 export type Activity = { id: string; jobCardId: string; actorId: string | null; eventType: string; oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: string };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
-export type ReferenceProduct = { id: string; name: string; sku: string; model: string | null; unit: string };
 
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string,
@@ -55,7 +54,7 @@ function parseDelivery(value: unknown): DeliveryItem {
   const v = object(value);
   return { id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'), jobCardId: string(v.jobCardId, 'jobCardId'),
     productId: string(v.productId, 'productId'), deliveryPurpose: string(v.deliveryPurpose, 'deliveryPurpose') as DeliveryPurpose,
-    deliveredAt: string(v.deliveredAt, 'deliveredAt'), quantity: number(v.quantity, 'quantity'), unit: string(v.unit, 'unit'),
+    deliveredAt: string(v.deliveredAt, 'deliveredAt'), quantity: number(v.quantity, 'quantity'), unit: nullableString(v.unit, 'unit'),
     productNameSnapshot: string(v.productNameSnapshot, 'productNameSnapshot'), productSkuSnapshot: nullableString(v.productSkuSnapshot, 'productSkuSnapshot'),
     productModelSnapshot: nullableString(v.productModelSnapshot, 'productModelSnapshot'), lotNo: nullableString(v.lotNo, 'lotNo'),
     serialNo: nullableString(v.serialNo, 'serialNo'), expiryDate: nullableString(v.expiryDate, 'expiryDate'), deliveryNote: nullableString(v.deliveryNote, 'deliveryNote') };
@@ -98,10 +97,6 @@ export async function changePassword(input: { currentPassword: string; newPasswo
 export async function listReferenceCustomers() {
   return items(await request('/api/reference/customers')).map((entry) => { const v = object(entry); return { id: string(v.id, 'id'), name: string(v.name, 'name'), customerType: string(v.customerType, 'customerType'), status: string(v.status, 'status') }; });
 }
-export async function listReferenceProducts() {
-  return items(await request('/api/reference/products')).map((entry) => { const v = object(entry); return { id: string(v.id, 'id'), name: string(v.name, 'name'), sku: string(v.sku, 'sku'), model: nullableString(v.model, 'model'), unit: string(v.unit, 'unit') }; });
-}
-
 export async function createJobCard(input: { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string; contactId?: string | null; assignedTo: string; description?: string; priority?: JobCard['priority']; dueDate?: string }) { return parseJobCard(await request('/api/job-cards', json('POST', input))); }
 export async function listJobCards() { return items(await request('/api/job-cards')).map(parseJobCard); }
 export async function getJobCard(id: string) { return parseJobCard(await request(`/api/job-cards/${id}`)); }

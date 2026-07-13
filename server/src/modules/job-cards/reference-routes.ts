@@ -12,5 +12,4 @@ export const referenceRoutes: FastifyPluginAsync<ReferenceRoutesOptions> = async
     return { id: user.id, organizationId: user.organizationId, role: user.role };
   };
   app.get('/customers', secured, async (request) => ({ items: await options.service.listReferenceCustomers(actor(request)) }));
-  app.get('/products', secured, async (request) => ({ items: await options.service.listReferenceProducts(actor(request)) }));
 };

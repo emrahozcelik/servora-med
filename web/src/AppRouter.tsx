@@ -11,7 +11,7 @@ import { ProductCreateScreen } from './ProductForm';
 import { ProductDetailScreen } from './ProductDetail';
 import { ProductListScreen } from './ProductList';
 import { paths } from './paths';
-import type { CurrentUser, JobCard, ReferenceCustomer, ReferenceProduct } from './services/api';
+import type { CurrentUser, JobCard, ReferenceCustomer } from './services/api';
 
 export { paths } from './paths';
 
@@ -67,7 +67,6 @@ type AppRouterProps = {
   user: CurrentUser;
   workspace: WorkspaceState;
   customers: ReferenceCustomer[];
-  products: ReferenceProduct[];
   notice: string;
   onReload: () => void;
   onClearNotice: () => void;
@@ -123,7 +122,7 @@ function ProductRoute({ user }: Pick<AppRouterProps, 'user'>) {
   return <ProductDetailScreen key={productId} productId={productId} user={user} />;
 }
 
-export function AppRouter({ user, workspace, customers, products, notice, onReload, onClearNotice, onDeliveryCreated }: AppRouterProps) {
+export function AppRouter({ user, workspace, customers, notice, onReload, onClearNotice, onDeliveryCreated }: AppRouterProps) {
   const navigate = useNavigate();
   return <>
     <nav className="section-nav" aria-label="Çalışma alanları">
@@ -141,7 +140,7 @@ export function AppRouter({ user, workspace, customers, products, notice, onRelo
       <Route path={paths.jobs} element={<WorkspaceView user={user} state={workspace} notice={notice}
         onCreate={workspace.kind === 'ready' ? () => { onClearNotice(); navigate(paths.newDelivery); } : undefined}
         onOpen={(jobId) => navigate(paths.job(jobId))} onRetry={onReload} />} />
-      <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} customers={customers} products={products} onCancel={() => navigate(paths.jobs)}
+      <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} customers={customers} onCancel={() => navigate(paths.jobs)}
         onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />} />
       <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} onReload={onReload} />} />
       <Route path={paths.users} element={user.role === 'ADMIN'
