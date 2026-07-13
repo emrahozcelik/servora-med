@@ -7,6 +7,8 @@ import { ContactDetailScreen } from './ContactManagement';
 import { JobDetailScreen } from './JobDetail';
 import { StaffProfilesScreen } from './StaffProfiles';
 import { UserManagementScreen } from './UserManagement';
+import { ProductCreateScreen } from './ProductForm';
+import { ProductDetailScreen, ProductListScreen } from './ProductList';
 import { paths } from './paths';
 import type { CurrentUser, JobCard, ReferenceCustomer, ReferenceProduct } from './services/api';
 
@@ -114,12 +116,19 @@ export function ContactRoute({ user }: Pick<AppRouterProps, 'user'>) {
   return <ContactDetailScreen key={`${customerId}:${contactId}`} customerId={customerId} contactId={contactId} canManage={user.role !== 'STAFF'} />;
 }
 
+function ProductRoute() {
+  const { productId } = useParams();
+  if (!productId) return <NotFoundView />;
+  return <ProductDetailScreen key={productId} productId={productId} />;
+}
+
 export function AppRouter({ user, workspace, customers, products, notice, onReload, onClearNotice, onDeliveryCreated }: AppRouterProps) {
   const navigate = useNavigate();
   return <>
     <nav className="section-nav" aria-label="Çalışma alanları">
       <Link className="secondary-button" to={paths.jobs}>İşler</Link>
       <Link className="secondary-button" to={paths.customers}>Müşteriler</Link>
+      <Link className="secondary-button" to={paths.products}>Ürünler</Link>
       {user.role === 'ADMIN' && <Link className="secondary-button" to={paths.users}>Kullanıcılar</Link>}
       <Link className="secondary-button" to={user.role === 'STAFF' ? paths.staffProfile(user.id) : paths.staff}>
         {user.role === 'STAFF' ? 'Profilim' : 'Personel'}
@@ -142,6 +151,10 @@ export function AppRouter({ user, workspace, customers, products, notice, onRelo
       <Route path={paths.newCustomer} element={user.role === 'STAFF' ? <ForbiddenView /> : <CustomerCreateScreen user={user} />} />
       <Route path="/customers/:customerId" element={<CustomerRoute user={user} />} />
       <Route path="/customers/:customerId/contacts/:contactId" element={<ContactRoute user={user} />} />
+      <Route path={paths.products} element={<ProductListScreen user={user} />} />
+      <Route path={paths.newProduct} element={user.role === 'STAFF' ? <ForbiddenView />
+        : <ProductCreateScreen onCancel={() => navigate(paths.products)} onCreated={(product) => navigate(paths.product(product.id))} />} />
+      <Route path="/products/:productId" element={<ProductRoute />} />
       <Route path="*" element={<NotFoundView />} />
     </Routes>
   </>;

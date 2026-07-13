@@ -30,6 +30,14 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.customer-form-pair \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.record-facts, \.job-summary-grid \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.contact-list > li \{[^}]*flex-direction: column;/);
+    expect(css).toMatch(/\.product-filters \{ grid-template-columns: 1fr;/);
+    expect(css).toMatch(/\.product-row \{ grid-template-columns: 1fr;/);
+    expect(css).toMatch(/\.product-form-pair \{ grid-template-columns: 1fr;/);
+  });
+
+  it('prevents Product content from forcing page-level horizontal scrolling', () => {
+    expect(css).toMatch(/\.product-workspace, \.product-create \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/\.product-row \{[^}]*min-width: 0;/);
   });
 
   it('honors reduced-motion preference', () => {
