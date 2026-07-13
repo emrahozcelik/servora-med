@@ -175,6 +175,10 @@ export class PeopleService {
         if (target.role === 'MANAGER' && await tx.hasAssignedActiveStaff(target.id)) {
           throw new AppError('MANAGER_HAS_ASSIGNED_STAFF', 409, 'Yöneticiye bağlı aktif personel bulunuyor.');
         }
+        if (target.role === 'STAFF') {
+          await tx.clearCustomerAssignments({ organizationId: actor.organizationId,
+            staffUserId: target.id, actorUserId: actor.id });
+        }
       }
       const updated = await tx.setActive(target.id, expectedVersion, active);
       if (!updated) throw userVersionConflict();

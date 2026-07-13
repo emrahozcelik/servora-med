@@ -47,4 +47,12 @@ describe('WorkspaceView', () => {
     expect(html).toContain('job-2');
     expect(html).not.toContain('job-1');
   });
+
+  it('offers the explicit delivery command to both Staff and management', () => {
+    const state: WorkspaceState = { kind: 'ready', jobs: [], customerNames: {} };
+    for (const user of [staff, manager]) {
+      const html = renderToStaticMarkup(<WorkspaceView user={user} state={state} onRetry={() => {}} onCreate={() => {}} />);
+      expect(html).toContain('Yeni teslim');
+    }
+  });
 });

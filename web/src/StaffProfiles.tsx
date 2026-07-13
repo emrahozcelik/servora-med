@@ -43,18 +43,34 @@ export function StaffProfileEditView({ profile: initial, managers, onBack, onCha
   </main>;
 }
 
-export function StaffProfilesScreen({ user, onBack }: { user: CurrentUser; onBack: () => void }) {
+export function StaffProfileEditRoute(props: {
+  profile: StaffProfile;
+  managers: ManagedUser[];
+  onBack: () => void;
+  onChanged: (profile: StaffProfile) => void;
+}) {
+  return <StaffProfileEditView key={props.profile.user.id} {...props} />;
+}
+
+export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenProfile, onProfileBack }: {
+  user: CurrentUser;
+  onBack: () => void;
+  initialStaffUserId?: string;
+  onOpenProfile?: (staffUserId: string) => void;
+  onProfileBack?: () => void;
+}) {
   const [profiles, setProfiles] = useState<StaffProfile[]>([]); const [own, setOwn] = useState<StaffProfile | null>(null); const [selected, setSelected] = useState<StaffProfile | null>(null);
   const [managers, setManagers] = useState<ManagedUser[]>([]); const [status, setStatus] = useState<'active' | 'inactive' | 'all'>('active'); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   useEffect(() => { setLoading(true); setError('');
     if (user.role === 'STAFF') getOwnStaffProfile().then(setOwn).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')).finally(() => setLoading(false));
-    else Promise.all([listStaff(status), user.role === 'ADMIN' ? listUsers() : Promise.resolve([{ ...user, lastLoginAt: null, createdAt: '', updatedAt: '' } as ManagedUser])])
-      .then(([items, allUsers]) => { setProfiles(items); setManagers(allUsers.filter((item) => item.role === 'MANAGER' && item.isActive)); }).catch((e) => setError(e instanceof Error ? e.message : 'Personel yüklenemedi.')).finally(() => setLoading(false));
-  }, [user, status]);
-  if (loading) return <main className="workspace" aria-busy="true"><h1>Personel bilgileri yükleniyor</h1></main>;
+    else Promise.all([listStaff(status), user.role === 'ADMIN' ? listUsers() : Promise.resolve([{ ...user, lastLoginAt: null, createdAt: '', updatedAt: '' } as ManagedUser]),
+      initialStaffUserId ? getStaffProfile(initialStaffUserId) : Promise.resolve(null)])
+      .then(([items, allUsers, initialProfile]) => { setProfiles(items); setManagers(allUsers.filter((item) => item.role === 'MANAGER' && item.isActive)); setSelected(initialProfile); }).catch((e) => setError(e instanceof Error ? e.message : 'Personel yüklenemedi.')).finally(() => setLoading(false));
+  }, [user, status, initialStaffUserId]);
+  if (loading) return <main className="workspace" aria-busy="true"><h1>{initialStaffUserId ? 'Personel profili yükleniyor' : 'Personel bilgileri yükleniyor'}</h1></main>;
   if (error) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Personel bilgileri yüklenemedi</h1><p>{error}</p></div></main>;
   if (user.role === 'STAFF' && own) return <OwnStaffProfileView profile={own} onBack={onBack} />;
-  if (selected) return <StaffProfileEditView profile={selected} managers={managers} onBack={() => setSelected(null)} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} />;
+  if (selected) return <StaffProfileEditRoute profile={selected} managers={managers} onBack={() => { setSelected(null); onProfileBack?.(); }} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} />;
   return <StaffDirectoryView profiles={profiles} status={status} canFilterInactive={user.role === 'ADMIN'} onStatusChange={setStatus} onBack={onBack}
-    onOpen={(id) => { void getStaffProfile(id).then(setSelected).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')); }} />;
+    onOpen={(id) => { if (onOpenProfile) onOpenProfile(id); else void getStaffProfile(id).then(setSelected).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')); }} />;
 }

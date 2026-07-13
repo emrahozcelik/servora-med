@@ -31,6 +31,7 @@ export type JobCard = {
   title: string;
   description: string | null;
   customerId: string | null;
+  contactId: string | null;
   assignedTo: string;
   createdBy: string;
   priority: JobCardPriority;

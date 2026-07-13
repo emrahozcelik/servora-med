@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
 > Date: 2026-07-10  
-> Status: Approved Phase 0 implementation order  
+> Status: Living implementation order; verified through Slice 05
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -34,7 +34,7 @@ Relevant lint and focused accessibility commands are added when the project tool
 | 02 | Product-delivery tracer bullet backend | 01 | complete delivery and approval domain path through API |
 | 03 | Product-delivery tracer bullet mobile UI | 02 | staff-to-manager workflow in browser |
 | 04 | Users and staff profiles | 01 | operational user administration and profile visibility |
-| 05 | Customers and contacts | 01 | maintained CRM records |
+| 05 | Customers and contacts | 02, 04 | maintained CRM records |
 | 06 | Product catalog | 01 | maintained product reference data |
 | 07 | Notes, timeline, and Kanban/list | 02-06 | full operational board and audit reading |
 | 08 | Staff profile and operational reports | 02, 04-07 | staff and manager summaries |
@@ -276,12 +276,32 @@ Run configured component tests and accessibility automation, then record manual 
 
 ### Acceptance
 
-- [ ] Manager creates clinic, hospital, dealer, company, or other customer.
-- [ ] Manager adds contacts under same-organization customers.
-- [ ] Staff can read organization customer and contact records but cannot mutate them.
-- [ ] Customer lifecycle uses `prospect`, `active`, or `inactive` with no duplicate active flag.
-- [ ] Default list hides inactive records and can filter them explicitly.
-- [ ] Search and mobile forms are usable with keyboard and zoom.
+- [x] Manager creates clinic, hospital, dealer, company, or other customer.
+- [x] Manager adds contacts under same-organization customers.
+- [x] Staff can read organization customer and contact records but cannot mutate them.
+- [x] Customer lifecycle uses `prospect`, `active`, or `inactive` with no duplicate active flag.
+- [x] Default list hides inactive records and can filter them explicitly.
+- [x] Search and mobile forms are usable with keyboard and zoom.
+
+### Verification
+
+Slice 05 was closed on 2026-07-13 with server 27 files/175 tests passing (2 files/3
+PostgreSQL-gated tests skipped there and passed separately), web 19 files/103 tests
+passing, both builds passing, and both dependency audits reporting zero vulnerabilities.
+The authenticated `/login -> /jobs` redirect is covered by the final routing regression.
+Migrations 001–004, development seed, forced
+password changes, Customer/Contact lifecycle, primary replacement, Contact-linked
+JobCard creation, active-job guards, Staff-assignment cleanup, audit safety,
+cross-organization concealment, rollback, and two-client concurrency were verified on
+disposable PostgreSQL 16.13 databases; the live PostgreSQL suites passed all 3 tests and
+the databases were then removed.
+
+Playwright acceptance covered Manager and Staff flows at desktop, 390×844, and 320 CSS
+px effective reflow widths. Keyboard-only Contact creation/cancellation, visible focus
+and restoration, 44×44 targets, 200% text enlargement, reduced motion, semantic
+landmarks/labels/live feedback, direct nested URLs, Back/Forward/refresh, and absence of
+horizontal page scrolling passed. The detailed record is in
+`docs/superpowers/plans/2026-07-12-customers-contacts.md`.
 
 ## 9. Slice 06: Product Catalog
 

@@ -1,7 +1,7 @@
 # Servora-Med API Draft
 
 > Date: 2026-07-10  
-> Status: Approved Phase 0 API contract; routes not implemented  
+> Status: Living API contract; implemented through Slice 05 CRM
 > Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT
 
 ## 1. General Contract
@@ -94,6 +94,17 @@ LAST_ACTIVE_ADMIN_REQUIRED
 USER_VERSION_CONFLICT
 STAFF_PROFILE_VERSION_CONFLICT
 PASSWORD_CHANGE_REQUIRED
+CUSTOMER_NOT_FOUND
+CONTACT_NOT_FOUND
+CUSTOMER_TAX_NUMBER_EXISTS
+CUSTOMER_HAS_ACTIVE_JOB_CARDS
+CONTACT_HAS_ACTIVE_JOB_CARDS
+CUSTOMER_INACTIVE
+INVALID_CUSTOMER_STATUS_TRANSITION
+INVALID_CONTACT_STATUS_TRANSITION
+CONTACT_PRIMARY_REQUIRES_ACTIVE
+CONTACT_ALREADY_PRIMARY
+CUSTOMER_ASSIGNEE_NOT_ELIGIBLE
 ```
 
 Validation details may identify fields but must not expose SQL, stack traces, hashes, tokens, cookies, or internal infrastructure.
@@ -226,6 +237,12 @@ Every mutation requires `expectedVersion`, performs an atomic version-predicate 
 
 Role changes to or from `STAFF` are rejected with `STAFF_ROLE_CHANGE_NOT_SUPPORTED`. An Admin cannot change their own role or deactivate their own account. The final active Admin, a Staff user with active JobCards, and a Manager with assigned active Staff are protected by their corresponding conflict codes.
 
+Eligible Staff deactivation clears every matching Customer `assignedStaffUserId` in the
+same transaction, increments each affected Customer version, and appends one
+`CUSTOMER_ASSIGNEE_CHANGED` audit event with reason `STAFF_DEACTIVATED`. Session revocation,
+user deactivation, assignment cleanup, and audit insertion either commit or roll back
+together.
+
 ## 6. Staff `/api/staff`
 
 | Method | Path | Roles | Behavior |
@@ -271,30 +288,76 @@ Staff profile responses include backend-derived counters:
 | POST | `/` | admin, manager | create |
 | GET | `/:customerId` | authenticated | detail and contact summary |
 | PATCH | `/:customerId` | admin, manager | update |
-| DELETE | `/:customerId` | admin | set status to inactive |
+| POST | `/:customerId/activate` | admin, manager | named activation command |
+| POST | `/:customerId/deactivate` | admin, manager | named deactivation command |
+| GET | `/:customerId/contacts` | authenticated | nested Contact list |
+| POST | `/:customerId/contacts` | admin, manager | create nested Contact |
+| GET | `/:customerId/contacts/:contactId` | authenticated | nested Contact detail |
+| PATCH | `/:customerId/contacts/:contactId` | admin, manager | update nested Contact |
+| POST | `/:customerId/contacts/:contactId/activate` | admin, manager | named activation command |
+| POST | `/:customerId/contacts/:contactId/deactivate` | admin, manager | named deactivation command |
+| POST | `/:customerId/contacts/:contactId/make-primary` | admin, manager | select the active primary Contact |
 
 Filters:
 
 ```text
 q
 status
+customerType
 assignedStaffUserId
 city
+unassigned
 limit
 offset
 ```
 
-Customer lifecycle uses `status`; the API does not expose a duplicate active flag.
+`limit` defaults to 50 and must be between 1 and 200; `offset` defaults to 0 and must
+be a non-negative integer. Unknown query parameters are rejected.
 
-## 8. Contacts `/api/contacts`
+When `status` is omitted, the list includes `prospect` and `active` Customers and hides
+`inactive` records. `status=inactive` exposes inactive records explicitly.
 
-| Method | Path | Roles | Behavior |
-| --- | --- | --- | --- |
-| GET | `/` | authenticated | filter by customer and search |
-| POST | `/` | admin, manager | create under same-organization customer |
-| GET | `/:contactId` | authenticated | detail |
-| PATCH | `/:contactId` | admin, manager | update |
-| DELETE | `/:contactId` | admin, manager | deactivate |
+Customer lifecycle uses the `prospect`, `active`, and `inactive` state machine. Activation
+is permitted only from `inactive`; deactivation is permitted from `prospect` or `active`.
+The API does not expose a duplicate active flag. Lifecycle commands and
+patches require a positive integer `expectedVersion`; successful mutations increment
+`version`, while stale requests return `409 VERSION_CONFLICT` with `currentVersion`.
+Customers with active JobCards cannot be deactivated. Customer mutation bodies use
+an exact allowlist and never accept or return a `notes` field.
+
+Customer detail includes at most five open and five completed JobCard summaries. Staff
+receives only summaries for JobCards assigned to that Staff user; Manager and Admin
+receive organization-scoped summaries. The CRM detail response does not expose an audit
+timeline or Staff-confidential profile notes.
+
+`assignedStaffUserId` accepts only `null` or a non-empty string. The referenced user
+must be an active Staff user in the same organization; a missing, inactive,
+cross-organization, or non-Staff user returns `409 CUSTOMER_ASSIGNEE_NOT_ELIGIBLE`.
+
+## 8. Contacts `/api/customers/:customerId/contacts`
+
+Contacts are always addressed beneath their parent Customer; there is no top-level
+`/api/contacts` collection. `contactId` is valid only together with the path's
+`customerId`. Reads are organization-scoped and cross-organization parents or records
+are concealed with `404 CUSTOMER_NOT_FOUND` or `404 CONTACT_NOT_FOUND`.
+
+List filters are `q`, `status=active|inactive|all`, `limit`, and `offset`; status defaults
+to `active`, and the same pagination bounds as Customers apply. Contact active state is
+changed only through the named `activate` and `deactivate` commands. A deactivated
+Contact is never primary, cannot be made primary, and cannot be deactivated while an
+active JobCard references it. Creating the first active Contact makes it primary;
+reactivation does not. `make-primary` atomically clears the previous primary Contact.
+
+Contact patches and all named commands require a positive integer `expectedVersion`.
+Successful mutations increment `version`; stale requests return `409 VERSION_CONFLICT`.
+Mutation bodies use exact allowlists and never accept or return a `notes` field. Staff
+may read Customers and Contacts but every CRM mutation returns `403 FORBIDDEN`.
+
+Customer assignment and Contact/JobCard eligibility mutations use the shared lock order
+`users -> customers -> contacts -> job_cards`, with stable UUID order when more than one
+row of the same type is locked. A JobCard Contact must be active, in the authenticated
+organization, and belong to the selected Customer. Changing Customer without supplying
+a compatible Contact clears `contactId`.
 
 ## 9. Products `/api/products`
 

@@ -25,4 +25,16 @@ describe('toErrorResponse', () => {
     });
     expect(JSON.stringify(response)).not.toContain('db.internal');
   });
+
+  it('serializes only explicit AppError details', () => {
+    expect(toErrorResponse(new AppError(
+      'VERSION_CONFLICT', 409, 'Güncel veriyi yükleyin.', { currentVersion: 3 },
+    ))).toEqual({
+      statusCode: 409,
+      body: { error: 'Güncel veriyi yükleyin.', code: 'VERSION_CONFLICT', details: { currentVersion: 3 } },
+    });
+
+    const response = toErrorResponse(Object.assign(new Error('internal'), { details: { secret: true } }));
+    expect(JSON.stringify(response)).not.toContain('secret');
+  });
 });

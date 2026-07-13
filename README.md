@@ -1,10 +1,10 @@
 # Servora-Med
 
-Servora-Med is a browser-based B2B operations platform for medical and dental product companies. Slice 02 provides secure authentication plus the complete product-delivery tracer backend.
+Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, the Product Delivery tracer, People administration, and role-aware Customer/Contact CRM through Slice 05.
 
 ## Current Scope
 
-Implemented through Slice 02:
+Implemented through Slice 05:
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -27,13 +27,24 @@ Implemented through Slice 02:
 - start, approval submission, manager approval, and revision commands
 - transactional canonical activity, idempotent critical actions, and optimistic concurrency
 - authenticated JobCard HTTP API
+- responsive Staff-to-Manager Product Delivery workflow UI
+- mandatory first-login password change and fresh-login flow
+- Admin user and Admin/Manager Staff-profile maintenance
+- Staff own-profile operational counters
+- versioned, audited Customer lifecycle and responsible Staff assignment
+- nested Contact lifecycle with one active primary Contact
+- Staff read-only CRM with assigned-JobCard summary scope
+- stable Customer and Contact list/detail routes with Back/Forward/refresh support
+- Contact-linked JobCard creation with responsible Staff and primary Contact suggestions
+- shared CRM/People/JobCard lock order and live PostgreSQL concurrency coverage
 
 Not implemented yet:
 
-- customer, contact, product, and staff administration screens
-- Product Delivery mobile workflow UI
-- reporting and realtime
-- password-change UI (the secured backend endpoint exists)
+- managed product catalog screens
+- full JobCard notes, activity timeline, and Kanban/list workspace
+- Staff confidential notes and related follow-up cards
+- General Task and structured Sales Meeting flows
+- operational reports, production deployment hardening, and measured realtime
 
 ## Prerequisites
 
@@ -56,7 +67,8 @@ npm run migrate
 npm run dev
 ```
 
-The migration creates the migration ledger and Slice 01 auth tables: `organizations`, `users`, and `sessions`.
+The migration runner applies the immutable 001–004 files for the ledger, authentication,
+Product Delivery tracer, People profiles/audits, and Customer/Contact CRM schema.
 
 ### First Admin Bootstrap
 
@@ -83,6 +95,8 @@ This creates development-only users:
 - `staff@servora.local`
 
 All three are created with the `mustChangePassword` flag. The command refuses `NODE_ENV=production` and refuses a database that already contains users.
+
+The development seed also creates one Staff profile assigned to the demo Manager, `Demo Dental Klinik`, primary Contact `Dr. Ayşe Yılmaz`, one catalog product, and one Contact-linked `NEW` Product Delivery JobCard with its `JOB_CREATED` activity. These are local reference records, not production migration data.
 
 Public health:
 
@@ -145,13 +159,45 @@ The development seed creates one Staff profile linked to the demo Manager in the
 
 The role-aware web workspace now provides Admin user management, Admin/Manager Staff profile maintenance, Staff own-profile counters, and a mandatory first-login password screen. Playwright verified the complete three-role flow at 390×844 CSS px, keyboard focus order, 44 CSS px controls, 200% text enlargement, 320 CSS px effective 400% reflow, reduced motion, and semantic form/status structures.
 
+## Customer and Contact CRM
+
+Slice 05 provides Admin/Manager Customer maintenance, one optional responsible Staff user,
+nested Contacts, explicit Customer and Contact lifecycle commands, and atomic primary
+Contact replacement. Staff can read organization CRM records but cannot mutate them;
+Customer JobCard summaries remain restricted to the authenticated Staff user's assigned
+work. Customer and Contact records deliberately do not contain a generic notes editor or
+CRM audit timeline.
+
+The delivery creation route now suggests the Customer's eligible responsible Staff user
+for management and the active primary Contact for every role. Staff assignment is still
+forced to the authenticated Staff user, and the backend validates Customer, Contact,
+organization, and assignee eligibility.
+
+Final automated verification passed server 27 files/175 tests, web 19 files/103 tests,
+both production builds, both high-severity dependency audits with zero vulnerabilities,
+and all 3 separately enabled PostgreSQL tests. Slice 05 was verified on disposable
+PostgreSQL 16.13 databases through migrations 001–004,
+development seed, forced password change and fresh login, Customer search/update and tax
+normalization, Contact primary replacement, Contact-linked JobCard creation, active-job
+deactivation guards, Staff-assignment cleanup, safe audit payloads, cross-organization
+concealment, rollback, and two-client concurrency. Browser acceptance passed through
+Playwright MCP at 1200×800 desktop,
+390×844, and 320 CSS px effective reflow widths with keyboard-only interaction, visible
+focus restoration, 44 CSS px targets, 200% text enlargement, reduced motion, semantic
+landmarks/labels/live feedback, and no horizontal page scrolling. The disposable databases
+were removed after verification. Authenticated `/login` visits now replace the route with
+`/jobs`; a focused routing regression test protects that behavior without breaking direct
+CRM URLs.
+
 ## Verification
 
 ```bash
 cd server && npm run build
 cd server && npm test -- --run
+cd server && npm audit --audit-level=high
 cd web && npm test -- --run
 cd web && npm run build
+cd web && npm audit --audit-level=high
 ```
 
 ## Environment

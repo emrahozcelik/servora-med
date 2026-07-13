@@ -19,6 +19,9 @@ import type { PeopleRepository } from './modules/people/repository.js';
 import { PeopleService } from './modules/people/service.js';
 import { peopleRoutes } from './modules/people/routes.js';
 import { AuthCredentialAdministration } from './modules/auth/admin-ports.js';
+import type { CrmRepository } from './modules/crm/repository.js';
+import { CrmService } from './modules/crm/service.js';
+import { crmRoutes } from './modules/crm/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -36,6 +39,7 @@ export type AppDependencies = {
   authRepository?: AuthRepository;
   jobCardRepository?: JobCardRepository;
   peopleRepository?: PeopleRepository;
+  crmRepository?: CrmRepository;
 };
 
 export async function buildApp(config: AppConfig, dependencies: AppDependencies = {}) {
@@ -99,6 +103,13 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       await app.register(peopleRoutes, {
         prefix: '/api',
         service: new PeopleService(dependencies.peopleRepository, new AuthCredentialAdministration()),
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.crmRepository) {
+      await app.register(crmRoutes, {
+        prefix: '/api',
+        service: new CrmService(dependencies.crmRepository),
         authenticate: authenticateDomain,
       });
     }

@@ -39,13 +39,18 @@ class MemoryPeopleRepository implements PeopleRepository {
   assignedStaff = false;
   activeAdminCount = 1;
   revoked: string[] = [];
+  customerAssignments = [{ customerId: 'customer-active', staffUserId: 'staff-1' }, { customerId: 'customer-inactive', staffUserId: 'staff-1' }];
+  cleanupCalls: string[] = [];
+  failAudit = false;
 
   async execute<T>(work: (tx: PeopleTransaction) => Promise<T>) {
     const usersBefore = structuredClone(this.users); const profilesBefore = structuredClone(this.profiles);
+    const assignmentsBefore = structuredClone(this.customerAssignments);
     const auditCount = this.audits.length; const revokedCount = this.revoked.length;
     const tx = this.transaction();
     try { return await work(tx); } catch (error) {
       this.users = usersBefore; this.profiles = profilesBefore;
+      this.customerAssignments = assignmentsBefore;
       this.audits.splice(auditCount); this.revoked.splice(revokedCount); throw error;
     }
   }
@@ -84,7 +89,12 @@ class MemoryPeopleRepository implements PeopleRepository {
       hasAssignedActiveStaff: async () => this.assignedStaff,
       resetTemporaryPassword: async (id, version) => this.updateUser(id, version, { mustChangePassword: true }),
       revokeAllSessions: async (id) => { this.revoked.push(id); },
-      appendAudit: async (input) => { this.audits.push(input); },
+      clearCustomerAssignments: async (input) => {
+        this.cleanupCalls.push(input.staffUserId);
+        this.customerAssignments = this.customerAssignments.filter((item) => item.staffUserId !== input.staffUserId);
+        return [{ customerId: 'customer-active', nextVersion: 2 }, { customerId: 'customer-inactive', nextVersion: 2 }];
+      },
+      appendAudit: async (input) => { if (this.failAudit) throw new Error('audit failed'); this.audits.push(input); },
     };
   }
 
@@ -158,7 +168,17 @@ describe('PeopleService policy', () => {
     repository.activeJobCards = false;
     await expect(people.deactivate(admin, 'staff-1', 1)).resolves.toMatchObject({ isActive: false, version: 2 });
     expect(repository.revoked).toEqual(['staff-1']);
+    expect(repository.cleanupCalls).toEqual(['staff-1']);
+    expect(repository.customerAssignments).toEqual([]);
     expect(repository.audits.at(-1)).toMatchObject({ eventType: 'USER_DEACTIVATED' });
+  });
+
+  it('rolls back Staff state, sessions, and Customer cleanup when audit fails', async () => {
+    const { repository, service: people } = service(); repository.failAudit = true;
+    await expect(people.deactivate(admin, 'staff-1', 1)).rejects.toThrow('audit failed');
+    expect(repository.users.find((item) => item.id === 'staff-1')).toMatchObject({ isActive: true, version: 1 });
+    expect(repository.revoked).toEqual([]);
+    expect(repository.customerAssignments).toHaveLength(2);
   });
 
   it('blocks a Manager with assigned active Staff from role change or deactivation', async () => {

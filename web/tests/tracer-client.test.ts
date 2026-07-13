@@ -11,7 +11,7 @@ afterEach(() => vi.unstubAllGlobals());
 
 const job = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
   version: 1, title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1',
-  createdBy: 'staff-1', priority: 'normal', dueDate: null };
+  contactId: 'contact-1', createdBy: 'staff-1', priority: 'normal', dueDate: null };
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -34,8 +34,9 @@ describe('tracer API client', () => {
       .mockResolvedValueOnce(json(job, 201)).mockResolvedValueOnce(json({ items: [job] }))
       .mockResolvedValueOnce(json(job)).mockResolvedValueOnce(json({ ...job, version: 2 }));
     vi.stubGlobal('fetch', fetchMock);
-    const create = { clientActionId: 'a1', type: 'PRODUCT_DELIVERY' as const, title: 'Teslim', customerId: 'c1', assignedTo: 's1' };
-    await createJobCard(create); await listJobCards(); await getJobCard('job-1');
+    const create = { clientActionId: 'a1', type: 'PRODUCT_DELIVERY' as const, title: 'Teslim', customerId: 'c1', contactId: 'contact-1', assignedTo: 's1' };
+    await createJobCard(create); await listJobCards();
+    await expect(getJobCard('job-1')).resolves.toMatchObject({ contactId: 'contact-1' });
     await patchJobCard('job-1', { expectedVersion: 1, title: 'Yeni' });
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/job-cards', expect.objectContaining({ method: 'POST', body: JSON.stringify(create) }));
     expect(fetchMock).toHaveBeenNthCalledWith(4, '/api/job-cards/job-1', expect.objectContaining({ method: 'PATCH' }));

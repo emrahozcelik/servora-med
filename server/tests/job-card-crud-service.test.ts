@@ -15,7 +15,17 @@ class CrudMemoryRepository implements JobCardRepository {
     { id: 'staff-1', organizationId: 'org-1', role: 'STAFF', isActive: true },
     { id: 'staff-2', organizationId: 'org-1', role: 'STAFF', isActive: true },
   ];
-  customers = [{ id: 'customer-1', organizationId: 'org-1' }];
+  customers = [
+    { id: 'customer-1', organizationId: 'org-1', status: 'active' as const },
+    { id: 'customer-2', organizationId: 'org-1', status: 'active' as const },
+    { id: 'customer-inactive', organizationId: 'org-1', status: 'inactive' as const },
+  ];
+  contacts = [
+    { id: 'contact-1', organizationId: 'org-1', customerId: 'customer-1', isActive: true },
+    { id: 'contact-2', organizationId: 'org-1', customerId: 'customer-2', isActive: true },
+    { id: 'contact-inactive', organizationId: 'org-1', customerId: 'customer-1', isActive: false },
+    { id: 'contact-cross-org', organizationId: 'org-2', customerId: 'customer-1', isActive: true },
+  ];
   jobs: JobCard[] = [];
   activities: string[] = [];
   completed = new Map<string, unknown>();
@@ -24,10 +34,14 @@ class CrudMemoryRepository implements JobCardRepository {
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
     if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T };
     const tx: JobCardTransaction = {
+      getJob: async () => null,
       getJobForUpdate: async () => null,
       transitionWithVersion: async () => null,
       getAssignee: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
+      getAssigneeForUpdate: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
       customerExists: async (org, id) => this.customers.some((item) => item.organizationId === org && item.id === id),
+      getCustomerForUpdate: async (org, id) => this.customers.find((item) => item.organizationId === org && item.id === id) ?? null,
+      getContactForUpdate: async (org, id) => this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
       createJobCard: async (input: CreateJobCardRecord) => {
         const job: JobCard = { id: `job-${this.jobs.length + 1}`, status: 'NEW', version: 1, ...input };
         this.jobs.push(job); return job;
@@ -47,10 +61,14 @@ class CrudMemoryRepository implements JobCardRepository {
   async executeTransaction<T>(work: (tx: JobCardTransaction) => Promise<T>) {
     const before = this.jobs.map((job) => ({ ...job })); const eventCount = this.activities.length;
     const tx: JobCardTransaction = {
+      getJob: async (org, id) => this.jobs.find((job) => job.organizationId === org && job.id === id) ?? null,
       getJobForUpdate: async (org, id) => this.jobs.find((job) => job.organizationId === org && job.id === id) ?? null,
       transitionWithVersion: async () => null,
       getAssignee: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
+      getAssigneeForUpdate: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
       customerExists: async (org, id) => this.customers.some((item) => item.organizationId === org && item.id === id),
+      getCustomerForUpdate: async (org, id) => this.customers.find((item) => item.organizationId === org && item.id === id) ?? null,
+      getContactForUpdate: async (org, id) => this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
       createJobCard: async () => { throw new Error('unused'); },
       updateFieldsWithVersion: async (input) => {
         const index = this.jobs.findIndex((job) => job.organizationId === input.organizationId && job.id === input.jobCardId && job.version === input.expectedVersion);
@@ -96,6 +114,43 @@ describe('JobCardService create and reads', () => {
     const repository = new CrudMemoryRepository();
     await expect(new JobCardService(repository).create(manager, { ...createInput, assignedTo: 'staff-2' }))
       .resolves.toMatchObject({ assignedTo: 'staff-2' });
+  });
+
+  it('persists a valid Contact and rejects a Contact from another Customer', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const created = await service.create(staff, { ...createInput, contactId: 'contact-1' } as never);
+    expect(created.contactId).toBe('contact-1');
+
+    await expect(service.create(staff, {
+      ...createInput, clientActionId: 'create-contact-mismatch', contactId: 'contact-2',
+    } as never)).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER' });
+  });
+
+  it('rejects inactive and cross-organization references', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    await expect(service.create(staff, {
+      ...createInput, clientActionId: 'inactive-customer', customerId: 'customer-inactive',
+    })).rejects.toMatchObject({ code: 'CUSTOMER_INACTIVE' });
+    await expect(service.create(staff, {
+      ...createInput, clientActionId: 'inactive-contact', contactId: 'contact-inactive',
+    } as never)).rejects.toMatchObject({ code: 'CONTACT_INACTIVE' });
+    await expect(service.create(staff, {
+      ...createInput, clientActionId: 'cross-contact', contactId: 'contact-cross-org',
+    } as never)).rejects.toMatchObject({ code: 'CONTACT_NOT_FOUND' });
+  });
+
+  it('patches a compatible Contact and clears it when Customer changes without one', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const created = await service.create(staff, createInput);
+    const withContact = await service.patch(staff, created.id, {
+      expectedVersion: 1, contactId: 'contact-1',
+    } as never);
+    expect(withContact).toMatchObject({ contactId: 'contact-1', version: 2 });
+
+    const moved = await service.patch(staff, created.id, {
+      expectedVersion: 2, customerId: 'customer-2',
+    });
+    expect(moved).toMatchObject({ customerId: 'customer-2', contactId: null, version: 3 });
   });
 
   it('scopes staff list and detail to their own assignments', async () => {

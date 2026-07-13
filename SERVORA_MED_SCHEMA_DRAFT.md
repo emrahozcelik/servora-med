@@ -163,22 +163,37 @@ Profile lifecycle follows `users.is_active`. No duplicate active flag, internal 
 
 ### 3.5 audit_events
 
-People and security administration uses an audit stream separate from JobCard activity.
+People, security, and CRM administration use an audit stream separate from JobCard activity.
 
 | Column | Type | Rules |
 | --- | --- | --- |
 | id | UUID PK | |
 | organization_id | UUID NOT NULL | FK to organizations |
 | actor_user_id | UUID NOT NULL | same-organization FK to users |
-| subject_type | VARCHAR(40) NOT NULL | `USER` or `STAFF_PROFILE` |
+| subject_type | VARCHAR(40) NOT NULL | `USER`, `STAFF_PROFILE`, `CUSTOMER`, or `CONTACT` |
 | subject_id | UUID NOT NULL | audited subject identifier |
-| event_type | VARCHAR(80) NOT NULL | canonical People audit event |
+| event_type | VARCHAR(80) NOT NULL | canonical People or CRM audit event |
 | old_value | JSONB NULL | safe changed fields only |
 | new_value | JSONB NULL | safe changed fields only |
 | metadata | JSONB NOT NULL | default empty object |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 
 Passwords, password hashes, temporary passwords, tokens, cookies, and session identifiers are forbidden in audit payloads.
+
+Canonical CRM audit events are:
+
+```text
+CUSTOMER_CREATED
+CUSTOMER_FIELDS_UPDATED
+CUSTOMER_ASSIGNEE_CHANGED
+CUSTOMER_ACTIVATED
+CUSTOMER_DEACTIVATED
+CONTACT_CREATED
+CONTACT_FIELDS_UPDATED
+CONTACT_MADE_PRIMARY
+CONTACT_ACTIVATED
+CONTACT_DEACTIVATED
+```
 
 ### 3.6 customers
 
@@ -188,7 +203,7 @@ Passwords, password hashes, temporary passwords, tokens, cookies, and session id
 | organization_id | UUID NOT NULL | FK to organizations |
 | name | VARCHAR(255) NOT NULL | |
 | customer_type | VARCHAR(30) NOT NULL | `customer_type` check |
-| tax_number | VARCHAR(50) NULL | informational in MVP |
+| tax_number | VARCHAR(50) NULL | normalized; unique per organization when present |
 | phone | VARCHAR(50) NULL | |
 | email | VARCHAR(255) NULL | |
 | city | VARCHAR(100) NULL | |
@@ -196,11 +211,12 @@ Passwords, password hashes, temporary passwords, tokens, cookies, and session id
 | address | TEXT NULL | |
 | assigned_staff_user_id | UUID NULL | FK to users |
 | status | VARCHAR(20) NOT NULL | `customer_status` check |
-| notes | TEXT NULL | |
+| version | INTEGER NOT NULL | default 1; optimistic concurrency |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 | updated_at | TIMESTAMPTZ NOT NULL | default now |
 
 Customer lifecycle has one source: `status`. There is no second `is_active` field.
+Customer tax numbers are normalized before persistence and unique per organization when present. Customer references use composite organization-scoped foreign keys.
 
 Indexes:
 
@@ -219,13 +235,13 @@ Indexes:
 | title | VARCHAR(255) NULL | |
 | phone | VARCHAR(50) NULL | |
 | email | VARCHAR(255) NULL | |
-| notes | TEXT NULL | |
 | is_primary | BOOLEAN NOT NULL | default false |
 | is_active | BOOLEAN NOT NULL | default true |
+| version | INTEGER NOT NULL | default 1; optimistic concurrency |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 | updated_at | TIMESTAMPTZ NOT NULL | default now |
 
-The contact and its customer must belong to the same organization.
+The contact and its customer must belong to the same organization through a composite foreign key. At most one active primary Contact may exist per Customer, enforced by a partial unique index on `(organization_id, customer_id)` where `is_primary = true` and `is_active = true`.
 
 ### 3.8 products
 
@@ -268,7 +284,7 @@ version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)
 | title | VARCHAR(255) NOT NULL | |
 | description | TEXT NULL | |
 | customer_id | UUID NULL | FK to customers |
-| contact_id | UUID NULL | FK to contacts |
+| contact_id | UUID NULL | composite organization-scoped FK to contacts |
 | assigned_to | UUID NOT NULL | FK to users |
 | created_by | UUID NOT NULL | FK to users |
 | priority | VARCHAR(20) NOT NULL | default `normal` |
@@ -296,6 +312,7 @@ Indexes:
 - `(organization_id, assigned_to, status)`
 - `(organization_id, type, status)`
 - `(organization_id, customer_id)`
+- `(organization_id, contact_id)`
 - partial `(organization_id, due_date)` for active statuses
 - `(organization_id, created_at DESC)`
 
@@ -441,6 +458,16 @@ The API never accepts organization ownership as a trusted client choice. Service
 | Stale JobCard update does not overwrite | atomic version predicate |
 | Cross-organization reference is rejected | service plus selected composite constraints |
 | Login email is unambiguous | global unique index on `lower(email)` |
+| Stale Customer or Contact mutation does not overwrite | atomic version predicate |
+| Customer assignee is active same-organization Staff | service validation under User lock |
+| At most one active primary Contact exists | partial unique index plus transaction policy |
+| Customer or Contact with active JobCards cannot deactivate | locked guard query and service test |
+| Staff deactivation clears Customer assignments atomically | caller-owned People transaction plus CRM cleanup port |
+
+Cross-module mutations use the lock order `users -> customers -> contacts -> job_cards`.
+Multiple rows of the same type are locked in stable UUID order. Customer/Contact
+lifecycle guards, JobCard relationship validation, and Staff-assignment cleanup reuse
+the caller-owned transaction so the eligibility check cannot interleave with the write.
 
 ## 6. Deferred Structured Sales Meeting
 
@@ -472,19 +499,18 @@ Production creates the first admin through a separate bootstrap CLI or environme
 
 ## 8. Migration Groups
 
-Recommended slice-aligned groups:
+Applied slice-aligned migrations:
 
 | Group | Content |
 | --- | --- |
-| 001_auth_foundation | organizations, users, sessions, auth indexes |
-| 002_delivery_tracer | minimal customers, products, job_cards, delivery_items, activity, processed_actions |
-| 003_people | user versions, organization timezone, staff_profiles, audit_events |
-| 004_crm_contacts | contacts and remaining CRM indexes |
-| 005_notes_and_reporting | notes and report-support indexes |
-| 006_general_task | type support and type-specific constraints if required |
-| 007_sales_meeting | deferred enum value and structured details |
+| `001_auth_foundation.sql` | organizations, users, sessions, auth indexes |
+| `002_delivery_tracer.sql` | minimal customers, products, job_cards, delivery_items, activity, processed_actions |
+| `003_people.sql` | user versions, organization timezone, staff_profiles, audit_events |
+| `004_crm_contacts.sql` | versioned Customers, Contacts, JobCard Contact relationship, CRM indexes and audits |
 
-Exact migration filenames are assigned when each implementation slice begins. Applied files are immutable.
+Applied migrations 001–004 are immutable. Future recommended groups remain
+`005_notes_and_reporting`, `006_general_task`, and deferred `007_sales_meeting`; their exact
+filenames are assigned only when those slices begin.
 
 ## 9. Explicit Omissions
 

@@ -15,6 +15,7 @@ type CreateInput = {
   title: string;
   description?: string | null;
   customerId: string;
+  contactId?: string | null;
   assignedTo: string;
   priority?: JobCardPriority;
   dueDate?: string | null;
@@ -22,7 +23,7 @@ type CreateInput = {
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
-  customerId?: string; assignedTo?: string; priority?: JobCardPriority; dueDate?: string | null;
+  customerId?: string; contactId?: string | null; assignedTo?: string; priority?: JobCardPriority; dueDate?: string | null;
 };
 type DeliveryInput = {
   expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
@@ -76,15 +77,14 @@ export class JobCardService {
         clientActionId: input.clientActionId, operationKey: 'JOB_CREATE',
       },
       async (transaction) => {
-        const assignee = await transaction.getAssignee(actor.organizationId, input.assignedTo);
+        const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, input.assignedTo);
         if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
         assertCanCreateForAssignee(actor, assignee);
-        if (!(await transaction.customerExists(actor.organizationId, input.customerId))) {
-          throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
-        }
+        await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId ?? null);
         const job = await transaction.createJobCard({
           organizationId: actor.organizationId, type: input.type, title,
           description: input.description?.trim() || null, customerId: input.customerId,
+          contactId: input.contactId ?? null,
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
           dueDate: input.dueDate ?? null,
         });
@@ -130,20 +130,30 @@ export class JobCardService {
     if (fields.description !== undefined) fields.description = fields.description?.trim() || null;
 
     return this.repository.executeTransaction(async (transaction) => {
+      const snapshot = await transaction.getJob(actor.organizationId, jobCardId);
+      if (!snapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      if (snapshot.version !== input.expectedVersion) {
+        throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+      }
+      if (fields.assignedTo !== undefined && fields.assignedTo !== snapshot.assignedTo) {
+        const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, fields.assignedTo);
+        if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+        assertCanCreateForAssignee(actor, assignee);
+      }
+      const nextCustomerId = fields.customerId !== undefined ? fields.customerId : snapshot.customerId;
+      const nextContactId = fields.contactId !== undefined ? fields.contactId
+        : fields.customerId !== undefined && fields.customerId !== snapshot.customerId ? null : snapshot.contactId;
+      if (nextCustomerId) await this.validateJobReferences(transaction, actor.organizationId, nextCustomerId, nextContactId);
+      else if (nextContactId) throw new AppError('CONTACT_NOT_IN_CUSTOMER', 409, 'İlgili kişi seçilen müşteriye bağlı değil.');
+      if (fields.customerId !== undefined && fields.contactId === undefined && fields.customerId !== snapshot.customerId) {
+        fields.contactId = null;
+      }
       const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
       if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       if (job.version !== input.expectedVersion) {
         throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       }
       assertCanEdit(actor, job);
-      if (fields.assignedTo !== undefined && fields.assignedTo !== job.assignedTo) {
-        const assignee = await transaction.getAssignee(actor.organizationId, fields.assignedTo);
-        if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
-        assertCanCreateForAssignee(actor, assignee);
-      }
-      if (fields.customerId !== undefined && !(await transaction.customerExists(actor.organizationId, fields.customerId))) {
-        throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
-      }
       const updated = await transaction.updateFieldsWithVersion({
         organizationId: actor.organizationId, jobCardId, expectedVersion: input.expectedVersion, fields,
       });
@@ -166,6 +176,17 @@ export class JobCardService {
       }
       return updated;
     });
+  }
+
+  private async validateJobReferences(tx: JobCardTransaction, organizationId: string, customerId: string, contactId: string | null) {
+    const customer = await tx.getCustomerForUpdate(organizationId, customerId);
+    if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
+    if (customer.status === 'inactive') throw new AppError('CUSTOMER_INACTIVE', 409, 'Pasif müşteri için iş oluşturulamaz.');
+    if (!contactId) return;
+    const contact = await tx.getContactForUpdate(organizationId, contactId);
+    if (!contact) throw new AppError('CONTACT_NOT_FOUND', 404, 'İlgili kişi bulunamadı.');
+    if (contact.customerId !== customerId) throw new AppError('CONTACT_NOT_IN_CUSTOMER', 409, 'İlgili kişi seçilen müşteriye bağlı değil.');
+    if (!contact.isActive) throw new AppError('CONTACT_INACTIVE', 409, 'Pasif ilgili kişi iş kartında kullanılamaz.');
   }
 
   async addDeliveryItem(actor: JobCardActor, jobCardId: string, input: AddDeliveryInput) {

@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { buildApp, LOGGER_REDACT_PATHS } from '../src/app.js';
+import type { AppDependencies } from '../src/app.js';
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
@@ -45,5 +46,12 @@ describe('logger security defaults', () => {
         'req.body.sessionToken',
       ]),
     );
+  });
+});
+
+describe('AppDependencies', () => {
+  it('accepts the optional CRM repository dependency', () => {
+    const dependencies = { crmRepository: {} as AppDependencies['crmRepository'] } satisfies AppDependencies;
+    expect(dependencies.crmRepository).toBeDefined();
   });
 });

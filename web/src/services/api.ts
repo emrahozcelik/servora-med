@@ -1,15 +1,18 @@
 export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF';
 export type CurrentUser = { id: string; organizationId: string; name: string; email: string; role: UserRole; mustChangePassword: boolean; isActive: boolean; version: number };
-export type JobCardStatus = 'NEW' | 'PLANNED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'REVISION_REQUESTED' | 'COMPLETED' | 'CANCELLED';
+export const JOB_CARD_STATUSES = ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL',
+  'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED'] as const;
+export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
 export type DeliveryPurpose = 'SALE' | 'SAMPLE' | 'CONSIGNMENT' | 'RETURN' | 'OTHER';
-export type JobCard = { id: string; organizationId: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus; version: number; title: string; description: string | null; customerId: string | null; assignedTo: string; createdBy: string; priority: 'low' | 'normal' | 'high' | 'urgent'; dueDate: string | null };
+export type JobCard = { id: string; organizationId: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus; version: number; title: string; description: string | null; customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string; priority: 'low' | 'normal' | 'high' | 'urgent'; dueDate: string | null };
 export type DeliveryItem = { id: string; organizationId: string; jobCardId: string; productId: string; deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; unit: string; productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null; lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null };
 export type Activity = { id: string; jobCardId: string; actorId: string | null; eventType: string; oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: string };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 export type ReferenceProduct = { id: string; name: string; sku: string; model: string | null; unit: string };
 
 export class ApiError extends Error {
-  constructor(public readonly status: number, public readonly code: string, message: string, public readonly retryable = false) {
+  constructor(public readonly status: number, public readonly code: string, message: string,
+    public readonly retryable = false, public readonly details: Record<string, unknown> | null = null) {
     super(message); this.name = 'ApiError';
   }
 }
@@ -45,7 +48,7 @@ function parseJobCard(value: unknown): JobCard {
   return { id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
     type: string(v.type, 'type') as JobCard['type'], status: string(v.status, 'status') as JobCardStatus,
     version: number(v.version, 'version'), title: string(v.title, 'title'), description: nullableString(v.description, 'description'),
-    customerId: nullableString(v.customerId, 'customerId'), assignedTo: string(v.assignedTo, 'assignedTo'),
+    customerId: nullableString(v.customerId, 'customerId'), contactId: nullableString(v.contactId, 'contactId'), assignedTo: string(v.assignedTo, 'assignedTo'),
     createdBy: string(v.createdBy, 'createdBy'), priority: string(v.priority, 'priority') as JobCard['priority'], dueDate: nullableString(v.dueDate, 'dueDate') };
 }
 function parseDelivery(value: unknown): DeliveryItem {
@@ -64,8 +67,16 @@ export async function request(path: string, init: RequestInit = {}) {
   catch { throw new ApiError(0, 'NETWORK_ERROR', 'Sunucuya ulaşılamadı. Bağlantınızı kontrol edip tekrar deneyin.', true); }
   if (!response.ok) {
     let error = 'İşlem tamamlanamadı. Lütfen tekrar deneyin.'; let code = 'REQUEST_FAILED';
-    try { const body = object(await response.json()); if (typeof body.error === 'string') error = body.error; if (typeof body.code === 'string') code = body.code; } catch { /* use safe fallback */ }
-    throw new ApiError(response.status, code, error, response.status >= 500);
+    let details: Record<string, unknown> | null = null;
+    try {
+      const body = object(await response.json());
+      if (typeof body.error === 'string') error = body.error;
+      if (typeof body.code === 'string') code = body.code;
+      if (body.details && typeof body.details === 'object' && !Array.isArray(body.details)) {
+        details = body.details as Record<string, unknown>;
+      }
+    } catch { /* use safe fallback */ }
+    throw new ApiError(response.status, code, error, response.status >= 500, details);
   }
   if (response.status === 204) return null;
   try { return await response.json() as unknown; }
@@ -91,7 +102,7 @@ export async function listReferenceProducts() {
   return items(await request('/api/reference/products')).map((entry) => { const v = object(entry); return { id: string(v.id, 'id'), name: string(v.name, 'name'), sku: string(v.sku, 'sku'), model: nullableString(v.model, 'model'), unit: string(v.unit, 'unit') }; });
 }
 
-export async function createJobCard(input: { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string; assignedTo: string; description?: string; priority?: JobCard['priority']; dueDate?: string }) { return parseJobCard(await request('/api/job-cards', json('POST', input))); }
+export async function createJobCard(input: { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string; contactId?: string | null; assignedTo: string; description?: string; priority?: JobCard['priority']; dueDate?: string }) { return parseJobCard(await request('/api/job-cards', json('POST', input))); }
 export async function listJobCards() { return items(await request('/api/job-cards')).map(parseJobCard); }
 export async function getJobCard(id: string) { return parseJobCard(await request(`/api/job-cards/${id}`)); }
 export async function patchJobCard(id: string, input: { expectedVersion: number; title?: string; priority?: JobCard['priority']; dueDate?: string | null }) { return parseJobCard(await request(`/api/job-cards/${id}`, json('PATCH', input))); }
