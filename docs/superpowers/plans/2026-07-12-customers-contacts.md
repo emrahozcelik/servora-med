@@ -830,7 +830,7 @@ git commit -m "feat: add Customer list and creation"
 - Produces Customer detail/edit/status and nested Contact detail/edit/lifecycle routes.
 - Consumes role-scoped bounded JobCard summaries returned by Customer detail.
 
-- [ ] **Step 1: Write failing Customer/Contact view tests**
+- [x] **Step 1: Write failing Customer/Contact view tests**
 
 Cover general information, responsible Staff, active/inactive status, up to five open and five completed summaries, Staff-scoped summaries, no generic notes editor, no CRM audit timeline, Contact loading/empty/error states, automatic first-primary display, make-primary command, lifecycle confirmations, active-JobCard conflict copy, version-conflict input preservation, and focus restoration after dialogs.
 
@@ -842,26 +842,28 @@ expect(primaryMarkup).toMatch(/aria-label="Birincil kişi"|>Birincil kişi</);
 expect(primaryMarkup).not.toContain('customer-notes');
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cd web && npm test -- --run tests/customer-detail.test.tsx tests/contact-management.test.tsx`  
 Expected: FAIL because detail and Contact screens do not exist.
 
-- [ ] **Step 3: Implement bounded detail and explicit commands**
+- [x] **Step 3: Implement bounded detail and explicit commands**
 
 Keep Customer fields, status commands, Contact fields, and Contact commands in separate forms. Do not place `status`, `isActive`, or `isPrimary` in general PATCH payloads. Confirmation dialogs name the affected record and explain irreversible operational impact; successful commands replace local versions with server-returned versions. Do not render `Tümünü gör` until Slice 07 supplies the filtered JobCard destination.
 
-- [ ] **Step 4: Verify GREEN and accessibility regression**
+- [x] **Step 4: Verify GREEN and accessibility regression**
 
 Run: `cd web && npm test -- --run tests/customer-detail.test.tsx tests/contact-management.test.tsx tests/router.test.tsx tests/accessibility-contract.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/CustomerDetail.tsx web/src/ContactManagement.tsx web/src/AppRouter.tsx web/src/styles.css web/tests/customer-detail.test.tsx web/tests/contact-management.test.tsx web/tests/accessibility-contract.test.ts
 git commit -m "feat: add Customer and Contact detail flows"
 ```
+
+**Task 11 verification (2026-07-13):** focused Customer/Contact/router/accessibility tests passed 4 files/27 tests; the full web suite passed 17 files/85 tests; TypeScript/Vite build passed; npm audit reported zero vulnerabilities. Customer fields, Customer lifecycle, Contact fields, Contact lifecycle, and make-primary remain separate commands. Staff receives read-only CRM detail, JobCard summaries are capped at five per group, stale route loads clear prior records, and version conflicts refetch current versions without remounting uncontrolled form inputs.
 
 ### Task 12: JobCard Customer defaults and Contact selector
 

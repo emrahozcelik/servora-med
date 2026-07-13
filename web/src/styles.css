@@ -177,6 +177,37 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .similar-customers ul { margin: 0.75rem 0 0; padding-left: 1.25rem; }
 .similar-customers a { color: var(--accent-hover); }
 .form-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.75rem; padding-top: 1.25rem; border-top: 1px solid var(--rule); }
+.customer-detail { width: min(100% - 2rem, 62rem); margin: 1.5rem auto 4rem; }
+.record-status { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; }
+.record-status span { display: inline-flex; align-items: center; min-height: 2rem; padding: 0.25rem 0.65rem; border: 1px solid var(--rule); border-radius: 999px; color: var(--muted); font-size: 0.8rem; font-weight: 680; }
+.record-section, .contact-section { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
+.record-section > h2, .section-heading h2 { margin: 0; font-size: 1.125rem; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
+.section-heading > span { color: var(--muted); font-size: 0.8rem; }
+.record-form { max-width: 46rem; }
+.record-facts { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1.1rem 2rem; margin: 1.5rem 0 0; }
+.record-facts div { display: grid; gap: 0.25rem; }
+.record-facts dt { color: var(--muted); font-size: 0.78rem; font-weight: 650; }
+.record-facts dd { margin: 0; line-height: 1.45; }
+.record-fact-wide { grid-column: 1 / -1; }
+.record-commands > p { max-width: 65ch; color: var(--muted); line-height: 1.55; }
+.record-commands > div { display: flex; flex-wrap: wrap; gap: 0.75rem; }
+.contact-list, .job-summaries ul { padding: 0; margin: 1rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
+.contact-list > li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0.25rem; border-bottom: 1px solid var(--rule); }
+.contact-list h3 { margin: 0.45rem 0 0; font-size: 1rem; }
+.contact-list h3 a, .job-summaries a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: 0.2rem; }
+.contact-list p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.85rem; }
+.contact-signals { display: flex; align-items: center; gap: 0.55rem; color: var(--muted); font-size: 0.75rem; }
+.contact-open { display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; text-decoration: none; }
+.contact-loading { min-height: 4rem; margin-top: 1rem; padding-block: 1.2rem; color: var(--muted); background: var(--canvas); }
+.inline-record-form { margin-top: 1.5rem; padding-block: 1.5rem; border-block: 1px solid var(--rule); }
+.inline-record-form > h2 { margin: 0; font-size: 1.125rem; }
+.inline-record-form form { max-width: 46rem; }
+.job-summary-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 2rem; }
+.job-summaries li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.4rem 1rem; align-items: baseline; padding: 0.8rem 0.2rem; border-bottom: 1px solid var(--rule); }
+.job-summaries li span, .job-summaries li time { color: var(--muted); font-size: 0.78rem; }
+.job-summaries li time { grid-column: 1 / -1; }
+.muted-copy { color: var(--muted); }
 
 @media (max-width: 720px) {
   .login-layout { display: block; }
@@ -214,6 +245,14 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .customer-form-pair { grid-template-columns: 1fr; gap: 0; }
   .form-actions { align-items: stretch; flex-direction: column-reverse; }
   .form-actions button { width: 100%; }
+  .customer-detail { margin-top: 1rem; }
+  .record-facts, .job-summary-grid { grid-template-columns: 1fr; }
+  .record-fact-wide { grid-column: auto; }
+  .section-heading { align-items: flex-start; }
+  .contact-list > li { align-items: stretch; flex-direction: column; }
+  .contact-open { width: 100%; }
+  .record-commands > div { align-items: stretch; flex-direction: column; }
+  .record-commands button { width: 100%; }
 }
 
 @media (max-width: 390px) {

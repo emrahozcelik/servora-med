@@ -2,6 +2,8 @@ import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-rou
 
 import { DeliveryCreateView } from './DeliveryCreate';
 import { CustomerCreateScreen, CustomerListScreen } from './CustomerList';
+import { CustomerDetailScreen } from './CustomerDetail';
+import { ContactDetailScreen } from './ContactManagement';
 import { JobDetailScreen } from './JobDetail';
 import { StaffProfilesScreen } from './StaffProfiles';
 import { UserManagementScreen } from './UserManagement';
@@ -85,16 +87,6 @@ function NotFoundView() {
   </div></main>;
 }
 
-function CustomerPlaceholder({ kind }: { kind: 'list' | 'create' | 'detail' | 'contact' }) {
-  const content = {
-    list: ['Müşteriler', 'Müşteri kayıtları bir sonraki adımda burada yönetilecek.'],
-    create: ['Yeni müşteri', 'Müşteri oluşturma formu bir sonraki adımda eklenecek.'],
-    detail: ['Müşteri detayı', 'Müşteri bilgileri bir sonraki adımda burada gösterilecek.'],
-    contact: ['İlgili kişi', 'İlgili kişi bilgileri bir sonraki adımda burada gösterilecek.'],
-  } as const;
-  return <main className="workspace"><p className="eyebrow">CRM</p><h1>{content[kind][0]}</h1><p>{content[kind][1]}</p></main>;
-}
-
 function JobDetailRoute({ user, onReload }: Pick<AppRouterProps, 'user' | 'onReload'>) {
   const { jobCardId } = useParams();
   const navigate = useNavigate();
@@ -108,6 +100,18 @@ function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
   if (user.role === 'STAFF' && staffUserId && staffUserId !== user.id) return <ForbiddenView />;
   return <StaffProfilesScreen user={user} initialStaffUserId={staffUserId} onBack={() => navigate(paths.jobs)}
     onOpenProfile={(id) => navigate(paths.staffProfile(id))} onProfileBack={() => navigate(paths.staff)} />;
+}
+
+function CustomerRoute({ user }: Pick<AppRouterProps, 'user'>) {
+  const { customerId } = useParams();
+  if (!customerId) return <NotFoundView />;
+  return <CustomerDetailScreen customerId={customerId} user={user} />;
+}
+
+function ContactRoute({ user }: Pick<AppRouterProps, 'user'>) {
+  const { customerId, contactId } = useParams();
+  if (!customerId || !contactId) return <NotFoundView />;
+  return <ContactDetailScreen customerId={customerId} contactId={contactId} canManage={user.role !== 'STAFF'} />;
 }
 
 export function AppRouter({ user, workspace, customers, products, notice, onReload, onClearNotice, onDeliveryCreated }: AppRouterProps) {
@@ -137,8 +141,8 @@ export function AppRouter({ user, workspace, customers, products, notice, onRelo
       <Route path="/staff/:staffUserId" element={<StaffRoute user={user} />} />
       <Route path={paths.customers} element={<CustomerListScreen user={user} />} />
       <Route path={paths.newCustomer} element={user.role === 'STAFF' ? <ForbiddenView /> : <CustomerCreateScreen user={user} />} />
-      <Route path="/customers/:customerId" element={<CustomerPlaceholder kind="detail" />} />
-      <Route path="/customers/:customerId/contacts/:contactId" element={<CustomerPlaceholder kind="contact" />} />
+      <Route path="/customers/:customerId" element={<CustomerRoute user={user} />} />
+      <Route path="/customers/:customerId/contacts/:contactId" element={<ContactRoute user={user} />} />
       <Route path="*" element={<NotFoundView />} />
     </Routes>
   </>;

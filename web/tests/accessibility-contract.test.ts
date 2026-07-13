@@ -28,6 +28,8 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.customer-filters \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.customer-row \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.customer-form-pair \{ grid-template-columns: 1fr;/);
+    expect(css).toMatch(/\.record-facts, \.job-summary-grid \{ grid-template-columns: 1fr;/);
+    expect(css).toMatch(/\.contact-list > li \{[^}]*flex-direction: column;/);
   });
 
   it('honors reduced-motion preference', () => {
