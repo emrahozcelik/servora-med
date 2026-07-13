@@ -680,16 +680,16 @@ git commit -m "feat: use canonical Product catalog in deliveries"
 - Modify if required: `server/tests/auth-setup-postgres.test.ts`
 - Update: `docs/superpowers/plans/2026-07-13-product-catalog.md` with exact results
 
-- [ ] **Step 1: Add/adjust seed assertions before implementation changes**
+- [x] **Step 1: Add/adjust seed assertions before implementation changes**
 
 Keep the representative demo Product populated (`DEMO-001`, name, `adet`) because populated optional data is useful. Assert migration 005 gives it version 1 and does not make optional fields mandatory for later Product creation. Do not add stock or accounting seed values.
 
-- [ ] **Step 2: Run seed tests**
+- [x] **Step 2: Run seed tests**
 
 Run: `cd server && npm test -- --run tests/auth-setup.test.ts tests/auth-setup-postgres.test.ts`  
 Expected: unit tests pass; PostgreSQL test skips without `TEST_DATABASE_URL`.
 
-- [ ] **Step 3: Create a disposable PostgreSQL database and run migrations/seed**
+- [x] **Step 3: Create a disposable PostgreSQL database and run migrations/seed**
 
 ```bash
 createdb servora_med_slice06_closeout
@@ -701,7 +701,7 @@ DATABASE_URL=postgresql://emrah@localhost/servora_med_slice06_closeout NODE_ENV=
 
 Use a newly generated ephemeral password and never place it in the plan, shell history excerpts, commits, logs, or memory.
 
-- [ ] **Step 4: Run the authenticated live tracer**
+- [x] **Step 4: Run the authenticated live tracer**
 
 Start the server on an unused local port. Verify through HTTP and direct safe SQL assertions:
 
@@ -716,11 +716,11 @@ Start the server on an unused local port. Verify through HTTP and direct safe SQ
 9. Reactivate succeeds; repeated activate returns the canonical 409.
 10. Product audit count/events match successful mutations exactly.
 
-- [ ] **Step 5: Stop processes and remove the database**
+- [x] **Step 5: Stop processes and remove the database**
 
 Stop the server, terminate remaining database sessions if needed, run `dropdb servora_med_slice06_closeout`, and confirm no matching disposable database remains.
 
-- [ ] **Step 6: Commit any necessary seed compatibility change**
+- [x] **Step 6: Commit any necessary seed compatibility change**
 
 ```bash
 git add server/src/modules/auth/setup.ts server/tests/auth-setup.test.ts server/tests/auth-setup-postgres.test.ts docs/superpowers/plans/2026-07-13-product-catalog.md
@@ -728,6 +728,28 @@ git commit -m "test: verify Product catalog on PostgreSQL"
 ```
 
 If no source/test change was necessary, commit only the recorded verification result during Task 11.
+
+**Task 10 verification (2026-07-13):** `auth-setup.test.ts` passed 6 tests while
+the 2 PostgreSQL-gated seed tests skipped cleanly without `TEST_DATABASE_URL`.
+Disposable local PostgreSQL database `servora_med_slice06_closeout` applied migrations
+001–005 and the development seed. Against that database, `product-schema.test.ts`,
+`product-concurrency.test.ts`, and `auth-setup-postgres.test.ts` passed 3 files/12 tests.
+The expanded seed contract proved the populated demo Product remains
+`DEMO-001 / Demo İmplant Seti / adet`, receives version 1, and coexists with a later
+name-only Product whose SKU, brand, category, model, unit, and reference price are null.
+
+The authenticated HTTP/SQL tracer completed mandatory password changes for Manager and
+Staff, created one name-only Product, accepted two Products with the identical unchanged
+SKU, searched independently across name/SKU/brand/category/model, and verified a
+four-record result across two pages. Staff reads succeeded and Staff mutation returned
+403. A Manager patch incremented the Product version; its stale retry returned 409 and
+created no audit event. Deactivation blocked both a new delivery item and replacement of
+an existing item's Product. Quantity/note editing of the historical delivery still
+succeeded while its name/SKU/unit snapshots remained unchanged. Reactivation succeeded,
+repeated activation returned the canonical 409, and the four Product creates plus one
+field update, deactivation, and activation produced exactly seven Product audit events.
+The temporary server stopped, the ephemeral credential file was removed, the database
+was dropped, and a catalog query confirmed zero matching databases remained.
 
 ### Task 11: Full suites, Playwright acceptance, SSOT, and memory closeout
 
