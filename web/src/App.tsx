@@ -1,13 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { AppRouter, type WorkspaceState } from './AppRouter';
+import { AppRouter } from './AppRouter';
 import { AppShell, BrandMark } from './AppShell';
 import { PasswordChangeScreen } from './PasswordChange';
-import { ApiError, getCurrentUser, listLegacyWorkspaceJobs, listReferenceCustomers, login, logout, type CurrentUser, type ReferenceCustomer } from './services/api';
+import { getCurrentUser, listReferenceCustomers, login, logout, type CurrentUser, type ReferenceCustomer } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
-
-export { WorkspaceView, type WorkspaceState } from './AppRouter';
 
 function LoadingScreen() {
   return (
@@ -86,21 +84,14 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
 function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut: () => void }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const [workspace, setWorkspace] = useState<WorkspaceState>({ kind: 'loading' });
   const [customers, setCustomers] = useState<ReferenceCustomer[]>([]);
   const [notice, setNotice] = useState('');
-  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
-    let active = true; setWorkspace({ kind: 'loading' });
-    Promise.all([listLegacyWorkspaceJobs(), listReferenceCustomers()]).then(([jobs, nextCustomers]) => {
-      if (active) { setCustomers(nextCustomers); setWorkspace({ kind: 'ready', jobs, customerNames: Object.fromEntries(nextCustomers.map((customer) => [customer.id, customer.name])) }); }
-    }).catch((caught) => {
-      if (!active) return;
-      const apiError = caught instanceof ApiError ? caught : new ApiError(0, 'UNKNOWN_ERROR', 'İşler yüklenemedi.', true);
-      setWorkspace({ kind: 'error', code: apiError.code, message: apiError.message, retryable: apiError.retryable });
-    });
+    let active = true;
+    listReferenceCustomers().then((nextCustomers) => { if (active) setCustomers(nextCustomers); })
+      .catch(() => { if (active) setCustomers([]); });
     return () => { active = false; };
-  }, [reloadKey]);
+  }, []);
   async function signOut() {
     setPending(true); setError('');
     try { await logout(); onSignedOut(); }
@@ -108,10 +99,9 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   }
   return (
     <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
-      <AppRouter user={user} workspace={workspace} customers={customers}
+      <AppRouter user={user} customers={customers}
         notice={notice} onClearNotice={() => setNotice('')}
-        onReload={() => setReloadKey((value) => value + 1)}
-        onDeliveryCreated={() => { setNotice('Teslim kaydı oluşturuldu.'); setReloadKey((value) => value + 1); }} />
+        onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')} />
       {error && <div className="shell-error form-error" role="alert">{error}</div>}
     </AppShell>
   );

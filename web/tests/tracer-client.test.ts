@@ -5,7 +5,7 @@ import {
   listActivity, listJobCards, patchDeliveryItem, patchJobCard, removeDeliveryItem,
   requestJobCardRevision, startJobCard, submitJobCardForApproval,
 } from '../src/jobs/jobs-api';
-import { ApiError, listLegacyWorkspaceJobs, listReferenceCustomers } from '../src/services/api';
+import { ApiError, listReferenceCustomers } from '../src/services/api';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -32,21 +32,6 @@ describe('tracer API client', () => {
     await expect(listReferenceCustomers()).resolves.toHaveLength(1);
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/reference/customers', expect.objectContaining({ credentials: 'include' }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
-  });
-
-  it('adapts the legacy workspace to the truthful bounded list projection', async () => {
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
-      items: [jobListItem], total: 1, limit: 25, offset: 0,
-    })));
-
-    await expect(listLegacyWorkspaceJobs()).resolves.toEqual([{
-      id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 1, title: 'Teslim',
-      priority: 'normal', dueDate: null, createdAt: '2026-07-11T10:00:00.000Z',
-      updatedAt: '2026-07-11T10:00:00.000Z', staffCompletedAt: null,
-      customerId: 'customer-1', customerName: 'Klinik',
-      contactId: 'contact-1', contactName: 'Dr. Deniz',
-      assignedTo: 'staff-1', assigneeName: 'Ayşe Personel', deliveryItemCount: 1,
-    }]);
   });
 
   it('supports JobCard create, list, detail, and patch contracts', async () => {

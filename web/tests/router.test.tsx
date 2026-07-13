@@ -23,7 +23,7 @@ function render(path: string, user: CurrentUser = manager) {
 
 describe('application routes', () => {
   it.each([
-    ['/jobs', 'Onay kuyruğu', manager],
+    ['/jobs', 'İşler', manager],
     ['/jobs/new-delivery', 'Ürün teslimi', staff],
     ['/jobs/new-delivery', 'Ürün teslimi', manager],
     ['/jobs/job-1', 'İş detayları yükleniyor', staff],

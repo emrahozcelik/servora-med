@@ -64,4 +64,13 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.shell-drawer \{[^}]*block-size: 100dvh;[^}]*max-block-size: 100vh;[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
     expect(css).toMatch(/\.shell-sidebar \{[^}]*max-block-size: 100vh;[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
   });
+
+  it('reflows the structured JobCard list without small targets or horizontal page overflow', () => {
+    expect(css).toMatch(/\.job-quick-views a, \.job-filter-disclosure summary, \.job-expand, \.job-detail-link \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.structured-job-row \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/\.job-row-facts dt, \.job-row-summary dt \{[^}]*font-size: 0\.875rem;/);
+    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.structured-job-row \{[^}]*grid-template-columns: 1fr;/);
+    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-row-facts \{[^}]*grid-template-columns: 1fr;/);
+    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-row-commands \{[^}]*flex-direction: column;/);
+  });
 });

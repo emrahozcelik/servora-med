@@ -28,9 +28,9 @@ describe('App', () => {
       email: 'admin@example.com', role: 'ADMIN', mustChangePassword: false,
     }} />);
     expect(html).toContain('Emrah Admin');
-    expect(html).toContain('Onay kuyruğu');
+    expect(html).toContain('İşler');
     expect(html).toContain('Oturumu kapat');
-    expect(html).toContain('Onay bekleyen işler yükleniyor');
+    expect(html).toContain('İşler yükleniyor');
     expect(html).toContain('<aside');
     expect(html).toContain('aria-label="Ana navigasyon"');
   });
