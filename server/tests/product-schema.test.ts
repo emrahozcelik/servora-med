@@ -33,6 +33,86 @@ describe('005 Product catalog migration contract', () => {
   });
 });
 
+describe('isolated Product catalog schema cleanup', () => {
+  it('fails a successful test when cleanup fails and still releases the client', async () => {
+    const statements: string[] = [];
+    let released = false;
+    const client = {
+      async query(statement: string) {
+        statements.push(statement);
+        if (statement === 'RESET search_path') throw new Error('reset failed');
+        return { rows: [] };
+      },
+      release() { released = true; },
+    };
+
+    await expect(cleanupIsolatedSchema(client, 'catalog_test', false)).rejects.toThrow(
+      'Failed to clean up Product catalog test schema',
+    );
+    expect(statements).toEqual([
+      'ROLLBACK',
+      'RESET search_path',
+      'DROP SCHEMA IF EXISTS catalog_test CASCADE',
+    ]);
+    expect(released).toBe(true);
+  });
+
+  it('preserves a primary test failure while attempting every cleanup step', async () => {
+    const statements: string[] = [];
+    let released = false;
+    const client = {
+      async query(statement: string) {
+        statements.push(statement);
+        throw new Error('cleanup failed');
+      },
+      release() { released = true; },
+    };
+
+    await expect(cleanupIsolatedSchema(client, 'catalog_test', true)).resolves.toBeUndefined();
+    expect(statements).toEqual([
+      'ROLLBACK',
+      'RESET search_path',
+      'DROP SCHEMA IF EXISTS catalog_test CASCADE',
+    ]);
+    expect(released).toBe(true);
+  });
+});
+
+type SchemaCleanupClient = {
+  query(statement: string): Promise<unknown>;
+  release(): void;
+};
+
+async function cleanupIsolatedSchema(
+  client: SchemaCleanupClient,
+  schema: string,
+  preservePrimaryFailure: boolean,
+) {
+  const cleanupErrors: unknown[] = [];
+
+  for (const statement of [
+    'ROLLBACK',
+    'RESET search_path',
+    `DROP SCHEMA IF EXISTS ${schema} CASCADE`,
+  ]) {
+    try {
+      await client.query(statement);
+    } catch (error) {
+      cleanupErrors.push(error);
+    }
+  }
+
+  try {
+    client.release();
+  } catch (error) {
+    cleanupErrors.push(error);
+  }
+
+  if (!preservePrimaryFailure && cleanupErrors.length > 0) {
+    throw new AggregateError(cleanupErrors, 'Failed to clean up Product catalog test schema');
+  }
+}
+
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const pool = databaseUrl ? new Pool({ connectionString: databaseUrl }) : null;
 
@@ -42,6 +122,7 @@ describe.skipIf(!databaseUrl)('005 Product catalog PostgreSQL migration', () => 
   it('applies catalog invariants while preserving delivery snapshots', async () => {
     const schema = `product_catalog_${randomUUID().replaceAll('-', '')}`;
     const client = await pool!.connect();
+    let primaryTestFailed = false;
 
     try {
       await client.query(`CREATE SCHEMA ${schema}`);
@@ -142,11 +223,11 @@ describe.skipIf(!databaseUrl)('005 Product catalog PostgreSQL migration', () => 
         [organizationId],
       )).rejects.toMatchObject({ code: '23514' });
       await client.query('ROLLBACK TO SAVEPOINT negative_price');
+    } catch (error) {
+      primaryTestFailed = true;
+      throw error;
     } finally {
-      await client.query('ROLLBACK').catch(() => undefined);
-      await client.query('RESET search_path').catch(() => undefined);
-      await client.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`).catch(() => undefined);
-      client.release();
+      await cleanupIsolatedSchema(client, schema, primaryTestFailed);
     }
   });
 });
