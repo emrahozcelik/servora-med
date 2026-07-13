@@ -1,7 +1,7 @@
 # Slice 07 — JobCard Workspace, Notes, Timeline, and List/Board Design
 
 > Date: 2026-07-13
-> Status: Proposed design; awaiting user review
+> Status: Approved design; implementation not started
 > Slice: 07 — JobCard Workspace, Notes, Timeline, and List/Board
 
 ## 1. Context and current-state assessment
@@ -101,7 +101,8 @@ The authenticated desktop shell uses a persistent left sidebar and a main worksp
 Jobs screen defaults to a structured list and offers `Liste` and `Kanban` view controls at
 desktop widths. The board is only a read layout over the same JobCard projection. Cards
 are not draggable and no pointer, touch, momentum, or keyboard gesture changes status.
-Named command buttons invoke business transitions.
+Board cards only open JobCard detail. Lifecycle commands exist only in an expanded list
+row or the full detail route.
 
 At widths below `64rem` the persistent sidebar is removed from layout. A compact header
 contains the brand, current section, account access, and a `Menüyü aç` button with a
@@ -111,9 +112,11 @@ the open drawer, Escape closes it, and focus returns to the trigger. Route selec
 closes the drawer. This is responsive navigation, not a narrow desktop sidebar.
 
 Mobile never requests or renders the board, even when a copied URL contains
-`view=board`. The router replaces that value with `view=list` while retaining all other
-valid filters. Mobile uses status links and a structured list. Browser and React Router
-history remain canonical for Back, Forward, refresh, and deep links.
+`view=board`. The router replaces that value with `view=list`, retains valid non-view
+filters, stops any board request, and does not automatically restore board after the
+viewport becomes desktop-sized again. Mobile uses status links and a structured list.
+Browser and React Router history remain canonical for Back, Forward, refresh, and deep
+links.
 
 Status, priority, date, and a small number of semantic accents distinguish records.
 Color is never the only signal. Completed and cancelled jobs do not fill the default
@@ -159,10 +162,13 @@ fields in this slice. Notes remain appendable under the separate notes contract.
 | `resume` | `REVISION_REQUESTED` | `IN_PROGRESS` | yes | yes | none |
 | `cancel` | `NEW`, `PLANNED`, `IN_PROGRESS`, `REVISION_REQUESTED` | `CANCELLED` | no | yes | `cancelReason` |
 
-Every reason is trimmed and must contain at least one Unicode code point after trimming.
-The existing database text fields remain the persistence location. User-facing forms
-explain the consequence before revision or cancellation and return focus to the command
-summary after success.
+Every reason is trimmed and must contain between 1 and 2,000 Unicode code points
+inclusive. Submission and approval notes are trimmed and accept zero through 2,000 code
+points; omission or a whitespace-only value is persisted as `null`. Frontend validation
+uses the same limits for early feedback, while backend validation is authoritative. The
+existing database text fields remain the persistence location. User-facing forms explain
+the consequence before revision or cancellation and return focus to the command summary
+after success.
 
 Persistence semantics are exact:
 
@@ -173,8 +179,9 @@ Persistence semantics are exact:
   `created_at` value.
 - Submission writes staff-completion fields; approval, revision request, and cancellation
   write their existing dedicated fields in the same transaction as the state change.
-- Revision columns may describe the latest revision request. The immutable activity
-  sequence is the canonical history of every revision cycle.
+- Revision columns retain the latest revision request across resume and are replaced by
+  the next successful revision request. The immutable activity sequence is the canonical
+  history of every revision cycle.
 - Each successful command increments JobCard `version` exactly once and creates exactly
   one matching named activity. It never creates a generic `STATUS_CHANGED` event.
 
@@ -214,6 +221,7 @@ Adding a note:
 - stores only `{ "noteId": "<id>" }` in activity metadata
 - never copies note text into activity `old_value`, `new_value`, or `metadata`
 - returns the canonical Note DTO; an idempotent replay returns that same DTO
+- returns `201` for both the first committed append and a completed duplicate replay
 
 The note row is the single source of truth for its text. `NOTE_ADDED` proves the action
 occurred and links by identifier; it is not a second note store. A rollback after either
@@ -251,6 +259,41 @@ Activity rows are immutable and append-only. No update or delete route exists. A
 reads order by `created_at DESC, id DESC`, so the most recent event is first and ties are
 deterministic.
 
+Persisted `old_value`, `new_value`, and `metadata` remain internal audit fields. The
+public API never returns those JSONB objects directly. `activity-presenter.ts` converts
+each event to one event-specific, allowlisted detail shape:
+
+```ts
+type JobCardActivityDetails =
+  | {
+      kind: 'STATUS_TRANSITION'
+      fromStatus: JobCardStatus
+      toStatus: JobCardStatus
+    }
+  | {
+      kind: 'FIELDS_UPDATED'
+      changedFields: Array<
+        'title' | 'description' | 'customer' | 'contact' |
+        'assignee' | 'priority' | 'dueDate'
+      >
+    }
+  | {
+      kind: 'DELIVERY_ITEM'
+      operation: 'ADDED' | 'UPDATED' | 'REMOVED'
+      itemId: string
+      purpose: DeliveryPurpose | null
+      quantity: number | null
+    }
+  | { kind: 'NOTE'; noteId: string }
+  | { kind: 'NONE' }
+```
+
+Lifecycle events use `STATUS_TRANSITION`; `JOB_FIELDS_UPDATED` and `JOB_ASSIGNED` use
+`FIELDS_UPDATED`; delivery events use their matching `DELIVERY_ITEM.operation`;
+`NOTE_ADDED` uses `NOTE`; `JOB_CREATED` uses `NONE`. Missing or malformed internal values
+produce `NONE` rather than exposing raw persistence data. Note text never enters a public
+activity payload.
+
 The frontend owns one exhaustive mapping from every canonical event to a Turkish label,
 semantic icon or shape, and safe summary. Raw event codes are never rendered. If a newer
 server event reaches an older client, the client displays `İş kaydında bir işlem yapıldı`
@@ -281,6 +324,10 @@ through 100. `offset` is a non-negative integer. Unknown keys, repeated scalar k
 invalid UUIDs, unsupported enum values, impossible dates, or `dueAfter > dueBefore`
 return `400 VALIDATION_ERROR` with field-safe details.
 
+Slice 07 accepts exactly `type=PRODUCT_DELIVERY`. `GENERAL_TASK` is not exposed as a
+supported filter or workflow until Slice 09. Priority accepts exactly
+`low|normal|high|urgent`.
+
 Status accepts exactly:
 
 ```text
@@ -300,10 +347,12 @@ CANCELLED
 `REVISION_REQUESTED`. `closed` expands to `COMPLETED` and `CANCELLED`. `all` adds no
 status predicate.
 
-`q` is trimmed and searches case-insensitively across JobCard title, Customer name, and
-Contact name only. It does not search descriptions, note bodies, delivery snapshots, or
-Product rows. `dueAfter` and `dueBefore` are inclusive ISO calendar-date bounds over
-`due_date`.
+`q` is trimmed. An omitted, empty, or whitespace-only value acts as no query predicate.
+A non-empty value contains 1 through 200 Unicode code points; a longer value returns
+`400 VALIDATION_ERROR`. Search is case-insensitive across JobCard title, Customer name,
+and Contact name only. It does not search descriptions, note bodies, delivery snapshots,
+or Product rows. `dueAfter` and `dueBefore` accept only `YYYY-MM-DD` calendar dates;
+timestamps are rejected. Both bounds are inclusive over `due_date`.
 
 The canonical list response is:
 
@@ -382,7 +431,9 @@ type JobCardBoard = {
 ```
 
 The board does not load completed or cancelled items. A closed-count link navigates to
-the canonical list with `status=closed&view=list&offset=0`.
+the canonical list with `status=closed&view=list&offset=0`. Board cards have no lifecycle
+buttons, quick-status controls, command menus, or mutation gestures. Their only action is
+opening `/jobs/:jobCardId`.
 
 ## 9. Authorization and organization scope
 
@@ -410,8 +461,10 @@ Mutation authority is the matrix in section 5 plus these rules:
 
 ## 10. Concurrency and idempotency
 
-Every lifecycle request contains a non-empty `clientActionId` and a positive integer
-`expectedVersion`. The operation keys are exact:
+Every lifecycle and note mutation contains a `clientActionId` that is trimmed and contains
+1 through 255 Unicode code points. The web client generates it with
+`crypto.randomUUID()`, but the backend does not require UUID syntax. Every lifecycle
+request also contains a positive integer `expectedVersion`. The operation keys are exact:
 
 ```text
 JOB_PLAN
@@ -435,6 +488,11 @@ A completed duplicate returns its stored canonical response without another tran
 version increment, note, or activity. A duplicate whose claim is still processing returns
 `409 ACTION_IN_PROGRESS`. The UI does not invent success and may retry with the same
 clientActionId after a short user-triggered delay.
+
+The note append path has a fixed HTTP result contract: both the first committed append
+and a completed duplicate replay return `201` with the same canonical Note DTO. It does
+not require a generalized per-operation HTTP-status abstraction. An in-progress duplicate
+still returns `409 ACTION_IN_PROGRESS`.
 
 A stale lifecycle version returns `409 VERSION_CONFLICT` and commits no mutation or
 activity. Notes intentionally have no expected version and do not bump JobCard version;
@@ -477,14 +535,14 @@ Lifecycle request bodies use exact body allowlists:
 
 ```ts
 type VersionedCommand = {
-  clientActionId: string
+  clientActionId: string // 1–255 Unicode code points after trim
   expectedVersion: number
 }
 
-type SubmissionCommand = VersionedCommand & { note?: string }
-type ApprovalCommand = VersionedCommand & { note?: string }
-type RevisionCommand = VersionedCommand & { revisionReason: string }
-type CancelCommand = VersionedCommand & { cancelReason: string }
+type SubmissionCommand = VersionedCommand & { note?: string } // 0–2,000 code points
+type ApprovalCommand = VersionedCommand & { note?: string }   // 0–2,000 code points
+type RevisionCommand = VersionedCommand & { revisionReason: string } // 1–2,000
+type CancelCommand = VersionedCommand & { cancelReason: string }     // 1–2,000
 ```
 
 `plan`, `start`, and `resume` accept `VersionedCommand`. `submit-for-approval` accepts
@@ -502,8 +560,8 @@ type CreateJobCardNote = {
 }
 ```
 
-It returns `201` for the first committed append and replays the stored Note DTO with the
-stored status code. The canonical Note DTO is:
+It returns `201` with the canonical Note DTO for both the first committed append and a
+completed duplicate replay. The canonical Note DTO is:
 
 ```ts
 type JobCardNoteDto = {
@@ -526,9 +584,7 @@ type JobCardActivityDto = {
   jobCardId: string
   eventType: CanonicalJobCardActivityEvent
   actor: { id: string; name: string } | null
-  oldValue: unknown
-  newValue: unknown
-  metadata: unknown
+  details: JobCardActivityDetails
   createdAt: string
 }
 ```
@@ -536,7 +592,10 @@ type JobCardActivityDto = {
 The API projects author and actor names. Web clients do not join raw IDs to a separately
 loaded user list. `actor` may be null for a system-originated or historically unavailable
 actor; note `author` is always present because organization-scoped author deletion is not
-part of the current model.
+part of the current model. The server domain and server DTO retain the canonical 14-event
+union. The web transport parser accepts `eventType` as `string`: known values enter the
+exhaustive canonical presentation map, while an unknown value uses the safe fallback in
+section 7 without failing the entire timeline response.
 
 ## 12. Database changes
 
@@ -663,8 +722,15 @@ offset
 Missing values resolve to `status=active`, `view=list`, and `offset=0`. Invalid values are
 removed or replaced with defaults using a history-replacing navigation, then the canonical
 URL is requested. Changing any filter resets offset to zero. Browser Back/Forward restores
-the previous query exactly. Selecting board view removes a non-zero `offset`; the board URL
-uses `offset=0` and the board API request omits offset.
+the previous query exactly.
+
+Selecting board view removes both `status` and `offset`, preserves every other valid
+non-status filter, and requests the board endpoint without either parameter. The canonical
+board URL is `/jobs?view=board` plus any retained non-status filters. Selecting a status
+quick link while viewing the board switches to `view=list`, writes the selected status,
+and uses `offset=0`. Moving from desktop board to a smaller viewport replaces `view=board`
+with `view=list`, cancels or ignores the board request, and never restores board merely
+because the viewport later grows.
 
 Focused frontend units are:
 
@@ -715,16 +781,17 @@ not displayed. Pagination uses previous/next controls, announces the visible res
 and preserves filters in links.
 
 Each row starts compact. An explicit button toggles an associated inline summary region
-with `aria-expanded` and `aria-controls`. The region may show description, contact, due
-date, delivery-item count, currently permitted named actions, and `Tam detayı aç`.
+with `aria-expanded` and `aria-controls`. The region shows description, contact, due date,
+delivery-item count, currently permitted named actions, and `Tam detayı aç`.
 Opening the detail uses `/jobs/:jobCardId`; returning through browser history restores the
 workspace URL. Inline expansion is ephemeral UI state and need not be encoded in the URL.
 
 Board view renders the five active columns in section 8. Every card is a link/summary with
-optional named command buttons. It has no draggable attributes, drag handles, pointer
-capture, reorder semantics, or gesture instructions. A column whose count exceeds its
-loaded item limit links to the corresponding exact-status list. Closed counts link to
-closed list history.
+one action: open the full JobCard detail. It has no lifecycle buttons, quick-status
+controls, command menu, draggable attributes, drag handles, pointer capture, reorder
+semantics, or gesture instructions. Lifecycle commands are available only in the expanded
+list row or full detail. A column whose count exceeds its loaded item limit links to the
+corresponding exact-status list. Closed counts link to closed list history.
 
 Loading, empty, no-results, error, forbidden, retry, and stale/conflict states are explicit.
 An empty organization state differs from a filter with no matches. Approval queue text
@@ -734,7 +801,8 @@ explains that the oldest submission is first.
 
 Below `64rem`, Jobs always renders list mode and canonicalizes `view=board` to
 `view=list`. It does not request `/api/job-cards/board` and does not mount hidden board
-markup.
+markup. This canonicalization uses history replacement and does not restore board after a
+later desktop resize.
 
 Status navigation is a wrapping landmark of normal React Router links, not an ARIA tab
 widget that imitates application focus behavior:
@@ -772,7 +840,7 @@ Errors are mapped centrally and preserve backend truth:
 | `INVALID_TRANSITION` | Reload the JobCard and explain that the action is no longer valid for its current status. |
 | `REVISION_REASON_REQUIRED` | Keep the dialog/form open, associate the message with the reason field, and focus it. |
 | `CANCEL_REASON_REQUIRED` | Keep the dialog/form open, associate the message with the reason field, and focus it. |
-| `VALIDATION_ERROR` | Show a safe form or query error; invalid URL filters are canonicalized before a request, while server rejection remains visible. |
+| `VALIDATION_ERROR` | Show a safe form or query error; enforce the exact type/priority/date enums, 200-code-point query limit, 255-code-point action ID limit, 2,000-code-point lifecycle text limits, and 4,000-code-point operational-note limit. Invalid URL filters are canonicalized before a request, while server rejection remains visible. |
 | Invalid pagination/query | Reset only the invalid field through a replace navigation and announce that the view was corrected. |
 | Network/server read failure | Preserve already loaded independent sections and provide a section-local retry. |
 | Ambiguous note POST result | Retain the note draft and retry with the same `clientActionId`; a replay supplies the original Note DTO. |
@@ -825,6 +893,8 @@ Backend unit and route tests cover:
 - Staff server scope that cannot be widened by `assignedTo`
 - Manager/Admin organization scope and cross-organization concealment
 - exact query allowlists, repeated keys, enums, dates, limit, and offset
+- exact `PRODUCT_DELIVERY` type and four-value priority contracts
+- whitespace query omission, 200-code-point query boundary, and `YYYY-MM-DD`-only dates
 - free-text search over title, Customer, and Contact only
 - default and approval-queue deterministic ordering
 - list pagination totals and related-record projection
@@ -833,14 +903,20 @@ Backend unit and route tests cover:
 - required revision and cancel reasons
 - expected-version conflict with no partial state/activity
 - processed-action claim, completed replay, and in-progress response
+- action IDs from 1–255 code points without a server-side UUID requirement
+- 2,000-code-point submission, approval, revision, and cancellation boundaries
+- operational note validation at 1 and 4,000 code points, including rejection outside
+  those bounds
 - exactly one canonical activity per lifecycle transition
 - original `started_at` preservation across resume
 - duplicate note replay with one note and one activity
+- first and replayed note responses both return `201` with the same DTO
 - concurrent note append with different action IDs
 - note and activity atomic rollback
 - no JobCard version change after note append
 - deterministic note/activity ordering and projected author/actor names
-- complete canonical event union and frontend-safe DTOs
+- complete canonical server event union and event-specific allowlisted public details
+- no raw activity JSONB fields or note text in public activity DTOs
 - completed/cancelled commercial immutability with permitted note append
 
 PostgreSQL-backed tests run migrations `001` through `006` and exercise real SQL for:
@@ -857,15 +933,19 @@ PostgreSQL-backed tests run migrations `001` through `006` and exercise real SQL
 Frontend tests cover:
 
 - URL-owned filters, view, and pagination through Back/Forward-style navigation
+- board URL removal of status/offset and status-link return to canonical list view
 - desktop list and related-record fields
 - desktop board parity, read-only semantics, and absence of drag behavior
-- mobile forced-list canonicalization without a board request
+- board cards that only open detail and expose no lifecycle command surface
+- mobile forced-list history replacement without a board request or automatic restoration
 - status navigation, filter disclosure, pagination, and expandable rows
 - named action visibility by role/status
 - no optimistic lifecycle success and conflict truth recovery
 - independent base, notes, and activity loading/error/retry states
-- exhaustive Turkish labels and safe unknown-event presentation
-- note length, pending, ambiguous error, same-action retry, and successful draft clearing
+- string-tolerant transport parsing, exhaustive known labels, and safe unknown-event
+  presentation without timeline failure
+- all lifecycle and operational-note text boundaries, pending note state, ambiguous error,
+  same-action retry, and successful draft clearing
 - technical version hidden from list and board presentation
 
 Playwright acceptance covers Manager desktop, Staff desktop, `390x844` mobile, and a
@@ -931,6 +1011,8 @@ Slice 07 is accepted only when all statements below are true:
 - [ ] `/jobs` defaults to a paginated active structured list ordered by
   `updated_at DESC, id DESC`.
 - [ ] List filters use the exact allowlist and stable URL state defined here.
+- [ ] Type accepts only `PRODUCT_DELIVERY`, priority accepts exactly four canonical values,
+  query text is at most 200 code points after trim, and dates accept only `YYYY-MM-DD`.
 - [ ] Staff list, board, detail, notes, and activity access cannot escape own-assignee
   scope; Manager/Admin remain organization-scoped.
 - [ ] List DTOs include Customer, optional Contact, assignee, timestamps, and delivery-item
@@ -938,13 +1020,17 @@ Slice 07 is accepted only when all statements below are true:
 - [ ] Approval queue uses the canonical list projection and orders oldest submission
   first by `staff_completed_at ASC, id ASC`.
 - [ ] Desktop board uses the shared projection/filter policy, contains five active columns,
-  exposes closed counts only, and has no drag-driven behavior.
+  exposes closed counts only, and has no mutation controls or drag-driven behavior.
+- [ ] Entering board removes status/offset while preserving non-status filters; selecting a
+  status from board returns to list with offset zero.
 - [ ] Mobile never requests or renders board UI and canonicalizes board URLs to list while
-  preserving filters.
+  preserving filters, without automatically restoring board after a desktop resize.
 - [ ] All seven named lifecycle endpoints enforce the exact state and role matrix.
 - [ ] Staff cannot cancel or approve; Manager/Admin cancellation requires a reason.
 - [ ] Every lifecycle mutation requires action ID and expected version, increments version
   once, writes one named activity atomically, and safely replays duplicates.
+- [ ] Action IDs accept 1–255 code points without requiring UUID syntax; lifecycle notes
+  and reasons enforce their exact 2,000-code-point boundaries.
 - [ ] Resume preserves the original first-start timestamp and records resume time through
   `JOB_RESUMED` activity.
 - [ ] Server, database, API, frontend labels, and tests share the exact 14-event vocabulary
@@ -954,15 +1040,19 @@ Slice 07 is accepted only when all statements below are true:
 - [ ] Note creation has no expected version, does not bump JobCard version, and atomically
   commits one note plus one `NOTE_ADDED` activity containing only `noteId` metadata.
 - [ ] Retrying a note with the same action ID returns the same DTO with no duplicate rows.
+- [ ] First note append and completed duplicate replay both return `201`; an in-progress
+  duplicate returns `409 ACTION_IN_PROGRESS`.
 - [ ] Note and activity endpoints paginate, order newest-first deterministically, and
   project author/actor names.
+- [ ] Public activity DTOs contain only event-specific allowlisted details and never expose
+  raw audit JSONB or note text.
 - [ ] Desktop uses a persistent accessible sidebar; smaller layouts use the specified
   focus-managed navigation drawer.
 - [ ] List rows and board cards hide technical version while retaining it for commands.
 - [ ] Job detail keeps base, delivery, notes, and activity failure/retry states independent.
 - [ ] Lifecycle conflicts reload backend truth and never show optimistic success.
 - [ ] Every canonical activity has a centralized Turkish presentation; unknown values use
-  safe generic copy and non-sensitive diagnostics.
+  safe generic copy and non-sensitive diagnostics without failing the timeline parser.
 - [ ] Migration 006 is the only schema-history change and creates no board, approval,
   history, saved-view, or notification table.
 - [ ] Backend, real PostgreSQL, frontend, and Playwright coverage described in section 19
