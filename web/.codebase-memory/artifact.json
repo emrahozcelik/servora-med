@@ -1,11 +1,11 @@
 {
     "schema_version": 1,
-    "commit": "3b9dd3624961baa646fedc01052fb45fe0e0f364",
-    "indexed_at": "2026-07-13T09:34:21Z",
-    "project": "Users-emrah-Documents-Servora-Med-web",
-    "nodes": 275,
-    "edges": 614,
-    "original_size": 1835008,
-    "compressed_size": 255452,
+    "commit": "6a29fb6340b77bc30e770959493de1b1264ff4dc",
+    "indexed_at": "2026-07-13T13:47:02Z",
+    "project": "Users-emrah-Documents-Servora-Med-.worktrees-slice-06-product-catalog-web",
+    "nodes": 334,
+    "edges": 737,
+    "original_size": 2162688,
+    "compressed_size": 301403,
     "compression_level": 9
 }

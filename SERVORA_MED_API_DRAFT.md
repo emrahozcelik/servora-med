@@ -361,7 +361,7 @@ a compatible Contact clears `contactId`.
 
 ## 9. Products `/api/products`
 
-> Slice 06 approved target contract; implementation pending.
+Slice 06 implemented and verified this canonical contract.
 
 | Method | Path | Roles | Behavior |
 | --- | --- | --- | --- |
@@ -410,7 +410,8 @@ must be active and belong to the authenticated organization.
 
 Web clients use this endpoint as the canonical Product catalog source. JobCard backend
 transactions use a transaction-scoped Product read and never call the Product HTTP API.
-After web consumers migrate, `GET /api/reference/products` is removed.
+The legacy `GET /api/reference/products` endpoint has been removed; Customer reference
+loading remains separate.
 
 Product audit events are `PRODUCT_CREATED`, `PRODUCT_FIELDS_UPDATED`,
 `PRODUCT_ACTIVATED`, and `PRODUCT_DEACTIVATED`. Audit stores safe identifiers and changed

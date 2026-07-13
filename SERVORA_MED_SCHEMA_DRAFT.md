@@ -518,12 +518,11 @@ Applied slice-aligned migrations:
 | `002_delivery_tracer.sql` | minimal customers, products, job_cards, delivery_items, activity, processed_actions |
 | `003_people.sql` | user versions, organization timezone, staff_profiles, audit_events |
 | `004_crm_contacts.sql` | versioned Customers, Contacts, JobCard Contact relationship, CRM indexes and audits |
+| `005_product_catalog.sql` | nullable informational Product fields, Product versions/audits, duplicate SKU support, nullable delivery unit snapshots |
 
-Applied migrations 001–004 are immutable. The next approved migration is
-`005_product_catalog.sql`; it relaxes Product SKU/unit constraints, adds Product
-version/audit support, and makes the delivery unit snapshot nullable. Notes/reporting,
-General Task, and deferred Sales Meeting remain later unnumbered groups whose exact
-filenames are assigned only when those slices begin.
+Applied migrations 001–005 are immutable. Notes/reporting, General Task, and deferred
+Sales Meeting remain later unnumbered groups whose exact filenames are assigned only
+when those slices begin.
 
 ## 9. Explicit Omissions
 

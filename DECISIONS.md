@@ -326,5 +326,13 @@ rewrite historical delivery snapshots.
 - Delivery unit snapshots become nullable; historical values remain unchanged.
 - The Product HTTP API becomes the canonical web catalog source with search and pagination.
 - JobCard validates Product eligibility within its own transaction and never calls HTTP.
+- The legacy `/api/reference/products` path is removed after delivery creation adopts the
+  canonical paginated catalog selector; Customer reference loading is unchanged.
 - Inventory, warehouse, barcode, costing, currency, price-history, invoice, and accounting
   behavior require a later separately approved design.
+
+### Verification
+
+Implemented and verified on 2026-07-13 through migration 005, transaction/concurrency
+tests, authenticated disposable-PostgreSQL tracing, full server/web gates, and Playwright
+desktop/mobile/accessibility acceptance. No inventory or accounting behavior was added.

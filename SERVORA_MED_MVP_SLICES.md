@@ -309,16 +309,22 @@ horizontal page scrolling passed. The detailed record is in
 
 ### Acceptance
 
-- [ ] Admin and Manager can create a Product with only a non-empty name.
-- [ ] SKU, brand, category, model, unit, and reference price are optional informational fields.
-- [ ] SKU has no inventory, accounting, format, or uniqueness meaning in MVP.
-- [ ] Staff can read the organization catalog but cannot mutate it.
-- [ ] Product mutations use `version` and `expectedVersion`.
-- [ ] Product active state changes only through named activate/deactivate commands.
-- [ ] Inactive Products cannot be selected for new delivery items or as a replacement Product.
-- [ ] Existing delivery snapshots remain unchanged when catalog data changes or a Product is deactivated.
-- [ ] No stock quantity, movement, costing, invoice, revenue, price-history, currency, or accounting behavior is introduced.
-- [ ] Product forms, lists, search, conflict handling, lifecycle actions, and delivery selection meet shared accessibility criteria.
+- [x] Admin and Manager can create a Product with only a non-empty name.
+- [x] SKU, brand, category, model, unit, and reference price are optional informational fields.
+- [x] SKU has no inventory, accounting, format, or uniqueness meaning in MVP.
+- [x] Staff can read the organization catalog but cannot mutate it.
+- [x] Product mutations use `version` and `expectedVersion`.
+- [x] Product active state changes only through named activate/deactivate commands.
+- [x] Inactive Products cannot be selected for new delivery items or as a replacement Product.
+- [x] Existing delivery snapshots remain unchanged when catalog data changes or a Product is deactivated.
+- [x] No stock quantity, movement, costing, invoice, revenue, price-history, currency, or accounting behavior is introduced.
+- [x] Product forms, lists, search, conflict handling, lifecycle actions, and delivery selection meet shared accessibility criteria.
+
+**Completion record (2026-07-13):** Migration 005, canonical Product API, role and
+lifecycle policy, optimistic concurrency, safe audit, searchable delivery selection,
+disposable PostgreSQL, full automated gates, and Playwright desktop/mobile/accessibility
+acceptance passed. The detailed evidence is in
+`docs/superpowers/plans/2026-07-13-product-catalog.md`.
 
 ## 10. Slice 07: Notes, Timeline, and Kanban/List
 

@@ -761,7 +761,7 @@ was dropped, and a catalog query confirmed zero matching databases remained.
 - Modify: `README.md`
 - Modify: `docs/superpowers/plans/2026-07-13-product-catalog.md`
 
-- [ ] **Step 1: Run the full automated gate**
+- [x] **Step 1: Run the full automated gate**
 
 ```bash
 cd server && npm test -- --run
@@ -774,23 +774,23 @@ cd web && npm audit --audit-level=high
 
 Expected: every suite/build passes and both high-severity audits report zero actionable vulnerabilities. Record exact file/test totals and any intentional PostgreSQL skips.
 
-- [ ] **Step 2: Run Playwright MCP acceptance against a fresh disposable database**
+- [x] **Step 2: Run Playwright MCP acceptance against a fresh disposable database**
 
 Verify Manager create/search/edit/deactivate/activate/conflict recovery, Staff read-only Product list/detail, and Staff Product Delivery search/select/create. Exercise at 1200×800 desktop, 390×844 mobile, and 320 CSS px effective reflow. Confirm Back/Forward/refresh/direct URLs preserve Product list/detail state.
 
-- [ ] **Step 3: Perform manual accessibility acceptance**
+- [x] **Step 3: Perform manual accessibility acceptance**
 
 Verify keyboard-only operation, logical tab order, visible focus, dialog focus containment/restoration, Escape close, approximately 44×44 targets, visible labels, associated validation, live feedback, color-independent status, 200% text enlargement, effective 400% reflow, reduced motion, semantic headings/landmarks/lists/forms, and no horizontal page overflow. Remove generated browser artifacts after inspection.
 
-- [ ] **Step 4: Update SSOT documents with verified truth only**
+- [x] **Step 4: Update SSOT documents with verified truth only**
 
 Document migration 005, nullable Product fields, informational `referencePrice`, duplicate SKU allowance, Product API/list contract, role/lifecycle/version/audit rules, canonical delivery selector, legacy reference removal, exact verification results, and Slice 06 completion. Do not claim inventory/accounting behavior.
 
-- [ ] **Step 5: Refresh persistent and codebase memory**
+- [x] **Step 5: Refresh persistent and codebase memory**
 
 Reindex both `server` and `web` projects with persistence enabled. Store only stable Slice 06 architecture/product decisions and verified completion state in persistent memory. Do not store disposable credentials, temporary ports, or test logs.
 
-- [ ] **Step 6: Review the final diff and scan for scope violations**
+- [x] **Step 6: Review the final diff and scan for scope violations**
 
 ```bash
 git diff --check
@@ -800,12 +800,38 @@ rg -n "stock|warehouse|barcode|cost|currency|price history|lotTracking|serialTra
 
 Every match must either be an explicit non-goal/legacy schema explanation or be removed. Confirm there are no placeholders (`TODO`, `TBD`, `FIXME`) introduced by this slice.
 
-- [ ] **Step 7: Commit closeout**
+- [x] **Step 7: Commit closeout**
 
 ```bash
 git add SERVORA_MED_SCHEMA_DRAFT.md SERVORA_MED_API_DRAFT.md SERVORA_MED_MVP_SLICES.md DECISIONS.md README.md docs/superpowers/plans/2026-07-13-product-catalog.md
 git commit -m "docs: close Product catalog slice"
 ```
+
+**Task 11 verification (2026-07-13):** the ordinary server gate passed 32 files/258
+tests, with 2 PostgreSQL-gated files/5 tests intentionally skipped without
+`TEST_DATABASE_URL`; TypeScript build passed and the high-severity dependency audit
+reported zero vulnerabilities. The web gate passed 24 files/159 tests, TypeScript/Vite
+production build passed, and its high-severity dependency audit also reported zero
+vulnerabilities.
+
+Playwright MCP ran against fresh disposable database `servora_med_slice06_browser`.
+Manager acceptance at 1200×800 passed forced password change, Product create/search/edit,
+a real concurrent version conflict with dirty-form preservation and explicit reload,
+deactivate/activate, dialog initial focus/Escape/trigger restoration, URL-owned list
+search, Back/Forward, refresh, and direct detail URL. Staff acceptance at 390×844 proved
+read-only Product list/detail and keyboard Product search/select plus Product Delivery
+creation. At 320 CSS px there was no page-level horizontal overflow; labels, semantic
+landmarks/headings/lists/forms, color-independent status, reduced motion, and visible
+3 px focus passed. Manual measurement found navigation links at 42 px, so a TDD fix made
+shared link-buttons at least 44 px; the repeated live measurement found no remaining
+control below 44 px. At 200% text size there was no clipping or page overflow. Browser
+console resource errors were limited to the expected unauthenticated `401`, deliberate
+conflict `409`, and missing optional favicon; no application exception was emitted.
+The browser, server, Vite process, and disposable database were removed after inspection.
+Codebase Memory was refreshed with persistent artifacts at 641 nodes/1653 edges for the
+server and 334 nodes/737 edges for the web client. The final scope scan found Product
+stock/accounting terms only in explicit non-goals, rejection contracts, or legacy-schema
+explanations; no new placeholder was introduced.
 
 ---
 
@@ -828,12 +854,12 @@ git commit -m "docs: close Product catalog slice"
 
 ## Definition of Done
 
-- [ ] All eleven tasks and four checkpoints are complete.
-- [ ] Migration 005 applies after migrations 001–004 without editing history.
-- [ ] Product catalog remains informational and contains no stock/accounting/ERP behavior.
-- [ ] Server and web full tests/builds/audits pass.
-- [ ] Live PostgreSQL and Playwright acceptance results are recorded.
-- [ ] SSOT documents, persistent memory, and codebase memory reflect verified implementation.
-- [ ] Worktree is clean and the branch contains only intentional Slice 06 commits.
+- [x] All eleven tasks and four checkpoints are complete.
+- [x] Migration 005 applies after migrations 001–004 without editing history.
+- [x] Product catalog remains informational and contains no stock/accounting/ERP behavior.
+- [x] Server and web full tests/builds/audits pass.
+- [x] Live PostgreSQL and Playwright acceptance results are recorded.
+- [x] SSOT documents, persistent memory, and codebase memory reflect verified implementation.
+- [x] Worktree is clean and the branch contains only intentional Slice 06 commits.
 
 Do not begin Slice 07, JobCard notes, Staff confidential notes, related follow-up cards, Kanban expansion, warehouse, or accounting work before this plan closes.
