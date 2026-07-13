@@ -39,6 +39,27 @@ describe('002_delivery_tracer migration contract', () => {
     expect(sql).toContain('UNIQUE (organization_id, id)');
   });
 
+  it('retains the complete JobCard activity vocabulary', () => {
+    for (const eventType of [
+      'JOB_CREATED',
+      'JOB_ASSIGNED',
+      'JOB_PLANNED',
+      'JOB_STARTED',
+      'JOB_SUBMITTED_FOR_APPROVAL',
+      'JOB_APPROVED',
+      'JOB_REVISION_REQUESTED',
+      'JOB_RESUMED',
+      'JOB_CANCELLED',
+      'JOB_FIELDS_UPDATED',
+      'DELIVERY_ITEM_ADDED',
+      'DELIVERY_ITEM_UPDATED',
+      'DELIVERY_ITEM_REMOVED',
+      'NOTE_ADDED',
+    ]) {
+      expect(sql).toContain(`'${eventType}'`);
+    }
+  });
+
   it('does not introduce stock, accounting, or delivery price fields', () => {
     expect(sql).not.toMatch(/stock_(quantity|movement)|invoice|payment|unit_price|line_total|discount_amount/i);
   });
