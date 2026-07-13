@@ -33,6 +33,11 @@ function serviceDouble() {
     resume: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
     listActivity: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
+    listNotes: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 }),
+    addNote: vi.fn().mockResolvedValue({
+      id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
+      author: { id: 'staff-1', name: 'Staff' }, createdAt: '2026-07-13T12:00:00.000Z',
+    }),
   };
 }
 
@@ -221,5 +226,70 @@ describe('JobCard routes', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(service.listActivity).not.toHaveBeenCalled();
+  });
+
+  it('lists notes with the default and explicit canonical page', async () => {
+    const { app, service } = await createApp();
+    const first = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/notes' });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({ items: [], total: 0, limit: 25, offset: 0 });
+    expect(service.listNotes).toHaveBeenNthCalledWith(1, expect.anything(), 'job-1', { limit: 25, offset: 0 });
+
+    const page = { items: [{ id: 'note-2' }, { id: 'note-1' }], total: 4, limit: 2, offset: 1 };
+    service.listNotes.mockResolvedValueOnce(page);
+    const second = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/notes?limit=2&offset=1' });
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toEqual(page);
+    expect(service.listNotes).toHaveBeenNthCalledWith(2, expect.anything(), 'job-1', { limit: 2, offset: 1 });
+  });
+
+  it.each([
+    '/api/job-cards/job-1/notes?unknown=value',
+    '/api/job-cards/job-1/notes?limit=1&limit=2',
+    '/api/job-cards/job-1/notes?limit=0',
+    '/api/job-cards/job-1/notes?limit=101',
+    '/api/job-cards/job-1/notes?offset=-1',
+    '/api/job-cards/job-1/notes?offset=1.5',
+  ])('rejects invalid notes query %s', async (url) => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.listNotes).not.toHaveBeenCalled();
+  });
+
+  it('appends with the exact body and returns 201 for first completion and replay', async () => {
+    const { app, service } = await createApp();
+    const payload = { clientActionId: 'note-action', note: 'Klinik arandı' };
+    const first = await app.inject({ method: 'POST', url: '/api/job-cards/job-1/notes', payload });
+    const replay = await app.inject({ method: 'POST', url: '/api/job-cards/job-1/notes', payload });
+    expect(first.statusCode).toBe(201); expect(replay.statusCode).toBe(201);
+    expect(replay.json()).toEqual(first.json());
+    expect(service.addNote).toHaveBeenNthCalledWith(1, expect.anything(), 'job-1', payload);
+  });
+
+  it('rejects unknown note body keys and maps an in-progress append to 409', async () => {
+    const { app, service } = await createApp();
+    for (const payload of [
+      { clientActionId: 'n1', note: 'Not', expectedVersion: 1 },
+      { clientActionId: 'n1', note: 'Not', extra: true },
+    ]) {
+      const response = await app.inject({ method: 'POST', url: '/api/job-cards/job-1/notes', payload });
+      expect(response.statusCode).toBe(400);
+    }
+    expect(service.addNote).not.toHaveBeenCalled();
+
+    service.addNote.mockRejectedValueOnce(new AppError('ACTION_IN_PROGRESS', 409, 'İşlem devam ediyor.'));
+    const response = await app.inject({
+      method: 'POST', url: '/api/job-cards/job-1/notes', payload: { clientActionId: 'busy', note: 'Not' },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ code: 'ACTION_IN_PROGRESS' });
+  });
+
+  it('exposes no note update or delete route', async () => {
+    const { app } = await createApp();
+    expect((await app.inject({ method: 'PATCH', url: '/api/job-cards/job-1/notes/note-1', payload: { note: 'X' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'DELETE', url: '/api/job-cards/job-1/notes/note-1' })).statusCode).toBe(404);
   });
 });

@@ -17,6 +17,7 @@ import {
   type LifecycleCommand,
 } from './types.js';
 import { optionalLifecycleNote, requireActionId, requireLifecycleReason, validation } from './validation.js';
+import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 
 type CreateInput = {
   clientActionId: string;
@@ -91,10 +92,20 @@ function lifecycleReason(value: unknown, field: 'revisionReason' | 'cancelReason
 }
 
 export class JobCardService {
+  private readonly notesService: JobCardNotesService;
+
   constructor(
     private readonly repository: JobCardRepository,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) { this.notesService = new JobCardNotesService(repository); }
+
+  async listNotes(actor: JobCardActor, jobCardId: string, page: PageQuery) {
+    return this.notesService.listNotes(actor, jobCardId, page);
+  }
+
+  async addNote(actor: JobCardActor, jobCardId: string, input: CreateNoteInput) {
+    return this.notesService.addNote(actor, jobCardId, input);
+  }
 
   async create(actor: JobCardActor, input: CreateInput) {
     const title = input.title.trim();

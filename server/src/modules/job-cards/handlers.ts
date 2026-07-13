@@ -24,7 +24,7 @@ function body(request: FastifyRequest, allowed: readonly string[]) {
   return value;
 }
 
-function activityPage(raw: unknown) {
+function page(raw: unknown, defaultLimit: number) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw validation('query');
   const value = raw as Record<string, unknown>;
   for (const [key, entry] of Object.entries(value)) {
@@ -39,7 +39,7 @@ function activityPage(raw: unknown) {
       || (maximum !== undefined && parsed > maximum)) throw validation(field);
     return parsed;
   };
-  return { limit: integer('limit', 50, 1, 100), offset: integer('offset', 0, 0) };
+  return { limit: integer('limit', defaultLimit, 1, 100), offset: integer('offset', 0, 0) };
 }
 
 const CREATE_FIELDS = ['clientActionId', 'type', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
@@ -82,6 +82,12 @@ export function createJobCardHandlers(service: JobCardService) {
     cancel: async (request: FastifyRequest<{ Params: Params }>) =>
       service.cancel(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'cancelReason']) as never),
     activity: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.listActivity(actor(request), request.params.id, activityPage(request.query)),
+      service.listActivity(actor(request), request.params.id, page(request.query, 50)),
+    listNotes: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.listNotes(actor(request), request.params.id, page(request.query, 25)),
+    addNote: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) =>
+      reply.code(201).send(await service.addNote(
+        actor(request), request.params.id, body(request, ['clientActionId', 'note']) as never,
+      )),
   };
 }

@@ -23,6 +23,11 @@ export function assertCanEdit(actor: JobCardActor, job: JobCard) {
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
 }
 
+export function assertCanAccessNotes(actor: JobCardActor, job: JobCard) {
+  assertSameOrganization(actor, job.organizationId);
+  if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
+}
+
 export function assertCanTransition(
   actor: JobCardActor,
   job: JobCard,

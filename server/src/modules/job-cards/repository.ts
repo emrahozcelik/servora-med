@@ -13,6 +13,7 @@ import type {
   JobCardStatusFilter,
   LifecycleCommand,
   Paginated,
+  JobCardNoteDto,
 } from './types.js';
 import type { Pool, PoolClient } from 'pg';
 
@@ -44,6 +45,11 @@ export type ActivityInput = {
   clientActionId?: string;
   oldValue?: unknown;
   newValue?: unknown;
+  metadata?: unknown;
+};
+
+export type CreateNoteRecord = {
+  organizationId: string; jobCardId: string; authorId: string; note: string;
 };
 
 export type CreateJobCardRecord = {
@@ -84,6 +90,7 @@ export interface JobCardTransaction {
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
   appendActivity(input: ActivityInput): Promise<void>;
+  createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
   getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
@@ -123,6 +130,11 @@ export interface JobCardRepository {
     jobCardId: string,
     page: PageQuery,
   ): Promise<Paginated<ActivityRecord>>;
+  listNotes(
+    organizationId: string,
+    jobCardId: string,
+    page: PageQuery,
+  ): Promise<Paginated<JobCardNoteDto>>;
   listReferenceCustomers(organizationId: string): Promise<ReferenceCustomer[]>;
 }
 
@@ -157,6 +169,16 @@ type DeliveryRow = {
   product_model_snapshot: string | null; lot_no: string | null; serial_no: string | null;
   expiry_date: string | null; delivery_note: string | null;
 };
+type NoteRow = {
+  id: string; job_card_id: string; note: string; author_id: string;
+  author_name: string; created_at: Date;
+};
+function mapNote(row: NoteRow): JobCardNoteDto {
+  return {
+    id: row.id, jobCardId: row.job_card_id, note: row.note,
+    author: { id: row.author_id, name: row.author_name }, createdAt: row.created_at.toISOString(),
+  };
+}
 const DELIVERY_COLUMNS = `id, organization_id, job_card_id, product_id, delivery_purpose,
   delivered_at, quantity, unit, product_name_snapshot, product_sku_snapshot,
   product_model_snapshot, lot_no, serial_no, expiry_date, delivery_note`;
@@ -321,11 +343,27 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   async appendActivity(input: ActivityInput) {
     await this.client.query(
       `INSERT INTO job_card_activity_logs
-         (organization_id, job_card_id, actor_id, event_type, old_value, new_value, client_action_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (organization_id, job_card_id, actor_id, event_type, old_value, new_value, metadata, client_action_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [input.organizationId, input.jobCardId, input.actorId, input.event,
-        input.oldValue ?? null, input.newValue ?? null, input.clientActionId ?? null],
+        input.oldValue ?? null, input.newValue ?? null, input.metadata ?? null,
+        input.clientActionId ?? null],
     );
+  }
+
+  async createNote(input: CreateNoteRecord) {
+    const result = await this.client.query<NoteRow>(
+      `WITH inserted AS (
+         INSERT INTO job_card_notes (organization_id, job_card_id, author_id, note)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, organization_id, job_card_id, author_id, note, created_at
+       )
+       SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name, n.created_at
+       FROM inserted n
+       JOIN users u ON u.organization_id = n.organization_id AND u.id = n.author_id`,
+      [input.organizationId, input.jobCardId, input.authorId, input.note],
+    );
+    return mapNote(result.rows[0]!);
   }
 
   async getAssigneeForUpdate(organizationId: string, userId: string) {
@@ -652,6 +690,28 @@ export class PostgresJobCardRepository implements JobCardRepository {
       total: Number(count.rows[0]?.total ?? 0),
       limit: page.limit,
       offset: page.offset,
+    };
+  }
+
+  async listNotes(organizationId: string, jobCardId: string, page: PageQuery) {
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM job_card_notes
+       WHERE organization_id=$1 AND job_card_id=$2`,
+      [organizationId, jobCardId],
+    );
+    const result = await this.pool.query<NoteRow>(
+      `SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name, n.created_at
+       FROM job_card_notes n
+       JOIN users u
+         ON u.organization_id = n.organization_id AND u.id = n.author_id
+       WHERE n.organization_id=$1 AND n.job_card_id=$2
+       ORDER BY n.created_at DESC, n.id DESC
+       LIMIT $3 OFFSET $4`,
+      [organizationId, jobCardId, page.limit, page.offset],
+    );
+    return {
+      items: result.rows.map(mapNote), total: Number(count.rows[0]?.total ?? 0),
+      limit: page.limit, offset: page.offset,
     };
   }
 
