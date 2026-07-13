@@ -60,26 +60,31 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   onRetry: () => void;
   onOffsetChange?: (offset: number) => void;
 }) {
-  if (state.kind === 'loading') return <main className="workspace product-workspace" aria-busy="true" aria-live="polite">
-    <p className="eyebrow">Ürün kataloğu</p><h1>Ürünler yükleniyor</h1>
-    <div className="product-loading" aria-hidden="true"><span /><span /><span /></div>
+  if (state.kind === 'error' && state.code === 'FORBIDDEN') return <main className="workspace product-workspace">
+    <p className="eyebrow">Ürün kataloğu</p><div className="workspace-message" role="alert"><h1>Bu alana erişim yetkiniz yok</h1><p>{state.message}</p></div>
   </main>;
 
-  if (state.kind === 'error') {
-    const forbidden = state.code === 'FORBIDDEN';
-    return <main className="workspace product-workspace"><p className="eyebrow">Ürün kataloğu</p>
-      <div className="workspace-message" role="alert"><h1>{forbidden ? 'Bu alana erişim yetkiniz yok' : 'Ürünler yüklenemedi'}</h1>
-        <p>{state.message}</p>{state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}</div>
-    </main>;
-  }
-
-  const { page } = state;
-  const first = page.total === 0 ? 0 : page.offset + 1;
-  const last = Math.min(page.offset + page.limit, page.total);
   return <main className="workspace product-workspace">
     <div className="workspace-heading"><div><p className="eyebrow">Ürün kataloğu</p><h1>Ürünler</h1></div>
       {user.role !== 'STAFF' && <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link>}</div>
     <ProductFiltersView filters={filters} onChange={onFilterChange} />
+    {state.kind === 'loading' ? <div className="product-results" aria-busy="true" aria-live="polite">
+      <h2 className="sr-only">Ürünler yükleniyor</h2><div className="product-loading" aria-hidden="true"><span /><span /><span /></div>
+    </div> : state.kind === 'error' ? <div className="product-results"><div className="workspace-message" role="alert">
+      <h2>Ürünler yüklenemedi</h2><p>{state.message}</p>
+      {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}
+    </div></div> : <ProductResults page={state.page} hasFilters={hasFilters} onOffsetChange={onOffsetChange} />}
+  </main>;
+}
+
+function ProductResults({ page, hasFilters, onOffsetChange }: {
+  page: Paginated<Product>;
+  hasFilters: boolean;
+  onOffsetChange?: (offset: number) => void;
+}) {
+  const first = page.total === 0 ? 0 : page.offset + 1;
+  const last = Math.min(page.offset + page.limit, page.total);
+  return <div className="product-results">
     {page.items.length === 0 ? <div className="workspace-message"><h2>{hasFilters ? 'Filtrelere uygun ürün bulunamadı' : 'Henüz ürün kaydı yok'}</h2>
       <p>{hasFilters ? 'Arama metnini veya durum filtresini değiştirin.' : 'Ürünler eklendiğinde katalog burada görünecek.'}</p></div>
       : <ul className="product-list">{page.items.map((product) => <li key={product.id}><article className="product-row">
@@ -93,7 +98,7 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
       <span aria-live="polite">{first}–{last} / {page.total}</span>
       <button className="secondary-button" type="button" disabled={page.offset + page.limit >= page.total} onClick={() => onOffsetChange?.(page.offset + page.limit)}>Sonraki</button>
     </nav>}
-  </main>;
+  </div>;
 }
 
 export function ProductListScreen({ user, load = listProducts }: {
@@ -120,7 +125,7 @@ export function ProductListScreen({ user, load = listProducts }: {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [load, queryKey, reload]);
 
-  const hasFilters = Boolean(filters.q || filters.status === 'inactive' || filters.status === 'all');
+  const hasFilters = Boolean(filters.q || filters.status === 'inactive');
   return <ProductListView state={state} user={user} filters={filters} hasFilters={hasFilters}
     onFilterChange={(name, value) => setParams(updateProductSearchParams(params, name, value))}
     onOffsetChange={(offset) => setParams(updateProductSearchParams(params, 'offset', offset))}
