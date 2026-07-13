@@ -10,6 +10,7 @@ Bu dosya ürün ve mimari için kabul edilmiş, uzun ömürlü kararları kayded
 - Data model: `SERVORA_MED_SCHEMA_DRAFT.md`
 - API contract: `SERVORA_MED_API_DRAFT.md`
 - Delivery order: `SERVORA_MED_MVP_SLICES.md`
+- Slice 07 JobCard workspace design: `docs/superpowers/specs/2026-07-13-jobcard-workspace-design.md`
 - Agent discipline: `AGENTS.md`
 - Historical inputs: `docs/archive/inputs/`
 
