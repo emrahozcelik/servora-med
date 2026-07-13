@@ -11,6 +11,29 @@ import {
 } from './types.js';
 
 type JsonRecord = Record<string, unknown>;
+type LifecycleEvent =
+  | 'JOB_PLANNED'
+  | 'JOB_STARTED'
+  | 'JOB_SUBMITTED_FOR_APPROVAL'
+  | 'JOB_APPROVED'
+  | 'JOB_REVISION_REQUESTED'
+  | 'JOB_RESUMED'
+  | 'JOB_CANCELLED';
+
+const LIFECYCLE_TRANSITIONS: Record<LifecycleEvent, ReadonlyArray<readonly [JobCardStatus, JobCardStatus]>> = {
+  JOB_PLANNED: [['NEW', 'PLANNED']],
+  JOB_STARTED: [['NEW', 'IN_PROGRESS'], ['PLANNED', 'IN_PROGRESS']],
+  JOB_SUBMITTED_FOR_APPROVAL: [['IN_PROGRESS', 'WAITING_APPROVAL']],
+  JOB_APPROVED: [['WAITING_APPROVAL', 'COMPLETED']],
+  JOB_REVISION_REQUESTED: [['WAITING_APPROVAL', 'REVISION_REQUESTED']],
+  JOB_RESUMED: [['REVISION_REQUESTED', 'IN_PROGRESS']],
+  JOB_CANCELLED: [
+    ['NEW', 'CANCELLED'],
+    ['PLANNED', 'CANCELLED'],
+    ['IN_PROGRESS', 'CANCELLED'],
+    ['REVISION_REQUESTED', 'CANCELLED'],
+  ],
+};
 
 const FIELD_MAPPINGS = [
   ['title', 'title'],
@@ -39,10 +62,18 @@ function validFieldValue(field: string, value: unknown) {
   return typeof value === 'string';
 }
 
-function statusDetails(oldValue: unknown, newValue: unknown): JobCardActivityDetails {
+function statusDetails(
+  eventType: LifecycleEvent,
+  oldValue: unknown,
+  newValue: unknown,
+): JobCardActivityDetails {
   const oldRecord = jsonRecord(oldValue);
   const newRecord = jsonRecord(newValue);
   if (!oldRecord || !newRecord || !isStatus(oldRecord.status) || !isStatus(newRecord.status)) {
+    return { kind: 'NONE' };
+  }
+  if (!LIFECYCLE_TRANSITIONS[eventType]
+    .some(([fromStatus, toStatus]) => fromStatus === oldRecord.status && toStatus === newRecord.status)) {
     return { kind: 'NONE' };
   }
   return { kind: 'STATUS_TRANSITION', fromStatus: oldRecord.status, toStatus: newRecord.status };
@@ -107,7 +138,7 @@ function details(record: ActivityRecord): JobCardActivityDetails {
     case 'JOB_REVISION_REQUESTED':
     case 'JOB_RESUMED':
     case 'JOB_CANCELLED':
-      return statusDetails(record.oldValue, record.newValue);
+      return statusDetails(record.eventType, record.oldValue, record.newValue);
     case 'DELIVERY_ITEM_ADDED':
     case 'DELIVERY_ITEM_UPDATED':
     case 'DELIVERY_ITEM_REMOVED':

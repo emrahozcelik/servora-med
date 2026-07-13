@@ -16,12 +16,16 @@ const baseRecord = (eventType: JobCardActivityEvent, values: Partial<ActivityRec
 
 const lifecycleCases = [
   ['JOB_PLANNED', 'NEW', 'PLANNED'],
+  ['JOB_STARTED', 'NEW', 'IN_PROGRESS'],
   ['JOB_STARTED', 'PLANNED', 'IN_PROGRESS'],
   ['JOB_SUBMITTED_FOR_APPROVAL', 'IN_PROGRESS', 'WAITING_APPROVAL'],
   ['JOB_APPROVED', 'WAITING_APPROVAL', 'COMPLETED'],
   ['JOB_REVISION_REQUESTED', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
   ['JOB_RESUMED', 'REVISION_REQUESTED', 'IN_PROGRESS'],
+  ['JOB_CANCELLED', 'NEW', 'CANCELLED'],
+  ['JOB_CANCELLED', 'PLANNED', 'CANCELLED'],
   ['JOB_CANCELLED', 'IN_PROGRESS', 'CANCELLED'],
+  ['JOB_CANCELLED', 'REVISION_REQUESTED', 'CANCELLED'],
 ] as const;
 
 describe('safe JobCard activity presenter', () => {
@@ -42,6 +46,22 @@ describe('safe JobCard activity presenter', () => {
     }));
     expect(result.details).toEqual({ kind: 'STATUS_TRANSITION', fromStatus, toStatus });
     expect(JSON.stringify(result)).not.toContain('never expose');
+  });
+
+  it.each([
+    ['JOB_PLANNED', 'PLANNED', 'PLANNED'],
+    ['JOB_STARTED', 'IN_PROGRESS', 'IN_PROGRESS'],
+    ['JOB_SUBMITTED_FOR_APPROVAL', 'NEW', 'WAITING_APPROVAL'],
+    ['JOB_APPROVED', 'IN_PROGRESS', 'COMPLETED'],
+    ['JOB_REVISION_REQUESTED', 'IN_PROGRESS', 'REVISION_REQUESTED'],
+    ['JOB_RESUMED', 'NEW', 'IN_PROGRESS'],
+    ['JOB_CANCELLED', 'WAITING_APPROVAL', 'CANCELLED'],
+  ] as const)('falls back to NONE for semantically incompatible %s transition %s→%s', (
+    eventType, fromStatus, toStatus,
+  ) => {
+    expect(presentActivity(baseRecord(eventType, {
+      oldValue: { status: fromStatus }, newValue: { status: toStatus },
+    })).details).toEqual({ kind: 'NONE' });
   });
 
   it.each([
