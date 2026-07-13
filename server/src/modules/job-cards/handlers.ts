@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError } from '../../errors/index.js';
 import type { JobCardService } from './service.js';
 import type { JobCardActor } from './types.js';
+import { validation } from './validation.js';
 import { parseJobCardBoardQuery, parseJobCardListQuery } from './workspace-query.js';
 
 type Params = { id: string; itemId?: string };
@@ -21,6 +22,24 @@ function body(request: FastifyRequest, allowed: readonly string[]) {
     throw new AppError('VALIDATION_ERROR', 400, 'İstek desteklenmeyen alan içeriyor.');
   }
   return value;
+}
+
+function activityPage(raw: unknown) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw validation('query');
+  const value = raw as Record<string, unknown>;
+  for (const [key, entry] of Object.entries(value)) {
+    if (!['limit', 'offset'].includes(key) || Array.isArray(entry)) throw validation(key);
+  }
+  const integer = (field: 'limit' | 'offset', fallback: number, minimum: number, maximum?: number) => {
+    const entry = value[field];
+    if (entry === undefined) return fallback;
+    if (typeof entry !== 'string' || !/^\d+$/.test(entry)) throw validation(field);
+    const parsed = Number(entry);
+    if (!Number.isSafeInteger(parsed) || parsed < minimum
+      || (maximum !== undefined && parsed > maximum)) throw validation(field);
+    return parsed;
+  };
+  return { limit: integer('limit', 50, 1, 100), offset: integer('offset', 0, 0) };
 }
 
 const CREATE_FIELDS = ['clientActionId', 'type', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
@@ -63,6 +82,6 @@ export function createJobCardHandlers(service: JobCardService) {
     cancel: async (request: FastifyRequest<{ Params: Params }>) =>
       service.cancel(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'cancelReason']) as never),
     activity: async (request: FastifyRequest<{ Params: Params }>) =>
-      ({ items: await service.listActivity(actor(request), request.params.id) }),
+      service.listActivity(actor(request), request.params.id, activityPage(request.query)),
   };
 }

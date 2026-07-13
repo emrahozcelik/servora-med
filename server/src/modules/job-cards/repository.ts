@@ -70,9 +70,11 @@ export type DeliveryItemRecord = DeliveryItem & {
 };
 export type SubmissionDeliveryItem = DeliveryItemRecord;
 export type ActivityRecord = {
-  id: string; jobCardId: string; actorId: string | null; eventType: string;
+  id: string; jobCardId: string; actorId: string | null; actorName: string | null;
+  eventType: JobCardActivityEvent;
   oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: Date;
 };
+export type PageQuery = { limit: number; offset: number };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
@@ -116,7 +118,11 @@ export interface JobCardRepository {
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>): Promise<T>;
   listDeliveryItems(organizationId: string, jobCardId: string): Promise<DeliveryItemRecord[]>;
-  listActivity(organizationId: string, jobCardId: string): Promise<ActivityRecord[]>;
+  listActivity(
+    organizationId: string,
+    jobCardId: string,
+    page: PageQuery,
+  ): Promise<Paginated<ActivityRecord>>;
   listReferenceCustomers(organizationId: string): Promise<ReferenceCustomer[]>;
 }
 
@@ -619,17 +625,34 @@ export class PostgresJobCardRepository implements JobCardRepository {
     return result.rows.map(mapDelivery);
   }
 
-  async listActivity(organizationId: string, jobCardId: string) {
+  async listActivity(organizationId: string, jobCardId: string, page: PageQuery) {
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM job_card_activity_logs
+       WHERE organization_id=$1 AND job_card_id=$2`,
+      [organizationId, jobCardId],
+    );
     const result = await this.pool.query<{
-      id: string; job_card_id: string; actor_id: string | null; event_type: string;
-      old_value: unknown; new_value: unknown; metadata: unknown; client_action_id: string | null; created_at: Date;
-    }>(`SELECT id, job_card_id, actor_id, event_type, old_value, new_value, metadata,
-              client_action_id, created_at
-       FROM job_card_activity_logs WHERE organization_id=$1 AND job_card_id=$2
-       ORDER BY created_at, id`, [organizationId, jobCardId]);
-    return result.rows.map((row) => ({ id: row.id, jobCardId: row.job_card_id, actorId: row.actor_id,
-      eventType: row.event_type, oldValue: row.old_value, newValue: row.new_value,
-      metadata: row.metadata, clientActionId: row.client_action_id, createdAt: row.created_at }));
+      id: string; job_card_id: string; actor_id: string | null; actor_name: string | null;
+      event_type: JobCardActivityEvent; old_value: unknown; new_value: unknown; metadata: unknown;
+      client_action_id: string | null; created_at: Date;
+    }>(`SELECT a.id, a.job_card_id, a.actor_id, u.name AS actor_name, a.event_type,
+              a.old_value, a.new_value, a.metadata, a.client_action_id, a.created_at
+       FROM job_card_activity_logs a
+       LEFT JOIN users u
+         ON u.organization_id = a.organization_id AND u.id = a.actor_id
+       WHERE a.organization_id=$1 AND a.job_card_id=$2
+       ORDER BY a.created_at DESC, a.id DESC
+       LIMIT $3 OFFSET $4`, [organizationId, jobCardId, page.limit, page.offset]);
+    return {
+      items: result.rows.map((row) => ({
+        id: row.id, jobCardId: row.job_card_id, actorId: row.actor_id, actorName: row.actor_name,
+        eventType: row.event_type, oldValue: row.old_value, newValue: row.new_value,
+        metadata: row.metadata, clientActionId: row.client_action_id, createdAt: row.created_at,
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+      limit: page.limit,
+      offset: page.offset,
+    };
   }
 
   async listReferenceCustomers(organizationId: string) {

@@ -1,6 +1,7 @@
 import { AppError } from '../../errors/index.js';
+import { presentActivity } from './activity-presenter.js';
 import { assertCanCreateForAssignee, assertCanEdit, assertCanTransition, assertDeliveryReadyForSubmission } from './policy.js';
-import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, ProductReference } from './repository.js';
+import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, PageQuery, ProductReference } from './repository.js';
 import {
   DELIVERY_PURPOSES,
   JOB_CARD_PRIORITIES,
@@ -325,9 +326,15 @@ export class JobCardService {
     return this.repository.listDeliveryItems(actor.organizationId, jobCardId);
   }
 
-  async listActivity(actor: JobCardActor, jobCardId: string) {
+  async listActivity(actor: JobCardActor, jobCardId: string, page: PageQuery) {
     await this.detail(actor, jobCardId);
-    return this.repository.listActivity(actor.organizationId, jobCardId);
+    const result = await this.repository.listActivity(actor.organizationId, jobCardId, page);
+    return {
+      items: result.items.map(presentActivity),
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
   }
 
   async listReferenceCustomers(actor: JobCardActor) {

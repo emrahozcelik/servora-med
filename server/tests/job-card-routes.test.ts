@@ -32,7 +32,7 @@ function serviceDouble() {
     requestRevision: vi.fn().mockResolvedValue({ ...result, status: 'REVISION_REQUESTED' }),
     resume: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
-    listActivity: vi.fn().mockResolvedValue([]),
+    listActivity: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
   };
 }
 
@@ -188,9 +188,38 @@ describe('JobCard routes', () => {
       .every((mock) => !(mock as ReturnType<typeof vi.fn>).mock?.calls.length)).toBe(true);
   });
 
-  it('exposes scoped immutable activity', async () => {
+  it('exposes scoped immutable activity with parsed default page', async () => {
     const { app, service } = await createApp();
-    expect((await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity' })).statusCode).toBe(200);
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1');
+    const response = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ items: [], total: 0, limit: 50, offset: 0 });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 });
+  });
+
+  it('forwards an explicit activity page', async () => {
+    const { app, service } = await createApp();
+    const page = { items: [{ id: 'activity-1' }], total: 9, limit: 10, offset: 20 };
+    service.listActivity.mockResolvedValueOnce(page);
+    const response = await app.inject({
+      method: 'GET', url: '/api/job-cards/job-1/activity?limit=10&offset=20',
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(page);
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 });
+  });
+
+  it.each([
+    '/api/job-cards/job-1/activity?unknown=value',
+    '/api/job-cards/job-1/activity?limit=1&limit=2',
+    '/api/job-cards/job-1/activity?limit=0',
+    '/api/job-cards/job-1/activity?limit=101',
+    '/api/job-cards/job-1/activity?offset=-1',
+    '/api/job-cards/job-1/activity?offset=1.5',
+  ])('rejects invalid activity query %s', async (url) => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.listActivity).not.toHaveBeenCalled();
   });
 });
