@@ -185,7 +185,7 @@ Re-add both audit CHECK constraints with every existing People value plus every 
 Run: `cd server && npm test -- --run tests/crm-schema.test.ts tests/migrate-runner.test.ts tests/people-schema.test.ts tests/delivery-schema.test.ts`  
 Expected: PASS with applied migration files unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/db/migrations/004_crm_contacts.sql server/tests/crm-schema.test.ts SERVORA_MED_SCHEMA_DRAFT.md
