@@ -24,6 +24,9 @@
 - `clientActionId` is 1–255 Unicode code points after trim. The web client uses `crypto.randomUUID()`; the server does not require UUID syntax.
 - Submission and approval notes allow 0–2,000 code points. Revision and cancellation reasons require 1–2,000 code points. Operational notes require 1–4,000 code points.
 - Note append does not accept `expectedVersion`, never bumps JobCard version, and returns `201` for both first success and completed replay.
+- Notes are append-only through the application contract: public routes, service/repository
+  surfaces, and UI expose no update or delete operation. Do not add database mutation
+  prevention triggers or claim physical database immutability.
 - Keep the exact 14-event canonical vocabulary. Never emit a generic status-change event.
 - Never expose persisted activity `old_value`, `new_value`, or `metadata` directly. Public activity uses event-specific allowlisted `details` and never contains note text.
 - Use exact query/body allowlists. Job search is at most 200 code points; dates accept only `YYYY-MM-DD`.
@@ -39,7 +42,7 @@
 
 ### Server
 
-- Create `server/src/db/migrations/006_jobcard_workspace.sql` — append-only note table, workspace indexes, and lifecycle timestamp checks.
+- Create `server/src/db/migrations/006_jobcard_workspace.sql` — note storage for the append-only application contract, workspace indexes, and lifecycle timestamp checks.
 - Create `server/src/modules/job-cards/validation.ts` — shared Unicode code-point, action ID, lifecycle text, date, UUID, and pagination validation.
 - Create `server/src/modules/job-cards/workspace-query.ts` — exact list/board query parsing and canonical typed filters.
 - Create `server/src/modules/job-cards/activity-presenter.ts` — event-specific allowlisted public activity details.
@@ -581,7 +584,7 @@ addNote(actor: JobCardActor, jobCardId: string, input: CreateNoteInput): Promise
 
 - [ ] **Step 1: Write failing note policy/service tests**
 
-Cover Staff assigned-only read/append, Manager/Admin organization scope, hidden 404, every JobCard status including waiting/completed/cancelled, 1/4,000/4,001-code-point text, action ID limits, no expected version, no JobCard version bump, same-action replay, in-progress duplicate, concurrent different actions, and canonical author DTO.
+Cover Staff assigned-only read/append, Manager/Admin organization scope, hidden 404, every JobCard status including waiting/completed/cancelled, 1/4,000/4,001-code-point text, action ID limits, no expected version, no JobCard version bump, same-action replay, in-progress duplicate, concurrent different actions, canonical author DTO, and absence of note update/delete methods from the public repository/service contract.
 
 - [ ] **Step 2: Write failing atomicity tests**
 
@@ -602,7 +605,7 @@ Claim operation `JOB_NOTE_ADD`, lock/read the JobCard only to enforce visibility
 
 - [ ] **Step 6: Implement paginated note reads**
 
-Join author name, scope by organization/job, order `created_at DESC,id DESC`, return `{ items,total,limit,offset }`, and expose no single-note/update/delete route.
+Join author name, scope by organization/job, order `created_at DESC,id DESC`, return `{ items,total,limit,offset }`, and expose no single-note/update/delete route or repository method. Do not add a database trigger; append-only is an application-contract guarantee.
 
 - [ ] **Step 7: Verify GREEN and Checkpoint 07B**
 

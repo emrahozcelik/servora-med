@@ -382,7 +382,11 @@ There are no unit-price, discount, line-total, stock-movement, invoice, or payme
 | note | TEXT NOT NULL | non-empty after trim |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 
-Notes are append-only in MVP. Staff may add a note to their own JobCard in `WAITING_APPROVAL`, but cannot edit commercial fields.
+Notes are append-only through the MVP application contract. Public routes, service and
+repository surfaces expose no note update/delete operation, and the UI exposes no such
+control. This does not claim physical immutability for controlled database maintenance;
+no mutation-prevention trigger is required. Staff may add a note to their own JobCard in
+`WAITING_APPROVAL`, but cannot edit commercial fields.
 
 ### 3.12 job_card_activity_logs
 

@@ -187,7 +187,8 @@ Persistence semantics are exact:
 
 ## 6. Notes contract
 
-`job_card_notes` is a new append-only operational resource:
+`job_card_notes` is a new operational resource that is append-only through the
+application contract:
 
 ```text
 id
@@ -204,9 +205,12 @@ and is stored in PostgreSQL `TEXT`. Backend validation counts Unicode code point
 the same counting rule for guidance and early validation; backend validation remains
 authoritative.
 
-A note belongs to one JobCard and cannot be moved. There are no update, delete, or
-single-note public endpoints. Therefore `NOTE_NOT_FOUND` is not part of the public Slice
-07 HTTP contract.
+A note belongs to one JobCard and cannot be moved. The public API, service, and repository
+expose append and list operations only; the UI exposes no edit or delete control. There are
+no update, delete, or single-note public endpoints. This is not a claim that note rows are
+physically immutable under every database maintenance operation, and migration 006 does
+not add an `UPDATE`/`DELETE` prevention trigger. Therefore `NOTE_NOT_FOUND` is not part of
+the public Slice 07 HTTP contract.
 
 Adding a note:
 

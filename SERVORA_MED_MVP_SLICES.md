@@ -336,7 +336,7 @@ removed a duplicate unused detail component, and added PostgreSQL-backed GitHub 
 
 ### Deliverables
 
-- append-only notes
+- notes that are append-only through the public application contract
 - immutable activity timeline using canonical event labels
 - desktop Kanban or structured list
 - mobile status tabs and lists

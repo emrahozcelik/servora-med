@@ -337,3 +337,30 @@ rewrite historical delivery snapshots.
 Implemented and verified on 2026-07-13 through migration 005, transaction/concurrency
 tests, authenticated disposable-PostgreSQL tracing, full server/web gates, and Playwright
 desktop/mobile/accessibility acceptance. No inventory or accounting behavior was added.
+
+## DOM-005: JobCard notes use application-contract append-only semantics
+
+- **Date:** 2026-07-13
+- **Status:** Accepted
+- **Scope:** Slice 07 JobCard Workspace
+
+### Context
+
+Operational notes must remain visible with historical JobCards and must not have ordinary
+edit or delete flows. They are not a regulatory ledger that requires physical database
+immutability under every controlled maintenance operation.
+
+### Decision
+
+Notes are append-only through the application contract. The public API and repository
+expose no update or delete operation, the service offers append/list behavior only, and
+the UI offers no edit or delete control. Note insertion and its `NOTE_ADDED` activity are
+atomic. Migration 006 does not add an `UPDATE`/`DELETE` prevention trigger.
+
+### Consequences
+
+- Route, service/repository-surface, transaction, and UI tests protect the application
+  contract.
+- Documentation must not claim that note rows are physically immutable in PostgreSQL.
+- Controlled data correction and maintenance remain possible without hidden trigger
+  behavior; any future stronger compliance requirement needs a separate decision.
