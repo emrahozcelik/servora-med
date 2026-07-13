@@ -75,7 +75,7 @@ describe('JobCardService critical command foundation', () => {
 
   it('returns ACTION_IN_PROGRESS for a live duplicate claim', async () => {
     const repository = new MemoryJobCardRepository();
-    repository.processing.add('org-1:staff-1:action-1:JOB_START');
+    repository.processing.add('org-1:staff-1:action-1:JOB_START:job-1');
     await expect(new JobCardService(repository).start(staff, 'job-1', input)).rejects.toMatchObject({
       code: 'ACTION_IN_PROGRESS', statusCode: 409,
     });

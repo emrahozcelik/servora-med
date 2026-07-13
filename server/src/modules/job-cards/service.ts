@@ -402,7 +402,8 @@ export class JobCardService {
   ) {
     const result = await this.repository.executeCriticalAction(
       { organizationId: actor.organizationId, userId: actor.id,
-        clientActionId: input.clientActionId, operationKey: definition.operationKey },
+        clientActionId: input.clientActionId,
+        operationKey: `${definition.operationKey}:${jobCardId}` },
       async (tx) => {
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');

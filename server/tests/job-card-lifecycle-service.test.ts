@@ -97,6 +97,44 @@ class LifecycleRepository implements JobCardRepository {
   async listReferenceCustomers() { return []; }
 }
 
+function twoJobRepository() {
+  const base: JobCard = {
+    id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
+    version: 1, title: 'Teslim', description: null, customerId: 'customer-1', contactId: null,
+    assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
+  };
+  const jobs = new Map([
+    ['job-1', { ...base }],
+    ['job-2', { ...base, id: 'job-2', title: 'İkinci teslim' }],
+  ]);
+  const completed = new Map<string, unknown>();
+  const events: ActivityInput[] = [];
+  const repository = {
+    async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
+      const key = `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
+      if (completed.has(key)) return { kind: 'replay' as const, response: completed.get(key) as T };
+      const tx = {
+        getJobForUpdate: async (organizationId: string, id: string) => {
+          const job = jobs.get(id);
+          return job?.organizationId === organizationId ? { ...job } : null;
+        },
+        transitionWithVersion: async (input: TransitionInput) => {
+          const job = jobs.get(input.jobCardId);
+          if (!job || job.version !== input.expectedVersion) return null;
+          const updated = { ...job, status: input.status, version: job.version + 1 };
+          jobs.set(job.id, updated);
+          return { ...updated };
+        },
+        appendActivity: async (input: ActivityInput) => { events.push(input); },
+      } as JobCardTransaction;
+      const response = await work(tx);
+      completed.set(key, response);
+      return { kind: 'completed' as const, response };
+    },
+  } as JobCardRepository;
+  return { repository, jobs, events };
+}
+
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
 const time = new Date('2026-07-13T12:00:00.000Z');
@@ -126,7 +164,7 @@ describe('JobCard lifecycle commands', () => {
     expect(result).toMatchObject({ status: target, version: 3 });
     expect(repo.events.map((item) => item.event)).toEqual([event]);
     expect(repo.events[0]).toMatchObject({ clientActionId: method });
-    expect(repo.claims[0]).toMatchObject({ operationKey, clientActionId: method });
+    expect(repo.claims[0]).toMatchObject({ operationKey: `${operationKey}:job-1`, clientActionId: method });
     expect(repo.transitions).toHaveLength(1);
   });
 
@@ -229,7 +267,7 @@ describe('JobCard lifecycle commands', () => {
     expect(stale.events).toHaveLength(0);
 
     const processing = new LifecycleRepository();
-    processing.processing.add('staff-1:busy:JOB_SUBMIT_FOR_APPROVAL');
+    processing.processing.add('staff-1:busy:JOB_SUBMIT_FOR_APPROVAL:job-1');
     await expect(new JobCardService(processing).submitForApproval(staff, 'job-1', input('busy')))
       .rejects.toMatchObject({ code: 'ACTION_IN_PROGRESS' });
     expect(processing.transitions).toHaveLength(0);
@@ -241,6 +279,25 @@ describe('JobCard lifecycle commands', () => {
     await expect(service.submitForApproval(staff, 'job-1', input('replay'))).resolves.toEqual(first);
     expect(repo.job.version).toBe(3); expect(repo.transitions).toHaveLength(1);
     expect(repo.events).toHaveLength(1);
+  });
+
+  it('isolates same-command action replay by target JobCard', async () => {
+    const { repository, jobs, events } = twoJobRepository();
+    const service = new JobCardService(repository);
+    const command = { clientActionId: 'shared-plan-action', expectedVersion: 1 };
+
+    const first = await service.plan(staff, 'job-1', command);
+    const second = await service.plan(staff, 'job-2', command);
+
+    expect(first).toMatchObject({ id: 'job-1', status: 'PLANNED', version: 2 });
+    expect(second).toMatchObject({ id: 'job-2', status: 'PLANNED', version: 2 });
+    expect(second.id).not.toBe(first.id);
+    expect(jobs.get('job-2')).toMatchObject({ status: 'PLANNED', version: 2 });
+    expect(events.map((event) => event.jobCardId)).toEqual(['job-1', 'job-2']);
+
+    await expect(service.plan(staff, 'job-1', command)).resolves.toEqual(first);
+    await expect(service.plan(staff, 'job-2', command)).resolves.toEqual(second);
+    expect(events).toHaveLength(2);
   });
 
   it('rolls back transition and claim effects after policy or repository failure', async () => {
