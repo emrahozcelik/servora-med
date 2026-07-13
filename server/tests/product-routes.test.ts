@@ -1,3 +1,4 @@
+import Fastify from 'fastify';
 import { afterEach, describe, expect, it } from 'vitest';
 
 import { buildApp } from '../src/app.js';
@@ -8,6 +9,7 @@ import type {
   ProductRepository,
   ProductTransaction,
 } from '../src/modules/products/repository.js';
+import { productRoutes } from '../src/modules/products/routes.js';
 import type {
   AppendProductAuditInput,
   CreateProductRecord,
@@ -150,6 +152,20 @@ describe('Product HTTP routes', () => {
     }
     expect((await app.inject({ method: 'DELETE', url: '/api/products/product-1',
       headers: { cookie } })).statusCode).toBe(404);
+
+    const routeApp = Fastify({ logger: false });
+    await routeApp.register(productRoutes, {
+      prefix: '/api', service: {} as never, authenticate: async () => {},
+    });
+    await routeApp.ready();
+    apps.push(routeApp);
+    expect(routeApp.printRoutes({ commonPrefix: false })).toBe([
+      '└── /api/products (GET, HEAD, POST)',
+      '    └── /:productId (GET, HEAD, PATCH)',
+      '        ├── /activate (POST)',
+      '        └── /deactivate (POST)',
+      '',
+    ].join('\n'));
   });
 
   it('creates with optional catalog fields omitted or null and propagates the actor', async () => {
@@ -186,6 +202,15 @@ describe('Product HTTP routes', () => {
     const response = await app.inject({ method: 'GET', url, headers: { cookie } });
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+  });
+
+  it.each(['limit', 'offset'])('rejects an unsafe-integer %s without dispatching the service', async (field) => {
+    const { app, productRepository, cookie } = await createApp();
+    const response = await app.inject({ method: 'GET',
+      url: `/api/products?${field}=${'9'.repeat(400)}`, headers: { cookie } });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(productRepository.filters).toBeNull();
   });
 
   it.each([
@@ -241,10 +266,17 @@ describe('Product HTTP routes', () => {
       headers: { cookie } })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/products/product-1',
       headers: { cookie } })).statusCode).toBe(200);
-    const mutation = await app.inject({ method: 'POST', url: '/api/products',
-      headers: { cookie }, payload: { name: 'Yetkisiz ürün' } });
-    expect(mutation.statusCode).toBe(403);
-    expect(mutation.json()).toMatchObject({ code: 'FORBIDDEN' });
+    const mutations = [
+      ['POST', '/api/products', { name: 'Yetkisiz ürün' }],
+      ['PATCH', '/api/products/product-1', { expectedVersion: 1, name: 'Yetkisiz ad' }],
+      ['POST', '/api/products/product-1/activate', { expectedVersion: 1 }],
+      ['POST', '/api/products/product-1/deactivate', { expectedVersion: 1 }],
+    ] as const;
+    for (const [method, url, payload] of mutations) {
+      const mutation = await app.inject({ method, url, headers: { cookie }, payload });
+      expect(mutation.statusCode, `${method} ${url}`).toBe(403);
+      expect(mutation.json()).toMatchObject({ code: 'FORBIDDEN' });
+    }
   });
 
   it('serializes concealed not-found and stable version conflicts safely', async () => {

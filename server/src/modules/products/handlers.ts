@@ -71,7 +71,8 @@ function integerQuery(value: unknown, field: string, fallback: number, minimum: 
   if (value === undefined) return fallback;
   if (typeof value !== 'string' || !/^\d+$/.test(value)) validation(`${field} geçersizdir.`);
   const parsed = Number(value);
-  if (parsed < minimum || (maximum !== undefined && parsed > maximum)) validation(`${field} geçersizdir.`);
+  if (!Number.isSafeInteger(parsed) || parsed < minimum
+    || (maximum !== undefined && parsed > maximum)) validation(`${field} geçersizdir.`);
   return parsed;
 }
 
