@@ -25,6 +25,7 @@ describe('application routes', () => {
   it.each([
     ['/jobs', 'Onay kuyruğu', manager],
     ['/jobs/new-delivery', 'Ürün teslimi', staff],
+    ['/jobs/new-delivery', 'Ürün teslimi', manager],
     ['/jobs/job-1', 'İş detayları yükleniyor', staff],
     ['/users', 'Kullanıcılar', admin],
     ['/staff', 'Personel', manager],
@@ -40,7 +41,6 @@ describe('application routes', () => {
   it.each([
     ['/users', staff],
     ['/customers/new', staff],
-    ['/jobs/new-delivery', manager],
   ] as const)('renders the established forbidden state for unauthorized direct route %s', (path, user) => {
     const html = render(path, user);
     expect(html).toContain('Bu alana erişim yetkiniz yok');

@@ -874,7 +874,12 @@ git commit -m "feat: add Customer and Contact detail flows"
 
 **Files:**
 - Modify: `web/src/DeliveryCreate.tsx`
+- Modify: `web/src/AppRouter.tsx`
 - Modify: `web/tests/delivery-create.test.tsx`
+- Create: `web/tests/delivery-create-screen.test.tsx`
+- Modify: `web/tests/router.test.tsx`
+- Modify: `web/tests/workspace-view.test.tsx`
+- Modify: `web/tests/tracer-client.test.ts`
 - Modify: `web/src/services/api.ts`
 - Modify: `web/src/styles.css`
 
@@ -882,20 +887,20 @@ git commit -m "feat: add Customer and Contact detail flows"
 - Management may receive Customer responsible Staff as a suggested assignee; Staff creation remains assigned to self.
 - Active primary Contact is a suggestion and the submitted `contactId` remains backend-validated.
 
-- [ ] **Step 1: Write failing delivery-default tests**
+- [x] **Step 1: Write failing delivery-default tests**
 
 Test that selecting a Customer loads active Contacts, selects active primary Contact when available, excludes inactive Customer/Contact options, clears incompatible Contact when Customer changes, submits `contactId`, keeps Staff `assignedTo` equal to the signed-in Staff user, and allows management to replace a suggested assignee.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cd web && npm test -- --run tests/delivery-create.test.tsx tests/tracer-client.test.ts`  
 Expected: FAIL because Delivery creation has no Contact input or CRM defaults.
 
-- [ ] **Step 3: Implement explicit selector/default behavior**
+- [x] **Step 3: Implement explicit selector/default behavior**
 
 Use CRM list/detail data already available through services. Defaults update only when Customer changes and do not overwrite a user-modified compatible selection. The Contact field has a visible label, empty option, loading state, and error message; selecting no Contact sends `null`. Do not encode eligibility rules beyond filtering server-returned active references.
 
-- [ ] **Step 4: Verify GREEN and delivery-flow regression**
+- [x] **Step 4: Verify GREEN and delivery-flow regression**
 
 Run: `cd web && npm test -- --run tests/delivery-create.test.tsx tests/tracer-client.test.ts tests/job-detail.test.tsx`  
 Expected: PASS.
@@ -906,6 +911,8 @@ Expected: PASS.
 git add web/src/DeliveryCreate.tsx web/src/services/api.ts web/src/styles.css web/tests/delivery-create.test.tsx
 git commit -m "feat: add Contact to delivery creation"
 ```
+
+**Task 12 verification (2026-07-13):** focused delivery/screen/client/detail/router/workspace/accessibility tests passed 7 files/42 tests; the full web suite passed 19 files/102 tests; TypeScript/Vite build passed; npm audit reported zero vulnerabilities. Reference Customer options remain active-only, Customer detail loads active Contacts and suggests an active primary Contact, and changing Customer clears incompatible Contact state immediately. Request generations reject late Customer responses. Management may open the same delivery route, receives active Staff choices and a valid responsible-Staff suggestion, and may replace it without a later default overwriting the choice. Staff never receives an assignee selector and the creation command still forces the authenticated Staff id. Empty Contact submits `null`, and the backend remains the authority for Customer/Contact/assignee eligibility.
 
 ---
 

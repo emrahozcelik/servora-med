@@ -8,16 +8,30 @@ import {
   type ReferenceCustomer,
   type ReferenceProduct,
 } from './services/api';
+import { getCustomer, type Contact, type CustomerDetail } from './services/crm-api';
+import { listStaff, type StaffProfile } from './services/people-api';
+import { createRequestGate } from './services/request-gate';
 
 export type DeliveryFormValues = {
   customerId: string;
   customerName: string;
+  contactId: string | null;
+  assignedTo: string;
   productId: string;
   deliveryPurpose: DeliveryPurpose;
   quantity: number;
   deliveredAt: string;
   deliveryNote?: string;
 };
+
+export function deliveryDefaultsForCustomer(customer: CustomerDetail, activeStaffIds: Set<string>) {
+  const contacts = customer.contacts.filter((contact) => contact.isActive);
+  return {
+    contacts,
+    contactId: contacts.find((contact) => contact.isPrimary)?.id ?? '',
+    assignedTo: customer.assignedStaffUserId && activeStaffIds.has(customer.assignedStaffUserId) ? customer.assignedStaffUserId : '',
+  };
+}
 
 type FlowDependencies = {
   createJob: (input: Parameters<typeof createJobCard>[0]) => Promise<{ id: string; version: number }>;
@@ -41,7 +55,8 @@ export async function createProductDelivery(
     type: 'PRODUCT_DELIVERY',
     title: `${values.customerName} ürün teslimi`,
     customerId: values.customerId,
-    assignedTo: user.id,
+    contactId: values.contactId,
+    assignedTo: user.role === 'STAFF' ? user.id : values.assignedTo,
     priority: 'normal',
   });
   const delivery = await dependencies.addItem(job.id, {
@@ -65,19 +80,66 @@ export function DeliveryCreateView({ user, customers, products, onCancel, onCrea
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [customerId, setCustomerId] = useState('');
+  const [contacts, setContacts] = useState<Contact[]>([]);
+  const [contactId, setContactId] = useState('');
+  const [contactState, setContactState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
+  const [contactError, setContactError] = useState('');
+  const [staff, setStaff] = useState<StaffProfile[]>([]);
+  const [staffState, setStaffState] = useState<'loading' | 'ready' | 'error'>(user.role === 'STAFF' ? 'ready' : 'loading');
+  const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
   const errorRef = useRef<HTMLDivElement>(null);
+  const customerGate = useRef(createRequestGate());
+  const activeStaffIds = useRef(new Set<string>());
+  const responsibleStaffId = useRef<string | null>(null);
+  const assigneeModified = useRef(false);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => {
+    if (user.role === 'STAFF') return;
+    let active = true; setStaffState('loading');
+    listStaff('active').then((profiles) => {
+      if (!active) return;
+      setStaff(profiles); activeStaffIds.current = new Set(profiles.map((profile) => profile.user.id)); setStaffState('ready');
+      if (!assigneeModified.current && responsibleStaffId.current && activeStaffIds.current.has(responsibleStaffId.current)) {
+        setAssignedTo(responsibleStaffId.current);
+      }
+    }).catch(() => { if (active) setStaffState('error'); });
+    return () => { active = false; };
+  }, [user.role]);
+  useEffect(() => () => { customerGate.current.next(); }, []);
+
+  async function changeCustomer(nextCustomerId: string) {
+    setCustomerId(nextCustomerId); setContacts([]); setContactId(''); setContactError(''); responsibleStaffId.current = null;
+    assigneeModified.current = false; if (user.role !== 'STAFF') setAssignedTo('');
+    const generation = customerGate.current.next();
+    if (!nextCustomerId) { setContactState('idle'); return; }
+    setContactState('loading');
+    try {
+      const detail = await getCustomer(nextCustomerId);
+      if (!customerGate.current.isCurrent(generation)) return;
+      const defaults = deliveryDefaultsForCustomer(detail, activeStaffIds.current);
+      setContacts(defaults.contacts); setContactId(defaults.contactId); setContactState('ready'); responsibleStaffId.current = detail.assignedStaffUserId;
+      if (user.role !== 'STAFF' && !assigneeModified.current) setAssignedTo(defaults.assignedTo);
+    } catch (caught) {
+      if (!customerGate.current.isCurrent(generation)) return;
+      setContactState('error'); setContactError(caught instanceof Error ? caught.message : 'İlgili kişiler yüklenemedi.');
+    }
+  }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setPending(true); setError('');
     const data = new FormData(event.currentTarget);
-    const customerId = String(data.get('customerId') ?? '');
-    const customer = customers.find((item) => item.id === customerId);
+    const selectedCustomerId = String(data.get('customerId') ?? '');
+    const customer = customers.find((item) => item.id === selectedCustomerId && item.status !== 'inactive');
     try {
       if (!customer) throw new Error('Geçerli bir müşteri seçin.');
+      const selectedAssignee = user.role === 'STAFF' ? user.id : String(data.get('assignedTo') ?? '');
+      if (!selectedAssignee) throw new Error('Geçerli bir sorumlu personel seçin.');
       const result = await createProductDelivery(user, {
-        customerId,
+        customerId: selectedCustomerId,
         customerName: customer.name,
+        contactId: String(data.get('contactId') ?? '') || null,
+        assignedTo: selectedAssignee,
         productId: String(data.get('productId') ?? ''),
         deliveryPurpose: String(data.get('deliveryPurpose') ?? '') as DeliveryPurpose,
         quantity: Number(data.get('quantity')),
@@ -91,18 +153,36 @@ export function DeliveryCreateView({ user, customers, products, onCancel, onCrea
     }
   }
 
-  const unavailable = customers.length === 0 || products.length === 0;
+  const availableCustomers = customers.filter((customer) => customer.status !== 'inactive');
+  const unavailable = availableCustomers.length === 0 || products.length === 0;
+  const referencesPending = contactState === 'loading' || staffState === 'loading';
+  const submitDisabled = pending || unavailable || referencesPending || (user.role !== 'STAFF' && !assignedTo);
   return <main className="delivery-create">
     <div className="delivery-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div>
       <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
-    <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. Tüm alanlar zorunludur.</p>
+    <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. İlgili kişi ve teslim notu isteğe bağlıdır.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     {unavailable && <div className="form-error" role="status">Teslim oluşturmak için aktif müşteri ve ürün kaydı gereklidir.</div>}
     <form className="delivery-form" onSubmit={submit}>
       <div className="field-group"><label htmlFor="delivery-customer">Müşteri</label>
-        <select id="delivery-customer" name="customerId" required disabled={pending || unavailable} defaultValue="">
-          <option value="" disabled>Seçin</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
+        <select id="delivery-customer" name="customerId" required disabled={pending || unavailable} value={customerId} onChange={(event) => void changeCustomer(event.target.value)}>
+          <option value="" disabled>Seçin</option>{availableCustomers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></div>
+      <div className="field-group"><label htmlFor="delivery-contact">İlgili kişi</label>
+        <select id="delivery-contact" name="contactId" disabled={pending || !customerId || contactState === 'loading' || contactState === 'error'} value={contactId} onChange={(event) => setContactId(event.target.value)}>
+          <option value="">İlgili kişi seçilmedi</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}{contact.title ? ` — ${contact.title}` : ''}</option>)}
+        </select>
+        {contactState === 'loading' && <span className="field-status" role="status">İlgili kişiler yükleniyor…</span>}
+        {contactState === 'error' && <span className="field-error" role="alert">{contactError}</span>}
+      </div>
+      {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
+        <select id="delivery-assignee" name="assignedTo" required disabled={pending || staffState !== 'ready'} value={assignedTo}
+          onChange={(event) => { assigneeModified.current = true; setAssignedTo(event.target.value); }}>
+          <option value="">Seçin</option>{staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
+        </select>
+        {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
+        {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
+      </div>}
       <div className="field-group"><label htmlFor="delivery-product">Ürün</label>
         <select id="delivery-product" name="productId" required disabled={pending || unavailable} defaultValue="">
           <option value="" disabled>Seçin</option>{products.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>)}
@@ -119,7 +199,7 @@ export function DeliveryCreateView({ user, customers, products, onCancel, onCrea
         <input id="delivered-at" name="deliveredAt" type="datetime-local" required disabled={pending} /></div>
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
         <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={pending} /></div>
-      <button className="primary-button" type="submit" disabled={pending || unavailable}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
+      <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
     </form>
   </main>;
 }

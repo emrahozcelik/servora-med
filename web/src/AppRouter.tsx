@@ -45,8 +45,8 @@ export function WorkspaceView({ user, state, onRetry, onCreate, onOpen, notice =
   return <main className="workspace">
     {notice && <div className="success-message" role="status">{notice}</div>}
     <div className="workspace-heading"><div><p className="eyebrow">Çalışma alanı</p><h1>{heading}</h1></div>
-      {user.role === 'STAFF' && <div className="workspace-actions"><span className="scope-note">Yalnız size atanan işler</span>
-        {onCreate && <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni teslim</button>}</div>}</div>
+      {onCreate && <div className="workspace-actions">{user.role === 'STAFF' && <span className="scope-note">Yalnız size atanan işler</span>}
+        <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni teslim</button></div>}</div>
     {visibleJobs.length === 0 ? <div className="workspace-message"><h2>{reviewMode ? 'Onay bekleyen iş yok' : 'Henüz atanmış işiniz yok'}</h2>
       <p>{reviewMode ? 'Personel tarafından gönderilen işler burada görünecek.' : 'Yeni bir iş atandığında burada görünecek.'}</p></div>
       : <ul className="job-list">{visibleJobs.map((job) => <li key={job.id}>
@@ -128,12 +128,10 @@ export function AppRouter({ user, workspace, customers, products, notice, onRelo
     <Routes>
       <Route path="/" element={<Navigate to={paths.jobs} replace />} />
       <Route path={paths.jobs} element={<WorkspaceView user={user} state={workspace} notice={notice}
-        onCreate={user.role === 'STAFF' && workspace.kind === 'ready' ? () => { onClearNotice(); navigate(paths.newDelivery); } : undefined}
+        onCreate={workspace.kind === 'ready' ? () => { onClearNotice(); navigate(paths.newDelivery); } : undefined}
         onOpen={(jobId) => navigate(paths.job(jobId))} onRetry={onReload} />} />
-      <Route path={paths.newDelivery} element={user.role === 'STAFF'
-        ? <DeliveryCreateView user={user} customers={customers} products={products} onCancel={() => navigate(paths.jobs)}
-          onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />
-        : <ForbiddenView />} />
+      <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} customers={customers} products={products} onCancel={() => navigate(paths.jobs)}
+        onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />} />
       <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} onReload={onReload} />} />
       <Route path={paths.users} element={user.role === 'ADMIN'
         ? <UserManagementScreen onBack={() => navigate(paths.jobs)} /> : <ForbiddenView />} />

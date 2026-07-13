@@ -34,7 +34,7 @@ describe('tracer API client', () => {
       .mockResolvedValueOnce(json(job, 201)).mockResolvedValueOnce(json({ items: [job] }))
       .mockResolvedValueOnce(json(job)).mockResolvedValueOnce(json({ ...job, version: 2 }));
     vi.stubGlobal('fetch', fetchMock);
-    const create = { clientActionId: 'a1', type: 'PRODUCT_DELIVERY' as const, title: 'Teslim', customerId: 'c1', assignedTo: 's1' };
+    const create = { clientActionId: 'a1', type: 'PRODUCT_DELIVERY' as const, title: 'Teslim', customerId: 'c1', contactId: 'contact-1', assignedTo: 's1' };
     await createJobCard(create); await listJobCards();
     await expect(getJobCard('job-1')).resolves.toMatchObject({ contactId: 'contact-1' });
     await patchJobCard('job-1', { expectedVersion: 1, title: 'Yeni' });

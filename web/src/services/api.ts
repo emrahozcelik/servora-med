@@ -102,7 +102,7 @@ export async function listReferenceProducts() {
   return items(await request('/api/reference/products')).map((entry) => { const v = object(entry); return { id: string(v.id, 'id'), name: string(v.name, 'name'), sku: string(v.sku, 'sku'), model: nullableString(v.model, 'model'), unit: string(v.unit, 'unit') }; });
 }
 
-export async function createJobCard(input: { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string; assignedTo: string; description?: string; priority?: JobCard['priority']; dueDate?: string }) { return parseJobCard(await request('/api/job-cards', json('POST', input))); }
+export async function createJobCard(input: { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string; contactId?: string | null; assignedTo: string; description?: string; priority?: JobCard['priority']; dueDate?: string }) { return parseJobCard(await request('/api/job-cards', json('POST', input))); }
 export async function listJobCards() { return items(await request('/api/job-cards')).map(parseJobCard); }
 export async function getJobCard(id: string) { return parseJobCard(await request(`/api/job-cards/${id}`)); }
 export async function patchJobCard(id: string, input: { expectedVersion: number; title?: string; priority?: JobCard['priority']; dueDate?: string | null }) { return parseJobCard(await request(`/api/job-cards/${id}`, json('PATCH', input))); }
