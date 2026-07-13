@@ -11,7 +11,7 @@ import { ProductCreateScreen } from './ProductForm';
 import { ProductDetailScreen } from './ProductDetail';
 import { ProductListScreen } from './ProductList';
 import { paths } from './paths';
-import type { CurrentUser, JobCard, ReferenceCustomer } from './services/api';
+import type { CurrentUser, LegacyWorkspaceJob, ReferenceCustomer } from './services/api';
 
 export { paths } from './paths';
 
@@ -20,7 +20,7 @@ const priorityLabels = { low: 'Düşük öncelik', normal: 'Normal öncelik', hi
 
 export type WorkspaceState =
   | { kind: 'loading' }
-  | { kind: 'ready'; jobs: JobCard[]; customerNames: Record<string, string> }
+  | { kind: 'ready'; jobs: LegacyWorkspaceJob[]; customerNames: Record<string, string> }
   | { kind: 'error'; code: string; message: string; retryable: boolean };
 
 function formatDueDate(value: string | null) {

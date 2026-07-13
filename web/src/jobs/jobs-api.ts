@@ -91,6 +91,11 @@ function positiveCount(value: unknown, field: string) {
   if (parsed < 1) invalid(field);
   return parsed;
 }
+function positiveFiniteNumber(value: unknown, field: string) {
+  const parsed = number(value, field);
+  if (parsed <= 0) invalid(field);
+  return parsed;
+}
 function related(value: unknown, field: string): RelatedName {
   const v = object(value);
   return { id: string(v.id, `${field}.id`), name: string(v.name, `${field}.name`) };
@@ -161,7 +166,7 @@ function parseDetails(value: unknown): JobCardActivityDetails {
     operation: oneOf(v.operation, 'operation', ['ADDED', 'UPDATED', 'REMOVED'] as const),
     itemId: string(v.itemId, 'itemId'),
     purpose: v.purpose === null ? null : oneOf(v.purpose, 'purpose', DELIVERY_PURPOSES),
-    quantity: v.quantity === null ? null : number(v.quantity, 'quantity') };
+    quantity: v.quantity === null ? null : positiveFiniteNumber(v.quantity, 'quantity') };
   if (kind === 'NOTE') return { kind, noteId: string(v.noteId, 'noteId') };
   return invalid('details.kind');
 }
@@ -178,7 +183,7 @@ function parseDelivery(value: unknown): DeliveryItem {
   return { id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
     jobCardId: string(v.jobCardId, 'jobCardId'), productId: string(v.productId, 'productId'),
     deliveryPurpose: oneOf(v.deliveryPurpose, 'deliveryPurpose', DELIVERY_PURPOSES),
-    deliveredAt: string(v.deliveredAt, 'deliveredAt'), quantity: number(v.quantity, 'quantity'),
+    deliveredAt: string(v.deliveredAt, 'deliveredAt'), quantity: positiveFiniteNumber(v.quantity, 'quantity'),
     unit: nullableString(v.unit, 'unit'), productNameSnapshot: string(v.productNameSnapshot, 'productNameSnapshot'),
     productSkuSnapshot: nullableString(v.productSkuSnapshot, 'productSkuSnapshot'),
     productModelSnapshot: nullableString(v.productModelSnapshot, 'productModelSnapshot'),

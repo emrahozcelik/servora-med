@@ -2,7 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   addJobCardNote, approveJobCard, cancelJobCard, createJobCard, getJobCard,
-  getJobCardBoard, listActivity, listJobCardNotes, listJobCards, planJobCard,
+  getJobCardBoard, listActivity, listDeliveryItems, listJobCardNotes, listJobCards, planJobCard,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
 } from '../src/jobs/jobs-api';
 import { jobActivityLabel } from '../src/jobs/job-labels';
@@ -93,6 +93,25 @@ describe('JobCard workspace transport', () => {
         details: { kind: 'NONE' }, createdAt: '2026-07-13T10:00:00Z', oldValue: { secret: true } }],
       total: 1, limit: 50, offset: 0,
     })));
+    await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it.each([0, -1])('rejects delivery item quantity %s', async (quantity) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ items: [{
+      id: 'i1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'p1',
+      deliveryPurpose: 'SALE', deliveredAt: '2026-07-13T10:00:00Z', quantity, unit: 'adet',
+      productNameSnapshot: 'Set', productSkuSnapshot: null, productModelSnapshot: null,
+      lotNo: null, serialNo: null, expiryDate: null, deliveryNote: null,
+    }] })));
+    await expect(listDeliveryItems('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it.each([0, -1])('rejects DELIVERY_ITEM activity detail quantity %s', async (quantity) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ items: [{
+      id: 'a1', jobCardId: 'job-1', eventType: 'DELIVERY_ITEM_ADDED', actor: null,
+      details: { kind: 'DELIVERY_ITEM', operation: 'ADDED', itemId: 'i1', purpose: 'SALE', quantity },
+      createdAt: '2026-07-13T10:00:00Z',
+    }], total: 1, limit: 50, offset: 0 })));
     await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 

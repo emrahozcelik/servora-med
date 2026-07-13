@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { AppRouter, type WorkspaceState } from './AppRouter';
 import { PasswordChangeScreen } from './PasswordChange';
-import { ApiError, getCurrentUser, listJobCards, listReferenceCustomers, login, logout, type CurrentUser, type ReferenceCustomer } from './services/api';
+import { ApiError, getCurrentUser, listLegacyWorkspaceJobs, listReferenceCustomers, login, logout, type CurrentUser, type ReferenceCustomer } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
 
@@ -96,7 +96,7 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let active = true; setWorkspace({ kind: 'loading' });
-    Promise.all([listJobCards(), listReferenceCustomers()]).then(([jobs, nextCustomers]) => {
+    Promise.all([listLegacyWorkspaceJobs(), listReferenceCustomers()]).then(([jobs, nextCustomers]) => {
       if (active) { setCustomers(nextCustomers); setWorkspace({ kind: 'ready', jobs, customerNames: Object.fromEntries(nextCustomers.map((customer) => [customer.id, customer.name])) }); }
     }).catch((caught) => {
       if (!active) return;

@@ -4,7 +4,7 @@ import {
   patchDeliveryItem, patchJobCard, removeDeliveryItem, requestJobCardRevision,
   startJobCard, submitJobCardForApproval,
   type DeliveryItem, type DeliveryPurpose, type JobCard, type JobCardActivity,
-  type JobCardStatus,
+  type JobCardListItem, type JobCardStatus,
 } from '../jobs/jobs-api';
 
 export {
@@ -20,6 +20,15 @@ export type CurrentUser = { id: string; organizationId: string; name: string; em
 /** @deprecated Use JobCardActivity from jobs/jobs-api. */
 export type Activity = { id: string; jobCardId: string; actorId: string | null; eventType: string; oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: string };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
+export type LegacyWorkspaceJob = Pick<
+  JobCardListItem,
+  | 'id' | 'type' | 'status' | 'version' | 'title' | 'priority' | 'dueDate'
+  | 'createdAt' | 'updatedAt' | 'staffCompletedAt' | 'deliveryItemCount'
+> & {
+  customerId: string | null; customerName: string | null;
+  contactId: string | null; contactName: string | null;
+  assignedTo: string; assigneeName: string;
+};
 
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string,
@@ -91,10 +100,19 @@ export async function changePassword(input: { currentPassword: string; newPasswo
 export async function listReferenceCustomers() {
   return items(await request('/api/reference/customers')).map((entry) => { const v = object(entry); return { id: string(v.id, 'id'), name: string(v.name, 'name'), customerType: string(v.customerType, 'customerType'), status: string(v.status, 'status') }; });
 }
-/** @deprecated The legacy workspace is migrated to the paginated projection in Task 10. */
-export async function listJobCards() {
-  return (await listJobCardsPage()).items as unknown as JobCard[];
+/** @deprecated Remove when Task 10 migrates the workspace to the paginated projection. */
+export async function listLegacyWorkspaceJobs(): Promise<LegacyWorkspaceJob[]> {
+  return (await listJobCardsPage()).items.map((item) => ({
+    id: item.id, type: item.type, status: item.status, version: item.version,
+    title: item.title, priority: item.priority, dueDate: item.dueDate,
+    createdAt: item.createdAt, updatedAt: item.updatedAt, staffCompletedAt: item.staffCompletedAt,
+    customerId: item.customer?.id ?? null, customerName: item.customer?.name ?? null,
+    contactId: item.contact?.id ?? null, contactName: item.contact?.name ?? null,
+    assignedTo: item.assignee.id, assigneeName: item.assignee.name,
+    deliveryItemCount: item.deliveryItemCount,
+  }));
 }
+/** @deprecated Remove when Task 12 migrates detail activity to JobCardActivity pages. */
 export async function listActivity(jobId: string): Promise<Activity[]> {
   return (await listActivityPage(jobId)).items.map((activity: JobCardActivity) => ({
     id: activity.id, jobCardId: activity.jobCardId, actorId: activity.actor?.id ?? null,
