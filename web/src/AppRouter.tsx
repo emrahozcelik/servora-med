@@ -8,7 +8,8 @@ import { JobDetailScreen } from './JobDetail';
 import { StaffProfilesScreen } from './StaffProfiles';
 import { UserManagementScreen } from './UserManagement';
 import { ProductCreateScreen } from './ProductForm';
-import { ProductDetailScreen, ProductListScreen } from './ProductList';
+import { ProductDetailScreen } from './ProductDetail';
+import { ProductListScreen } from './ProductList';
 import { paths } from './paths';
 import type { CurrentUser, JobCard, ReferenceCustomer, ReferenceProduct } from './services/api';
 
@@ -116,10 +117,10 @@ export function ContactRoute({ user }: Pick<AppRouterProps, 'user'>) {
   return <ContactDetailScreen key={`${customerId}:${contactId}`} customerId={customerId} contactId={contactId} canManage={user.role !== 'STAFF'} />;
 }
 
-function ProductRoute() {
+function ProductRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { productId } = useParams();
   if (!productId) return <NotFoundView />;
-  return <ProductDetailScreen key={productId} productId={productId} />;
+  return <ProductDetailScreen key={productId} productId={productId} user={user} />;
 }
 
 export function AppRouter({ user, workspace, customers, products, notice, onReload, onClearNotice, onDeliveryCreated }: AppRouterProps) {
@@ -154,7 +155,7 @@ export function AppRouter({ user, workspace, customers, products, notice, onRelo
       <Route path={paths.products} element={<ProductListScreen user={user} />} />
       <Route path={paths.newProduct} element={user.role === 'STAFF' ? <ForbiddenView />
         : <ProductCreateScreen onCancel={() => navigate(paths.products)} onCreated={(product) => navigate(paths.product(product.id))} />} />
-      <Route path="/products/:productId" element={<ProductRoute />} />
+      <Route path="/products/:productId" element={<ProductRoute user={user} />} />
       <Route path="*" element={<NotFoundView />} />
     </Routes>
   </>;

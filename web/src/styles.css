@@ -240,6 +240,17 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .product-form { margin-top: 1.5rem; }
 .product-form-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 0 1rem; }
 .product-detail-facts { max-width: 32rem; margin-top: 2rem; padding-block: 1rem; border-block: 1px solid var(--rule); }
+.product-detail { width: min(100% - 2rem, 52rem); margin: 1.5rem auto 4rem; }
+.product-version { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.product-detail .product-detail-facts { max-width: none; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+.destructive-button { min-width: 7rem; min-height: 2.75rem; padding: 0.68rem 1rem; border: 1px solid oklch(68% 0.1 28deg); border-radius: 0.6rem; color: var(--error); background: var(--paper); font-weight: 700; }
+.destructive-button:hover:not(:disabled) { background: var(--error-soft); }
+.product-edit-conflict { width: min(100% - 2rem, 48rem); margin: 1.5rem auto 0; }
+.product-dialog-backdrop { position: fixed; z-index: 20; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(26% 0.016 246deg / 45%); }
+.product-dialog { width: min(100%, 30rem); padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.7rem; background: var(--paper); }
+.product-dialog h2 { margin: 0; font-size: 1.25rem; }
+.product-dialog p { color: var(--muted); line-height: 1.55; }
+.product-dialog-actions { display: flex; justify-content: flex-end; gap: 0.75rem; margin-top: 1.5rem; }
 
 @media (max-width: 720px) {
   .login-layout { display: block; }
@@ -286,6 +297,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .product-row { grid-template-columns: 1fr; gap: 0.9rem; padding-block: 1.1rem; }
   .product-form-pair { grid-template-columns: 1fr; }
   .product-open { width: 100%; }
+  .product-detail .product-detail-facts { grid-template-columns: 1fr; }
+  .product-dialog-actions { align-items: stretch; flex-direction: column-reverse; }
+  .product-dialog-actions button { width: 100%; }
   .contact-open { width: 100%; }
   .record-commands > div { align-items: stretch; flex-direction: column; }
   .record-commands button { width: 100%; }
