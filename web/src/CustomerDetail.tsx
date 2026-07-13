@@ -75,10 +75,11 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave }: { custo
     <button className="primary-button compact-button" disabled={pending || blocked}>Bilgileri kaydet</button></form>;
 }
 
-export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, errorRef, onBack, onSave, onLifecycle, onCreateContact, onReloadCurrent }: {
+export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, errorRef, createContactButtonRef, onBack, onSave, onLifecycle, onCreateContact, onReloadCurrent }: {
   customer: CustomerDetail; user: CurrentUser; staff: StaffProfile[]; pending: boolean; error: string; notice: string;
-  conflict?: boolean;
+  conflict?: boolean; formRevision?: number;
   errorRef?: RefObject<HTMLDivElement | null>;
+  createContactButtonRef?: RefObject<HTMLButtonElement | null>;
   onBack: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onLifecycle: (action: 'activate' | 'deactivate', trigger?: HTMLButtonElement) => void; onCreateContact: () => void;
   onReloadCurrent?: () => void;
 }) {
@@ -89,11 +90,11 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
     <section className="record-section" aria-labelledby="general-title"><div className="section-heading"><h2 id="general-title">Genel bilgiler</h2><span>Sürüm {customer.version}</span></div>
-      {canManage ? <CustomerEditForm key={customer.version} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} /> : <CustomerFacts customer={customer} />}</section>
+      {canManage ? <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} /> : <CustomerFacts customer={customer} />}</section>
     {canManage && <section className="record-section record-commands" aria-labelledby="customer-status-title"><h2 id="customer-status-title">Müşteri durumu</h2><p>Durum değişikliği iş ve ilgili kişi oluşturma kurallarını etkiler.</p>
       <button className="secondary-button" type="button" disabled={pending || conflict} onClick={(event) => onLifecycle(customer.status === 'inactive' ? 'activate' : 'deactivate', event.currentTarget)}>
         {customer.status === 'inactive' ? 'Müşteriyi aktifleştir' : 'Müşteriyi pasifleştir'}</button></section>}
-    <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage} onRetry={() => {}} onCreate={onCreateContact} />
+    <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage} createButtonRef={createContactButtonRef} onRetry={() => {}} onCreate={onCreateContact} />
     <div className="job-summary-grid"><JobSummaries title="Açık işler" jobs={customer.openJobs} /><JobSummaries title="Tamamlanan işler" jobs={customer.completedJobs} /></div>
   </main>;
 }
@@ -101,14 +102,14 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
 export function CustomerDetailScreen({ customerId, user }: { customerId: string; user: CurrentUser }) {
   const navigate = useNavigate(); const [customer, setCustomer] = useState<CustomerDetail | null>(null); const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true); const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
-  const [conflict, setConflict] = useState(false); const [creatingContact, setCreatingContact] = useState(false); const [contactError, setContactError] = useState('');
-  const errorRef = useRef<HTMLDivElement>(null); const requestGate = useRef(createRequestGate());
+  const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0); const [creatingContact, setCreatingContact] = useState(false); const [contactError, setContactError] = useState('');
+  const errorRef = useRef<HTMLDivElement>(null); const createContactButtonRef = useRef<HTMLButtonElement>(null); const requestGate = useRef(createRequestGate());
   async function load() {
     const generation = requestGate.current.next(); setLoading(true); setCustomer(null); setError(''); setNotice(''); setConflict(false);
     try {
       const [record, profiles] = await Promise.all([getCustomer(customerId), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')]);
       if (!requestGate.current.isCurrent(generation)) return;
-      setCustomer(record); setStaff(profiles);
+      setCustomer(record); setStaff(profiles); setFormRevision((revision) => revision + 1);
     } catch (caught) {
       if (requestGate.current.isCurrent(generation)) setError(caught instanceof Error ? caught.message : 'Müşteri yüklenemedi.');
     } finally {
@@ -124,7 +125,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
     try {
       const updated = await updateCustomer(customerId, customerFieldsFromFormData(new FormData(event.currentTarget), customer!.version));
       if (!requestGate.current.isCurrent(generation)) return;
-      setCustomer(mergeCustomerDetailUpdate(customer!, updated, staff)); setNotice('Müşteri bilgileri güncellendi.');
+      setCustomer(mergeCustomerDetailUpdate(customer!, updated, staff)); setFormRevision((revision) => revision + 1); setNotice('Müşteri bilgileri güncellendi.');
     } catch (caught) {
       if (!requestGate.current.isCurrent(generation)) return;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') setConflict(true);
@@ -154,8 +155,8 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       if (requestGate.current.isCurrent(generation)) setContactError(caught instanceof Error ? caught.message : 'İlgili kişi eklenemedi.');
     } finally { if (requestGate.current.isCurrent(generation)) setPending(false); }
   }
-  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} errorRef={errorRef}
+  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} errorRef={errorRef} createContactButtonRef={createContactButtonRef}
     onBack={() => navigate(paths.customers)} onSave={(event) => void save(event)} onLifecycle={(action, trigger) => void lifecycle(action, trigger)} onCreateContact={() => setCreatingContact(true)}
     onReloadCurrent={() => void load()} />
-    {creatingContact && <div className="customer-detail"><ContactCreateForm pending={pending} error={contactError} onCancel={() => setCreatingContact(false)} onSubmit={(event) => void createContactRecord(event)} /></div>}</>;
+    {creatingContact && <div className="customer-detail"><ContactCreateForm pending={pending} error={contactError} onCancel={() => { setCreatingContact(false); window.setTimeout(() => createContactButtonRef.current?.focus(), 0); }} onSubmit={(event) => void createContactRecord(event)} /></div>}</>;
 }

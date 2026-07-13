@@ -102,16 +102,16 @@ function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
     onOpenProfile={(id) => navigate(paths.staffProfile(id))} onProfileBack={() => navigate(paths.staff)} />;
 }
 
-function CustomerRoute({ user }: Pick<AppRouterProps, 'user'>) {
+export function CustomerRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { customerId } = useParams();
   if (!customerId) return <NotFoundView />;
-  return <CustomerDetailScreen customerId={customerId} user={user} />;
+  return <CustomerDetailScreen key={customerId} customerId={customerId} user={user} />;
 }
 
-function ContactRoute({ user }: Pick<AppRouterProps, 'user'>) {
+export function ContactRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { customerId, contactId } = useParams();
   if (!customerId || !contactId) return <NotFoundView />;
-  return <ContactDetailScreen customerId={customerId} contactId={contactId} canManage={user.role !== 'STAFF'} />;
+  return <ContactDetailScreen key={`${customerId}:${contactId}`} customerId={customerId} contactId={contactId} canManage={user.role !== 'STAFF'} />;
 }
 
 export function AppRouter({ user, workspace, customers, products, notice, onReload, onClearNotice, onDeliveryCreated }: AppRouterProps) {

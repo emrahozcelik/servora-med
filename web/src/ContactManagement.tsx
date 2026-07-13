@@ -14,15 +14,16 @@ export type ContactListState =
   | { kind: 'ready'; contacts: Contact[] }
   | { kind: 'error'; message: string; retryable: boolean };
 
-export function ContactListView({ state, canManage, onRetry, onCreate }: {
+export function ContactListView({ state, canManage, createButtonRef, onRetry, onCreate }: {
   state: ContactListState;
   canManage: boolean;
+  createButtonRef?: RefObject<HTMLButtonElement | null>;
   onRetry: () => void;
   onCreate: () => void;
 }) {
   return <section className="contact-section" aria-labelledby="contacts-title">
     <div className="section-heading"><h2 id="contacts-title">İlgili kişiler</h2>
-      {canManage && <button className="secondary-button" type="button" onClick={onCreate}>İlgili kişi ekle</button>}</div>
+      {canManage && <button className="secondary-button" type="button" ref={createButtonRef} onClick={onCreate}>İlgili kişi ekle</button>}</div>
     {state.kind === 'loading' && <div className="contact-loading" aria-busy="true" aria-live="polite">İlgili kişiler yükleniyor</div>}
     {state.kind === 'error' && <div className="workspace-message" role="alert"><h3>İlgili kişiler yüklenemedi</h3><p>{state.message}</p>
       {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}</div>}
@@ -69,9 +70,9 @@ export function ContactCreateForm({ pending, error, onCancel, onSubmit }: {
   </section>;
 }
 
-export function ContactDetailView({ contact, customerName, pending, error, notice, conflict = false, canManage = true, errorRef, commandsRef, onBack, onSave, onLifecycle, onMakePrimary, onReloadCurrent }: {
+export function ContactDetailView({ contact, customerName, pending, error, notice, conflict = false, formRevision = 0, canManage = true, errorRef, commandsRef, onBack, onSave, onLifecycle, onMakePrimary, onReloadCurrent }: {
   contact: Contact; customerName: string; pending: boolean; error: string; notice: string;
-  conflict?: boolean;
+  conflict?: boolean; formRevision?: number;
   canManage?: boolean;
   errorRef?: RefObject<HTMLDivElement | null>;
   commandsRef?: RefObject<HTMLElement | null>;
@@ -87,7 +88,7 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
     <section className="record-section" aria-labelledby="contact-fields-title"><h2 id="contact-fields-title">İlgili kişi bilgileri</h2>
-      {canManage ? <form key={contact.version} onSubmit={onSave}><label className="field-group" htmlFor="contact-name">Ad soyad<input id="contact-name" name="name" defaultValue={contact.name} required disabled={pending} /></label>
+      {canManage ? <form key={`${contact.id}:${formRevision}`} onSubmit={onSave}><label className="field-group" htmlFor="contact-name">Ad soyad<input id="contact-name" name="name" defaultValue={contact.name} required disabled={pending} /></label>
         <label className="field-group" htmlFor="contact-title">Görev veya unvan<input id="contact-title" name="title" defaultValue={contact.title ?? ''} disabled={pending} /></label>
         <div className="customer-form-pair"><label className="field-group" htmlFor="contact-phone">Telefon<input id="contact-phone" name="phone" type="tel" defaultValue={contact.phone ?? ''} disabled={pending} /></label>
           <label className="field-group" htmlFor="contact-email">E-posta<input id="contact-email" name="email" type="email" defaultValue={contact.email ?? ''} disabled={pending} /></label></div>
@@ -106,14 +107,14 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
 
 export function ContactDetailScreen({ customerId, contactId, canManage }: { customerId: string; contactId: string; canManage: boolean }) {
   const navigate = useNavigate(); const [contact, setContact] = useState<Contact | null>(null); const [customerName, setCustomerName] = useState('Müşteri'); const [loading, setLoading] = useState(true);
-  const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [conflict, setConflict] = useState(false);
+  const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0);
   const errorRef = useRef<HTMLDivElement>(null); const commandsRef = useRef<HTMLElement>(null); const requestGate = useRef(createRequestGate());
   async function load() {
     const generation = requestGate.current.next(); setLoading(true); setContact(null); setError(''); setNotice(''); setConflict(false);
     try {
       const [nextContact, customer] = await Promise.all([getContact(customerId, contactId), getCustomer(customerId)]);
       if (!requestGate.current.isCurrent(generation)) return;
-      setContact(nextContact); setCustomerName(customer.name);
+      setContact(nextContact); setCustomerName(customer.name); setFormRevision((revision) => revision + 1);
     } catch (caught) {
       if (requestGate.current.isCurrent(generation)) setError(caught instanceof Error ? caught.message : 'İlgili kişi yüklenemedi.');
     } finally {
@@ -129,7 +130,7 @@ export function ContactDetailScreen({ customerId, contactId, canManage }: { cust
     try {
       const updated = await updateContact(customerId, contactId, contactFieldsFromFormData(new FormData(event.currentTarget), contact!.version));
       if (!requestGate.current.isCurrent(generation)) return;
-      setContact(updated); setNotice('İlgili kişi bilgileri güncellendi.');
+      setContact(updated); setFormRevision((revision) => revision + 1); setNotice('İlgili kişi bilgileri güncellendi.');
     } catch (caught) {
       if (!requestGate.current.isCurrent(generation)) return;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') setConflict(true);
@@ -167,7 +168,7 @@ export function ContactDetailScreen({ customerId, contactId, canManage }: { cust
       }
     }
   }
-  return <ContactDetailView contact={contact} customerName={customerName} pending={pending} error={error} notice={notice} conflict={conflict} canManage={canManage} errorRef={errorRef} commandsRef={commandsRef}
+  return <ContactDetailView contact={contact} customerName={customerName} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} canManage={canManage} errorRef={errorRef} commandsRef={commandsRef}
     onBack={() => navigate(paths.customer(customerId))} onSave={(event) => void save(event)} onLifecycle={(action, trigger) => void lifecycle(action, trigger)} onMakePrimary={(trigger) => void makePrimary(trigger)}
     onReloadCurrent={() => void load()} />;
 }
