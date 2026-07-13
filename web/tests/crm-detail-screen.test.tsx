@@ -106,6 +106,19 @@ describe('CRM detail screen concurrency', () => {
     expect(container.textContent).toContain('Müşteri pasifleştirildi.');
   });
 
+  it('returns focus to the Contact create trigger after a successful inline create', async () => {
+    vi.useFakeTimers(); crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik'));
+    crm.createContact.mockResolvedValue(contact('contact-3', 'Dr. Deniz'));
+    const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-1'] });
+    await act(async () => root.render(<RouterProvider router={router} />)); await settle();
+    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'İlgili kişi ekle')!;
+    await act(async () => trigger.click());
+    const name = container.querySelector('#new-contact-name') as HTMLInputElement; name.value = 'Dr. Deniz';
+    await act(async () => (container.querySelector('.inline-record-form form') as HTMLFormElement).requestSubmit()); await settle();
+    await act(async () => vi.runAllTimers());
+    expect(document.activeElement).toBe(trigger); expect(container.textContent).toContain('İlgili kişi eklendi.');
+  });
+
   it('moves focus to the permanent command region after make-primary removes its trigger', async () => {
     vi.useFakeTimers();
     const secondary = contact('contact-2', 'Selin Ak');

@@ -150,7 +150,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
     try {
       const created = await addContact(customerId, new FormData(event.currentTarget));
       if (!requestGate.current.isCurrent(generation)) return;
-      setCustomer({ ...customer!, contacts: [...customer!.contacts.map((contact) => created.isPrimary ? { ...contact, isPrimary: false } : contact), created], primaryContact: created.isPrimary ? { id: created.id, name: created.name, title: created.title } : customer!.primaryContact }); setCreatingContact(false); setNotice('İlgili kişi eklendi.');
+      setCustomer({ ...customer!, contacts: [...customer!.contacts.map((contact) => created.isPrimary ? { ...contact, isPrimary: false } : contact), created], primaryContact: created.isPrimary ? { id: created.id, name: created.name, title: created.title } : customer!.primaryContact }); setCreatingContact(false); setNotice('İlgili kişi eklendi.'); window.setTimeout(() => createContactButtonRef.current?.focus(), 0);
     } catch (caught) {
       if (requestGate.current.isCurrent(generation)) setContactError(caught instanceof Error ? caught.message : 'İlgili kişi eklenemedi.');
     } finally { if (requestGate.current.isCurrent(generation)) setPending(false); }
