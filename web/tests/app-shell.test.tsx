@@ -101,11 +101,23 @@ describe('responsive authenticated AppShell', () => {
 
   it('closes the drawer when a destination changes the route', async () => {
     await render(manager, false);
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!.click());
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    await act(async () => trigger.click());
     const customers = Array.from(container.querySelectorAll<HTMLAnchorElement>('[role="dialog"] a'))
       .find((link) => link.textContent === 'Müşteriler')!;
     await act(async () => customers.click());
     expect(container.querySelector('[role="dialog"]')).toBeNull();
     expect(container.querySelector('[data-location]')?.textContent).toBe('/customers');
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('locks body scrolling only while the compact drawer is open', async () => {
+    await render(manager, false);
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    await act(async () => trigger.click());
+    expect(document.body.style.overflow).toBe('hidden');
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(document.body.style.overflow).toBe('');
   });
 });

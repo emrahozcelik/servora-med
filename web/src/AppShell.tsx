@@ -156,7 +156,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
               <h2 id="app-navigation-title">Menü</h2>
               <button className="drawer-close" type="button" aria-label="Menüyü kapat" onClick={() => closeDrawer(true)}>Kapat</button>
             </div>
-            <Navigation user={user} onNavigate={() => closeDrawer(false)} />
+            <Navigation user={user} onNavigate={() => closeDrawer(true)} />
             <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
           </div>
         </div>

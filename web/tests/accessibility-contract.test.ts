@@ -59,4 +59,9 @@ describe('shared accessibility CSS contract', () => {
     expect(css).not.toMatch(/\.shell-sidebar[^}]*backdrop-filter|\.shell-drawer[^}]*backdrop-filter/);
     expect(css).toMatch(/\.shell-drawer \{[^}]*box-shadow:/);
   });
+
+  it('keeps compact and desktop shell controls reachable in short or zoomed viewports', () => {
+    expect(css).toMatch(/\.shell-drawer \{[^}]*block-size: 100dvh;[^}]*max-block-size: 100vh;[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
+    expect(css).toMatch(/\.shell-sidebar \{[^}]*max-block-size: 100vh;[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
+  });
 });
