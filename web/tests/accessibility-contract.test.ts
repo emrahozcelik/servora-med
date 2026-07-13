@@ -11,6 +11,7 @@ beforeAll(async () => {
 describe('shared accessibility CSS contract', () => {
   it('keeps primary controls at least 44 CSS px tall', () => {
     expect(css).toMatch(/button, input \{ min-height: 2\.75rem; \}/);
+    expect(css).toMatch(/\.primary-button, \.secondary-button \{[^}]*display: inline-flex;[^}]*min-height: 2\.75rem;/);
   });
 
   it('provides a visible focus indicator independent of color fill', () => {

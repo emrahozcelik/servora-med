@@ -48,7 +48,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .field-group input:hover, .field-group select:hover, .field-group textarea:hover { border-color: oklch(60% 0.03 240deg); }
 .field-group input:focus, .field-group select:focus, .field-group textarea:focus { border-color: var(--accent); }
 .field-group input:disabled, .field-group select:disabled, .field-group textarea:disabled { background: var(--canvas); }
-.primary-button, .secondary-button { min-width: 7rem; padding: 0.68rem 1rem; border-radius: 0.6rem; font-weight: 700; }
+.primary-button, .secondary-button { display: inline-flex; align-items: center; justify-content: center; min-width: 7rem; min-height: 2.75rem; padding: 0.68rem 1rem; border-radius: 0.6rem; font-weight: 700; }
 .primary-button { width: 100%; margin-top: 1.5rem; border: 1px solid var(--accent); color: var(--paper); background: var(--accent); }
 .primary-button:hover:not(:disabled) { background: var(--accent-hover); }
 .secondary-button { border: 1px solid var(--rule); color: var(--ink); background: var(--paper); }
