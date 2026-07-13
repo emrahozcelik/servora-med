@@ -78,4 +78,10 @@ describe('application routes', () => {
     expect(render('/jobs', manager)).toContain('href="/products"');
     expect(render('/jobs', admin)).toContain('href="/products"');
   });
+
+  it('marks the active shell destination without weakening direct-route authorization', () => {
+    const html = render('/products', staff);
+    expect(html).toMatch(/aria-current="page"[^>]*href="\/products"/);
+    expect(render('/users', staff)).toContain('Bu alana erişim yetkiniz yok');
+  });
 });

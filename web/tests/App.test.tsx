@@ -31,5 +31,7 @@ describe('App', () => {
     expect(html).toContain('Onay kuyruğu');
     expect(html).toContain('Oturumu kapat');
     expect(html).toContain('Onay bekleyen işler yükleniyor');
+    expect(html).toContain('<aside');
+    expect(html).toContain('aria-label="Ana navigasyon"');
   });
 });

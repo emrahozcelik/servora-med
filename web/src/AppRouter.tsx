@@ -125,15 +125,6 @@ function ProductRoute({ user }: Pick<AppRouterProps, 'user'>) {
 export function AppRouter({ user, workspace, customers, notice, onReload, onClearNotice, onDeliveryCreated }: AppRouterProps) {
   const navigate = useNavigate();
   return <>
-    <nav className="section-nav" aria-label="Çalışma alanları">
-      <Link className="secondary-button" to={paths.jobs}>İşler</Link>
-      <Link className="secondary-button" to={paths.customers}>Müşteriler</Link>
-      <Link className="secondary-button" to={paths.products}>Ürünler</Link>
-      {user.role === 'ADMIN' && <Link className="secondary-button" to={paths.users}>Kullanıcılar</Link>}
-      <Link className="secondary-button" to={user.role === 'STAFF' ? paths.staffProfile(user.id) : paths.staff}>
-        {user.role === 'STAFF' ? 'Profilim' : 'Personel'}
-      </Link>
-    </nav>
     <Routes>
       <Route path="/" element={<Navigate to={paths.jobs} replace />} />
       <Route path="/login" element={<Navigate to={paths.jobs} replace />} />

@@ -21,8 +21,7 @@ describe('shared accessibility CSS contract', () => {
   it('has a structural mobile breakpoint and single-column detail/form reflow', () => {
     expect(css).toMatch(/body \{[^}]*min-width: 0;/);
     expect(css).toContain('@media (max-width: 720px)');
-    expect(css).toMatch(/\.app-header \{[^}]*flex-wrap: wrap;/);
-    expect(css).toMatch(/\.account-area \{[^}]*flex-shrink: 0;/);
+    expect(css).toMatch(/\.compact-shell-header \{[^}]*display: flex;/);
     expect(css).toMatch(/\.detail-heading \{[^}]*flex-wrap: wrap;/);
     expect(css).toMatch(/\.delivery-pair \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.delivery-lines > ul > li \{ grid-template-columns: 1fr;/);
@@ -44,5 +43,20 @@ describe('shared accessibility CSS contract', () => {
   it('honors reduced-motion preference', () => {
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('animation-duration: 0.01ms !important');
+  });
+
+  it('defines the 64rem shell structure, 44px targets, and no page overflow', () => {
+    expect(css).toContain('@media (min-width: 64rem)');
+    expect(css).toMatch(/\.shell-menu-button, \.shell-nav a, \.shell-signout, \.drawer-close \{[^}]*min-width: 2\.75rem;[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.authenticated-shell \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/\.shell-content \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/body \{[^}]*overflow-x: clip;/);
+  });
+
+  it('keeps the shell flat and restrained while elevating only the modal drawer', () => {
+    expect(css).not.toMatch(/\.shell-sidebar[^}]*box-shadow/);
+    expect(css).not.toMatch(/\.authenticated-shell[^}]*gradient|\.shell-sidebar[^}]*gradient/);
+    expect(css).not.toMatch(/\.shell-sidebar[^}]*backdrop-filter|\.shell-drawer[^}]*backdrop-filter/);
+    expect(css).toMatch(/\.shell-drawer \{[^}]*box-shadow:/);
   });
 });

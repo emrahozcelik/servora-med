@@ -1,17 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { AppRouter, type WorkspaceState } from './AppRouter';
+import { AppShell, BrandMark } from './AppShell';
 import { PasswordChangeScreen } from './PasswordChange';
 import { ApiError, getCurrentUser, listLegacyWorkspaceJobs, listReferenceCustomers, login, logout, type CurrentUser, type ReferenceCustomer } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
 
-const roleLabels = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
 export { WorkspaceView, type WorkspaceState } from './AppRouter';
-
-function BrandMark() {
-  return <span className="brand-mark" aria-hidden="true">S</span>;
-}
 
 function LoadingScreen() {
   return (
@@ -111,22 +107,13 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Oturum kapatılamadı.'); setPending(false); }
   }
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div className="brand-lockup"><BrandMark /><span>Servora-Med</span></div>
-        <div className="account-area">
-          <div><strong>{user.name}</strong><span>{roleLabels[user.role]}</span></div>
-          <button className="secondary-button" type="button" onClick={signOut} disabled={pending}>
-            {pending ? 'Kapatılıyor…' : 'Oturumu kapat'}
-          </button>
-        </div>
-      </header>
+    <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
       <AppRouter user={user} workspace={workspace} customers={customers}
         notice={notice} onClearNotice={() => setNotice('')}
         onReload={() => setReloadKey((value) => value + 1)}
         onDeliveryCreated={() => { setNotice('Teslim kaydı oluşturuldu.'); setReloadKey((value) => value + 1); }} />
       {error && <div className="shell-error form-error" role="alert">{error}</div>}
-    </div>
+    </AppShell>
   );
 }
 
