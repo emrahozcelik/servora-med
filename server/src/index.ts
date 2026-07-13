@@ -13,6 +13,7 @@ import {
 import { PostgresPeopleRepository } from './modules/people/repository.js';
 import { PostgresCustomerAssignmentCleanup } from './modules/crm/people-adapter.js';
 import { PostgresCrmRepository } from './modules/crm/repository.js';
+import { PostgresProductRepository } from './modules/products/repository.js';
 
 async function main() {
   const config = loadConfig();
@@ -25,6 +26,7 @@ async function main() {
     jobCardRepository: new PostgresJobCardRepository(database.pool),
     peopleRepository: new PostgresPeopleRepository(database.pool, credentials, sessions, customerAssignments),
     crmRepository: new PostgresCrmRepository(database.pool),
+    productRepository: new PostgresProductRepository(database.pool),
   });
   const migrationsDirectory = fileURLToPath(new URL('./db/migrations/', import.meta.url));
   let shuttingDown = false;

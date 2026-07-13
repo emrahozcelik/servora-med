@@ -54,4 +54,11 @@ describe('AppDependencies', () => {
     const dependencies = { crmRepository: {} as AppDependencies['crmRepository'] } satisfies AppDependencies;
     expect(dependencies.crmRepository).toBeDefined();
   });
+
+  it('accepts the optional Product repository dependency', () => {
+    const dependencies = {
+      productRepository: {} as AppDependencies['productRepository'],
+    } satisfies AppDependencies;
+    expect(dependencies.productRepository).toBeDefined();
+  });
 });
