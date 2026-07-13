@@ -4,7 +4,7 @@ CREATE TABLE job_card_notes (
   job_card_id UUID NOT NULL,
   author_id UUID NOT NULL,
   note TEXT NOT NULL
-    CHECK (length(btrim(note, E' \t\n\r\f\v' || chr(160) || chr(8232) || chr(8233))) > 0),
+    CHECK (length(btrim(note, E' \t\n\r\f' || chr(11) || chr(160) || chr(8232) || chr(8233))) > 0),
   created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   UNIQUE (organization_id, id),
   FOREIGN KEY (organization_id, job_card_id)

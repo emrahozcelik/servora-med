@@ -18,7 +18,7 @@ describe('006 JobCard workspace migration', () => {
 
   it('rejects the approved whitespace set without stripping arbitrary format characters', () => {
     expect(sql).toContain(
-      "CHECK (length(btrim(note, E' \\t\\n\\r\\f\\v' || chr(160) || chr(8232) || chr(8233))) > 0)",
+      "CHECK (length(btrim(note, E' \\t\\n\\r\\f' || chr(11) || chr(160) || chr(8232) || chr(8233))) > 0)",
     );
   });
 
@@ -201,7 +201,23 @@ describe.skipIf(!databaseUrl)('006 JobCard workspace PostgreSQL migration', () =
         [first.organizationId, firstJobCard.rows[0]!.id, first.userId, '\u200B'],
       )).resolves.toMatchObject({ rowCount: 1 });
 
-      const rejectedNotes = ['   ', '\t', '\n', '\u00A0', '\u2028', '\u2029'];
+      await expect(client.query(
+        `INSERT INTO job_card_notes (organization_id, job_card_id, author_id, note)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [first.organizationId, firstJobCard.rows[0]!.id, first.userId, 'v'],
+      )).resolves.toMatchObject({ rowCount: 1 });
+
+      const rejectedNotes = [
+        '   ',
+        '\t',
+        '\n',
+        '\r',
+        '\f',
+        '\v',
+        '\u00A0',
+        '\u2028',
+        '\u2029',
+      ];
       for (const [index, note] of rejectedNotes.entries()) {
         const savepoint = `blank_note_${index}`;
         await client.query(`SAVEPOINT ${savepoint}`);
