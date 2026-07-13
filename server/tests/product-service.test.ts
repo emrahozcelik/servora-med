@@ -103,6 +103,24 @@ describe('Product service policy', () => {
       .rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
+  it.each([
+    ['name', 'x'.repeat(256), 'Ürün adı en fazla 255 karakter olabilir.'],
+    ['sku', 'x'.repeat(101), 'SKU en fazla 100 karakter olabilir.'],
+    ['brand', 'x'.repeat(101), 'Marka en fazla 100 karakter olabilir.'],
+    ['category', 'x'.repeat(101), 'Kategori en fazla 100 karakter olabilir.'],
+    ['model', 'x'.repeat(101), 'Model en fazla 100 karakter olabilir.'],
+    ['unit', 'x'.repeat(31), 'Birim en fazla 30 karakter olabilir.'],
+  ] as const)('rejects %s values beyond the persistence limit with a field error', async (
+    field, value, message,
+  ) => {
+    const { service } = fixture();
+    await expect(service.createProduct(manager, { name: 'Ürün', [field]: value }))
+      .rejects.toMatchObject({
+        code: 'VALIDATION_ERROR', statusCode: 400,
+        details: { fieldErrors: { [field]: message } },
+      });
+  });
+
   it('normalizes omitted and empty optional text to null without changing SKU case or punctuation', async () => {
     const createdFixture = fixture();
     const created = await createdFixture.service.createProduct(manager, {
@@ -130,6 +148,17 @@ describe('Product service policy', () => {
         .rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
     },
   );
+
+  it('rejects a reference price beyond NUMERIC(12,2) with a field error', async () => {
+    await expect(fixture().service.createProduct(manager, {
+      name: 'Ürün', referencePrice: 10_000_000_000,
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR', statusCode: 400,
+      details: { fieldErrors: {
+        referencePrice: 'Referans fiyat en fazla 9999999999.99 olabilir.',
+      } },
+    });
+  });
 
   it('creates an active version-one Product and exactly one safe audit', async () => {
     const { service, audits } = fixture();

@@ -128,7 +128,8 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   const [lifecycleConflictVersion, setLifecycleConflictVersion] = useState<number | null | undefined>(undefined);
   const [lifecycleReloadError, setLifecycleReloadError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
-  const deactivateTriggerRef = useRef<HTMLButtonElement>(null);
+  const lifecycleActionRef = useRef<HTMLButtonElement>(null);
+  const [lifecycleFocusRequest, setLifecycleFocusRequest] = useState(0);
   const editErrorRef = useRef<HTMLDivElement>(null);
   const [editFocusTarget, setEditFocusTarget] = useState<'summary' | 'name' | 'referencePrice' | null>(null);
 
@@ -138,6 +139,10 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
     if (editFocusTarget === 'referencePrice') document.getElementById('product-reference-price')?.focus();
     if (editFocusTarget) setEditFocusTarget(null);
   }, [editFocusTarget, error, fieldErrors]);
+
+  useEffect(() => {
+    if (lifecycleFocusRequest > 0) lifecycleActionRef.current?.focus();
+  }, [lifecycleFocusRequest]);
 
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
@@ -215,6 +220,7 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
       setState({ kind: 'ready', product: updated });
       setFeedback(kind === 'activate' ? 'Ürün etkinleştirildi.' : 'Ürün pasifleştirildi.');
       setDialogOpen(false);
+      setLifecycleFocusRequest((value) => value + 1);
     } catch (caught) {
       const next = apiError(caught, 'Ürün durumu değiştirilemedi.');
       if (next.code === 'VERSION_CONFLICT') setLifecycleConflictVersion(safeCurrentVersion(next));
@@ -252,11 +258,11 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
       <p>Bilgileri güncelleyin veya ürünün yeni işlerde seçilebilirliğini yönetin.</p>
       <div><button className="secondary-button" type="button" onClick={() => { setEditing(true); setFeedback(''); setError(''); }} disabled={pending}>Ürünü düzenle</button>
         {product.isActive
-          ? <button className="destructive-button" type="button" ref={deactivateTriggerRef} onClick={() => setDialogOpen(true)} disabled={pending}>Pasifleştir</button>
-          : <button className="primary-button compact-button" type="button" onClick={() => void changeLifecycle('activate')} disabled={pending}>{pending ? 'Etkinleştiriliyor…' : 'Etkinleştir'}</button>}
+          ? <button className="destructive-button" type="button" ref={lifecycleActionRef} onClick={() => setDialogOpen(true)} disabled={pending}>Pasifleştir</button>
+          : <button className="primary-button compact-button" type="button" ref={lifecycleActionRef} onClick={() => void changeLifecycle('activate')} disabled={pending}>{pending ? 'Etkinleştiriliyor…' : 'Etkinleştir'}</button>}
       </div>
     </section>}
-    {dialogOpen && <DeactivateDialog product={product} pending={pending} trigger={deactivateTriggerRef}
+    {dialogOpen && <DeactivateDialog product={product} pending={pending} trigger={lifecycleActionRef}
       onCancel={() => setDialogOpen(false)} onConfirm={() => void changeLifecycle('deactivate')} />}
   </main>;
 }

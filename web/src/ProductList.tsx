@@ -3,9 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
-import {
-  getProduct, listProducts, type Paginated, type Product, type ProductFilters,
-} from './services/products-api';
+import { listProducts, type Paginated, type Product, type ProductFilters } from './services/products-api';
 
 const PAGE_SIZE = 25;
 
@@ -130,20 +128,4 @@ export function ProductListScreen({ user, load = listProducts }: {
     onFilterChange={(name, value) => setParams(updateProductSearchParams(params, name, value))}
     onOffsetChange={(offset) => setParams(updateProductSearchParams(params, 'offset', offset))}
     onRetry={() => setReload((value) => value + 1)} />;
-}
-
-type ProductDetailState = { kind: 'loading' } | { kind: 'ready'; product: Product } | { kind: 'error'; message: string };
-
-export function ProductDetailScreen({ productId, load = getProduct }: { productId: string; load?: typeof getProduct }) {
-  const [state, setState] = useState<ProductDetailState>({ kind: 'loading' });
-  useEffect(() => {
-    let active = true; setState({ kind: 'loading' });
-    load(productId).then((product) => { if (active) setState({ kind: 'ready', product }); })
-      .catch((caught) => { if (active) setState({ kind: 'error', message: caught instanceof Error ? caught.message : 'Ürün yüklenemedi.' }); });
-    return () => { active = false; };
-  }, [load, productId]);
-  if (state.kind === 'loading') return <main className="workspace product-workspace" aria-busy="true" aria-live="polite"><p className="eyebrow">Ürün kataloğu</p><h1>Ürün detayı yükleniyor</h1></main>;
-  if (state.kind === 'error') return <main className="workspace product-workspace"><div className="workspace-message" role="alert"><h1>Ürün yüklenemedi</h1><p>{state.message}</p></div></main>;
-  return <main className="workspace product-workspace"><p className="eyebrow">Ürün kataloğu</p><h1>{state.product.name}</h1>
-    <dl className="product-detail-facts"><div><dt>Durum</dt><dd>{state.product.isActive ? 'Aktif' : 'Pasif'}</dd></div><div><dt>SKU</dt><dd>{state.product.sku ?? 'Belirtilmedi'}</dd></div></dl></main>;
 }

@@ -22,6 +22,19 @@ describe('Product form', () => {
   beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
 
+  it('mirrors Product persistence limits in the form controls', async () => {
+    await act(async () => root.render(
+      <ProductCreateScreen onCancel={() => {}} onCreated={() => {}} />,
+    ));
+    expect(container.querySelector<HTMLInputElement>('[name="name"]')?.maxLength).toBe(255);
+    for (const field of ['sku', 'brand', 'category', 'model']) {
+      expect(container.querySelector<HTMLInputElement>(`[name="${field}"]`)?.maxLength).toBe(100);
+    }
+    expect(container.querySelector<HTMLInputElement>('[name="unit"]')?.maxLength).toBe(30);
+    expect(container.querySelector<HTMLInputElement>('[name="referencePrice"]')?.max)
+      .toBe('9999999999.99');
+  });
+
   it('marks only name required and labels every optional field explicitly', async () => {
     await act(async () => root.render(<ProductForm pending={false} fieldErrors={{}} error="" onCancel={() => {}} onSubmit={() => {}} />));
     const required = container.querySelectorAll('[required]');
@@ -39,6 +52,10 @@ describe('Product form', () => {
     expect(productInputFromFormData(data)).toEqual({ name: 'Dental İmplant', sku: null, brand: null, category: null, model: null, unit: null, referencePrice: null });
     data.set('referencePrice', '-1');
     expect(() => productInputFromFormData(data)).toThrow('Referans fiyat sıfırdan küçük olamaz.');
+    data.set('referencePrice', '10000000000');
+    expect(() => productInputFromFormData(data)).toThrow(
+      'Referans fiyat en fazla 9999999999.99 olabilir.',
+    );
   });
 
   it('associates a negative-price error and focuses the error summary', async () => {
@@ -77,5 +94,22 @@ describe('Product form', () => {
     const name = container.querySelector('#product-name') as HTMLInputElement; name.value = 'Ürün';
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(container.textContent).toContain('Bu ürün adı kullanılamaz.'); expect(document.activeElement).toBe(name);
+  });
+
+  it('associates and focuses an optional field rejected by server limits', async () => {
+    const create = vi.fn().mockRejectedValue(new ApiError(
+      400, 'VALIDATION_ERROR', 'Alanları kontrol edin.', false,
+      { fieldErrors: { sku: 'SKU en fazla 100 karakter olabilir.' } },
+    ));
+    await act(async () => root.render(
+      <ProductCreateScreen onCancel={() => {}} onCreated={() => {}} create={create} />,
+    ));
+    const name = container.querySelector<HTMLInputElement>('[name="name"]')!;
+    const sku = container.querySelector<HTMLInputElement>('[name="sku"]')!;
+    name.value = 'Ürün';
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(sku.getAttribute('aria-invalid')).toBe('true');
+    expect(sku.getAttribute('aria-describedby')).toContain('product-sku-error');
+    expect(document.activeElement).toBe(sku);
   });
 });

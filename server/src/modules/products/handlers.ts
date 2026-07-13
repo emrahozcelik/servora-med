@@ -13,6 +13,10 @@ function validation(message: string): never {
   throw new AppError('VALIDATION_ERROR', 400, message);
 }
 
+function fieldValidation(field: string, message: string): never {
+  throw new AppError('VALIDATION_ERROR', 400, message, { fieldErrors: { [field]: message } });
+}
+
 function actor(request: FastifyRequest): ProductActor {
   const user = request.currentUser!;
   return { id: user.id, organizationId: user.organizationId, role: user.role };
@@ -35,12 +39,16 @@ function body(request: FastifyRequest, allowed: readonly string[]) {
 }
 
 function requiredString(value: unknown, field: string) {
-  if (typeof value !== 'string' || !value.trim()) validation(`${field} alanı zorunludur.`);
+  if (typeof value !== 'string' || !value.trim()) {
+    fieldValidation(field, field === 'name' ? 'Ürün adı zorunludur.' : `${field} alanı zorunludur.`);
+  }
   return value as string;
 }
 
 function nullableString(value: unknown, field: string) {
-  if (value !== null && typeof value !== 'string') validation(`${field} metin veya null olmalıdır.`);
+  if (value !== null && typeof value !== 'string') {
+    fieldValidation(field, `${field} metin veya null olmalıdır.`);
+  }
   return value as string | null;
 }
 
@@ -52,7 +60,12 @@ function expectedVersion(value: unknown) {
 }
 
 function productId(request: FastifyRequest) {
-  return requiredString((request.params as { productId?: unknown }).productId, 'productId');
+  const value = (request.params as { productId?: unknown }).productId;
+  if (typeof value !== 'string'
+    || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) {
+    throw new AppError('PRODUCT_NOT_FOUND', 404, 'Ürün bulunamadı.');
+  }
+  return value;
 }
 
 function query(request: FastifyRequest) {
@@ -82,7 +95,7 @@ function supplied(value: Record<string, unknown>, field: string) {
 
 function referencePrice(value: unknown) {
   if (value !== null && typeof value !== 'number') {
-    validation('referencePrice sayı veya null olmalıdır.');
+    fieldValidation('referencePrice', 'referencePrice sayı veya null olmalıdır.');
   }
   return value as number | null;
 }

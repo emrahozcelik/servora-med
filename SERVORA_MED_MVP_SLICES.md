@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
 > Date: 2026-07-10  
-> Status: Living implementation order; verified through Slice 05
+> Status: Living implementation order; verified through Slice 06
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -325,6 +325,10 @@ lifecycle policy, optimistic concurrency, safe audit, searchable delivery select
 disposable PostgreSQL, full automated gates, and Playwright desktop/mobile/accessibility
 acceptance passed. The detailed evidence is in
 `docs/superpowers/plans/2026-07-13-product-catalog.md`.
+
+Post-review hardening aligned Product API/form limits with PostgreSQL, concealed malformed
+UUID paths as `PRODUCT_NOT_FOUND`, preserved focus across successful lifecycle changes,
+removed a duplicate unused detail component, and added PostgreSQL-backed GitHub Actions CI.
 
 ## 10. Slice 07: Notes, Timeline, and Kanban/List
 

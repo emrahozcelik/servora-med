@@ -833,6 +833,21 @@ server and 334 nodes/737 edges for the web client. The final scope scan found Pr
 stock/accounting terms only in explicit non-goals, rejection contracts, or legacy-schema
 explanations; no new placeholder was introduced.
 
+**Post-review hardening (2026-07-13):** Product API validation now mirrors PostgreSQL
+limits (`name` 255, SKU/brand/category/model 100, unit 30, and reference price up to
+`9999999999.99`) and returns field-scoped errors through `details.fieldErrors`. Malformed
+Product UUID paths return the organization-concealing `404 PRODUCT_NOT_FOUND` before a
+database query. Product forms mirror the limits, and successful activate/deactivate
+commands focus the replacement lifecycle action. The unused duplicate Product detail
+component was removed. The ordinary gates passed server 32 files/266 tests with 3 files/6
+PostgreSQL-gated tests skipped, web 24 files/162 tests, both builds, and both audits with
+zero vulnerabilities. A fresh disposable PostgreSQL run applied migrations 001–005 and
+passed all 35 server files/272 tests, including exact-boundary persistence and over-limit
+rejection. `.github/workflows/ci.yml` now runs the same server/web gates with PostgreSQL
+for pull requests and pushes to `main`.
+The persisted Codebase Memory artifacts were refreshed after these changes at 956
+nodes/2486 edges for the server and 488 nodes/1160 edges for the web client.
+
 ---
 
 ## Coverage Matrix

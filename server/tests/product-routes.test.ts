@@ -25,6 +25,7 @@ const config = {
   corsOrigin: 'https://app.example.com', sessionTtlSeconds: 28_800,
   loginRateLimitMax: 100, rateLimitWindowMs: 60_000,
 };
+const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
 
 class MemoryAuthRepository implements AuthRepository {
   sessions: SessionRecord[] = [];
@@ -51,7 +52,7 @@ class MemoryAuthRepository implements AuthRepository {
 
 function product(overrides: Partial<Product> = {}): Product {
   return {
-    id: 'product-1', organizationId: 'org-1', name: 'İmplant Seti', sku: 'IMP-1',
+    id: PRODUCT_ID, organizationId: 'org-1', name: 'İmplant Seti', sku: 'IMP-1',
     brand: 'Servora', category: 'İmplant', model: null, unit: 'set', referencePrice: 1250,
     isActive: true, version: 1, createdAt: new Date('2026-07-13T08:00:00.000Z'),
     updatedAt: new Date('2026-07-13T08:00:00.000Z'), ...overrides,
@@ -59,7 +60,7 @@ function product(overrides: Partial<Product> = {}): Product {
 }
 
 class MemoryProductRepository implements ProductRepository, ProductTransaction {
-  products = new Map<string, Product>([['product-1', product()]]);
+  products = new Map<string, Product>([[PRODUCT_ID, product()]]);
   filters: ProductFilters | null = null;
   audits: AppendProductAuditInput[] = [];
 
@@ -75,6 +76,7 @@ class MemoryProductRepository implements ProductRepository, ProductTransaction {
       total: items.length, limit: filters.limit, offset: filters.offset };
   }
   async getProduct(organizationId: string, productId: string) {
+    if (productId === 'not-a-uuid') throw new Error('invalid input syntax for type uuid');
     const current = this.products.get(productId);
     return current?.organizationId === organizationId ? current : null;
   }
@@ -141,16 +143,16 @@ describe('Product HTTP routes', () => {
     const routes = [
       ['GET', '/api/products', undefined],
       ['POST', '/api/products', { name: 'Cerrahi Frez' }],
-      ['GET', '/api/products/product-1', undefined],
-      ['PATCH', '/api/products/product-1', { expectedVersion: 1, name: 'Yeni Set' }],
-      ['POST', '/api/products/product-1/activate', { expectedVersion: 1 }],
-      ['POST', '/api/products/product-1/deactivate', { expectedVersion: 1 }],
+      ['GET', `/api/products/${PRODUCT_ID}`, undefined],
+      ['PATCH', `/api/products/${PRODUCT_ID}`, { expectedVersion: 1, name: 'Yeni Set' }],
+      ['POST', `/api/products/${PRODUCT_ID}/activate`, { expectedVersion: 1 }],
+      ['POST', `/api/products/${PRODUCT_ID}/deactivate`, { expectedVersion: 1 }],
     ] as const;
     for (const [method, url, payload] of routes) {
       const response = await app.inject({ method, url, payload, headers: { cookie } });
       expect(response.statusCode, `${method} ${url}`).not.toBe(404);
     }
-    expect((await app.inject({ method: 'DELETE', url: '/api/products/product-1',
+    expect((await app.inject({ method: 'DELETE', url: `/api/products/${PRODUCT_ID}`,
       headers: { cookie } })).statusCode).toBe(404);
 
     const routeApp = Fastify({ logger: false });
@@ -232,9 +234,28 @@ describe('Product HTTP routes', () => {
     }
   });
 
+  it('returns fieldErrors for field-level validation failures', async () => {
+    const { app, cookie } = await createApp();
+    const emptyName = await app.inject({ method: 'POST', url: '/api/products',
+      headers: { cookie }, payload: { name: '   ' } });
+    expect(emptyName.statusCode).toBe(400);
+    expect(emptyName.json()).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { name: 'Ürün adı zorunludur.' } },
+    });
+
+    const longSku = await app.inject({ method: 'POST', url: '/api/products',
+      headers: { cookie }, payload: { name: 'Ürün', sku: 'x'.repeat(101) } });
+    expect(longSku.statusCode).toBe(400);
+    expect(longSku.json()).toMatchObject({
+      code: 'VALIDATION_ERROR',
+      details: { fieldErrors: { sku: 'SKU en fazla 100 karakter olabilir.' } },
+    });
+  });
+
   it('accepts a partial patch without replacing omitted fields', async () => {
     const { app, cookie } = await createApp();
-    const response = await app.inject({ method: 'PATCH', url: '/api/products/product-1',
+    const response = await app.inject({ method: 'PATCH', url: `/api/products/${PRODUCT_ID}`,
       headers: { cookie }, payload: { expectedVersion: 1, sku: 'IMP-2' } });
     expect(response.statusCode).toBe(200);
     expect(response.json()).toMatchObject({ name: 'İmplant Seti', sku: 'IMP-2', brand: 'Servora' });
@@ -246,14 +267,14 @@ describe('Product HTTP routes', () => {
     { expectedVersion: 1, referencePrice: '10' }, { expectedVersion: 1, isActive: false },
   ])('rejects invalid or non-canonical patch bodies: %j', async (payload) => {
     const { app, cookie } = await createApp();
-    expect((await app.inject({ method: 'PATCH', url: '/api/products/product-1', payload,
+    expect((await app.inject({ method: 'PATCH', url: `/api/products/${PRODUCT_ID}`, payload,
       headers: { cookie } })).statusCode).toBe(400);
   });
 
   it.each([
-    ['/api/products/product-1/activate', {}],
-    ['/api/products/product-1/deactivate', { expectedVersion: 1, reason: 'duplicate' }],
-    ['/api/products/product-1/deactivate', { expectedVersion: -1 }],
+    [`/api/products/${PRODUCT_ID}/activate`, {}],
+    [`/api/products/${PRODUCT_ID}/deactivate`, { expectedVersion: 1, reason: 'duplicate' }],
+    [`/api/products/${PRODUCT_ID}/deactivate`, { expectedVersion: -1 }],
   ])('requires the exact lifecycle body for %s', async (url, payload) => {
     const { app, cookie } = await createApp();
     expect((await app.inject({ method: 'POST', url, payload,
@@ -264,13 +285,13 @@ describe('Product HTTP routes', () => {
     const { app, cookie } = await createApp('STAFF');
     expect((await app.inject({ method: 'GET', url: '/api/products',
       headers: { cookie } })).statusCode).toBe(200);
-    expect((await app.inject({ method: 'GET', url: '/api/products/product-1',
+    expect((await app.inject({ method: 'GET', url: `/api/products/${PRODUCT_ID}`,
       headers: { cookie } })).statusCode).toBe(200);
     const mutations = [
       ['POST', '/api/products', { name: 'Yetkisiz ürün' }],
-      ['PATCH', '/api/products/product-1', { expectedVersion: 1, name: 'Yetkisiz ad' }],
-      ['POST', '/api/products/product-1/activate', { expectedVersion: 1 }],
-      ['POST', '/api/products/product-1/deactivate', { expectedVersion: 1 }],
+      ['PATCH', `/api/products/${PRODUCT_ID}`, { expectedVersion: 1, name: 'Yetkisiz ad' }],
+      ['POST', `/api/products/${PRODUCT_ID}/activate`, { expectedVersion: 1 }],
+      ['POST', `/api/products/${PRODUCT_ID}/deactivate`, { expectedVersion: 1 }],
     ] as const;
     for (const [method, url, payload] of mutations) {
       const mutation = await app.inject({ method, url, headers: { cookie }, payload });
@@ -286,7 +307,12 @@ describe('Product HTTP routes', () => {
     expect(missing.statusCode).toBe(404);
     expect(missing.json()).toMatchObject({ code: 'PRODUCT_NOT_FOUND' });
 
-    const conflict = await app.inject({ method: 'PATCH', url: '/api/products/product-1',
+    const malformed = await app.inject({ method: 'GET', url: '/api/products/not-a-uuid',
+      headers: { cookie } });
+    expect(malformed.statusCode).toBe(404);
+    expect(malformed.json()).toMatchObject({ code: 'PRODUCT_NOT_FOUND' });
+
+    const conflict = await app.inject({ method: 'PATCH', url: `/api/products/${PRODUCT_ID}`,
       headers: { cookie }, payload: { expectedVersion: 9, name: 'Çakışan ad' } });
     expect(conflict.statusCode).toBe(409);
     expect(conflict.json()).toMatchObject({ code: 'VERSION_CONFLICT',

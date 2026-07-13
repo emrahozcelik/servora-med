@@ -187,6 +187,33 @@ describe('Product detail', () => {
     expect(container.textContent).toContain('Ürün pasifleştirildi');
   });
 
+  it('moves focus to the replacement lifecycle action after a successful status change', async () => {
+    const deactivate = vi.fn().mockResolvedValue({ ...product, isActive: false, version: 4 });
+    await render(undefined, manager, { deactivate });
+    const trigger = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Pasifleştir')!;
+    trigger.focus();
+    await act(async () => trigger.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => Array.from(dialog.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Pasifleştir')!.click());
+
+    const replacement = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Etkinleştir')!;
+    expect(document.activeElement).toBe(replacement);
+
+    const activeAgain = { ...product, isActive: true, version: 6 };
+    const activate = vi.fn().mockResolvedValue(activeAgain);
+    await render(vi.fn().mockResolvedValue({ ...product, isActive: false, version: 5 }), manager, { activate });
+    const activateTrigger = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Etkinleştir')!;
+    activateTrigger.focus();
+    await act(async () => activateTrigger.click());
+    const activeReplacement = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Pasifleştir')!;
+    expect(document.activeElement).toBe(activeReplacement);
+  });
+
   it('traps dialog focus, closes on Escape, and restores trigger focus', async () => {
     await render();
     const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;

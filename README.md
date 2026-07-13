@@ -211,17 +211,21 @@ Product, and persisted name/SKU/model/unit snapshots are not rewritten. Delivery
 uses the searchable, paginated canonical catalog; the legacy `/api/reference/products`
 route has been removed.
 
-Final Slice 06 verification passed server 32 files/258 tests with 2 files/5 conditional
-PostgreSQL tests skipped in the ordinary suite, web 24 files/159 tests, both production
+Final Slice 06 review verification passed server 32 files/266 tests with 3 files/6 conditional
+PostgreSQL tests skipped in the ordinary suite, web 24 files/162 tests, both production
 builds, and both high-severity dependency audits with zero vulnerabilities. Separately
-enabled PostgreSQL tests passed 3 files/12 tests against migrations 001–005 and the
-development seed. Authenticated live tracing verified role boundaries, duplicate SKU,
+enabled PostgreSQL tests passed the full 35-file/272-test server suite against migrations
+001–005. Authenticated live tracing verified role boundaries, duplicate SKU,
 five-field search, pagination, versions, failed-mutation audit safety, lifecycle guards,
-and immutable delivery snapshots. Playwright acceptance passed at 1200×800, 390×844,
+immutable delivery snapshots, Product field limits, and malformed UUID concealment.
+Playwright acceptance passed at 1200×800, 390×844,
 and 320 CSS px effective reflow with keyboard operation, dialog focus restoration,
 44 CSS px targets, 200% text enlargement, reduced motion, semantic labels/landmarks,
 Back/Forward/refresh/direct URLs, and no page-level horizontal overflow. Disposable
 databases and browser processes were removed after verification.
+
+Pull requests and pushes to `main` run these server/web build, test, audit, and
+PostgreSQL-backed checks through `.github/workflows/ci.yml`.
 
 ## Verification
 

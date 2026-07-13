@@ -1,4 +1,10 @@
 import { AppError } from '../../errors/index.js';
+import {
+  PRODUCT_FIELD_LABELS,
+  PRODUCT_REFERENCE_PRICE_MAX,
+  PRODUCT_TEXT_LIMITS,
+  type ProductTextField,
+} from './constraints.js';
 import type { ProductRepository, ProductTransaction } from './repository.js';
 import type {
   AppendProductAuditInput,
@@ -37,6 +43,9 @@ type MutableField = (typeof mutableFields)[number];
 const forbidden = () => new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz yok.');
 const productNotFound = () => new AppError('PRODUCT_NOT_FOUND', 404, 'Ürün bulunamadı.');
 const validation = (message: string) => new AppError('VALIDATION_ERROR', 400, message);
+const fieldValidation = (field: MutableField, message: string) => new AppError(
+  'VALIDATION_ERROR', 400, message, { fieldErrors: { [field]: message } },
+);
 const versionConflict = (currentVersion?: number) => new AppError(
   'VERSION_CONFLICT', 409, 'Kayıt başka bir kullanıcı tarafından güncellendi.',
   currentVersion === undefined ? null : { currentVersion },
@@ -48,17 +57,32 @@ function requireWriter(actor: ProductActor) {
 
 function requiredName(value: string) {
   const name = value.trim();
-  if (!name) throw validation('name alanı zorunludur.');
-  return name;
+  if (!name) throw fieldValidation('name', 'Ürün adı zorunludur.');
+  return boundedText('name', name);
 }
 
-function optionalText(value: string | null) {
-  return value?.trim() || null;
+function boundedText(field: ProductTextField, value: string) {
+  const limit = PRODUCT_TEXT_LIMITS[field];
+  if ([...value].length > limit) {
+    throw fieldValidation(field, `${PRODUCT_FIELD_LABELS[field]} en fazla ${limit} karakter olabilir.`);
+  }
+  return value;
+}
+
+function optionalText(field: Exclude<ProductTextField, 'name'>, value: string | null) {
+  const normalized = value?.trim() || null;
+  return normalized === null ? null : boundedText(field, normalized);
 }
 
 function referencePrice(value: number | null) {
   if (value !== null && (!Number.isFinite(value) || value < 0)) {
-    throw validation('referencePrice sıfır veya pozitif olmalıdır.');
+    throw fieldValidation('referencePrice', 'Referans fiyat sıfır veya pozitif olmalıdır.');
+  }
+  if (value !== null && value > PRODUCT_REFERENCE_PRICE_MAX) {
+    throw fieldValidation(
+      'referencePrice',
+      `Referans fiyat en fazla ${PRODUCT_REFERENCE_PRICE_MAX} olabilir.`,
+    );
   }
   return value;
 }
@@ -66,11 +90,11 @@ function referencePrice(value: number | null) {
 function normalizeCreate(input: CreateProductInput): ProductFields {
   return {
     name: requiredName(input.name),
-    sku: optionalText(input.sku ?? null),
-    brand: optionalText(input.brand ?? null),
-    category: optionalText(input.category ?? null),
-    model: optionalText(input.model ?? null),
-    unit: optionalText(input.unit ?? null),
+    sku: optionalText('sku', input.sku ?? null),
+    brand: optionalText('brand', input.brand ?? null),
+    category: optionalText('category', input.category ?? null),
+    model: optionalText('model', input.model ?? null),
+    unit: optionalText('unit', input.unit ?? null),
     referencePrice: referencePrice(input.referencePrice ?? null),
   };
 }
@@ -82,7 +106,7 @@ function suppliedMutableFields(input: UpdateProductInput) {
 function normalizePatchField(field: MutableField, value: unknown) {
   if (field === 'name') return requiredName(value as string);
   if (field === 'referencePrice') return referencePrice(value as number | null);
-  return optionalText(value as string | null);
+  return optionalText(field, value as string | null);
 }
 
 function audit(
