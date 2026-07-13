@@ -43,21 +43,23 @@ export type UpdateJobCardInput = {
   organizationId: string; jobCardId: string; expectedVersion: number; fields: UpdateJobCardFields;
 };
 export type ProductReference = {
-  id: string; organizationId: string; name: string; sku: string; model: string | null;
-  unit: string; isActive: boolean;
+  id: string; organizationId: string; name: string; sku: string | null; model: string | null;
+  unit: string | null; isActive: boolean;
 };
 export type DeliveryItemRecord = DeliveryItem & {
-  id: string; organizationId: string; jobCardId: string; unit: string;
+  id: string; organizationId: string; jobCardId: string; unit: string | null;
   productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null;
   lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null;
 };
-export type SubmissionDeliveryItem = DeliveryItemRecord & { productActive: boolean };
+export type SubmissionDeliveryItem = DeliveryItemRecord;
 export type ActivityRecord = {
   id: string; jobCardId: string; actorId: string | null; eventType: string;
   oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: Date;
 };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
-export type ReferenceProduct = { id: string; name: string; sku: string; model: string | null; unit: string };
+export type ReferenceProduct = {
+  id: string; name: string; sku: string | null; model: string | null; unit: string | null;
+};
 export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
 
@@ -109,7 +111,7 @@ type JobCardRow = {
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
   delivery_purpose: DeliveryItem['deliveryPurpose']; delivered_at: Date; quantity: string;
-  unit: string; product_name_snapshot: string; product_sku_snapshot: string | null;
+  unit: string | null; product_name_snapshot: string; product_sku_snapshot: string | null;
   product_model_snapshot: string | null; lot_no: string | null; serial_no: string | null;
   expiry_date: string | null; delivery_note: string | null;
 };
@@ -267,7 +269,10 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   }
 
   async getProduct(organizationId: string, productId: string) {
-    const result = await this.client.query<{ id: string; organization_id: string; name: string; sku: string; model: string | null; unit: string; is_active: boolean }>(
+    const result = await this.client.query<{
+      id: string; organization_id: string; name: string; sku: string | null;
+      model: string | null; unit: string | null; is_active: boolean;
+    }>(
       `SELECT id, organization_id, name, sku, model, unit, is_active FROM products
        WHERE organization_id = $1 AND id = $2`, [organizationId, productId]);
     const row = result.rows[0];
@@ -319,14 +324,11 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   }
 
   async getSubmissionDeliveryItems(organizationId: string, jobCardId: string) {
-    const result = await this.client.query<DeliveryRow & { product_active: boolean }>(
-      `SELECT ${DELIVERY_COLUMNS.split(',').map((column) => `d.${column.trim()}`).join(', ')},
-              p.is_active AS product_active
-       FROM job_card_delivery_items d
-       JOIN products p ON p.organization_id=d.organization_id AND p.id=d.product_id
-       WHERE d.organization_id=$1 AND d.job_card_id=$2
-       ORDER BY d.sort_order, d.created_at, d.id FOR UPDATE OF d`, [organizationId, jobCardId]);
-    return result.rows.map((row) => ({ ...mapDelivery(row), productActive: row.product_active }));
+    const result = await this.client.query<DeliveryRow>(
+      `SELECT ${DELIVERY_COLUMNS} FROM job_card_delivery_items
+       WHERE organization_id=$1 AND job_card_id=$2
+       ORDER BY sort_order, created_at, id FOR UPDATE`, [organizationId, jobCardId]);
+    return result.rows.map(mapDelivery);
   }
 }
 
@@ -445,7 +447,9 @@ export class PostgresJobCardRepository implements JobCardRepository {
   }
 
   async listReferenceProducts(organizationId: string) {
-    const result = await this.pool.query<{ id: string; name: string; sku: string; model: string | null; unit: string }>(
+    const result = await this.pool.query<{
+      id: string; name: string; sku: string | null; model: string | null; unit: string | null;
+    }>(
       `SELECT id, name, sku, model, unit FROM products
        WHERE organization_id=$1 AND is_active=TRUE ORDER BY name, id`, [organizationId]);
     return result.rows;

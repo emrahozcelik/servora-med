@@ -70,6 +70,18 @@ describe('JobCard routes', () => {
     expect(service.removeDeliveryItem).toHaveBeenCalled();
   });
 
+  it('serializes nullable delivery snapshots without fallback values', async () => {
+    const { app, service } = await createApp();
+    service.listDeliveryItems.mockResolvedValueOnce([{ id: 'item-1', unit: null, productSkuSnapshot: null, productModelSnapshot: null }]);
+
+    const response = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/delivery-items' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      items: [{ id: 'item-1', unit: null, productSkuSnapshot: null, productModelSnapshot: null }],
+    });
+  });
+
   it.each([
     ['start', 'start', { clientActionId: 'a1', expectedVersion: 1 }],
     ['submit-for-approval', 'submitForApproval', { clientActionId: 'a2', expectedVersion: 2, note: 'Bitti' }],

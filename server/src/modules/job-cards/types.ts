@@ -46,7 +46,7 @@ export type DeliveryItem = {
   deliveryPurpose: DeliveryPurpose;
   deliveredAt: Date;
   quantity: number;
-  unit?: string;
+  unit?: string | null;
   productNameSnapshot?: string;
   productSkuSnapshot?: string | null;
   productModelSnapshot?: string | null;

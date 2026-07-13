@@ -16,4 +16,16 @@ describe('tracer reference service scope', () => {
     expect(repository.listReferenceCustomers).toHaveBeenCalledWith('org-1');
     expect(repository.listReferenceProducts).toHaveBeenCalledWith('org-1');
   });
+
+  it('preserves nullable Product reference fields', async () => {
+    const product = { id: 'p1', name: 'İsimsiz Referans', sku: null, model: null, unit: null };
+    const repository = {
+      listReferenceCustomers: vi.fn(),
+      listReferenceProducts: vi.fn().mockResolvedValue([product]),
+    };
+
+    await expect(new JobCardService(repository as never).listReferenceProducts({
+      id: 'staff-1', organizationId: 'org-1', role: 'STAFF',
+    })).resolves.toEqual([product]);
+  });
 });
