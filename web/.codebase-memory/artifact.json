@@ -1,11 +1,11 @@
 {
     "schema_version": 1,
-    "commit": "1d6fc0d74a46e0be6c48bcab4452e3c6943be074",
-    "indexed_at": "2026-07-13T07:34:44Z",
-    "project": "Users-emrah-Documents-Servora-Med-.worktrees-slice-05-crm-web",
+    "commit": "3b9dd3624961baa646fedc01052fb45fe0e0f364",
+    "indexed_at": "2026-07-13T09:34:21Z",
+    "project": "Users-emrah-Documents-Servora-Med-web",
     "nodes": 275,
-    "edges": 569,
-    "original_size": 2621440,
-    "compressed_size": 286247,
-    "compression_level": 3
+    "edges": 614,
+    "original_size": 1835008,
+    "compressed_size": 255452,
+    "compression_level": 9
 }
