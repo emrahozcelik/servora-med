@@ -36,14 +36,14 @@ describe('005 Product catalog migration contract', () => {
 describe('isolated Product catalog schema cleanup', () => {
   it('fails a successful test when cleanup fails and still releases the client', async () => {
     const statements: string[] = [];
-    let released = false;
+    const releaseArguments: Array<Error | undefined> = [];
     const client = {
       async query(statement: string) {
         statements.push(statement);
         if (statement === 'RESET search_path') throw new Error('reset failed');
         return { rows: [] };
       },
-      release() { released = true; },
+      release(error?: Error) { releaseArguments.push(error); },
     };
 
     await expect(cleanupIsolatedSchema(client, 'catalog_test', false)).rejects.toThrow(
@@ -54,18 +54,19 @@ describe('isolated Product catalog schema cleanup', () => {
       'RESET search_path',
       'DROP SCHEMA IF EXISTS catalog_test CASCADE',
     ]);
-    expect(released).toBe(true);
+    expect(releaseArguments).toHaveLength(1);
+    expect(releaseArguments[0]).toBeInstanceOf(Error);
   });
 
   it('preserves a primary test failure while attempting every cleanup step', async () => {
     const statements: string[] = [];
-    let released = false;
+    const releaseArguments: Array<Error | undefined> = [];
     const client = {
       async query(statement: string) {
         statements.push(statement);
         throw new Error('cleanup failed');
       },
-      release() { released = true; },
+      release(error?: Error) { releaseArguments.push(error); },
     };
 
     await expect(cleanupIsolatedSchema(client, 'catalog_test', true)).resolves.toBeUndefined();
@@ -74,13 +75,25 @@ describe('isolated Product catalog schema cleanup', () => {
       'RESET search_path',
       'DROP SCHEMA IF EXISTS catalog_test CASCADE',
     ]);
-    expect(released).toBe(true);
+    expect(releaseArguments).toHaveLength(1);
+    expect(releaseArguments[0]).toBeInstanceOf(Error);
+  });
+
+  it('returns a clean client to the pool without an error', async () => {
+    const releaseArguments: Array<Error | undefined> = [];
+    const client = {
+      async query() { return { rows: [] }; },
+      release(error?: Error) { releaseArguments.push(error); },
+    };
+
+    await expect(cleanupIsolatedSchema(client, 'catalog_test', false)).resolves.toBeUndefined();
+    expect(releaseArguments).toEqual([undefined]);
   });
 });
 
 type SchemaCleanupClient = {
   query(statement: string): Promise<unknown>;
-  release(): void;
+  release(error?: Error): void;
 };
 
 async function cleanupIsolatedSchema(
@@ -102,8 +115,12 @@ async function cleanupIsolatedSchema(
     }
   }
 
+  const unsafeClientError = cleanupErrors.length > 0
+    ? new AggregateError(cleanupErrors, 'Product catalog test client cleanup failed')
+    : undefined;
+
   try {
-    client.release();
+    client.release(unsafeClientError);
   } catch (error) {
     cleanupErrors.push(error);
   }
