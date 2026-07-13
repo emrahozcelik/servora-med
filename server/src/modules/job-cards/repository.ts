@@ -1,4 +1,16 @@
-import type { DeliveryItem, JobCard, JobCardActivityEvent, JobCardAssignee, JobCardPriority, JobCardStatus } from './types.js';
+import type {
+  DeliveryItem,
+  JobCard,
+  JobCardActivityEvent,
+  JobCardAssignee,
+  JobCardBaseFilters,
+  JobCardListItem,
+  JobCardListQuery,
+  JobCardPriority,
+  JobCardStatus,
+  JobCardStatusFilter,
+  Paginated,
+} from './types.js';
 import type { Pool, PoolClient } from 'pg';
 
 export type CriticalActionClaim = {
@@ -35,7 +47,7 @@ export type CreateJobCardRecord = {
   priority: JobCardPriority; dueDate: string | null;
 };
 
-export type JobCardListScope = { organizationId: string; assignedTo?: string };
+export type JobCardReadScope = { organizationId: string; assignedTo: string | null };
 export type UpdateJobCardFields = Partial<Pick<
   JobCard, 'title' | 'description' | 'customerId' | 'contactId' | 'assignedTo' | 'priority' | 'dueDate'
 >>;
@@ -91,7 +103,10 @@ export interface JobCardRepository {
     claim: CriticalActionClaim,
     work: (transaction: JobCardTransaction) => Promise<T>,
   ): Promise<CriticalActionResult<T>>;
-  listJobCards(scope: JobCardListScope): Promise<JobCard[]>;
+  listJobCards(
+    scope: JobCardReadScope,
+    query: JobCardListQuery,
+  ): Promise<Paginated<JobCardListItem>>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>): Promise<T>;
   listDeliveryItems(organizationId: string, jobCardId: string): Promise<DeliveryItemRecord[]>;
@@ -103,6 +118,25 @@ type JobCardRow = {
   id: string; organization_id: string; type: JobCard['type']; status: JobCardStatus;
   version: number; title: string; description: string | null; customer_id: string | null; contact_id: string | null;
   assigned_to: string; created_by: string; priority: JobCardPriority; due_date: string | null;
+};
+type JobCardListRow = {
+  id: string;
+  type: JobCard['type'];
+  status: JobCardStatus;
+  version: number;
+  title: string;
+  priority: JobCardPriority;
+  due_date: string | null;
+  created_at: Date;
+  updated_at: Date;
+  staff_completed_at: Date | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  contact_id: string | null;
+  contact_name: string | null;
+  assignee_id: string;
+  assignee_name: string;
+  delivery_item_count: number;
 };
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
@@ -129,6 +163,69 @@ function mapJobCard(row: JobCardRow): JobCard {
     customerId: row.customer_id, contactId: row.contact_id, assignedTo: row.assigned_to, createdBy: row.created_by,
     priority: row.priority, dueDate: row.due_date,
   };
+}
+
+function mapJobCardListItem(row: JobCardListRow): JobCardListItem {
+  return {
+    id: row.id,
+    type: row.type,
+    status: row.status,
+    version: row.version,
+    title: row.title,
+    priority: row.priority,
+    dueDate: row.due_date,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+    staffCompletedAt: row.staff_completed_at?.toISOString() ?? null,
+    customer: row.customer_id === null
+      ? null
+      : { id: row.customer_id, name: row.customer_name! },
+    contact: row.contact_id === null
+      ? null
+      : { id: row.contact_id, name: row.contact_name! },
+    assignee: { id: row.assignee_id, name: row.assignee_name },
+    deliveryItemCount: Number(row.delivery_item_count),
+  };
+}
+
+type SqlFilter = { clause: string; values: unknown[] };
+
+function statusValues(status: JobCardStatusFilter) {
+  if (status === 'all') return null;
+  if (status === 'active') {
+    return ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'];
+  }
+  if (status === 'closed') return ['COMPLETED', 'CANCELLED'];
+  return [status];
+}
+
+function workspaceWhere(
+  scope: JobCardReadScope,
+  filters: JobCardBaseFilters & { status?: JobCardStatusFilter },
+): SqlFilter {
+  const predicates = ['j.organization_id = $1'];
+  const values: unknown[] = [scope.organizationId];
+  const add = (sql: (position: number) => string, value: unknown) => {
+    values.push(value);
+    predicates.push(sql(values.length));
+  };
+  if (scope.assignedTo) add((position) => `j.assigned_to = $${position}`, scope.assignedTo);
+  if (filters.assignedTo) add((position) => `j.assigned_to = $${position}`, filters.assignedTo);
+  if (filters.type) add((position) => `j.type = $${position}`, filters.type);
+  if (filters.customerId) add((position) => `j.customer_id = $${position}`, filters.customerId);
+  if (filters.priority) add((position) => `j.priority = $${position}`, filters.priority);
+  if (filters.dueAfter) add((position) => `j.due_date >= $${position}::date`, filters.dueAfter);
+  if (filters.dueBefore) add((position) => `j.due_date <= $${position}::date`, filters.dueBefore);
+  const statuses = statusValues(filters.status ?? 'all');
+  if (statuses) add((position) => `j.status = ANY($${position}::varchar[])`, statuses);
+  if (filters.q) {
+    const escaped = filters.q.replace(/[\\%_]/g, '\\$&');
+    add(
+      (position) => `(j.title ILIKE $${position} ESCAPE '\\' OR c.name ILIKE $${position} ESCAPE '\\' OR ct.name ILIKE $${position} ESCAPE '\\')`,
+      `%${escaped}%`,
+    );
+  }
+  return { clause: predicates.join(' AND '), values };
 }
 
 class PostgresJobCardTransaction implements JobCardTransaction {
@@ -379,17 +476,50 @@ export class PostgresJobCardRepository implements JobCardRepository {
     }
   }
 
-  async listJobCards(scope: JobCardListScope) {
-    const values: unknown[] = [scope.organizationId];
-    const assignedFilter = scope.assignedTo ? ' AND assigned_to = $2' : '';
-    if (scope.assignedTo) values.push(scope.assignedTo);
-    const result = await this.pool.query<JobCardRow>(
-      `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date
-       FROM job_cards WHERE organization_id = $1${assignedFilter}
-       ORDER BY created_at DESC, id DESC`, values,
+  async listJobCards(scope: JobCardReadScope, query: JobCardListQuery) {
+    const filter = workspaceWhere(scope, query);
+    const joins = `FROM job_cards j
+       LEFT JOIN customers c
+         ON c.organization_id = j.organization_id AND c.id = j.customer_id
+       LEFT JOIN contacts ct
+         ON ct.organization_id = j.organization_id AND ct.id = j.contact_id`;
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total
+       ${joins}
+       WHERE ${filter.clause}`,
+      filter.values,
     );
-    return result.rows.map(mapJobCard);
+    const limitPosition = filter.values.length + 1;
+    const offsetPosition = filter.values.length + 2;
+    const order = query.status === 'WAITING_APPROVAL'
+      ? 'j.staff_completed_at ASC, j.id ASC'
+      : 'j.updated_at DESC, j.id DESC';
+    const items = await this.pool.query<JobCardListRow>(
+      `SELECT j.id, j.type, j.status, j.version, j.title, j.priority, j.due_date,
+              j.created_at, j.updated_at, j.staff_completed_at,
+              c.id AS customer_id, c.name AS customer_name,
+              ct.id AS contact_id, ct.name AS contact_name,
+              u.id AS assignee_id, u.name AS assignee_name,
+              COALESCE(delivery.delivery_item_count, 0)::int AS delivery_item_count
+       ${joins}
+       JOIN users u
+         ON u.organization_id = j.organization_id AND u.id = j.assigned_to
+       LEFT JOIN LATERAL (
+         SELECT COUNT(*)::int AS delivery_item_count
+         FROM job_card_delivery_items di
+         WHERE di.organization_id = j.organization_id AND di.job_card_id = j.id
+       ) delivery ON TRUE
+       WHERE ${filter.clause}
+       ORDER BY ${order}
+       LIMIT $${limitPosition} OFFSET $${offsetPosition}`,
+      [...filter.values, query.limit, query.offset],
+    );
+    return {
+      items: items.rows.map(mapJobCardListItem),
+      total: Number(count.rows[0]?.total ?? 0),
+      limit: query.limit,
+      offset: query.offset,
+    };
   }
 
   async findJobCard(organizationId: string, jobCardId: string) {

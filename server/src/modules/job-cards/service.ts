@@ -1,7 +1,15 @@
 import { AppError } from '../../errors/index.js';
 import { assertCanCreateForAssignee, assertCanEdit, assertCanTransition, assertDeliveryReadyForSubmission } from './policy.js';
 import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, ProductReference } from './repository.js';
-import { DELIVERY_PURPOSES, JOB_CARD_PRIORITIES, type DeliveryPurpose, type JobCard, type JobCardActor, type JobCardPriority } from './types.js';
+import {
+  DELIVERY_PURPOSES,
+  JOB_CARD_PRIORITIES,
+  type DeliveryPurpose,
+  type JobCard,
+  type JobCardActor,
+  type JobCardListQuery,
+  type JobCardPriority,
+} from './types.js';
 
 type CommandInput = {
   jobCardId: string;
@@ -102,11 +110,17 @@ export class JobCardService {
     return result.response;
   }
 
-  async list(actor: JobCardActor) {
-    return this.repository.listJobCards({
-      organizationId: actor.organizationId,
-      ...(actor.role === 'STAFF' ? { assignedTo: actor.id } : {}),
-    });
+  async list(actor: JobCardActor, query: JobCardListQuery) {
+    if (actor.role === 'STAFF' && query.assignedTo !== null && query.assignedTo !== actor.id) {
+      return { items: [], total: 0, limit: query.limit, offset: query.offset };
+    }
+    return this.repository.listJobCards(
+      {
+        organizationId: actor.organizationId,
+        assignedTo: actor.role === 'STAFF' ? actor.id : null,
+      },
+      query,
+    );
   }
 
   async detail(actor: JobCardActor, jobCardId: string) {

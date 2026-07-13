@@ -10,8 +10,9 @@ const apps: FastifyInstance[] = [];
 
 function serviceDouble() {
   const result = { id: 'job-1', version: 1 };
+  const page = { items: [result], total: 1, limit: 25, offset: 0 };
   return {
-    create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue([result]),
+    create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
     detail: vi.fn().mockResolvedValue(result), patch: vi.fn().mockResolvedValue({ ...result, version: 2 }),
     listDeliveryItems: vi.fn().mockResolvedValue([]), addDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 2 }),
     patchDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 3 }),
@@ -51,9 +52,47 @@ describe('JobCard routes', () => {
     await app.inject({ method: 'GET', url: '/api/job-cards/job-1' });
     await app.inject({ method: 'PATCH', url: '/api/job-cards/job-1', payload: { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' } });
     expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), body);
-    expect(service.list).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }));
+    expect(service.list).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1' }),
+      expect.objectContaining({ status: 'active', limit: 25, offset: 0 }),
+    );
     expect(service.detail).toHaveBeenCalledWith(expect.anything(), 'job-1');
     expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' });
+  });
+
+  it('returns the canonical page and forwards the parsed list query', async () => {
+    const { app, service } = await createApp();
+    const page = { items: [{ id: 'job-2' }], total: 9, limit: 1, offset: 2 };
+    service.list.mockResolvedValueOnce(page);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/job-cards?status=closed&type=PRODUCT_DELIVERY&priority=urgent&dueAfter=2026-07-01&dueBefore=2026-07-31&limit=1&offset=2',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(page);
+    expect(service.list).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
+      expect.objectContaining({
+        status: 'closed', type: 'PRODUCT_DELIVERY', priority: 'urgent',
+        dueAfter: '2026-07-01', dueBefore: '2026-07-31', limit: 1, offset: 2,
+      }),
+    );
+  });
+
+  it.each([
+    '/api/job-cards?unknown=value',
+    '/api/job-cards?status=active&status=closed',
+    '/api/job-cards?type=GENERAL_TASK',
+    '/api/job-cards?dueBefore=2026-02-30',
+    '/api/job-cards?limit=101',
+  ])('rejects invalid list query %s', async (url) => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.list).not.toHaveBeenCalled();
   });
 
   it('dispatches delivery item CRUD and rejects unknown financial fields', async () => {

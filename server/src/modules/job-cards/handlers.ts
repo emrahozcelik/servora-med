@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError } from '../../errors/index.js';
 import type { JobCardService } from './service.js';
 import type { JobCardActor } from './types.js';
+import { parseJobCardListQuery } from './workspace-query.js';
 
 type Params = { id: string; itemId?: string };
 
@@ -30,7 +31,8 @@ export function createJobCardHandlers(service: JobCardService) {
   return {
     create: async (request: FastifyRequest, reply: FastifyReply) =>
       reply.code(201).send(await service.create(actor(request), body(request, CREATE_FIELDS) as never)),
-    list: async (request: FastifyRequest) => ({ items: await service.list(actor(request)) }),
+    list: async (request: FastifyRequest) =>
+      service.list(actor(request), parseJobCardListQuery(request.query)),
     detail: async (request: FastifyRequest<{ Params: Params }>) => service.detail(actor(request), request.params.id),
     patch: async (request: FastifyRequest<{ Params: Params }>) =>
       service.patch(actor(request), request.params.id, body(request, PATCH_FIELDS) as never),
