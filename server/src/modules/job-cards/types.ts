@@ -5,6 +5,7 @@ export const JOB_CARD_STATUSES = [
   'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
+export type JobCardType = 'PRODUCT_DELIVERY' | 'GENERAL_TASK';
 
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
@@ -13,9 +14,10 @@ export const JOB_CARD_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export type JobCardPriority = (typeof JOB_CARD_PRIORITIES)[number];
 
 export const JOB_CARD_ACTIVITY_EVENTS = [
-  'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_STARTED', 'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED',
-  'JOB_REVISION_REQUESTED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
-  'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED',
+  'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_STARTED',
+  'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
+  'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
+  'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -25,7 +27,7 @@ export type JobCardAssignee = JobCardActor & { isActive: boolean };
 export type JobCard = {
   id: string;
   organizationId: string;
-  type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK';
+  type: JobCardType;
   status: JobCardStatus;
   version: number;
   title: string;
@@ -56,4 +58,122 @@ export type DeliveryItem = {
   deliveryNote?: string | null;
 };
 
-export type LifecycleCommand = 'START' | 'SUBMIT_FOR_APPROVAL' | 'APPROVE' | 'REQUEST_REVISION';
+export type LifecycleCommand =
+  | 'PLAN'
+  | 'START'
+  | 'SUBMIT_FOR_APPROVAL'
+  | 'APPROVE'
+  | 'REQUEST_REVISION'
+  | 'RESUME'
+  | 'CANCEL';
+
+export type JobCardStatusFilter = JobCardStatus | 'active' | 'closed' | 'all';
+
+export type JobCardBaseFilters = {
+  q: string | null;
+  type: 'PRODUCT_DELIVERY' | null;
+  assignedTo: string | null;
+  customerId: string | null;
+  priority: JobCardPriority | null;
+  dueBefore: string | null;
+  dueAfter: string | null;
+};
+
+export type JobCardWorkspaceFilters = JobCardBaseFilters & { status: JobCardStatusFilter };
+export type JobCardListQuery = JobCardWorkspaceFilters & { limit: number; offset: number };
+export type JobCardBoardQuery = JobCardBaseFilters & { limit: number };
+
+export type JobCardListItem = {
+  id: string;
+  type: JobCardType;
+  status: JobCardStatus;
+  version: number;
+  title: string;
+  priority: JobCardPriority;
+  dueDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+  staffCompletedAt: string | null;
+  customer: { id: string; name: string } | null;
+  contact: { id: string; name: string } | null;
+  assignee: { id: string; name: string };
+  deliveryItemCount: number;
+};
+
+export type Paginated<T> = {
+  items: T[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+
+export type PaginatedJobCardList = Paginated<JobCardListItem>;
+
+export type JobCardBoardColumn = { items: JobCardListItem[]; count: number };
+export type JobCardBoard = {
+  columns: {
+    NEW: JobCardBoardColumn;
+    PLANNED: JobCardBoardColumn;
+    IN_PROGRESS: JobCardBoardColumn;
+    WAITING_APPROVAL: JobCardBoardColumn;
+    REVISION_REQUESTED: JobCardBoardColumn;
+  };
+  closedCounts: { COMPLETED: number; CANCELLED: number };
+};
+
+export type JobCardNoteDto = {
+  id: string;
+  jobCardId: string;
+  note: string;
+  author: { id: string; name: string };
+  createdAt: string;
+};
+
+export type PaginatedJobCardNotes = Paginated<JobCardNoteDto>;
+
+export type ActivityRecord = {
+  id: string;
+  jobCardId: string;
+  actorId: string | null;
+  actorName: string | null;
+  eventType: JobCardActivityEvent;
+  oldValue: unknown;
+  newValue: unknown;
+  metadata: unknown;
+  clientActionId: string | null;
+  createdAt: Date;
+};
+
+export type JobCardActivityDetails =
+  | {
+      kind: 'STATUS_TRANSITION';
+      fromStatus: JobCardStatus;
+      toStatus: JobCardStatus;
+    }
+  | {
+      kind: 'FIELDS_UPDATED';
+      changedFields: Array<
+        'title' | 'description' | 'customer' | 'contact' |
+        'assignee' | 'priority' | 'dueDate'
+      >;
+    }
+  | {
+      kind: 'DELIVERY_ITEM';
+      operation: 'ADDED' | 'UPDATED' | 'REMOVED';
+      itemId: string;
+      purpose: DeliveryPurpose | null;
+      quantity: number | null;
+    }
+  | { kind: 'NOTE'; noteId: string }
+  | { kind: 'NONE' };
+
+export type JobCardActivityDto = {
+  id: string;
+  jobCardId: string;
+  eventType: JobCardActivityEvent;
+  actor: { id: string; name: string } | null;
+  details: JobCardActivityDetails;
+  createdAt: string;
+};
+
+export type PaginatedJobCardActivity = Paginated<JobCardActivityDto>;
