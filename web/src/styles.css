@@ -319,6 +319,11 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .product-select-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
 .product-select-pagination span { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 
+@media (max-width: 80rem) {
+  .structured-job-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .job-row-facts { grid-column: 1 / -1; }
+}
+
 @media (max-width: 720px) {
   .login-layout { display: block; }
   .login-introduction { min-height: auto; padding: 1rem; border-right: 0; border-bottom: 1px solid var(--rule); }

@@ -24,6 +24,10 @@ const STATUSES = [
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export function isValidJobFilterUuid(value: string) {
+  return UUID.test(value);
+}
+
 function scalar(params: URLSearchParams, key: string) {
   const values = params.getAll(key);
   return values.length === 1 ? values[0]! : undefined;
@@ -44,9 +48,9 @@ export function parseJobSearch(params: URLSearchParams): JobSearchState {
   const type = scalar(params, 'type');
   if (type === 'PRODUCT_DELIVERY') state.type = type;
   const assignedTo = scalar(params, 'assignedTo');
-  if (assignedTo && UUID.test(assignedTo)) state.assignedTo = assignedTo;
+  if (assignedTo && isValidJobFilterUuid(assignedTo)) state.assignedTo = assignedTo;
   const customerId = scalar(params, 'customerId');
-  if (customerId && UUID.test(customerId)) state.customerId = customerId;
+  if (customerId && isValidJobFilterUuid(customerId)) state.customerId = customerId;
   const priority = scalar(params, 'priority');
   if (PRIORITIES.includes(priority as JobCardPriority)) state.priority = priority as JobCardPriority;
   const dueAfter = date(scalar(params, 'dueAfter'));
@@ -69,7 +73,7 @@ export function parseJobSearch(params: URLSearchParams): JobSearchState {
   return state;
 }
 
-function canonicalParams(current: URLSearchParams) {
+export function canonicalJobSearchParams(current: URLSearchParams) {
   const state = parseJobSearch(current);
   const next = new URLSearchParams();
   for (const key of ALLOWED_KEYS) {
@@ -94,17 +98,17 @@ export function updateJobSearch(
   current: URLSearchParams,
   changes: Partial<Omit<JobSearchState, 'view' | 'offset'>>,
 ) {
-  const next = canonicalParams(current);
+  const next = canonicalJobSearchParams(current);
   for (const [key, value] of Object.entries(changes)) {
     if (value === undefined || value === '' || (key === 'status' && value === 'active')) next.delete(key);
     else next.set(key, String(value));
   }
   next.delete('offset');
-  return canonicalParams(next);
+  return canonicalJobSearchParams(next);
 }
 
 export function enterBoard(current: URLSearchParams) {
-  const next = canonicalParams(current);
+  const next = canonicalJobSearchParams(current);
   next.delete('status');
   next.delete('offset');
   next.set('view', 'board');
@@ -112,7 +116,7 @@ export function enterBoard(current: URLSearchParams) {
 }
 
 export function selectStatus(current: URLSearchParams, status: JobCardStatusFilter) {
-  const next = canonicalParams(current);
+  const next = canonicalJobSearchParams(current);
   next.set('status', status);
   next.set('view', 'list');
   next.set('offset', '0');
@@ -120,7 +124,7 @@ export function selectStatus(current: URLSearchParams, status: JobCardStatusFilt
 }
 
 export function forceMobileList(current: URLSearchParams) {
-  const next = canonicalParams(current);
+  const next = canonicalJobSearchParams(current);
   next.set('view', 'list');
   return next;
 }

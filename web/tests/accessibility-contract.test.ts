@@ -69,6 +69,8 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.job-quick-views a, \.job-filter-disclosure summary, \.job-expand, \.job-detail-link \{[^}]*min-height: 2\.75rem;/);
     expect(css).toMatch(/\.structured-job-row \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.job-row-facts dt, \.job-row-summary dt \{[^}]*font-size: 0\.875rem;/);
+    expect(css).toMatch(/@media \(max-width: 80rem\)[\s\S]*\.structured-job-row \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto;/);
+    expect(css).toMatch(/@media \(max-width: 80rem\)[\s\S]*\.job-row-facts \{[^}]*grid-column: 1 \/ -1;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.structured-job-row \{[^}]*grid-template-columns: 1fr;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-row-facts \{[^}]*grid-template-columns: 1fr;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-row-commands \{[^}]*flex-direction: column;/);

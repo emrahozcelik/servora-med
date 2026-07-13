@@ -8,7 +8,7 @@ import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
 import type { JobCommandIntent } from './JobRow';
 import { listJobCards } from './jobs-api';
-import { forceMobileList, parseJobSearch, updateJobSearch, type JobSearchState } from './job-search';
+import { canonicalJobSearchParams, forceMobileList, parseJobSearch, updateJobSearch, type JobSearchState } from './job-search';
 
 const PAGE_SIZE = 25;
 
@@ -29,8 +29,15 @@ export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = li
   const [reload, setReload] = useState(0);
   const requestGate = useRef(createRequestGate());
   const queryKey = params.toString();
+  const canonicalParams = canonicalJobSearchParams(params);
+  const canonicalKey = canonicalParams.toString();
 
   useEffect(() => {
+    if (queryKey !== canonicalKey) {
+      requestGate.current.next();
+      setParams(canonicalParams, { replace: true });
+      return;
+    }
     if (filters.view === 'board') {
       requestGate.current.next();
       return;
@@ -40,7 +47,16 @@ export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = li
     const { view: _view, ...requestFilters } = filters;
     if (user.role === 'STAFF') delete requestFilters.assignedTo;
     load({ ...requestFilters, limit: PAGE_SIZE }).then((page) => {
-      if (requestGate.current.isCurrent(generation)) setState({ kind: 'ready', page });
+      if (!requestGate.current.isCurrent(generation)) return;
+      if (page.total > 0 && page.items.length === 0 && page.offset >= page.total) {
+        const lastOffset = Math.floor((page.total - 1) / page.limit) * page.limit;
+        const next = canonicalJobSearchParams(new URLSearchParams(queryKey));
+        if (lastOffset > 0) next.set('offset', String(lastOffset));
+        else next.delete('offset');
+        setParams(next, { replace: true });
+        return;
+      }
+      setState({ kind: 'ready', page });
     }).catch((caught) => {
       if (!requestGate.current.isCurrent(generation)) return;
       const error = caught instanceof ApiError ? caught : new ApiError(0, 'UNKNOWN_ERROR', 'İşler yüklenemedi.', true);
@@ -49,7 +65,7 @@ export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = li
     return () => { requestGate.current.next(); };
   // queryKey owns filter identity; parsed filters are reconstructed from it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [load, queryKey, reload, user.id, user.role]);
+  }, [canonicalKey, load, queryKey, reload, user.id, user.role]);
 
   if (filters.view === 'board') return <main className="workspace job-workspace">
     <p className="eyebrow">Çalışma alanı</p><div className="workspace-message">

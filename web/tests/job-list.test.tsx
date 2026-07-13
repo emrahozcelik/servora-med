@@ -59,11 +59,14 @@ describe('structured JobCard list', () => {
   });
 
   it('exposes only role-and-status permitted named commands', () => {
-    expect(permittedJobCommands(staff, { ...item, status: 'NEW' }).map(({ name }) => name)).toEqual(['start']);
-    expect(permittedJobCommands(staff, { ...item, status: 'IN_PROGRESS' }).map(({ name }) => name)).toEqual(['submit']);
-    expect(permittedJobCommands(staff, { ...item, status: 'REVISION_REQUESTED' }).map(({ name }) => name)).toEqual(['resume']);
+    expect(permittedJobCommands(staff, { ...item, status: 'NEW' })).toEqual([{ name: 'start', label: 'İşi başlatmak için aç' }]);
+    expect(permittedJobCommands(staff, { ...item, status: 'IN_PROGRESS' })).toEqual([{ name: 'submit', label: 'Onaya göndermek için aç' }]);
+    expect(permittedJobCommands(staff, { ...item, status: 'REVISION_REQUESTED' })).toEqual([{ name: 'resume', label: 'Düzeltmeye devam etmek için aç' }]);
     expect(permittedJobCommands(staff, item)).toEqual([]);
-    expect(permittedJobCommands(manager, item).map(({ name }) => name)).toEqual(['revise', 'approve']);
+    expect(permittedJobCommands(manager, item)).toEqual([
+      { name: 'revise', label: 'Düzeltme istemek için aç' },
+      { name: 'approve', label: 'Onaylamak için aç' },
+    ]);
     expect(permittedJobCommands(manager, { ...item, status: 'COMPLETED' })).toEqual([]);
   });
 });
@@ -154,6 +157,72 @@ describe('routed JobCard workspace', () => {
     expect(container.querySelector<HTMLSelectElement>('#job-status')!.value).toBe('closed');
   });
 
+  it('replaces non-canonical initial and history URLs while preserving valid allowed state', async () => {
+    const customerId = '44444444-4444-4444-8444-444444444444';
+    const load = vi.fn().mockResolvedValue(page([]));
+    const router = await mount(`/jobs?unknown=x&status=active&view=list&offset=0&q=bir&q=iki&priority=urgent&customerId=${customerId}`, load);
+    await act(async () => { await Promise.resolve(); });
+    expect(router.state.location.search).toBe(`?customerId=${customerId}&priority=urgent`);
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(load).toHaveBeenLastCalledWith({ status: 'active', customerId, priority: 'urgent', limit: 25, offset: 0 });
+
+    await act(async () => { await router.navigate('/jobs?status=closed'); });
+    await act(async () => { await router.navigate('/jobs?unknown=x&status=active&q=bir&q=iki'); });
+    expect(router.state.location.search).toBe('');
+    expect(router.state.historyAction).toBe('REPLACE');
+    await act(async () => { await router.navigate(-1); });
+    expect(router.state.location.search).toBe('?status=closed');
+    await act(async () => { await router.navigate(1); });
+    expect(router.state.location.search).toBe('');
+  });
+
+  it('keeps invalid UUID drafts unapplied with accessible errors and reconciles valid history state', async () => {
+    const original = '33333333-3333-4333-8333-333333333333';
+    const replacement = '55555555-5555-4555-8555-555555555555';
+    const load = vi.fn().mockResolvedValue(page([]));
+    const router = await mount(`/jobs?assignedTo=${original}`, load);
+    await act(async () => { await Promise.resolve(); });
+    const assignee = container.querySelector<HTMLInputElement>('#job-assignee')!;
+    const customer = container.querySelector<HTMLInputElement>('#job-customer')!;
+
+    await act(async () => change(assignee, 'not-a-uuid'));
+    await act(async () => change(customer, 'also-not-a-uuid'));
+    await act(async () => assignee.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(router.state.location.search).toBe(`?assignedTo=${original}`);
+    expect(assignee.value).toBe('not-a-uuid');
+    expect(assignee.getAttribute('aria-invalid')).toBe('true');
+    const errorId = assignee.getAttribute('aria-describedby')!;
+    expect(container.querySelector(`#${errorId}`)?.textContent).toContain('Geçerli bir personel kimliği girin');
+    expect(customer.getAttribute('aria-invalid')).toBe('true');
+    const customerErrorId = customer.getAttribute('aria-describedby')!;
+    expect(container.querySelector(`#${customerErrorId}`)?.textContent).toContain('Geçerli bir müşteri kimliği girin');
+
+    await act(async () => change(assignee, replacement));
+    await act(async () => change(customer, ''));
+    await act(async () => assignee.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true })));
+    expect(router.state.location.search).toBe(`?assignedTo=${replacement}`);
+    expect(assignee.getAttribute('aria-invalid')).not.toBe('true');
+    await act(async () => { await router.navigate(-1); });
+    expect(router.state.location.search).toBe(`?assignedTo=${original}`);
+    expect(container.querySelector<HTMLInputElement>('#job-assignee')!.value).toBe(original);
+  });
+
+  it('replaces an out-of-range empty page with the last valid offset before rendering results', async () => {
+    const load = vi.fn()
+      .mockResolvedValueOnce(page([], 75, 50))
+      .mockResolvedValueOnce(page([item], 25, 50));
+    const router = await mount('/jobs?offset=75', load);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(router.state.location.search).toBe('?offset=25');
+    expect(router.state.historyAction).toBe('REPLACE');
+    expect(container.textContent).toContain('26–50 / 50');
+    expect(container.textContent).not.toContain('76–50');
+    expect(container.textContent).not.toContain('Henüz iş kaydı yok');
+    expect(container.textContent).not.toContain('Filtrelere uygun iş bulunamadı');
+    expect(load).toHaveBeenNthCalledWith(2, { status: 'active', limit: 25, offset: 25 });
+  });
+
   it('keeps the Task 11 board boundary without issuing a list request', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
     await mount('/jobs?view=board', load);
@@ -172,9 +241,10 @@ describe('routed JobCard workspace', () => {
     await act(async () => expand.click());
     expect(expand.getAttribute('aria-expanded')).toBe('true');
     expect(container.textContent).toContain('Son güncelleme'); expect(container.textContent).toContain('Tüm iş detaylarını aç');
-    expect(container.textContent).toContain('Onaya gönder'); expect(container.textContent).not.toContain('Onayla');
+    expect(container.textContent).toContain('Onaya göndermek için aç'); expect(container.textContent).not.toContain('Onaylamak için aç');
     expect(container.textContent).not.toContain('Sürüm 7');
-    await act(async () => (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Onaya gönder') as HTMLButtonElement).click());
+    await act(async () => (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Onaya göndermek için aç') as HTMLButtonElement).click());
     expect(command).toHaveBeenCalledWith({ name: 'submit', jobId: 'job-1', expectedVersion: 7 });
+    expect(command.mock.results[0]?.value).toBeUndefined();
   });
 });

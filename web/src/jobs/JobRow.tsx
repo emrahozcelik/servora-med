@@ -25,13 +25,13 @@ function formatDate(value: string) {
 
 export function permittedJobCommands(user: CurrentUser, job: JobCardListItem) {
   if (user.role === 'STAFF') {
-    if (job.status === 'NEW' || job.status === 'PLANNED') return [{ name: 'start', label: 'İşi başlat' }] as const;
-    if (job.status === 'IN_PROGRESS') return [{ name: 'submit', label: 'Onaya gönder' }] as const;
-    if (job.status === 'REVISION_REQUESTED') return [{ name: 'resume', label: 'Düzeltmeye devam et' }] as const;
+    if (job.status === 'NEW' || job.status === 'PLANNED') return [{ name: 'start', label: 'İşi başlatmak için aç' }] as const;
+    if (job.status === 'IN_PROGRESS') return [{ name: 'submit', label: 'Onaya göndermek için aç' }] as const;
+    if (job.status === 'REVISION_REQUESTED') return [{ name: 'resume', label: 'Düzeltmeye devam etmek için aç' }] as const;
     return [];
   }
   return job.status === 'WAITING_APPROVAL'
-    ? [{ name: 'revise', label: 'Düzeltme iste' }, { name: 'approve', label: 'Onayla' }] as const
+    ? [{ name: 'revise', label: 'Düzeltme istemek için aç' }, { name: 'approve', label: 'Onaylamak için aç' }] as const
     : [];
 }
 
