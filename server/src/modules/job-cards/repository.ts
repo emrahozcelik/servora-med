@@ -4,6 +4,8 @@ import type {
   JobCardActivityEvent,
   JobCardAssignee,
   JobCardBaseFilters,
+  JobCardBoard,
+  JobCardBoardQuery,
   JobCardListItem,
   JobCardListQuery,
   JobCardPriority,
@@ -107,6 +109,7 @@ export interface JobCardRepository {
     scope: JobCardReadScope,
     query: JobCardListQuery,
   ): Promise<Paginated<JobCardListItem>>;
+  listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>): Promise<T>;
   listDeliveryItems(organizationId: string, jobCardId: string): Promise<DeliveryItemRecord[]>;
@@ -190,10 +193,36 @@ function mapJobCardListItem(row: JobCardListRow): JobCardListItem {
 
 type SqlFilter = { clause: string; values: unknown[] };
 
+const ACTIVE_JOB_CARD_STATUSES = [
+  'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+] as const;
+
+const WORKSPACE_JOINS = `FROM job_cards j
+  LEFT JOIN customers c
+    ON c.organization_id = j.organization_id AND c.id = j.customer_id
+  LEFT JOIN contacts ct
+    ON ct.organization_id = j.organization_id AND ct.id = j.contact_id`;
+
+const JOB_CARD_LIST_COLUMNS = `j.id, j.type, j.status, j.version, j.title, j.priority, j.due_date,
+  j.created_at, j.updated_at, j.staff_completed_at,
+  c.id AS customer_id, c.name AS customer_name,
+  ct.id AS contact_id, ct.name AS contact_name,
+  u.id AS assignee_id, u.name AS assignee_name,
+  COALESCE(delivery.delivery_item_count, 0)::int AS delivery_item_count`;
+
+const WORKSPACE_ITEM_JOINS = `${WORKSPACE_JOINS}
+  JOIN users u
+    ON u.organization_id = j.organization_id AND u.id = j.assigned_to
+  LEFT JOIN LATERAL (
+    SELECT COUNT(*)::int AS delivery_item_count
+    FROM job_card_delivery_items di
+    WHERE di.organization_id = j.organization_id AND di.job_card_id = j.id
+  ) delivery ON TRUE`;
+
 function statusValues(status: JobCardStatusFilter) {
   if (status === 'all') return null;
   if (status === 'active') {
-    return ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'];
+    return [...ACTIVE_JOB_CARD_STATUSES];
   }
   if (status === 'closed') return ['COMPLETED', 'CANCELLED'];
   return [status];
@@ -478,14 +507,9 @@ export class PostgresJobCardRepository implements JobCardRepository {
 
   async listJobCards(scope: JobCardReadScope, query: JobCardListQuery) {
     const filter = workspaceWhere(scope, query);
-    const joins = `FROM job_cards j
-       LEFT JOIN customers c
-         ON c.organization_id = j.organization_id AND c.id = j.customer_id
-       LEFT JOIN contacts ct
-         ON ct.organization_id = j.organization_id AND ct.id = j.contact_id`;
     const count = await this.pool.query<{ total: number }>(
       `SELECT COUNT(*)::int AS total
-       ${joins}
+       ${WORKSPACE_JOINS}
        WHERE ${filter.clause}`,
       filter.values,
     );
@@ -495,20 +519,8 @@ export class PostgresJobCardRepository implements JobCardRepository {
       ? 'j.staff_completed_at ASC, j.id ASC'
       : 'j.updated_at DESC, j.id DESC';
     const items = await this.pool.query<JobCardListRow>(
-      `SELECT j.id, j.type, j.status, j.version, j.title, j.priority, j.due_date,
-              j.created_at, j.updated_at, j.staff_completed_at,
-              c.id AS customer_id, c.name AS customer_name,
-              ct.id AS contact_id, ct.name AS contact_name,
-              u.id AS assignee_id, u.name AS assignee_name,
-              COALESCE(delivery.delivery_item_count, 0)::int AS delivery_item_count
-       ${joins}
-       JOIN users u
-         ON u.organization_id = j.organization_id AND u.id = j.assigned_to
-       LEFT JOIN LATERAL (
-         SELECT COUNT(*)::int AS delivery_item_count
-         FROM job_card_delivery_items di
-         WHERE di.organization_id = j.organization_id AND di.job_card_id = j.id
-       ) delivery ON TRUE
+      `SELECT ${JOB_CARD_LIST_COLUMNS}
+       ${WORKSPACE_ITEM_JOINS}
        WHERE ${filter.clause}
        ORDER BY ${order}
        LIMIT $${limitPosition} OFFSET $${offsetPosition}`,
@@ -520,6 +532,53 @@ export class PostgresJobCardRepository implements JobCardRepository {
       limit: query.limit,
       offset: query.offset,
     };
+  }
+
+  async listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard> {
+    const countFilter = workspaceWhere(scope, query);
+    const counts = await this.pool.query<{ status: JobCardStatus; count: number }>(
+      `SELECT j.status, COUNT(*)::int AS count
+       ${WORKSPACE_JOINS}
+       WHERE ${countFilter.clause}
+       GROUP BY j.status`,
+      countFilter.values,
+    );
+    const itemFilter = workspaceWhere(scope, { ...query, status: 'active' });
+    const limitPosition = itemFilter.values.length + 1;
+    const items = await this.pool.query<JobCardListRow>(
+      `WITH ranked AS (
+         SELECT ${JOB_CARD_LIST_COLUMNS},
+                ROW_NUMBER() OVER (PARTITION BY j.status ORDER BY j.updated_at DESC, j.id DESC) AS row_number
+         ${WORKSPACE_ITEM_JOINS}
+         WHERE ${itemFilter.clause}
+       )
+       SELECT * FROM ranked
+       WHERE row_number <= $${limitPosition}
+       ORDER BY status, updated_at DESC, id DESC`,
+      [...itemFilter.values, query.limit],
+    );
+
+    const columns: JobCardBoard['columns'] = {
+      NEW: { items: [], count: 0 },
+      PLANNED: { items: [], count: 0 },
+      IN_PROGRESS: { items: [], count: 0 },
+      WAITING_APPROVAL: { items: [], count: 0 },
+      REVISION_REQUESTED: { items: [], count: 0 },
+    };
+    const closedCounts = { COMPLETED: 0, CANCELLED: 0 };
+    for (const row of counts.rows) {
+      if (row.status === 'COMPLETED' || row.status === 'CANCELLED') {
+        closedCounts[row.status] = Number(row.count);
+      } else if (row.status in columns) {
+        columns[row.status as keyof typeof columns].count = Number(row.count);
+      }
+    }
+    for (const row of items.rows) {
+      if (row.status in columns) {
+        columns[row.status as keyof typeof columns].items.push(mapJobCardListItem(row));
+      }
+    }
+    return { columns, closedCounts };
   }
 
   async findJobCard(organizationId: string, jobCardId: string) {

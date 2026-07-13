@@ -13,6 +13,14 @@ function serviceDouble() {
   const page = { items: [result], total: 1, limit: 25, offset: 0 };
   return {
     create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
+    board: vi.fn().mockResolvedValue({
+      columns: {
+        NEW: { items: [], count: 0 }, PLANNED: { items: [], count: 0 },
+        IN_PROGRESS: { items: [], count: 0 }, WAITING_APPROVAL: { items: [], count: 0 },
+        REVISION_REQUESTED: { items: [], count: 0 },
+      },
+      closedCounts: { COMPLETED: 0, CANCELLED: 0 },
+    }),
     detail: vi.fn().mockResolvedValue(result), patch: vi.fn().mockResolvedValue({ ...result, version: 2 }),
     listDeliveryItems: vi.fn().mockResolvedValue([]), addDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 2 }),
     patchDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 3 }),
@@ -93,6 +101,31 @@ describe('JobCard routes', () => {
     expect(response.statusCode).toBe(400);
     expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(service.list).not.toHaveBeenCalled();
+  });
+
+  it('dispatches the static board route with parsed defaults and Staff actor', async () => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url: '/api/job-cards/board' });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.board).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
+      expect.objectContaining({ limit: 25, q: null, assignedTo: null }),
+    );
+    expect(service.detail).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '/api/job-cards/board?status=active',
+    '/api/job-cards/board?offset=0',
+    '/api/job-cards/board?unknown=value',
+    '/api/job-cards/board?limit=25&limit=50',
+  ])('rejects invalid board query %s', async (url) => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.board).not.toHaveBeenCalled();
   });
 
   it('dispatches delivery item CRUD and rejects unknown financial fields', async () => {

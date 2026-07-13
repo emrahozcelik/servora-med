@@ -7,6 +7,8 @@ import {
   type DeliveryPurpose,
   type JobCard,
   type JobCardActor,
+  type JobCardBoard,
+  type JobCardBoardQuery,
   type JobCardListQuery,
   type JobCardPriority,
 } from './types.js';
@@ -115,6 +117,28 @@ export class JobCardService {
       return { items: [], total: 0, limit: query.limit, offset: query.offset };
     }
     return this.repository.listJobCards(
+      {
+        organizationId: actor.organizationId,
+        assignedTo: actor.role === 'STAFF' ? actor.id : null,
+      },
+      query,
+    );
+  }
+
+  async board(actor: JobCardActor, query: JobCardBoardQuery): Promise<JobCardBoard> {
+    if (actor.role === 'STAFF' && query.assignedTo !== null && query.assignedTo !== actor.id) {
+      return {
+        columns: {
+          NEW: { items: [], count: 0 },
+          PLANNED: { items: [], count: 0 },
+          IN_PROGRESS: { items: [], count: 0 },
+          WAITING_APPROVAL: { items: [], count: 0 },
+          REVISION_REQUESTED: { items: [], count: 0 },
+        },
+        closedCounts: { COMPLETED: 0, CANCELLED: 0 },
+      };
+    }
+    return this.repository.listBoard(
       {
         organizationId: actor.organizationId,
         assignedTo: actor.role === 'STAFF' ? actor.id : null,
