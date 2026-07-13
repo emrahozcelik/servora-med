@@ -1,11 +1,11 @@
 {
     "schema_version": 1,
-    "commit": "c6f644e529c5e4d1440f0d774c9e1fd0a4d52a79",
-    "indexed_at": "2026-07-12T11:35:06Z",
-    "project": "Users-emrah-Documents-Servora-Med-.worktrees-slice-04-people-web",
-    "nodes": 153,
-    "edges": 333,
-    "original_size": 1572864,
-    "compressed_size": 173232,
-    "compression_level": 9
+    "commit": "1d6fc0d74a46e0be6c48bcab4452e3c6943be074",
+    "indexed_at": "2026-07-13T07:34:44Z",
+    "project": "Users-emrah-Documents-Servora-Med-.worktrees-slice-05-crm-web",
+    "nodes": 275,
+    "edges": 569,
+    "original_size": 2621440,
+    "compressed_size": 286247,
+    "compression_level": 3
 }

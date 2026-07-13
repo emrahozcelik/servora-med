@@ -53,6 +53,11 @@ describe('application routes', () => {
     expect(html).toContain('İşlere dön');
   });
 
+  it('redirects an authenticated user away from the sign-in route', () => {
+    const html = render('/login');
+    expect(html).not.toContain('Sayfa bulunamadı');
+  });
+
   it('exports encoded route helpers', () => {
     expect(paths.job('job/1')).toBe('/jobs/job%2F1');
     expect(paths.staffProfile('staff 1')).toBe('/staff/staff%201');

@@ -255,3 +255,42 @@ Lifecycle events carry old and new status. The same command does not also create
 - Schema, API, tests, reports, and UI timeline use the same uppercase vocabulary.
 - Activity rows are append-only and written in the business transaction.
 - Organization-setting audit is not mixed into JobCard activity.
+
+## ARC-003: Customer aggregate, Contact routing, and shared lock protocol
+
+- **Date:** 2026-07-13
+- **Status:** Accepted
+- **Scope:** Slice 05 CRM
+
+### Context
+
+Customers are organizations such as clinics or dealers, while Contacts are people such
+as doctors or purchasing officers. Treating both as one record would make ownership,
+primary-person defaults, JobCard history, and lifecycle rules ambiguous. CRM lifecycle
+commands also share rows with People deactivation and JobCard creation, so independent
+check-then-write transactions could race.
+
+### Decision
+
+Customer is the aggregate root and Contact is always addressed below it at
+`/api/customers/:customerId/contacts/:contactId`. A Customer has at most one optional
+responsible Staff user in the pilot. The first active Contact becomes primary;
+`make-primary` atomically replaces it. JobCards may reference one optional active Contact
+that belongs to their selected Customer.
+
+Cross-module writes use `users -> customers -> contacts -> job_cards` lock order and
+stable UUID ordering within one row type. Customer and Contact mutations use integer
+versions and explicit lifecycle commands. React Router supplies stable list/detail URLs;
+backend authorization remains the source of truth. Identity and login state remain owned
+by the application shell: an authenticated visit to `/login` replaces that history entry
+with `/jobs`, while requested Customer/Contact deep links and refreshes remain intact.
+
+### Consequences
+
+- There is no top-level Contact collection, generic CRM notes field, or many-to-many
+  Customer/Staff assignment table in the pilot.
+- Staff can read organization CRM records but mutations remain Admin/Manager-only.
+- Staff deactivation clears Customer assignments in the same transaction.
+- Customer detail JobCard summaries are bounded and preserve assigned-Staff visibility.
+- UI route guards are navigation behavior, never an authorization boundary.
+- Full JobCard notes, timeline, and Kanban navigation remain Slice 07 work.

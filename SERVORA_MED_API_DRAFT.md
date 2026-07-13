@@ -1,7 +1,7 @@
 # Servora-Med API Draft
 
 > Date: 2026-07-10  
-> Status: Approved Phase 0 API contract; routes not implemented  
+> Status: Living API contract; implemented through Slice 05 CRM
 > Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT
 
 ## 1. General Contract
@@ -237,6 +237,12 @@ Every mutation requires `expectedVersion`, performs an atomic version-predicate 
 
 Role changes to or from `STAFF` are rejected with `STAFF_ROLE_CHANGE_NOT_SUPPORTED`. An Admin cannot change their own role or deactivate their own account. The final active Admin, a Staff user with active JobCards, and a Manager with assigned active Staff are protected by their corresponding conflict codes.
 
+Eligible Staff deactivation clears every matching Customer `assignedStaffUserId` in the
+same transaction, increments each affected Customer version, and appends one
+`CUSTOMER_ASSIGNEE_CHANGED` audit event with reason `STAFF_DEACTIVATED`. Session revocation,
+user deactivation, assignment cleanup, and audit insertion either commit or roll back
+together.
+
 ## 6. Staff `/api/staff`
 
 | Method | Path | Roles | Behavior |
@@ -308,6 +314,9 @@ offset
 `limit` defaults to 50 and must be between 1 and 200; `offset` defaults to 0 and must
 be a non-negative integer. Unknown query parameters are rejected.
 
+When `status` is omitted, the list includes `prospect` and `active` Customers and hides
+`inactive` records. `status=inactive` exposes inactive records explicitly.
+
 Customer lifecycle uses the `prospect`, `active`, and `inactive` state machine. Activation
 is permitted only from `inactive`; deactivation is permitted from `prospect` or `active`.
 The API does not expose a duplicate active flag. Lifecycle commands and
@@ -315,6 +324,11 @@ patches require a positive integer `expectedVersion`; successful mutations incre
 `version`, while stale requests return `409 VERSION_CONFLICT` with `currentVersion`.
 Customers with active JobCards cannot be deactivated. Customer mutation bodies use
 an exact allowlist and never accept or return a `notes` field.
+
+Customer detail includes at most five open and five completed JobCard summaries. Staff
+receives only summaries for JobCards assigned to that Staff user; Manager and Admin
+receive organization-scoped summaries. The CRM detail response does not expose an audit
+timeline or Staff-confidential profile notes.
 
 `assignedStaffUserId` accepts only `null` or a non-empty string. The referenced user
 must be an active Staff user in the same organization; a missing, inactive,
@@ -338,6 +352,12 @@ Contact patches and all named commands require a positive integer `expectedVersi
 Successful mutations increment `version`; stale requests return `409 VERSION_CONFLICT`.
 Mutation bodies use exact allowlists and never accept or return a `notes` field. Staff
 may read Customers and Contacts but every CRM mutation returns `403 FORBIDDEN`.
+
+Customer assignment and Contact/JobCard eligibility mutations use the shared lock order
+`users -> customers -> contacts -> job_cards`, with stable UUID order when more than one
+row of the same type is locked. A JobCard Contact must be active, in the authenticated
+organization, and belong to the selected Customer. Changing Customer without supplying
+a compatible Contact clears `contactId`.
 
 ## 9. Products `/api/products`
 

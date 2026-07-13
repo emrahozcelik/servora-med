@@ -86,7 +86,7 @@
 - Produces versioned `customers`, nested `contacts`, nullable `job_cards.contact_id`, CRM audit values, composite foreign keys, and supporting indexes.
 - Preserves every applied migration and existing People audit row.
 
-- [ ] **Step 1: Write the failing schema contract test**
+- [x] **Step 1: Write the failing schema contract test**
 
 ```ts
 import { readFile } from 'node:fs/promises';
@@ -121,12 +121,12 @@ describe('004 CRM migration contract', () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `cd server && npm test -- --run tests/crm-schema.test.ts`  
 Expected: FAIL because `004_crm_contacts.sql` does not exist.
 
-- [ ] **Step 3: Add the exact migration**
+- [x] **Step 3: Add the exact migration**
 
 Use additive/altering SQL in migration 004:
 
@@ -180,7 +180,7 @@ ALTER TABLE audit_events DROP CONSTRAINT audit_events_event_type_check;
 
 Re-add both audit CHECK constraints with every existing People value plus every approved CRM value. Add Contact search/status/customer indexes and a JobCard `(organization_id, contact_id)` index. Update the schema SSOT to remove Customer/Contact notes and document versions, composite FKs, partial unique primary, and `job_cards.contact_id`.
 
-- [ ] **Step 4: Verify migration contract and runner regression**
+- [x] **Step 4: Verify migration contract and runner regression**
 
 Run: `cd server && npm test -- --run tests/crm-schema.test.ts tests/migrate-runner.test.ts tests/people-schema.test.ts tests/delivery-schema.test.ts`  
 Expected: PASS with applied migration files unchanged.
@@ -203,7 +203,7 @@ git commit -m "feat: add CRM schema"
 - Produces `Customer`, `Contact`, `CustomerDetail`, `CustomerFilters`, `ContactFilters`, `CrmTransaction`, and `CrmRepository`.
 - Consumes `pg.Pool`; all mutation methods run through a caller-visible transaction.
 
-- [ ] **Step 1: Write failing repository and normalization tests**
+- [x] **Step 1: Write failing repository and normalization tests**
 
 Define the required public contracts in the test fixtures:
 
@@ -226,12 +226,12 @@ expect(normalizeTaxNumber(' . - / ')).toBeNull();
 
 Repository tests must inspect SQL parameters/recorded calls for default inactive exclusion, `EXISTS` Contact search, organization predicates, bounded five-open/five-completed summaries, and Staff `assigned_to` scoping.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cd server && npm test -- --run tests/crm-repository.test.ts`  
 Expected: FAIL because the CRM module does not exist.
 
-- [ ] **Step 3: Implement focused types and repository methods**
+- [x] **Step 3: Implement focused types and repository methods**
 
 The transaction interface must be explicit:
 
@@ -257,12 +257,12 @@ export interface CrmTransaction {
 
 Implement `BEGIN`, `COMMIT`, and `ROLLBACK`; map database snake_case once in `types.ts`; use `limit <= 200`; use stable ordering `(name, id)` and deterministic JobCard summary ordering. Do not expose raw SQL rows outside the repository.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run: `cd server && npm test -- --run tests/crm-repository.test.ts tests/people-repository.test.ts tests/job-card-service.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/crm/types.ts server/src/modules/crm/repository.ts server/tests/crm-repository.test.ts
@@ -281,7 +281,7 @@ git commit -m "feat: add CRM persistence"
 - Produces `CrmService` methods consumed verbatim by HTTP handlers.
 - Consumes `CrmRepository`; backend policy remains the source of truth.
 
-- [ ] **Step 1: Write failing service policy tests**
+- [x] **Step 1: Write failing service policy tests**
 
 Use an in-memory recording repository and cover each rule independently. The service surface is:
 
@@ -305,12 +305,12 @@ export class CrmService {
 
 Tests must prove Admin/Manager write and Staff read-only; same-organization concealment; initial prospect/active only; exact status transitions; lifecycle-field rejection at handler boundary; normalized tax conflict; active Staff assignee requirement; first active Contact primary; reactivation not primary; active-JobCard guards; primary replacement versions; and safe canonical audit payloads.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cd server && npm test -- --run tests/crm-service.test.ts`  
 Expected: FAIL because `CrmService` is missing.
 
-- [ ] **Step 3: Implement the smallest policy helpers and transaction flows**
+- [x] **Step 3: Implement the smallest policy helpers and transaction flows**
 
 Use stable error constructors:
 
@@ -341,12 +341,12 @@ export class AppError extends Error {
 
 For `makePrimary`, lock the Customer, lock active Contacts in UUID order, validate target version/activity, increment the previous primary version, increment the target version, and write one `CONTACT_MADE_PRIMARY` audit event containing only old/new Contact IDs. Map unique-tax SQLSTATE `23505` for the named index to `CUSTOMER_TAX_NUMBER_EXISTS`.
 
-- [ ] **Step 4: Verify GREEN and domain regressions**
+- [x] **Step 4: Verify GREEN and domain regressions**
 
 Run: `cd server && npm test -- --run tests/crm-service.test.ts tests/errors.test.ts tests/people-service.test.ts tests/job-card-service.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/crm/service.ts server/src/errors/index.ts server/tests/crm-service.test.ts server/tests/errors.test.ts
@@ -372,7 +372,7 @@ git commit -m "feat: enforce CRM lifecycle policy"
 - Adds `contactId: string | null` to `JobCard`, create, patch, repository rows, and HTTP DTOs.
 - Produces transaction methods that CRM guards and JobCard creation share without importing CRM service policy.
 
-- [ ] **Step 1: Write failing JobCard association and concurrency tests**
+- [x] **Step 1: Write failing JobCard association and concurrency tests**
 
 Add focused cases:
 
@@ -393,12 +393,12 @@ it('persists a valid Contact on the JobCard response', async () => {
 
 The PostgreSQL concurrency test must open two clients and prove customer deactivation cannot interleave after JobCard Customer validation, Contact deactivation cannot interleave after Contact validation, and both transactions finish without deadlock under the documented order.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cd server && npm test -- --run tests/job-card-crud-service.test.ts tests/job-card-routes.test.ts tests/crm-concurrency.test.ts`  
 Expected: FAIL because JobCards do not expose or persist `contactId` and Customer validation uses an unlocked existence query.
 
-- [ ] **Step 3: Implement lock-aware reference validation**
+- [x] **Step 3: Implement lock-aware reference validation**
 
 Replace `customerExists` with records that lock and expose eligibility:
 
@@ -415,12 +415,12 @@ interface JobCardTransaction {
 
 JobCard create locks assignee User, Customer, and optional Contact in that order. A relationship patch locks the proposed Customer and optional Contact before locking the JobCard. Reject inactive Customers, inactive Contacts, and mismatched parents. If Customer changes and no compatible Contact is supplied, persist `contact_id = NULL`. Keep critical action claim, activity insertion, and JobCard insert/update in one existing transaction.
 
-- [ ] **Step 4: Verify GREEN and full JobCard regression**
+- [x] **Step 4: Verify GREEN and full JobCard regression**
 
 Run: `cd server && npm test -- --run tests/job-card-crud-service.test.ts tests/job-card-routes.test.ts tests/crm-concurrency.test.ts tests/job-card-lifecycle-service.test.ts tests/delivery-item-service.test.ts`  
 Expected: PASS with no duplicate activities or version regressions.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/job-cards server/tests/job-card-crud-service.test.ts server/tests/job-card-routes.test.ts server/tests/crm-concurrency.test.ts
@@ -441,7 +441,7 @@ git commit -m "feat: link Contacts to JobCards"
 - People owns `CustomerAssignmentCleanupPort`; CRM implements it with a caller-owned `PoolClient`.
 - `PeopleTransaction.clearCustomerAssignments(...)` is available only inside the existing deactivation transaction.
 
-- [ ] **Step 1: Write failing cleanup and rollback tests**
+- [x] **Step 1: Write failing cleanup and rollback tests**
 
 Use this exact port:
 
@@ -462,12 +462,12 @@ export interface CustomerAssignmentCleanupPort {
 
 Tests prove all matching active and inactive Customers are cleared, each Customer version increments, each audit event has `reason: STAFF_DEACTIVATED`, People never imports `crm/repository.ts`, and an injected audit failure rolls back user deactivation, session revocation, and every assignment change.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cd server && npm test -- --run tests/people-repository.test.ts tests/people-service.test.ts`  
 Expected: FAIL because the cleanup port is not available.
 
-- [ ] **Step 3: Implement the transaction-bound adapter**
+- [x] **Step 3: Implement the transaction-bound adapter**
 
 `PostgresPeopleRepository` receives the cleanup port next to auth ports. During eligible Staff deactivation, after locking the User and checking active JobCards, invoke cleanup before the versioned user update. The CRM adapter executes:
 
@@ -481,12 +481,12 @@ FOR UPDATE;
 
 For each locked Customer, set `assigned_staff_user_id = NULL`, increment version, and insert `CUSTOMER_ASSIGNEE_CHANGED` with ID-only values and the approved reason. Reuse the active `PoolClient`; do not open or commit a nested transaction.
 
-- [ ] **Step 4: Verify GREEN and deactivation regressions**
+- [x] **Step 4: Verify GREEN and deactivation regressions**
 
 Run: `cd server && npm test -- --run tests/people-repository.test.ts tests/people-service.test.ts tests/people-routes.test.ts`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/people server/src/modules/crm/people-adapter.ts server/tests/people-repository.test.ts server/tests/people-service.test.ts
@@ -508,7 +508,7 @@ git commit -m "feat: clear CRM ownership on Staff deactivation"
 - Produces every approved `/api/customers` and nested Contact route.
 - Consumes `CrmService`, authentication, and the mandatory-password guard.
 
-- [ ] **Step 1: Write failing route acceptance tests**
+- [x] **Step 1: Write failing route acceptance tests**
 
 Register and test exactly:
 
@@ -530,12 +530,12 @@ app.post('/customers/:customerId/contacts/:contactId/make-primary', handlers.mak
 
 Acceptance tests cover exact filters, pagination bounds, unknown fields, positive integer `expectedVersion`, named lifecycle commands, Staff `403` mutations, Staff read success, cross-organization 404 concealment, stable conflict codes, and absence of `notes` fields.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 Run: `cd server && npm test -- --run tests/crm-routes.test.ts tests/app.test.ts`  
 Expected: FAIL with missing routes or 404.
 
-- [ ] **Step 3: Implement handlers, routes, and dependency wiring**
+- [x] **Step 3: Implement handlers, routes, and dependency wiring**
 
 Handlers use allowlists rather than spreading request bodies:
 
@@ -549,7 +549,7 @@ const CONTACT_PATCH_FIELDS = ['expectedVersion', 'name', 'title', 'phone', 'emai
 
 Apply authentication and mandatory-password guards before handlers. Extend `AppDependencies` with optional `crmRepository`. In `server/src/index.ts`, construct one `PostgresCustomerAssignmentCleanup`, pass it into `PostgresPeopleRepository`, construct `PostgresCrmRepository`, and keep CRM, People, and JobCard repositories on `database.pool`. Update the API SSOT with nested paths, state machines, `contactId`, filters, errors, and version behavior.
 
-- [ ] **Step 4: Verify GREEN and complete backend unit gate**
+- [x] **Step 4: Verify GREEN and complete backend unit gate**
 
 Run:
 
@@ -561,7 +561,7 @@ cd server && npm run build
 
 Expected: all server tests and TypeScript build PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/crm server/src/app.ts server/src/index.ts server/tests/crm-routes.test.ts server/tests/app.test.ts SERVORA_MED_API_DRAFT.md
@@ -905,7 +905,7 @@ Use CRM list/detail data already available through services. Defaults update onl
 Run: `cd web && npm test -- --run tests/delivery-create.test.tsx tests/tracer-client.test.ts tests/job-detail.test.tsx`  
 Expected: PASS.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/DeliveryCreate.tsx web/src/services/api.ts web/src/styles.css web/tests/delivery-create.test.tsx
@@ -933,7 +933,7 @@ git commit -m "feat: add Contact to delivery creation"
 - Produces the verified Slice 05 handoff and updated SSOT/codebase memory.
 - Must not introduce new product behavior during closeout.
 
-- [ ] **Step 1: Run full automated verification**
+- [x] **Step 1: Run full automated verification**
 
 ```bash
 cd server && npm test -- --run
@@ -946,21 +946,82 @@ cd web && npm audit --audit-level=high
 
 Expected: every command exits 0; audits report zero high/critical vulnerabilities. If a command fails, use `superpowers:systematic-debugging`, add a regression test, and rerun the focused test before the full command.
 
-- [ ] **Step 2: Repeat the disposable PostgreSQL end-to-end tracer**
+**Task 13 final automated verification (2026-07-13):** server passed 27 test files
+with 175 tests; 2 PostgreSQL-gated files/3 tests were skipped in the ordinary suite and
+were run separately against the disposable database. Server build passed and audit
+reported zero vulnerabilities. Web passed 19 files/103 tests, including the authenticated
+`/login` regression; TypeScript/Vite production build passed with 38 transformed modules,
+and audit reported zero vulnerabilities.
+
+- [x] **Step 2: Repeat the disposable PostgreSQL end-to-end tracer**
 
 Run migrations 001–004, development seed, login, Customer create/search/update, Contact create/primary change, JobCard Contact create, guard conflicts, Staff deactivation cleanup, activation/deactivation, audit inspection, and cross-organization rejection through live HTTP. Confirm rollback and concurrency with two database clients. Record exact database name, commands, counts, and cleanup result in this plan.
 
-- [ ] **Step 3: Run browser acceptance with Playwright MCP**
+- [x] **Step 3: Run browser acceptance with Playwright MCP**
 
 At 390×844 and desktop width, verify Manager Customer create/edit, responsible Staff, nested Contacts, primary change, JobCard summaries, deactivate conflicts, and router Back/Forward/refresh/direct URLs. Verify Staff read-only CRM, own-only JobCard summaries, and absence of mutation/audit/private-note UI.
 
 Manually verify keyboard-only completion, logical focus, dialog focus restoration, visible focus, 44×44 targets, 200% text size, effective 400% zoom/reflow, reduced motion, semantic headings/landmarks, labels, live feedback, and absence of horizontal page scrolling. Remove generated Playwright artifacts after inspection.
 
-- [ ] **Step 4: Update SSOT, decision log, plan results, and codebase memory**
+**Task 13 live PostgreSQL verification (2026-07-13):** disposable database
+`servora_med_slice05_closeout` was created on local PostgreSQL 16.13, migrated through
+001–004, seeded, and exercised through live HTTP. All three seeded roles completed the
+mandatory password change and fresh login. The tracer proved Customer create/search/update,
+`AB1234` tax normalization, first-primary and primary replacement, Contact-linked JobCard
+creation, Customer and Contact active-JobCard guards, completed-job activity
+`JOB_CREATED -> DELIVERY_ITEM_ADDED -> JOB_STARTED -> JOB_SUBMITTED_FOR_APPROVAL -> JOB_APPROVED`,
+Customer/Contact lifecycle, Staff deactivation assignment cleanup, three cleanup audits,
+zero remaining assignments, safe CRM audit payloads, and cross-organization concealment.
+The real two-client concurrency suite passed 1 test and the seed/rollback contract passed
+2 tests against the same database. The server was stopped, the temporary tracer removed,
+and the disposable database was dropped; a catalog query confirmed zero matching databases.
+
+Commands used, with the ephemeral seed credential intentionally omitted:
+
+```bash
+dropdb --if-exists servora_med_slice05_closeout
+createdb servora_med_slice05_closeout
+DATABASE_URL=postgresql://emrah@localhost/servora_med_slice05_closeout NODE_ENV=development npx tsx src/db/migrate.ts
+DATABASE_URL=postgresql://emrah@localhost/servora_med_slice05_closeout NODE_ENV=development DEV_SEED_PASSWORD='<ephemeral>' npx tsx src/db/seed-dev.ts
+TEST_DATABASE_URL=postgresql://emrah@localhost/servora_med_slice05_closeout npm test -- --run tests/auth-setup-postgres.test.ts tests/crm-concurrency.test.ts
+DATABASE_URL=postgresql://emrah@localhost/servora_med_slice05_closeout NODE_ENV=development PORT=3105 npx tsx src/index.ts
+node task13-live-tracer.mjs
+dropdb --if-exists servora_med_slice05_closeout
+```
+
+`task13-live-tracer.mjs` was a closeout-only runner created without a credential, executed
+against port 3105, and removed after the assertions passed.
+
+**Task 13 browser verification (2026-07-13):** a second disposable database,
+`servora_med_slice05_browser`, was migrated and seeded for Playwright acceptance. Manager
+created and edited a Customer, assigned Staff, added two nested Contacts, replaced the
+primary Contact, created a Contact-linked delivery using the responsible-Staff and primary-
+Contact suggestions, saw the bounded open-job summary, and received the explicit active-job
+deactivation conflict. Staff completed forced password change and fresh login, opened direct
+Customer and Contact URLs, saw assigned JobCard summaries, and had no CRM mutation controls,
+audit UI, or private-note UI. Back/Forward, refresh, and direct nested routes passed.
+
+Playwright MCP checks at desktop 1200×800, mobile 390×844, and 320 CSS px found no horizontal page overflow, undersized
+enabled controls, unlabeled form controls, or clipped text at 200% enlargement. Keyboard-only
+Contact open/Tab/cancel restored focus to the trigger with a visible 3 px outline; dismissing
+the lifecycle confirmation restored focus to its command. Reduced-motion emulation left no
+non-trivial animation or transition duration. Browser testing exposed one authenticated
+`/login` routing defect; a focused regression test failed first, `/login -> /jobs` was added
+without changing deep-link behavior, and the focused router suite then passed 16 tests.
+The browser and both app processes were closed and the disposable database was dropped.
+
+- [x] **Step 4: Update SSOT, decision log, plan results, and codebase memory**
 
 Mark only verified Slice 05 acceptance boxes complete. Ensure docs contain implemented route names, Contact relationship, lock protocol, migration filename, React Router decision, exact verification results, and remaining Slice 07 note/follow-up deferrals. Re-index both `server` and `web` codebase-memory projects with persistence after the final code state.
 
-- [ ] **Step 5: Commit the verified closeout**
+**Task 13 memory result (2026-07-13):** persistent moderate indexes completed for
+`Users-emrah-Documents-Servora-Med-.worktrees-slice-05-crm-server` at 551 nodes/1,419
+edges and `Users-emrah-Documents-Servora-Med-.worktrees-slice-05-crm-web` at 275
+nodes/569 edges. Both projects reported `ready`, and their tracked graph artifacts were
+refreshed. Stable Slice 05 decisions were also added to the persistent `Servora-Med`
+project memory.
+
+- [x] **Step 5: Commit the verified closeout**
 
 ```bash
 git status --short

@@ -127,6 +127,7 @@ export function AppRouter({ user, workspace, customers, products, notice, onRelo
     </nav>
     <Routes>
       <Route path="/" element={<Navigate to={paths.jobs} replace />} />
+      <Route path="/login" element={<Navigate to={paths.jobs} replace />} />
       <Route path={paths.jobs} element={<WorkspaceView user={user} state={workspace} notice={notice}
         onCreate={workspace.kind === 'ready' ? () => { onClearNotice(); navigate(paths.newDelivery); } : undefined}
         onOpen={(jobId) => navigate(paths.job(jobId))} onRetry={onReload} />} />

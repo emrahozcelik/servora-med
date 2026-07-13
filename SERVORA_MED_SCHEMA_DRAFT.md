@@ -163,7 +163,7 @@ Profile lifecycle follows `users.is_active`. No duplicate active flag, internal 
 
 ### 3.5 audit_events
 
-People and security administration uses an audit stream separate from JobCard activity.
+People, security, and CRM administration use an audit stream separate from JobCard activity.
 
 | Column | Type | Rules |
 | --- | --- | --- |
@@ -180,6 +180,21 @@ People and security administration uses an audit stream separate from JobCard ac
 
 Passwords, password hashes, temporary passwords, tokens, cookies, and session identifiers are forbidden in audit payloads.
 
+Canonical CRM audit events are:
+
+```text
+CUSTOMER_CREATED
+CUSTOMER_FIELDS_UPDATED
+CUSTOMER_ASSIGNEE_CHANGED
+CUSTOMER_ACTIVATED
+CUSTOMER_DEACTIVATED
+CONTACT_CREATED
+CONTACT_FIELDS_UPDATED
+CONTACT_MADE_PRIMARY
+CONTACT_ACTIVATED
+CONTACT_DEACTIVATED
+```
+
 ### 3.6 customers
 
 | Column | Type | Rules |
@@ -188,7 +203,7 @@ Passwords, password hashes, temporary passwords, tokens, cookies, and session id
 | organization_id | UUID NOT NULL | FK to organizations |
 | name | VARCHAR(255) NOT NULL | |
 | customer_type | VARCHAR(30) NOT NULL | `customer_type` check |
-| tax_number | VARCHAR(50) NULL | informational in MVP |
+| tax_number | VARCHAR(50) NULL | normalized; unique per organization when present |
 | phone | VARCHAR(50) NULL | |
 | email | VARCHAR(255) NULL | |
 | city | VARCHAR(100) NULL | |
@@ -297,6 +312,7 @@ Indexes:
 - `(organization_id, assigned_to, status)`
 - `(organization_id, type, status)`
 - `(organization_id, customer_id)`
+- `(organization_id, contact_id)`
 - partial `(organization_id, due_date)` for active statuses
 - `(organization_id, created_at DESC)`
 
@@ -442,6 +458,16 @@ The API never accepts organization ownership as a trusted client choice. Service
 | Stale JobCard update does not overwrite | atomic version predicate |
 | Cross-organization reference is rejected | service plus selected composite constraints |
 | Login email is unambiguous | global unique index on `lower(email)` |
+| Stale Customer or Contact mutation does not overwrite | atomic version predicate |
+| Customer assignee is active same-organization Staff | service validation under User lock |
+| At most one active primary Contact exists | partial unique index plus transaction policy |
+| Customer or Contact with active JobCards cannot deactivate | locked guard query and service test |
+| Staff deactivation clears Customer assignments atomically | caller-owned People transaction plus CRM cleanup port |
+
+Cross-module mutations use the lock order `users -> customers -> contacts -> job_cards`.
+Multiple rows of the same type are locked in stable UUID order. Customer/Contact
+lifecycle guards, JobCard relationship validation, and Staff-assignment cleanup reuse
+the caller-owned transaction so the eligibility check cannot interleave with the write.
 
 ## 6. Deferred Structured Sales Meeting
 
@@ -473,19 +499,18 @@ Production creates the first admin through a separate bootstrap CLI or environme
 
 ## 8. Migration Groups
 
-Recommended slice-aligned groups:
+Applied slice-aligned migrations:
 
 | Group | Content |
 | --- | --- |
-| 001_auth_foundation | organizations, users, sessions, auth indexes |
-| 002_delivery_tracer | minimal customers, products, job_cards, delivery_items, activity, processed_actions |
-| 003_people | user versions, organization timezone, staff_profiles, audit_events |
-| 004_crm_contacts | contacts and remaining CRM indexes |
-| 005_notes_and_reporting | notes and report-support indexes |
-| 006_general_task | type support and type-specific constraints if required |
-| 007_sales_meeting | deferred enum value and structured details |
+| `001_auth_foundation.sql` | organizations, users, sessions, auth indexes |
+| `002_delivery_tracer.sql` | minimal customers, products, job_cards, delivery_items, activity, processed_actions |
+| `003_people.sql` | user versions, organization timezone, staff_profiles, audit_events |
+| `004_crm_contacts.sql` | versioned Customers, Contacts, JobCard Contact relationship, CRM indexes and audits |
 
-Exact migration filenames are assigned when each implementation slice begins. Applied files are immutable.
+Applied migrations 001–004 are immutable. Future recommended groups remain
+`005_notes_and_reporting`, `006_general_task`, and deferred `007_sales_meeting`; their exact
+filenames are assigned only when those slices begin.
 
 ## 9. Explicit Omissions
 
