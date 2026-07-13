@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { AppRouter, type WorkspaceState } from './AppRouter';
 import { PasswordChangeScreen } from './PasswordChange';
-import { ApiError, getCurrentUser, listJobCards, listReferenceCustomers, listReferenceProducts, login, logout, type CurrentUser, type ReferenceCustomer, type ReferenceProduct } from './services/api';
+import { ApiError, getCurrentUser, listJobCards, listReferenceCustomers, login, logout, type CurrentUser, type ReferenceCustomer } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
 
@@ -91,13 +91,13 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [workspace, setWorkspace] = useState<WorkspaceState>({ kind: 'loading' });
-  const [references, setReferences] = useState<{ customers: ReferenceCustomer[]; products: ReferenceProduct[] }>({ customers: [], products: [] });
+  const [customers, setCustomers] = useState<ReferenceCustomer[]>([]);
   const [notice, setNotice] = useState('');
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let active = true; setWorkspace({ kind: 'loading' });
-    Promise.all([listJobCards(), listReferenceCustomers(), listReferenceProducts()]).then(([jobs, customers, products]) => {
-      if (active) { setReferences({ customers, products }); setWorkspace({ kind: 'ready', jobs, customerNames: Object.fromEntries(customers.map((customer) => [customer.id, customer.name])) }); }
+    Promise.all([listJobCards(), listReferenceCustomers()]).then(([jobs, nextCustomers]) => {
+      if (active) { setCustomers(nextCustomers); setWorkspace({ kind: 'ready', jobs, customerNames: Object.fromEntries(nextCustomers.map((customer) => [customer.id, customer.name])) }); }
     }).catch((caught) => {
       if (!active) return;
       const apiError = caught instanceof ApiError ? caught : new ApiError(0, 'UNKNOWN_ERROR', 'İşler yüklenemedi.', true);
@@ -121,7 +121,7 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
           </button>
         </div>
       </header>
-      <AppRouter user={user} workspace={workspace} customers={references.customers} products={references.products}
+      <AppRouter user={user} workspace={workspace} customers={customers}
         notice={notice} onClearNotice={() => setNotice('')}
         onReload={() => setReloadKey((value) => value + 1)}
         onDeliveryCreated={() => { setNotice('Teslim kaydı oluşturuldu.'); setReloadKey((value) => value + 1); }} />

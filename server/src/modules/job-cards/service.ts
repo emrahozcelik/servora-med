@@ -226,7 +226,7 @@ export class JobCardService {
       const product = input.productId && input.productId !== current.productId
         ? await tx.getProduct(actor.organizationId, input.productId) : {
           id: current.productId, organizationId: current.organizationId, name: current.productNameSnapshot,
-          sku: current.productSkuSnapshot ?? '', model: current.productModelSnapshot, unit: current.unit, isActive: true };
+          sku: current.productSkuSnapshot, model: current.productModelSnapshot, unit: current.unit, isActive: true };
       if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
       const merged: DeliveryInput = { expectedVersion: input.expectedVersion, productId: input.productId ?? current.productId,
         deliveryPurpose: input.deliveryPurpose ?? current.deliveryPurpose,
@@ -275,10 +275,6 @@ export class JobCardService {
     return this.repository.listReferenceCustomers(actor.organizationId);
   }
 
-  async listReferenceProducts(actor: JobCardActor) {
-    return this.repository.listReferenceProducts(actor.organizationId);
-  }
-
   async submitForApproval(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
     return this.runLifecycle(actor, jobCardId, input, {
       command: 'SUBMIT_FOR_APPROVAL', operationKey: 'JOB_SUBMIT_FOR_APPROVAL',
@@ -293,9 +289,6 @@ export class JobCardService {
         }
         const items = await tx.getSubmissionDeliveryItems(actor.organizationId, job.id);
         assertDeliveryReadyForSubmission(job, items);
-        if (items.some((item) => !item.productActive)) {
-          throw new AppError('DELIVERY_NOT_READY', 400, 'Teslim satırlarında pasif ürün bulunuyor.');
-        }
       },
     });
   }

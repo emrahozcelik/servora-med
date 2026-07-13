@@ -22,6 +22,9 @@ import { AuthCredentialAdministration } from './modules/auth/admin-ports.js';
 import type { CrmRepository } from './modules/crm/repository.js';
 import { CrmService } from './modules/crm/service.js';
 import { crmRoutes } from './modules/crm/routes.js';
+import type { ProductRepository } from './modules/products/repository.js';
+import { ProductService } from './modules/products/service.js';
+import { productRoutes } from './modules/products/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -40,6 +43,7 @@ export type AppDependencies = {
   jobCardRepository?: JobCardRepository;
   peopleRepository?: PeopleRepository;
   crmRepository?: CrmRepository;
+  productRepository?: ProductRepository;
 };
 
 export async function buildApp(config: AppConfig, dependencies: AppDependencies = {}) {
@@ -110,6 +114,13 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       await app.register(crmRoutes, {
         prefix: '/api',
         service: new CrmService(dependencies.crmRepository),
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.productRepository) {
+      await app.register(productRoutes, {
+        prefix: '/api',
+        service: new ProductService(dependencies.productRepository),
         authenticate: authenticateDomain,
       });
     }

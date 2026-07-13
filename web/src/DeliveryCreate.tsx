@@ -6,10 +6,11 @@ import {
   type CurrentUser,
   type DeliveryPurpose,
   type ReferenceCustomer,
-  type ReferenceProduct,
 } from './services/api';
+import { ProductSelect } from './ProductSelect';
 import { getCustomer, type Contact, type CustomerDetail } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
+import type { Product } from './services/products-api';
 import { createRequestGate } from './services/request-gate';
 
 export type DeliveryFormValues = {
@@ -71,10 +72,9 @@ export async function createProductDelivery(
   return { jobCardId: job.id, version: delivery.jobCardVersion };
 }
 
-export function DeliveryCreateView({ user, customers, products, onCancel, onCreated }: {
+export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
   user: CurrentUser;
   customers: ReferenceCustomer[];
-  products: ReferenceProduct[];
   onCancel: () => void;
   onCreated: (result: { jobCardId: string; version: number }) => void;
 }) {
@@ -88,6 +88,7 @@ export function DeliveryCreateView({ user, customers, products, onCancel, onCrea
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [staffState, setStaffState] = useState<'loading' | 'ready' | 'error'>(user.role === 'STAFF' ? 'ready' : 'loading');
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
+  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const customerGate = useRef(createRequestGate());
   const activeStaffIds = useRef(new Set<string>());
@@ -133,6 +134,7 @@ export function DeliveryCreateView({ user, customers, products, onCancel, onCrea
     const customer = customers.find((item) => item.id === selectedCustomerId && item.status !== 'inactive');
     try {
       if (!customer) throw new Error('Geçerli bir müşteri seçin.');
+      if (!selectedProduct) throw new Error('Geçerli bir ürün seçin.');
       const selectedAssignee = user.role === 'STAFF' ? user.id : String(data.get('assignedTo') ?? '');
       if (!selectedAssignee) throw new Error('Geçerli bir sorumlu personel seçin.');
       const result = await createProductDelivery(user, {
@@ -140,7 +142,7 @@ export function DeliveryCreateView({ user, customers, products, onCancel, onCrea
         customerName: customer.name,
         contactId: String(data.get('contactId') ?? '') || null,
         assignedTo: selectedAssignee,
-        productId: String(data.get('productId') ?? ''),
+        productId: selectedProduct.id,
         deliveryPurpose: String(data.get('deliveryPurpose') ?? '') as DeliveryPurpose,
         quantity: Number(data.get('quantity')),
         deliveredAt: String(data.get('deliveredAt') ?? ''),
@@ -154,15 +156,15 @@ export function DeliveryCreateView({ user, customers, products, onCancel, onCrea
   }
 
   const availableCustomers = customers.filter((customer) => customer.status !== 'inactive');
-  const unavailable = availableCustomers.length === 0 || products.length === 0;
+  const unavailable = availableCustomers.length === 0;
   const referencesPending = contactState === 'loading' || staffState === 'loading';
-  const submitDisabled = pending || unavailable || referencesPending || (user.role !== 'STAFF' && !assignedTo);
+  const submitDisabled = pending || unavailable || !selectedProduct || referencesPending || (user.role !== 'STAFF' && !assignedTo);
   return <main className="delivery-create">
     <div className="delivery-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div>
       <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
     <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. İlgili kişi ve teslim notu isteğe bağlıdır.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
-    {unavailable && <div className="form-error" role="status">Teslim oluşturmak için aktif müşteri ve ürün kaydı gereklidir.</div>}
+    {unavailable && <div className="form-error" role="status">Teslim oluşturmak için aktif müşteri kaydı gereklidir.</div>}
     <form className="delivery-form" onSubmit={submit}>
       <div className="field-group"><label htmlFor="delivery-customer">Müşteri</label>
         <select id="delivery-customer" name="customerId" required disabled={pending || unavailable} value={customerId} onChange={(event) => void changeCustomer(event.target.value)}>
@@ -183,10 +185,7 @@ export function DeliveryCreateView({ user, customers, products, onCancel, onCrea
         {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
         {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi. Sayfayı yenileyip tekrar deneyin.</span>}
       </div>}
-      <div className="field-group"><label htmlFor="delivery-product">Ürün</label>
-        <select id="delivery-product" name="productId" required disabled={pending || unavailable} defaultValue="">
-          <option value="" disabled>Seçin</option>{products.map((item) => <option key={item.id} value={item.id}>{item.name} ({item.unit})</option>)}
-        </select></div>
+      <ProductSelect selected={selectedProduct} onChange={setSelectedProduct} disabled={pending || unavailable} />
       <div className="delivery-pair">
         <div className="field-group"><label htmlFor="delivery-purpose">Teslim amacı</label>
           <select id="delivery-purpose" name="deliveryPurpose" required disabled={pending} defaultValue="SALE">

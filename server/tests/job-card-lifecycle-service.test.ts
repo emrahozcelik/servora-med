@@ -9,7 +9,7 @@ class LifecycleRepository implements JobCardRepository {
     title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null };
   assignee = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true };
   customerExistsValue = true;
-  items: SubmissionDeliveryItem[] = [{ id: 'item-1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'product-1',
+  items: Array<SubmissionDeliveryItem & { productActive: boolean }> = [{ id: 'item-1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'product-1',
     deliveryPurpose: 'SALE', deliveredAt: new Date(), quantity: 2, unit: 'adet', productNameSnapshot: 'Set',
     productSkuSnapshot: 'S1', productModelSnapshot: null, lotNo: null, serialNo: null, expiryDate: null,
     deliveryNote: null, productActive: true }];
@@ -56,17 +56,24 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.job.version).toBe(3); expect(repo.events).toEqual(['JOB_SUBMITTED_FOR_APPROVAL']);
   });
 
-  it('blocks submission for missing data, inactive product, or ineligible assignee', async () => {
+  it('blocks submission for missing data or an ineligible assignee', async () => {
     const repo = new LifecycleRepository(); const service = new JobCardService(repo);
     repo.items = [];
     await expect(service.submitForApproval(staff, 'job-1', { expectedVersion: 2, clientActionId: 's1' }))
       .rejects.toMatchObject({ code: 'DELIVERY_NOT_READY' });
     repo.items = [{ ...new LifecycleRepository().items[0]!, productActive: false }];
-    await expect(service.submitForApproval(staff, 'job-1', { expectedVersion: 2, clientActionId: 's2' }))
-      .rejects.toMatchObject({ code: 'DELIVERY_NOT_READY' });
-    repo.items[0]!.productActive = true; repo.assignee.isActive = false;
+    repo.assignee.isActive = false;
     await expect(service.submitForApproval(staff, 'job-1', { expectedVersion: 2, clientActionId: 's3' }))
       .rejects.toMatchObject({ code: 'ASSIGNEE_NOT_ELIGIBLE' });
+  });
+
+  it('submits an immutable delivery snapshot after its catalog Product becomes inactive', async () => {
+    const repo = new LifecycleRepository();
+    repo.items = [{ ...repo.items[0]!, productActive: false }];
+
+    await expect(new JobCardService(repo).submitForApproval(staff, 'job-1', {
+      expectedVersion: 2, clientActionId: 'submit-inactive-catalog-product',
+    })).resolves.toMatchObject({ status: 'WAITING_APPROVAL', version: 3 });
   });
 
   it('forbids staff approval and allows manager approval', async () => {

@@ -1,21 +1,29 @@
 import { describe, expect, it } from 'vitest';
 
-import type { CriticalActionClaim, JobCardRepository, JobCardTransaction } from '../src/modules/job-cards/repository.js';
+import type {
+  CriticalActionClaim, DeliveryItemRecord, JobCardRepository, JobCardTransaction, ProductReference,
+} from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
-import type { DeliveryItem, JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
+import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
 
 class DeliveryRepository implements JobCardRepository {
   job: JobCard = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'IN_PROGRESS', version: 1,
     title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null };
-  product = { id: 'product-1', organizationId: 'org-1', name: 'İmplant Seti', sku: 'IMP-1', model: 'M1', unit: 'adet', isActive: true };
-  items: DeliveryItem[] = []; events: string[] = []; completed = new Map<string, unknown>();
+  product: ProductReference = { id: 'product-1', organizationId: 'org-1', name: 'İmplant Seti', sku: 'IMP-1', model: 'M1', unit: 'adet', isActive: true };
+  replacementProduct: ProductReference = { id: 'product-2', organizationId: 'org-1', name: 'Greft Seti', sku: 'GRF-2', model: 'G2', unit: 'kutu', isActive: true };
+  items: DeliveryItemRecord[] = []; events: string[] = []; completed = new Map<string, unknown>();
+  getProductCalls: string[] = [];
 
   private tx(): JobCardTransaction { return {
     getJobForUpdate: async (org, id) => org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
     transitionWithVersion: async () => null, appendActivity: async (i) => { this.events.push(i.event); },
     getAssignee: async () => null, customerExists: async () => false, createJobCard: async () => { throw new Error('unused'); },
     updateFieldsWithVersion: async () => null,
-    getProduct: async (org, id) => org === this.product.organizationId && id === this.product.id ? { ...this.product } : null,
+    getProduct: async (org, id) => {
+      this.getProductCalls.push(id);
+      const product = [this.product, this.replacementProduct].find((candidate) => candidate.organizationId === org && candidate.id === id);
+      return product ? { ...product } : null;
+    },
     getDeliveryItemForUpdate: async (org, job, id) => this.items.find((i) => i.organizationId === org && i.jobCardId === job && i.id === id) ?? null,
     createDeliveryItem: async (input) => { const item = { ...input, id: `item-${this.items.length + 1}` }; this.items.push(item); return item; },
     updateDeliveryItem: async (id, input) => { const index = this.items.findIndex((i) => i.id === id); this.items[index] = { ...this.items[index]!, ...input }; return this.items[index]!; },
@@ -42,6 +50,16 @@ describe('delivery item mutations', () => {
     expect(result).toMatchObject({ item: { productNameSnapshot: 'İmplant Seti', productSkuSnapshot: 'IMP-1', unit: 'adet', quantity: 2 }, jobCardVersion: 2 });
     expect(repo.events).toEqual(['DELIVERY_ITEM_ADDED']);
   });
+  it('creates a name-only Product snapshot without fabricating SKU, model, or unit', async () => {
+    const repo = new DeliveryRepository();
+    repo.product = { ...repo.product, sku: null, model: null, unit: null };
+
+    const result = await new JobCardService(repo).addDeliveryItem(staff, 'job-1', create);
+
+    expect(result.item).toMatchObject({
+      productNameSnapshot: 'İmplant Seti', productSkuSnapshot: null, productModelSnapshot: null, unit: null,
+    });
+  });
   it('replays duplicate create without duplicate item or event', async () => {
     const repo = new DeliveryRepository(); const service = new JobCardService(repo);
     await service.addDeliveryItem(staff, 'job-1', create); await service.addDeliveryItem(staff, 'job-1', create);
@@ -66,6 +84,59 @@ describe('delivery item mutations', () => {
     await expect(service.removeDeliveryItem(staff, 'job-1', added.item.id!, { expectedVersion: 3 }))
       .resolves.toEqual({ id: added.item.id, jobCardVersion: 4 });
     expect(repo.events).toEqual(['DELIVERY_ITEM_ADDED', 'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED']);
+  });
+  it('rejects replacement with an inactive Product', async () => {
+    const repo = new DeliveryRepository(); const service = new JobCardService(repo);
+    const added = await service.addDeliveryItem(staff, 'job-1', create);
+    repo.replacementProduct.isActive = false;
+
+    await expect(service.patchDeliveryItem(staff, 'job-1', added.item.id, {
+      expectedVersion: 2, productId: repo.replacementProduct.id,
+    })).rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND' });
+  });
+  it('edits non-Product fields without looking up or refreshing an inactive catalog Product', async () => {
+    const repo = new DeliveryRepository(); const service = new JobCardService(repo);
+    const added = await service.addDeliveryItem(staff, 'job-1', create);
+    repo.product.isActive = false;
+    repo.getProductCalls = [];
+
+    const result = await service.patchDeliveryItem(staff, 'job-1', added.item.id, {
+      expectedVersion: 2, quantity: 5, deliveryPurpose: 'SALE', deliveredAt: '2026-07-12T10:00:00.000Z',
+      deliveryNote: 'Güncellendi',
+    });
+
+    expect(repo.getProductCalls).toEqual([]);
+    expect(result.item).toMatchObject({ quantity: 5, deliveryPurpose: 'SALE', deliveryNote: 'Güncellendi' });
+  });
+  it('preserves every snapshot when patch supplies the unchanged Product ID', async () => {
+    const repo = new DeliveryRepository(); const service = new JobCardService(repo);
+    repo.product = { ...repo.product, sku: null, model: null, unit: null };
+    const added = await service.addDeliveryItem(staff, 'job-1', create);
+    repo.product = { ...repo.product, name: 'Yeni Ad', sku: 'NEW-SKU', model: 'NEW-MODEL', unit: 'paket', isActive: false };
+    repo.getProductCalls = [];
+
+    const result = await service.patchDeliveryItem(staff, 'job-1', added.item.id, {
+      expectedVersion: 2, productId: repo.product.id, quantity: 3,
+    });
+
+    expect(repo.getProductCalls).toEqual([]);
+    expect(result.item).toMatchObject({
+      productNameSnapshot: 'İmplant Seti', productSkuSnapshot: null, productModelSnapshot: null, unit: null,
+    });
+  });
+  it('refreshes all snapshots when replacing with a different active Product', async () => {
+    const repo = new DeliveryRepository(); const service = new JobCardService(repo);
+    const added = await service.addDeliveryItem(staff, 'job-1', create);
+
+    const result = await service.patchDeliveryItem(staff, 'job-1', added.item.id, {
+      expectedVersion: 2, productId: repo.replacementProduct.id,
+    });
+
+    expect(repo.getProductCalls).toEqual(['product-1', 'product-2']);
+    expect(result.item).toMatchObject({
+      productId: 'product-2', productNameSnapshot: 'Greft Seti', productSkuSnapshot: 'GRF-2',
+      productModelSnapshot: 'G2', unit: 'kutu',
+    });
   });
   it('rejects stale item mutation without another event', async () => {
     const repo = new DeliveryRepository(); const service = new JobCardService(repo);

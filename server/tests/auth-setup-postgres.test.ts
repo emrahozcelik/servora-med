@@ -45,6 +45,10 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
       assigned_customer_count: string;
       primary_contact_count: string;
       product_count: string;
+      demo_product_sku: string | null;
+      demo_product_name: string | null;
+      demo_product_unit: string | null;
+      demo_product_version: number | null;
       linked_job_count: string;
       job_created_count: string;
       management_audit_count: string;
@@ -61,6 +65,14 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
             AND name='Dr. Ayşe Yılmaz' AND title='Doktor')::text AS primary_contact_count,
         (SELECT COUNT(*) FROM products
           WHERE organization_id=o.id AND sku='DEMO-001')::text AS product_count,
+        (SELECT sku FROM products
+          WHERE organization_id=o.id AND sku='DEMO-001') AS demo_product_sku,
+        (SELECT name FROM products
+          WHERE organization_id=o.id AND sku='DEMO-001') AS demo_product_name,
+        (SELECT unit FROM products
+          WHERE organization_id=o.id AND sku='DEMO-001') AS demo_product_unit,
+        (SELECT version FROM products
+          WHERE organization_id=o.id AND sku='DEMO-001') AS demo_product_version,
         (SELECT COUNT(*) FROM job_cards j
           JOIN contacts c ON c.id=j.contact_id AND c.customer_id=j.customer_id
           WHERE j.organization_id=o.id AND j.status='NEW'
@@ -81,9 +93,38 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
       assigned_customer_count: '1',
       primary_contact_count: '1',
       product_count: '1',
+      demo_product_sku: 'DEMO-001',
+      demo_product_name: 'Demo İmplant Seti',
+      demo_product_unit: 'adet',
+      demo_product_version: 1,
       linked_job_count: '1',
       job_created_count: '1',
       management_audit_count: '0',
+    }]);
+
+    const nameOnly = await pool!.query<{
+      sku: string | null;
+      brand: string | null;
+      category: string | null;
+      model: string | null;
+      unit: string | null;
+      default_price: string | null;
+      version: number;
+    }>(`
+      INSERT INTO products (organization_id, name)
+      SELECT id, 'Seed Contract Name Only Product'
+      FROM organizations
+      WHERE name=$1
+      RETURNING sku, brand, category, model, unit, default_price, version
+    `, [organizationName]);
+    expect(nameOnly.rows).toEqual([{
+      sku: null,
+      brand: null,
+      category: null,
+      model: null,
+      unit: null,
+      default_price: null,
+      version: 1,
     }]);
   });
 

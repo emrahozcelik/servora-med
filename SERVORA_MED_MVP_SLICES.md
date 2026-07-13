@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
 > Date: 2026-07-10  
-> Status: Living implementation order; verified through Slice 05
+> Status: Living implementation order; verified through Slice 06
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -309,12 +309,26 @@ horizontal page scrolling passed. The detailed record is in
 
 ### Acceptance
 
-- [ ] Manager creates, updates, searches, and deactivates products.
-- [ ] SKU is unique within organization.
-- [ ] Staff has catalog read access only.
-- [ ] No stock quantity, stock mutation, or product tracking requirement flags exist.
-- [ ] Default catalog price remains reference data and is not copied into delivery items.
-- [ ] Product form and search meet shared accessibility criteria.
+- [x] Admin and Manager can create a Product with only a non-empty name.
+- [x] SKU, brand, category, model, unit, and reference price are optional informational fields.
+- [x] SKU has no inventory, accounting, format, or uniqueness meaning in MVP.
+- [x] Staff can read the organization catalog but cannot mutate it.
+- [x] Product mutations use `version` and `expectedVersion`.
+- [x] Product active state changes only through named activate/deactivate commands.
+- [x] Inactive Products cannot be selected for new delivery items or as a replacement Product.
+- [x] Existing delivery snapshots remain unchanged when catalog data changes or a Product is deactivated.
+- [x] No stock quantity, movement, costing, invoice, revenue, price-history, currency, or accounting behavior is introduced.
+- [x] Product forms, lists, search, conflict handling, lifecycle actions, and delivery selection meet shared accessibility criteria.
+
+**Completion record (2026-07-13):** Migration 005, canonical Product API, role and
+lifecycle policy, optimistic concurrency, safe audit, searchable delivery selection,
+disposable PostgreSQL, full automated gates, and Playwright desktop/mobile/accessibility
+acceptance passed. The detailed evidence is in
+`docs/superpowers/plans/2026-07-13-product-catalog.md`.
+
+Post-review hardening aligned Product API/form limits with PostgreSQL, concealed malformed
+UUID paths as `PRODUCT_NOT_FOUND`, preserved focus across successful lifecycle changes,
+removed a duplicate unused detail component, and added PostgreSQL-backed GitHub Actions CI.
 
 ## 10. Slice 07: Notes, Timeline, and Kanban/List
 

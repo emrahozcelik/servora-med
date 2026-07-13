@@ -2,16 +2,14 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import { DeliveryCreateView, createProductDelivery, deliveryDefaultsForCustomer } from '../src/DeliveryCreate';
-import type { CurrentUser, ReferenceCustomer, ReferenceProduct } from '../src/services/api';
+import type { CurrentUser, ReferenceCustomer } from '../src/services/api';
 import type { CustomerDetail } from '../src/services/crm-api';
 
 const user: CurrentUser = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'a@example.com', role: 'STAFF', mustChangePassword: false };
 const customers: ReferenceCustomer[] = [{ id: 'c1', name: 'ABC Klinik', customerType: 'clinic', status: 'active' }];
-const products: ReferenceProduct[] = [{ id: 'p1', name: 'İmplant Seti', sku: 'S1', model: null, unit: 'adet' }];
-
 describe('Product Delivery creation', () => {
   it('renders explicit accessible fields and 5 canonical purposes', () => {
-    const html = renderToStaticMarkup(<DeliveryCreateView user={user} customers={customers} products={products} onCancel={() => {}} onCreated={() => {}} />);
+    const html = renderToStaticMarkup(<DeliveryCreateView user={user} customers={customers} onCancel={() => {}} onCreated={() => {}} />);
     for (const label of ['Müşteri', 'İlgili kişi', 'Ürün', 'Teslim amacı', 'Miktar', 'Teslim zamanı']) expect(html).toContain(`>${label}</label>`);
     for (const purpose of ['Satış', 'Numune', 'Konsinye', 'İade', 'Diğer']) expect(html).toContain(`>${purpose}</option>`);
     expect(html).toContain('min="0.001"');

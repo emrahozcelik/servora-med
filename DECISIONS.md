@@ -294,3 +294,45 @@ with `/jobs`, while requested Customer/Contact deep links and refreshes remain i
 - Customer detail JobCard summaries are bounded and preserve assigned-Staff visibility.
 - UI route guards are navigation behavior, never an authorization boundary.
 - Full JobCard notes, timeline, and Kanban navigation remain Slice 07 work.
+
+## DOM-004: Informational Product catalog boundary
+
+- **Date:** 2026-07-13
+- **Status:** Accepted
+- **Scope:** Slice 06 Product Catalog
+
+### Context
+
+Servora-Med needs Products that field teams can find and select in operational records.
+Treating the catalog as an inventory or accounting master would prematurely introduce
+SKU discipline, stock units, currencies, price history, and warehouse policy that the MVP
+does not use.
+
+### Decision
+
+Only Product name is user-required. SKU, brand, category, model, unit, and reference price
+are optional informational fields. SKU is neither normalized nor unique. Unit has no
+invented default. Reference price is nullable, non-negative when present, has no currency
+or financial meaning, and is not copied into delivery items.
+
+Product reliability is protected through organization ownership, Admin/Manager mutation
+authority, Staff read-only access, integer optimistic versions, named activate/deactivate
+commands, and safe management audit. Deactivation blocks future selection but does not
+rewrite historical delivery snapshots.
+
+### Consequences
+
+- Migration 005 relaxes existing SKU/unit constraints instead of creating a new table.
+- Delivery unit snapshots become nullable; historical values remain unchanged.
+- The Product HTTP API becomes the canonical web catalog source with search and pagination.
+- JobCard validates Product eligibility within its own transaction and never calls HTTP.
+- The legacy `/api/reference/products` path is removed after delivery creation adopts the
+  canonical paginated catalog selector; Customer reference loading is unchanged.
+- Inventory, warehouse, barcode, costing, currency, price-history, invoice, and accounting
+  behavior require a later separately approved design.
+
+### Verification
+
+Implemented and verified on 2026-07-13 through migration 005, transaction/concurrency
+tests, authenticated disposable-PostgreSQL tracing, full server/web gates, and Playwright
+desktop/mobile/accessibility acceptance. No inventory or accounting behavior was added.

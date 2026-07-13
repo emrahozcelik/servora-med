@@ -1,10 +1,10 @@
 # Servora-Med
 
-Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, the Product Delivery tracer, People administration, and role-aware Customer/Contact CRM through Slice 05.
+Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, the Product Delivery tracer, People administration, role-aware Customer/Contact CRM, and the informational Product catalog through Slice 06.
 
 ## Current Scope
 
-Implemented through Slice 05:
+Implemented through Slice 06:
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -37,10 +37,16 @@ Implemented through Slice 05:
 - stable Customer and Contact list/detail routes with Back/Forward/refresh support
 - Contact-linked JobCard creation with responsible Staff and primary Contact suggestions
 - shared CRM/People/JobCard lock order and live PostgreSQL concurrency coverage
+- Admin/Manager Product create, edit, activate, and deactivate commands
+- Staff read-only Product list/detail access
+- nullable informational SKU, brand, category, model, unit, and reference price
+- duplicate SKU support without inventory or accounting meaning
+- Product optimistic concurrency and atomic management audit events
+- canonical paginated Product search for catalog and delivery selection
+- immutable historical delivery snapshots when Product data or active state changes
 
 Not implemented yet:
 
-- managed product catalog screens
 - full JobCard notes, activity timeline, and Kanban/list workspace
 - Staff confidential notes and related follow-up cards
 - General Task and structured Sales Meeting flows
@@ -67,8 +73,8 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable 001–004 files for the ledger, authentication,
-Product Delivery tracer, People profiles/audits, and Customer/Contact CRM schema.
+The migration runner applies the immutable 001–005 files for the ledger, authentication,
+Product Delivery tracer, People profiles/audits, Customer/Contact CRM, and Product catalog.
 
 ### First Admin Bootstrap
 
@@ -188,6 +194,38 @@ landmarks/labels/live feedback, and no horizontal page scrolling. The disposable
 were removed after verification. Authenticated `/login` visits now replace the route with
 `/jobs`; a focused routing regression test protects that behavior without breaking direct
 CRM URLs.
+
+## Product Catalog
+
+Slice 06 provides the canonical organization-scoped Product catalog under
+`/api/products`. Admin and Manager can create, edit, activate, and deactivate Products;
+Staff can search and read them but cannot mutate them. Only Product name is required.
+SKU, brand, category, model, unit, and `referencePrice` are optional informational values;
+duplicate SKU values are allowed and no stock, warehouse, currency, costing, invoice, or
+accounting behavior is implied.
+
+Product patches and lifecycle commands use optimistic versions and atomic audit events.
+Inactive Products cannot be selected for a new delivery or replace an existing delivery
+Product. Existing delivery quantity/note edits remain possible without replacing the
+Product, and persisted name/SKU/model/unit snapshots are not rewritten. Delivery creation
+uses the searchable, paginated canonical catalog; the legacy `/api/reference/products`
+route has been removed.
+
+Final Slice 06 review verification passed server 32 files/266 tests with 3 files/6 conditional
+PostgreSQL tests skipped in the ordinary suite, web 24 files/162 tests, both production
+builds, and both high-severity dependency audits with zero vulnerabilities. Separately
+enabled PostgreSQL tests passed the full 35-file/272-test server suite against migrations
+001–005. Authenticated live tracing verified role boundaries, duplicate SKU,
+five-field search, pagination, versions, failed-mutation audit safety, lifecycle guards,
+immutable delivery snapshots, Product field limits, and malformed UUID concealment.
+Playwright acceptance passed at 1200×800, 390×844,
+and 320 CSS px effective reflow with keyboard operation, dialog focus restoration,
+44 CSS px targets, 200% text enlargement, reduced motion, semantic labels/landmarks,
+Back/Forward/refresh/direct URLs, and no page-level horizontal overflow. Disposable
+databases and browser processes were removed after verification.
+
+Pull requests and pushes to `main` run these server/web build, test, audit, and
+PostgreSQL-backed checks through `.github/workflows/ci.yml`.
 
 ## Verification
 

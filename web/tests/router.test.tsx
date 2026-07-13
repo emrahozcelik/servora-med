@@ -34,6 +34,10 @@ describe('application routes', () => {
     ['/customers/new', 'Yeni müşteri', manager],
     ['/customers/customer-1', 'Müşteri detayı', manager],
     ['/customers/customer-1/contacts/contact-1', 'İlgili kişi', manager],
+    ['/products', 'Ürünler', staff],
+    ['/products?status=inactive&q=eski&offset=25', 'Ürünler', manager],
+    ['/products/new', 'Yeni ürün', manager],
+    ['/products/product-1', 'Ürün detayı yükleniyor', staff],
   ] as const)('renders %s at a stable URL', (path, expected, user) => {
     expect(render(path, user)).toContain(expected);
   });
@@ -41,6 +45,7 @@ describe('application routes', () => {
   it.each([
     ['/users', staff],
     ['/customers/new', staff],
+    ['/products/new', staff],
   ] as const)('renders the established forbidden state for unauthorized direct route %s', (path, user) => {
     const html = render(path, user);
     expect(html).toContain('Bu alana erişim yetkiniz yok');
@@ -63,5 +68,14 @@ describe('application routes', () => {
     expect(paths.staffProfile('staff 1')).toBe('/staff/staff%201');
     expect(paths.customer('customer/1')).toBe('/customers/customer%2F1');
     expect(paths.contact('customer/1', 'contact 1')).toBe('/customers/customer%2F1/contacts/contact%201');
+    expect(paths.products).toBe('/products');
+    expect(paths.newProduct).toBe('/products/new');
+    expect(paths.product('product/1')).toBe('/products/product%2F1');
+  });
+
+  it('shows Product navigation to every role', () => {
+    expect(render('/jobs', staff)).toContain('href="/products"');
+    expect(render('/jobs', manager)).toContain('href="/products"');
+    expect(render('/jobs', admin)).toContain('href="/products"');
   });
 });

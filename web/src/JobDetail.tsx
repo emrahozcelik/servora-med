@@ -116,7 +116,7 @@ export function JobDetailPanel({ job, items, activities = [], viewerRole = 'STAF
     <dl className="detail-summary"><div><dt>Durum</dt><dd>{statusLabels[job.status]}</dd></div><div><dt>Kayıt sürümü</dt><dd>Sürüm {job.version}</dd></div></dl>
     <section className="delivery-lines" aria-labelledby="delivery-lines-title"><h2 id="delivery-lines-title">Teslim bilgileri</h2>
       <ul>{items.map((item) => <li key={item.id}><div><strong>{item.productNameSnapshot}</strong><span>{item.productSkuSnapshot ?? 'SKU belirtilmedi'}</span></div>
-        <dl><div><dt>Amaç</dt><dd>{purposeLabels[item.deliveryPurpose]}</dd></div><div><dt>Miktar</dt><dd>{item.quantity} {item.unit}</dd></div>
+        <dl><div><dt>Amaç</dt><dd>{purposeLabels[item.deliveryPurpose]}</dd></div><div><dt>Miktar</dt><dd>{item.quantity}{item.unit ? ` ${item.unit}` : ''}</dd></div>
           <div><dt>Teslim zamanı</dt><dd>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.deliveredAt))}</dd></div></dl></li>)}</ul>
     </section>
     {command && <div className="detail-action"><p>{command === 'start' ? 'Teslim çalışmasına başladığınızda kart devam ediyor durumuna geçer.' : 'Bilgileri kontrol edin. Gönderimden sonra ticari alanlar yönetici incelemesi boyunca kilitlenir.'}</p>
