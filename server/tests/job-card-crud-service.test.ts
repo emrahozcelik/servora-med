@@ -7,6 +7,7 @@ import type {
   JobCardRepository,
   JobCardTransaction,
 } from '../src/modules/job-cards/repository.js';
+import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type {
   JobCard,
@@ -222,5 +223,38 @@ describe('JobCardService create and reads', () => {
     await expect(service.patch(manager, created.id, { expectedVersion: 1, title: 'Sessiz düzeltme' }))
       .rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE' });
     expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+});
+
+describe('Postgres JobCard versioned patch regression', () => {
+  it('executes updateFieldsWithVersion with exactly one WHERE clause', async () => {
+    const calls: Array<{ text: string; values: unknown[] }> = [];
+    const client = {
+      async query(text: string, values: unknown[] = []) {
+        calls.push({ text, values });
+        if (text.includes('UPDATE job_cards SET')) {
+          return { rows: [{
+            id: 'job-1', organization_id: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
+            version: 2, title: 'Güncel teslim', description: null, customer_id: 'customer-1',
+            contact_id: null, assigned_to: 'staff-1', created_by: 'staff-1',
+            priority: 'normal', due_date: null,
+          }] };
+        }
+        return { rows: [] };
+      },
+      release() {},
+    };
+    const repository = new PostgresJobCardRepository({ connect: async () => client } as never);
+
+    const result = await repository.executeTransaction((tx) => tx.updateFieldsWithVersion({
+      organizationId: 'org-1', jobCardId: 'job-1', expectedVersion: 1,
+      fields: { title: 'Güncel teslim' },
+    }));
+
+    expect(result).toMatchObject({ id: 'job-1', title: 'Güncel teslim', version: 2 });
+    const update = calls.find((call) => call.text.includes('UPDATE job_cards SET'))!;
+    expect(update.text.match(/\bWHERE\b/g)).toHaveLength(1);
+    expect(update.text).toContain('WHERE organization_id = $1 AND id = $2 AND version = $3');
+    expect(update.values).toEqual(['org-1', 'job-1', 1, 'Güncel teslim']);
   });
 });

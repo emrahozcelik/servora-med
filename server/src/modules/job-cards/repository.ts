@@ -11,6 +11,7 @@ import type {
   JobCardPriority,
   JobCardStatus,
   JobCardStatusFilter,
+  LifecycleCommand,
   Paginated,
 } from './types.js';
 import type { Pool, PoolClient } from 'pg';
@@ -26,11 +27,13 @@ export type TransitionInput = {
   organizationId: string;
   jobCardId: string;
   expectedVersion: number;
+  command: LifecycleCommand;
   status: JobCardStatus;
   occurredAt: Date;
   actorId?: string;
   note?: string | null;
   revisionReason?: string | null;
+  cancelReason?: string | null;
 };
 
 export type ActivityInput = {
@@ -284,22 +287,27 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `UPDATE job_cards
        SET status = $4::varchar(30),
            version = version + 1,
-           started_at = CASE WHEN $4 = 'IN_PROGRESS' THEN $5 ELSE started_at END,
-           staff_completed_at = CASE WHEN $4 = 'WAITING_APPROVAL' THEN $5 ELSE staff_completed_at END,
-           staff_completed_by = CASE WHEN $4 = 'WAITING_APPROVAL' THEN $6 ELSE staff_completed_by END,
-           staff_completion_note = CASE WHEN $4 = 'WAITING_APPROVAL' THEN $7 ELSE staff_completion_note END,
-           manager_approved_at = CASE WHEN $4 = 'COMPLETED' THEN $5 ELSE manager_approved_at END,
-           manager_approved_by = CASE WHEN $4 = 'COMPLETED' THEN $6 ELSE manager_approved_by END,
-           manager_approval_note = CASE WHEN $4 = 'COMPLETED' THEN $7 ELSE manager_approval_note END,
-           revision_requested_at = CASE WHEN $4 = 'REVISION_REQUESTED' THEN $5 ELSE revision_requested_at END,
-           revision_requested_by = CASE WHEN $4 = 'REVISION_REQUESTED' THEN $6 ELSE revision_requested_by END,
-           revision_reason = CASE WHEN $4 = 'REVISION_REQUESTED' THEN $8 ELSE revision_reason END,
+           planned_at = CASE WHEN $4 = 'PLANNED' THEN $5 ELSE planned_at END,
+           started_at = CASE WHEN $10 = 'START' THEN COALESCE(started_at, $5) ELSE started_at END,
+           staff_completed_at = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $5 ELSE staff_completed_at END,
+           staff_completed_by = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $6 ELSE staff_completed_by END,
+           staff_completion_note = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $7 ELSE staff_completion_note END,
+           manager_approved_at = CASE WHEN $10 = 'APPROVE' THEN $5 ELSE manager_approved_at END,
+           manager_approved_by = CASE WHEN $10 = 'APPROVE' THEN $6 ELSE manager_approved_by END,
+           manager_approval_note = CASE WHEN $10 = 'APPROVE' THEN $7 ELSE manager_approval_note END,
+           revision_requested_at = CASE WHEN $10 = 'REQUEST_REVISION' THEN $5 ELSE revision_requested_at END,
+           revision_requested_by = CASE WHEN $10 = 'REQUEST_REVISION' THEN $6 ELSE revision_requested_by END,
+           revision_reason = CASE WHEN $10 = 'REQUEST_REVISION' THEN $8 ELSE revision_reason END,
+           cancelled_at = CASE WHEN $10 = 'CANCEL' THEN $5 ELSE cancelled_at END,
+           cancelled_by = CASE WHEN $10 = 'CANCEL' THEN $6 ELSE cancelled_by END,
+           cancel_reason = CASE WHEN $10 = 'CANCEL' THEN $9 ELSE cancel_reason END,
            updated_at = $5
        WHERE organization_id = $1 AND id = $2 AND version = $3
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
                  assigned_to, created_by, priority, due_date`,
       [input.organizationId, input.jobCardId, input.expectedVersion, input.status, input.occurredAt,
-        input.actorId ?? null, input.note ?? null, input.revisionReason ?? null],
+        input.actorId ?? null, input.note ?? null, input.revisionReason ?? null,
+        input.cancelReason ?? null, input.command],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }

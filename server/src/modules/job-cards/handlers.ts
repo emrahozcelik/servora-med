@@ -26,6 +26,8 @@ function body(request: FastifyRequest, allowed: readonly string[]) {
 const CREATE_FIELDS = ['clientActionId', 'type', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
 const PATCH_FIELDS = ['expectedVersion', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
+const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
+const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
 
 export function createJobCardHandlers(service: JobCardService) {
   return {
@@ -46,14 +48,20 @@ export function createJobCardHandlers(service: JobCardService) {
       service.patchDeliveryItem(actor(request), request.params.id, request.params.itemId!, body(request, DELIVERY_FIELDS.filter((field) => field !== 'clientActionId')) as never),
     removeDeliveryItem: async (request: FastifyRequest<{ Params: Params }>) =>
       service.removeDeliveryItem(actor(request), request.params.id, request.params.itemId!, body(request, ['expectedVersion']) as never),
+    plan: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.plan(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     start: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.start(actor(request), { jobCardId: request.params.id, ...body(request, ['clientActionId', 'expectedVersion', 'note']) } as never),
+      service.start(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     submit: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.submitForApproval(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'note']) as never),
+      service.submitForApproval(actor(request), request.params.id, body(request, LIFECYCLE_NOTE_FIELDS) as never),
     approve: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.approve(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'note']) as never),
+      service.approve(actor(request), request.params.id, body(request, LIFECYCLE_NOTE_FIELDS) as never),
     requestRevision: async (request: FastifyRequest<{ Params: Params }>) =>
       service.requestRevision(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'revisionReason']) as never),
+    resume: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.resume(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
+    cancel: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.cancel(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'cancelReason']) as never),
     activity: async (request: FastifyRequest<{ Params: Params }>) =>
       ({ items: await service.listActivity(actor(request), request.params.id) }),
   };

@@ -25,10 +25,13 @@ function serviceDouble() {
     listDeliveryItems: vi.fn().mockResolvedValue([]), addDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 2 }),
     patchDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 3 }),
     removeDeliveryItem: vi.fn().mockResolvedValue({ id: 'item-1', jobCardVersion: 4 }),
+    plan: vi.fn().mockResolvedValue({ ...result, status: 'PLANNED' }),
     start: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     submitForApproval: vi.fn().mockResolvedValue({ ...result, status: 'WAITING_APPROVAL' }),
     approve: vi.fn().mockResolvedValue({ ...result, status: 'COMPLETED' }),
     requestRevision: vi.fn().mockResolvedValue({ ...result, status: 'REVISION_REQUESTED' }),
+    resume: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
+    cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
     listActivity: vi.fn().mockResolvedValue([]),
   };
 }
@@ -155,18 +158,34 @@ describe('JobCard routes', () => {
   });
 
   it.each([
+    ['plan', 'plan', { clientActionId: 'a0', expectedVersion: 1 }],
     ['start', 'start', { clientActionId: 'a1', expectedVersion: 1 }],
     ['submit-for-approval', 'submitForApproval', { clientActionId: 'a2', expectedVersion: 2, note: 'Bitti' }],
     ['approve', 'approve', { clientActionId: 'a3', expectedVersion: 3, note: 'Uygun' }],
     ['request-revision', 'requestRevision', { clientActionId: 'a4', expectedVersion: 3, revisionReason: 'Düzeltin' }],
+    ['resume', 'resume', { clientActionId: 'a5', expectedVersion: 4 }],
+    ['cancel', 'cancel', { clientActionId: 'a6', expectedVersion: 2, cancelReason: 'Müşteri iptal etti' }],
   ])('dispatches %s lifecycle command', async (path, method, payload) => {
     const { app, service } = await createApp();
     expect((await app.inject({ method: 'POST', url: `/api/job-cards/job-1/${path}`, payload })).statusCode).toBe(200);
-    if (method === 'start') {
-      expect(service.start).toHaveBeenCalledWith(expect.anything(), { jobCardId: 'job-1', ...payload });
-    } else {
-      expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
-    }
+    expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
+  });
+
+  it.each([
+    ['plan', { clientActionId: 'x1', expectedVersion: 1, note: 'forbidden' }],
+    ['start', { clientActionId: 'x2', expectedVersion: 1, revisionReason: 'forbidden' }],
+    ['resume', { clientActionId: 'x3', expectedVersion: 1, cancelReason: 'forbidden' }],
+    ['submit-for-approval', { clientActionId: 'x4', expectedVersion: 1, cancelReason: 'forbidden' }],
+    ['approve', { clientActionId: 'x5', expectedVersion: 1, revisionReason: 'forbidden' }],
+    ['request-revision', { clientActionId: 'x6', expectedVersion: 1, revisionReason: 'Düzelt', note: 'forbidden' }],
+    ['cancel', { clientActionId: 'x7', expectedVersion: 1, cancelReason: 'İptal', note: 'forbidden' }],
+  ])('rejects unknown fields for %s lifecycle command', async (path, payload) => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'POST', url: `/api/job-cards/job-1/${path}`, payload });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(Object.values(service).filter((value) => typeof value === 'function')
+      .every((mock) => !(mock as ReturnType<typeof vi.fn>).mock?.calls.length)).toBe(true);
   });
 
   it('exposes scoped immutable activity', async () => {
