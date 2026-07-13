@@ -225,6 +225,13 @@ Company profile fields may be managed within admin scope. Small user preferences
 - Backup and restore procedure
 - WCAG 2.2 Level AA as a completion criterion
 
+The MVP Product catalog is informational rather than an inventory, accounting, or ERP
+master. Only Product name is user-required. SKU, brand, category, model, unit, and
+reference price are optional. SKU has no uniqueness, format, stock, or accounting meaning.
+Reference price has no currency, sales-total, invoice, or valuation behavior and is never
+copied into delivery items. Product deactivation prevents future selection without
+rewriting historical delivery snapshots.
+
 ## Out of Scope
 
 - Native mobile application

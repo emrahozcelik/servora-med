@@ -163,16 +163,16 @@ Profile lifecycle follows `users.is_active`. No duplicate active flag, internal 
 
 ### 3.5 audit_events
 
-People, security, and CRM administration use an audit stream separate from JobCard activity.
+People, security, CRM, and Product administration use an audit stream separate from JobCard activity.
 
 | Column | Type | Rules |
 | --- | --- | --- |
 | id | UUID PK | |
 | organization_id | UUID NOT NULL | FK to organizations |
 | actor_user_id | UUID NOT NULL | same-organization FK to users |
-| subject_type | VARCHAR(40) NOT NULL | `USER`, `STAFF_PROFILE`, `CUSTOMER`, or `CONTACT` |
+| subject_type | VARCHAR(40) NOT NULL | `USER`, `STAFF_PROFILE`, `CUSTOMER`, `CONTACT`, or `PRODUCT` |
 | subject_id | UUID NOT NULL | audited subject identifier |
-| event_type | VARCHAR(80) NOT NULL | canonical People or CRM audit event |
+| event_type | VARCHAR(80) NOT NULL | canonical People, CRM, or Product audit event |
 | old_value | JSONB NULL | safe changed fields only |
 | new_value | JSONB NULL | safe changed fields only |
 | metadata | JSONB NOT NULL | default empty object |
@@ -193,6 +193,15 @@ CONTACT_FIELDS_UPDATED
 CONTACT_MADE_PRIMARY
 CONTACT_ACTIVATED
 CONTACT_DEACTIVATED
+```
+
+Canonical Product audit events are:
+
+```text
+PRODUCT_CREATED
+PRODUCT_FIELDS_UPDATED
+PRODUCT_ACTIVATED
+PRODUCT_DEACTIVATED
 ```
 
 ### 3.6 customers
@@ -245,24 +254,26 @@ The contact and its customer must belong to the same organization through a comp
 
 ### 3.8 products
 
-Catalog only; no stock quantity.
+Informational catalog only; no stock, accounting, pricing-engine, or ERP-master behavior.
 
 | Column | Type | Rules |
 | --- | --- | --- |
 | id | UUID PK | |
 | organization_id | UUID NOT NULL | FK to organizations |
-| sku | VARCHAR(100) NOT NULL | |
+| sku | VARCHAR(100) NULL | optional; duplicates allowed; no case conversion |
 | name | VARCHAR(255) NOT NULL | |
 | brand | VARCHAR(100) NULL | |
 | category | VARCHAR(100) NULL | simple MVP text |
 | model | VARCHAR(100) NULL | |
-| unit | VARCHAR(30) NOT NULL | default `adet` |
-| default_price | NUMERIC(12,2) NULL | catalog reference only; not copied to delivery |
+| unit | VARCHAR(30) NULL | optional informational text; no default |
+| default_price | NUMERIC(12,2) NULL | null or non-negative reference only; API `referencePrice` |
 | is_active | BOOLEAN NOT NULL | default true |
+| version | INTEGER NOT NULL | default 1; optimistic concurrency |
 | created_at | TIMESTAMPTZ NOT NULL | default now |
 | updated_at | TIMESTAMPTZ NOT NULL | default now |
 
-Constraint: unique `(organization_id, sku)`.
+There is no SKU uniqueness or format constraint. Product name may also repeat. Optional
+text is trimmed by the service and empty values are persisted as `NULL`.
 
 Product-level lot, serial, and expiry requirement flags are not part of MVP.
 
@@ -339,7 +350,7 @@ Only `PRODUCT_DELIVERY` JobCards can own delivery items.
 | delivery_purpose | VARCHAR(20) NOT NULL | `delivery_purpose` check |
 | delivered_at | TIMESTAMPTZ NOT NULL | actual delivery time |
 | quantity | NUMERIC(12,3) NOT NULL | check greater than zero |
-| unit | VARCHAR(30) NOT NULL | product snapshot |
+| unit | VARCHAR(30) NULL | optional product snapshot; no invented default |
 | product_name_snapshot | VARCHAR(255) NOT NULL | |
 | product_sku_snapshot | VARCHAR(100) NULL | |
 | product_model_snapshot | VARCHAR(100) NULL | |
@@ -508,8 +519,10 @@ Applied slice-aligned migrations:
 | `003_people.sql` | user versions, organization timezone, staff_profiles, audit_events |
 | `004_crm_contacts.sql` | versioned Customers, Contacts, JobCard Contact relationship, CRM indexes and audits |
 
-Applied migrations 001–004 are immutable. Future recommended groups remain
-`005_notes_and_reporting`, `006_general_task`, and deferred `007_sales_meeting`; their exact
+Applied migrations 001–004 are immutable. The next approved migration is
+`005_product_catalog.sql`; it relaxes Product SKU/unit constraints, adds Product
+version/audit support, and makes the delivery unit snapshot nullable. Notes/reporting,
+General Task, and deferred Sales Meeting remain later unnumbered groups whose exact
 filenames are assigned only when those slices begin.
 
 ## 9. Explicit Omissions

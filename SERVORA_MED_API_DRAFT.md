@@ -361,26 +361,63 @@ a compatible Contact clears `contactId`.
 
 ## 9. Products `/api/products`
 
+> Slice 06 approved target contract; implementation pending.
+
 | Method | Path | Roles | Behavior |
 | --- | --- | --- | --- |
-| GET | `/` | authenticated | catalog search |
-| POST | `/` | admin, manager | create |
-| GET | `/:productId` | authenticated | detail |
-| PATCH | `/:productId` | admin, manager | update |
-| DELETE | `/:productId` | admin | deactivate |
+| GET | `/` | authenticated | paginated catalog search; Staff read-only |
+| POST | `/` | admin, manager | create active Product; no expected version |
+| GET | `/:productId` | authenticated | organization-scoped detail |
+| PATCH | `/:productId` | admin, manager | exact field allowlist; requires expected version |
+| POST | `/:productId/activate` | admin, manager | named lifecycle command; requires expected version |
+| POST | `/:productId/deactivate` | admin, manager | named lifecycle command; requires expected version |
 
 Filters:
 
 ```text
 q
-brand
-category
-isActive
+status=active|inactive|all
 limit
 offset
 ```
 
-There are no stock or tracking-requirement endpoints in MVP.
+Defaults are `status=active`, `limit=50`, and `offset=0`. `limit` is between 1 and
+200, `offset` is non-negative, and unknown query parameters are rejected. Search covers
+name, SKU, brand, category, and model. The response uses
+`{ items, total, limit, offset }` so Product selectors do not silently truncate catalogs
+above a fixed first page.
+
+Only non-empty `name` is required. `sku`, `brand`, `category`, `model`, `unit`, and
+`referencePrice` are nullable informational fields. Empty optional text maps to `null`.
+SKU casing and punctuation are preserved, and duplicate SKU values are allowed.
+`referencePrice` is null, zero, or positive and has no currency, sales, invoice,
+accounting, or stock-valuation meaning.
+
+Create accepts only the Product fields and does not accept `expectedVersion`. Patch
+accepts `expectedVersion` plus Product fields and rejects `isActive`, `status`, `version`,
+`organizationId`, stock, cost, currency, and tracking-policy fields. There is no physical
+delete or Product `DELETE` endpoint.
+
+Patch and lifecycle commands compare `expectedVersion` atomically. Stale mutations return
+`409 VERSION_CONFLICT`; repeated lifecycle commands return
+`409 INVALID_PRODUCT_STATUS_TRANSITION`. Missing and cross-organization records return
+the same `404 PRODUCT_NOT_FOUND`. Failed mutations create no partial write or audit.
+
+Deactivation prevents new delivery selection and Product replacement only. Existing
+delivery rows and snapshots remain unchanged. Quantity or note may still be edited when
+the existing delivery item's `productId` is not replaced. A supplied replacement Product
+must be active and belong to the authenticated organization.
+
+Web clients use this endpoint as the canonical Product catalog source. JobCard backend
+transactions use a transaction-scoped Product read and never call the Product HTTP API.
+After web consumers migrate, `GET /api/reference/products` is removed.
+
+Product audit events are `PRODUCT_CREATED`, `PRODUCT_FIELDS_UPDATED`,
+`PRODUCT_ACTIVATED`, and `PRODUCT_DEACTIVATED`. Audit stores safe identifiers and changed
+field names, not complete Product payloads or financial history.
+
+There are no stock, warehouse, costing, price-history, currency, barcode, or
+tracking-requirement endpoints in MVP.
 
 ## 10. JobCards `/api/job-cards`
 

@@ -309,12 +309,16 @@ horizontal page scrolling passed. The detailed record is in
 
 ### Acceptance
 
-- [ ] Manager creates, updates, searches, and deactivates products.
-- [ ] SKU is unique within organization.
-- [ ] Staff has catalog read access only.
-- [ ] No stock quantity, stock mutation, or product tracking requirement flags exist.
-- [ ] Default catalog price remains reference data and is not copied into delivery items.
-- [ ] Product form and search meet shared accessibility criteria.
+- [ ] Admin and Manager can create a Product with only a non-empty name.
+- [ ] SKU, brand, category, model, unit, and reference price are optional informational fields.
+- [ ] SKU has no inventory, accounting, format, or uniqueness meaning in MVP.
+- [ ] Staff can read the organization catalog but cannot mutate it.
+- [ ] Product mutations use `version` and `expectedVersion`.
+- [ ] Product active state changes only through named activate/deactivate commands.
+- [ ] Inactive Products cannot be selected for new delivery items or as a replacement Product.
+- [ ] Existing delivery snapshots remain unchanged when catalog data changes or a Product is deactivated.
+- [ ] No stock quantity, movement, costing, invoice, revenue, price-history, currency, or accounting behavior is introduced.
+- [ ] Product forms, lists, search, conflict handling, lifecycle actions, and delivery selection meet shared accessibility criteria.
 
 ## 10. Slice 07: Notes, Timeline, and Kanban/List
 
