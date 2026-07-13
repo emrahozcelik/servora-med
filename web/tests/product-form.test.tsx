@@ -63,6 +63,14 @@ describe('Product form', () => {
     expect(onCreated).toHaveBeenCalledWith(created);
   });
 
+  it('uses the caller-provided pending announcement for edit mode', async () => {
+    await act(async () => root.render(<ProductForm pending fieldErrors={{}} error="" onCancel={() => {}} onSubmit={() => {}}
+      pendingAnnouncement="Ürün değişiklikleri kaydediliyor." />));
+    const status = container.querySelector('[role="status"]')!;
+    expect(status.textContent).toBe('Ürün değişiklikleri kaydediliyor.');
+    expect(status.textContent).not.toContain('oluşturuluyor');
+  });
+
   it('focuses the first invalid field for server validation details', async () => {
     const create = vi.fn().mockRejectedValue(new ApiError(400, 'VALIDATION_ERROR', 'Alanları kontrol edin.', false, { fieldErrors: { name: 'Bu ürün adı kullanılamaz.' } }));
     await act(async () => root.render(<ProductCreateScreen onCancel={() => {}} onCreated={() => {}} create={create} />));

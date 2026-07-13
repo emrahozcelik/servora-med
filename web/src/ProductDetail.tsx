@@ -83,19 +83,21 @@ function DeactivateDialog({ product, pending, onCancel, onConfirm, trigger }: {
     if (event.key === 'Escape' && !pending) { event.preventDefault(); onCancel(); return; }
     if (event.key !== 'Tab') return;
     const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
-    if (focusable.length === 0) return;
+    if (focusable.length === 0) { event.preventDefault(); dialogRef.current?.focus(); return; }
     const first = focusable[0]; const last = focusable[focusable.length - 1];
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    if (focusable.length === 1) { event.preventDefault(); first.focus(); }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
     else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    else if (!dialogRef.current?.contains(document.activeElement)) { event.preventDefault(); (event.shiftKey ? last : first).focus(); }
   }
 
   return <div className="product-dialog-backdrop">
-    <div className="product-dialog" role="dialog" aria-modal="true" aria-labelledby="deactivate-title"
+    <div className="product-dialog" role="dialog" aria-modal="true" aria-labelledby="deactivate-title" tabIndex={-1}
       aria-describedby="deactivate-description" ref={dialogRef} onKeyDown={handleKeyDown}>
       <h2 id="deactivate-title">{product.name} ürününü pasifleştir</h2>
       <p id="deactivate-description">Bu ürün yeni seçimlerde kullanılamaz; geçmiş kayıtlar değişmeden kalır.</p>
       <div className="product-dialog-actions">
-        <button className="secondary-button" type="button" ref={cancelRef} onClick={onCancel} disabled={pending}>Vazgeç</button>
+        <button className="secondary-button" type="button" ref={cancelRef} onClick={() => { if (!pending) onCancel(); }} aria-disabled={pending}>Vazgeç</button>
         <button className="destructive-button" type="button" onClick={onConfirm} disabled={pending}>{pending ? 'Pasifleştiriliyor…' : 'Pasifleştir'}</button>
       </div>
     </div>
@@ -113,8 +115,17 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   const [error, setError] = useState('');
   const [feedback, setFeedback] = useState('');
   const [conflictVersion, setConflictVersion] = useState<number | null | undefined>(undefined);
+  const [lifecycleConflictVersion, setLifecycleConflictVersion] = useState<number | null | undefined>(undefined);
+  const [lifecycleReloadError, setLifecycleReloadError] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const deactivateTriggerRef = useRef<HTMLButtonElement>(null);
+  const editErrorRef = useRef<HTMLDivElement>(null);
+  const [focusEditError, setFocusEditError] = useState(false);
+
+  useEffect(() => {
+    if (!focusEditError) return;
+    editErrorRef.current?.focus(); setFocusEditError(false);
+  }, [focusEditError, error, fieldErrors]);
 
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
@@ -142,7 +153,9 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
       input = productInputFromFormData(new FormData(event.currentTarget));
       if (!input.name) { setError('Ürün adı zorunludur.'); setFieldErrors({ name: 'Ürün adı zorunludur.' }); return; }
     } catch (caught) {
-      setError(caught instanceof Error ? caught.message : 'Alanları kontrol edin.'); return;
+      const message = caught instanceof Error ? caught.message : 'Alanları kontrol edin.';
+      setError('Ürün güncellenemedi. Alanları kontrol edin.');
+      setFieldErrors({ referencePrice: message }); setFocusEditError(true); return;
     }
     setPending(true);
     try {
@@ -152,7 +165,7 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
       const next = apiError(caught, 'Ürün güncellenemedi.');
       if (next.code === 'VERSION_CONFLICT') {
         setConflictVersion(safeCurrentVersion(next));
-        setError('Ürün başka bir kullanıcı tarafından güncellendi. Formdaki değişiklikleriniz korunuyor.');
+        setError('');
       } else { setError(next.message); setFieldErrors(productServerFieldErrors(next)); }
     } finally { setPending(false); }
   }
@@ -166,8 +179,18 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
     finally { setPending(false); }
   }
 
+  async function reloadLifecycleValues() {
+    setPending(true); setLifecycleReloadError('');
+    try {
+      const current = await load(productId);
+      setState({ kind: 'ready', product: current }); setLifecycleConflictVersion(undefined);
+      setFeedback('Güncel ürün değerleri yüklendi.');
+    } catch (caught) { setLifecycleReloadError(apiError(caught, 'Güncel ürün değerleri yüklenemedi.').message); }
+    finally { setPending(false); }
+  }
+
   async function changeLifecycle(kind: 'activate' | 'deactivate') {
-    setPending(true); setError(''); setFeedback('');
+    setPending(true); setError(''); setFeedback(''); setLifecycleConflictVersion(undefined); setLifecycleReloadError('');
     try {
       const updated = kind === 'activate'
         ? await activate(productId, product.version) : await deactivate(productId, product.version);
@@ -176,8 +199,8 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
       setDialogOpen(false);
     } catch (caught) {
       const next = apiError(caught, 'Ürün durumu değiştirilemedi.');
-      setError(next.code === 'VERSION_CONFLICT'
-        ? 'Ürün başka bir kullanıcı tarafından güncellendi. Güncel değerleri yükleyip yeniden değerlendirin.' : next.message);
+      if (next.code === 'VERSION_CONFLICT') setLifecycleConflictVersion(safeCurrentVersion(next));
+      else setError(next.message);
       setDialogOpen(false);
     } finally { setPending(false); }
   }
@@ -185,12 +208,12 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
   if (editing) return <>
     {conflictVersion !== undefined && <div className="conflict-actions product-edit-conflict" role="alert">
       <p>Ürün başka bir kullanıcı tarafından güncellendi. Formdaki değişiklikleriniz korunuyor.
-        {conflictVersion !== null && <> Güncel sürüm: {conflictVersion}.</>}</p>
+        {conflictVersion !== null && <> Güncel sürüm: {conflictVersion}.</>}{error && <> {error}</>}</p>
       <button className="secondary-button" type="button" onClick={() => void reloadCurrentValues()} disabled={pending}>Güncel değerleri yükle</button>
     </div>}
-    <ProductForm key={formKey} pending={pending} fieldErrors={fieldErrors} error={error}
+    <ProductForm key={formKey} pending={pending} fieldErrors={fieldErrors} error={conflictVersion === undefined ? error : ''} errorRef={editErrorRef}
       initialProduct={product} title="Ürünü düzenle" intro="Katalog bilgisini güncelleyin. Kaydetme sırasında mevcut sürüm doğrulanır."
-      submitLabel="Değişiklikleri kaydet" pendingLabel="Kaydediliyor…"
+      submitLabel="Değişiklikleri kaydet" pendingLabel="Kaydediliyor…" pendingAnnouncement="Ürün değişiklikleri kaydediliyor."
       onCancel={() => { setEditing(false); setError(''); setConflictVersion(undefined); }} onSubmit={(event) => void submit(event)} />
   </>;
 
@@ -199,11 +222,17 @@ export function ProductDetailScreen({ productId, user, load = getProduct, update
       <span className="product-version">Sürüm {product.version}</span></div>
     {feedback && <div className="success-message" role="status" aria-live="polite">{feedback}</div>}
     {error && <div className="detail-feedback detail-feedback-error" role="alert">{error}</div>}
+    {lifecycleConflictVersion !== undefined && <div className="conflict-actions product-lifecycle-conflict" role="alert">
+      <p>Ürün başka bir kullanıcı tarafından güncellendi. Görüntülenen bilgiler korunuyor.
+        {lifecycleConflictVersion !== null && <> Güncel sürüm: {lifecycleConflictVersion}.</>}
+        {lifecycleReloadError && <> {lifecycleReloadError}</>}</p>
+      <button className="secondary-button" type="button" onClick={() => void reloadLifecycleValues()} disabled={pending}>Güncel değerleri yükle</button>
+    </div>}
     <section className="record-section" aria-labelledby="product-info-title"><h2 id="product-info-title">Ürün bilgileri</h2><ProductFacts product={product} /></section>
     {canManage && <section className="record-section record-commands" aria-labelledby="product-actions-title">
       <h2 id="product-actions-title">Katalog işlemleri</h2>
       <p>Bilgileri güncelleyin veya ürünün yeni işlerde seçilebilirliğini yönetin.</p>
-      <div><button className="secondary-button" type="button" onClick={() => { setEditing(true); setFeedback(''); setError(''); }}>Ürünü düzenle</button>
+      <div><button className="secondary-button" type="button" onClick={() => { setEditing(true); setFeedback(''); setError(''); }} disabled={pending}>Ürünü düzenle</button>
         {product.isActive
           ? <button className="destructive-button" type="button" ref={deactivateTriggerRef} onClick={() => setDialogOpen(true)} disabled={pending}>Pasifleştir</button>
           : <button className="primary-button compact-button" type="button" onClick={() => void changeLifecycle('activate')} disabled={pending}>{pending ? 'Etkinleştiriliyor…' : 'Etkinleştir'}</button>}

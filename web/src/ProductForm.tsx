@@ -27,7 +27,7 @@ export function productInputFromFormData(data: FormData): CreateProductInput {
 
 export function ProductForm({ pending, fieldErrors, error, errorRef, onCancel, onSubmit, initialProduct,
   title = 'Yeni ürün', intro = 'Katalog kaydını temel ürün bilgileriyle oluşturun. Yalnız ürün adı zorunludur.',
-  submitLabel = 'Ürün oluştur', pendingLabel = 'Oluşturuluyor…' }: {
+  submitLabel = 'Ürün oluştur', pendingLabel = 'Oluşturuluyor…', pendingAnnouncement = 'Ürün oluşturuluyor.' }: {
   pending: boolean;
   fieldErrors: ProductFieldErrors;
   error: string;
@@ -39,6 +39,7 @@ export function ProductForm({ pending, fieldErrors, error, errorRef, onCancel, o
   intro?: string;
   submitLabel?: string;
   pendingLabel?: string;
+  pendingAnnouncement?: string;
 }) {
   const describedBy = (field: ProductField, help?: string) => [help, fieldErrors[field] ? `product-${field === 'referencePrice' ? 'reference-price' : field}-error` : ''].filter(Boolean).join(' ') || undefined;
   return <main className="product-create">
@@ -46,7 +47,7 @@ export function ProductForm({ pending, fieldErrors, error, errorRef, onCancel, o
     <p className="form-intro">{intro}</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <form className="product-form" noValidate onSubmit={onSubmit}>
-      <p className="sr-only" role="status" aria-live="polite">{pending ? 'Ürün oluşturuluyor.' : ''}</p>
+      <p className="sr-only" role="status" aria-live="polite">{pending ? pendingAnnouncement : ''}</p>
       <div className="field-group"><label htmlFor="product-name">Ürün adı (zorunlu)</label>
         <input id="product-name" name="name" required disabled={pending} defaultValue={initialProduct?.name} aria-invalid={Boolean(fieldErrors.name)} aria-describedby={describedBy('name')} />
         {fieldErrors.name && <p className="field-error" id="product-name-error">{fieldErrors.name}</p>}</div>

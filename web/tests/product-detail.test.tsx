@@ -121,6 +121,32 @@ describe('Product detail', () => {
     expect(container.querySelector<HTMLInputElement>('[name="sku"]')!.value).toBe(current.sku);
   });
 
+  it('keeps dirty edit values and the reload action when explicit conflict reload fails', async () => {
+    const load = vi.fn().mockResolvedValueOnce(product)
+      .mockRejectedValueOnce(new ApiError(503, 'SERVICE_UNAVAILABLE', 'Güncel değerler alınamadı.', true));
+    const update = vi.fn().mockRejectedValue(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.', false, { currentVersion: 8 }));
+    await render(load, manager, { update });
+    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Ürünü düzenle')!.click());
+    const name = container.querySelector<HTMLInputElement>('[name="name"]')!; name.value = 'Korunan yerel ad';
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Güncel değerleri yükle')!.click());
+    expect(name.value).toBe('Korunan yerel ad');
+    expect(container.textContent).toContain('Güncel değerler alınamadı.');
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Güncel değerleri yükle')).toBe(true);
+  });
+
+  it('associates an invalid edit price error and focuses the edit error summary', async () => {
+    await render();
+    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Ürünü düzenle')!.click());
+    const price = container.querySelector<HTMLInputElement>('[name="referencePrice"]')!; price.value = '-1';
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(price.getAttribute('aria-invalid')).toBe('true');
+    expect(price.getAttribute('aria-describedby')).toContain('product-reference-price-error');
+    expect(container.textContent).toContain('Referans fiyat sıfırdan küçük olamaz.');
+    expect(document.activeElement).toBe(container.querySelector('[role="alert"]'));
+  });
+
   it('names the product and explains deactivation consequences before requiring explicit confirmation', async () => {
     const deactivate = vi.fn().mockResolvedValue({ ...product, isActive: false, version: 4 });
     await render(undefined, manager, { deactivate });
@@ -151,6 +177,54 @@ describe('Product detail', () => {
     expect(document.activeElement).toBe(buttons[buttons.length - 1]);
     await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(container.querySelector('[role="dialog"]')).toBeNull(); expect(document.activeElement).toBe(trigger);
+  });
+
+  it('keeps focus inside the dialog while deactivation is pending', async () => {
+    const request = deferred<Product>();
+    await render(undefined, manager, { deactivate: vi.fn().mockReturnValue(request.promise) });
+    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;
+    await act(async () => trigger.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    const confirm = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;
+    confirm.focus(); await act(async () => confirm.click());
+    expect(container.querySelector('[role="dialog"]')).toBe(dialog);
+    const outside = document.createElement('button'); document.body.append(outside); outside.focus();
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    outside.remove();
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })));
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    await act(async () => request.resolve({ ...product, isActive: false, version: 4 }));
+  });
+
+  it('offers explicit recovery for lifecycle conflict without auto-refetching', async () => {
+    const inactive = { ...product, isActive: false, version: 5 };
+    const current = { ...inactive, isActive: true, version: 8 };
+    const load = vi.fn().mockResolvedValueOnce(inactive).mockResolvedValueOnce(current);
+    const activate = vi.fn().mockRejectedValue(new ApiError(409, 'VERSION_CONFLICT', 'Unsafe server copy.', false, { currentVersion: 8 }));
+    await render(load, manager, { activate });
+    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Etkinleştir')!.click());
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('Pasif'); expect(container.textContent).toContain('Sürüm 5');
+    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
+    expect(container.textContent).toContain('Güncel sürüm: 8');
+    expect(container.textContent).not.toContain('Unsafe server copy.');
+    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Güncel değerleri yükle')!.click());
+    expect(load).toHaveBeenCalledTimes(2);
+    expect(container.textContent).toContain('Aktif'); expect(container.textContent).toContain('Sürüm 8');
+  });
+
+  it('keeps lifecycle snapshot and recovery available when explicit reload fails', async () => {
+    const inactive = { ...product, isActive: false, version: 5 };
+    const load = vi.fn().mockResolvedValueOnce(inactive)
+      .mockRejectedValueOnce(new ApiError(503, 'SERVICE_UNAVAILABLE', 'Güncel ürün yüklenemedi.', true));
+    const activate = vi.fn().mockRejectedValue(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.', false, { currentVersion: 8 }));
+    await render(load, manager, { activate });
+    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Etkinleştir')!.click());
+    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Güncel değerleri yükle')!.click());
+    expect(container.textContent).toContain('Pasif'); expect(container.textContent).toContain('Sürüm 5');
+    expect(container.textContent).toContain('Güncel ürün yüklenemedi.');
+    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Güncel değerleri yükle')).toBe(true);
   });
 
   it('activates directly, waits for backend success, and preserves truth on lifecycle failure', async () => {
