@@ -16,6 +16,8 @@ import type {
   JobCardNoteDto,
 } from './types.js';
 import type { Pool, PoolClient } from 'pg';
+import type { ApprovalQueueItemPort } from '../reports/ports.js';
+import type { ApprovalItem } from '../reports/types.js';
 
 export type CriticalActionClaim = {
   organizationId: string;
@@ -506,7 +508,8 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   }
 }
 
-export class PostgresJobCardRepository implements JobCardRepository {
+export class PostgresJobCardRepository
+implements JobCardRepository, ApprovalQueueItemPort {
   constructor(private readonly pool: Pool) {}
 
   async executeCriticalAction<T>(
@@ -555,6 +558,29 @@ export class PostgresJobCardRepository implements JobCardRepository {
     } finally {
       client.release();
     }
+  }
+
+  async getApprovalItems(input: {
+    organizationId: string;
+    requestTime: Date;
+    limit: number;
+    offset: number;
+  }): Promise<ApprovalItem[]> {
+    const rows = await this.pool.query<JobCardListRow & { waiting_minutes: number }>(
+      `SELECT ${JOB_CARD_LIST_COLUMNS},
+       FLOOR(EXTRACT(EPOCH FROM GREATEST(
+         $2::timestamptz - j.staff_completed_at,
+         interval '0 seconds')) / 60)::int AS waiting_minutes
+       ${WORKSPACE_ITEM_JOINS}
+       WHERE j.organization_id = $1 AND j.status = 'WAITING_APPROVAL'
+       ORDER BY j.staff_completed_at ASC, j.id ASC
+       LIMIT $3 OFFSET $4`,
+      [input.organizationId, input.requestTime, input.limit, input.offset],
+    );
+    return rows.rows.map((row) => ({
+      ...mapJobCardListItem(row),
+      waitingMinutes: Number(row.waiting_minutes),
+    }));
   }
 
   async listJobCards(scope: JobCardReadScope, query: JobCardListQuery) {

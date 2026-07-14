@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 
 import type { StaffOperationalSummaryPort } from './ports.js';
 import type {
+  ApprovalSummary,
   DashboardReportResponse,
   DeliveryDayItem,
   DeliveryProductItem,
@@ -84,6 +85,16 @@ type ResolvedReportRangeRow = {
   from: string;
   to: string;
   timezone: string;
+};
+
+type ApprovalSummaryRow = {
+  pending_count: string | number;
+  oldest_waiting_minutes: string | number | null;
+  average_waiting_minutes: string | number | null;
+  under_2_hours: string | number;
+  between_2_and_8_hours: string | number;
+  between_8_and_24_hours: string | number;
+  over_24_hours: string | number;
 };
 
 type DeliveryGroupDefinition = {
@@ -319,6 +330,23 @@ SELECT to_char(from_date, 'YYYY-MM-DD') AS "from",
   timezone
 FROM organization_range`;
 
+const APPROVAL_SUMMARY_SQL = `WITH waiting AS (
+  SELECT GREATEST($2::timestamptz - j.staff_completed_at,
+    interval '0 seconds') AS elapsed
+  FROM job_cards j
+  WHERE j.organization_id = $1 AND j.status = 'WAITING_APPROVAL'
+)
+SELECT COUNT(*)::int AS pending_count,
+  FLOOR(EXTRACT(EPOCH FROM MAX(elapsed)) / 60)::int AS oldest_waiting_minutes,
+  ROUND(AVG(EXTRACT(EPOCH FROM elapsed)) / 60)::int AS average_waiting_minutes,
+  COUNT(*) FILTER (WHERE elapsed < interval '2 hours')::int AS under_2_hours,
+  COUNT(*) FILTER (WHERE elapsed >= interval '2 hours'
+    AND elapsed < interval '8 hours')::int AS between_2_and_8_hours,
+  COUNT(*) FILTER (WHERE elapsed >= interval '8 hours'
+    AND elapsed < interval '24 hours')::int AS between_8_and_24_hours,
+  COUNT(*) FILTER (WHERE elapsed >= interval '24 hours')::int AS over_24_hours
+FROM waiting`;
+
 function deliveryGroupedSql(
   input: DeliveryReportReadInput,
   definition: DeliveryGroupDefinition,
@@ -399,6 +427,22 @@ function mapDeliveryItems(
   rows: DeliveryGroupRow[],
 ) {
   return rows.map((row) => mapDeliveryGroup(groupBy, row));
+}
+
+function mapApprovalSummary(row: ApprovalSummaryRow): ApprovalSummary {
+  return {
+    pendingCount: Number(row.pending_count),
+    oldestWaitingMinutes: row.oldest_waiting_minutes === null
+      ? null
+      : Number(row.oldest_waiting_minutes),
+    averageWaitingMinutes: row.average_waiting_minutes === null
+      ? null
+      : Number(row.average_waiting_minutes),
+    under2Hours: Number(row.under_2_hours),
+    between2And8Hours: Number(row.between_2_and_8_hours),
+    between8And24Hours: Number(row.between_8_and_24_hours),
+    over24Hours: Number(row.over_24_hours),
+  };
 }
 
 function mapStaffSummary(row: StaffSummaryRow): StaffOperationalSummary {
@@ -587,5 +631,18 @@ OFFSET $${offsetParameter}`;
           ...common,
         };
     }
+  }
+
+  async getApprovalSummary(input: {
+    organizationId: string;
+    requestTime: Date;
+  }): Promise<ApprovalSummary> {
+    const result = await this.pool.query<ApprovalSummaryRow>(APPROVAL_SUMMARY_SQL, [
+      input.organizationId,
+      input.requestTime,
+    ]);
+    const row = result.rows[0];
+    if (!row) throw new Error('Approval summary could not be resolved.');
+    return mapApprovalSummary(row);
   }
 }

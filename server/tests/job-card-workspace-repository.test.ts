@@ -1,7 +1,10 @@
+import { readFileSync } from 'node:fs';
+
 import { describe, expect, it } from 'vitest';
 
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import type { JobCardListQuery } from '../src/modules/job-cards/types.js';
+import type { ApprovalQueueItemPort } from '../src/modules/reports/ports.js';
 
 type QueryCall = { sql: string; values: unknown[] };
 
@@ -172,5 +175,114 @@ describe('PostgresJobCardRepository workspace list', () => {
       { ...baseQuery, status: 'WAITING_APPROVAL' },
     );
     expect(approval.calls[1]!.sql).toContain('ORDER BY j.staff_completed_at ASC, j.id ASC');
+  });
+
+  it('reuses the canonical JobCard projection for deterministic approval pages', async () => {
+    const createdAt = new Date('2026-07-13T08:00:00.000Z');
+    const updatedAt = new Date('2026-07-13T09:00:00.000Z');
+    const staffCompletedAt = new Date('2026-07-13T10:00:00.000Z');
+    const rows = [
+      {
+        id: 'job-delivery',
+        type: 'PRODUCT_DELIVERY',
+        status: 'WAITING_APPROVAL',
+        version: 3,
+        title: 'Klinik teslimi',
+        priority: 'high',
+        due_date: '2026-07-20',
+        created_at: createdAt,
+        updated_at: updatedAt,
+        staff_completed_at: staffCompletedAt,
+        customer_id: 'customer-1',
+        customer_name: 'ABC Klinik',
+        contact_id: 'contact-1',
+        contact_name: 'Dr. Deniz',
+        assignee_id: 'staff-1',
+        assignee_name: 'Ayşe Personel',
+        delivery_item_count: 2,
+        waiting_minutes: 119,
+      },
+      {
+        id: 'job-general',
+        type: 'GENERAL_TASK',
+        status: 'WAITING_APPROVAL',
+        version: 1,
+        title: 'Genel görev',
+        priority: 'normal',
+        due_date: null,
+        created_at: createdAt,
+        updated_at: updatedAt,
+        staff_completed_at: new Date('2026-07-14T12:01:00.000Z'),
+        customer_id: null,
+        customer_name: null,
+        contact_id: null,
+        contact_name: null,
+        assignee_id: 'staff-2',
+        assignee_name: 'Gelecek Personel',
+        delivery_item_count: 0,
+        waiting_minutes: 0,
+      },
+    ];
+    const { pool, calls } = poolDouble(rows);
+    const repository = new PostgresJobCardRepository(pool as never);
+    const approvalItems: ApprovalQueueItemPort = repository;
+    const approvalRequestTime = new Date('2026-07-14T12:00:00.000Z');
+
+    const firstPage = await approvalItems.getApprovalItems({
+      organizationId: 'org-1',
+      requestTime: approvalRequestTime,
+      limit: 2,
+      offset: 0,
+    });
+    await approvalItems.getApprovalItems({
+      organizationId: 'org-1',
+      requestTime: approvalRequestTime,
+      limit: 2,
+      offset: 2,
+    });
+
+    expect(firstPage).toEqual([
+      {
+        id: 'job-delivery', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL',
+        version: 3, title: 'Klinik teslimi', priority: 'high', dueDate: '2026-07-20',
+        createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
+        staffCompletedAt: staffCompletedAt.toISOString(),
+        customer: { id: 'customer-1', name: 'ABC Klinik' },
+        contact: { id: 'contact-1', name: 'Dr. Deniz' },
+        assignee: { id: 'staff-1', name: 'Ayşe Personel' },
+        deliveryItemCount: 2, waitingMinutes: 119,
+      },
+      {
+        id: 'job-general', type: 'GENERAL_TASK', status: 'WAITING_APPROVAL',
+        version: 1, title: 'Genel görev', priority: 'normal', dueDate: null,
+        createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
+        staffCompletedAt: '2026-07-14T12:01:00.000Z', customer: null, contact: null,
+        assignee: { id: 'staff-2', name: 'Gelecek Personel' },
+        deliveryItemCount: 0, waitingMinutes: 0,
+      },
+    ]);
+    expect(calls).toHaveLength(2);
+    expect(calls[0]!.values).toEqual(['org-1', approvalRequestTime, 2, 0]);
+    expect(calls[1]!.values).toEqual(['org-1', approvalRequestTime, 2, 2]);
+    for (const { sql } of calls) {
+      expect(sql).toContain("GREATEST(\n         $2::timestamptz - j.staff_completed_at,\n         interval '0 seconds')");
+      expect(sql).toContain("j.status = 'WAITING_APPROVAL'");
+      expect(sql).toContain('ORDER BY j.staff_completed_at ASC, j.id ASC');
+      expect(sql).toContain('LIMIT $3 OFFSET $4');
+      expect(sql).not.toMatch(/j\.type\s*=|j\.assigned_to\s*=/i);
+    }
+
+    const source = readFileSync(
+      new URL('../src/modules/job-cards/repository.ts', import.meta.url),
+      'utf8',
+    );
+    const method = source.slice(
+      source.indexOf('async getApprovalItems'),
+      source.indexOf('async listJobCards'),
+    );
+    expect(method).toContain('SELECT ${JOB_CARD_LIST_COLUMNS}');
+    expect(method).toContain('${WORKSPACE_ITEM_JOINS}');
+    expect(method).toContain('...mapJobCardListItem(row)');
+    expect(method).toContain('waitingMinutes: Number(row.waiting_minutes)');
   });
 });
