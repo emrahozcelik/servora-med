@@ -1,6 +1,6 @@
 # Servora-Med Slice 09 — General Task Design
 
-> Status: Approved design; implementation not started
+> Status: Proposed design; pending user approval
 > Date: 2026-07-14
 > Scope: General Task creation, lifecycle participation, type-aware detail, and workspace integration
 
@@ -161,21 +161,34 @@ returns the original response and creates no duplicate JobCard or activity.
 ### 7.1 Staff assignment
 
 `assignedTo` remains required in both request variants so the public shape is explicit.
-For an authenticated Staff actor, the service derives the effective assignee from the
-authenticated user and does not use the supplied identifier for authorization or data
-lookup. The persisted assignee is always that Staff actor.
+For an authenticated Staff actor, the supplied identifier must equal the authenticated
+Staff user ID. Equality continues through the shared assignee lookup and eligibility
+policy. A different identifier returns `403 FORBIDDEN` before any assignee PostgreSQL
+lookup; the service does not silently replace it with the authenticated user ID.
 
 This prevents a Staff request from assigning a task to another user and prevents
 cross-organization identifier probing. The web form sends the authenticated Staff ID and
 shows the user as fixed task owner rather than rendering an assignee selector.
 
+This pre-lookup self-assignment check is one common create policy used by both
+`PRODUCT_DELIVERY` and `GENERAL_TASK`. Slice 09 preserves the existing Product Delivery
+create contract; it does not introduce a different Staff assignment rule for General
+Task.
+
 ### 7.2 Management assignment
 
 Manager and Admin must supply an active, same-organization user whose role is `STAFF`.
-Missing, inactive, non-Staff, and cross-organization candidates are not eligible and use
-the existing concealed assignee failure contract. Managers and Admins cannot assign a
-General Task to themselves unless their user also has the canonical Staff role; roles are
-not treated as interchangeable.
+Assignee failures use the shared Product Delivery policy and exact responses below:
+
+- malformed `assignedTo` returns `400 VALIDATION_ERROR` before lookup;
+- missing or cross-organization assignee returns `404 ASSIGNEE_NOT_FOUND`;
+- inactive or non-Staff assignee returns `403 FORBIDDEN`;
+- a Staff actor supplying any ID other than their own returns `403 FORBIDDEN` before
+  assignee lookup.
+
+Managers and Admins cannot assign a General Task to themselves unless their user also has
+the canonical Staff role; roles are not treated as interchangeable. General Task does not
+define a new assignee error standard.
 
 The same eligibility check runs again at submit time. A user who becomes inactive or
 ceases to be eligible after creation prevents submission until the task is reassigned to
@@ -577,7 +590,10 @@ code:
 | --- | --- |
 | invalid/unknown create field, malformed value, invalid date, invalid type | `400 VALIDATION_ERROR` |
 | missing/cross-organization visible JobCard | `404 JOB_CARD_NOT_FOUND` |
-| ineligible assignee | existing concealed `ASSIGNEE_NOT_FOUND` contract |
+| malformed `assignedTo` | `400 VALIDATION_ERROR` before assignee lookup |
+| missing/cross-organization assignee | `404 ASSIGNEE_NOT_FOUND` |
+| inactive/non-Staff assignee | `403 FORBIDDEN` |
+| Staff actor supplies an assignee other than self | `403 FORBIDDEN` before assignee lookup |
 | missing/cross-organization Customer | `404 CUSTOMER_NOT_FOUND` |
 | inactive Customer | `409 CUSTOMER_INACTIVE` |
 | missing/cross-organization Contact | `404 CONTACT_NOT_FOUND` |
@@ -603,9 +619,14 @@ Implementation follows TDD. Existing Product Delivery tests remain regression ga
 - unknown fields and delivery fields rejected on General Task create;
 - Unicode-whitespace-only title and title over 255 code points rejected;
 - description trim/null behavior, default priority, and strict due date;
-- Staff request persists self assignment even when another identifier is supplied;
+- Staff self assignment succeeds for Product Delivery and General Task when
+  `assignedTo` equals the authenticated Staff ID;
+- Staff request with another identifier returns `403 FORBIDDEN` before assignee lookup
+  for both create discriminants;
+- malformed assignee returns `400 VALIDATION_ERROR` before lookup;
 - Manager/Admin active same-organization Staff assignment;
-- inactive, non-Staff, and cross-organization assignee rejection;
+- missing and cross-organization assignee returns `404 ASSIGNEE_NOT_FOUND`;
+- inactive and non-Staff assignee returns `403 FORBIDDEN`;
 - optional Customer and Contact validation;
 - Contact without Customer, wrong Customer, inactive Contact, and stale Customer response
   paths;
@@ -713,7 +734,8 @@ Slice 09 implementation is complete only when all statements below are true:
 
 - [ ] One exact `POST /api/job-cards` discriminated union supports Product Delivery and
       General Task.
-- [ ] Staff assignment is forced to self; management assignment accepts only eligible
+- [ ] Staff create requires `assignedTo` to equal the authenticated Staff ID and rejects a
+      different ID with pre-lookup `403 FORBIDDEN`; management accepts only eligible
       same-organization Staff.
 - [ ] General Task supports optional Customer and Contact with the canonical relation
       invariants.
@@ -768,8 +790,12 @@ encourage false delivery UI.
 - [x] The create body is an exact discriminated union with no unknown-field escape hatch.
 - [x] Required, nullable, defaulted, normalized, and role-derived fields are explicit.
 - [x] Title-only General Task submission is explicitly allowed.
+- [x] Staff self-assignment uses equality plus a pre-lookup `403 FORBIDDEN`, not silent
+      identifier replacement.
+- [x] Malformed, missing, cross-organization, inactive, and non-Staff assignee failures
+      have exact responses.
 - [x] Assignment, Customer, Contact, organization, and concealment rules are explicit.
-- [x] Product Delivery submission behavior is unchanged.
+- [x] Product Delivery create and submission behavior is unchanged.
 - [x] Submission readiness has one exhaustive type-owned policy boundary.
 - [x] Lifecycle, idempotency, versioning, activity, notes, and rollback remain shared.
 - [x] Every delivery operation has the same General Task type guard and error.
@@ -787,7 +813,7 @@ encourage false delivery UI.
 
 ## 25. Execution Stop
 
-This document is the approved design deliverable. Slice 09 implementation has not started.
-The next step is user review of this committed specification. Only after explicit spec
-approval may `superpowers:writing-plans` be used to create a separate implementation plan.
-That plan also requires review before implementation begins.
+This document is a proposed design awaiting user approval. Slice 09 implementation has
+not started. The next step is user review of this committed specification. Only after
+explicit spec approval may `superpowers:writing-plans` be used to create a separate
+implementation plan. That plan also requires review before implementation begins.
