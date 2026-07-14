@@ -12,6 +12,9 @@ import { ProductCreateScreen } from './ProductForm';
 import { ProductDetailScreen } from './ProductDetail';
 import { ProductListScreen } from './ProductList';
 import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
+import { ReportsDashboard } from './reports/ReportsDashboard';
+import { DeliveryReport } from './reports/DeliveryReport';
+import { ApprovalReport } from './reports/ApprovalReport';
 import { paths } from './paths';
 import type { CurrentUser, ReferenceCustomer } from './services/api';
 
@@ -101,6 +104,9 @@ export function AppRouter({ user, customers, notice, onClearNotice, onDeliveryCr
       <Route path={paths.staff} element={<StaffRoute user={user} />} />
       <Route path="/staff/:staffUserId" element={<StaffRoute user={user} />} />
       <Route path="/staff/:staffUserId/reports" element={<StaffReportRoute user={user} />} />
+      <Route path={paths.reports} element={user.role === 'STAFF' ? <ForbiddenView /> : <ReportsDashboard />} />
+      <Route path={paths.deliveryReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <DeliveryReport user={user} />} />
+      <Route path={paths.approvalReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <ApprovalReport />} />
       <Route path={paths.customers} element={<CustomerListScreen user={user} />} />
       <Route path={paths.newCustomer} element={user.role === 'STAFF' ? <ForbiddenView /> : <CustomerCreateScreen user={user} />} />
       <Route path="/customers/:customerId" element={<CustomerRoute user={user} />} />
