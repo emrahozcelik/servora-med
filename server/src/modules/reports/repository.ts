@@ -284,7 +284,10 @@ di.unit COLLATE "C" ASC NULLS LAST`;
 
 const DELIVERY_GROUPS = {
   day: {
-    select: `(di.delivered_at AT TIME ZONE organization_range.timezone)::date AS date,
+    select: `to_char(
+    (di.delivered_at AT TIME ZONE organization_range.timezone)::date,
+    'YYYY-MM-DD'
+  ) AS date,
   di.unit,
   to_char(SUM(di.quantity), 'FM999999999999999999990.000') AS quantity`,
     group: `(di.delivered_at AT TIME ZONE organization_range.timezone)::date, di.unit`,
