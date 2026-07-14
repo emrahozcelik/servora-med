@@ -2572,7 +2572,7 @@ git commit -m "test: verify reports against PostgreSQL"
 - Produces: automated semantic/reflow guards plus recorded Playwright MCP acceptance for
   Manager desktop, Staff desktop, 390×844 mobile, and 320 CSS px effective width.
 
-- [ ] **Step 1: Write failing accessibility and interaction tests**
+- [x] **Step 1: Write failing accessibility and interaction tests**
 
 Assert report landmarks/headings, captions, header scopes, date labels and associated
 errors, focusable error summary, keyboard filter/pagination/retry controls, textual trend
@@ -2592,13 +2592,13 @@ Test that submitting an invalid date focuses the error summary or first invalid 
 filter and pagination actions are buttons/forms/links rather than pointer-only handlers;
 and Staff report navigation is absent.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `cd web && npm test -- --run tests/reports-accessibility.test.tsx tests/accessibility-contract.test.ts tests/reports-navigation.test.tsx`
 
 Expected: FAIL on any missing semantics, focus target, responsive rule, or role exclusion.
 
-- [ ] **Step 3: Apply the smallest semantic and CSS corrections**
+- [x] **Step 3: Apply the smallest semantic and CSS corrections**
 
 Use semantic HTML before ARIA and preserve the existing focus token:
 
@@ -2637,14 +2637,14 @@ Use responsive row labels and no page-level horizontal scrolling:
 
 Do not add motion, chart, table, accessibility, or browser packages.
 
-- [ ] **Step 4: Run focused accessibility tests and verify GREEN**
+- [x] **Step 4: Run focused accessibility tests and verify GREEN**
 
 Run: `cd web && npm test -- --run tests/reports-accessibility.test.tsx tests/accessibility-contract.test.ts tests/reports-navigation.test.tsx`
 
 Expected: PASS for semantics, focus, 44px controls, role exclusion, reflow, and reduced
 motion.
 
-- [ ] **Step 5: Run Playwright MCP acceptance against the live stack**
+- [x] **Step 5: Run Playwright MCP acceptance against the live stack**
 
 Start the migrated server and web app in separate terminals:
 
@@ -2675,7 +2675,7 @@ Using Playwright MCP, verify and record all of these scenarios:
 Expected: every scenario passes. The repository still contains no Playwright config or
 dependency; acceptance is performed through Playwright MCP.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add web/tests/reports-accessibility.test.tsx \
