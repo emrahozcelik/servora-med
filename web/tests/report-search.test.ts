@@ -48,7 +48,7 @@ describe('Report URL state', () => {
 
   it('preserves a syntactically valid Staff UUID without checking availability', () => {
     expect(readDeliverySearch(new URLSearchParams(
-      `groupBy=staff&staffUserId=${STAFF_ID}`,
+      `groupBy=staff&staffUserId=${STAFF_ID}&offset=0`,
     ))).toMatchObject({ staffUserId: STAFF_ID, canonical: true });
   });
 

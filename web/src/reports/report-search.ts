@@ -86,15 +86,15 @@ export function dashboardSearch(state: DashboardUrlState) {
 
 export function deliverySearch(state: DeliveryUrlState) {
   const search = dashboardSearch(state);
-  if (state.groupBy !== 'day') search.set('groupBy', state.groupBy);
+  search.set('groupBy', state.groupBy);
   if (state.staffUserId !== null) search.set('staffUserId', state.staffUserId);
-  if (state.offset !== 0) search.set('offset', String(state.offset));
+  search.set('offset', String(state.offset));
   return search;
 }
 
 export function approvalSearch(state: ApprovalUrlState) {
   const search = new URLSearchParams();
-  if (state.offset !== 0) search.set('offset', String(state.offset));
+  search.set('offset', String(state.offset));
   return search;
 }
 
