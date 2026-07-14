@@ -44,6 +44,18 @@ describe('JobCard workspace transport', () => {
     );
   });
 
+  it('accepts GENERAL_TASK only in the canonical read-list projection', async () => {
+    const generalTask = { ...listItem, type: 'GENERAL_TASK', deliveryItemCount: 0 };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [generalTask], total: 1, limit: 25, offset: 0,
+    })));
+
+    await expect(listJobCards()).resolves.toMatchObject({ items: [generalTask] });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...job, type: 'GENERAL_TASK' })));
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it('runtime-validates all board columns and closed counts', async () => {
     const board = {
       columns: {
