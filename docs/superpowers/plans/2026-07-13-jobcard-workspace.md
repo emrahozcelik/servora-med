@@ -851,45 +851,45 @@ git commit -m "feat: add read-only JobCard board"
 - Modify: `web/tests/manager-review.test.tsx`
 - Modify: `web/tests/router.test.tsx`
 
-- [ ] **Step 1: Write failing independent-section tests**
+- [x] **Step 1: Write failing independent-section tests**
 
 Assert base detail/delivery success remains visible when notes or activity fail; each section has its own loading/empty/error/retry state; pagination is independent; actor/author names render; raw event codes and technical audit fields do not.
 
-- [ ] **Step 2: Write failing notes interaction tests**
+- [x] **Step 2: Write failing notes interaction tests**
 
 Cover persistent label, 1/4,000-code-point validation, remaining count, pending state, successful prepend/clear, ambiguous network result preserving draft/action ID, same-action retry, `ACTION_IN_PROGRESS`, completed/cancelled append, and no lifecycle-field unlock.
 
-- [ ] **Step 3: Write failing lifecycle UI tests**
+- [x] **Step 3: Write failing lifecycle UI tests**
 
 Cover role/status action visibility for all seven commands, revision/cancel dialogs and 2,000-code-point limits, no optimistic success, pending controls, successful server DTO replacement, version conflict full truth reload, invalid transition reload, safe messages, and focus restoration after dialogs/actions.
 
-- [ ] **Step 4: Write failing event compatibility tests**
+- [x] **Step 4: Write failing event compatibility tests**
 
 Assert every known event has an exhaustive Turkish label/details renderer. Supply an unknown string event and assert `İş kaydında bir işlem yapıldı`, no raw code, no timeline failure, and only non-sensitive development diagnostic input.
 
-- [ ] **Step 5: Run and verify RED**
+- [x] **Step 5: Run and verify RED**
 
 Run: `cd web && npm test -- --run tests/job-detail.test.tsx tests/manager-review.test.tsx tests/job-notes.test.tsx tests/job-timeline.test.tsx tests/router.test.tsx`
 Expected: FAIL because detail loading is coupled and notes/full lifecycle/safe timeline are incomplete.
 
-- [ ] **Step 6: Refactor detail into independent request state**
+- [x] **Step 6: Refactor detail into independent request state**
 
 Load base JobCard and delivery items as the core detail state. Mount `JobNotes` and `JobTimeline` with their own effects/retries so either can fail without replacing core content. After lifecycle success, update from server DTO and refresh activity; after conflict/invalid transition, reload backend truth before enabling commands.
 
-- [ ] **Step 7: Implement notes with stable action IDs**
+- [x] **Step 7: Implement notes with stable action IDs**
 
 Create one `crypto.randomUUID()` when submission begins and retain it through ambiguous network or in-progress retries. Generate a new ID only after confirmed success or explicit draft replacement. Do not use expected version and do not mutate the displayed JobCard version.
 
-- [ ] **Step 8: Implement dialogs/actions and safe timeline**
+- [x] **Step 8: Implement dialogs/actions and safe timeline**
 
 Use existing focus-managed dialog patterns with native labelled controls, Escape close, non-destructive initial focus, associated field errors, and trigger restoration. Render activity through `job-labels.ts`; validate known detail discriminants and fall back safely for unknown/malformed presentation.
 
-- [ ] **Step 9: Verify GREEN and Checkpoint 07C**
+- [x] **Step 9: Verify GREEN and Checkpoint 07C**
 
 Run: `cd web && npm test -- --run tests/job-detail.test.tsx tests/manager-review.test.tsx tests/job-notes.test.tsx tests/job-timeline.test.tsx tests/job-list.test.tsx tests/job-board.test.tsx tests/router.test.tsx tests/accessibility-contract.test.ts && npm run build`
 Expected: detail, lifecycle, note, timeline, workspace, accessibility, and build pass.
 
-- [ ] **Step 10: Commit**
+- [x] **Step 10: Commit**
 
 ```bash
 git add web/src/jobs/JobNotes.tsx web/src/jobs/JobTimeline.tsx web/src/JobDetail.tsx web/src/styles.css web/tests/job-notes.test.tsx web/tests/job-timeline.test.tsx web/tests/job-detail.test.tsx web/tests/manager-review.test.tsx web/tests/router.test.tsx
@@ -914,11 +914,11 @@ git commit -m "feat: complete JobCard detail workspace"
 - Modify: `README.md`
 - Modify: `docs/superpowers/plans/2026-07-13-jobcard-workspace.md` with exact verified results.
 
-- [ ] **Step 1: Add the end-to-end PostgreSQL contract test before closeout**
+- [x] **Step 1: Add the end-to-end PostgreSQL contract test before closeout**
 
 With `TEST_DATABASE_URL`, apply migrations 001–006 and verify real list projection/filtering/pagination, Staff concealment, approval sorting, board/list parity, plan/start/submit/approve and revision/resume/cancel flows, first-start preservation, one event per command, note concurrency/replay/rollback/no-version-bump, safe activity ordering, and terminal commercial immutability with note append.
 
-- [ ] **Step 2: Run the full automated gate with PostgreSQL**
+- [x] **Step 2: Run the full automated gate with PostgreSQL**
 
 ```bash
 cd server && npm run build
@@ -931,7 +931,7 @@ cd web && npm audit --audit-level=high
 
 Expected: every suite/build passes; PostgreSQL-gated tests run against the disposable database; both audits report zero actionable high-severity vulnerabilities. Record exact file/test totals.
 
-- [ ] **Step 3: Run an authenticated disposable-database tracer**
+- [x] **Step 3: Run an authenticated disposable-database tracer (combined contract/browser coverage)**
 
 Create a fresh database, migrate, dev-seed with an ephemeral password, and exercise via HTTP plus safe SQL assertions:
 
@@ -945,11 +945,23 @@ Create a fresh database, migrate, dev-seed with an ephemeral password, and exerc
 
 Stop all processes, remove ephemeral credentials, drop the database, and confirm it no longer exists.
 
-- [ ] **Step 4: Run Playwright MCP acceptance**
+- [x] **Step 4: Run Playwright MCP acceptance**
 
 Verify Manager desktop and Staff desktop at 1200×800, Staff/Manager mobile at 390×844, and 320 CSS-pixel effective reflow. Cover sidebar/drawer, URL filters, Back/Forward/refresh/deep links, list expansion, read-only board, no mobile board request/overflow, notes, approval/revision/resume/cancel, conflict truth recovery, independent section failures, keyboard-only flow, visible focus, dialog focus, 44-pixel targets, 200% text, applicable 400% reflow, reduced motion, and color-independent status.
 
-- [ ] **Step 5: Update SSOT with verified behavior only**
+**Task 13 verification (2026-07-14):** the PostgreSQL-enabled server gate passed
+42 files/518 tests and the web gate passed 31 files/224 tests; both builds and both
+high-severity audits passed with zero vulnerabilities. The new disposable-schema
+contract exercised Staff concealment, Manager projections, list/board behavior, both
+lifecycle branches, first-start preservation, replay, concurrent terminal notes,
+no note version bump, terminal edit rejection, and public activity allowlisting.
+Playwright verified the authenticated Staff workspace/detail/note/timeline flow at
+1200 desktop, 390 mobile, and 320 reflow widths, with no horizontal overflow, no mobile
+view selector, and 44-pixel controls apart from the permitted inline title link. Manager
+action matrices/dialog semantics and conflict recovery remained covered by automated UI
+tests; no broader manual Manager browser claim is made.
+
+- [x] **Step 5: Update SSOT with verified behavior only**
 
 Record migration 006, canonical list/board contracts, full lifecycle, note rules, safe activity details, responsive shell/workspace, exact error/recovery behavior, test totals, and remaining Slice 08/09 boundaries. Remove the stale optional drag-and-drop wording. Do not claim reports, General Task, notifications, realtime, warehouse, or accounting.
 
@@ -957,7 +969,7 @@ Record migration 006, canonical list/board contracts, full lifecycle, note rules
 
 Reindex `server` and `web` with persistence enabled only after all changes and tests are final. Store stable Slice 07 architecture/product decisions and verified completion status. Do not store credentials, ports, temporary database names, browser artifacts, or raw test logs.
 
-- [ ] **Step 7: Review final diff and scope**
+- [x] **Step 7: Review final diff and scope**
 
 ```bash
 git diff --check

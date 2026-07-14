@@ -1,10 +1,10 @@
 # Servora-Med
 
-Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, the Product Delivery tracer, People administration, role-aware Customer/Contact CRM, and the informational Product catalog through Slice 06.
+Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, the Product Delivery tracer, People administration, role-aware Customer/Contact CRM, the informational Product catalog, and the JobCard workspace through Slice 07.
 
 ## Current Scope
 
-Implemented through Slice 06:
+Implemented through Slice 07:
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -44,10 +44,14 @@ Implemented through Slice 06:
 - Product optimistic concurrency and atomic management audit events
 - canonical paginated Product search for catalog and delivery selection
 - immutable historical delivery snapshots when Product data or active state changes
+- role-scoped, filterable JobCard list and read-only desktop board
+- full named lifecycle commands with backend truth recovery
+- application-contract append-only JobCard notes in every lifecycle state
+- safe paginated activity timeline with canonical Turkish event labels
+- mobile-forced list layout without a squeezed Kanban board
 
 Not implemented yet:
 
-- full JobCard notes, activity timeline, and Kanban/list workspace
 - Staff confidential notes and related follow-up cards
 - General Task and structured Sales Meeting flows
 - operational reports, production deployment hardening, and measured realtime
@@ -73,8 +77,9 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable 001–005 files for the ledger, authentication,
-Product Delivery tracer, People profiles/audits, Customer/Contact CRM, and Product catalog.
+The migration runner applies the immutable 001–006 files for the ledger, authentication,
+Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog,
+and JobCard workspace notes/indexes/lifecycle timestamp constraints.
 
 ### First Admin Bootstrap
 
@@ -147,7 +152,7 @@ Production unsafe requests must carry the exact configured `Origin`. CORS permit
 
 ## Product Delivery Tracer API
 
-Authenticated JobCard routes are available under `/api/job-cards`. The tracer supports JobCard create/read/patch, delivery-item mutations, activity reads, and named `start`, `submit-for-approval`, `approve`, and `request-revision` commands. Staff scope, manager review authority, organization ownership, expected version, and critical-action idempotency are enforced by the backend.
+Authenticated JobCard routes are available under `/api/job-cards`. The tracer supports canonical list/board projections, JobCard create/read/patch, delivery-item mutations, paginated notes/activity, and named `plan`, `start`, `submit-for-approval`, `approve`, `request-revision`, `resume`, and `cancel` commands. Staff scope, manager review authority, organization ownership, expected version, and critical-action idempotency are enforced by the backend.
 
 Slice 02 was verified against a disposable local PostgreSQL 16.13 database through migration, development seed, Staff/Manager login, approved delivery flow, revision flow, and direct activity/constraint queries. The disposable database was removed after verification.
 
@@ -218,11 +223,25 @@ enabled PostgreSQL tests passed the full 35-file/272-test server suite against m
 001–005. Authenticated live tracing verified role boundaries, duplicate SKU,
 five-field search, pagination, versions, failed-mutation audit safety, lifecycle guards,
 immutable delivery snapshots, Product field limits, and malformed UUID concealment.
-Playwright acceptance passed at 1200×800, 390×844,
-and 320 CSS px effective reflow with keyboard operation, dialog focus restoration,
-44 CSS px targets, 200% text enlargement, reduced motion, semantic labels/landmarks,
-Back/Forward/refresh/direct URLs, and no page-level horizontal overflow. Disposable
-databases and browser processes were removed after verification.
+
+## JobCard Workspace
+
+Slice 07 adds the canonical role-scoped JobCard list, a read-only active-state desktop
+board, closed-state counts, the complete named lifecycle, operational notes, and a safe
+activity timeline. Mobile always uses the structured list. Lifecycle commands never
+optimistically change status; the returned server DTO is used, and version or transition
+conflicts reload backend truth.
+
+JobCard notes are append-only through the application contract. They remain available in
+review, completed, and cancelled states, use stable idempotency action IDs for ambiguous
+retries, do not increment JobCard version, and atomically create `NOTE_ADDED`. The public
+activity DTO exposes allowlisted presentation details rather than raw audit JSON.
+
+Final Slice 07 verification passed the PostgreSQL-enabled server suite at 42 files/518
+tests and the web suite at 31 files/224 tests. Both production builds and high-severity
+dependency audits passed with zero vulnerabilities. Playwright acceptance verified the
+authenticated Staff workspace, detail, note, and timeline flow at desktop, 390-pixel
+mobile, and 320-pixel reflow widths without horizontal overflow or a mobile board control.
 
 Pull requests and pushes to `main` run these server/web build, test, audit, and
 PostgreSQL-backed checks through `.github/workflows/ci.yml`.

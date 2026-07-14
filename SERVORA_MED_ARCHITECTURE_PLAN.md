@@ -126,9 +126,15 @@ Frontend rules:
 - Frontend does not maintain a second transition engine.
 - Optimistic UI is used only when reconciliation and rollback are safe.
 - Critical actions expose loading, success, validation, authorization, retry, and version-conflict states.
-- Drag and drop is optional and never the only status-change mechanism.
+- The Slice 07 board is read-only; lifecycle changes use explicit named controls in detail.
 - Mobile is a dedicated layout mode, not a compressed desktop board.
 - UI strategy and accessibility are governed by `PRODUCT.md` and `DECISIONS.md`.
+
+The JobCard workspace uses one canonical server list projection for list and board cards.
+The desktop board groups active states only and reports completed/cancelled counts; mobile
+always uses the structured list and does not request board data. Core detail, notes, and
+activity have independent request/error states so a related-section failure does not hide
+the JobCard or delivery facts.
 
 ## 7. Domain Boundaries
 

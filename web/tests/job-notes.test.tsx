@@ -84,6 +84,19 @@ describe('JobCard operational notes', () => {
     expect(textarea.value).toBe('');
   });
 
+  it('notifies the detail workspace after a confirmed append so activity can refresh', async () => {
+    const onAdded = vi.fn();
+    await renderNotes({ onAdded });
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, savedNote.note);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve();
+    });
+    expect(onAdded).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps note loading errors local and offers an independent retry', async () => {
     const load = vi.fn()
       .mockRejectedValueOnce(new ApiError(503, 'TEMPORARY', 'Notlar yüklenemedi.', true))

@@ -231,7 +231,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   return <JobDetailPanel job={state.job} items={state.items} viewerRole={user.role} pending={pending}
     message={message} messageIsError={messageIsError} onBack={onBack}
     onCommand={(name) => command(name, document.activeElement as HTMLElement)}>
-    <div className="job-detail-sections"><JobNotes jobId={jobId} /><JobTimeline jobId={jobId} refreshKey={timelineKey} /></div>
+    <div className="job-detail-sections"><JobNotes jobId={jobId} onAdded={() => setTimelineKey((value) => value + 1)} /><JobTimeline jobId={jobId} refreshKey={timelineKey} /></div>
     {dialog && <ReasonDialog kind={dialog} pending={pending} onClose={closeDialog} onConfirm={(reason) => void execute(dialog, reason)} />}
   </JobDetailPanel>;
 }

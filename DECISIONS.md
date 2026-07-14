@@ -294,7 +294,7 @@ with `/jobs`, while requested Customer/Contact deep links and refreshes remain i
 - Staff deactivation clears Customer assignments in the same transaction.
 - Customer detail JobCard summaries are bounded and preserve assigned-Staff visibility.
 - UI route guards are navigation behavior, never an authorization boundary.
-- Full JobCard notes, timeline, and Kanban navigation remain Slice 07 work.
+- JobCard notes, safe timeline, role-scoped list, and read-only desktop board were completed in Slice 07.
 
 ## DOM-004: Informational Product catalog boundary
 
@@ -364,3 +364,9 @@ atomic. Migration 006 does not add an `UPDATE`/`DELETE` prevention trigger.
 - Documentation must not claim that note rows are physically immutable in PostgreSQL.
 - Controlled data correction and maintenance remain possible without hidden trigger
   behavior; any future stronger compliance requirement needs a separate decision.
+
+### Verification
+
+Migration 006, real PostgreSQL note concurrency/replay/rollback, terminal note append,
+application-surface mutation absence, Unicode whitespace validation, and web retry/action
+ID behavior were verified in Slice 07. Notes do not increment JobCard version.

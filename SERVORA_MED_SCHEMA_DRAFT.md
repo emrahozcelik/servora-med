@@ -386,7 +386,8 @@ Notes are append-only through the MVP application contract. Public routes, servi
 repository surfaces expose no note update/delete operation, and the UI exposes no such
 control. This does not claim physical immutability for controlled database maintenance;
 no mutation-prevention trigger is required. Staff may add a note to their own JobCard in
-`WAITING_APPROVAL`, but cannot edit commercial fields.
+every lifecycle state, including review and terminal states, without changing its version
+or unlocking commercial fields.
 
 ### 3.12 job_card_activity_logs
 
@@ -523,10 +524,11 @@ Applied slice-aligned migrations:
 | `003_people.sql` | user versions, organization timezone, staff_profiles, audit_events |
 | `004_crm_contacts.sql` | versioned Customers, Contacts, JobCard Contact relationship, CRM indexes and audits |
 | `005_product_catalog.sql` | nullable informational Product fields, Product versions/audits, duplicate SKU support, nullable delivery unit snapshots |
+| `006_jobcard_workspace.sql` | application-contract append-only JobCard notes, workspace indexes, planned/started timestamp guards |
 
-Applied migrations 001–005 are immutable. Notes/reporting, General Task, and deferred
-Sales Meeting remain later unnumbered groups whose exact filenames are assigned only
-when those slices begin.
+Applied migrations 001–006 are immutable. Reports, General Task, and deferred Sales
+Meeting remain later unnumbered groups whose exact filenames are assigned only when
+those slices begin.
 
 ## 9. Explicit Omissions
 

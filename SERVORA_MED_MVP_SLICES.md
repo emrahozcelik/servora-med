@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
 > Date: 2026-07-10  
-> Status: Living implementation order; verified through Slice 06
+> Status: Living implementation order; verified through Slice 07
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -343,19 +343,19 @@ removed a duplicate unused detail component, and added PostgreSQL-backed GitHub 
 - filters for status, type, assignee, customer, priority, and due date
 - approval queue
 - named action controls
-- optional drag and drop as a progressive enhancement only
+- read-only desktop board with explicit named command controls in JobCard detail
 
 ### Acceptance
 
-- [ ] Staff list is server-scoped to assigned JobCards.
-- [ ] Manager sees organization JobCards.
-- [ ] Staff can add notes in `WAITING_APPROVAL` without editing commercial data.
-- [ ] Activity order is deterministic and events are not duplicated.
-- [ ] Completed and cancelled columns are limited, collapsed, or filtered by default.
-- [ ] Mobile never renders a squeezed seven-column board.
-- [ ] Every drag action has an equivalent accessible command control.
-- [ ] Failed transition restores or refetches backend truth.
-- [ ] Color is not the only indicator of status, priority, lateness, or result.
+- [x] Staff list is server-scoped to assigned JobCards.
+- [x] Manager sees organization JobCards.
+- [x] Staff can add notes in `WAITING_APPROVAL` without editing commercial data.
+- [x] Activity order is deterministic and events are not duplicated.
+- [x] Completed and cancelled work is represented by filtered counts rather than active board columns.
+- [x] Mobile never renders a squeezed board and does not request board data.
+- [x] Lifecycle changes use explicit accessible command controls; drag and drop is not implemented.
+- [x] Failed transition restores or refetches backend truth.
+- [x] Color is not the only indicator of status, priority, lateness, or result.
 
 ## 11. Slice 08: Staff Profile and Operational Reports
 

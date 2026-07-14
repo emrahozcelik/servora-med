@@ -18,11 +18,13 @@ export function JobNotes({
   load = listJobCardNotes,
   add = addJobCardNote,
   createActionId = () => crypto.randomUUID(),
+  onAdded = () => {},
 }: {
   jobId: string;
   load?: typeof listJobCardNotes;
   add?: typeof addJobCardNote;
   createActionId?: () => string;
+  onAdded?: () => void;
 }) {
   const [offset, setOffset] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
@@ -76,6 +78,7 @@ export function JobNotes({
       });
       actionRef.current = null;
       setDraft('');
+      onAdded();
     } catch (caught) {
       const error = caught instanceof Error ? caught.message : 'Not kaydedilemedi.';
       setSubmitError(error);

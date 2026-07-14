@@ -446,7 +446,7 @@ Staff-provided `assignedTo` filters never broaden server-enforced self scope.
 | POST | `/` | authenticated | idempotent JobCard creation |
 | GET | `/:jobCardId` | visibility | detail with optional related sections |
 | PATCH | `/:jobCardId` | edit policy | fields only; requires expected version |
-| GET | `/board` | authenticated | optional grouped read projection |
+| GET | `/board` | authenticated | read-only active-state projection plus closed counts |
 
 List filters:
 
@@ -457,10 +457,16 @@ assignedTo
 customerId
 priority
 dueBefore
+dueAfter
 q
 limit
 offset
 ```
+
+The list response is canonical and paginated. Board cards reuse the same item shape,
+group only `NEW`, `PLANNED`, `IN_PROGRESS`, `WAITING_APPROVAL`, and
+`REVISION_REQUESTED`, and expose `COMPLETED`/`CANCELLED` as counts. Mobile clients use
+the list route and do not request the board projection.
 
 ### POST `/api/job-cards`
 
@@ -552,12 +558,16 @@ Note request:
 
 ```json
 {
-  "expectedVersion": 5,
+  "clientActionId": "uuid",
   "note": "Teslim alan kişi bilgisi düzeltme notunda belirtildi."
 }
 ```
 
-Staff may add a note to their assigned JobCard in `WAITING_APPROVAL`; this does not unlock commercial fields. Successful addition appends `NOTE_ADDED`.
+Staff may add a note to their assigned JobCard in every lifecycle state, including
+`WAITING_APPROVAL`, `COMPLETED`, and `CANCELLED`; this does not unlock commercial fields
+or increment the JobCard version. Successful addition atomically appends `NOTE_ADDED`.
+Notes are append-only through the application contract; no public or repository
+update/delete operation exists.
 
 ## 13. Named JobCard Commands
 
