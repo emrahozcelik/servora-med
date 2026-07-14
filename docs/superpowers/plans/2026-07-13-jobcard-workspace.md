@@ -965,7 +965,7 @@ tests; no broader manual Manager browser claim is made.
 
 Record migration 006, canonical list/board contracts, full lifecycle, note rules, safe activity details, responsive shell/workspace, exact error/recovery behavior, test totals, and remaining Slice 08/09 boundaries. Remove the stale optional drag-and-drop wording. Do not claim reports, General Task, notifications, realtime, warehouse, or accounting.
 
-- [ ] **Step 6: Refresh codebase and persistent memory after final code state**
+- [x] **Step 6: Refresh codebase and persistent memory after final code state**
 
 Reindex `server` and `web` with persistence enabled only after all changes and tests are final. Store stable Slice 07 architecture/product decisions and verified completion status. Do not store credentials, ports, temporary database names, browser artifacts, or raw test logs.
 
@@ -979,7 +979,7 @@ rg -n "drag|WebSocket|notification|saved view|GENERAL_TASK|attachment|stock|ware
 
 Every match must be an explicit rejection/non-goal, internal audit persistence, or safely allowlisted behavior. Confirm no unfinished marker, debug output, generated browser artifact, secret, or unrelated refactor remains.
 
-- [ ] **Step 8: Commit closeout**
+- [x] **Step 8: Commit closeout**
 
 ```bash
 git add .github/workflows/ci.yml SERVORA_MED_API_DRAFT.md SERVORA_MED_SCHEMA_DRAFT.md SERVORA_MED_MVP_SLICES.md SERVORA_MED_ARCHITECTURE_PLAN.md DECISIONS.md DESIGN.md README.md docs/superpowers/plans/2026-07-13-jobcard-workspace.md server/tests/job-card-workspace-postgres.test.ts
