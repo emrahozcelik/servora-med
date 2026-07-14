@@ -1,10 +1,10 @@
 # Servora-Med
 
-Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, the Product Delivery tracer, People administration, role-aware Customer/Contact CRM, the informational Product catalog, and the JobCard workspace through Slice 07.
+Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, the Product Delivery tracer, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, and trusted operational reports through Slice 08.
 
 ## Current Scope
 
-Implemented through Slice 07:
+Implemented through Slice 08:
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -49,12 +49,16 @@ Implemented through Slice 07:
 - application-contract append-only JobCard notes in every lifecycle state
 - safe paginated activity timeline with canonical Turkish event labels
 - mobile-forced list layout without a squeezed Kanban board
+- organization-scoped operational dashboard and Staff summaries
+- grouped approved-delivery reports with exact decimal-string quantities
+- oldest-first approval queue with non-negative age buckets
+- stable report routes with URL-owned filters, pagination, and role boundaries
 
 Not implemented yet:
 
 - Staff confidential notes and related follow-up cards
 - General Task and structured Sales Meeting flows
-- operational reports, production deployment hardening, and measured realtime
+- production deployment hardening and measured realtime
 
 ## Prerequisites
 
@@ -242,6 +246,36 @@ tests and the web suite at 31 files/224 tests. Both production builds and high-s
 dependency audits passed with zero vulnerabilities. Playwright acceptance verified the
 authenticated Staff workspace, detail, note, and timeline flow at desktop, 390-pixel
 mobile, and 320-pixel reflow widths without horizontal overflow or a mobile board control.
+
+## Operational Reports
+
+Slice 08 adds a read-only Reports module with five authenticated endpoints and four stable
+web routes. Admin and Manager use `/reports`, `/reports/deliveries`, and
+`/reports/approvals`; Staff use their own existing profile area, while management can open
+`/staff/:staffUserId/reports`. Staff ownership is derived only from
+`job_cards.assigned_to`. The People profile counters consume the same batch-capable
+`StaffOperationalSummaryPort`, so list views do not issue one counter query per Staff
+member.
+
+Delivery quantities include only approved `COMPLETED` Product Delivery JobCards. They use
+the persisted delivery purpose, actual delivery date, historical Product snapshots, and
+unit without normalization. Quantities remain exact three-decimal strings and are never
+re-aggregated in JavaScript. Approval age starts at Staff submission, clamps future
+timestamps to zero, covers the complete queue, and keeps `pendingCount`, total, and bucket
+sums equal.
+
+Final Slice 08 verification passed the ordinary server suite at 46 files passed and 5
+PostgreSQL-conditional files skipped, with 611 tests passed and 15 skipped. A disposable
+database migrated through 001–006 passed the PostgreSQL-enabled server suite at 51 files
+and 626 tests; the operational report contract also executed its PostgreSQL
+`EXPLAIN (ANALYZE, BUFFERS)` assertions. The web suite passed 39 files and 286 tests. Both
+production builds and both high-severity dependency audits passed with zero
+vulnerabilities. Browser acceptance through Chrome DevTools MCP covered Manager and Staff
+desktop flows, 390×844 mobile, 320 CSS px reflow, keyboard-only use, visible focus, 200%
+text enlargement, reduced motion, color-independent meaning, and no horizontal page
+overflow. Lighthouse reported an accessibility score of 100 for the mobile report
+snapshot. Slice 08 added no migration, report table, cache, materialized view, financial
+metric, inventory metric, or ranking.
 
 Pull requests and pushes to `main` run these server/web build, test, audit, and
 PostgreSQL-backed checks through `.github/workflows/ci.yml`.

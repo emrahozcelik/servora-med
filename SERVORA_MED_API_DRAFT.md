@@ -1,7 +1,7 @@
 # Servora-Med API Draft
 
 > Date: 2026-07-10  
-> Status: Living API contract; implemented through Slice 07 JobCard Workspace and post-review hardening
+> Status: Living API contract; implemented through Slice 08 Operational Reports and verified closeout
 > Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT
 
 ## 1. General Contract
