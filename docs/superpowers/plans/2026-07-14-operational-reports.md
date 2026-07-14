@@ -2830,7 +2830,7 @@ Expected: the commit contains only generated Codebase Memory artifacts. If the c
 indexer updates a second existing tracked metadata path, add that generated path in the
 same commit and report it explicitly.
 
-- [ ] **Step 9: Push and prepare the PR evidence without opening a PR**
+- [x] **Step 9: Push and prepare the PR evidence without opening a PR**
 
 Run:
 
