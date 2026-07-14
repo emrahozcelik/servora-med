@@ -53,12 +53,12 @@ class MemoryJobCardRepository implements JobCardRepository {
 }
 
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
-const input = { jobCardId: 'job-1', expectedVersion: 1, clientActionId: 'action-1' };
+const input = { expectedVersion: 1, clientActionId: 'action-1' };
 
 describe('JobCardService critical command foundation', () => {
   it('starts a JobCard, increments version, and appends one canonical activity', async () => {
     const repository = new MemoryJobCardRepository();
-    const result = await new JobCardService(repository).start(staff, input);
+    const result = await new JobCardService(repository).start(staff, 'job-1', input);
     expect(result).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
     expect(repository.activities).toEqual([{ event: 'JOB_STARTED', jobCardId: 'job-1', actorId: 'staff-1', clientActionId: 'action-1' }]);
   });
@@ -66,8 +66,8 @@ describe('JobCardService critical command foundation', () => {
   it('replays the original response without another mutation or event', async () => {
     const repository = new MemoryJobCardRepository();
     const service = new JobCardService(repository);
-    const first = await service.start(staff, input);
-    const duplicate = await service.start(staff, input);
+    const first = await service.start(staff, 'job-1', input);
+    const duplicate = await service.start(staff, 'job-1', input);
     expect(duplicate).toEqual(first);
     expect(repository.job.version).toBe(2);
     expect(repository.activities).toHaveLength(1);
@@ -75,15 +75,15 @@ describe('JobCardService critical command foundation', () => {
 
   it('returns ACTION_IN_PROGRESS for a live duplicate claim', async () => {
     const repository = new MemoryJobCardRepository();
-    repository.processing.add('org-1:staff-1:action-1:JOB_START');
-    await expect(new JobCardService(repository).start(staff, input)).rejects.toMatchObject({
+    repository.processing.add('org-1:staff-1:action-1:JOB_START:job-1');
+    await expect(new JobCardService(repository).start(staff, 'job-1', input)).rejects.toMatchObject({
       code: 'ACTION_IN_PROGRESS', statusCode: 409,
     });
   });
 
   it('returns VERSION_CONFLICT without mutation or activity for stale input', async () => {
     const repository = new MemoryJobCardRepository();
-    await expect(new JobCardService(repository).start(staff, { ...input, expectedVersion: 9 }))
+    await expect(new JobCardService(repository).start(staff, 'job-1', { ...input, expectedVersion: 9 }))
       .rejects.toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
     expect(repository.job).toMatchObject({ status: 'NEW', version: 1 });
     expect(repository.activities).toHaveLength(0);
@@ -91,14 +91,14 @@ describe('JobCardService critical command foundation', () => {
 
   it('rolls back the mutation if activity append fails', async () => {
     const repository = new MemoryJobCardRepository(); repository.failActivity = true;
-    await expect(new JobCardService(repository).start(staff, input)).rejects.toThrow('activity failed');
+    await expect(new JobCardService(repository).start(staff, 'job-1', input)).rejects.toThrow('activity failed');
     expect(repository.job).toMatchObject({ status: 'NEW', version: 1 });
     expect(repository.activities).toHaveLength(0);
   });
 
   it('rejects cross-organization access without revealing the JobCard', async () => {
     const repository = new MemoryJobCardRepository();
-    await expect(new JobCardService(repository).start({ ...staff, organizationId: 'org-2' }, input))
+    await expect(new JobCardService(repository).start({ ...staff, organizationId: 'org-2' }, 'job-1', input))
       .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
   });
 });

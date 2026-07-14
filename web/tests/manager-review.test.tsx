@@ -1,31 +1,32 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { ManagerReviewActions, runManagerJobCommand } from '../src/JobDetail';
-import { ApiError, type Activity, type JobCard } from '../src/services/api';
+import { JobDetailPanel, ReasonDialog, runManagerJobCommand } from '../src/JobDetail';
+import { ApiError } from '../src/services/api';
+import type { DeliveryItem, JobCard } from '../src/jobs/jobs-api';
 
 const job: JobCard = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 4,
-  title: 'Klinik teslimi', description: null, customerId: 'c1', assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null };
-const activity: Activity[] = [{ id: 'e1', jobCardId: 'job-1', actorId: 's1', eventType: 'JOB_SUBMITTED_FOR_APPROVAL', oldValue: null,
-  newValue: null, metadata: null, clientActionId: 'a1', createdAt: '2026-07-11T10:00:00Z' }];
+  title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null };
+const item: DeliveryItem = { id: 'i1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'p1', deliveryPurpose: 'SALE',
+  deliveredAt: '2026-07-11T10:00:00Z', quantity: 2, unit: 'adet', productNameSnapshot: 'İmplant seti', productSkuSnapshot: null,
+  productModelSnapshot: null, lotNo: null, serialNo: null, expiryDate: null, deliveryNote: null };
 
 describe('Manager review', () => {
-  it('renders immutable activity and explicit review actions', () => {
-    const html = renderToStaticMarkup(<ManagerReviewActions activities={activity} pending={false} revisionOpen={false}
-      onApprove={() => {}} onOpenRevision={() => {}} onCancelRevision={() => {}} onRequestRevision={() => {}} />);
-    expect(html).toContain('Onaya gönderildi');
-    expect(html).toContain('11 Tem 2026');
+  it('renders explicit review actions without editable delivery fields', () => {
+    const html = renderToStaticMarkup(<JobDetailPanel job={job} items={[item]} viewerRole="MANAGER" pending={false}
+      message="" onBack={() => {}} onCommand={() => {}} />);
     expect(html).toContain('Onayla');
     expect(html).toContain('Düzeltme iste');
     expect(html).not.toContain('name="quantity"');
   });
 
-  it('uses an inline required revision reason instead of a modal', () => {
-    const html = renderToStaticMarkup(<ManagerReviewActions activities={activity} pending={false} revisionOpen
-      onApprove={() => {}} onOpenRevision={() => {}} onCancelRevision={() => {}} onRequestRevision={() => {}} />);
-    expect(html).toContain('<label for="revision-reason">Düzeltme nedeni</label>');
-    expect(html).toContain('required=""');
-    expect(html).toContain('Düzeltme talebini gönder');
+  it('renders a focus-managed reason dialog with a bounded required field', () => {
+    const html = renderToStaticMarkup(<ReasonDialog kind="revise" pending={false} onClose={() => {}} onConfirm={() => {}} />);
+    expect(html).toContain('role="dialog"');
+    expect(html).toContain('aria-modal="true"');
+    expect(html).toContain('Düzeltme nedeni');
+    expect(html).toContain('maxLength="2000"');
+    expect(html).toContain('Vazgeç');
   });
 
   it('sends approve and revision with the current backend version', async () => {

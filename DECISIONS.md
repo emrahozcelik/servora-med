@@ -10,6 +10,7 @@ Bu dosya ürün ve mimari için kabul edilmiş, uzun ömürlü kararları kayded
 - Data model: `SERVORA_MED_SCHEMA_DRAFT.md`
 - API contract: `SERVORA_MED_API_DRAFT.md`
 - Delivery order: `SERVORA_MED_MVP_SLICES.md`
+- Slice 07 JobCard workspace design: `docs/superpowers/specs/2026-07-13-jobcard-workspace-design.md`
 - Agent discipline: `AGENTS.md`
 - Historical inputs: `docs/archive/inputs/`
 
@@ -293,7 +294,7 @@ with `/jobs`, while requested Customer/Contact deep links and refreshes remain i
 - Staff deactivation clears Customer assignments in the same transaction.
 - Customer detail JobCard summaries are bounded and preserve assigned-Staff visibility.
 - UI route guards are navigation behavior, never an authorization boundary.
-- Full JobCard notes, timeline, and Kanban navigation remain Slice 07 work.
+- JobCard notes, safe timeline, role-scoped list, and read-only desktop board were completed in Slice 07.
 
 ## DOM-004: Informational Product catalog boundary
 
@@ -336,3 +337,36 @@ rewrite historical delivery snapshots.
 Implemented and verified on 2026-07-13 through migration 005, transaction/concurrency
 tests, authenticated disposable-PostgreSQL tracing, full server/web gates, and Playwright
 desktop/mobile/accessibility acceptance. No inventory or accounting behavior was added.
+
+## DOM-005: JobCard notes use application-contract append-only semantics
+
+- **Date:** 2026-07-13
+- **Status:** Accepted
+- **Scope:** Slice 07 JobCard Workspace
+
+### Context
+
+Operational notes must remain visible with historical JobCards and must not have ordinary
+edit or delete flows. They are not a regulatory ledger that requires physical database
+immutability under every controlled maintenance operation.
+
+### Decision
+
+Notes are append-only through the application contract. The public API and repository
+expose no update or delete operation, the service offers append/list behavior only, and
+the UI offers no edit or delete control. Note insertion and its `NOTE_ADDED` activity are
+atomic. Migration 006 does not add an `UPDATE`/`DELETE` prevention trigger.
+
+### Consequences
+
+- Route, service/repository-surface, transaction, and UI tests protect the application
+  contract.
+- Documentation must not claim that note rows are physically immutable in PostgreSQL.
+- Controlled data correction and maintenance remain possible without hidden trigger
+  behavior; any future stronger compliance requirement needs a separate decision.
+
+### Verification
+
+Migration 006, real PostgreSQL note concurrency/replay/rollback, terminal note append,
+application-surface mutation absence, Unicode whitespace validation, and web retry/action
+ID behavior were verified in Slice 07. Notes do not increment JobCard version.

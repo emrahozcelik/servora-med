@@ -23,31 +23,42 @@ export function assertCanEdit(actor: JobCardActor, job: JobCard) {
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
 }
 
+export function assertCanAccessNotes(actor: JobCardActor, job: JobCard) {
+  assertSameOrganization(actor, job.organizationId);
+  if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
+}
+
 export function assertCanTransition(
   actor: JobCardActor,
   job: JobCard,
   command: LifecycleCommand,
-  revisionReason?: string,
+  reason?: string,
 ) {
   assertSameOrganization(actor, job.organizationId);
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
-
-  if (command === 'APPROVE' || command === 'REQUEST_REVISION') {
-    if (actor.role === 'STAFF') forbidden();
-    if (job.status !== 'WAITING_APPROVAL') {
-      throw new AppError('INVALID_TRANSITION', 409, 'JobCard bu geçiş için uygun durumda değil.');
-    }
-    if (command === 'REQUEST_REVISION' && !revisionReason?.trim()) {
-      throw new AppError('REVISION_REASON_REQUIRED', 400, 'Düzeltme nedeni zorunludur.');
-    }
-    return;
-  }
-
-  const valid = command === 'START'
-    ? job.status === 'NEW' || job.status === 'PLANNED'
-    : job.status === 'IN_PROGRESS';
-  if (!valid) {
+  if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
     throw new AppError('INVALID_TRANSITION', 409, 'JobCard bu geçiş için uygun durumda değil.');
+  }
+  if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION', 'CANCEL'].includes(command)) {
+    forbidden();
+  }
+  const allowedSources: Record<LifecycleCommand, readonly JobCard['status'][]> = {
+    PLAN: ['NEW'],
+    START: ['NEW', 'PLANNED'],
+    SUBMIT_FOR_APPROVAL: ['IN_PROGRESS'],
+    APPROVE: ['WAITING_APPROVAL'],
+    REQUEST_REVISION: ['WAITING_APPROVAL'],
+    RESUME: ['REVISION_REQUESTED'],
+    CANCEL: ['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'],
+  };
+  if (!allowedSources[command].includes(job.status)) {
+    throw new AppError('INVALID_TRANSITION', 409, 'JobCard bu geçiş için uygun durumda değil.');
+  }
+  if (command === 'REQUEST_REVISION' && !reason?.trim()) {
+    throw new AppError('REVISION_REASON_REQUIRED', 400, 'Düzeltme nedeni zorunludur.');
+  }
+  if (command === 'CANCEL' && !reason?.trim()) {
+    throw new AppError('CANCEL_REASON_REQUIRED', 400, 'İptal nedeni zorunludur.');
   }
 }
 

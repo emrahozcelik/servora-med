@@ -3,12 +3,23 @@ import { describe, expect, it } from 'vitest';
 import type {
   CreateJobCardRecord,
   CriticalActionClaim,
-  JobCardListScope,
+  JobCardReadScope,
   JobCardRepository,
   JobCardTransaction,
 } from '../src/modules/job-cards/repository.js';
+import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
-import type { JobCard, JobCardActor, JobCardAssignee } from '../src/modules/job-cards/types.js';
+import type {
+  JobCard,
+  JobCardActor,
+  JobCardAssignee,
+  JobCardListQuery,
+} from '../src/modules/job-cards/types.js';
+
+const listQuery: JobCardListQuery = {
+  q: null, status: 'all', type: null, assignedTo: null, customerId: null,
+  priority: null, dueBefore: null, dueAfter: null, limit: 25, offset: 0,
+};
 
 class CrudMemoryRepository implements JobCardRepository {
   assignees: JobCardAssignee[] = [
@@ -29,6 +40,7 @@ class CrudMemoryRepository implements JobCardRepository {
   jobs: JobCard[] = [];
   activities: string[] = [];
   completed = new Map<string, unknown>();
+  listCalls: Array<{ scope: JobCardReadScope; query: JobCardListQuery }> = [];
 
   async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
@@ -52,8 +64,12 @@ class CrudMemoryRepository implements JobCardRepository {
     return { kind: 'completed' as const, response };
   }
 
-  async listJobCards(scope: JobCardListScope) {
-    return this.jobs.filter((job) => job.organizationId === scope.organizationId && (!scope.assignedTo || job.assignedTo === scope.assignedTo));
+  async listJobCards(scope: JobCardReadScope, query: JobCardListQuery) {
+    this.listCalls.push({ scope, query });
+    const items = this.jobs.filter((job) => job.organizationId === scope.organizationId
+      && (!scope.assignedTo || job.assignedTo === scope.assignedTo)
+      && (!query.assignedTo || job.assignedTo === query.assignedTo));
+    return { items, total: items.length, limit: query.limit, offset: query.offset } as never;
   }
   async findJobCard(organizationId: string, id: string) {
     return this.jobs.find((job) => job.organizationId === organizationId && job.id === id) ?? null;
@@ -84,6 +100,7 @@ class CrudMemoryRepository implements JobCardRepository {
 
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
+const admin: JobCardActor = { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' };
 const createInput = {
   clientActionId: 'create-1', type: 'PRODUCT_DELIVERY' as const, title: ' ABC Klinik teslimi ',
   customerId: 'customer-1', assignedTo: 'staff-1', priority: 'normal' as const,
@@ -157,10 +174,36 @@ describe('JobCardService create and reads', () => {
     const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
     await service.create(staff, createInput);
     await service.create(manager, { ...createInput, clientActionId: 'create-2', assignedTo: 'staff-2' });
-    expect(await service.list(staff)).toHaveLength(1);
-    expect(await service.list(manager)).toHaveLength(2);
+    expect((await service.list(staff, listQuery)).items).toHaveLength(1);
+    expect((await service.list(manager, listQuery)).items).toHaveLength(2);
     await expect(service.detail(staff, 'job-2')).rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND' });
     await expect(service.detail(manager, 'job-2')).resolves.toMatchObject({ id: 'job-2' });
+  });
+
+  it('keeps Staff scope authoritative and short-circuits a conflicting assignee filter', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+
+    await expect(service.list(staff, { ...listQuery, assignedTo: 'staff-2', limit: 1, offset: 7 }))
+      .resolves.toEqual({ items: [], total: 0, limit: 1, offset: 7 });
+    expect(repository.listCalls).toHaveLength(0);
+
+    await service.list(staff, { ...listQuery, assignedTo: 'staff-1' });
+    expect(repository.listCalls[0]).toMatchObject({
+      scope: { organizationId: 'org-1', assignedTo: 'staff-1' },
+      query: { assignedTo: 'staff-1' },
+    });
+
+    await service.list(manager, { ...listQuery, assignedTo: 'staff-2' });
+    expect(repository.listCalls[1]).toMatchObject({
+      scope: { organizationId: 'org-1', assignedTo: null },
+      query: { assignedTo: 'staff-2' },
+    });
+
+    await service.list(admin, { ...listQuery, assignedTo: 'staff-2' });
+    expect(repository.listCalls[2]).toMatchObject({
+      scope: { organizationId: 'org-1', assignedTo: null },
+      query: { assignedTo: 'staff-2' },
+    });
   });
 
   it('patches editable fields with version increment and canonical activity', async () => {
@@ -180,5 +223,38 @@ describe('JobCardService create and reads', () => {
     await expect(service.patch(manager, created.id, { expectedVersion: 1, title: 'Sessiz düzeltme' }))
       .rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE' });
     expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+});
+
+describe('Postgres JobCard versioned patch regression', () => {
+  it('executes updateFieldsWithVersion with exactly one WHERE clause', async () => {
+    const calls: Array<{ text: string; values: unknown[] }> = [];
+    const client = {
+      async query(text: string, values: unknown[] = []) {
+        calls.push({ text, values });
+        if (text.includes('UPDATE job_cards SET')) {
+          return { rows: [{
+            id: 'job-1', organization_id: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
+            version: 2, title: 'Güncel teslim', description: null, customer_id: 'customer-1',
+            contact_id: null, assigned_to: 'staff-1', created_by: 'staff-1',
+            priority: 'normal', due_date: null,
+          }] };
+        }
+        return { rows: [] };
+      },
+      release() {},
+    };
+    const repository = new PostgresJobCardRepository({ connect: async () => client } as never);
+
+    const result = await repository.executeTransaction((tx) => tx.updateFieldsWithVersion({
+      organizationId: 'org-1', jobCardId: 'job-1', expectedVersion: 1,
+      fields: { title: 'Güncel teslim' },
+    }));
+
+    expect(result).toMatchObject({ id: 'job-1', title: 'Güncel teslim', version: 2 });
+    const update = calls.find((call) => call.text.includes('UPDATE job_cards SET'))!;
+    expect(update.text.match(/\bWHERE\b/g)).toHaveLength(1);
+    expect(update.text).toContain('WHERE organization_id = $1 AND id = $2 AND version = $3');
+    expect(update.values).toEqual(['org-1', 'job-1', 1, 'Güncel teslim']);
   });
 });

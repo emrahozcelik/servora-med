@@ -1,17 +1,11 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
-import { AppRouter, type WorkspaceState } from './AppRouter';
+import { AppRouter } from './AppRouter';
+import { AppShell, BrandMark } from './AppShell';
 import { PasswordChangeScreen } from './PasswordChange';
-import { ApiError, getCurrentUser, listJobCards, listReferenceCustomers, login, logout, type CurrentUser, type ReferenceCustomer } from './services/api';
+import { getCurrentUser, listReferenceCustomers, login, logout, type CurrentUser, type ReferenceCustomer } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
-
-const roleLabels = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
-export { WorkspaceView, type WorkspaceState } from './AppRouter';
-
-function BrandMark() {
-  return <span className="brand-mark" aria-hidden="true">S</span>;
-}
 
 function LoadingScreen() {
   return (
@@ -90,43 +84,26 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
 function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut: () => void }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const [workspace, setWorkspace] = useState<WorkspaceState>({ kind: 'loading' });
   const [customers, setCustomers] = useState<ReferenceCustomer[]>([]);
   const [notice, setNotice] = useState('');
-  const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
-    let active = true; setWorkspace({ kind: 'loading' });
-    Promise.all([listJobCards(), listReferenceCustomers()]).then(([jobs, nextCustomers]) => {
-      if (active) { setCustomers(nextCustomers); setWorkspace({ kind: 'ready', jobs, customerNames: Object.fromEntries(nextCustomers.map((customer) => [customer.id, customer.name])) }); }
-    }).catch((caught) => {
-      if (!active) return;
-      const apiError = caught instanceof ApiError ? caught : new ApiError(0, 'UNKNOWN_ERROR', 'İşler yüklenemedi.', true);
-      setWorkspace({ kind: 'error', code: apiError.code, message: apiError.message, retryable: apiError.retryable });
-    });
+    let active = true;
+    listReferenceCustomers().then((nextCustomers) => { if (active) setCustomers(nextCustomers); })
+      .catch(() => { if (active) setCustomers([]); });
     return () => { active = false; };
-  }, [reloadKey]);
+  }, []);
   async function signOut() {
     setPending(true); setError('');
     try { await logout(); onSignedOut(); }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Oturum kapatılamadı.'); setPending(false); }
   }
   return (
-    <div className="app-shell">
-      <header className="app-header">
-        <div className="brand-lockup"><BrandMark /><span>Servora-Med</span></div>
-        <div className="account-area">
-          <div><strong>{user.name}</strong><span>{roleLabels[user.role]}</span></div>
-          <button className="secondary-button" type="button" onClick={signOut} disabled={pending}>
-            {pending ? 'Kapatılıyor…' : 'Oturumu kapat'}
-          </button>
-        </div>
-      </header>
-      <AppRouter user={user} workspace={workspace} customers={customers}
+    <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
+      <AppRouter user={user} customers={customers}
         notice={notice} onClearNotice={() => setNotice('')}
-        onReload={() => setReloadKey((value) => value + 1)}
-        onDeliveryCreated={() => { setNotice('Teslim kaydı oluşturuldu.'); setReloadKey((value) => value + 1); }} />
+        onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')} />
       {error && <div className="shell-error form-error" role="alert">{error}</div>}
-    </div>
+    </AppShell>
   );
 }
 

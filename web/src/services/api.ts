@@ -1,12 +1,22 @@
+import {
+  addDeliveryItem, approveJobCard, createJobCard, getJobCard,
+  listDeliveryItems,
+  patchDeliveryItem, patchJobCard, removeDeliveryItem, requestJobCardRevision,
+  startJobCard, submitJobCardForApproval,
+  type DeliveryItem, type DeliveryPurpose, type JobCard,
+  type JobCardStatus,
+} from '../jobs/jobs-api';
+
+export {
+  addDeliveryItem, approveJobCard, createJobCard, getJobCard, listDeliveryItems,
+  patchDeliveryItem, patchJobCard, removeDeliveryItem, requestJobCardRevision,
+  startJobCard, submitJobCardForApproval,
+  JOB_CARD_STATUSES,
+} from '../jobs/jobs-api';
+export type { DeliveryItem, DeliveryPurpose, JobCard, JobCardStatus } from '../jobs/jobs-api';
+
 export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF';
 export type CurrentUser = { id: string; organizationId: string; name: string; email: string; role: UserRole; mustChangePassword: boolean; isActive: boolean; version: number };
-export const JOB_CARD_STATUSES = ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL',
-  'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED'] as const;
-export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
-export type DeliveryPurpose = 'SALE' | 'SAMPLE' | 'CONSIGNMENT' | 'RETURN' | 'OTHER';
-export type JobCard = { id: string; organizationId: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus; version: number; title: string; description: string | null; customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string; priority: 'low' | 'normal' | 'high' | 'urgent'; dueDate: string | null };
-export type DeliveryItem = { id: string; organizationId: string; jobCardId: string; productId: string; deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; unit: string | null; productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null; lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null };
-export type Activity = { id: string; jobCardId: string; actorId: string | null; eventType: string; oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: string };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 
 export class ApiError extends Error {
@@ -40,24 +50,6 @@ export function items(value: unknown) {
   const list = object(value).items;
   if (!Array.isArray(list)) throw new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz liste yanıtı alındı.');
   return list;
-}
-
-function parseJobCard(value: unknown): JobCard {
-  const v = object(value);
-  return { id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
-    type: string(v.type, 'type') as JobCard['type'], status: string(v.status, 'status') as JobCardStatus,
-    version: number(v.version, 'version'), title: string(v.title, 'title'), description: nullableString(v.description, 'description'),
-    customerId: nullableString(v.customerId, 'customerId'), contactId: nullableString(v.contactId, 'contactId'), assignedTo: string(v.assignedTo, 'assignedTo'),
-    createdBy: string(v.createdBy, 'createdBy'), priority: string(v.priority, 'priority') as JobCard['priority'], dueDate: nullableString(v.dueDate, 'dueDate') };
-}
-function parseDelivery(value: unknown): DeliveryItem {
-  const v = object(value);
-  return { id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'), jobCardId: string(v.jobCardId, 'jobCardId'),
-    productId: string(v.productId, 'productId'), deliveryPurpose: string(v.deliveryPurpose, 'deliveryPurpose') as DeliveryPurpose,
-    deliveredAt: string(v.deliveredAt, 'deliveredAt'), quantity: number(v.quantity, 'quantity'), unit: nullableString(v.unit, 'unit'),
-    productNameSnapshot: string(v.productNameSnapshot, 'productNameSnapshot'), productSkuSnapshot: nullableString(v.productSkuSnapshot, 'productSkuSnapshot'),
-    productModelSnapshot: nullableString(v.productModelSnapshot, 'productModelSnapshot'), lotNo: nullableString(v.lotNo, 'lotNo'),
-    serialNo: nullableString(v.serialNo, 'serialNo'), expiryDate: nullableString(v.expiryDate, 'expiryDate'), deliveryNote: nullableString(v.deliveryNote, 'deliveryNote') };
 }
 
 export async function request(path: string, init: RequestInit = {}) {
@@ -96,29 +88,4 @@ export async function changePassword(input: { currentPassword: string; newPasswo
 
 export async function listReferenceCustomers() {
   return items(await request('/api/reference/customers')).map((entry) => { const v = object(entry); return { id: string(v.id, 'id'), name: string(v.name, 'name'), customerType: string(v.customerType, 'customerType'), status: string(v.status, 'status') }; });
-}
-export async function createJobCard(input: { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string; contactId?: string | null; assignedTo: string; description?: string; priority?: JobCard['priority']; dueDate?: string }) { return parseJobCard(await request('/api/job-cards', json('POST', input))); }
-export async function listJobCards() { return items(await request('/api/job-cards')).map(parseJobCard); }
-export async function getJobCard(id: string) { return parseJobCard(await request(`/api/job-cards/${id}`)); }
-export async function patchJobCard(id: string, input: { expectedVersion: number; title?: string; priority?: JobCard['priority']; dueDate?: string | null }) { return parseJobCard(await request(`/api/job-cards/${id}`, json('PATCH', input))); }
-
-type DeliveryInput = { expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; lotNo?: string | null; serialNo?: string | null; expiryDate?: string | null; deliveryNote?: string | null };
-function parseDeliveryMutation(value: unknown) { const v = object(value); return { item: parseDelivery(v.item), jobCardVersion: number(v.jobCardVersion, 'jobCardVersion') }; }
-export async function addDeliveryItem(jobId: string, input: DeliveryInput & { clientActionId: string }) { return parseDeliveryMutation(await request(`/api/job-cards/${jobId}/delivery-items`, json('POST', input))); }
-export async function listDeliveryItems(jobId: string) { return items(await request(`/api/job-cards/${jobId}/delivery-items`)).map(parseDelivery); }
-export async function patchDeliveryItem(jobId: string, itemId: string, input: { expectedVersion: number } & Partial<Omit<DeliveryInput, 'expectedVersion'>>) { return parseDeliveryMutation(await request(`/api/job-cards/${jobId}/delivery-items/${itemId}`, json('PATCH', input))); }
-export async function removeDeliveryItem(jobId: string, itemId: string, expectedVersion: number) { const v = object(await request(`/api/job-cards/${jobId}/delivery-items/${itemId}`, json('DELETE', { expectedVersion }))); return { id: string(v.id, 'id'), jobCardVersion: number(v.jobCardVersion, 'jobCardVersion') }; }
-
-type LifecycleInput = { clientActionId: string; expectedVersion: number; note?: string };
-const lifecycle = async (id: string, command: string, input: object) => parseJobCard(await request(`/api/job-cards/${id}/${command}`, json('POST', input)));
-export const startJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'start', input);
-export const submitJobCardForApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'submit-for-approval', input);
-export const approveJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'approve', input);
-export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);
-
-export async function listActivity(jobId: string): Promise<Activity[]> {
-  return items(await request(`/api/job-cards/${jobId}/activity`)).map((entry) => { const v = object(entry); return {
-    id: string(v.id, 'id'), jobCardId: string(v.jobCardId, 'jobCardId'), actorId: nullableString(v.actorId, 'actorId'),
-    eventType: string(v.eventType, 'eventType'), oldValue: v.oldValue, newValue: v.newValue, metadata: v.metadata,
-    clientActionId: nullableString(v.clientActionId, 'clientActionId'), createdAt: string(v.createdAt, 'createdAt') }; });
 }

@@ -1,4 +1,20 @@
-import type { DeliveryItem, JobCard, JobCardActivityEvent, JobCardAssignee, JobCardPriority, JobCardStatus } from './types.js';
+import type {
+  DeliveryItem,
+  JobCard,
+  JobCardActivityEvent,
+  JobCardAssignee,
+  JobCardBaseFilters,
+  JobCardBoard,
+  JobCardBoardQuery,
+  JobCardListItem,
+  JobCardListQuery,
+  JobCardPriority,
+  JobCardStatus,
+  JobCardStatusFilter,
+  LifecycleCommand,
+  Paginated,
+  JobCardNoteDto,
+} from './types.js';
 import type { Pool, PoolClient } from 'pg';
 
 export type CriticalActionClaim = {
@@ -12,11 +28,13 @@ export type TransitionInput = {
   organizationId: string;
   jobCardId: string;
   expectedVersion: number;
+  command: LifecycleCommand;
   status: JobCardStatus;
   occurredAt: Date;
   actorId?: string;
   note?: string | null;
   revisionReason?: string | null;
+  cancelReason?: string | null;
 };
 
 export type ActivityInput = {
@@ -27,6 +45,11 @@ export type ActivityInput = {
   clientActionId?: string;
   oldValue?: unknown;
   newValue?: unknown;
+  metadata?: unknown;
+};
+
+export type CreateNoteRecord = {
+  organizationId: string; jobCardId: string; authorId: string; note: string;
 };
 
 export type CreateJobCardRecord = {
@@ -35,7 +58,7 @@ export type CreateJobCardRecord = {
   priority: JobCardPriority; dueDate: string | null;
 };
 
-export type JobCardListScope = { organizationId: string; assignedTo?: string };
+export type JobCardReadScope = { organizationId: string; assignedTo: string | null };
 export type UpdateJobCardFields = Partial<Pick<
   JobCard, 'title' | 'description' | 'customerId' | 'contactId' | 'assignedTo' | 'priority' | 'dueDate'
 >>;
@@ -53,9 +76,11 @@ export type DeliveryItemRecord = DeliveryItem & {
 };
 export type SubmissionDeliveryItem = DeliveryItemRecord;
 export type ActivityRecord = {
-  id: string; jobCardId: string; actorId: string | null; eventType: string;
+  id: string; jobCardId: string; actorId: string | null; actorName: string | null;
+  eventType: JobCardActivityEvent;
   oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: Date;
 };
+export type PageQuery = { limit: number; offset: number };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
@@ -65,6 +90,7 @@ export interface JobCardTransaction {
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
   appendActivity(input: ActivityInput): Promise<void>;
+  createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
   getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
@@ -91,11 +117,24 @@ export interface JobCardRepository {
     claim: CriticalActionClaim,
     work: (transaction: JobCardTransaction) => Promise<T>,
   ): Promise<CriticalActionResult<T>>;
-  listJobCards(scope: JobCardListScope): Promise<JobCard[]>;
+  listJobCards(
+    scope: JobCardReadScope,
+    query: JobCardListQuery,
+  ): Promise<Paginated<JobCardListItem>>;
+  listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>): Promise<T>;
   listDeliveryItems(organizationId: string, jobCardId: string): Promise<DeliveryItemRecord[]>;
-  listActivity(organizationId: string, jobCardId: string): Promise<ActivityRecord[]>;
+  listActivity(
+    organizationId: string,
+    jobCardId: string,
+    page: PageQuery,
+  ): Promise<Paginated<ActivityRecord>>;
+  listNotes(
+    organizationId: string,
+    jobCardId: string,
+    page: PageQuery,
+  ): Promise<Paginated<JobCardNoteDto>>;
   listReferenceCustomers(organizationId: string): Promise<ReferenceCustomer[]>;
 }
 
@@ -104,6 +143,25 @@ type JobCardRow = {
   version: number; title: string; description: string | null; customer_id: string | null; contact_id: string | null;
   assigned_to: string; created_by: string; priority: JobCardPriority; due_date: string | null;
 };
+type JobCardListRow = {
+  id: string;
+  type: JobCard['type'];
+  status: JobCardStatus;
+  version: number;
+  title: string;
+  priority: JobCardPriority;
+  due_date: string | null;
+  created_at: Date;
+  updated_at: Date;
+  staff_completed_at: Date | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  contact_id: string | null;
+  contact_name: string | null;
+  assignee_id: string;
+  assignee_name: string;
+  delivery_item_count: number;
+};
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
   delivery_purpose: DeliveryItem['deliveryPurpose']; delivered_at: Date; quantity: string;
@@ -111,6 +169,16 @@ type DeliveryRow = {
   product_model_snapshot: string | null; lot_no: string | null; serial_no: string | null;
   expiry_date: string | null; delivery_note: string | null;
 };
+type NoteRow = {
+  id: string; job_card_id: string; note: string; author_id: string;
+  author_name: string; created_at: Date;
+};
+function mapNote(row: NoteRow): JobCardNoteDto {
+  return {
+    id: row.id, jobCardId: row.job_card_id, note: row.note,
+    author: { id: row.author_id, name: row.author_name }, createdAt: row.created_at.toISOString(),
+  };
+}
 const DELIVERY_COLUMNS = `id, organization_id, job_card_id, product_id, delivery_purpose,
   delivered_at, quantity, unit, product_name_snapshot, product_sku_snapshot,
   product_model_snapshot, lot_no, serial_no, expiry_date, delivery_note`;
@@ -129,6 +197,95 @@ function mapJobCard(row: JobCardRow): JobCard {
     customerId: row.customer_id, contactId: row.contact_id, assignedTo: row.assigned_to, createdBy: row.created_by,
     priority: row.priority, dueDate: row.due_date,
   };
+}
+
+function mapJobCardListItem(row: JobCardListRow): JobCardListItem {
+  return {
+    id: row.id,
+    type: row.type,
+    status: row.status,
+    version: row.version,
+    title: row.title,
+    priority: row.priority,
+    dueDate: row.due_date,
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+    staffCompletedAt: row.staff_completed_at?.toISOString() ?? null,
+    customer: row.customer_id === null
+      ? null
+      : { id: row.customer_id, name: row.customer_name! },
+    contact: row.contact_id === null
+      ? null
+      : { id: row.contact_id, name: row.contact_name! },
+    assignee: { id: row.assignee_id, name: row.assignee_name },
+    deliveryItemCount: Number(row.delivery_item_count),
+  };
+}
+
+type SqlFilter = { clause: string; values: unknown[] };
+
+const ACTIVE_JOB_CARD_STATUSES = [
+  'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+] as const;
+
+const WORKSPACE_JOINS = `FROM job_cards j
+  LEFT JOIN customers c
+    ON c.organization_id = j.organization_id AND c.id = j.customer_id
+  LEFT JOIN contacts ct
+    ON ct.organization_id = j.organization_id AND ct.id = j.contact_id`;
+
+const JOB_CARD_LIST_COLUMNS = `j.id, j.type, j.status, j.version, j.title, j.priority, j.due_date,
+  j.created_at, j.updated_at, j.staff_completed_at,
+  c.id AS customer_id, c.name AS customer_name,
+  ct.id AS contact_id, ct.name AS contact_name,
+  u.id AS assignee_id, u.name AS assignee_name,
+  COALESCE(delivery.delivery_item_count, 0)::int AS delivery_item_count`;
+
+const WORKSPACE_ITEM_JOINS = `${WORKSPACE_JOINS}
+  JOIN users u
+    ON u.organization_id = j.organization_id AND u.id = j.assigned_to
+  LEFT JOIN LATERAL (
+    SELECT COUNT(*)::int AS delivery_item_count
+    FROM job_card_delivery_items di
+    WHERE di.organization_id = j.organization_id AND di.job_card_id = j.id
+  ) delivery ON TRUE`;
+
+function statusValues(status: JobCardStatusFilter) {
+  if (status === 'all') return null;
+  if (status === 'active') {
+    return [...ACTIVE_JOB_CARD_STATUSES];
+  }
+  if (status === 'closed') return ['COMPLETED', 'CANCELLED'];
+  return [status];
+}
+
+function workspaceWhere(
+  scope: JobCardReadScope,
+  filters: JobCardBaseFilters & { status?: JobCardStatusFilter },
+): SqlFilter {
+  const predicates = ['j.organization_id = $1'];
+  const values: unknown[] = [scope.organizationId];
+  const add = (sql: (position: number) => string, value: unknown) => {
+    values.push(value);
+    predicates.push(sql(values.length));
+  };
+  if (scope.assignedTo) add((position) => `j.assigned_to = $${position}`, scope.assignedTo);
+  if (filters.assignedTo) add((position) => `j.assigned_to = $${position}`, filters.assignedTo);
+  if (filters.type) add((position) => `j.type = $${position}`, filters.type);
+  if (filters.customerId) add((position) => `j.customer_id = $${position}`, filters.customerId);
+  if (filters.priority) add((position) => `j.priority = $${position}`, filters.priority);
+  if (filters.dueAfter) add((position) => `j.due_date >= $${position}::date`, filters.dueAfter);
+  if (filters.dueBefore) add((position) => `j.due_date <= $${position}::date`, filters.dueBefore);
+  const statuses = statusValues(filters.status ?? 'all');
+  if (statuses) add((position) => `j.status = ANY($${position}::varchar[])`, statuses);
+  if (filters.q) {
+    const escaped = filters.q.replace(/[\\%_]/g, '\\$&');
+    add(
+      (position) => `(j.title ILIKE $${position} ESCAPE '\\' OR c.name ILIKE $${position} ESCAPE '\\' OR ct.name ILIKE $${position} ESCAPE '\\')`,
+      `%${escaped}%`,
+    );
+  }
+  return { clause: predicates.join(' AND '), values };
 }
 
 class PostgresJobCardTransaction implements JobCardTransaction {
@@ -158,22 +315,27 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `UPDATE job_cards
        SET status = $4::varchar(30),
            version = version + 1,
-           started_at = CASE WHEN $4 = 'IN_PROGRESS' THEN $5 ELSE started_at END,
-           staff_completed_at = CASE WHEN $4 = 'WAITING_APPROVAL' THEN $5 ELSE staff_completed_at END,
-           staff_completed_by = CASE WHEN $4 = 'WAITING_APPROVAL' THEN $6 ELSE staff_completed_by END,
-           staff_completion_note = CASE WHEN $4 = 'WAITING_APPROVAL' THEN $7 ELSE staff_completion_note END,
-           manager_approved_at = CASE WHEN $4 = 'COMPLETED' THEN $5 ELSE manager_approved_at END,
-           manager_approved_by = CASE WHEN $4 = 'COMPLETED' THEN $6 ELSE manager_approved_by END,
-           manager_approval_note = CASE WHEN $4 = 'COMPLETED' THEN $7 ELSE manager_approval_note END,
-           revision_requested_at = CASE WHEN $4 = 'REVISION_REQUESTED' THEN $5 ELSE revision_requested_at END,
-           revision_requested_by = CASE WHEN $4 = 'REVISION_REQUESTED' THEN $6 ELSE revision_requested_by END,
-           revision_reason = CASE WHEN $4 = 'REVISION_REQUESTED' THEN $8 ELSE revision_reason END,
+           planned_at = CASE WHEN $4 = 'PLANNED' THEN $5 ELSE planned_at END,
+           started_at = CASE WHEN $10 = 'START' THEN COALESCE(started_at, $5) ELSE started_at END,
+           staff_completed_at = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $5 ELSE staff_completed_at END,
+           staff_completed_by = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $6 ELSE staff_completed_by END,
+           staff_completion_note = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $7 ELSE staff_completion_note END,
+           manager_approved_at = CASE WHEN $10 = 'APPROVE' THEN $5 ELSE manager_approved_at END,
+           manager_approved_by = CASE WHEN $10 = 'APPROVE' THEN $6 ELSE manager_approved_by END,
+           manager_approval_note = CASE WHEN $10 = 'APPROVE' THEN $7 ELSE manager_approval_note END,
+           revision_requested_at = CASE WHEN $10 = 'REQUEST_REVISION' THEN $5 ELSE revision_requested_at END,
+           revision_requested_by = CASE WHEN $10 = 'REQUEST_REVISION' THEN $6 ELSE revision_requested_by END,
+           revision_reason = CASE WHEN $10 = 'REQUEST_REVISION' THEN $8 ELSE revision_reason END,
+           cancelled_at = CASE WHEN $10 = 'CANCEL' THEN $5 ELSE cancelled_at END,
+           cancelled_by = CASE WHEN $10 = 'CANCEL' THEN $6 ELSE cancelled_by END,
+           cancel_reason = CASE WHEN $10 = 'CANCEL' THEN $9 ELSE cancel_reason END,
            updated_at = $5
        WHERE organization_id = $1 AND id = $2 AND version = $3
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
                  assigned_to, created_by, priority, due_date`,
       [input.organizationId, input.jobCardId, input.expectedVersion, input.status, input.occurredAt,
-        input.actorId ?? null, input.note ?? null, input.revisionReason ?? null],
+        input.actorId ?? null, input.note ?? null, input.revisionReason ?? null,
+        input.cancelReason ?? null, input.command],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
@@ -181,11 +343,27 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   async appendActivity(input: ActivityInput) {
     await this.client.query(
       `INSERT INTO job_card_activity_logs
-         (organization_id, job_card_id, actor_id, event_type, old_value, new_value, client_action_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+         (organization_id, job_card_id, actor_id, event_type, old_value, new_value, metadata, client_action_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
       [input.organizationId, input.jobCardId, input.actorId, input.event,
-        input.oldValue ?? null, input.newValue ?? null, input.clientActionId ?? null],
+        input.oldValue ?? null, input.newValue ?? null, input.metadata ?? null,
+        input.clientActionId ?? null],
     );
+  }
+
+  async createNote(input: CreateNoteRecord) {
+    const result = await this.client.query<NoteRow>(
+      `WITH inserted AS (
+         INSERT INTO job_card_notes (organization_id, job_card_id, author_id, note)
+         VALUES ($1, $2, $3, $4)
+         RETURNING id, organization_id, job_card_id, author_id, note, created_at
+       )
+       SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name, n.created_at
+       FROM inserted n
+       JOIN users u ON u.organization_id = n.organization_id AND u.id = n.author_id`,
+      [input.organizationId, input.jobCardId, input.authorId, input.note],
+    );
+    return mapNote(result.rows[0]!);
   }
 
   async getAssigneeForUpdate(organizationId: string, userId: string) {
@@ -379,17 +557,80 @@ export class PostgresJobCardRepository implements JobCardRepository {
     }
   }
 
-  async listJobCards(scope: JobCardListScope) {
-    const values: unknown[] = [scope.organizationId];
-    const assignedFilter = scope.assignedTo ? ' AND assigned_to = $2' : '';
-    if (scope.assignedTo) values.push(scope.assignedTo);
-    const result = await this.pool.query<JobCardRow>(
-      `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date
-       FROM job_cards WHERE organization_id = $1${assignedFilter}
-       ORDER BY created_at DESC, id DESC`, values,
+  async listJobCards(scope: JobCardReadScope, query: JobCardListQuery) {
+    const filter = workspaceWhere(scope, query);
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total
+       ${WORKSPACE_JOINS}
+       WHERE ${filter.clause}`,
+      filter.values,
     );
-    return result.rows.map(mapJobCard);
+    const limitPosition = filter.values.length + 1;
+    const offsetPosition = filter.values.length + 2;
+    const order = query.status === 'WAITING_APPROVAL'
+      ? 'j.staff_completed_at ASC, j.id ASC'
+      : 'j.updated_at DESC, j.id DESC';
+    const items = await this.pool.query<JobCardListRow>(
+      `SELECT ${JOB_CARD_LIST_COLUMNS}
+       ${WORKSPACE_ITEM_JOINS}
+       WHERE ${filter.clause}
+       ORDER BY ${order}
+       LIMIT $${limitPosition} OFFSET $${offsetPosition}`,
+      [...filter.values, query.limit, query.offset],
+    );
+    return {
+      items: items.rows.map(mapJobCardListItem),
+      total: Number(count.rows[0]?.total ?? 0),
+      limit: query.limit,
+      offset: query.offset,
+    };
+  }
+
+  async listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard> {
+    const countFilter = workspaceWhere(scope, query);
+    const counts = await this.pool.query<{ status: JobCardStatus; count: number }>(
+      `SELECT j.status, COUNT(*)::int AS count
+       ${WORKSPACE_JOINS}
+       WHERE ${countFilter.clause}
+       GROUP BY j.status`,
+      countFilter.values,
+    );
+    const itemFilter = workspaceWhere(scope, { ...query, status: 'active' });
+    const limitPosition = itemFilter.values.length + 1;
+    const items = await this.pool.query<JobCardListRow>(
+      `WITH ranked AS (
+         SELECT ${JOB_CARD_LIST_COLUMNS},
+                ROW_NUMBER() OVER (PARTITION BY j.status ORDER BY j.updated_at DESC, j.id DESC) AS row_number
+         ${WORKSPACE_ITEM_JOINS}
+         WHERE ${itemFilter.clause}
+       )
+       SELECT * FROM ranked
+       WHERE row_number <= $${limitPosition}
+       ORDER BY status, updated_at DESC, id DESC`,
+      [...itemFilter.values, query.limit],
+    );
+
+    const columns: JobCardBoard['columns'] = {
+      NEW: { items: [], count: 0 },
+      PLANNED: { items: [], count: 0 },
+      IN_PROGRESS: { items: [], count: 0 },
+      WAITING_APPROVAL: { items: [], count: 0 },
+      REVISION_REQUESTED: { items: [], count: 0 },
+    };
+    const closedCounts = { COMPLETED: 0, CANCELLED: 0 };
+    for (const row of counts.rows) {
+      if (row.status === 'COMPLETED' || row.status === 'CANCELLED') {
+        closedCounts[row.status] = Number(row.count);
+      } else if (row.status in columns) {
+        columns[row.status as keyof typeof columns].count = Number(row.count);
+      }
+    }
+    for (const row of items.rows) {
+      if (row.status in columns) {
+        columns[row.status as keyof typeof columns].items.push(mapJobCardListItem(row));
+      }
+    }
+    return { columns, closedCounts };
   }
 
   async findJobCard(organizationId: string, jobCardId: string) {
@@ -422,17 +663,56 @@ export class PostgresJobCardRepository implements JobCardRepository {
     return result.rows.map(mapDelivery);
   }
 
-  async listActivity(organizationId: string, jobCardId: string) {
+  async listActivity(organizationId: string, jobCardId: string, page: PageQuery) {
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM job_card_activity_logs
+       WHERE organization_id=$1 AND job_card_id=$2`,
+      [organizationId, jobCardId],
+    );
     const result = await this.pool.query<{
-      id: string; job_card_id: string; actor_id: string | null; event_type: string;
-      old_value: unknown; new_value: unknown; metadata: unknown; client_action_id: string | null; created_at: Date;
-    }>(`SELECT id, job_card_id, actor_id, event_type, old_value, new_value, metadata,
-              client_action_id, created_at
-       FROM job_card_activity_logs WHERE organization_id=$1 AND job_card_id=$2
-       ORDER BY created_at, id`, [organizationId, jobCardId]);
-    return result.rows.map((row) => ({ id: row.id, jobCardId: row.job_card_id, actorId: row.actor_id,
-      eventType: row.event_type, oldValue: row.old_value, newValue: row.new_value,
-      metadata: row.metadata, clientActionId: row.client_action_id, createdAt: row.created_at }));
+      id: string; job_card_id: string; actor_id: string | null; actor_name: string | null;
+      event_type: JobCardActivityEvent; old_value: unknown; new_value: unknown; metadata: unknown;
+      client_action_id: string | null; created_at: Date;
+    }>(`SELECT a.id, a.job_card_id, a.actor_id, u.name AS actor_name, a.event_type,
+              a.old_value, a.new_value, a.metadata, a.client_action_id, a.created_at
+       FROM job_card_activity_logs a
+       LEFT JOIN users u
+         ON u.organization_id = a.organization_id AND u.id = a.actor_id
+       WHERE a.organization_id=$1 AND a.job_card_id=$2
+       ORDER BY a.created_at DESC, a.id DESC
+       LIMIT $3 OFFSET $4`, [organizationId, jobCardId, page.limit, page.offset]);
+    return {
+      items: result.rows.map((row) => ({
+        id: row.id, jobCardId: row.job_card_id, actorId: row.actor_id, actorName: row.actor_name,
+        eventType: row.event_type, oldValue: row.old_value, newValue: row.new_value,
+        metadata: row.metadata, clientActionId: row.client_action_id, createdAt: row.created_at,
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+      limit: page.limit,
+      offset: page.offset,
+    };
+  }
+
+  async listNotes(organizationId: string, jobCardId: string, page: PageQuery) {
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total FROM job_card_notes
+       WHERE organization_id=$1 AND job_card_id=$2`,
+      [organizationId, jobCardId],
+    );
+    const result = await this.pool.query<NoteRow>(
+      `SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name, n.created_at
+       FROM job_card_notes n
+       JOIN users u
+         ON u.organization_id = n.organization_id AND u.id = n.author_id
+       WHERE n.organization_id=$1 AND n.job_card_id=$2
+       ORDER BY n.created_at DESC, n.id DESC
+       LIMIT $3 OFFSET $4`,
+      [organizationId, jobCardId, page.limit, page.offset],
+    );
+    return {
+      items: result.rows.map(mapNote), total: Number(count.rows[0]?.total ?? 0),
+      limit: page.limit, offset: page.offset,
+    };
   }
 
   async listReferenceCustomers(organizationId: string) {

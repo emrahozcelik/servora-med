@@ -92,7 +92,7 @@ Translucency and blur are not part of the base identity. A functional sheet may 
 - **Do** use familiar navigation, form, list, table, menu, and disclosure patterns.
 - **Do** show JobCard status, customer, assignee, date, priority, delivery purpose, and quantity with a controlled hierarchy.
 - **Do** provide immediate press feedback and short state transitions without delaying the action.
-- **Do** preserve an accessible command alternative for every drag or swipe interaction.
+- **Do** use explicit accessible lifecycle commands; the current board is read-only and does not implement drag or swipe transitions.
 - **Do** design default, hover, focus, active, disabled, loading, error, empty, forbidden, retry, and stale-version states.
 - **Do** keep focus visible and interaction targets at least 44 by 44 CSS px where applicable.
 - **Do** support `prefers-reduced-motion`; later translucent surfaces must also support reduced-transparency and increased-contrast preferences where the platform exposes them.

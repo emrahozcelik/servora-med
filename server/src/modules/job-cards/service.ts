@@ -1,13 +1,23 @@
 import { AppError } from '../../errors/index.js';
+import { presentActivity } from './activity-presenter.js';
 import { assertCanCreateForAssignee, assertCanEdit, assertCanTransition, assertDeliveryReadyForSubmission } from './policy.js';
-import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, ProductReference } from './repository.js';
-import { DELIVERY_PURPOSES, JOB_CARD_PRIORITIES, type DeliveryPurpose, type JobCard, type JobCardActor, type JobCardPriority } from './types.js';
-
-type CommandInput = {
-  jobCardId: string;
-  expectedVersion: number;
-  clientActionId: string;
-};
+import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, PageQuery, ProductReference } from './repository.js';
+import {
+  DELIVERY_PURPOSES,
+  JOB_CARD_PRIORITIES,
+  type DeliveryPurpose,
+  type JobCard,
+  type JobCardActor,
+  type JobCardBoard,
+  type JobCardBoardQuery,
+  type JobCardActivityEvent,
+  type JobCardListQuery,
+  type JobCardPriority,
+  type JobCardStatus,
+  type LifecycleCommand,
+} from './types.js';
+import { optionalLifecycleNote, requireActionId, requireLifecycleReason, validation } from './validation.js';
+import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 
 type CreateInput = {
   clientActionId: string;
@@ -33,6 +43,17 @@ type DeliveryInput = {
 type AddDeliveryInput = DeliveryInput & { clientActionId: string };
 type PatchDeliveryInput = { expectedVersion: number } & Partial<Omit<DeliveryInput, 'expectedVersion'>>;
 type LifecycleInput = { expectedVersion: number; clientActionId: string; note?: string | null };
+type RevisionInput = LifecycleInput & { revisionReason: string };
+type CancelInput = LifecycleInput & { cancelReason: string };
+type LifecycleDefinition = {
+  command: LifecycleCommand;
+  operationKey: string;
+  target: JobCardStatus;
+  event: JobCardActivityEvent;
+  note: string | null;
+  revisionReason: string | null;
+  cancelReason: string | null;
+};
 
 function deliveryRecord(organizationId: string, jobCardId: string, input: DeliveryInput, product: ProductReference): Omit<DeliveryItemRecord, 'id'> {
   const deliveredAt = new Date(input.deliveredAt);
@@ -58,11 +79,33 @@ const DELIVERY_FIELDS = [
   'lotNo', 'serialNo', 'expiryDate', 'deliveryNote',
 ] as const;
 
+function lifecycleReason(value: unknown, field: 'revisionReason' | 'cancelReason') {
+  if (typeof value !== 'string' || !value.trim()) {
+    const revision = field === 'revisionReason';
+    throw new AppError(
+      revision ? 'REVISION_REASON_REQUIRED' : 'CANCEL_REASON_REQUIRED',
+      400,
+      revision ? 'Düzeltme nedeni zorunludur.' : 'İptal nedeni zorunludur.',
+    );
+  }
+  return requireLifecycleReason(value, field);
+}
+
 export class JobCardService {
+  private readonly notesService: JobCardNotesService;
+
   constructor(
     private readonly repository: JobCardRepository,
     private readonly now: () => Date = () => new Date(),
-  ) {}
+  ) { this.notesService = new JobCardNotesService(repository); }
+
+  async listNotes(actor: JobCardActor, jobCardId: string, page: PageQuery) {
+    return this.notesService.listNotes(actor, jobCardId, page);
+  }
+
+  async addNote(actor: JobCardActor, jobCardId: string, input: CreateNoteInput) {
+    return this.notesService.addNote(actor, jobCardId, input);
+  }
 
   async create(actor: JobCardActor, input: CreateInput) {
     const title = input.title.trim();
@@ -102,11 +145,39 @@ export class JobCardService {
     return result.response;
   }
 
-  async list(actor: JobCardActor) {
-    return this.repository.listJobCards({
-      organizationId: actor.organizationId,
-      ...(actor.role === 'STAFF' ? { assignedTo: actor.id } : {}),
-    });
+  async list(actor: JobCardActor, query: JobCardListQuery) {
+    if (actor.role === 'STAFF' && query.assignedTo !== null && query.assignedTo !== actor.id) {
+      return { items: [], total: 0, limit: query.limit, offset: query.offset };
+    }
+    return this.repository.listJobCards(
+      {
+        organizationId: actor.organizationId,
+        assignedTo: actor.role === 'STAFF' ? actor.id : null,
+      },
+      query,
+    );
+  }
+
+  async board(actor: JobCardActor, query: JobCardBoardQuery): Promise<JobCardBoard> {
+    if (actor.role === 'STAFF' && query.assignedTo !== null && query.assignedTo !== actor.id) {
+      return {
+        columns: {
+          NEW: { items: [], count: 0 },
+          PLANNED: { items: [], count: 0 },
+          IN_PROGRESS: { items: [], count: 0 },
+          WAITING_APPROVAL: { items: [], count: 0 },
+          REVISION_REQUESTED: { items: [], count: 0 },
+        },
+        closedCounts: { COMPLETED: 0, CANCELLED: 0 },
+      };
+    }
+    return this.repository.listBoard(
+      {
+        organizationId: actor.organizationId,
+        assignedTo: actor.role === 'STAFF' ? actor.id : null,
+      },
+      query,
+    );
   }
 
   async detail(actor: JobCardActor, jobCardId: string) {
@@ -266,78 +337,122 @@ export class JobCardService {
     return this.repository.listDeliveryItems(actor.organizationId, jobCardId);
   }
 
-  async listActivity(actor: JobCardActor, jobCardId: string) {
+  async listActivity(actor: JobCardActor, jobCardId: string, page: PageQuery) {
     await this.detail(actor, jobCardId);
-    return this.repository.listActivity(actor.organizationId, jobCardId);
+    const result = await this.repository.listActivity(actor.organizationId, jobCardId, page);
+    return {
+      items: result.items.map(presentActivity),
+      total: result.total,
+      limit: result.limit,
+      offset: result.offset,
+    };
   }
 
   async listReferenceCustomers(actor: JobCardActor) {
     return this.repository.listReferenceCustomers(actor.organizationId);
   }
 
+  async plan(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'PLAN', operationKey: 'JOB_PLAN', target: 'PLANNED', event: 'JOB_PLANNED',
+      note: null, revisionReason: null, cancelReason: null,
+    });
+  }
+
+  async start(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'START', operationKey: 'JOB_START', target: 'IN_PROGRESS', event: 'JOB_STARTED',
+      note: null, revisionReason: null, cancelReason: null,
+    });
+  }
+
   async submitForApproval(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
-    return this.runLifecycle(actor, jobCardId, input, {
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
       command: 'SUBMIT_FOR_APPROVAL', operationKey: 'JOB_SUBMIT_FOR_APPROVAL',
-      status: 'WAITING_APPROVAL', event: 'JOB_SUBMITTED_FOR_APPROVAL',
-      beforeTransition: async (tx, job) => {
-        if (!job.customerId || !(await tx.customerExists(actor.organizationId, job.customerId))) {
-          throw new AppError('DELIVERY_NOT_READY', 400, 'Ürün teslimi için geçerli müşteri zorunludur.');
-        }
-        const assignee = await tx.getAssignee(actor.organizationId, job.assignedTo);
-        if (!assignee?.isActive || assignee.role !== 'STAFF') {
-          throw new AppError('ASSIGNEE_NOT_ELIGIBLE', 400, 'Atanan personel aktif ve uygun olmalıdır.');
-        }
-        const items = await tx.getSubmissionDeliveryItems(actor.organizationId, job.id);
-        assertDeliveryReadyForSubmission(job, items);
-      },
+      target: 'WAITING_APPROVAL', event: 'JOB_SUBMITTED_FOR_APPROVAL',
+      note: optionalLifecycleNote(input.note), revisionReason: null, cancelReason: null,
     });
   }
 
   async approve(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
-    return this.runLifecycle(actor, jobCardId, input, {
-      command: 'APPROVE', operationKey: 'JOB_APPROVE', status: 'COMPLETED', event: 'JOB_APPROVED',
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'APPROVE', operationKey: 'JOB_APPROVE', target: 'COMPLETED', event: 'JOB_APPROVED',
+      note: optionalLifecycleNote(input.note), revisionReason: null, cancelReason: null,
     });
   }
 
-  async requestRevision(actor: JobCardActor, jobCardId: string, input: LifecycleInput & { revisionReason: string }) {
-    return this.runLifecycle(actor, jobCardId, input, {
-      command: 'REQUEST_REVISION', operationKey: 'JOB_REQUEST_REVISION', status: 'REVISION_REQUESTED',
-      event: 'JOB_REVISION_REQUESTED', revisionReason: input.revisionReason,
+  async requestRevision(actor: JobCardActor, jobCardId: string, input: RevisionInput) {
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'REQUEST_REVISION', operationKey: 'JOB_REQUEST_REVISION', target: 'REVISION_REQUESTED',
+      event: 'JOB_REVISION_REQUESTED', note: null,
+      revisionReason: lifecycleReason(input.revisionReason, 'revisionReason'), cancelReason: null,
     });
+  }
+
+  async resume(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'RESUME', operationKey: 'JOB_RESUME', target: 'IN_PROGRESS', event: 'JOB_RESUMED',
+      note: null, revisionReason: null, cancelReason: null,
+    });
+  }
+
+  async cancel(actor: JobCardActor, jobCardId: string, input: CancelInput) {
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'CANCEL', operationKey: 'JOB_CANCEL', target: 'CANCELLED', event: 'JOB_CANCELLED',
+      note: null, revisionReason: null,
+      cancelReason: lifecycleReason(input.cancelReason, 'cancelReason'),
+    });
+  }
+
+  private lifecycleInput(input: LifecycleInput) {
+    const clientActionId = requireActionId(input.clientActionId);
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw validation('expectedVersion');
+    }
+    return { clientActionId, expectedVersion: input.expectedVersion };
   }
 
   private async runLifecycle(
     actor: JobCardActor,
     jobCardId: string,
-    input: LifecycleInput,
-    options: {
-      command: 'SUBMIT_FOR_APPROVAL' | 'APPROVE' | 'REQUEST_REVISION';
-      operationKey: string;
-      status: 'WAITING_APPROVAL' | 'COMPLETED' | 'REVISION_REQUESTED';
-      event: 'JOB_SUBMITTED_FOR_APPROVAL' | 'JOB_APPROVED' | 'JOB_REVISION_REQUESTED';
-      revisionReason?: string;
-      beforeTransition?: (tx: JobCardTransaction, job: JobCard) => Promise<void>;
-    },
+    input: { clientActionId: string; expectedVersion: number },
+    definition: LifecycleDefinition,
   ) {
-    if (!input.clientActionId.trim() || !Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
-      throw new AppError('VALIDATION_ERROR', 400, 'Lifecycle komut bilgileri geçersiz.');
-    }
     const result = await this.repository.executeCriticalAction(
-      { organizationId: actor.organizationId, userId: actor.id, clientActionId: input.clientActionId, operationKey: options.operationKey },
+      { organizationId: actor.organizationId, userId: actor.id,
+        clientActionId: input.clientActionId,
+        operationKey: `${definition.operationKey}:${jobCardId}` },
       async (tx) => {
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
-        assertCanTransition(actor, job, options.command, options.revisionReason);
-        if (options.beforeTransition) await options.beforeTransition(tx, job);
+        assertCanTransition(
+          actor, job, definition.command,
+          definition.revisionReason ?? definition.cancelReason ?? undefined,
+        );
+        if (definition.command === 'SUBMIT_FOR_APPROVAL') {
+          if (!job.customerId || !(await tx.customerExists(actor.organizationId, job.customerId))) {
+            throw new AppError('DELIVERY_NOT_READY', 400, 'Ürün teslimi için geçerli müşteri zorunludur.');
+          }
+          const assignee = await tx.getAssignee(actor.organizationId, job.assignedTo);
+          if (!assignee?.isActive || assignee.role !== 'STAFF') {
+            throw new AppError('ASSIGNEE_NOT_ELIGIBLE', 400, 'Atanan personel aktif ve uygun olmalıdır.');
+          }
+          assertDeliveryReadyForSubmission(
+            job,
+            await tx.getSubmissionDeliveryItems(actor.organizationId, job.id),
+          );
+        }
+        const occurredAt = this.now();
         const updated = await tx.transitionWithVersion({
           organizationId: actor.organizationId, jobCardId, expectedVersion: input.expectedVersion,
-          status: options.status, occurredAt: this.now(), actorId: actor.id,
-          note: input.note?.trim() || null, revisionReason: options.revisionReason?.trim() || null,
+          command: definition.command, status: definition.target, occurredAt, actorId: actor.id,
+          note: definition.note, revisionReason: definition.revisionReason,
+          cancelReason: definition.cancelReason,
         });
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         await tx.appendActivity({ organizationId: actor.organizationId, jobCardId, actorId: actor.id,
-          event: options.event, clientActionId: input.clientActionId,
+          event: definition.event, clientActionId: input.clientActionId,
           oldValue: { status: job.status, version: job.version }, newValue: { status: updated.status, version: updated.version } });
         return updated;
       });
@@ -345,57 +460,4 @@ export class JobCardService {
     return result.response;
   }
 
-  async start(actor: JobCardActor, input: CommandInput) {
-    if (!input.clientActionId.trim()) {
-      throw new AppError('VALIDATION_ERROR', 400, 'clientActionId zorunludur.');
-    }
-    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
-      throw new AppError('VALIDATION_ERROR', 400, 'expectedVersion pozitif bir tam sayı olmalıdır.');
-    }
-
-    const result = await this.repository.executeCriticalAction(
-      {
-        organizationId: actor.organizationId,
-        userId: actor.id,
-        clientActionId: input.clientActionId,
-        operationKey: 'JOB_START',
-      },
-      async (transaction) => {
-        const job = await transaction.getJobForUpdate(actor.organizationId, input.jobCardId);
-        if (!job) {
-          throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-        }
-        if (job.version !== input.expectedVersion) {
-          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
-        }
-        assertCanTransition(actor, job, 'START');
-
-        const updated = await transaction.transitionWithVersion({
-          organizationId: actor.organizationId,
-          jobCardId: job.id,
-          expectedVersion: input.expectedVersion,
-          status: 'IN_PROGRESS',
-          occurredAt: this.now(),
-        });
-        if (!updated) {
-          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
-        }
-        await transaction.appendActivity({
-          organizationId: actor.organizationId,
-          jobCardId: job.id,
-          actorId: actor.id,
-          event: 'JOB_STARTED',
-          clientActionId: input.clientActionId,
-          oldValue: { status: job.status, version: job.version },
-          newValue: { status: updated.status, version: updated.version },
-        });
-        return updated;
-      },
-    );
-
-    if (result.kind === 'processing') {
-      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
-    }
-    return result.response;
-  }
 }

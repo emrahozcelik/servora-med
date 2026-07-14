@@ -10,17 +10,34 @@ const apps: FastifyInstance[] = [];
 
 function serviceDouble() {
   const result = { id: 'job-1', version: 1 };
+  const page = { items: [result], total: 1, limit: 25, offset: 0 };
   return {
-    create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue([result]),
+    create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
+    board: vi.fn().mockResolvedValue({
+      columns: {
+        NEW: { items: [], count: 0 }, PLANNED: { items: [], count: 0 },
+        IN_PROGRESS: { items: [], count: 0 }, WAITING_APPROVAL: { items: [], count: 0 },
+        REVISION_REQUESTED: { items: [], count: 0 },
+      },
+      closedCounts: { COMPLETED: 0, CANCELLED: 0 },
+    }),
     detail: vi.fn().mockResolvedValue(result), patch: vi.fn().mockResolvedValue({ ...result, version: 2 }),
     listDeliveryItems: vi.fn().mockResolvedValue([]), addDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 2 }),
     patchDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 3 }),
     removeDeliveryItem: vi.fn().mockResolvedValue({ id: 'item-1', jobCardVersion: 4 }),
+    plan: vi.fn().mockResolvedValue({ ...result, status: 'PLANNED' }),
     start: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     submitForApproval: vi.fn().mockResolvedValue({ ...result, status: 'WAITING_APPROVAL' }),
     approve: vi.fn().mockResolvedValue({ ...result, status: 'COMPLETED' }),
     requestRevision: vi.fn().mockResolvedValue({ ...result, status: 'REVISION_REQUESTED' }),
-    listActivity: vi.fn().mockResolvedValue([]),
+    resume: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
+    cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
+    listActivity: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
+    listNotes: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 }),
+    addNote: vi.fn().mockResolvedValue({
+      id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
+      author: { id: 'staff-1', name: 'Staff' }, createdAt: '2026-07-13T12:00:00.000Z',
+    }),
   };
 }
 
@@ -51,9 +68,72 @@ describe('JobCard routes', () => {
     await app.inject({ method: 'GET', url: '/api/job-cards/job-1' });
     await app.inject({ method: 'PATCH', url: '/api/job-cards/job-1', payload: { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' } });
     expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), body);
-    expect(service.list).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }));
+    expect(service.list).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1' }),
+      expect.objectContaining({ status: 'active', limit: 25, offset: 0 }),
+    );
     expect(service.detail).toHaveBeenCalledWith(expect.anything(), 'job-1');
     expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' });
+  });
+
+  it('returns the canonical page and forwards the parsed list query', async () => {
+    const { app, service } = await createApp();
+    const page = { items: [{ id: 'job-2' }], total: 9, limit: 1, offset: 2 };
+    service.list.mockResolvedValueOnce(page);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/job-cards?status=closed&type=PRODUCT_DELIVERY&priority=urgent&dueAfter=2026-07-01&dueBefore=2026-07-31&limit=1&offset=2',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(page);
+    expect(service.list).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
+      expect.objectContaining({
+        status: 'closed', type: 'PRODUCT_DELIVERY', priority: 'urgent',
+        dueAfter: '2026-07-01', dueBefore: '2026-07-31', limit: 1, offset: 2,
+      }),
+    );
+  });
+
+  it.each([
+    '/api/job-cards?unknown=value',
+    '/api/job-cards?status=active&status=closed',
+    '/api/job-cards?type=GENERAL_TASK',
+    '/api/job-cards?dueBefore=2026-02-30',
+    '/api/job-cards?limit=101',
+  ])('rejects invalid list query %s', async (url) => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.list).not.toHaveBeenCalled();
+  });
+
+  it('dispatches the static board route with parsed defaults and Staff actor', async () => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url: '/api/job-cards/board' });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.board).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
+      expect.objectContaining({ limit: 25, q: null, assignedTo: null }),
+    );
+    expect(service.detail).not.toHaveBeenCalled();
+  });
+
+  it.each([
+    '/api/job-cards/board?status=active',
+    '/api/job-cards/board?offset=0',
+    '/api/job-cards/board?unknown=value',
+    '/api/job-cards/board?limit=25&limit=50',
+  ])('rejects invalid board query %s', async (url) => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.board).not.toHaveBeenCalled();
   });
 
   it('dispatches delivery item CRUD and rejects unknown financial fields', async () => {
@@ -83,23 +163,133 @@ describe('JobCard routes', () => {
   });
 
   it.each([
+    ['plan', 'plan', { clientActionId: 'a0', expectedVersion: 1 }],
     ['start', 'start', { clientActionId: 'a1', expectedVersion: 1 }],
     ['submit-for-approval', 'submitForApproval', { clientActionId: 'a2', expectedVersion: 2, note: 'Bitti' }],
     ['approve', 'approve', { clientActionId: 'a3', expectedVersion: 3, note: 'Uygun' }],
     ['request-revision', 'requestRevision', { clientActionId: 'a4', expectedVersion: 3, revisionReason: 'Düzeltin' }],
+    ['resume', 'resume', { clientActionId: 'a5', expectedVersion: 4 }],
+    ['cancel', 'cancel', { clientActionId: 'a6', expectedVersion: 2, cancelReason: 'Müşteri iptal etti' }],
   ])('dispatches %s lifecycle command', async (path, method, payload) => {
     const { app, service } = await createApp();
     expect((await app.inject({ method: 'POST', url: `/api/job-cards/job-1/${path}`, payload })).statusCode).toBe(200);
-    if (method === 'start') {
-      expect(service.start).toHaveBeenCalledWith(expect.anything(), { jobCardId: 'job-1', ...payload });
-    } else {
-      expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
-    }
+    expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
   });
 
-  it('exposes scoped immutable activity', async () => {
+  it.each([
+    ['plan', { clientActionId: 'x1', expectedVersion: 1, note: 'forbidden' }],
+    ['start', { clientActionId: 'x2', expectedVersion: 1, revisionReason: 'forbidden' }],
+    ['resume', { clientActionId: 'x3', expectedVersion: 1, cancelReason: 'forbidden' }],
+    ['submit-for-approval', { clientActionId: 'x4', expectedVersion: 1, cancelReason: 'forbidden' }],
+    ['approve', { clientActionId: 'x5', expectedVersion: 1, revisionReason: 'forbidden' }],
+    ['request-revision', { clientActionId: 'x6', expectedVersion: 1, revisionReason: 'Düzelt', note: 'forbidden' }],
+    ['cancel', { clientActionId: 'x7', expectedVersion: 1, cancelReason: 'İptal', note: 'forbidden' }],
+  ])('rejects unknown fields for %s lifecycle command', async (path, payload) => {
     const { app, service } = await createApp();
-    expect((await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity' })).statusCode).toBe(200);
-    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1');
+    const response = await app.inject({ method: 'POST', url: `/api/job-cards/job-1/${path}`, payload });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(Object.values(service).filter((value) => typeof value === 'function')
+      .every((mock) => !(mock as ReturnType<typeof vi.fn>).mock?.calls.length)).toBe(true);
+  });
+
+  it('exposes scoped immutable activity with parsed default page', async () => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/activity' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({ items: [], total: 0, limit: 50, offset: 0 });
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 50, offset: 0 });
+  });
+
+  it('forwards an explicit activity page', async () => {
+    const { app, service } = await createApp();
+    const page = { items: [{ id: 'activity-1' }], total: 9, limit: 10, offset: 20 };
+    service.listActivity.mockResolvedValueOnce(page);
+    const response = await app.inject({
+      method: 'GET', url: '/api/job-cards/job-1/activity?limit=10&offset=20',
+    });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual(page);
+    expect(service.listActivity).toHaveBeenCalledWith(expect.anything(), 'job-1', { limit: 10, offset: 20 });
+  });
+
+  it.each([
+    '/api/job-cards/job-1/activity?unknown=value',
+    '/api/job-cards/job-1/activity?limit=1&limit=2',
+    '/api/job-cards/job-1/activity?limit=0',
+    '/api/job-cards/job-1/activity?limit=101',
+    '/api/job-cards/job-1/activity?offset=-1',
+    '/api/job-cards/job-1/activity?offset=1.5',
+  ])('rejects invalid activity query %s', async (url) => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.listActivity).not.toHaveBeenCalled();
+  });
+
+  it('lists notes with the default and explicit canonical page', async () => {
+    const { app, service } = await createApp();
+    const first = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/notes' });
+    expect(first.statusCode).toBe(200);
+    expect(first.json()).toEqual({ items: [], total: 0, limit: 25, offset: 0 });
+    expect(service.listNotes).toHaveBeenNthCalledWith(1, expect.anything(), 'job-1', { limit: 25, offset: 0 });
+
+    const page = { items: [{ id: 'note-2' }, { id: 'note-1' }], total: 4, limit: 2, offset: 1 };
+    service.listNotes.mockResolvedValueOnce(page);
+    const second = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/notes?limit=2&offset=1' });
+    expect(second.statusCode).toBe(200);
+    expect(second.json()).toEqual(page);
+    expect(service.listNotes).toHaveBeenNthCalledWith(2, expect.anything(), 'job-1', { limit: 2, offset: 1 });
+  });
+
+  it.each([
+    '/api/job-cards/job-1/notes?unknown=value',
+    '/api/job-cards/job-1/notes?limit=1&limit=2',
+    '/api/job-cards/job-1/notes?limit=0',
+    '/api/job-cards/job-1/notes?limit=101',
+    '/api/job-cards/job-1/notes?offset=-1',
+    '/api/job-cards/job-1/notes?offset=1.5',
+  ])('rejects invalid notes query %s', async (url) => {
+    const { app, service } = await createApp();
+    const response = await app.inject({ method: 'GET', url });
+    expect(response.statusCode).toBe(400);
+    expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.listNotes).not.toHaveBeenCalled();
+  });
+
+  it('appends with the exact body and returns 201 for first completion and replay', async () => {
+    const { app, service } = await createApp();
+    const payload = { clientActionId: 'note-action', note: 'Klinik arandı' };
+    const first = await app.inject({ method: 'POST', url: '/api/job-cards/job-1/notes', payload });
+    const replay = await app.inject({ method: 'POST', url: '/api/job-cards/job-1/notes', payload });
+    expect(first.statusCode).toBe(201); expect(replay.statusCode).toBe(201);
+    expect(replay.json()).toEqual(first.json());
+    expect(service.addNote).toHaveBeenNthCalledWith(1, expect.anything(), 'job-1', payload);
+  });
+
+  it('rejects unknown note body keys and maps an in-progress append to 409', async () => {
+    const { app, service } = await createApp();
+    for (const payload of [
+      { clientActionId: 'n1', note: 'Not', expectedVersion: 1 },
+      { clientActionId: 'n1', note: 'Not', extra: true },
+    ]) {
+      const response = await app.inject({ method: 'POST', url: '/api/job-cards/job-1/notes', payload });
+      expect(response.statusCode).toBe(400);
+    }
+    expect(service.addNote).not.toHaveBeenCalled();
+
+    service.addNote.mockRejectedValueOnce(new AppError('ACTION_IN_PROGRESS', 409, 'İşlem devam ediyor.'));
+    const response = await app.inject({
+      method: 'POST', url: '/api/job-cards/job-1/notes', payload: { clientActionId: 'busy', note: 'Not' },
+    });
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ code: 'ACTION_IN_PROGRESS' });
+  });
+
+  it('exposes no note update or delete route', async () => {
+    const { app } = await createApp();
+    expect((await app.inject({ method: 'PATCH', url: '/api/job-cards/job-1/notes/note-1', payload: { note: 'X' } })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'DELETE', url: '/api/job-cards/job-1/notes/note-1' })).statusCode).toBe(404);
   });
 });

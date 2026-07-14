@@ -5,70 +5,21 @@ import { CustomerCreateScreen, CustomerListScreen } from './CustomerList';
 import { CustomerDetailScreen } from './CustomerDetail';
 import { ContactDetailScreen } from './ContactManagement';
 import { JobDetailScreen } from './JobDetail';
+import { JobWorkspace } from './jobs/JobWorkspace';
 import { StaffProfilesScreen } from './StaffProfiles';
 import { UserManagementScreen } from './UserManagement';
 import { ProductCreateScreen } from './ProductForm';
 import { ProductDetailScreen } from './ProductDetail';
 import { ProductListScreen } from './ProductList';
 import { paths } from './paths';
-import type { CurrentUser, JobCard, ReferenceCustomer } from './services/api';
+import type { CurrentUser, ReferenceCustomer } from './services/api';
 
 export { paths } from './paths';
 
-const statusLabels = { NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor', REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi' } as const;
-const priorityLabels = { low: 'Düşük öncelik', normal: 'Normal öncelik', high: 'Yüksek öncelik', urgent: 'Acil öncelik' } as const;
-
-export type WorkspaceState =
-  | { kind: 'loading' }
-  | { kind: 'ready'; jobs: JobCard[]; customerNames: Record<string, string> }
-  | { kind: 'error'; code: string; message: string; retryable: boolean };
-
-function formatDueDate(value: string | null) {
-  if (!value) return null;
-  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(`${value}T00:00:00Z`));
-}
-
-export function WorkspaceView({ user, state, onRetry, onCreate, onOpen, notice = '' }: { user: CurrentUser; state: WorkspaceState; onRetry: () => void; onCreate?: () => void; onOpen?: (jobId: string) => void; notice?: string }) {
-  const reviewMode = user.role !== 'STAFF';
-  const heading = reviewMode ? 'Onay kuyruğu' : 'İşlerim';
-  if (state.kind === 'loading') return (
-    <main className="workspace" aria-busy="true" aria-live="polite">
-      <p className="eyebrow">{heading}</p><h1>{reviewMode ? 'Onay bekleyen işler yükleniyor' : 'İşleriniz yükleniyor'}</h1>
-      <div className="job-list-loading" aria-hidden="true"><span /><span /><span /></div>
-    </main>
-  );
-  if (state.kind === 'error') {
-    const forbidden = state.code === 'FORBIDDEN';
-    return <main className="workspace"><p className="eyebrow">{heading}</p><div className="workspace-message" role="alert">
-      <h1>{forbidden ? 'Bu alana erişim yetkiniz yok' : 'İşler yüklenemedi'}</h1><p>{state.message}</p>
-      {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}
-    </div></main>;
-  }
-  const visibleJobs = reviewMode ? state.jobs.filter((job) => job.status === 'WAITING_APPROVAL') : state.jobs;
-  return <main className="workspace">
-    {notice && <div className="success-message" role="status">{notice}</div>}
-    <div className="workspace-heading"><div><p className="eyebrow">Çalışma alanı</p><h1>{heading}</h1></div>
-      {onCreate && <div className="workspace-actions">{user.role === 'STAFF' && <span className="scope-note">Yalnız size atanan işler</span>}
-        <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni teslim</button></div>}</div>
-    {visibleJobs.length === 0 ? <div className="workspace-message"><h2>{reviewMode ? 'Onay bekleyen iş yok' : 'Henüz atanmış işiniz yok'}</h2>
-      <p>{reviewMode ? 'Personel tarafından gönderilen işler burada görünecek.' : 'Yeni bir iş atandığında burada görünecek.'}</p></div>
-      : <ul className="job-list">{visibleJobs.map((job) => <li key={job.id}>
-        <article className="job-row" data-job-id={job.id}>
-          <div className="job-main"><div className="job-signals"><span className={`status status-${job.status.toLowerCase()}`}>{statusLabels[job.status]}</span>
-            <span className={`priority priority-${job.priority}`}>{priorityLabels[job.priority]}</span></div>
-            <h2>{job.title}</h2><p>{job.customerId ? state.customerNames[job.customerId] ?? 'Müşteri kaydı' : 'Müşteri belirtilmedi'}</p></div>
-          <div className="job-row-actions"><dl className="job-meta"><div><dt>Sürüm</dt><dd>{job.version}</dd></div>{job.dueDate && <div><dt>Termin</dt><dd>{formatDueDate(job.dueDate)}</dd></div>}</dl>
-            {onOpen && <button className="secondary-button" type="button" onClick={() => onOpen(job.id)} aria-label={`${job.title} işini aç`}>İşi aç</button>}</div>
-        </article></li>)}</ul>}
-  </main>;
-}
-
 type AppRouterProps = {
   user: CurrentUser;
-  workspace: WorkspaceState;
   customers: ReferenceCustomer[];
   notice: string;
-  onReload: () => void;
   onClearNotice: () => void;
   onDeliveryCreated: () => void;
 };
@@ -89,11 +40,11 @@ function NotFoundView() {
   </div></main>;
 }
 
-function JobDetailRoute({ user, onReload }: Pick<AppRouterProps, 'user' | 'onReload'>) {
+function JobDetailRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { jobCardId } = useParams();
   const navigate = useNavigate();
   if (!jobCardId) return <NotFoundView />;
-  return <JobDetailScreen jobId={jobCardId} user={user} onBack={() => navigate(paths.jobs)} onChanged={onReload} />;
+  return <JobDetailScreen jobId={jobCardId} user={user} onBack={() => navigate(paths.jobs)} onChanged={() => {}} />;
 }
 
 function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
@@ -122,27 +73,18 @@ function ProductRoute({ user }: Pick<AppRouterProps, 'user'>) {
   return <ProductDetailScreen key={productId} productId={productId} user={user} />;
 }
 
-export function AppRouter({ user, workspace, customers, notice, onReload, onClearNotice, onDeliveryCreated }: AppRouterProps) {
+export function AppRouter({ user, customers, notice, onClearNotice, onDeliveryCreated }: AppRouterProps) {
   const navigate = useNavigate();
   return <>
-    <nav className="section-nav" aria-label="Çalışma alanları">
-      <Link className="secondary-button" to={paths.jobs}>İşler</Link>
-      <Link className="secondary-button" to={paths.customers}>Müşteriler</Link>
-      <Link className="secondary-button" to={paths.products}>Ürünler</Link>
-      {user.role === 'ADMIN' && <Link className="secondary-button" to={paths.users}>Kullanıcılar</Link>}
-      <Link className="secondary-button" to={user.role === 'STAFF' ? paths.staffProfile(user.id) : paths.staff}>
-        {user.role === 'STAFF' ? 'Profilim' : 'Personel'}
-      </Link>
-    </nav>
     <Routes>
       <Route path="/" element={<Navigate to={paths.jobs} replace />} />
       <Route path="/login" element={<Navigate to={paths.jobs} replace />} />
-      <Route path={paths.jobs} element={<WorkspaceView user={user} state={workspace} notice={notice}
-        onCreate={workspace.kind === 'ready' ? () => { onClearNotice(); navigate(paths.newDelivery); } : undefined}
-        onOpen={(jobId) => navigate(paths.job(jobId))} onRetry={onReload} />} />
+      <Route path={paths.jobs} element={<JobWorkspace user={user} notice={notice}
+        onCreate={() => { onClearNotice(); navigate(paths.newDelivery); }}
+        onCommand={(intent) => navigate(paths.job(intent.jobId))} />} />
       <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} customers={customers} onCancel={() => navigate(paths.jobs)}
         onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />} />
-      <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} onReload={onReload} />} />
+      <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
       <Route path={paths.users} element={user.role === 'ADMIN'
         ? <UserManagementScreen onBack={() => navigate(paths.jobs)} /> : <ForbiddenView />} />
       <Route path={paths.staff} element={<StaffRoute user={user} />} />

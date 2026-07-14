@@ -1,6 +1,7 @@
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, describe, expect, it } from 'vitest';
 
@@ -46,6 +47,23 @@ class MemoryMigrationStore implements MigrationStore {
 }
 
 describe('runMigrations', () => {
+  it('ships the complete ordered migration set through JobCard workspace', async () => {
+    const migrationsDirectory = fileURLToPath(
+      new URL('../src/db/migrations', import.meta.url),
+    );
+
+    const files = await readdir(migrationsDirectory);
+
+    expect(files.filter((file) => file.endsWith('.sql')).sort()).toEqual([
+      '001_auth_foundation.sql',
+      '002_delivery_tracer.sql',
+      '003_people.sql',
+      '004_crm_contacts.sql',
+      '005_product_catalog.sql',
+      '006_jobcard_workspace.sql',
+    ]);
+  });
+
   it('applies pending SQL files in lexical order and skips applied versions', async () => {
     const directory = await createMigrationsDirectory({
       '003_third.sql': 'SELECT 3;',

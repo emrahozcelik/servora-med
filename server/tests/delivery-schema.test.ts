@@ -39,6 +39,36 @@ describe('002_delivery_tracer migration contract', () => {
     expect(sql).toContain('UNIQUE (organization_id, id)');
   });
 
+  it('retains the complete JobCard activity vocabulary', () => {
+    const expectedEventTypes = [
+      'JOB_CREATED',
+      'JOB_ASSIGNED',
+      'JOB_PLANNED',
+      'JOB_STARTED',
+      'JOB_SUBMITTED_FOR_APPROVAL',
+      'JOB_APPROVED',
+      'JOB_REVISION_REQUESTED',
+      'JOB_RESUMED',
+      'JOB_CANCELLED',
+      'JOB_FIELDS_UPDATED',
+      'DELIVERY_ITEM_ADDED',
+      'DELIVERY_ITEM_UPDATED',
+      'DELIVERY_ITEM_REMOVED',
+      'NOTE_ADDED',
+    ];
+    const constraint = sql.match(
+      /event_type VARCHAR\(50\) NOT NULL CHECK \(event_type IN \(([\s\S]*?)\)\),\s+old_value/,
+    );
+    expect(constraint).not.toBeNull();
+
+    const actualEventTypes = [...constraint![1]!.matchAll(/'([^']+)'/g)]
+      .map((match) => match[1]!);
+
+    expect(actualEventTypes).toHaveLength(14);
+    expect(new Set(actualEventTypes).size).toBe(14);
+    expect([...actualEventTypes].sort()).toEqual([...expectedEventTypes].sort());
+  });
+
   it('does not introduce stock, accounting, or delivery price fields', () => {
     expect(sql).not.toMatch(/stock_(quantity|movement)|invoice|payment|unit_price|line_total|discount_amount/i);
   });
