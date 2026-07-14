@@ -2360,7 +2360,7 @@ git commit -m "feat: add management operational reports"
 - Produces: one PostgreSQL-gated acceptance suite proving live constraints, timezone
   boundaries, aggregation semantics, authorization scope, and inspectable query plans.
 
-- [ ] **Step 1: Write the gated acceptance test shell and verify it is absent**
+- [x] **Step 1: Write the gated acceptance test shell and verify it is absent**
 
 Add the test import and fixture contract first. The suite must use an isolated schema and
 always drop it in `finally`:
@@ -2391,7 +2391,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
 });
 ```
 
-- [ ] **Step 2: Run the isolated test and verify RED**
+- [x] **Step 2: Run the isolated test and verify RED**
 
 Run: `cd server && TEST_DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run tests/reports-postgres.test.ts`
 
@@ -2399,7 +2399,7 @@ Expected: FAIL because fixture and verification helpers are not implemented. If
 `TEST_DATABASE_URL` is empty, configure a disposable PostgreSQL 16+ database before
 continuing; a skipped run does not satisfy this task.
 
-- [ ] **Step 3: Implement the complete cross-organization fixture and assertions**
+- [x] **Step 3: Implement the complete cross-organization fixture and assertions**
 
 Create deterministic IDs/times and insert at least:
 
@@ -2527,13 +2527,13 @@ approval items. Do not assert a specific planner node. If observed plans show a 
 problem at representative volume, stop without a migration and present the evidence for
 user review.
 
-- [ ] **Step 4: Run PostgreSQL acceptance and verify GREEN**
+- [x] **Step 4: Run PostgreSQL acceptance and verify GREEN**
 
 Run: `cd server && TEST_DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run tests/reports-postgres.test.ts`
 
 Expected: PASS with the test executed, not skipped, and the isolated schema removed.
 
-- [ ] **Step 5: Capture readable query-plan evidence and run all gated suites**
+- [x] **Step 5: Capture readable query-plan evidence and run all gated suites**
 
 Run:
 
@@ -2547,7 +2547,7 @@ TEST_DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run
 Expected: the report test prints PostgreSQL JSON plans; the complete server suite passes
 with every PostgreSQL-gated test executed. No `007` migration appears in the diff.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/tests/reports-postgres.test.ts
