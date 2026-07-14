@@ -1,6 +1,8 @@
 import { AppError } from '../../errors/index.js';
 import type { CredentialAdministrationPort } from '../auth/admin-ports.js';
 import type { SafeUser } from '../auth/types.js';
+import type { StaffOperationalSummaryPort } from '../reports/ports.js';
+import type { StaffOperationalSummary } from '../reports/types.js';
 import type { PeopleRepository, PeopleTransaction } from './repository.js';
 import type {
   AppendAuditInput,
@@ -8,7 +10,9 @@ import type {
   ManagedUserRecord,
   SafeManagedUser,
   StaffProfileInput,
+  StaffProfileDetails,
   StaffProfileRecord,
+  StaffProfileSummary,
   StaffStatusFilter,
   UpdateStaffProfileInput,
 } from './types.js';
@@ -60,10 +64,27 @@ function audit(
   };
 }
 
+function withCounters(
+  profile: StaffProfileDetails,
+  summary: StaffOperationalSummary,
+): StaffProfileSummary {
+  return {
+    ...profile,
+    counters: {
+      open: summary.counters.openJobCards,
+      waitingApproval: summary.counters.waitingApproval,
+      revisionRequested: summary.counters.revisionRequested,
+      completedThisMonth: summary.counters.completedInPeriod,
+      overdue: summary.counters.overdueJobCards,
+    },
+  };
+}
+
 export class PeopleService {
   constructor(
     private readonly repository: PeopleRepository,
     private readonly credentials: CredentialPreparation,
+    private readonly staffSummaries: StaffOperationalSummaryPort,
     private readonly now: () => Date = () => new Date(),
   ) {}
 
@@ -206,17 +227,29 @@ export class PeopleService {
   async listStaff(actor: SafeUser, status: StaffStatusFilter) {
     requireAdminOrManager(actor);
     if (actor.role === 'MANAGER' && status !== 'active') throw forbidden();
-    return this.repository.listStaff(actor.organizationId, status, this.now());
+    const requestTime = this.now();
+    const profiles = await this.repository.listStaffProfiles(actor.organizationId, status);
+    const summaries = await this.staffSummaries.getMany({
+      organizationId: actor.organizationId,
+      staffUserIds: profiles.map((profile) => profile.user.id),
+      requestedRange: null,
+      requestTime,
+    });
+    return profiles.map((profile) => {
+      const summary = summaries.get(profile.user.id);
+      if (!summary) throw new Error(`Missing Staff summary for ${profile.user.id}`);
+      return withCounters(profile, summary);
+    });
   }
 
   async getOwnStaffProfile(actor: SafeUser) {
     if (actor.role !== 'STAFF') throw forbidden();
-    return (await this.repository.getStaffSummary(actor.organizationId, actor.id, this.now())) ?? Promise.reject(profileNotFound());
+    return this.loadStaffProfile(actor.organizationId, actor.id, this.now());
   }
 
   async getStaffProfile(actor: SafeUser, userId: string) {
     requireAdminOrManager(actor);
-    return (await this.repository.getStaffSummary(actor.organizationId, userId, this.now())) ?? Promise.reject(profileNotFound());
+    return this.loadStaffProfile(actor.organizationId, userId, this.now());
   }
 
   async updateStaffProfile(actor: SafeUser, userId: string, input: UpdateStaffProfileInput) {
@@ -239,7 +272,20 @@ export class PeopleService {
       if (current.managerUserId !== updated.managerUserId) await tx.appendAudit(audit(actor, 'STAFF_PROFILE', current.id, 'STAFF_MANAGER_CHANGED',
         { managerUserId: current.managerUserId }, { managerUserId: updated.managerUserId }));
     });
-    return (await this.repository.getStaffSummary(actor.organizationId, userId, this.now()))!;
+    return this.loadStaffProfile(actor.organizationId, userId, this.now());
+  }
+
+  private async loadStaffProfile(organizationId: string, userId: string, requestTime: Date) {
+    const profile = await this.repository.getStaffProfile(organizationId, userId);
+    if (!profile) throw profileNotFound();
+    const summary = await this.staffSummaries.getOne({
+      organizationId,
+      staffUserId: userId,
+      requestedRange: null,
+      requestTime,
+    });
+    if (!summary) throw profileNotFound();
+    return withCounters(profile, summary);
   }
 
   private async requireUser(tx: PeopleTransaction, actor: SafeUser, userId: string) {

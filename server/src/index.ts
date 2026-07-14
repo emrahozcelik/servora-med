@@ -14,6 +14,7 @@ import { PostgresPeopleRepository } from './modules/people/repository.js';
 import { PostgresCustomerAssignmentCleanup } from './modules/crm/people-adapter.js';
 import { PostgresCrmRepository } from './modules/crm/repository.js';
 import { PostgresProductRepository } from './modules/products/repository.js';
+import { PostgresReportsRepository } from './modules/reports/repository.js';
 
 async function main() {
   const config = loadConfig();
@@ -21,12 +22,16 @@ async function main() {
   const credentials = new AuthCredentialAdministration();
   const sessions = new PostgresSessionRevocationPort();
   const customerAssignments = new PostgresCustomerAssignmentCleanup();
+  const jobCards = new PostgresJobCardRepository(database.pool);
+  const reports = new PostgresReportsRepository(database.pool);
   const app = await buildApp(config, {
     authRepository: new PostgresAuthRepository(database.pool),
-    jobCardRepository: new PostgresJobCardRepository(database.pool),
+    jobCardRepository: jobCards,
     peopleRepository: new PostgresPeopleRepository(database.pool, credentials, sessions, customerAssignments),
     crmRepository: new PostgresCrmRepository(database.pool),
     productRepository: new PostgresProductRepository(database.pool),
+    approvalQueueItemPort: jobCards,
+    reportsRepository: reports,
   });
   const migrationsDirectory = fileURLToPath(new URL('./db/migrations/', import.meta.url));
   let shuttingDown = false;

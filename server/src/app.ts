@@ -25,6 +25,9 @@ import { crmRoutes } from './modules/crm/routes.js';
 import type { ProductRepository } from './modules/products/repository.js';
 import { ProductService } from './modules/products/service.js';
 import { productRoutes } from './modules/products/routes.js';
+import type { ApprovalQueueItemPort, ReportsReadModel } from './modules/reports/ports.js';
+import { ReportsService } from './modules/reports/service.js';
+import { reportsRoutes } from './modules/reports/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -44,6 +47,8 @@ export type AppDependencies = {
   peopleRepository?: PeopleRepository;
   crmRepository?: CrmRepository;
   productRepository?: ProductRepository;
+  approvalQueueItemPort?: ApprovalQueueItemPort;
+  reportsRepository?: ReportsReadModel;
 };
 
 export async function buildApp(config: AppConfig, dependencies: AppDependencies = {}) {
@@ -103,10 +108,24 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         authenticate: authenticateDomain,
       });
     }
-    if (dependencies.peopleRepository) {
+    if (dependencies.peopleRepository && dependencies.reportsRepository) {
       await app.register(peopleRoutes, {
         prefix: '/api',
-        service: new PeopleService(dependencies.peopleRepository, new AuthCredentialAdministration()),
+        service: new PeopleService(
+          dependencies.peopleRepository,
+          new AuthCredentialAdministration(),
+          dependencies.reportsRepository,
+        ),
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.reportsRepository && dependencies.approvalQueueItemPort) {
+      await app.register(reportsRoutes, {
+        prefix: '/api/reports',
+        service: new ReportsService(
+          dependencies.reportsRepository,
+          dependencies.approvalQueueItemPort,
+        ),
         authenticate: authenticateDomain,
       });
     }
