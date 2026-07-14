@@ -12,6 +12,7 @@ Bu dosya ürün ve mimari için kabul edilmiş, uzun ömürlü kararları kayded
 - Delivery order: `SERVORA_MED_MVP_SLICES.md`
 - Slice 07 JobCard workspace design: `docs/superpowers/specs/2026-07-13-jobcard-workspace-design.md`
 - Slice 08 operational reports design: `docs/superpowers/specs/2026-07-14-operational-reports-design.md`
+- Slice 09 General Task design: `docs/superpowers/specs/2026-07-14-general-task-design.md`
 - Agent discipline: `AGENTS.md`
 - Historical inputs: `docs/archive/inputs/`
 
