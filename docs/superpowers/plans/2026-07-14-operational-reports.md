@@ -180,7 +180,7 @@ Vite, Vitest, Playwright.
   `parseApprovalReportQuery(raw)`, and `parseStaffReportPathId(raw)`; the exact
   `StaffOperationalSummaryPort`, `ReportsReadModel`, and `ApprovalQueueItemPort`.
 
-- [ ] **Step 1: Write failing contract and parser tests**
+- [x] **Step 1: Write failing contract and parser tests**
 
 Create table-driven tests that assert exact defaults, allowed keys, repeated scalar
 rejection for every allowed scalar, unknown-key rejection, strict leap dates, paired
@@ -208,13 +208,13 @@ expect(parseApprovalReportQuery({})).toEqual({ limit: 50, offset: 0 });
 For each endpoint, pass arrays for every scalar it accepts and prove failure occurs before
 coercion. Also assert a 367-date inclusive range fails while exactly 366 dates passes.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `cd server && npm test -- --run tests/reports-query.test.ts`
 
 Expected: FAIL because the Reports contract files do not exist.
 
-- [ ] **Step 3: Implement exact DTOs, ports, and parsers**
+- [x] **Step 3: Implement exact DTOs, ports, and parsers**
 
 Define the shared range and summary types exactly once:
 
@@ -402,19 +402,19 @@ year/month/day. `parseDeliveryReportQuery` requires `groupBy`, defaults to `limi
 `parseStaffReportPathId` throws `STAFF_PROFILE_NOT_FOUND` for every non-string or malformed
 UUID without repository access. Query UUID parsing throws `VALIDATION_ERROR` instead.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run: `cd server && npm test -- --run tests/reports-query.test.ts`
 
 Expected: PASS with all DTO compile checks and parser cases green.
 
-- [ ] **Step 5: Run related contract regressions**
+- [x] **Step 5: Run related contract regressions**
 
 Run: `cd server && npm test -- --run tests/job-card-workspace-query.test.ts tests/errors.test.ts`
 
 Expected: PASS; existing JobCard query and safe error contracts remain unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/modules/reports/types.ts server/src/modules/reports/query.ts \
@@ -434,7 +434,7 @@ git commit -m "feat: add report contracts and query parsing"
 - Produces: `PostgresReportsRepository.getOne(input)` and batch
   `PostgresReportsRepository.getMany(input)` with a keyed `ReadonlyMap`.
 
-- [ ] **Step 1: Write failing port and query-shape tests**
+- [x] **Step 1: Write failing port and query-shape tests**
 
 Use a recording Pool double to prove `getOne` calls one batch query, `getMany` calls one
 query for any non-empty ID list, and an empty list performs zero database calls. Map rows
@@ -472,13 +472,13 @@ Assert SQL attribution contains `jc.assigned_to = requested.staff_user_id`, cont
 no JobCard type predicate. Assert range bounds are resolved with the organization
 timezone and the supplied `requestTime`.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `cd server && npm test -- --run tests/reports-staff-summary.test.ts`
 
 Expected: FAIL because `PostgresReportsRepository` does not exist.
 
-- [ ] **Step 3: Implement one batch Staff aggregation**
+- [x] **Step 3: Implement one batch Staff aggregation**
 
 Implement `getOne` as a single-ID call to `getMany`; implement `getMany` with one SQL
 statement and no loop containing `pool.query`:
@@ -559,19 +559,19 @@ Map PostgreSQL counts with `Number` because these fields are integer counters. D
 `Number` for any delivery quantity. Return `from_date` and `to_date` as strict strings and
 the database timezone unchanged.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run: `cd server && npm test -- --run tests/reports-staff-summary.test.ts`
 
 Expected: PASS, including one-query and zero-query assertions.
 
-- [ ] **Step 5: Run the server type/build gate**
+- [x] **Step 5: Run the server type/build gate**
 
 Run: `cd server && npm run build`
 
 Expected: PASS without adding a migration or dependency.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/modules/reports/repository.ts \
@@ -591,7 +591,7 @@ git commit -m "feat: add canonical staff report summaries"
 - Produces: `PostgresReportsRepository.getDashboard(input):
   Promise<DashboardReportResponse>`.
 
-- [ ] **Step 1: Write failing dashboard query tests**
+- [x] **Step 1: Write failing dashboard query tests**
 
 Record the SQL and map representative rows. Prove current-state counters do not include
 range predicates, period counters use their canonical timestamps, trend contains every
@@ -617,13 +617,13 @@ Run the same point-in-time fixture with two different requested ranges and asser
 `activeJobCards`, `overdueJobCards`, `waitingApproval`, and `revisionRequested` remain
 equal while completion, cancellation, and trend may differ.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `cd server && npm test -- --run tests/reports-dashboard.test.ts`
 
 Expected: FAIL because `getDashboard` is missing.
 
-- [ ] **Step 3: Implement one deterministic dashboard statement**
+- [x] **Step 3: Implement one deterministic dashboard statement**
 
 Use the same organization-range CTE as Task 2 and one statement with counters plus a
 zero-filled series:
@@ -691,19 +691,19 @@ GROUP BY organization_range.from_date, organization_range.to_date,
 Map trend dates to `YYYY-MM-DD` and integer counts. Do not filter any dashboard metric by
 JobCard type.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run: `cd server && npm test -- --run tests/reports-dashboard.test.ts`
 
 Expected: PASS with zero-day trend and point-in-time assertions.
 
-- [ ] **Step 5: Run related summary regressions**
+- [x] **Step 5: Run related summary regressions**
 
 Run: `cd server && npm test -- --run tests/reports-dashboard.test.ts tests/reports-staff-summary.test.ts`
 
 Expected: PASS; both paths use the same local-range contract.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/modules/reports/repository.ts server/tests/reports-dashboard.test.ts
@@ -722,7 +722,7 @@ git commit -m "feat: add operational dashboard read model"
 - Produces: `PostgresReportsRepository.getStaffIdentity(input)` and
   `PostgresReportsRepository.getStaffDeliveriesByPurpose(input)`.
 
-- [ ] **Step 1: Write failing Staff identity and purpose-summary tests**
+- [x] **Step 1: Write failing Staff identity and purpose-summary tests**
 
 Prove active and inactive same-organization Staff are returned, while missing,
 cross-organization, and non-Staff identities return `null`. Prove all five operational
@@ -752,13 +752,13 @@ expect(items).toEqual([
 Assert the SQL contains `jc.assigned_to = $2`, ignores submitter/creator/approver/activity
 actors, applies the canonical purpose order, uses `COLLATE "C"`, and puts null unit last.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `cd server && npm test -- --run tests/reports-staff.test.ts`
 
 Expected: FAIL because Staff identity and delivery-purpose methods are missing.
 
-- [ ] **Step 3: Implement safe identity and delivery-purpose reads**
+- [x] **Step 3: Implement safe identity and delivery-purpose reads**
 
 Use a concealed identity query that requires both the Staff role and profile:
 
@@ -813,20 +813,20 @@ ORDER BY CASE di.delivery_purpose
 
 Return PostgreSQL `quantity` text unchanged. Do not parse or recompute it.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run: `cd server && npm test -- --run tests/reports-staff.test.ts`
 
 Expected: PASS for identity concealment, inactive Staff, attribution, type scope, range,
 purpose order, and exact quantity strings.
 
-- [ ] **Step 5: Run all backend report read-model tests**
+- [x] **Step 5: Run all backend report read-model tests**
 
 Run: `cd server && npm test -- --run tests/reports-staff-summary.test.ts tests/reports-dashboard.test.ts tests/reports-staff.test.ts`
 
 Expected: PASS with no People repository dependency.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/modules/reports/repository.ts server/tests/reports-staff.test.ts
@@ -845,7 +845,7 @@ git commit -m "feat: add staff operational report reads"
 - Produces: `PostgresReportsRepository.getDeliveryReport(input)` with four fixed SQL
   shapes selected only by the validated `groupBy` discriminant.
 
-- [ ] **Step 1: Write failing tests for all four grouping shapes**
+- [x] **Step 1: Write failing tests for all four grouping shapes**
 
 Use recording Pool responses for `day`, `purpose`, `product`, and `staff`. Assert each
 response contains only its own fields, quantity stays a three-decimal string, `total`
@@ -879,13 +879,13 @@ report-time `lower`, `upper`, `trim`, `coalesce(unit`, `Number`, or `parseFloat`
 logic exists. Cover `null`, `kutu`, and `Kutu` as separate groups; catalog rename and
 deactivation must leave snapshot fields unchanged.
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run: `cd server && npm test -- --run tests/reports-deliveries.test.ts`
 
 Expected: FAIL because `getDeliveryReport` is missing.
 
-- [ ] **Step 3: Implement fixed grouped-query definitions**
+- [x] **Step 3: Implement fixed grouped-query definitions**
 
 Define a closed query-definition map. Client values never become SQL identifiers:
 
@@ -1022,20 +1022,20 @@ the empty-result path still returns the resolved range, `total: 0`, and `items: 
 that every SQL placeholder is positional (`$1`, `$2`, and so on). Map each row through a
 group-specific mapper and return PostgreSQL quantity text unchanged.
 
-- [ ] **Step 4: Run the focused test and verify GREEN**
+- [x] **Step 4: Run the focused test and verify GREEN**
 
 Run: `cd server && npm test -- --run tests/reports-deliveries.test.ts`
 
 Expected: PASS for all four discriminants, exact totals, sort order, units, snapshots,
 Staff attribution/filtering, and decimal strings.
 
-- [ ] **Step 5: Run related Product and delivery regressions**
+- [x] **Step 5: Run related Product and delivery regressions**
 
 Run: `cd server && npm test -- --run tests/reports-deliveries.test.ts tests/product-repository.test.ts tests/delivery-item-service.test.ts`
 
 Expected: PASS; catalog and delivery mutation behavior remain unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/modules/reports/repository.ts server/tests/reports-deliveries.test.ts
@@ -1056,7 +1056,7 @@ git commit -m "feat: add grouped delivery reports"
 - Produces: `PostgresReportsRepository.getApprovalSummary(input)` and
   `PostgresJobCardRepository.getApprovalItems(input)`.
 
-- [ ] **Step 1: Write failing boundary, summary, and projection tests**
+- [x] **Step 1: Write failing boundary, summary, and projection tests**
 
 Freeze `requestTime` and cover elapsed values immediately below and exactly at 2, 8, and
 24 hours; a future `staff_completed_at`; an empty queue; multiple pages; and two JobCard
@@ -1082,13 +1082,13 @@ Assert item SQL reuses every `JOB_CARD_LIST_COLUMNS` field and `mapJobCardListIt
 only `waitingMinutes`, sorts `staff_completed_at ASC, id ASC`, and contains no type or
 assignee-ownership predicate.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `cd server && npm test -- --run tests/reports-approvals.test.ts tests/job-card-workspace-repository.test.ts`
 
 Expected: FAIL because both approval read methods are missing.
 
-- [ ] **Step 3: Implement one elapsed expression in both SQL owners**
+- [x] **Step 3: Implement one elapsed expression in both SQL owners**
 
 Use this exact elapsed expression in summary and item SQL:
 
@@ -1149,20 +1149,20 @@ Make `PostgresJobCardRepository` structurally satisfy `ApprovalQueueItemPort`; d
 the method to the mutation/workspace-facing `JobCardRepository` interface. This keeps
 existing JobCard service doubles narrow and leaves workspace list/board behavior unchanged.
 
-- [ ] **Step 4: Run the focused tests and verify GREEN**
+- [x] **Step 4: Run the focused tests and verify GREEN**
 
 Run: `cd server && npm test -- --run tests/reports-approvals.test.ts tests/job-card-workspace-repository.test.ts`
 
 Expected: PASS for boundary buckets, future clamp, summary invariants, deterministic page,
 and canonical projection reuse.
 
-- [ ] **Step 5: Run JobCard workspace regressions**
+- [x] **Step 5: Run JobCard workspace regressions**
 
 Run: `cd server && npm test -- --run tests/job-card-board.test.ts tests/job-card-routes.test.ts tests/job-card-workspace-repository.test.ts`
 
 Expected: PASS; approval reporting adds no lifecycle or workspace ownership source.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/modules/reports/repository.ts \
@@ -1187,7 +1187,7 @@ git commit -m "feat: add approval age report reads"
 - Produces: `ReportsService.dashboard`, `getOwnStaffReport`, `getStaffReport`,
   `getDeliveries`, and `getApprovals`; five exact GET routes under `/api/reports`.
 
-- [ ] **Step 1: Write failing role, error, and route-contract tests**
+- [x] **Step 1: Write failing role, error, and route-contract tests**
 
 Use memory ports with call recording. Test the complete role matrix, one authoritative
 `requestTime` per service call, Staff self-ID forcing, Admin/Manager Staff selection,
@@ -1218,13 +1218,13 @@ on `/staff/me`; malformed Staff path returns concealed `404`; malformed delivery
 Staff UUID returns `400`; valid unavailable query Staff UUID returns `404`; and unknown or
 repeated queries return `400`.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `cd server && npm test -- --run tests/reports-service.test.ts tests/reports-routes.test.ts`
 
 Expected: FAIL because service, handlers, and routes are absent.
 
-- [ ] **Step 3: Implement policy composition and thin HTTP translation**
+- [x] **Step 3: Implement policy composition and thin HTTP translation**
 
 Use exact role guards and one request time:
 
@@ -1366,20 +1366,20 @@ SQL and registers both consumers in one
 composition-root commit, so no deployed intermediate state exposes two counter sources.
 Do not put SQL, date arithmetic, or role policy in handlers.
 
-- [ ] **Step 4: Run the focused tests and verify GREEN**
+- [x] **Step 4: Run the focused tests and verify GREEN**
 
 Run: `cd server && npm test -- --run tests/reports-service.test.ts tests/reports-routes.test.ts`
 
 Expected: PASS for all routes, roles, errors, time consistency, and query contracts.
 
-- [ ] **Step 5: Run server build and route regressions**
+- [x] **Step 5: Run server build and route regressions**
 
 Run: `cd server && npm run build && npm test -- --run tests/auth-routes.test.ts tests/people-routes.test.ts tests/job-card-routes.test.ts tests/reports-routes.test.ts`
 
 Expected: PASS; Reports routes use existing auth and error mapping without changing other
 modules.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/modules/reports/service.ts \
@@ -1409,7 +1409,7 @@ git commit -m "feat: expose authorized report routes"
   `getOne`/batch `getMany`; one production Reports read-model instance injected into both
   People and Reports.
 
-- [ ] **Step 1: Rewrite tests to fail on the old People-owned counter SQL**
+- [x] **Step 1: Rewrite tests to fail on the old People-owned counter SQL**
 
 Change People repository doubles to return profile identity without counters. Inject a
 recording summary port into PeopleService and prove `listStaff` calls `getMany` exactly
@@ -1469,14 +1469,14 @@ behavior tests. Add an app test proving People and Reports routes appear only wh
 same Reports read model is injected and that the approval queue remains a separate narrow
 dependency.
 
-- [ ] **Step 2: Run People tests and verify RED**
+- [x] **Step 2: Run People tests and verify RED**
 
 Run: `cd server && npm test -- --run tests/people-counters.test.ts tests/people-repository.test.ts tests/people-service.test.ts tests/people-routes.test.ts tests/app.test.ts`
 
 Expected: FAIL because PeopleService does not accept the port and the repository still
 owns counter SQL.
 
-- [ ] **Step 3: Remove the second SQL source and map the canonical counters**
+- [x] **Step 3: Remove the second SQL source and map the canonical counters**
 
 Split the identity type while keeping the public DTO unchanged:
 
@@ -1614,19 +1614,19 @@ composition roots inject an explicit memory implementation of the same port. Thi
 commit both deletes People's SQL and makes Reports reachable, so no buildable commit has
 two active production counter sources.
 
-- [ ] **Step 4: Run People tests and verify GREEN**
+- [x] **Step 4: Run People tests and verify GREEN**
 
 Run: `cd server && npm test -- --run tests/people-counters.test.ts tests/people-repository.test.ts tests/people-service.test.ts tests/people-routes.test.ts tests/app.test.ts`
 
 Expected: PASS with one batch query path and unchanged public People DTOs.
 
-- [ ] **Step 5: Run backend build and cross-module regressions**
+- [x] **Step 5: Run backend build and cross-module regressions**
 
 Run: `cd server && npm run build && npm test -- --run tests/app.test.ts tests/auth-service.test.ts tests/crm-service.test.ts tests/people-service.test.ts tests/reports-service.test.ts`
 
 Expected: PASS with no People/Reports circular runtime import and no duplicate counter SQL.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add server/src/modules/people/types.ts \
@@ -1656,7 +1656,7 @@ git commit -m "refactor: share canonical staff report counters"
   `getStaffReport`, `getDeliveryReport`, `getApprovalReport`; request query builders and
   canonical URL parsers.
 
-- [ ] **Step 1: Write failing parser and query-builder tests**
+- [x] **Step 1: Write failing parser and query-builder tests**
 
 Provide valid and invalid payload fixtures for every DTO. Prove each delivery discriminant
 rejects fields from another shape, exact quantity strings survive unchanged, unknown
@@ -1717,13 +1717,13 @@ dates, and never call `Number` or `parseFloat` on quantity. Test canonical URL p
 partial/invalid dates, invalid group, negative offset, empty/malformed Staff UUID, and a
 syntactically valid unavailable Staff UUID that must remain in state.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `cd web && npm test -- --run tests/reports-api.test.ts tests/report-search.test.ts`
 
 Expected: FAIL because the report web contract files do not exist.
 
-- [ ] **Step 3: Implement strict discriminated parsers and URL helpers**
+- [x] **Step 3: Implement strict discriminated parsers and URL helpers**
 
 Mirror the server DTO property names exactly. Keep decimal values as strings with a
 three-decimal response check:
@@ -1910,20 +1910,20 @@ Define and use `parseDeliveryDayItem`, `parseDeliveryPurposeItem`,
 `exactObject` with exactly the keys in its Task 1 DTO and returns that DTO without adding
 or dropping properties.
 
-- [ ] **Step 4: Run the focused tests and verify GREEN**
+- [x] **Step 4: Run the focused tests and verify GREEN**
 
 Run: `cd web && npm test -- --run tests/reports-api.test.ts tests/report-search.test.ts`
 
 Expected: PASS for four exact delivery shapes, quantity strings, ApprovalItem reuse, API
 error preservation, and canonical URL parsing.
 
-- [ ] **Step 5: Run transport regressions and web build**
+- [x] **Step 5: Run transport regressions and web build**
 
 Run: `cd web && npm test -- --run tests/jobs-api.test.ts tests/people-client.test.ts tests/reports-api.test.ts && npm run build`
 
 Expected: PASS without a new package or lockfile change.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add web/src/reports/report-types.ts web/src/reports/reports-api.ts \
@@ -1953,7 +1953,7 @@ git commit -m "feat: add runtime validated report client"
 - Produces: Staff own operational report inside `/staff`; Admin/Manager Staff report at
   `/staff/:staffUserId/reports`; unchanged People profile counter DTO compatibility.
 
-- [ ] **Step 1: Write failing role-specific UI and route tests**
+- [x] **Step 1: Write failing role-specific UI and route tests**
 
 Test Staff own loading, success, no-delivery, error, and retry states. Test management
 report loading, inactive label, safe not-found error, retry, exact default echoed range,
@@ -1972,13 +1972,13 @@ Assert Manager/Admin profile pages link to `/staff/:staffUserId/reports`, Staff 
 uses `/staff`, Staff never sees another profile/report link, and Back/Forward-style route
 entries render stable content.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `cd web && npm test -- --run tests/staff-operational-report.test.tsx tests/staff-profiles.test.tsx tests/router.test.tsx tests/app-shell.test.tsx`
 
 Expected: FAIL because the report component and management route are absent.
 
-- [ ] **Step 3: Implement own and management Staff report states**
+- [x] **Step 3: Implement own and management Staff report states**
 
 Add exact paths:
 
@@ -2075,20 +2075,20 @@ the backend-echoed current-month range and expose no filter controls. The purpos
 uses Turkish purpose labels, exact quantity text, and `Birim belirtilmedi` for null.
 Existing profile counter compatibility remains tested against `/api/staff` responses.
 
-- [ ] **Step 4: Run the focused tests and verify GREEN**
+- [x] **Step 4: Run the focused tests and verify GREEN**
 
 Run: `cd web && npm test -- --run tests/staff-operational-report.test.tsx tests/staff-profiles.test.tsx tests/router.test.tsx tests/app-shell.test.tsx`
 
 Expected: PASS for both roles, stable routes, inactive identity, report states, and no
 independent Staff report filters.
 
-- [ ] **Step 5: Run People/web regressions and build**
+- [x] **Step 5: Run People/web regressions and build**
 
 Run: `cd web && npm test -- --run tests/people-client.test.ts tests/staff-profiles.test.tsx tests/staff-operational-report.test.tsx tests/router.test.tsx && npm run build`
 
 Expected: PASS; user/profile editing remains unchanged.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add web/src/reports/StaffOperationalReport.tsx web/src/StaffProfiles.tsx \
@@ -2120,7 +2120,7 @@ git commit -m "feat: add staff operational report views"
 - Produces: `/reports`, `/reports/deliveries`, and `/reports/approvals`; management-only
   `Raporlar` navigation; URL-owned date/group/Staff/offset behavior.
 
-- [ ] **Step 1: Write failing screen, navigation, and history tests**
+- [x] **Step 1: Write failing screen, navigation, and history tests**
 
 Test dashboard point-in-time versus period labels, a complete trend table including zero
 days, delivery group-specific headers, approval summary and oldest queue, loading/empty/
@@ -2148,13 +2148,13 @@ from the available options remains selected as an unavailable synthetic option. 
 the filter is a `<select>`, not a free-text UUID input, and that empty or tampered values
 are never written to the request URL.
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run: `cd web && npm test -- --run tests/reports-dashboard.test.tsx tests/delivery-report.test.tsx tests/approval-report.test.tsx tests/reports-navigation.test.tsx`
 
 Expected: FAIL because management report screens and routes are absent.
 
-- [ ] **Step 3: Implement management routes and canonical URL effects**
+- [x] **Step 3: Implement management routes and canonical URL effects**
 
 Register role-gated routes:
 
@@ -2324,20 +2324,20 @@ summary uses text labels for every bucket and renders canonical JobCard fields p
 `{ PRODUCT_DELIVERY: 'Ürün teslimi', GENERAL_TASK: 'Genel görev' }` for approval item
 types; this does not activate General Task creation or mutation UI.
 
-- [ ] **Step 4: Run the focused tests and verify GREEN**
+- [x] **Step 4: Run the focused tests and verify GREEN**
 
 Run: `cd web && npm test -- --run tests/reports-dashboard.test.tsx tests/delivery-report.test.tsx tests/approval-report.test.tsx tests/reports-navigation.test.tsx`
 
 Expected: PASS for screen states, stable routes, URL ownership, offset reset, default
 range replacement, unavailable Staff error, and role navigation.
 
-- [ ] **Step 5: Run router/shell/accessibility regressions and build**
+- [x] **Step 5: Run router/shell/accessibility regressions and build**
 
 Run: `cd web && npm test -- --run tests/router.test.tsx tests/app-shell.test.tsx tests/accessibility-contract.test.ts tests/reports-navigation.test.tsx && npm run build`
 
 Expected: PASS with no chart package and no page-level horizontal overflow.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add web/src/reports/ReportsDashboard.tsx \
