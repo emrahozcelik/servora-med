@@ -75,7 +75,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .status-label { display: inline-flex; align-items: center; min-height: 2rem; padding: 0.25rem 0.65rem; border: 1px solid var(--rule); border-radius: 999px; color: var(--muted); background: var(--canvas); font-size: 0.8125rem; font-weight: 700; }
 .report-range { margin: 0.75rem 0 0; color: var(--muted); line-height: 1.5; }
 .report-counter-grid { grid-template-columns: repeat(5, minmax(0, 1fr)); }
-.report-table-wrap { min-width: 0; margin-top: 2rem; }
+.report-workspace, .report-section, .report-table-wrap { min-width: 0; max-width: 100%; }
+.report-table-wrap { margin-top: 2rem; }
 .report-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 .report-table caption { padding-bottom: 0.75rem; color: var(--ink); font-size: 1rem; font-weight: 720; text-align: left; }
 .report-table th, .report-table td { padding: 0.85rem 0.5rem; border-bottom: 1px solid var(--rule); text-align: left; }
@@ -92,6 +93,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .report-filters { display: grid; grid-template-columns: repeat(2, minmax(10rem, 1fr)) auto; align-items: end; gap: 0.75rem; padding-block: 1rem; margin-bottom: 1.5rem; border-block: 1px solid var(--rule); }
 .report-filters-wide { grid-template-columns: repeat(4, minmax(9rem, 1fr)) auto; }
 .report-filters label { display: grid; gap: 0.4rem; color: var(--muted); font-size: 0.8125rem; font-weight: 700; }
+.report-filters button, .report-filters input, .report-filters select { min-height: 2.75rem; }
 .report-filters input, .report-filters select { min-width: 0; min-height: 2.75rem; padding: 0.6rem 0.7rem; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); }
 .report-metrics { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); margin: 0; border-top: 1px solid var(--rule); }
 .report-metrics div { padding: 1.15rem 0.75rem; border-bottom: 1px solid var(--rule); }
@@ -112,6 +114,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .approval-list li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0.25rem; border-bottom: 1px solid var(--rule); }
 .approval-list h2 { margin: 0.35rem 0; font-size: 1rem; }.approval-list p, .approval-list span { margin: 0; color: var(--muted); font-size: 0.8125rem; }
 .form-error { margin: 1.25rem 0; padding: 0.8rem 0.9rem; border: 1px solid oklch(78% 0.07 28deg); border-radius: 0.6rem; color: var(--error); background: var(--error-soft); font-size: 0.9rem; line-height: 1.45; }
+.form-error h2 { margin: 0; font-size: 1rem; }
+.form-error p { margin: 0.35rem 0 0; }
 
 .identity-loading { display: grid; align-content: center; width: min(100% - 2rem, 28rem); min-height: 100vh; margin: auto; }
 .identity-loading p { color: var(--muted); }
@@ -442,7 +446,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .approval-list li { align-items: flex-start; flex-direction: column; }
   .responsive-report-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }
   .responsive-report-table, .responsive-report-table tbody, .responsive-report-table tr, .responsive-report-table th, .responsive-report-table td { display: block; width: 100%; }
-  .responsive-report-table tr { padding-block: 0.75rem; border-bottom: 1px solid var(--rule); }
+  .responsive-report-table tr { display: block; padding-block: 0.75rem; border-bottom: 1px solid var(--rule); }
   .responsive-report-table th, .responsive-report-table td { border: 0; }
   .responsive-report-table th::before, .responsive-report-table td::before { display: block; margin-bottom: 0.2rem; color: var(--muted); content: attr(data-label); font-size: 0.72rem; font-weight: 650; }
   .customer-filters { grid-template-columns: 1fr; gap: 0.75rem; }
@@ -489,6 +493,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 
 @media (prefers-reduced-motion: reduce) {
+  .completed-trend span { transition: none; }
   *, *::before, *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;

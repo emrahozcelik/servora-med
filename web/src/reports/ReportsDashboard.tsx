@@ -25,10 +25,11 @@ export function ReportsDashboardView({ report }: { report: DashboardReportRespon
     <section className="report-section" aria-labelledby="trend-title"><h2 id="trend-title">Tamamlanma eğilimi</h2>
       <div className="completed-trend" aria-hidden="true">{report.completedTrend.map((point) =>
         <span key={point.date} style={{ '--count': point.count } as CSSProperties} />)}</div>
-      <table className="report-table"><caption>Tamamlanan işlerin günlük dağılımı</caption>
+      <table className="report-table responsive-report-table"><caption>Tamamlanan işlerin günlük dağılımı</caption>
         <thead><tr><th scope="col">Tarih</th><th scope="col">Tamamlanan iş</th></tr></thead>
         <tbody>{report.completedTrend.map((point) => <tr key={point.date}>
-          <th scope="row">{formatDate(point.date)}</th><td>{point.count}</td>
+          <th scope="row" data-label="Tarih">{formatDate(point.date)}</th>
+          <td data-label="Tamamlanan iş">{point.count}</td>
         </tr>)}</tbody></table></section>
   </>;
 }
@@ -40,7 +41,7 @@ export function ReportsDashboard() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [filterError, setFilterError] = useState('');
-  const errorRef = useRef<HTMLParagraphElement>(null);
+  const errorRef = useRef<HTMLDivElement>(null);
   const load = useCallback(async () => {
     setLoading(true); setError('');
     try {
@@ -60,9 +61,16 @@ export function ReportsDashboard() {
   }
   return <main className="workspace report-workspace"><header className="workspace-heading"><div><p className="eyebrow">Raporlar</p><h1>Operasyon özeti</h1></div>
     <nav className="report-nav" aria-label="Rapor bölümleri"><Link to={paths.deliveryReports}>Teslimler</Link><Link to={paths.approvalReports}>Onaylar</Link></nav></header>
-    <form key={`${state.from}:${state.to}`} className="report-filters" onSubmit={submit}><label>Başlangıç<input name="from" type="date" defaultValue={state.from ?? ''} /></label>
-      <label>Bitiş<input name="to" type="date" defaultValue={state.to ?? ''} /></label><button className="secondary-button">Uygula</button></form>
-    {filterError && <p ref={errorRef} className="field-error" role="alert" tabIndex={-1}>{filterError}</p>}
+    <form key={`${state.from}:${state.to}`} className="report-filters" onSubmit={submit} noValidate>
+      <label>Başlangıç<input name="from" type="date" defaultValue={state.from ?? ''}
+        aria-invalid={filterError ? true : undefined}
+        aria-describedby={filterError ? 'report-filter-error' : undefined} /></label>
+      <label>Bitiş<input name="to" type="date" defaultValue={state.to ?? ''}
+        aria-invalid={filterError ? true : undefined}
+        aria-describedby={filterError ? 'report-filter-error' : undefined} /></label>
+      <button className="secondary-button">Uygula</button></form>
+    {filterError && <div id="report-filter-error" ref={errorRef} className="form-error"
+      role="alert" tabIndex={-1}><h2>Filtreleri kontrol edin</h2><p>{filterError}</p></div>}
     {loading && <section className="report-loading" aria-busy="true"><h1>Rapor özeti yükleniyor</h1></section>}
     {!loading && error && <div className="workspace-message" role="alert"><h2>Rapor özeti yüklenemedi</h2><p>{error}</p><button className="secondary-button" onClick={() => void load()}>Tekrar dene</button></div>}
     {!loading && !error && report && <ReportsDashboardView report={report} />}

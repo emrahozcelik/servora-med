@@ -43,6 +43,14 @@ describe('shared accessibility CSS contract', () => {
   it('honors reduced-motion preference', () => {
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toContain('animation-duration: 0.01ms !important');
+    expect(css).toMatch(/@media \(prefers-reduced-motion: reduce\)[\s\S]*\.completed-trend span \{ transition: none; \}/);
+  });
+
+  it('keeps report controls reachable and report content reflowable', () => {
+    expect(css).toMatch(/\.report-filters button, \.report-filters input, \.report-filters select \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.report-workspace, \.report-section, \.report-table-wrap \{[^}]*min-width: 0;[^}]*max-width: 100%;/);
+    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.responsive-report-table thead \{/);
+    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.responsive-report-table tr \{[^}]*display: block;/);
   });
 
   it('defines the 64rem shell structure, 44px targets, and no page overflow', () => {

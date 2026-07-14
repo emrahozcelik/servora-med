@@ -48,6 +48,11 @@ describe('Management report navigation', () => {
     expect(render(path, manager)).toContain(expected);
   });
 
+  it.each(['/reports', '/reports/deliveries', '/reports/approvals'])
+    ('labels report section navigation on %s', (path) => {
+      expect(render(path, manager)).toContain('aria-label="Rapor bölümleri"');
+    });
+
   it('shows report navigation only to management roles', () => {
     const management = render('/jobs', manager);
     expect(management).toContain('href="/reports"');

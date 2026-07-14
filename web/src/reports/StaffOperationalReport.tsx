@@ -56,14 +56,14 @@ function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
     </div>;
   }
   return <div className="report-table-wrap">
-    <table className="report-table">
+    <table className="report-table responsive-report-table">
       <caption>Onaylı teslimler</caption>
       <thead><tr><th scope="col">Amaç</th><th scope="col">Birim</th>
         <th scope="col">Miktar</th></tr></thead>
       <tbody>{items.map((item) => <tr key={JSON.stringify([item.purpose, item.unit])}>
-        <th scope="row">{purposeLabels[item.purpose]}</th>
-        <td>{item.unit ?? 'Birim belirtilmedi'}</td>
-        <td className="report-quantity">{item.quantity}</td>
+        <th scope="row" data-label="Amaç">{purposeLabels[item.purpose]}</th>
+        <td data-label="Birim">{item.unit ?? 'Birim belirtilmedi'}</td>
+        <td className="report-quantity" data-label="Miktar">{item.quantity}</td>
       </tr>)}</tbody>
     </table>
   </div>;
