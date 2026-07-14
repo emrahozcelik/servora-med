@@ -1,6 +1,6 @@
 # Servora-Med Slice 09 — General Task Design
 
-> Status: Proposed design; pending user approval
+> Status: Approved design; implementation not started
 > Date: 2026-07-14
 > Scope: General Task creation, lifecycle participation, type-aware detail, and workspace integration
 
@@ -813,7 +813,7 @@ encourage false delivery UI.
 
 ## 25. Execution Stop
 
-This document is a proposed design awaiting user approval. Slice 09 implementation has
-not started. The next step is user review of this committed specification. Only after
-explicit spec approval may `superpowers:writing-plans` be used to create a separate
-implementation plan. That plan also requires review before implementation begins.
+This design is approved and Slice 09 implementation has not started. The next stage is
+to prepare a separate implementation plan with `superpowers:writing-plans`. No
+implementation code may be written until that plan has also been reviewed and explicitly
+approved by the user.
