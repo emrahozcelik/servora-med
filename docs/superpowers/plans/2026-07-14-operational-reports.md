@@ -2897,8 +2897,7 @@ until the user explicitly requests it.
 - Every task has exact files, consumed/produced interfaces, a RED/GREEN cycle, related
   verification, and a focused commit.
 
-## Execution Stop
+## Execution Complete
 
-This document is the only deliverable of the planning turn. Implementation begins only
-after user review and approval. Because the project has explicitly disabled subagent use,
-approved execution should use `superpowers:executing-plans` inline with review checkpoints.
+Slice 08 implementation and closeout are complete. Tasks 1–14 were executed and
+verified on `feature/slice-08-operational-reports`. The branch is pushed and PR-ready.
