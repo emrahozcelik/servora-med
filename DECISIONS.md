@@ -11,6 +11,7 @@ Bu dosya ürün ve mimari için kabul edilmiş, uzun ömürlü kararları kayded
 - API contract: `SERVORA_MED_API_DRAFT.md`
 - Delivery order: `SERVORA_MED_MVP_SLICES.md`
 - Slice 07 JobCard workspace design: `docs/superpowers/specs/2026-07-13-jobcard-workspace-design.md`
+- Slice 08 operational reports design: `docs/superpowers/specs/2026-07-14-operational-reports-design.md`
 - Agent discipline: `AGENTS.md`
 - Historical inputs: `docs/archive/inputs/`
 
@@ -388,18 +389,34 @@ dashboard, and delivery-report screens.
 
 Delivery quantities and Staff delivery output use only manager-approved `COMPLETED`
 Product Delivery JobCards. Quantity is grouped by persisted `delivered_at`, purpose, and
-nullable unit and remains an exact decimal string. Product grouping uses delivery-time
-snapshots. Returns remain positive under `RETURN` and are not netted against sales.
+nullable unit and remains an exact three-decimal-scale string. Persisted unit spelling,
+case, and `null` are not normalized during reporting. Product grouping uses delivery-time
+snapshots. Returns remain positive under `RETURN` and are not netted against sales. Group
+pagination counts canonical grouped rows rather than raw delivery-item rows.
+
+Every Staff operational and delivery report attributes work through
+`job_cards.assigned_to`. Submitter, creator, approver, and activity actors describe
+lifecycle actions but never replace the assigned Staff owner. The same rule governs Staff
+summaries, Staff grouping, and Staff filters.
 
 Completed JobCard counts use `manager_approved_at`; cancelled counts use `cancelled_at`;
 approval age uses `staff_completed_at`; overdue state compares `due_date` with the
 organization-local current date. Reports use paired inclusive local dates, default to the
 current local month, and permit at most 366 calendar dates.
 
-A read-only Reports module owns the canonical operational read model. Existing People
-profile counters consume the same `StaffOperationalSummaryPort` instead of retaining a
-second SQL definition. The initial UI uses counters, accessible tables, and one daily
+A read-only Reports module owns and implements the canonical
+`StaffOperationalSummaryPort`. Existing People profile counters remove their second SQL
+definition and consume `getOne`/batch `getMany` through composition-root injection.
+`listStaff` uses one batch aggregation rather than a query per person. Reports never calls
+People service or HTTP, and the dependency direction creates no circular runtime
+dependency. The initial UI uses counters, accessible tables, and one daily
 completed-JobCard trend without a chart dependency.
+
+Approval elapsed time is non-negative through
+`GREATEST(requestTime - staff_completed_at, interval '0 seconds')`. Approval summaries
+cover the complete queue before pagination; pending count equals both response `total`
+and the sum of the four age buckets. A future submission timestamp contributes zero
+minutes to the first bucket.
 
 ### Consequences
 
@@ -407,8 +424,15 @@ completed-JobCard trend without a chart dependency.
   delivery output.
 - A record approved later appears under its actual historical delivery date.
 - Unknown, `adet`, `kutu`, and other units remain distinct and are never summed together.
+- Delivery totals mean grouped-row counts, quantities always expose three decimal places,
+  and frontend code never parses quantities for arithmetic aggregation.
 - Dashboard state counters are point-in-time; completion and cancellation counters are
   period-based and labeled accordingly.
+- Missing, cross-organization, non-Staff, and malformed Staff report identifiers share
+  `404 STAFF_PROFILE_NOT_FOUND`; malformed UUIDs are rejected before PostgreSQL access.
+- Stable `/reports`, `/reports/deliveries`, `/reports/approvals`, and
+  `/staff/:staffUserId/reports` routes own their defined date, grouping, Staff, and offset
+  state in the URL; changes reset pagination and invalid URL values use replace navigation.
 - Slice 08 adds no report table, materialized view, cache, or speculative index migration.
 - Revenue, margin, commission, stock, invoice, payment, and employee-ranking metrics
   remain outside MVP.

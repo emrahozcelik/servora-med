@@ -84,6 +84,7 @@ VERSION_CONFLICT
 EMAIL_ALREADY_EXISTS
 STAFF_PROFILE_REQUIRED
 STAFF_PROFILE_NOT_ALLOWED
+STAFF_PROFILE_NOT_FOUND
 MANAGER_NOT_ELIGIBLE
 STAFF_ROLE_CHANGE_NOT_SUPPORTED
 USER_HAS_ACTIVE_JOB_CARDS
@@ -655,7 +656,15 @@ Dashboard and Staff endpoints accept paired inclusive `from=YYYY-MM-DD` and `to=
 
 Delivery quantities include only manager-approved `COMPLETED` Product Delivery JobCards. They use persisted `deliveredAt`, purpose, exact decimal-string quantity, nullable unit, and historical Product snapshots. Different or unknown units are never summed together. Reports do not return revenue, margin, commission, invoice, payment, stock, or inventory-valuation metrics.
 
+All Staff attribution uses `job_cards.assigned_to`. `staff_completed_by` is the approval-submission lifecycle actor; `created_by`, manager approver identity, and activity actors do not determine report ownership. This rule is identical for Staff summaries, `groupBy=staff`, and `staffUserId` delivery filters.
+
+`GET /api/reports/staff/:userId` returns `404 STAFF_PROFILE_NOT_FOUND` for a missing, cross-organization, non-Staff, or malformed UUID. Malformed UUID input is rejected before PostgreSQL access.
+
+For delivery pagination, `total` is the canonical grouped-row count after filters and before pagination, not the raw delivery-item count. The count query and item query use the same group keys. `items` is the deterministically ordered `limit`/`offset` page of those groups. Persisted unit values are not normalized: `null`, `kutu`, and `Kutu` remain distinct. Every quantity is a three-decimal-scale string such as `0.500`, `3.000`, or `12.500`; frontend code never uses `Number`, `parseFloat`, or JavaScript arithmetic to combine report quantities.
+
 Dashboard completion counts and the single daily completion trend use `managerApprovedAt`; cancellation counts use `cancelledAt`. Current active, overdue, waiting-approval, and revision-requested counters are point-in-time values. Approval age covers only `WAITING_APPROVAL`, begins at `staffCompletedAt`, and is calculated against one authoritative server request time.
+
+Approval elapsed time is clamped with `GREATEST(requestTime - staff_completed_at, interval '0 seconds')`. Summary values cover the complete filtered queue rather than the current item page. `pendingCount` equals `total` and the sum of the four mutually exclusive age buckets. A future `staffCompletedAt` contributes zero minutes to `under2Hours`.
 
 The complete Slice 08 DTO, timezone, grouping, bucket, sorting, and accessibility contract is defined in `docs/superpowers/specs/2026-07-14-operational-reports-design.md`.
 

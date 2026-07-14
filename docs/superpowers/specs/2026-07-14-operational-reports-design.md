@@ -61,10 +61,27 @@ status = COMPLETED
 manager_approved_at IS NOT NULL
 ```
 
+### 4.1 Staff Attribution
+
+`job_cards.assigned_to` is the single operational and performance owner for every Staff
+counter and delivery report. The same attribution rule applies to:
+
+- `GET /api/reports/staff/me`
+- `GET /api/reports/staff/:userId`
+- `GET /api/reports/deliveries?groupBy=staff`
+- `GET /api/reports/deliveries?staffUserId=...`
+
+`staff_completed_by` identifies the lifecycle actor who submitted a JobCard for approval;
+it does not own the work for Staff reporting. `created_by`, manager approver identity, and
+JobCard activity actors also never determine Staff report ownership. Reassignment changes
+the operational owner through the persisted `assigned_to` value; Reports does not infer
+ownership from lifecycle or activity history.
+
 `WAITING_APPROVAL`, `REVISION_REQUESTED`, `CANCELLED`, and other unfinished records do
 not contribute to delivery quantities or completed Staff output. A delivery approved
 later appears under its persisted `delivered_at` date, not its approval date. Therefore a
-historical delivery report may gain an approved record after the original delivery day.
+historical delivery report gains that record after approval under the original delivery
+day.
 
 Delivery purposes remain separate. A positive `RETURN` quantity is reported under
 `RETURN`; it is never subtracted from `SALE` to invent a net-sales value.
@@ -129,6 +146,7 @@ Add a read-only module:
 reports/
   types.ts
   query.ts
+  ports.ts
   repository.ts
   service.ts
   handlers.ts
@@ -139,6 +157,7 @@ Responsibilities:
 
 - `types.ts` defines query inputs and public report DTOs.
 - `query.ts` owns strict query parsing, local-date validation, and canonical constants.
+- `ports.ts` owns the read-only Staff operational summary interface consumed by People.
 - `repository.ts` owns organization-scoped PostgreSQL read models and exact decimal
   mapping.
 - `service.ts` owns role scope, Staff visibility, defaults, and report composition.
@@ -146,13 +165,78 @@ Responsibilities:
 - `routes.ts` registers authenticated GET routes only.
 
 Reports does not own JobCards, delivery items, users, or Staff profiles and performs no
-mutation. It may reuse safe JobCard list projection functions through a narrow read port;
-it does not call another module through HTTP.
+mutation. It reuses safe JobCard list projection functions through a narrow read port and
+does not call another module through HTTP.
 
 The existing five-counter SQL in People becomes part of a canonical
-`StaffOperationalSummaryPort` implemented by the Reports read model. People continues to
-return its existing profile DTO for compatibility, but obtains counters through this
-port. Reports and People must not retain copied counter definitions.
+`StaffOperationalSummaryPort` implemented by the Reports read model. Its exact interface
+is:
+
+```ts
+export type RequestedReportRange = Readonly<{
+  from: string;
+  to: string;
+}> | null;
+
+export type StaffOperationalCounters = Readonly<{
+  openJobCards: number;
+  waitingApproval: number;
+  revisionRequested: number;
+  overdueJobCards: number;
+  completedInPeriod: number;
+}>;
+
+export type ResolvedReportRange = Readonly<{
+  from: string;
+  to: string;
+  timezone: string;
+}>;
+
+export type StaffOperationalSummary = Readonly<{
+  staffUserId: string;
+  range: ResolvedReportRange;
+  counters: StaffOperationalCounters;
+}>;
+
+export type StaffOperationalSummaryScope = Readonly<{
+  organizationId: string;
+  requestedRange: RequestedReportRange;
+  requestTime: Date;
+}>;
+
+export type StaffOperationalSummaryOneInput = StaffOperationalSummaryScope &
+  Readonly<{ staffUserId: string }>;
+
+export type StaffOperationalSummaryManyInput = StaffOperationalSummaryScope &
+  Readonly<{ staffUserIds: readonly string[] }>;
+
+export interface StaffOperationalSummaryPort {
+  getOne(input: StaffOperationalSummaryOneInput): Promise<StaffOperationalSummary | null>;
+
+  getMany(
+    input: StaffOperationalSummaryManyInput,
+  ): Promise<ReadonlyMap<string, StaffOperationalSummary>>;
+}
+```
+
+`requestedRange: null` means the organization-local current month resolved from
+`requestTime`. People uses this default for its existing profile DTO. Reports passes the
+validated requested pair or `null` and composes the returned counters with its own safe
+Staff identity and delivery-purpose read models.
+
+`getMany` is the only counter path used by People `listStaff`. It executes one batch
+aggregation for all supplied Staff identifiers, never one query per Staff member, and
+returns a result keyed by `staffUserId`. An empty identifier list returns an empty Map
+without a database query. Supplied identifiers that are not same-organization Staff are
+absent from the result; known Staff with no matching JobCards receive zero counters.
+
+The Reports PostgreSQL read model implements the port. The composition root constructs
+that implementation once and injects it into both `PeopleService` and `ReportsService`.
+People removes its current counter SQL and calls the injected port; Reports never calls
+People service or People HTTP routes. People imports the port and DTOs exclusively with
+TypeScript `import type`, while Reports has no People module dependency. This dependency
+direction prevents a People/Reports circular runtime dependency and forbids HTTP-based
+module calls.
 
 ## 8. HTTP Contract
 
@@ -265,13 +349,29 @@ limit
 offset
 ```
 
-`groupBy` is required. `staffUserId` is optional and may select active or inactive
-organization Staff. Default pagination is 50, maximum is 200, and the response uses
+`groupBy` is required. Omitting `staffUserId` reports all organization Staff; supplying it
+filters through `job_cards.assigned_to` and accepts active or inactive organization
+Staff. Default pagination is 50, maximum is 200, and the response uses
 `{ items, total, limit, offset }` plus the resolved range and `groupBy`.
 
-Every group includes `unit: string | null`; `null`, `adet`, and `kutu` are distinct groups.
-PostgreSQL `SUM(NUMERIC)` is returned as an exact decimal string. Backend and frontend do
-not recalculate quantity with JavaScript floating point.
+`total` is the number of rows produced by the canonical `GROUP BY`, not the number of raw
+delivery-item rows. `items` is the `limit`/`offset` page of that deterministically sorted
+group list. The count query uses exactly the same filters and group keys as the item query;
+it counts the canonical grouped result before pagination.
+
+Every group includes the persisted `unit: string | null` value without report-time case,
+spelling, or unit normalization. `null`, `kutu`, `Kutu`, and every other differently
+persisted value are separate groups. PostgreSQL `SUM(NUMERIC)` is exposed at exactly
+three decimal places:
+
+```text
+0.500
+3.000
+12.500
+```
+
+The API type is an exact decimal string. Backend and frontend do not use `Number`,
+`parseFloat`, or JavaScript arithmetic to recalculate or combine report quantities.
 
 Group keys are:
 
@@ -324,9 +424,15 @@ returns:
 ```
 
 Age begins at `staff_completed_at` and ends at one authoritative server request time.
-Item ages and `oldestWaitingMinutes` use completed whole minutes. Average age is rounded
-to the nearest whole minute. An empty queue returns zero counts and `null` for oldest and
-average.
+Canonical non-negative elapsed time is:
+
+```sql
+GREATEST(requestTime - staff_completed_at, interval '0 seconds')
+```
+
+The same elapsed expression supplies items, summary values, and buckets. Item ages and
+`oldestWaitingMinutes` use completed whole minutes. Average age is rounded to the nearest
+whole minute. An empty queue returns zero counts and `null` for oldest and average.
 
 Buckets are mutually exclusive and computed from unrounded elapsed time:
 
@@ -336,6 +442,17 @@ between2And8Hours: [2 hours, 8 hours)
 between8And24Hours:[8 hours, 24 hours)
 over24Hours:       [24 hours, infinity)
 ```
+
+Summary aggregation runs over the complete organization-scoped, filtered
+`WAITING_APPROVAL` queue before item pagination. The following invariants always hold:
+
+```text
+pendingCount == total
+pendingCount == under2Hours + between2And8Hours + between8And24Hours + over24Hours
+```
+
+A future `staff_completed_at` value clamps to zero elapsed minutes and contributes to
+`under2Hours`.
 
 Items are oldest first and reuse the safe, role-scoped JobCard list projection with one
 additional `waitingMinutes` field. The endpoint does not expose raw activity metadata or
@@ -365,6 +482,46 @@ index migration is reviewed separately; implementation must not create speculati
 
 ## 10. Frontend
 
+Stable report routes are:
+
+```text
+/reports
+/reports/deliveries
+/reports/approvals
+/staff/:staffUserId/reports
+```
+
+Staff keeps its own report inside the existing `/staff` profile area; no organization
+report route or navigation is exposed to Staff. Admin and Manager use
+`/staff/:staffUserId/reports` for an organization Staff report.
+
+The URL owns report navigation state:
+
+```text
+/reports:             from, to
+/reports/deliveries:  from, to, groupBy, staffUserId, offset
+/reports/approvals:   offset
+```
+
+Changing a date, grouping, or Staff filter resets delivery pagination to `offset=0`.
+Changing dashboard dates also replaces its canonical range. Refresh, direct links,
+Back, and Forward restore URL-owned state rather than component defaults. After the first
+successful default-range response, dashboard and delivery routes use replace navigation
+to write the resolved organization-local `from` and `to` pair into the URL.
+
+Invalid URL state is canonicalized with replace navigation so it does not add a broken
+history entry: invalid or partial dates fall back to the backend-resolved default pair,
+invalid `groupBy` becomes `day`, an invalid or negative `offset` becomes `0`, and an empty
+or syntactically invalid `staffUserId` is removed. A syntactically valid but unavailable
+Staff identifier follows the API error contract rather than being silently removed.
+User-entered invalid filter form values still receive the accessible validation behavior
+in Section 11 rather than being silently corrected.
+
+The initial own and management Staff report views expose no independent date or grouping
+filter. They request the default organization-local current month and display the echoed
+range, so `/staff` and `/staff/:staffUserId/reports` have no hidden component-owned report
+filter state in Slice 08.
+
 Admin and Manager receive a `Raporlar` workspace entry. The initial report UI contains:
 
 - restrained dashboard counters
@@ -378,7 +535,7 @@ Staff sees their own counters and purpose/unit delivery summary from
 `/api/reports/staff/me` within the existing profile area. Admin and Manager see the same
 shape for a selected Staff member. The UI does not merge, rank, or score people.
 
-No chart dependency is added. The trend may use a small CSS/SVG presentation, but the
+No chart dependency is added. The trend uses a small CSS/SVG presentation, while the
 semantic table is authoritative and complete. The redundant graphic is hidden from
 screen readers when the adjacent table already supplies the same information.
 
@@ -391,7 +548,9 @@ business success.
 
 - Invalid query values return `400 VALIDATION_ERROR` with safe field errors.
 - Unauthorized roles receive `403 FORBIDDEN`.
-- Missing or cross-organization Staff reports use concealed not-found behavior.
+- `GET /api/reports/staff/:userId` returns the same
+  `404 STAFF_PROFILE_NOT_FOUND` response for a missing, cross-organization, non-Staff, or
+  malformed UUID. Malformed UUID input is rejected before any PostgreSQL query.
 - Database failures use the existing safe generic server error contract.
 - Every screen has explicit loading, empty, error, retry, and successful-data states.
 - Applying a new filter keeps the previous data identifiable until the authoritative
@@ -427,15 +586,26 @@ Automated and live verification covers:
 - delivery filtering by `COMPLETED` status and `delivered_at`
 - exclusion of waiting, revision, and cancelled deliveries
 - separate purpose and nullable-unit groups
-- exact decimal-string quantities without JavaScript summation
+- grouped-result `total`, matching count/item group keys, and deterministic group pages
+- exact three-decimal-scale strings without JavaScript `Number`/`parseFloat` summation
+- persisted unit spelling/case and `null` remaining separate without report normalization
 - historical Product snapshot grouping after catalog rename/deactivation
+- `assigned_to` attribution for Staff report, Staff grouping, and Staff filtering, with
+  creator, submitter, approver, and activity actors excluded from ownership
 - Staff self scope and Admin/Manager organization scope
-- inactive historical Staff reporting and cross-organization concealment
+- inactive historical Staff reporting and identical `STAFF_PROFILE_NOT_FOUND` behavior
+  for missing, cross-organization, non-Staff, and malformed UUID inputs
+- malformed Staff UUID rejection before PostgreSQL access
 - People profile counters and Reports output sharing one read model
+- `getMany` batch aggregation for `listStaff` with no per-Staff query
+- composition-root injection with no People/Reports runtime cycle or HTTP module call
 - approval age boundaries at exactly 2, 8, and 24 hours
-- empty approval queue null/zero semantics and deterministic pagination
+- future approval-submission timestamp clamped to zero and placed in `under2Hours`
+- approval summary over the whole queue, bucket-sum invariants, empty-queue null/zero
+  semantics, and deterministic pagination
 - route query allowlists and safe errors
-- frontend loading, empty, error, retry, filter, pagination, and role states
+- stable report routes, URL ownership for every filter, offset reset, canonical replace
+  navigation, refresh, deep-link, Back, Forward, and Staff navigation exclusion
 - semantic trend table equivalence
 - full server/web tests, builds, and high-severity audits
 - disposable PostgreSQL migrations 001–006 and report acceptance data

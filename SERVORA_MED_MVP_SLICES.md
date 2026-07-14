@@ -375,13 +375,20 @@ removed a duplicate unused detail component, and added PostgreSQL-backed GitHub 
 - [ ] Reports use database queries, not frontend aggregates.
 - [ ] Staff can request only their own summary.
 - [ ] Manager can request organization staff summaries.
+- [ ] Staff ownership consistently uses `job_cards.assigned_to`; creator, submitter, approver, and activity actors do not determine Staff attribution.
 - [ ] Date ranges use paired inclusive local dates, default to the organization-local current month, and contain at most 366 calendar dates.
 - [ ] Delivery reporting includes only `COMPLETED` Product Delivery JobCards and uses `deliveredAt`, not approval-submission time.
 - [ ] Completion counts use `managerApprovedAt`; cancellation counts use `cancelledAt`; approval age begins at `staffCompletedAt`.
 - [ ] Quantity remains an exact decimal string and separate for every nullable unit and delivery purpose.
+- [ ] Delivery `total` counts canonical grouped rows, item and count queries use identical group keys, and quantities always use three decimal places.
+- [ ] Persisted units are not normalized during reporting; `null`, casing differences, and different spellings remain separate groups.
 - [ ] Product grouping uses persisted delivery snapshots rather than live catalog names.
-- [ ] Existing People counters and Reports use one `StaffOperationalSummaryPort` source without copied SQL definitions.
+- [ ] Existing People counters and Reports use one `StaffOperationalSummaryPort` source without copied SQL definitions; `getMany` batches `listStaff` without a per-Staff query.
+- [ ] Composition-root injection creates no People/Reports runtime cycle and no module calls another through HTTP.
 - [ ] Approval buckets are mutually exclusive at the exact 2-hour, 8-hour, and 24-hour boundaries.
+- [ ] Approval elapsed time clamps future submission timestamps to zero; summary covers the whole queue, `pendingCount == total`, and bucket totals equal `pendingCount`.
+- [ ] Missing, cross-organization, non-Staff, and malformed Staff report identifiers all return `404 STAFF_PROFILE_NOT_FOUND`; malformed UUIDs do not reach PostgreSQL.
+- [ ] Stable `/reports`, `/reports/deliveries`, `/reports/approvals`, and `/staff/:staffUserId/reports` routes and URL-owned filters preserve refresh, deep links, Back, and Forward; date/group/Staff filter changes reset offset and invalid URL values use replace navigation.
 - [ ] No report migration is added without a disposable-PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)` result that demonstrates the need.
 - [ ] Reports contain no revenue, margin, commission, invoice, payment, or inventory valuation.
 - [ ] The trend has a complete semantic table equivalent; empty data and date-range errors are accessible and understandable.
