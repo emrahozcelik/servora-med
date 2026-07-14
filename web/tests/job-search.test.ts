@@ -42,6 +42,8 @@ describe('canonical JobCard URL state', () => {
   it('selects a board status by explicitly forcing list and offset zero', () => {
     const next = selectStatus(new URLSearchParams('view=board&q=klinik&priority=urgent'), 'COMPLETED');
     expect(next.toString()).toBe('q=klinik&status=COMPLETED&priority=urgent&view=list&offset=0');
+    expect(selectStatus(new URLSearchParams('status=closed&offset=75'), 'NEW').toString())
+      .toBe('status=NEW&view=list&offset=0');
   });
 
   it('mobile force-list changes only view and desktop growth has no auto-restore helper', () => {

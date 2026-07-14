@@ -4,33 +4,56 @@ import { Link, useSearchParams } from 'react-router-dom';
 import type { CurrentUser } from '../services/api';
 import { ApiError } from '../services/api';
 import { createRequestGate } from '../services/request-gate';
+import { JobBoard } from './JobBoard';
 import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
 import type { JobCommandIntent } from './JobRow';
-import { listJobCards } from './jobs-api';
-import { canonicalJobSearchParams, forceMobileList, parseJobSearch, updateJobSearch, type JobSearchState } from './job-search';
+import { getJobCardBoard, listJobCards, type JobCardBoard } from './jobs-api';
+import { canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus, updateJobSearch, type JobSearchState } from './job-search';
 
 const PAGE_SIZE = 25;
 
 function filterHref(params: URLSearchParams, status: JobSearchState['status']) {
-  return `?${updateJobSearch(params, { status }).toString()}`.replace(/^\?$/, '');
+  return `?${selectStatus(params, status ?? 'active').toString()}`;
 }
 
-export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = listJobCards }: {
+type BoardState =
+  | { kind: 'loading' }
+  | { kind: 'ready'; board: JobCardBoard }
+  | { kind: 'error'; message: string };
+
+export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
   user: CurrentUser;
   notice?: string;
   onCreate?: () => void;
   onCommand?: (intent: JobCommandIntent) => void;
   load?: typeof listJobCards;
+  loadBoard?: typeof getJobCardBoard;
 }) {
   const [params, setParams] = useSearchParams();
   const filters = parseJobSearch(params);
   const [state, setState] = useState<JobListState>({ kind: 'loading' });
+  const [boardState, setBoardState] = useState<BoardState>({ kind: 'loading' });
   const [reload, setReload] = useState(0);
   const requestGate = useRef(createRequestGate());
+  const [isDesktop, setIsDesktop] = useState<boolean | null>(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? window.matchMedia('(min-width: 64rem)').matches : null
+  ));
   const queryKey = params.toString();
   const canonicalParams = canonicalJobSearchParams(params);
   const canonicalKey = canonicalParams.toString();
+
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia('(min-width: 64rem)');
+    const handleChange = (event: MediaQueryListEvent) => {
+      if (!event.matches) requestGate.current.next();
+      setIsDesktop(event.matches);
+    };
+    media.addEventListener('change', handleChange);
+    return () => media.removeEventListener('change', handleChange);
+  }, []);
 
   useEffect(() => {
     if (queryKey !== canonicalKey) {
@@ -39,8 +62,27 @@ export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = li
       return;
     }
     if (filters.view === 'board') {
-      requestGate.current.next();
-      return;
+      if (isDesktop === false) {
+        requestGate.current.next();
+        setParams(forceMobileList(params), { replace: true });
+        return;
+      }
+      if (isDesktop !== true) {
+        requestGate.current.next();
+        return;
+      }
+      const generation = requestGate.current.next();
+      setBoardState({ kind: 'loading' });
+      const { view: _view, status: _status, offset: _offset, ...requestFilters } = filters;
+      if (user.role === 'STAFF') delete requestFilters.assignedTo;
+      loadBoard(requestFilters).then((board) => {
+        if (requestGate.current.isCurrent(generation)) setBoardState({ kind: 'ready', board });
+      }).catch((caught) => {
+        if (!requestGate.current.isCurrent(generation)) return;
+        const error = caught instanceof ApiError ? caught : new ApiError(0, 'UNKNOWN_ERROR', 'İş panosu yüklenemedi.', true);
+        setBoardState({ kind: 'error', message: error.message });
+      });
+      return () => { requestGate.current.next(); };
     }
     const generation = requestGate.current.next();
     setState({ kind: 'loading' });
@@ -67,14 +109,18 @@ export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = li
     return () => { requestGate.current.next(); };
   // queryKey owns filter identity; parsed filters are reconstructed from it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canonicalKey, load, queryKey, reload, user.id, user.role]);
+  }, [canonicalKey, isDesktop, load, loadBoard, queryKey, reload, user.id, user.role]);
 
-  if (filters.view === 'board') return <main className="workspace job-workspace">
+  if (filters.view === 'board' && isDesktop === null) return <main className="workspace job-workspace">
     <p className="eyebrow">Çalışma alanı</p><div className="workspace-message">
       <h1>Kanban görünümü henüz kullanıma açık değil</h1>
       <p>Bu görünüm sonraki çalışma diliminde eklenecek. İş kayıtlarına liste görünümünden ulaşabilirsiniz.</p>
       <Link className="secondary-button" to={{ search: forceMobileList(params).toString() }}>Liste görünümüne dön</Link>
     </div>
+  </main>;
+
+  if (filters.view === 'board' && isDesktop === false) return <main className="workspace job-workspace" aria-busy="true">
+    <h1 className="sr-only">Liste görünümüne geçiliyor</h1>
   </main>;
 
   const hasFilters = Boolean(filters.q || filters.type || filters.assignedTo || filters.customerId || filters.priority
@@ -94,9 +140,16 @@ export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = li
     {filters.status === 'WAITING_APPROVAL' && <p className="job-order-note">En uzun süredir onay bekleyen işler önce gösterilir.</p>}
     <JobFilters user={user} filters={filters}
       onApply={(changes) => setParams(updateJobSearch(params, changes))}
-      onChange={(name, value) => setParams(updateJobSearch(params, { [name]: value || undefined }))} />
-    <JobList state={state} user={user} hasFilters={hasFilters} onRetry={() => setReload((value) => value + 1)}
+      onChange={(_name, value) => setParams(selectStatus(params, value))}
+      onViewChange={(view) => setParams(view === 'board' ? enterBoard(params) : forceMobileList(params))}
+      showViewControl={isDesktop === true} />
+    {filters.view === 'board' ? (boardState.kind === 'loading'
+      ? <div className="job-results" aria-busy="true" aria-live="polite"><h2 className="sr-only">İş panosu yükleniyor</h2></div>
+      : boardState.kind === 'error'
+        ? <div className="workspace-message" role="alert"><h2>İş panosu yüklenemedi</h2><p>{boardState.message}</p></div>
+        : <JobBoard board={boardState.board} params={params} />)
+      : <JobList state={state} user={user} hasFilters={hasFilters} onRetry={() => setReload((value) => value + 1)}
       onOffsetChange={(offset) => { const next = updateJobSearch(params, {}); if (offset > 0) next.set('offset', String(offset)); setParams(next); }}
-      onCommand={(intent) => onCommand?.(intent)} />
+      onCommand={(intent) => onCommand?.(intent)} />}
   </main>;
 }

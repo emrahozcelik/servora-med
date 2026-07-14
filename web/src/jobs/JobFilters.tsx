@@ -8,11 +8,13 @@ type FilterName = 'status';
 type FilterChanges = Partial<Omit<JobSearchState, 'view' | 'offset'>>;
 type DraftErrors = { assignedTo?: string; customerId?: string };
 
-export function JobFilters({ user, filters, onApply, onChange }: {
+export function JobFilters({ user, filters, onApply, onChange, onViewChange, showViewControl }: {
   user: CurrentUser;
   filters: JobSearchState;
   onApply: (changes: FilterChanges) => void;
   onChange: (name: FilterName, value: JobCardStatusFilter) => void;
+  onViewChange: (view: JobSearchState['view']) => void;
+  showViewControl: boolean;
 }) {
   const [search, setSearch] = useState(filters.q ?? '');
   const [advanced, setAdvanced] = useState({
@@ -54,6 +56,10 @@ export function JobFilters({ user, filters, onApply, onChange }: {
     <div className="job-filter-primary">
       <div className="field-group"><label htmlFor="job-search">İş ara</label>
         <input id="job-search" type="search" maxLength={200} value={search} onChange={(event) => setSearch(event.target.value)} /></div>
+      {showViewControl && <div className="field-group"><label htmlFor="job-view">Görünüm</label>
+        <select id="job-view" value={filters.view} onChange={(event) => onViewChange(event.target.value as JobSearchState['view'])}>
+          <option value="list">Liste</option><option value="board">Pano</option>
+        </select></div>}
       <div className="field-group"><label htmlFor="job-status">Durum</label>
         <select id="job-status" value={filters.status ?? 'active'} onChange={(event) => onChange('status', event.target.value as JobCardStatusFilter)}>
           <option value="active">Aktif</option><option value="WAITING_APPROVAL">Onay bekliyor</option>

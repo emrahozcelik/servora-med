@@ -75,4 +75,12 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-row-facts \{[^}]*grid-template-columns: 1fr;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-row-commands \{[^}]*flex-direction: column;/);
   });
+
+  it('keeps the desktop board inside the page with independently scrolling columns', () => {
+    expect(css).toMatch(/\.job-board \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*overflow-x: hidden;/);
+    expect(css).toMatch(/\.job-board-columns \{[^}]*grid-template-columns: repeat\(5, minmax\(0, 1fr\)\);/);
+    expect(css).toMatch(/\.job-board-column \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/\.job-board-items \{[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
+    expect(css).not.toMatch(/\.job-board-card[^}]*box-shadow|\.job-board-column[^}]*gradient/);
+  });
 });
