@@ -2701,7 +2701,7 @@ git commit -m "test: harden report accessibility"
 - Produces: verified Slice 08 documentation, refreshed server/web code graphs, persistent
   project-memory observations, a clean pushed feature branch, and PR-ready evidence.
 
-- [ ] **Step 1: Run the closeout documentation preflight and verify RED**
+- [x] **Step 1: Run the closeout documentation preflight and verify RED**
 
 Run:
 
@@ -2714,7 +2714,7 @@ rg -n "## 11. Slice 08" SERVORA_MED_MVP_SLICES.md
 Expected: output still describes Slice 08 as unimplemented or unchecked; closeout claims
 must not change before verification.
 
-- [ ] **Step 2: Run every automated and live verification gate**
+- [x] **Step 2: Run every automated and live verification gate**
 
 Run:
 
@@ -2733,7 +2733,7 @@ suite passes; both audits report zero high-severity vulnerabilities. Confirm the
 PostgreSQL-enabled report test executed rather than skipped. Re-run the complete Task 13
 Playwright MCP matrix if any report UI or CSS changed after browser acceptance.
 
-- [ ] **Step 3: Verify architecture, scope, and migration boundaries**
+- [x] **Step 3: Verify architecture, scope, and migration boundaries**
 
 Run:
 
@@ -2749,7 +2749,7 @@ Expected: no migration file is added; source contains no report/cache/materializ
 financial/ranking/inventory scope, quantity conversion, or alternate Staff ownership.
 Allowed explanatory test text must not correspond to production behavior.
 
-- [ ] **Step 4: Update verified SSOT documentation**
+- [x] **Step 4: Update verified SSOT documentation**
 
 Write only observed behavior and exact verification totals:
 
@@ -2778,7 +2778,7 @@ SERVORA_MED_ARCHITECTURE_PLAN.md
 Do not edit schema, decisions, or design-system documents because this implementation
 adds no schema object, durable decision, dependency, or UI token.
 
-- [ ] **Step 5: Run documentation and full-worktree verification**
+- [x] **Step 5: Run documentation and full-worktree verification**
 
 Run:
 
@@ -2793,7 +2793,7 @@ git status --short
 Expected: `git diff --check` passes; API status is exact; no Slice 08 acceptance remains
 unchecked; worktree contains only intended closeout documentation before commit.
 
-- [ ] **Step 6: Commit verified closeout documentation**
+- [x] **Step 6: Commit verified closeout documentation**
 
 ```bash
 git add README.md SERVORA_MED_API_DRAFT.md SERVORA_MED_MVP_SLICES.md \
@@ -2801,7 +2801,7 @@ git add README.md SERVORA_MED_API_DRAFT.md SERVORA_MED_MVP_SLICES.md \
 git commit -m "docs: close Slice 08 operational reports"
 ```
 
-- [ ] **Step 7: Reindex Codebase Memory and update persistent project memory**
+- [x] **Step 7: Reindex Codebase Memory and update persistent project memory**
 
 Use `codebase-memory-mcp.index_repository` in `full` mode with persistence for:
 
@@ -2816,7 +2816,7 @@ verified completion facts: canonical assigned Staff ownership, approved delivery
 exact decimal strings, local timestamp ownership, shared People port, stable routes,
 approval invariants, and final verification status. Do not store transient test logs.
 
-- [ ] **Step 8: Commit refreshed Codebase Memory artifacts**
+- [x] **Step 8: Commit refreshed Codebase Memory artifacts**
 
 Run:
 
