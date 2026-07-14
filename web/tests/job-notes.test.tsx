@@ -32,7 +32,9 @@ describe('JobCard operational notes', () => {
   });
 
   async function renderNotes(overrides: Partial<ComponentProps<typeof JobNotes>> = {}) {
-    const load = vi.fn().mockResolvedValue(emptyPage);
+    const load = vi.fn().mockResolvedValueOnce(emptyPage).mockResolvedValue({
+      items: [savedNote], total: 1, limit: 25, offset: 0,
+    });
     const add = vi.fn().mockResolvedValue(savedNote);
     const createActionId = vi.fn(() => 'action-note-1');
     await act(async () => root.render(<JobNotes jobId="job-1" load={load} add={add}
@@ -106,5 +108,31 @@ describe('JobCard operational notes', () => {
     const retry = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Tekrar dene')!;
     await act(async () => { retry.click(); await Promise.resolve(); });
     expect(load).toHaveBeenCalledTimes(2);
+  });
+
+  it('returns to and reloads the first page after adding a note from a later page', async () => {
+    const older = { ...savedNote, id: 'note-old', note: 'Eski sayfa notu' };
+    const firstPage = { items: [{ ...savedNote, id: 'note-first', note: 'İlk sayfa notu' }], total: 30, limit: 25, offset: 0 };
+    const secondPage = { items: [older], total: 30, limit: 25, offset: 25 };
+    const refreshed = { items: [savedNote], total: 31, limit: 25, offset: 0 };
+    const load = vi.fn()
+      .mockResolvedValueOnce(firstPage)
+      .mockResolvedValueOnce(secondPage)
+      .mockResolvedValueOnce(refreshed);
+    await renderNotes({ load });
+    const next = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Sonraki')!;
+    await act(async () => { next.click(); await Promise.resolve(); });
+    expect(host.textContent).toContain('Eski sayfa notu');
+
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, savedNote.note);
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      await Promise.resolve(); await Promise.resolve();
+    });
+    expect(load).toHaveBeenLastCalledWith('job-1', { limit: 25, offset: 0 });
+    expect(host.textContent).toContain(savedNote.note);
+    expect(host.textContent).not.toContain('Eski sayfa notu');
   });
 });

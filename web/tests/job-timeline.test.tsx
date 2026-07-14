@@ -56,4 +56,19 @@ describe('safe JobCard timeline', () => {
     expect(load).toHaveBeenCalledTimes(2);
     expect(host.textContent).toContain('Henüz işlem geçmişi yok');
   });
+
+  it('returns to and reloads the first page when its refresh key changes', async () => {
+    const activity: JobCardActivity = { id: 'a1', jobCardId: 'job-1', eventType: 'JOB_CREATED', actor: null,
+      details: { kind: 'NONE' }, createdAt: '2026-07-14T08:00:00.000Z' };
+    const load = vi.fn().mockImplementation(async (_jobId: string, query: { limit: number; offset: number }) => ({
+      items: [activity], total: 75, limit: query.limit, offset: query.offset,
+    }));
+    await act(async () => { root.render(<JobTimeline jobId="job-1" refreshKey={0} load={load} />); await Promise.resolve(); });
+    const next = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Sonraki')!;
+    await act(async () => { next.click(); await Promise.resolve(); });
+    expect(load).toHaveBeenLastCalledWith('job-1', { limit: 50, offset: 50 });
+
+    await act(async () => { root.render(<JobTimeline jobId="job-1" refreshKey={1} load={load} />); await Promise.resolve(); await Promise.resolve(); });
+    expect(load).toHaveBeenLastCalledWith('job-1', { limit: 50, offset: 0 });
+  });
 });

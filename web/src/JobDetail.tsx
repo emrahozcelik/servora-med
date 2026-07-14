@@ -1,6 +1,6 @@
 import {
   useEffect, useId, useRef, useState,
-  type FormEvent, type KeyboardEvent, type ReactNode,
+  type FormEvent, type KeyboardEvent, type ReactNode, type Ref,
 } from 'react';
 
 import { ApiError, type CurrentUser } from './services/api';
@@ -138,15 +138,17 @@ export function ReasonDialog({ kind, pending, onClose, onConfirm }: {
 }
 
 export function JobDetailPanel({ job, items, viewerRole = 'STAFF', pending, message, messageIsError = false,
-  onBack, onCommand, children }: {
+  feedbackRef, onBack, onCommand, children }: {
   job: JobCard; items: DeliveryItem[]; pending: boolean; message: string; messageIsError?: boolean;
-  viewerRole?: CurrentUser['role']; onBack: () => void; onCommand: (command: LifecycleCommand) => void; children?: ReactNode;
+  viewerRole?: CurrentUser['role']; feedbackRef?: Ref<HTMLDivElement>;
+  onBack: () => void; onCommand: (command: LifecycleCommand) => void; children?: ReactNode;
 }) {
   const commands = availableLifecycleCommands(job, viewerRole);
   return <main className="job-detail">
     <div className="detail-heading"><div><p className="eyebrow">Ürün teslimi</p><h1>{job.title}</h1></div>
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
-    {message && <div className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`} role={messageIsError ? 'alert' : 'status'}>{message}</div>}
+    {message && <div ref={feedbackRef} className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
+      role={messageIsError ? 'alert' : 'status'} tabIndex={-1}>{message}</div>}
     <dl className="detail-summary"><div><dt>Durum</dt><dd>{statusLabels[job.status]}</dd></div></dl>
     <section className="delivery-lines" aria-labelledby="delivery-lines-title"><h2 id="delivery-lines-title">Teslim bilgileri</h2>
       <ul>{items.map((item) => <li key={item.id}><div><strong>{item.productNameSnapshot}</strong><span>{item.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span></div>
@@ -173,6 +175,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   const [timelineKey, setTimelineKey] = useState(0);
   const [dialog, setDialog] = useState<'revise' | 'cancel' | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const feedbackRef = useRef<HTMLDivElement>(null);
+  const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
 
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
@@ -181,6 +185,10 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof ApiError ? error.message : 'İş yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
     return () => { active = false; };
   }, [jobId, reloadKey]);
+
+  useEffect(() => {
+    if (feedbackFocusRequest > 0) feedbackRef.current?.focus();
+  }, [feedbackFocusRequest]);
 
   function closeDialog() {
     setDialog(null);
@@ -205,8 +213,10 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
         : await cancelJobCard(jobId, { ...input, cancelReason: reason });
       setState({ ...state, job: updated });
       setTimelineKey((value) => value + 1);
-      if (dialog) closeDialog();
+      const completedDialogCommand = dialog !== null;
+      if (completedDialogCommand) setDialog(null);
       setMessage(`${commandLabels[command]} işlemi tamamlandı.`);
+      if (completedDialogCommand) setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT' || caught.code === 'INVALID_TRANSITION')) {
@@ -229,7 +239,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   if (state.kind === 'error') return <main className="job-detail"><div className="workspace-message" role="alert"><h1>İş yüklenemedi</h1><p>{state.message}</p>
     {state.retryable && <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button>}</div></main>;
   return <JobDetailPanel job={state.job} items={state.items} viewerRole={user.role} pending={pending}
-    message={message} messageIsError={messageIsError} onBack={onBack}
+    message={message} messageIsError={messageIsError} feedbackRef={feedbackRef} onBack={onBack}
     onCommand={(name) => command(name, document.activeElement as HTMLElement)}>
     <div className="job-detail-sections"><JobNotes jobId={jobId} onAdded={() => setTimelineKey((value) => value + 1)} /><JobTimeline jobId={jobId} refreshKey={timelineKey} /></div>
     {dialog && <ReasonDialog kind={dialog} pending={pending} onClose={closeDialog} onConfirm={(reason) => void execute(dialog, reason)} />}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '../services/api';
 import { isKnownJobCardActivityEvent, jobActivityLabel } from './job-labels';
@@ -38,8 +38,13 @@ export function JobTimeline({ jobId, refreshKey = 0, load = listActivity }: {
   const [offset, setOffset] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState<TimelineState>({ kind: 'loading' });
+  const previousRefreshKey = useRef(refreshKey);
 
   useEffect(() => {
+    if (previousRefreshKey.current !== refreshKey) {
+      previousRefreshKey.current = refreshKey;
+      if (offset !== 0) { setOffset(0); return; }
+    }
     let active = true;
     setState({ kind: 'loading' });
     load(jobId, { limit: PAGE_SIZE, offset })

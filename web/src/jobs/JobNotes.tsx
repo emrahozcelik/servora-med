@@ -70,14 +70,11 @@ export function JobNotes({
     setPending(true);
     setSubmitError('');
     try {
-      const saved = await add(jobId, { clientActionId: action.id, note });
-      setState((current) => {
-        if (current.kind !== 'ready') return current;
-        const items = [saved, ...current.page.items.filter((item) => item.id !== saved.id)];
-        return { kind: 'ready', page: { ...current.page, items, total: Math.max(current.page.total + 1, items.length) } };
-      });
+      await add(jobId, { clientActionId: action.id, note });
       actionRef.current = null;
       setDraft('');
+      setOffset(0);
+      setReloadKey((value) => value + 1);
       onAdded();
     } catch (caught) {
       const error = caught instanceof Error ? caught.message : 'Not kaydedilemedi.';
