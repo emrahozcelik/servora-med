@@ -1,24 +1,36 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { JobDetailPanel, runStaffJobCommand } from '../src/JobDetail';
+import { availableLifecycleCommands, JobDetailPanel, runStaffJobCommand } from '../src/JobDetail';
 import { ApiError, type DeliveryItem, type JobCard } from '../src/services/api';
 
 const job: JobCard = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2,
-  title: 'ABC Klinik ürün teslimi', description: null, customerId: 'c1', assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null };
+  title: 'ABC Klinik ürün teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null };
 const item: DeliveryItem = { id: 'i1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'p1', deliveryPurpose: 'SAMPLE',
   deliveredAt: '2026-07-11T10:00:00.000Z', quantity: 2, unit: 'adet', productNameSnapshot: 'İmplant Seti',
   productSkuSnapshot: 'S1', productModelSnapshot: null, lotNo: null, serialNo: null, expiryDate: null, deliveryNote: null };
 
 describe('Staff JobCard detail', () => {
+  it('exposes the exact Staff and management lifecycle actions by status', () => {
+    expect(availableLifecycleCommands({ ...job, status: 'NEW' }, 'STAFF')).toEqual(['plan', 'start']);
+    expect(availableLifecycleCommands({ ...job, status: 'PLANNED' }, 'STAFF')).toEqual(['start']);
+    expect(availableLifecycleCommands({ ...job, status: 'IN_PROGRESS' }, 'STAFF')).toEqual(['submit']);
+    expect(availableLifecycleCommands({ ...job, status: 'REVISION_REQUESTED' }, 'STAFF')).toEqual(['resume']);
+    expect(availableLifecycleCommands({ ...job, status: 'WAITING_APPROVAL' }, 'STAFF')).toEqual([]);
+    expect(availableLifecycleCommands({ ...job, status: 'WAITING_APPROVAL' }, 'MANAGER')).toEqual(['approve', 'revise']);
+    expect(availableLifecycleCommands({ ...job, status: 'NEW' }, 'ADMIN')).toEqual(['plan', 'start', 'cancel']);
+    expect(availableLifecycleCommands({ ...job, status: 'COMPLETED' }, 'ADMIN')).toEqual([]);
+    expect(availableLifecycleCommands({ ...job, status: 'CANCELLED' }, 'ADMIN')).toEqual([]);
+  });
   it('renders immutable delivery facts and the next valid command', () => {
     const html = renderToStaticMarkup(<JobDetailPanel job={job} items={[item]} pending={false} message="" onBack={() => {}} onCommand={() => {}} />);
     expect(html).toContain('ABC Klinik ürün teslimi');
-    expect(html).toContain('Sürüm 2');
+    expect(html).not.toContain('Sürüm 2');
     expect(html).toContain('İmplant Seti');
     expect(html).toContain('Numune');
     expect(html).toContain('2 adet');
     expect(html).toContain('İşi başlat');
+    expect(html).toContain('Planla');
   });
 
   it('renders quantity without a fabricated unit when the Product unit is null', () => {

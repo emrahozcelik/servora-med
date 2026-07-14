@@ -1,9 +1,9 @@
 import {
   addDeliveryItem, approveJobCard, createJobCard, getJobCard,
-  listActivity as listActivityPage, listDeliveryItems,
+  listDeliveryItems,
   patchDeliveryItem, patchJobCard, removeDeliveryItem, requestJobCardRevision,
   startJobCard, submitJobCardForApproval,
-  type DeliveryItem, type DeliveryPurpose, type JobCard, type JobCardActivity,
+  type DeliveryItem, type DeliveryPurpose, type JobCard,
   type JobCardStatus,
 } from '../jobs/jobs-api';
 
@@ -17,8 +17,6 @@ export type { DeliveryItem, DeliveryPurpose, JobCard, JobCardStatus } from '../j
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF';
 export type CurrentUser = { id: string; organizationId: string; name: string; email: string; role: UserRole; mustChangePassword: boolean; isActive: boolean; version: number };
-/** @deprecated Use JobCardActivity from jobs/jobs-api. */
-export type Activity = { id: string; jobCardId: string; actorId: string | null; eventType: string; oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: string };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 
 export class ApiError extends Error {
@@ -90,12 +88,4 @@ export async function changePassword(input: { currentPassword: string; newPasswo
 
 export async function listReferenceCustomers() {
   return items(await request('/api/reference/customers')).map((entry) => { const v = object(entry); return { id: string(v.id, 'id'), name: string(v.name, 'name'), customerType: string(v.customerType, 'customerType'), status: string(v.status, 'status') }; });
-}
-/** @deprecated Remove when Task 12 migrates detail activity to JobCardActivity pages. */
-export async function listActivity(jobId: string): Promise<Activity[]> {
-  return (await listActivityPage(jobId)).items.map((activity: JobCardActivity) => ({
-    id: activity.id, jobCardId: activity.jobCardId, actorId: activity.actor?.id ?? null,
-    eventType: activity.eventType, oldValue: null, newValue: null, metadata: null,
-    clientActionId: null, createdAt: activity.createdAt,
-  }));
 }

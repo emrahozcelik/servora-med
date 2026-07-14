@@ -205,16 +205,25 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .delivery-lines dl div { display: grid; align-content: start; gap: 0.25rem; }
 .detail-action { display: flex; align-items: center; justify-content: space-between; gap: 1.5rem; margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
 .detail-action p { max-width: 55ch; margin: 0; color: var(--muted); line-height: 1.55; }
-.activity-timeline { margin-top: 2.5rem; }
-.activity-timeline h2, .manager-review h2 { margin: 0 0 1rem; font-size: 1.125rem; }
-.activity-timeline ol { padding: 0; margin: 0; border-top: 1px solid var(--rule); list-style: none; }
-.activity-timeline li { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding-block: 0.8rem; border-bottom: 1px solid var(--rule); }
-.activity-timeline li span { font-weight: 650; }
-.activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-.manager-review { margin-top: 2rem; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
 .review-buttons { display: flex; justify-content: flex-end; gap: 0.75rem; }
-.revision-form { max-width: 38rem; }
-.revision-form .review-buttons { margin-top: 1rem; }
+.job-detail-sections { display: grid; gap: 2.5rem; margin-top: 2.5rem; }
+.job-notes, .job-timeline { padding-top: 1.5rem; border-top: 1px solid var(--rule); }
+.detail-section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.job-notes h2, .job-timeline h2 { margin: 0 0 1rem; font-size: 1.125rem; }
+.detail-section-heading span, .detail-empty { color: var(--muted); font-size: 0.8rem; }
+.job-notes form { max-width: 38rem; }
+.job-note-list, .job-timeline ol { padding: 0; margin: 1.25rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
+.job-note-list li, .job-timeline li { padding-block: 1rem; border-bottom: 1px solid var(--rule); }
+.job-note-list p { margin: 0 0 0.6rem; white-space: pre-wrap; }
+.job-note-list li > div, .job-timeline li, .job-timeline li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.job-note-list time, .job-timeline time, .job-timeline li > div:last-child { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
+.job-timeline li > div:first-child { display: grid; justify-content: start; gap: 0.25rem; }
+.job-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
+.dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(20% 0.02 240deg / 45%); }
+.reason-dialog { width: min(100%, 34rem); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.8rem; background: var(--paper); box-shadow: 0 1.5rem 4rem oklch(20% 0.02 240deg / 24%); }
+.reason-dialog h2 { margin: 0; }
+.reason-dialog > p { color: var(--muted); line-height: 1.5; }
+.reason-dialog .review-buttons { margin-top: 1rem; }
 
 .customer-workspace { margin-top: 2rem; }
 .customer-filters { display: grid; grid-template-columns: minmax(12rem, 1.5fr) repeat(4, minmax(9rem, 0.75fr)); gap: 0.9rem; align-items: end; margin-bottom: 2rem; padding-block: 1rem 1.25rem; border-block: 1px solid var(--rule); }
@@ -375,7 +384,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .delivery-lines dl div:last-child { grid-column: 1 / -1; }
   .detail-action { align-items: stretch; flex-direction: column; }
   .detail-action .primary-button { width: 100%; }
-  .activity-timeline li { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
+  .job-timeline li, .job-note-list li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
   .review-buttons { align-items: stretch; flex-direction: column-reverse; }
   .review-buttons button { width: 100%; }
   .people-row { align-items: stretch; flex-direction: column; }
