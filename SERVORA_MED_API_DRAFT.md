@@ -654,17 +654,27 @@ Completed and cancelled records are represented only by filtered counts in the b
 
 Dashboard and Staff endpoints accept paired inclusive `from=YYYY-MM-DD` and `to=YYYY-MM-DD` values. Omitting both selects the organization-local current month. Delivery reports use the same range contract and require `groupBy=day|purpose|product|staff`. The inclusive range contains at most 366 calendar dates. Frontend code does not construct UTC boundaries.
 
+Reports query parameters are scalar. Repeating `from`, `to`, `groupBy`, `staffUserId`, `limit`, or `offset`, even with the same value, returns `400 VALIDATION_ERROR` before coercion or repository access. Unknown parameters and parameters outside the endpoint-specific allowlist also return `400 VALIDATION_ERROR`.
+
 Delivery quantities include only manager-approved `COMPLETED` Product Delivery JobCards. They use persisted `deliveredAt`, purpose, exact decimal-string quantity, nullable unit, and historical Product snapshots. Different or unknown units are never summed together. Reports do not return revenue, margin, commission, invoice, payment, stock, or inventory-valuation metrics.
 
 All Staff attribution uses `job_cards.assigned_to`. `staff_completed_by` is the approval-submission lifecycle actor; `created_by`, manager approver identity, and activity actors do not determine report ownership. This rule is identical for Staff summaries, `groupBy=staff`, and `staffUserId` delivery filters.
 
 `GET /api/reports/staff/:userId` returns `404 STAFF_PROFILE_NOT_FOUND` for a missing, cross-organization, non-Staff, or malformed UUID. Malformed UUID input is rejected before PostgreSQL access.
 
+For `GET /api/reports/deliveries`, omitting `staffUserId` means all organization Staff. Empty, repeated, or malformed `staffUserId` returns `400 VALIDATION_ERROR`; a malformed query UUID does not reach PostgreSQL. A valid missing, cross-organization, or non-Staff UUID returns `404 STAFF_PROFILE_NOT_FOUND`. An inactive same-organization Staff UUID is accepted. The query behavior is intentionally different from the concealed malformed-path response on `/api/reports/staff/:userId`.
+
 For delivery pagination, `total` is the canonical grouped-row count after filters and before pagination, not the raw delivery-item count. The count query and item query use the same group keys. `items` is the deterministically ordered `limit`/`offset` page of those groups. Persisted unit values are not normalized: `null`, `kutu`, and `Kutu` remain distinct. Every quantity is a three-decimal-scale string such as `0.500`, `3.000`, or `12.500`; frontend code never uses `Number`, `parseFloat`, or JavaScript arithmetic to combine report quantities.
+
+Delivery responses are discriminated by `groupBy` into exact day, purpose, Product, and Staff item arrays. Staff report `deliveriesByPurpose` uses the same purpose item DTO. Purpose groups sort by `SALE`, `SAMPLE`, `CONSIGNMENT`, `RETURN`, `OTHER`, then persisted unit ascending with null last.
 
 Dashboard completion counts and the single daily completion trend use `managerApprovedAt`; cancellation counts use `cancelledAt`. Current active, overdue, waiting-approval, and revision-requested counters are point-in-time values. Approval age covers only `WAITING_APPROVAL`, begins at `staffCompletedAt`, and is calculated against one authoritative server request time.
 
+Dashboard counters and trend, Staff JobCard counters, and approval queue metrics include every JobCard type. Delivery report quantities and Staff `deliveriesByPurpose` include only `PRODUCT_DELIVERY`. Activating `GENERAL_TASK` in Slice 09 therefore affects operational counters and approval metrics but never delivery quantities.
+
 Approval elapsed time is clamped with `GREATEST(requestTime - staff_completed_at, interval '0 seconds')`. Summary values cover the complete filtered queue rather than the current item page. `pendingCount` equals `total` and the sum of the four mutually exclusive age buckets. A future `staffCompletedAt` contributes zero minutes to `under2Hours`.
+
+Approval `items` use the canonical `JobCardListItem` projection plus a non-negative integer `waitingMinutes` containing completed whole minutes.
 
 The complete Slice 08 DTO, timezone, grouping, bucket, sorting, and accessibility contract is defined in `docs/superpowers/specs/2026-07-14-operational-reports-design.md`.
 

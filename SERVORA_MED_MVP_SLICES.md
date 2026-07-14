@@ -373,14 +373,18 @@ removed a duplicate unused detail component, and added PostgreSQL-backed GitHub 
 ### Acceptance
 
 - [ ] Reports use database queries, not frontend aggregates.
+- [ ] Every endpoint rejects unknown query parameters, parameters outside its allowlist, and repeated scalar `from`, `to`, `groupBy`, `staffUserId`, `limit`, or `offset` values with `400 VALIDATION_ERROR`.
 - [ ] Staff can request only their own summary.
 - [ ] Manager can request organization staff summaries.
 - [ ] Staff ownership consistently uses `job_cards.assigned_to`; creator, submitter, approver, and activity actors do not determine Staff attribution.
 - [ ] Date ranges use paired inclusive local dates, default to the organization-local current month, and contain at most 366 calendar dates.
 - [ ] Delivery reporting includes only `COMPLETED` Product Delivery JobCards and uses `deliveredAt`, not approval-submission time.
+- [ ] Dashboard counters/trend, Staff counters, and approval metrics include every JobCard type; delivery reports and `deliveriesByPurpose` include only `PRODUCT_DELIVERY`.
 - [ ] Completion counts use `managerApprovedAt`; cancellation counts use `cancelledAt`; approval age begins at `staffCompletedAt`.
 - [ ] Quantity remains an exact decimal string and separate for every nullable unit and delivery purpose.
 - [ ] Delivery `total` counts canonical grouped rows, item and count queries use identical group keys, and quantities always use three decimal places.
+- [ ] Delivery responses form an exact `groupBy` discriminated union for day, purpose, Product, and Staff items; Staff `deliveriesByPurpose` reuses `DeliveryPurposeItem`.
+- [ ] Purpose items use canonical purpose order, then persisted unit with explicit null-last ordering.
 - [ ] Persisted units are not normalized during reporting; `null`, casing differences, and different spellings remain separate groups.
 - [ ] Product grouping uses persisted delivery snapshots rather than live catalog names.
 - [ ] Existing People counters and Reports use one `StaffOperationalSummaryPort` source without copied SQL definitions; `getMany` batches `listStaff` without a per-Staff query.
@@ -388,6 +392,8 @@ removed a duplicate unused detail component, and added PostgreSQL-backed GitHub 
 - [ ] Approval buckets are mutually exclusive at the exact 2-hour, 8-hour, and 24-hour boundaries.
 - [ ] Approval elapsed time clamps future submission timestamps to zero; summary covers the whole queue, `pendingCount == total`, and bucket totals equal `pendingCount`.
 - [ ] Missing, cross-organization, non-Staff, and malformed Staff report identifiers all return `404 STAFF_PROFILE_NOT_FOUND`; malformed UUIDs do not reach PostgreSQL.
+- [ ] Delivery `staffUserId` omission selects all Staff; empty, repeated, or malformed query values return `400`, unavailable valid Staff values return `404 STAFF_PROFILE_NOT_FOUND`, and inactive same-organization Staff is accepted.
+- [ ] Approval items reuse canonical `JobCardListItem` and add a non-negative integer `waitingMinutes` in completed whole minutes.
 - [ ] Stable `/reports`, `/reports/deliveries`, `/reports/approvals`, and `/staff/:staffUserId/reports` routes and URL-owned filters preserve refresh, deep links, Back, and Forward; date/group/Staff filter changes reset offset and invalid URL values use replace navigation.
 - [ ] No report migration is added without a disposable-PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)` result that demonstrates the need.
 - [ ] Reports contain no revenue, margin, commission, invoice, payment, or inventory valuation.

@@ -399,6 +399,11 @@ Every Staff operational and delivery report attributes work through
 lifecycle actions but never replace the assigned Staff owner. The same rule governs Staff
 summaries, Staff grouping, and Staff filters.
 
+Dashboard counters and trend, Staff JobCard counters, and approval queue metrics include
+every JobCard type. Delivery report quantities and Staff purpose quantities include only
+`PRODUCT_DELIVERY`. Activating `GENERAL_TASK` therefore extends operational and approval
+metrics without giving a General Task any delivery quantity.
+
 Completed JobCard counts use `manager_approved_at`; cancelled counts use `cancelled_at`;
 approval age uses `staff_completed_at`; overdue state compares `due_date` with the
 organization-local current date. Reports use paired inclusive local dates, default to the

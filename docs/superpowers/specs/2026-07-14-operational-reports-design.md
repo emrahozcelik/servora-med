@@ -77,6 +77,23 @@ JobCard activity actors also never determine Staff report ownership. Reassignmen
 the operational owner through the persisted `assigned_to` value; Reports does not infer
 ownership from lifecycle or activity history.
 
+### 4.2 JobCard Type Scope
+
+Operational JobCard counters and delivery-only metrics deliberately use different type
+scopes:
+
+| Metric family | JobCard type scope |
+| --- | --- |
+| Dashboard active, overdue, waiting, revision, completed, cancelled, and trend | every JobCard type |
+| Staff open, waiting, revision, overdue, and completed counters | every JobCard type |
+| Approval queue items, summary, and age buckets | every JobCard type |
+| Delivery report quantities for every `groupBy` | `PRODUCT_DELIVERY` only |
+| Staff `deliveriesByPurpose` | `PRODUCT_DELIVERY` only |
+
+When `GENERAL_TASK` becomes active in Slice 09, its JobCards enter the applicable
+dashboard, Staff, and approval metrics without changing Slice 08. General Task never
+contributes to delivery quantity or purpose metrics.
+
 `WAITING_APPROVAL`, `REVISION_REQUESTED`, `CANCELLED`, and other unfinished records do
 not contribute to delivery quantities or completed Staff output. A delivery approved
 later appears under its persisted `delivered_at` date, not its approval date. Therefore a
@@ -251,6 +268,32 @@ GET /api/reports/approvals
 All routes require an authenticated session and reject unknown query parameters.
 Reports are read-only and do not accept `clientActionId` or `expectedVersion`.
 
+Every Reports query parameter is scalar. Repeating any scalar parameter, even with the
+same value, returns `400 VALIDATION_ERROR` before coercion or repository access:
+
+```text
+from
+to
+groupBy
+staffUserId
+limit
+offset
+```
+
+Each endpoint uses an exact allowlist:
+
+| Endpoint | Allowed query parameters |
+| --- | --- |
+| `/api/reports/dashboard` | `from`, `to` |
+| `/api/reports/staff/me` | `from`, `to` |
+| `/api/reports/staff/:userId` | `from`, `to` |
+| `/api/reports/deliveries` | `from`, `to`, `groupBy`, `staffUserId`, `limit`, `offset` |
+| `/api/reports/approvals` | `limit`, `offset` |
+
+An unknown parameter or a parameter used outside its endpoint allowlist also returns
+`400 VALIDATION_ERROR`. Validation treats a repeated scalar as invalid input rather than
+silently selecting its first or last value.
+
 ### 8.1 Dashboard
 
 `GET /api/reports/dashboard?from=&to=` returns:
@@ -336,6 +379,9 @@ completedThisMonth   <- completedInPeriod for the default current month
 overdue              <- overdueJobCards
 ```
 
+The public `deliveriesByPurpose` property has the exact type
+`DeliveryPurposeItem[]` defined in Section 8.3.
+
 ### 8.3 Delivery Report
 
 `GET /api/reports/deliveries` accepts:
@@ -349,10 +395,107 @@ limit
 offset
 ```
 
+The public delivery item and response DTOs are:
+
+```ts
+export type DeliveryDayItem = {
+  date: string;
+  unit: string | null;
+  quantity: string;
+};
+
+export type DeliveryPurposeItem = {
+  purpose: DeliveryPurpose;
+  unit: string | null;
+  quantity: string;
+};
+
+export type DeliveryProductItem = {
+  productId: string;
+  productNameSnapshot: string;
+  productSkuSnapshot: string | null;
+  productModelSnapshot: string | null;
+  unit: string | null;
+  quantity: string;
+};
+
+export type DeliveryStaffItem = {
+  staff: {
+    userId: string;
+    name: string;
+    isActive: boolean;
+  };
+  unit: string | null;
+  quantity: string;
+};
+
+export type DeliveryReportResponse =
+  | {
+      groupBy: 'day';
+      items: DeliveryDayItem[];
+      range: ResolvedReportRange;
+      total: number;
+      limit: number;
+      offset: number;
+    }
+  | {
+      groupBy: 'purpose';
+      items: DeliveryPurposeItem[];
+      range: ResolvedReportRange;
+      total: number;
+      limit: number;
+      offset: number;
+    }
+  | {
+      groupBy: 'product';
+      items: DeliveryProductItem[];
+      range: ResolvedReportRange;
+      total: number;
+      limit: number;
+      offset: number;
+    }
+  | {
+      groupBy: 'staff';
+      items: DeliveryStaffItem[];
+      range: ResolvedReportRange;
+      total: number;
+      limit: number;
+      offset: number;
+    };
+```
+
+`DeliveryPurpose` is the canonical JobCard domain type with this fixed order:
+
+```text
+SALE
+SAMPLE
+CONSIGNMENT
+RETURN
+OTHER
+```
+
+`quantity` in every delivery item DTO is exactly a three-decimal string, never a JSON
+number.
+
 `groupBy` is required. Omitting `staffUserId` reports all organization Staff; supplying it
 filters through `job_cards.assigned_to` and accepts active or inactive organization
 Staff. Default pagination is 50, maximum is 200, and the response uses
 `{ items, total, limit, offset }` plus the resolved range and `groupBy`.
+
+`staffUserId` query validation is intentionally distinct from the Staff report path
+contract:
+
+| `/api/reports/deliveries` query state | Result |
+| --- | --- |
+| omitted | all organization Staff |
+| empty | `400 VALIDATION_ERROR` |
+| repeated, including the same UUID twice | `400 VALIDATION_ERROR` |
+| malformed UUID | `400 VALIDATION_ERROR`; no PostgreSQL query |
+| valid missing, cross-organization, or non-Staff UUID | `404 STAFF_PROFILE_NOT_FOUND` |
+| valid inactive same-organization Staff UUID | accepted |
+
+By contrast, malformed `:userId` on `/api/reports/staff/:userId` remains concealed as
+`404 STAFF_PROFILE_NOT_FOUND` under the Staff-report path contract.
 
 `total` is the number of rows produced by the canonical `GROUP BY`, not the number of raw
 delivery-item rows. `items` is the `limit`/`offset` page of that deterministically sorted
@@ -395,8 +538,12 @@ catalog Product was renamed, distinct historical snapshot labels remain distinct
 groups. Staff display names are current because no Staff-name snapshot exists; userId is
 the stable group identity.
 
-Sorting is deterministic: day groups newest first; purpose groups by canonical purpose;
-Product and Staff groups by display name then stable identifiers; `unit` and remaining
+Sorting is deterministic: day groups are newest first. Every `DeliveryPurposeItem[]`,
+including `groupBy='purpose'` items and Staff `deliveriesByPurpose`, uses the canonical
+`SALE`, `SAMPLE`, `CONSIGNMENT`, `RETURN`, `OTHER` order and then persisted unit ascending
+with `NULLS LAST`. Non-null purpose units use PostgreSQL `COLLATE "C"` for stable bytewise
+ordering without modifying the returned value. Product and Staff groups sort by display
+name and then stable identifiers; persisted unit with `NULLS LAST` and remaining group
 keys break ties.
 
 ### 8.4 Approval Age
@@ -422,6 +569,36 @@ returns:
   "offset": 0
 }
 ```
+
+The item and top-level response DTOs are:
+
+```ts
+export type ApprovalItem = JobCardListItem & {
+  waitingMinutes: number;
+};
+
+export type ApprovalSummary = {
+  pendingCount: number;
+  oldestWaitingMinutes: number | null;
+  averageWaitingMinutes: number | null;
+  under2Hours: number;
+  between2And8Hours: number;
+  between8And24Hours: number;
+  over24Hours: number;
+};
+
+export type ApprovalReportResponse = {
+  summary: ApprovalSummary;
+  items: ApprovalItem[];
+  total: number;
+  limit: number;
+  offset: number;
+};
+```
+
+`JobCardListItem` is the canonical safe JobCard workspace list projection; Reports does
+not create a parallel item projection. `waitingMinutes` is a non-negative integer that
+contains completed whole minutes.
 
 Age begins at `staff_completed_at` and ends at one authoritative server request time.
 Canonical non-negative elapsed time is:
@@ -547,6 +724,8 @@ business success.
 ## 11. Error and Loading Behavior
 
 - Invalid query values return `400 VALIDATION_ERROR` with safe field errors.
+- Unknown query parameters, parameters outside an endpoint allowlist, and repeated scalar
+  parameters return `400 VALIDATION_ERROR`.
 - Unauthorized roles receive `403 FORBIDDEN`.
 - `GET /api/reports/staff/:userId` returns the same
   `404 STAFF_PROFILE_NOT_FOUND` response for a missing, cross-organization, non-Staff, or
@@ -581,11 +760,15 @@ Automated and live verification covers:
 - strict paired date parsing, inclusive range boundaries, leap days, and 366-date maximum
 - organization timezone boundaries and daylight-offset behavior
 - current-state dashboard counter definitions
+- all-type scope for dashboard counters/trend, Staff counters, and approval queue metrics
+- `PRODUCT_DELIVERY`-only scope for delivery reports and `deliveriesByPurpose`
 - completion filtering by `manager_approved_at`
 - cancellation filtering by `cancelled_at`
 - delivery filtering by `COMPLETED` status and `delivered_at`
 - exclusion of waiting, revision, and cancelled deliveries
 - separate purpose and nullable-unit groups
+- exact discriminated-union parsing for day, purpose, Product, and Staff delivery DTOs
+- canonical purpose order followed by persisted unit with explicit null-last ordering
 - grouped-result `total`, matching count/item group keys, and deterministic group pages
 - exact three-decimal-scale strings without JavaScript `Number`/`parseFloat` summation
 - persisted unit spelling/case and `null` remaining separate without report normalization
@@ -596,10 +779,15 @@ Automated and live verification covers:
 - inactive historical Staff reporting and identical `STAFF_PROFILE_NOT_FOUND` behavior
   for missing, cross-organization, non-Staff, and malformed UUID inputs
 - malformed Staff UUID rejection before PostgreSQL access
+- delivery `staffUserId` query validation for omitted, empty, repeated, malformed,
+  unavailable, cross-organization, non-Staff, inactive, and active values
+- repeated scalar rejection for every Reports query parameter on every endpoint
 - People profile counters and Reports output sharing one read model
 - `getMany` batch aggregation for `listStaff` with no per-Staff query
 - composition-root injection with no People/Reports runtime cycle or HTTP module call
 - approval age boundaries at exactly 2, 8, and 24 hours
+- canonical `JobCardListItem` approval projection with non-negative integer
+  `waitingMinutes`
 - future approval-submission timestamp clamped to zero and placed in `under2Hours`
 - approval summary over the whole queue, bucket-sum invariants, empty-queue null/zero
   semantics, and deterministic pagination
