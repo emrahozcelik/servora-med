@@ -53,7 +53,12 @@ Vite, Vitest, Playwright.
 - Branch: `feature/slice-08-operational-reports`.
 - Approved design commit: `f889dacd804b8fc7987f2c820a7a1bccf2795094`.
 - `origin/main`: `8ee5f5992e28e4f7621ce7c3f57fc8cd2a97c899`.
-- The feature branch is zero commits behind and three commits ahead of `origin/main`.
+- The approved-design baseline, before the initial plan commit, was zero commits behind
+  and three commits ahead of `origin/main`. Commit
+  `c08b3a7c6706cd947d060bde104b859fb01f715c` added this plan and made the branch four
+  commits ahead. Documentation review commits may increase that count, so execution must
+  re-check `git rev-list --left-right --count origin/main...HEAD` instead of treating the
+  recorded count as an invariant.
 - Worktree is clean; no merge, rebase, or history rewrite is required before execution.
 - Baseline server build passed.
 - Baseline server suite passed with 38 files passed, 4 PostgreSQL-gated files skipped,
@@ -927,8 +932,15 @@ const DELIVERY_GROUPS = {
 Build the grouped subquery once per request and reuse its exact string for count and page:
 
 ```ts
-const groupedSql = `
-  WITH organization_range AS (
+const rangeValues = [
+  input.organizationId,
+  input.requestedRange?.from ?? null,
+  input.requestedRange?.to ?? null,
+  input.requestTime,
+];
+
+const organizationRangeCte = `
+  organization_range AS (
     SELECT o.timezone,
       COALESCE($2::date,
         date_trunc('month', $4::timestamptz AT TIME ZONE o.timezone)::date) AS from_date,
@@ -936,7 +948,10 @@ const groupedSql = `
         (date_trunc('month', $4::timestamptz AT TIME ZONE o.timezone)
           + interval '1 month - 1 day')::date) AS to_date
     FROM organizations o WHERE o.id = $1
-  )
+  )`;
+
+const groupedSql = `
+  WITH ${organizationRangeCte}
   SELECT ${definition.select}
   FROM job_card_delivery_items di
   JOIN job_cards jc ON jc.organization_id = di.organization_id AND jc.id = di.job_card_id
@@ -959,12 +974,53 @@ const groupedSql = `
   GROUP BY ${definition.group}`;
 ```
 
-Resolve the echoed range with the same organization/range inputs, execute
-`SELECT COUNT(*)::int AS total FROM (${groupedSql}) grouped`, and page with
-`${groupedSql} ORDER BY ${definition.order} LIMIT $limit OFFSET $offset`. Parameter
-positions must be derived from whether `staffUserId` is present, never from raw client
-text. Map each row through a group-specific mapper and return PostgreSQL quantity text
-unchanged.
+Resolve the echoed range independently of grouped rows so an empty report still returns
+the exact `{ from, to, timezone }` selected by PostgreSQL. The range lookup is always the
+first query; count and page are then invoked in that order inside `Promise.all`:
+
+```ts
+type ResolvedReportRangeRow = {
+  from: string;
+  to: string;
+  timezone: string;
+};
+type DeliveryGroupRow = Record<string, unknown>;
+
+const resolvedRangeSql = `
+  WITH ${organizationRangeCte}
+  SELECT to_char(from_date, 'YYYY-MM-DD') AS "from",
+    to_char(to_date, 'YYYY-MM-DD') AS "to",
+    timezone
+  FROM organization_range`;
+
+const groupedValues = [
+  ...rangeValues,
+  ...(input.staffUserId === null ? [] : [input.staffUserId]),
+];
+const countSql = `SELECT COUNT(*)::int AS total FROM (${groupedSql}) grouped`;
+const limitParameter = groupedValues.length + 1;
+const offsetParameter = groupedValues.length + 2;
+const pageSql = `${groupedSql}
+  ORDER BY ${definition.order}
+  LIMIT $${limitParameter}
+  OFFSET $${offsetParameter}`;
+const pageValues = [...groupedValues, input.limit, input.offset];
+
+const rangeResult = await this.pool.query<ResolvedReportRangeRow>(
+  resolvedRangeSql,
+  rangeValues,
+);
+const [countResult, pageResult] = await Promise.all([
+  this.pool.query<{ total: number }>(countSql, groupedValues),
+  this.pool.query<DeliveryGroupRow>(pageSql, pageValues),
+]);
+```
+
+The count and page statements reuse the exact `groupedSql` text and the same
+`groupedValues`; only the page appends positional limit/offset values. Tests must assert
+the empty-result path still returns the resolved range, `total: 0`, and `items: []`, and
+that every SQL placeholder is positional (`$1`, `$2`, and so on). Map each row through a
+group-specific mapper and return PostgreSQL quantity text unchanged.
 
 - [ ] **Step 4: Run the focused test and verify GREEN**
 
@@ -1274,20 +1330,39 @@ const [summary, items] = await Promise.all([
 return { summary, items, total: summary.pendingCount, limit: query.limit, offset: query.offset };
 ```
 
-Handlers call only parsers and service methods. Register routes with the existing domain
-authentication pre-handler:
+Handlers call only parsers and service methods. Register routes with the existing Fastify
+options-object authentication pattern; the pre-handler is never passed as a bare second
+argument:
 
 ```ts
-app.get('/dashboard', auth, handlers.dashboard);
-app.get('/staff/me', auth, handlers.getOwnStaffReport);
-app.get('/staff/:userId', auth, handlers.getStaffReport);
-app.get('/deliveries', auth, handlers.getDeliveries);
-app.get('/approvals', auth, handlers.getApprovals);
+type Authenticate = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
+export type ReportsRoutesOptions = {
+  service: ReportsService;
+  authenticate: Authenticate;
+};
+
+export const reportsRoutes: FastifyPluginAsync<ReportsRoutesOptions> =
+  async (app, options) => {
+    const handlers = createReportsHandlers(options.service);
+    const secured = { preHandler: options.authenticate };
+
+    app.get('/dashboard', secured, handlers.dashboard);
+    app.get('/staff/me', secured, handlers.getOwnStaffReport);
+    app.get<{ Params: { userId: string } }>(
+      '/staff/:userId',
+      secured,
+      handlers.getStaffReport,
+    );
+    app.get('/deliveries', secured, handlers.getDeliveries);
+    app.get('/approvals', secured, handlers.getApprovals);
+  };
 ```
 
 Do not register the plugin in `server/src/app.ts` in this task. Direct route tests create
 a Fastify instance, attach an authenticated `currentUser`, and register `reportsRoutes`
-with memory ports. Task 8 removes People's old SQL and registers both consumers in one
+with memory ports. Include a route source-contract assertion that every route uses an
+options object whose `preHandler` is `options.authenticate`. Task 8 removes People's old
+SQL and registers both consumers in one
 composition-root commit, so no deployed intermediate state exposes two counter sources.
 Do not put SQL, date arithmetic, or role policy in handlers.
 
@@ -1359,10 +1434,40 @@ expect(summaryPort.getOne).not.toHaveBeenCalled();
 ```
 
 Add a source-contract assertion that `people/repository.ts` contains no `COUNT(jc.id)`,
-`manager_approved_at`, or `LEFT JOIN job_cards`. Preserve all existing People role,
-profile update, deactivation, audit, and password behavior tests. Add an app test proving
-People and Reports routes appear only when the same Reports read model is injected and
-that the approval queue remains a separate narrow dependency.
+`manager_approved_at`, or `LEFT JOIN job_cards`. Read `people/service.ts`,
+`people/types.ts`, and `people/repository.ts`; collect imports whose source starts with
+`../reports/`, and assert every collected statement begins with `import type`. The test
+must find the two expected imports in `people/service.ts`, so an accidentally missing
+check cannot pass vacuously:
+
+```ts
+import { readFile } from 'node:fs/promises';
+
+const peopleFiles = ['service.ts', 'types.ts', 'repository.ts'] as const;
+const peopleSources = await Promise.all(peopleFiles.map(async (file) => ({
+  file,
+  source: await readFile(
+    new URL(`../src/modules/people/${file}`, import.meta.url),
+    'utf8',
+  ),
+})));
+const serviceSource = peopleSources.find(({ file }) => file === 'service.ts')?.source ?? '';
+const peopleSource = peopleSources.map(({ source }) => source).join('\n');
+expect(serviceSource).toContain(
+  "import type { StaffOperationalSummary } from '../reports/types.js';",
+);
+expect(serviceSource).toContain(
+  "import type { StaffOperationalSummaryPort } from '../reports/ports.js';",
+);
+expect(peopleSource).not.toMatch(
+  /import\s+(?!type\b)[^;]*from ['"]\.\.\/reports\//g,
+);
+```
+
+Preserve all existing People role, profile update, deactivation, audit, and password
+behavior tests. Add an app test proving People and Reports routes appear only when the
+same Reports read model is injected and that the approval queue remains a separate narrow
+dependency.
 
 - [ ] **Step 2: Run People tests and verify RED**
 
@@ -1390,7 +1495,15 @@ export interface PeopleRepository {
 ```
 
 Delete `StaffSummaryRow`, `STAFF_SUMMARY_SELECT`, `STAFF_SUMMARY_GROUP`, and People's
-JobCard joins. Add the port to PeopleService:
+JobCard joins. People's only direct dependency on Reports contracts is erased at runtime:
+
+```ts
+import type { StaffOperationalSummary } from '../reports/types.js';
+import type { StaffOperationalSummaryPort } from '../reports/ports.js';
+```
+
+Do not use a value import, import a Reports repository/service, or add a People-to-Reports
+runtime call. Add the port to PeopleService:
 
 ```ts
 constructor(
@@ -1568,6 +1681,35 @@ expect(() => parseDeliveryReport({
   items: [{ purpose: 'SALE', unit: null, quantity: '3.000' }],
   range, total: 1, limit: 50, offset: 0,
 })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+const validDeliveryPayloads = [
+  { groupBy: 'day', items: [
+    { date: '2026-07-14', unit: null, quantity: '0.500' },
+  ] },
+  { groupBy: 'purpose', items: [
+    { purpose: 'SALE', unit: 'Kutu', quantity: '3.000' },
+  ] },
+  { groupBy: 'product', items: [{
+    productId: PRODUCT_ID,
+    productNameSnapshot: 'İmplant Seti',
+    productSkuSnapshot: null,
+    productModelSnapshot: null,
+    unit: 'Kutu',
+    quantity: '12.500',
+  }] },
+  { groupBy: 'staff', items: [{
+    staff: { userId: STAFF_ID, name: 'Emrah Demir', isActive: true },
+    unit: 'Kutu',
+    quantity: '3.000',
+  }] },
+] as const;
+
+for (const payload of validDeliveryPayloads) {
+  const response = { ...payload, range, total: 1, limit: 50, offset: 0 };
+  expect(() => parseDeliveryReport({ ...response, unexpected: true }))
+    .toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+  expect(() => parseDeliveryReport({ ...response, limit: 0 }))
+    .toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+}
 ```
 
 Assert query builders omit null filters, always encode scalar values once, keep exact
@@ -1617,16 +1759,34 @@ function nonNegativeInteger(value: unknown, field: string) {
   return parsed;
 }
 
+function positiveInteger(value: unknown, field: string) {
+  const parsed = number(value, field);
+  if (!Number.isInteger(parsed) || parsed <= 0) invalid(field);
+  return parsed;
+}
+
 function decimalQuantity(value: unknown, field: string) {
   const parsed = string(value, field);
   if (!/^(0|[1-9]\d*)\.\d{3}$/.test(parsed)) invalid(field);
   return parsed;
 }
 
+const DELIVERY_REPORT_KEYS = {
+  day: ['groupBy', 'items', 'range', 'total', 'limit', 'offset'],
+  purpose: ['groupBy', 'items', 'range', 'total', 'limit', 'offset'],
+  product: ['groupBy', 'items', 'range', 'total', 'limit', 'offset'],
+  staff: ['groupBy', 'items', 'range', 'total', 'limit', 'offset'],
+} as const;
+
 export function parseDeliveryReport(value: unknown): DeliveryReportResponse {
-  const response = object(value);
-  const groupBy = oneOf(response.groupBy, 'groupBy',
+  const candidate = object(value);
+  const groupBy = oneOf(candidate.groupBy, 'groupBy',
     ['day', 'purpose', 'product', 'staff'] as const);
+  const response = exactObject(
+    value,
+    `deliveryReport.${groupBy}`,
+    DELIVERY_REPORT_KEYS[groupBy],
+  );
   const base = parsePageAndRange(response);
   if (groupBy === 'day') return {
     groupBy,
@@ -1651,8 +1811,10 @@ export function parseDeliveryReport(value: unknown): DeliveryReportResponse {
 }
 ```
 
-Each item parser must call `exactObject` with its exact property allowlist before reading
-fields; this is what prevents a day item from accepting purpose/Product/Staff properties.
+Each discriminant first applies its top-level exact key allowlist, and each item parser
+must call `exactObject` with its exact property allowlist before reading fields. This
+rejects extra top-level properties and prevents a day item from accepting
+purpose/Product/Staff properties.
 
 Widen only the read-list type and export its existing parser:
 
@@ -1732,10 +1894,12 @@ export type ApprovalUrlState = { offset: number; canonical: boolean };
 
 ```ts
 function parsePageAndRange(value: Record<string, unknown>) {
+  const limit = positiveInteger(value.limit, 'limit');
+  if (limit > 200) invalid('limit');
   return {
     range: parseResolvedRange(value.range),
     total: nonNegativeInteger(value.total, 'total'),
-    limit: nonNegativeInteger(value.limit, 'limit'),
+    limit,
     offset: nonNegativeInteger(value.offset, 'offset'),
   };
 }
@@ -1896,7 +2060,7 @@ function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
   return <table className="report-table"><caption>Onaylı teslimler</caption>
     <thead><tr><th scope="col">Amaç</th><th scope="col">Birim</th>
       <th scope="col">Miktar</th></tr></thead>
-    <tbody>{items.map((item) => <tr key={`${item.purpose}:${item.unit ?? 'null'}`}>
+    <tbody>{items.map((item) => <tr key={JSON.stringify([item.purpose, item.unit])}>
       <th scope="row">{purposeLabels[item.purpose]}</th>
       <td>{item.unit ?? 'Birim belirtilmedi'}</td><td>{item.quantity}</td>
     </tr>)}</tbody>
@@ -1950,7 +2114,9 @@ git commit -m "feat: add staff operational report views"
 
 **Interfaces:**
 - Consumes: report API functions and canonical search helpers from Task 9; stable paths
-  from Task 10; `CurrentUser` role.
+  from Task 10; `CurrentUser` role; existing
+  `listStaff(status: 'active' | 'inactive' | 'all')` from
+  `web/src/services/people-api.ts`.
 - Produces: `/reports`, `/reports/deliveries`, and `/reports/approvals`; management-only
   `Raporlar` navigation; URL-owned date/group/Staff/offset behavior.
 
@@ -1974,7 +2140,13 @@ expect(historyLengthAfterCanonicalReplace).toBe(historyLengthBeforeCanonicalRepl
 Changing `from`, `to`, `groupBy`, or `staffUserId` must write `offset=0`. Invalid URL
 values are replaced; a syntactically valid unavailable Staff ID remains in the URL and
 shows the API error. Staff has neither report navigation nor usable direct management
-routes.
+routes. Add explicit Staff filter tests: Admin loads `listStaff('all')` and sees active
+and inactive labels; Manager loads `listStaff('active')`; loading the options does not
+block the delivery request; an options failure leaves the report visible, shows an
+inline retry, and still permits clearing an existing filter; a valid URL Staff ID absent
+from the available options remains selected as an unavailable synthetic option. Assert
+the filter is a `<select>`, not a free-text UUID input, and that empty or tampered values
+are never written to the request URL.
 
 - [ ] **Step 2: Run the focused tests and verify RED**
 
@@ -2000,6 +2172,73 @@ reads `useSearchParams`; if `read*Search` reports non-canonical state, call
 `setSearchParams(canonicalParams, { replace: true })`. When an omitted dashboard or
 delivery range returns successfully, write its echoed `from`/`to` with replace navigation.
 
+Load Staff filter options independently from the report request. Reuse the existing
+People client and its current authorization contract; do not add a Reports lookup
+endpoint:
+
+```tsx
+import { listStaff, type StaffProfile } from '../services/people-api';
+
+type StaffOptionsState =
+  | { status: 'loading'; items: StaffProfile[] }
+  | { status: 'ready'; items: StaffProfile[] }
+  | { status: 'error'; items: StaffProfile[] };
+
+const [staffOptions, setStaffOptions] = useState<StaffOptionsState>({
+  status: 'loading',
+  items: [],
+});
+const [staffOptionsReloadKey, setStaffOptionsReloadKey] = useState(0);
+const [staffDraft, setStaffDraft] = useState(state.staffUserId ?? '');
+const staffListStatus = user.role === 'ADMIN' ? 'all' : 'active';
+
+useEffect(() => setStaffDraft(state.staffUserId ?? ''), [state.staffUserId]);
+
+useEffect(() => {
+  let current = true;
+  setStaffOptions({ status: 'loading', items: [] });
+  void listStaff(staffListStatus).then(
+    (items) => current && setStaffOptions({ status: 'ready', items }),
+    () => current && setStaffOptions({ status: 'error', items: [] }),
+  );
+  return () => { current = false; };
+}, [staffListStatus, staffOptionsReloadKey]);
+```
+
+Admin sees active and inactive Staff, with inactive options suffixed `(Pasif)`. Manager
+sees active Staff because the existing People policy rejects non-active list modes for
+Managers. The Reports API still accepts an inactive same-organization Staff ID. When the
+canonical URL contains a valid ID missing from the loaded list, insert one synthetic
+option labelled `Seçili personel (listede yok)` so the URL and server response remain
+authoritative. During loading the select is disabled but the report still loads. On list
+error, render an inline `Personel seçenekleri yüklenemedi.` message and retry button;
+enable a select containing `Tüm personel` plus any synthetic current selection so the
+user can clear the filter without losing the report.
+
+```tsx
+const selectedIsAvailable = staffOptions.items.some(
+  (profile) => profile.user.id === staffDraft,
+);
+const showUnavailableSelection = staffDraft !== '' && !selectedIsAvailable;
+
+<select name="staffUserId" disabled={staffOptions.status === 'loading'}
+  value={staffDraft} onChange={(event) => setStaffDraft(event.target.value)}>
+  <option value="">Tüm personel</option>
+  {showUnavailableSelection &&
+    <option value={staffDraft}>Seçili personel (listede yok)</option>}
+  {staffOptions.items.map((profile) =>
+    <option key={profile.user.id} value={profile.user.id}>
+      {profile.user.name}{profile.user.isActive ? '' : ' (Pasif)'}
+    </option>)}
+</select>
+{staffOptions.status === 'error' && <div className="field-error" role="alert">
+  Personel seçenekleri yüklenemedi.
+  <button type="button" onClick={() => setStaffOptionsReloadKey((value) => value + 1)}>
+    Tekrar dene
+  </button>
+</div>}
+```
+
 Use accessible user-submitted filter validation before navigation:
 
 ```tsx
@@ -2007,7 +2246,10 @@ type DeliveryFilterResult =
   | { ok: true; value: Omit<DeliveryUrlState, 'canonical'> }
   | { ok: false; errors: Array<{ field: string; message: string }> };
 
-function validateReportFilterForm(data: FormData): DeliveryFilterResult {
+function validateReportFilterForm(
+  data: FormData,
+  allowedStaffIds: ReadonlySet<string>,
+): DeliveryFilterResult {
   const from = String(data.get('from') ?? '');
   const to = String(data.get('to') ?? '');
   const range = validateRequestedRange(from, to);
@@ -2016,7 +2258,13 @@ function validateReportFilterForm(data: FormData): DeliveryFilterResult {
   if (!['day', 'purpose', 'product', 'staff'].includes(groupBy)) {
     return { ok: false, errors: [{ field: 'groupBy', message: 'Geçerli bir gruplama seçin.' }] };
   }
-  const staffUserId = String(data.get('staffUserId') ?? '') || null;
+  const selectedStaffUserId = String(data.get('staffUserId') ?? '');
+  if (selectedStaffUserId !== '' && !allowedStaffIds.has(selectedStaffUserId)) {
+    return { ok: false, errors: [{
+      field: 'staffUserId', message: 'Geçerli bir personel seçin.',
+    }] };
+  }
+  const staffUserId = selectedStaffUserId || null;
   return {
     ok: true,
     value: {
@@ -2030,7 +2278,12 @@ function validateReportFilterForm(data: FormData): DeliveryFilterResult {
 
 function submitFilters(event: FormEvent<HTMLFormElement>) {
   event.preventDefault();
-  const result = validateReportFilterForm(new FormData(event.currentTarget));
+  const allowedStaffIds = new Set(staffOptions.items.map((profile) => profile.user.id));
+  if (state.staffUserId !== null) allowedStaffIds.add(state.staffUserId);
+  const result = validateReportFilterForm(
+    new FormData(event.currentTarget),
+    allowedStaffIds,
+  );
   if (!result.ok) {
     setErrors(result.errors);
     requestAnimationFrame(() => errorSummaryRef.current?.focus());
@@ -2182,17 +2435,36 @@ Define `applyMigrations001Through006(pool)` by reading the six existing SQL file
 `verifyReports(pool, fixture): Promise<void>` with the repository/service calls and
 assertions listed below; all three helpers live in this test file.
 
-The SQL fixture must contain two organizations with distinct timezones; Admin, Manager,
-active Staff, inactive Staff, and another-organization Staff; `PRODUCT_DELIVERY` and
-`GENERAL_TASK`; every lifecycle status; a JobCard reassigned before reporting; a
-submitter different from the assignee; approved and unapproved deliveries; null, `kutu`,
-and `Kutu` units; two historical Product snapshot names around a catalog rename and
-deactivation; leap-day and local day-edge deliveries; exact 2h/8h/24h approval ages; and
-a future Staff submission time.
+The SQL fixture must contain two organizations with distinct timezones. Use
+`Europe/Berlin` for organization one and `Asia/Tokyo` for organization two so one fixture
+has a real DST transition while the other proves organization isolation. Include Admin,
+Manager, active Staff, inactive Staff, and another-organization Staff;
+`PRODUCT_DELIVERY` and `GENERAL_TASK`; every lifecycle status; a JobCard reassigned before
+reporting; a submitter different from the assignee; approved and unapproved deliveries;
+null, `kutu`, and `Kutu` units; two historical Product snapshot names around a catalog
+rename and deactivation; leap-day and local day-edge deliveries; exact 2h/8h/24h approval
+ages; and a future Staff submission time.
+
+For the 2026 Europe/Berlin spring transition, insert approved same-unit deliveries at
+`2026-03-28T23:30:00.000Z` (`1.000`), `2026-03-29T21:30:00.000Z` (`2.000`), and
+`2026-03-29T22:30:00.000Z` (`4.000`). Query the exact local range
+`2026-03-29..2026-03-29`; the first two rows belong to March 29 across the UTC+1 to UTC+2
+change, while the third is already local March 30 and must be excluded. This fixture
+prohibits a fixed-offset implementation of the 23-hour local day.
 
 Exercise repository and service calls and assert:
 
 ```ts
+const dstDayReport = await reports.getDeliveryReport({
+  organizationId: fixture.organizationOne,
+  requestedRange: { from: '2026-03-29', to: '2026-03-29' },
+  requestTime: fixture.requestTime,
+  groupBy: 'day',
+  staffUserId: null,
+  limit: 50,
+  offset: 0,
+});
+
 expect(dashboard.counters.activeJobCards).toBe(fixture.expected.activeAllTypes);
 expect(staffReport.staff.userId).toBe(fixture.activeStaff.id);
 expect(staffReport.deliveriesByPurpose).toEqual(fixture.expected.purposeRows);
@@ -2202,12 +2474,19 @@ expect(approvals.summary.pendingCount).toBe(approvals.total);
 expect(bucketTotal(approvals.summary)).toBe(approvals.total);
 expect(approvals.items.find((item) => item.id === fixture.futureJobId)?.waitingMinutes)
   .toBe(0);
+expect(dstDayReport).toMatchObject({
+  groupBy: 'day',
+  range: { from: '2026-03-29', to: '2026-03-29', timezone: 'Europe/Berlin' },
+  total: 1,
+  items: [{ date: '2026-03-29', unit: 'Kutu', quantity: '3.000' }],
+});
 ```
 
 Prove the reassigned JobCard belongs to its persisted current `assigned_to`, not creator,
 submitter, approver, or activity actor. Prove cross-organization Staff and delivery rows
 never appear. Prove `GENERAL_TASK` contributes to dashboard/Staff/approval counts but not
-delivery quantities. Prove approved deliveries use `delivered_at` local boundaries and
+delivery quantities. Prove approved deliveries use `delivered_at` organization-local
+boundaries, including the Europe/Berlin DST transition without a fixed UTC offset, and
 completion counts use `manager_approved_at`.
 
 Capture the exact SQL executed by production repositories, then explain those statements
