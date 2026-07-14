@@ -24,6 +24,11 @@ describe('Staff profile views', () => {
     for (const label of ['Unvan', 'Telefon', 'Bölge', 'Yönetici']) expect(html).toContain(label);
     expect(html).not.toContain('Rol'); expect(html).not.toContain('Parola');
   });
+  it('offers management a distinct operational report action', () => {
+    const html = renderToStaticMarkup(<StaffProfileEditView profile={profile} managers={[]}
+      onBack={() => {}} onChanged={() => {}} onOpenReport={() => {}} />);
+    expect(html).toContain('Operasyon raporunu aç');
+  });
   it('changes the edit form identity when route navigation selects another Staff user', () => {
     const first = StaffProfileEditRoute({ profile, managers: [], onBack: () => {}, onChanged: () => {} });
     const second = StaffProfileEditRoute({

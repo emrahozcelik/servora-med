@@ -11,6 +11,7 @@ import { UserManagementScreen } from './UserManagement';
 import { ProductCreateScreen } from './ProductForm';
 import { ProductDetailScreen } from './ProductDetail';
 import { ProductListScreen } from './ProductList';
+import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
 import { paths } from './paths';
 import type { CurrentUser, ReferenceCustomer } from './services/api';
 
@@ -52,7 +53,17 @@ function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const navigate = useNavigate();
   if (user.role === 'STAFF' && staffUserId && staffUserId !== user.id) return <ForbiddenView />;
   return <StaffProfilesScreen user={user} initialStaffUserId={staffUserId} onBack={() => navigate(paths.jobs)}
-    onOpenProfile={(id) => navigate(paths.staffProfile(id))} onProfileBack={() => navigate(paths.staff)} />;
+    onOpenProfile={(id) => navigate(paths.staffProfile(id))} onProfileBack={() => navigate(paths.staff)}
+    onOpenReport={(id) => navigate(paths.staffReport(id))} />;
+}
+
+function StaffReportRoute({ user }: Pick<AppRouterProps, 'user'>) {
+  const { staffUserId } = useParams();
+  const navigate = useNavigate();
+  if (user.role === 'STAFF') return <ForbiddenView />;
+  if (!staffUserId) return <NotFoundView />;
+  return <StaffOperationalReportScreen staffUserId={staffUserId}
+    onBack={() => navigate(paths.staffProfile(staffUserId))} />;
 }
 
 export function CustomerRoute({ user }: Pick<AppRouterProps, 'user'>) {
@@ -89,6 +100,7 @@ export function AppRouter({ user, customers, notice, onClearNotice, onDeliveryCr
         ? <UserManagementScreen onBack={() => navigate(paths.jobs)} /> : <ForbiddenView />} />
       <Route path={paths.staff} element={<StaffRoute user={user} />} />
       <Route path="/staff/:staffUserId" element={<StaffRoute user={user} />} />
+      <Route path="/staff/:staffUserId/reports" element={<StaffReportRoute user={user} />} />
       <Route path={paths.customers} element={<CustomerListScreen user={user} />} />
       <Route path={paths.newCustomer} element={user.role === 'STAFF' ? <ForbiddenView /> : <CustomerCreateScreen user={user} />} />
       <Route path="/customers/:customerId" element={<CustomerRoute user={user} />} />
