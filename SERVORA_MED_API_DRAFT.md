@@ -1,7 +1,7 @@
 # Servora-Med API Draft
 
 > Date: 2026-07-10  
-> Status: Living API contract; implemented through Slice 05 CRM
+> Status: Living API contract; implemented through Slice 07 JobCard Workspace and post-review hardening
 > Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT
 
 ## 1. General Contract
@@ -115,10 +115,8 @@ Critical business commands include `clientActionId` in their JSON body:
 
 - JobCard creation
 - delivery-item creation
-- submit for approval
-- approve
-- request revision
-- cancel
+- JobCard note addition
+- every named JobCard lifecycle command
 
 Rules:
 
@@ -129,7 +127,7 @@ Rules:
 - concurrent duplicate returns `409 ACTION_IN_PROGRESS`
 - a failed command may return its recorded failure according to the processed-action policy
 
-Ordinary profile, customer, contact, product, note, and field updates do not use full processed-response caching by default. Their validation, authorization, database constraints, and JobCard version checks still apply.
+Ordinary profile, customer, contact, product, and field updates do not use full processed-response caching by default. Their validation, authorization, database constraints, and applicable version checks still apply.
 
 ## 3. JobCard Concurrency Contract
 
@@ -139,7 +137,6 @@ These requests require `expectedVersion`:
 
 - JobCard field patch
 - delivery-item add, patch, and removal
-- note addition when it updates JobCard activity/version
 - every named lifecycle command
 
 The service updates with a version predicate and increments atomically. A stale request returns:
@@ -581,7 +578,7 @@ There is no generic transition route.
 | POST | `/:id/approve` | WAITING_APPROVAL | COMPLETED | manager, admin |
 | POST | `/:id/request-revision` | WAITING_APPROVAL | REVISION_REQUESTED | manager, admin |
 | POST | `/:id/resume` | REVISION_REQUESTED | IN_PROGRESS | staff own, manager, admin |
-| POST | `/:id/cancel` | active non-review state | CANCELLED | manager, admin; limited staff policy |
+| POST | `/:id/cancel` | NEW, PLANNED, IN_PROGRESS, or REVISION_REQUESTED | CANCELLED | manager, admin |
 
 Base lifecycle command body:
 
@@ -633,25 +630,34 @@ Approval appends `JOB_APPROVED`. Revision appends `JOB_REVISION_REQUESTED`. Resu
     "PLANNED": { "items": [], "count": 0 },
     "IN_PROGRESS": { "items": [], "count": 0 },
     "WAITING_APPROVAL": { "items": [], "count": 0 },
-    "REVISION_REQUESTED": { "items": [], "count": 0 },
-    "COMPLETED": { "items": [], "count": 0 },
-    "CANCELLED": { "items": [], "count": 0 }
+    "REVISION_REQUESTED": { "items": [], "count": 0 }
+  },
+  "closedCounts": {
+    "COMPLETED": 0,
+    "CANCELLED": 0
   }
 }
 ```
 
-Completed and cancelled records are time-limited or paginated by default. Mobile clients can use the same data as filtered lists rather than seven columns.
+Completed and cancelled records are represented only by filtered counts in the board projection. Their records remain available through the canonical paginated list. Mobile clients use the list route rather than rendering a squeezed board.
 
 ## 15. Reports `/api/reports`
 
 | Method | Path | Roles | Behavior |
 | --- | --- | --- | --- |
 | GET | `/dashboard` | admin, manager | organization operational counters |
-| GET | `/staff/:userId` | admin, manager | scoped staff summary |
+| GET | `/staff/me` | staff | own operational summary |
+| GET | `/staff/:userId` | admin, manager | organization Staff operational summary |
 | GET | `/deliveries` | admin, manager | quantity by date, product, staff, and purpose |
 | GET | `/approvals` | admin, manager | pending approval age and counts |
 
-Delivery reports use persisted `deliveredAt`, purpose, and quantity. They do not return revenue, margin, commission, invoice, or payment metrics.
+Dashboard and Staff endpoints accept paired inclusive `from=YYYY-MM-DD` and `to=YYYY-MM-DD` values. Omitting both selects the organization-local current month. Delivery reports use the same range contract and require `groupBy=day|purpose|product|staff`. The inclusive range contains at most 366 calendar dates. Frontend code does not construct UTC boundaries.
+
+Delivery quantities include only manager-approved `COMPLETED` Product Delivery JobCards. They use persisted `deliveredAt`, purpose, exact decimal-string quantity, nullable unit, and historical Product snapshots. Different or unknown units are never summed together. Reports do not return revenue, margin, commission, invoice, payment, stock, or inventory-valuation metrics.
+
+Dashboard completion counts and the single daily completion trend use `managerApprovedAt`; cancellation counts use `cancelledAt`. Current active, overdue, waiting-approval, and revision-requested counters are point-in-time values. Approval age covers only `WAITING_APPROVAL`, begins at `staffCompletedAt`, and is calculated against one authoritative server request time.
+
+The complete Slice 08 DTO, timezone, grouping, bucket, sorting, and accessibility contract is defined in `docs/superpowers/specs/2026-07-14-operational-reports-design.md`.
 
 ## 16. Health `/api/health`
 

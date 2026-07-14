@@ -363,20 +363,28 @@ removed a duplicate unused detail component, and added PostgreSQL-backed GitHub 
 
 ### Deliverables
 
-- manager dashboard counters
-- staff self and manager-visible profile summaries
-- delivery quantity grouped by purpose, product, staff, and actual delivery date
-- approval queue age
-- open, overdue, waiting, revision, and completed counts
+- read-only organization-scoped Reports module with no report tables or mutations
+- manager dashboard counters and one accessible daily completed-JobCard trend
+- Staff self and Admin/Manager-visible operational summaries backed by one canonical read model
+- manager-approved delivery quantity grouped by purpose, Product snapshot, Staff, and actual delivery date while preserving unit
+- approval queue age from Staff submission time
+- point-in-time open, overdue, waiting, and revision counts plus period completion/cancellation counts
 
 ### Acceptance
 
 - [ ] Reports use database queries, not frontend aggregates.
 - [ ] Staff can request only their own summary.
 - [ ] Manager can request organization staff summaries.
-- [ ] Delivery reporting uses `deliveredAt`, not approval-submission time.
+- [ ] Date ranges use paired inclusive local dates, default to the organization-local current month, and contain at most 366 calendar dates.
+- [ ] Delivery reporting includes only `COMPLETED` Product Delivery JobCards and uses `deliveredAt`, not approval-submission time.
+- [ ] Completion counts use `managerApprovedAt`; cancellation counts use `cancelledAt`; approval age begins at `staffCompletedAt`.
+- [ ] Quantity remains an exact decimal string and separate for every nullable unit and delivery purpose.
+- [ ] Product grouping uses persisted delivery snapshots rather than live catalog names.
+- [ ] Existing People counters and Reports use one `StaffOperationalSummaryPort` source without copied SQL definitions.
+- [ ] Approval buckets are mutually exclusive at the exact 2-hour, 8-hour, and 24-hour boundaries.
+- [ ] No report migration is added without a disposable-PostgreSQL `EXPLAIN (ANALYZE, BUFFERS)` result that demonstrates the need.
 - [ ] Reports contain no revenue, margin, commission, invoice, payment, or inventory valuation.
-- [ ] Empty data and date-range errors are accessible and understandable.
+- [ ] The trend has a complete semantic table equivalent; empty data and date-range errors are accessible and understandable.
 
 ## 12. Slice 09: General Task
 

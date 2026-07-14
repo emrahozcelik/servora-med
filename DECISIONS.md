@@ -370,3 +370,45 @@ atomic. Migration 006 does not add an `UPDATE`/`DELETE` prevention trigger.
 Migration 006, real PostgreSQL note concurrency/replay/rollback, terminal note append,
 application-surface mutation absence, Unicode whitespace validation, and web retry/action
 ID behavior were verified in Slice 07. Notes do not increment JobCard version.
+
+## DOM-006: Operational reports use approved work and canonical event time
+
+- **Date:** 2026-07-14
+- **Status:** Accepted
+- **Scope:** Slice 08 Staff Profile and Operational Reports
+
+### Context
+
+Operational delivery and Staff summaries could otherwise mix unapproved field input,
+approval time, actual delivery time, nullable units, and current catalog labels. That
+would make the same business question produce different answers across profile,
+dashboard, and delivery-report screens.
+
+### Decision
+
+Delivery quantities and Staff delivery output use only manager-approved `COMPLETED`
+Product Delivery JobCards. Quantity is grouped by persisted `delivered_at`, purpose, and
+nullable unit and remains an exact decimal string. Product grouping uses delivery-time
+snapshots. Returns remain positive under `RETURN` and are not netted against sales.
+
+Completed JobCard counts use `manager_approved_at`; cancelled counts use `cancelled_at`;
+approval age uses `staff_completed_at`; overdue state compares `due_date` with the
+organization-local current date. Reports use paired inclusive local dates, default to the
+current local month, and permit at most 366 calendar dates.
+
+A read-only Reports module owns the canonical operational read model. Existing People
+profile counters consume the same `StaffOperationalSummaryPort` instead of retaining a
+second SQL definition. The initial UI uses counters, accessible tables, and one daily
+completed-JobCard trend without a chart dependency.
+
+### Consequences
+
+- Waiting-approval, revision-requested, and cancelled deliveries do not inflate approved
+  delivery output.
+- A record approved later appears under its actual historical delivery date.
+- Unknown, `adet`, `kutu`, and other units remain distinct and are never summed together.
+- Dashboard state counters are point-in-time; completion and cancellation counters are
+  period-based and labeled accordingly.
+- Slice 08 adds no report table, materialized view, cache, or speculative index migration.
+- Revenue, margin, commission, stock, invoice, payment, and employee-ranking metrics
+  remain outside MVP.
