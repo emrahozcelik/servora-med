@@ -3,6 +3,8 @@ import type { Pool } from 'pg';
 import type { StaffOperationalSummaryPort } from './ports.js';
 import type {
   DashboardReportResponse,
+  DeliveryPurposeItem,
+  ReportStaffIdentity,
   StaffOperationalSummary,
   StaffOperationalSummaryManyInput,
   StaffOperationalSummaryOneInput,
@@ -32,6 +34,18 @@ type DashboardRow = {
   completed_in_period: string | number;
   cancelled_in_period: string | number;
   completed_trend: Array<{ date: string; count: string | number }>;
+};
+
+type StaffIdentityRow = {
+  id: string;
+  name: string;
+  is_active: boolean;
+};
+
+type DeliveryPurposeRow = {
+  delivery_purpose: DeliveryPurposeItem['purpose'];
+  unit: string | null;
+  quantity: string;
 };
 
 const ORGANIZATION_RANGE_CTE = `organization_range AS (
@@ -171,6 +185,48 @@ GROUP BY organization_range.from_date, organization_range.to_date,
   counters.revision_requested, counters.completed_in_period,
   counters.cancelled_in_period`;
 
+const STAFF_IDENTITY_SQL = `SELECT u.id, u.name, u.is_active
+FROM users u
+JOIN staff_profiles sp
+  ON sp.organization_id = u.organization_id AND sp.user_id = u.id
+WHERE u.organization_id = $1 AND u.id = $2 AND u.role = 'STAFF'
+LIMIT 1`;
+
+const STAFF_DELIVERIES_BY_PURPOSE_SQL = `WITH organization_range AS (
+  SELECT o.timezone,
+    COALESCE($3::date,
+      date_trunc('month', $5::timestamptz AT TIME ZONE o.timezone)::date) AS from_date,
+    COALESCE($4::date,
+      (date_trunc('month', $5::timestamptz AT TIME ZONE o.timezone)
+        + interval '1 month - 1 day')::date) AS to_date
+  FROM organizations o
+  WHERE o.id = $1
+)
+SELECT di.delivery_purpose, di.unit,
+  to_char(SUM(di.quantity), 'FM999999999999999999990.000') AS quantity
+FROM job_card_delivery_items di
+JOIN job_cards jc ON jc.organization_id = di.organization_id
+  AND jc.id = di.job_card_id
+CROSS JOIN organization_range
+WHERE jc.organization_id = $1
+  AND jc.assigned_to = $2
+  AND jc.type = 'PRODUCT_DELIVERY'
+  AND jc.status = 'COMPLETED'
+  AND jc.manager_approved_at IS NOT NULL
+  AND di.delivered_at >=
+    (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+  AND di.delivered_at <
+    ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+GROUP BY di.delivery_purpose, di.unit
+ORDER BY CASE di.delivery_purpose
+  WHEN 'SALE' THEN 1
+  WHEN 'SAMPLE' THEN 2
+  WHEN 'CONSIGNMENT' THEN 3
+  WHEN 'RETURN' THEN 4
+  WHEN 'OTHER' THEN 5
+END,
+di.unit COLLATE "C" ASC NULLS LAST`;
+
 function mapStaffSummary(row: StaffSummaryRow): StaffOperationalSummary {
   return {
     staffUserId: row.staff_user_id,
@@ -249,5 +305,39 @@ export class PostgresReportsRepository implements StaffOperationalSummaryPort {
     const row = result.rows[0];
     if (!row) throw new Error('Dashboard organization range could not be resolved.');
     return mapDashboard(row);
+  }
+
+  async getStaffIdentity(input: {
+    organizationId: string;
+    staffUserId: string;
+  }): Promise<ReportStaffIdentity | null> {
+    const result = await this.pool.query<StaffIdentityRow>(STAFF_IDENTITY_SQL, [
+      input.organizationId,
+      input.staffUserId,
+    ]);
+    const row = result.rows[0];
+    return row
+      ? { userId: row.id, name: row.name, isActive: row.is_active }
+      : null;
+  }
+
+  async getStaffDeliveriesByPurpose(
+    input: StaffOperationalSummaryOneInput,
+  ): Promise<DeliveryPurposeItem[]> {
+    const result = await this.pool.query<DeliveryPurposeRow>(
+      STAFF_DELIVERIES_BY_PURPOSE_SQL,
+      [
+        input.organizationId,
+        input.staffUserId,
+        input.requestedRange?.from ?? null,
+        input.requestedRange?.to ?? null,
+        input.requestTime,
+      ],
+    );
+    return result.rows.map((row) => ({
+      purpose: row.delivery_purpose,
+      unit: row.unit,
+      quantity: row.quantity,
+    }));
   }
 }
