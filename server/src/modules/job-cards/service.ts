@@ -18,24 +18,13 @@ import {
   type JobCardBoardQuery,
   type JobCardActivityEvent,
   type JobCardListQuery,
+  type NormalizedJobCardCreateInput,
   type JobCardPriority,
   type JobCardStatus,
   type LifecycleCommand,
 } from './types.js';
 import { optionalLifecycleNote, requireActionId, requireLifecycleReason, validation } from './validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
-
-type CreateInput = {
-  clientActionId: string;
-  type: 'PRODUCT_DELIVERY';
-  title: string;
-  description?: string | null;
-  customerId: string;
-  contactId?: string | null;
-  assignedTo: string;
-  priority?: JobCardPriority;
-  dueDate?: string | null;
-};
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
@@ -113,11 +102,12 @@ export class JobCardService {
     return this.notesService.addNote(actor, jobCardId, input);
   }
 
-  async create(actor: JobCardActor, input: CreateInput) {
+  async create(actor: JobCardActor, input: NormalizedJobCardCreateInput) {
     const title = input.title.trim();
-    const priority = input.priority ?? 'normal';
-    if (!input.clientActionId.trim() || !title || input.type !== 'PRODUCT_DELIVERY' ||
-      !input.customerId || !input.assignedTo || !JOB_CARD_PRIORITIES.includes(priority)) {
+    const priority = input.priority;
+    if (!input.clientActionId.trim() || !title ||
+      (input.type === 'PRODUCT_DELIVERY' && !input.customerId) ||
+      !input.assignedTo || !JOB_CARD_PRIORITIES.includes(priority)) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard oluşturma bilgileri geçersiz.');
     }
     assertCreateAssignmentRequest(actor, input.assignedTo);
@@ -130,13 +120,13 @@ export class JobCardService {
         const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, input.assignedTo);
         if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
         assertCanCreateForAssignee(actor, assignee);
-        await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId ?? null);
+        await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId);
         const job = await transaction.createJobCard({
           organizationId: actor.organizationId, type: input.type, title,
           description: input.description?.trim() || null, customerId: input.customerId,
-          contactId: input.contactId ?? null,
+          contactId: input.contactId,
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
-          dueDate: input.dueDate ?? null,
+          dueDate: input.dueDate,
         });
         await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
@@ -256,7 +246,13 @@ export class JobCardService {
     });
   }
 
-  private async validateJobReferences(tx: JobCardTransaction, organizationId: string, customerId: string, contactId: string | null) {
+  private async validateJobReferences(tx: JobCardTransaction, organizationId: string, customerId: string | null, contactId: string | null) {
+    if (!customerId) {
+      if (contactId) {
+        throw new AppError('CONTACT_NOT_IN_CUSTOMER', 409, 'İlgili kişi seçilen müşteriye bağlı değil.');
+      }
+      return;
+    }
     const customer = await tx.getCustomerForUpdate(organizationId, customerId);
     if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
     if (customer.status === 'inactive') throw new AppError('CUSTOMER_INACTIVE', 409, 'Pasif müşteri için iş oluşturulamaz.');

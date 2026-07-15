@@ -354,6 +354,7 @@ git commit -m "feat: share JobCard assignment policy"
 
 **Files:**
 - Modify: `server/src/modules/job-cards/service.ts`
+- Modify: `server/src/modules/job-cards/handlers.ts` — pass the normalized union without a type escape.
 - Modify: `server/tests/job-card-crud-service.test.ts`
 - Modify: `server/tests/job-card-routes.test.ts`
 
@@ -361,7 +362,7 @@ git commit -m "feat: share JobCard assignment policy"
 - Consumes: `NormalizedJobCardCreateInput` and shared policies from Tasks 1–2.
 - Produces: idempotent `JobCardService.create` for both discriminants.
 
-- [ ] **Step 1: Write failing General Task create tests**
+- [x] **Step 1: Write failing General Task create tests**
 
 Assert title-only creation writes one `GENERAL_TASK`/`NEW`/version-1 JobCard, defaults
 priority, persists nullable context, and appends exactly one `JOB_CREATED`. Assert optional
@@ -377,7 +378,7 @@ expect(repository.activities).toHaveLength(1)
 expect(repository.activities[0]?.event).toBe('JOB_CREATED')
 ```
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd server && npm test -- --run tests/job-card-crud-service.test.ts tests/job-card-routes.test.ts
@@ -385,7 +386,7 @@ cd server && npm test -- --run tests/job-card-crud-service.test.ts tests/job-car
 
 Expected: FAIL because `JobCardService.create` still rejects `GENERAL_TASK`.
 
-- [ ] **Step 3: Implement the minimum type-aware create transaction**
+- [x] **Step 3: Implement the minimum type-aware create transaction**
 
 Remove the Product-only type rejection. Require Customer only in the Product branch; call
 relation validation only when General Task has a Customer. Pass the discriminant unchanged
@@ -409,7 +410,7 @@ const result = await repository.executeCriticalAction(
 
 Do not append `JOB_ASSIGNED` during initial creation.
 
-- [ ] **Step 4: Verify GREEN and route exactness**
+- [x] **Step 4: Verify GREEN and route exactness**
 
 Run Step 2, then:
 
@@ -420,10 +421,11 @@ cd server && npm test -- --run tests/job-card-activity.test.ts tests/job-card-se
 Expected: PASS; replay returns the original result and failures leave no partial record or
 activity.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
-git add server/src/modules/job-cards/service.ts server/tests/job-card-crud-service.test.ts \
+git add server/src/modules/job-cards/service.ts server/src/modules/job-cards/handlers.ts \
+  server/tests/job-card-crud-service.test.ts \
   server/tests/job-card-routes.test.ts
 git commit -m "feat: create General Task JobCards"
 ```

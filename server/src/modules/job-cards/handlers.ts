@@ -51,7 +51,7 @@ const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
 export function createJobCardHandlers(service: JobCardService) {
   return {
     create: async (request: FastifyRequest, reply: FastifyReply) =>
-      reply.code(201).send(await service.create(actor(request), parseJobCardCreateInput(request.body) as never)),
+      reply.code(201).send(await service.create(actor(request), parseJobCardCreateInput(request.body))),
     list: async (request: FastifyRequest) =>
       service.list(actor(request), parseJobCardListQuery(request.query)),
     board: async (request: FastifyRequest) =>

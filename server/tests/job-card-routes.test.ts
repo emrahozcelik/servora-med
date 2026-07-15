@@ -83,6 +83,22 @@ describe('JobCard routes', () => {
     expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' });
   });
 
+  it('dispatches the exact normalized General Task create body', async () => {
+    const { app, service } = await createApp();
+    const body = {
+      clientActionId: 'task-create-1', type: 'GENERAL_TASK', title: 'Doktoru ara',
+      assignedTo: '11111111-1111-4111-8111-111111111111',
+    };
+
+    const response = await app.inject({ method: 'POST', url: '/api/job-cards', payload: body });
+
+    expect(response.statusCode).toBe(201);
+    expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), {
+      ...body, description: null, customerId: null, contactId: null,
+      priority: 'normal', dueDate: null,
+    });
+  });
+
   it('returns the canonical page and forwards the parsed list query', async () => {
     const { app, service } = await createApp();
     const page = { items: [{ id: 'job-2' }], total: 9, limit: 1, offset: 2 };
