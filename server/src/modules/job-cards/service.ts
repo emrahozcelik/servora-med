@@ -5,6 +5,7 @@ import {
   assertCanEdit,
   assertCanTransition,
   assertCreateAssignmentRequest,
+  assertProductDeliveryJob,
 } from './policy.js';
 import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, PageQuery, ProductReference } from './repository.js';
 import {
@@ -271,9 +272,12 @@ export class JobCardService {
       async (tx) => {
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        if (actor.role === 'STAFF' && actor.id !== job.assignedTo) {
+          throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        }
+        assertProductDeliveryJob(job);
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         assertCanEdit(actor, job);
-        if (job.type !== 'PRODUCT_DELIVERY') throw new AppError('INVALID_JOB_TYPE', 409, 'Bu JobCard teslim ürünü kabul etmez.');
         const product = await tx.getProduct(actor.organizationId, input.productId);
         if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
         const item = await tx.createDeliveryItem(deliveryRecord(actor.organizationId, jobCardId, input, product));
@@ -293,6 +297,10 @@ export class JobCardService {
     return this.repository.executeTransaction(async (tx) => {
       const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
       if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      if (actor.role === 'STAFF' && actor.id !== job.assignedTo) {
+        throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      }
+      assertProductDeliveryJob(job);
       if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       assertCanEdit(actor, job);
       const current = await tx.getDeliveryItemForUpdate(actor.organizationId, jobCardId, itemId);
@@ -322,6 +330,10 @@ export class JobCardService {
     return this.repository.executeTransaction(async (tx) => {
       const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
       if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      if (actor.role === 'STAFF' && actor.id !== job.assignedTo) {
+        throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      }
+      assertProductDeliveryJob(job);
       if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       assertCanEdit(actor, job);
       const item = await tx.getDeliveryItemForUpdate(actor.organizationId, jobCardId, itemId);
@@ -336,7 +348,8 @@ export class JobCardService {
   }
 
   async listDeliveryItems(actor: JobCardActor, jobCardId: string) {
-    await this.detail(actor, jobCardId);
+    const job = await this.detail(actor, jobCardId);
+    assertProductDeliveryJob(job);
     return this.repository.listDeliveryItems(actor.organizationId, jobCardId);
   }
 

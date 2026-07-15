@@ -511,14 +511,14 @@ git commit -m "feat: validate JobCard submission by type"
 **Interfaces:**
 - Produces: `assertProductDeliveryJob(job)` used by GET/POST/PATCH/DELETE delivery paths.
 
-- [ ] **Step 1: Write failing four-path guard tests**
+- [x] **Step 1: Write failing four-path guard tests**
 
 For a visible General Task, assert list, add, patch, and remove each return
 `409 INVALID_JOB_TYPE` and exact Turkish message. Spies must prove no version comparison,
 item lookup, Product lookup, mutation, or activity after the parent read. Preserve missing
 or cross-organization parent as `404 JOB_CARD_NOT_FOUND`.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd server && npm test -- --run tests/delivery-item-service.test.ts tests/job-card-routes.test.ts
@@ -526,7 +526,7 @@ cd server && npm test -- --run tests/delivery-item-service.test.ts tests/job-car
 
 Expected: FAIL for list/patch/delete paths that currently lack the shared type guard.
 
-- [ ] **Step 3: Implement and place the guard**
+- [x] **Step 3: Implement and place the guard**
 
 ```ts
 export function assertProductDeliveryJob(job: JobCard) {
@@ -540,7 +540,7 @@ export function assertProductDeliveryJob(job: JobCard) {
 Each service method must read/conceal the parent, invoke this guard, and only then perform
 version/item/Product work. GET must not call the delivery repository after guard failure.
 
-- [ ] **Step 4: Verify GREEN and Product Delivery CRUD**
+- [x] **Step 4: Verify GREEN and Product Delivery CRUD**
 
 Run Step 2 and:
 
@@ -551,7 +551,7 @@ cd server && npm test -- --run tests/job-card-workspace-postgres.test.ts
 Expected: targeted unit tests PASS. PostgreSQL-gated cases either PASS with
 `TEST_DATABASE_URL` or report their existing explicit skip without being claimed live.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/job-cards/policy.ts server/src/modules/job-cards/service.ts \

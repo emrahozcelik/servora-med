@@ -173,6 +173,36 @@ describe('JobCard routes', () => {
     expect(service.removeDeliveryItem).toHaveBeenCalled();
   });
 
+  it('returns the canonical General Task delivery-resource error on all four paths', async () => {
+    const { app, service } = await createApp();
+    const error = new AppError(
+      'INVALID_JOB_TYPE', 409,
+      'Teslim kalemleri yalnız ürün teslimi işlerinde kullanılabilir.',
+    );
+    service.listDeliveryItems.mockRejectedValueOnce(error);
+    service.addDeliveryItem.mockRejectedValueOnce(error);
+    service.patchDeliveryItem.mockRejectedValueOnce(error);
+    service.removeDeliveryItem.mockRejectedValueOnce(error);
+    const addBody = {
+      clientActionId: 'delivery-add', expectedVersion: 1, productId: 'product-1',
+      deliveryPurpose: 'SALE', deliveredAt: '2026-07-15T08:00:00.000Z', quantity: 1,
+    };
+
+    for (const request of [
+      { method: 'GET' as const, url: '/api/job-cards/job-1/delivery-items' },
+      { method: 'POST' as const, url: '/api/job-cards/job-1/delivery-items', payload: addBody },
+      { method: 'PATCH' as const, url: '/api/job-cards/job-1/delivery-items/item-1', payload: { expectedVersion: 1, quantity: 2 } },
+      { method: 'DELETE' as const, url: '/api/job-cards/job-1/delivery-items/item-1', payload: { expectedVersion: 1 } },
+    ]) {
+      const response = await app.inject(request);
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        code: 'INVALID_JOB_TYPE',
+        error: 'Teslim kalemleri yalnız ürün teslimi işlerinde kullanılabilir.',
+      });
+    }
+  });
+
   it('serializes nullable delivery snapshots without fallback values', async () => {
     const { app, service } = await createApp();
     service.listDeliveryItems.mockResolvedValueOnce([{ id: 'item-1', unit: null, productSkuSnapshot: null, productModelSnapshot: null }]);

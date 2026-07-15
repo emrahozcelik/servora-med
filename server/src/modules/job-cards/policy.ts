@@ -19,6 +19,16 @@ export function assertCanCreateForAssignee(actor: JobCardActor, assignee: JobCar
   if (actor.role === 'STAFF' && actor.id !== assignee.id) forbidden();
 }
 
+export function assertProductDeliveryJob(job: JobCard) {
+  if (job.type !== 'PRODUCT_DELIVERY') {
+    throw new AppError(
+      'INVALID_JOB_TYPE',
+      409,
+      'Teslim kalemleri yalnız ürün teslimi işlerinde kullanılabilir.',
+    );
+  }
+}
+
 export function assertCanEdit(actor: JobCardActor, job: JobCard) {
   assertSameOrganization(actor, job.organizationId);
   if (['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'].includes(job.status)) {
