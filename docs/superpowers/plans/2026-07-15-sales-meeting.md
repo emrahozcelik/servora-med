@@ -689,9 +689,9 @@ git commit -m "feat: include sales meetings in operations"
 - Modify: `server/src/modules/reports/repository.ts`
 - Modify: `server/src/modules/reports/service.ts`
 - Create: `server/tests/reports-meetings.test.ts`
+- Modify: `server/tests/reports-postgres.test.ts`
 - Modify: `server/tests/reports-service.test.ts`
 - Modify: `server/tests/reports-routes.test.ts`
-- Modify: `server/tests/reports-deliveries.test.ts`
 
 **Interfaces:**
 - Produces: `MeetingOutcomeItem`,
@@ -700,7 +700,7 @@ git commit -m "feat: include sales meetings in operations"
 - Consumes: existing `StaffOperationalSummaryOneInput`, resolved organization-local range,
   Staff identity errors, and Task 2 persisted details.
 
-- [ ] **Step 1: Write failing exact report tests**
+- [x] **Step 1: Write failing exact report tests**
 
 Assert exactly four rows in canonical order, zero fill, non-negative integer counts,
 `COMPLETED` only, `assigned_to` attribution, actual `meeting_at`, half-open local range,
@@ -716,7 +716,7 @@ expect(report.meetingsByOutcome).toEqual([
 ]);
 ```
 
-- [ ] **Step 2: Run report tests and verify RED**
+- [x] **Step 2: Run report tests and verify RED**
 
 ```bash
 cd server && npm test -- --run tests/reports-meetings.test.ts \
@@ -726,7 +726,7 @@ cd server && npm test -- --run tests/reports-meetings.test.ts \
 
 Expected: FAIL because the port and response field are absent.
 
-- [ ] **Step 3: Implement the minimal read-model extension**
+- [x] **Step 3: Implement the minimal read-model extension**
 
 Add:
 
@@ -740,7 +740,7 @@ Use a canonical SQL `VALUES` set left-joined to a grouped aggregate filtered by
 organization, `SALES_MEETING`, `COMPLETED`, `assigned_to`, and actual-time range. Extend
 the existing `Promise.all` in `ReportsService.staffReport`; add no route or service.
 
-- [ ] **Step 4: Run full focused reports with PostgreSQL**
+- [x] **Step 4: Run full focused reports with PostgreSQL**
 
 ```bash
 cd server && TEST_DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run \
@@ -753,14 +753,19 @@ cd server && npm run build
 
 Expected: outcome query and every report regression PASS.
 
-- [ ] **Step 5: Commit Task 7**
+- [x] **Step 5: Commit Task 7**
 
 ```bash
 git add server/src/modules/reports/{types.ts,ports.ts,repository.ts,service.ts} \
   server/tests/reports-meetings.test.ts server/tests/reports-service.test.ts \
-  server/tests/reports-routes.test.ts server/tests/reports-deliveries.test.ts
+  server/tests/reports-routes.test.ts server/tests/reports-postgres.test.ts
 git commit -m "feat: report staff meeting outcomes"
 ```
+
+Execution note: the shared PostgreSQL report fixture now applies migrations 001–007 so
+the full report suite exercises the canonical Sales Meeting schema. Product Delivery
+decimal-string and General Task behavior remained covered by the existing focused
+regression suites without source changes.
 
 ### Task 8: Web Exact Contracts and URL-Owned Third Type
 

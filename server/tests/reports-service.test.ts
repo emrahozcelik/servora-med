@@ -64,6 +64,12 @@ function ports() {
     getStaffDeliveriesByPurpose: vi.fn(async () => ([
       { purpose: 'SALE', unit: 'Kutu', quantity: '3.000' },
     ])),
+    getStaffMeetingsByOutcome: vi.fn(async () => ([
+      { outcome: 'POSITIVE', count: 0 },
+      { outcome: 'FOLLOW_UP_REQUIRED', count: 1 },
+      { outcome: 'NO_DECISION', count: 0 },
+      { outcome: 'NOT_INTERESTED', count: 0 },
+    ])),
     getDeliveryReport: vi.fn(async (input) => ({
       groupBy: input.groupBy,
       items: [],
@@ -162,6 +168,12 @@ describe('ReportsService authorization and composition', () => {
       range,
       counters,
       deliveriesByPurpose: [{ purpose: 'SALE', unit: 'Kutu', quantity: '3.000' }],
+      meetingsByOutcome: [
+        { outcome: 'POSITIVE', count: 0 },
+        { outcome: 'FOLLOW_UP_REQUIRED', count: 1 },
+        { outcome: 'NO_DECISION', count: 0 },
+        { outcome: 'NOT_INTERESTED', count: 0 },
+      ],
     });
     expect(reports.getStaffIdentity).toHaveBeenCalledWith({
       organizationId: ORG_ONE,
@@ -169,7 +181,9 @@ describe('ReportsService authorization and composition', () => {
     });
     const summaryInput = reports.getOne.mock.calls[0]?.[0];
     const deliveryInput = reports.getStaffDeliveriesByPurpose.mock.calls[0]?.[0];
+    const meetingInput = reports.getStaffMeetingsByOutcome.mock.calls[0]?.[0];
     expect(summaryInput).toEqual(deliveryInput);
+    expect(summaryInput).toEqual(meetingInput);
     expect(summaryInput).toMatchObject({
       organizationId: ORG_ONE,
       staffUserId: STAFF_ONE,

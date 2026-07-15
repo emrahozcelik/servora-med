@@ -23,6 +23,7 @@ const MIGRATIONS = [
   '004_crm_contacts.sql',
   '005_product_catalog.sql',
   '006_jobcard_workspace.sql',
+  '007_sales_meeting.sql',
 ] as const;
 
 type ReportFixture = {
@@ -70,7 +71,7 @@ function toSafeUser(row: {
   };
 }
 
-async function applyMigrations001Through006(pool: Pool) {
+async function applyMigrations001Through007(pool: Pool) {
   for (const migration of MIGRATIONS) {
     const path = fileURLToPath(
       new URL(`../src/db/migrations/${migration}`, import.meta.url),
@@ -934,7 +935,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
 }
 
 describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
-  it('derives trusted reports from migrations 001 through 006', async () => {
+  it('derives trusted reports from migrations 001 through 007', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `reports_${randomUUID().replaceAll('-', '')}`;
     let pool: Pool | null = null;
@@ -944,7 +945,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
         connectionString: databaseUrl,
         options: `-c search_path=${schema},public`,
       });
-      await applyMigrations001Through006(pool);
+      await applyMigrations001Through007(pool);
       const fixture = await seedReportFixture(pool);
       await verifyReports(pool, fixture);
     } finally {

@@ -10,6 +10,7 @@ import type {
   DeliveryReportReadInput,
   DeliveryReportResponse,
   DeliveryStaffItem,
+  MeetingOutcomeItem,
   ReportStaffIdentity,
   ResolvedReportRange,
   StaffOperationalSummary,
@@ -53,6 +54,11 @@ type DeliveryPurposeRow = {
   delivery_purpose: DeliveryPurposeItem['purpose'];
   unit: string | null;
   quantity: string;
+};
+
+type MeetingOutcomeRow = {
+  outcome: MeetingOutcomeItem['outcome'];
+  count: string | number;
 };
 
 type DeliveryDayRow = {
@@ -281,6 +287,42 @@ ORDER BY CASE di.delivery_purpose
   WHEN 'OTHER' THEN 5
 END,
 di.unit COLLATE "C" ASC NULLS LAST`;
+
+const STAFF_MEETINGS_BY_OUTCOME_SQL = `WITH organization_range AS (
+  SELECT o.timezone,
+    COALESCE($3::date,
+      date_trunc('month', $5::timestamptz AT TIME ZONE o.timezone)::date) AS from_date,
+    COALESCE($4::date,
+      (date_trunc('month', $5::timestamptz AT TIME ZONE o.timezone)
+        + interval '1 month - 1 day')::date) AS to_date
+  FROM organizations o
+  WHERE o.id = $1
+), outcomes(outcome, sort_order) AS (
+  VALUES
+    ('POSITIVE', 1),
+    ('FOLLOW_UP_REQUIRED', 2),
+    ('NO_DECISION', 3),
+    ('NOT_INTERESTED', 4)
+), outcome_counts AS (
+  SELECT md.outcome, COUNT(*)::int AS count
+  FROM job_card_meeting_details md
+  JOIN job_cards jc ON jc.organization_id = md.organization_id
+    AND jc.id = md.job_card_id
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.assigned_to = $2
+    AND jc.type = 'SALES_MEETING'
+    AND jc.status = 'COMPLETED'
+    AND md.meeting_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND md.meeting_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+  GROUP BY md.outcome
+)
+SELECT outcomes.outcome, COALESCE(outcome_counts.count, 0)::int AS count
+FROM outcomes
+LEFT JOIN outcome_counts ON outcome_counts.outcome = outcomes.outcome
+ORDER BY outcomes.sort_order`;
 
 const DELIVERY_GROUPS = {
   day: {
@@ -559,6 +601,25 @@ export class PostgresReportsRepository implements StaffOperationalSummaryPort {
       purpose: row.delivery_purpose,
       unit: row.unit,
       quantity: row.quantity,
+    }));
+  }
+
+  async getStaffMeetingsByOutcome(
+    input: StaffOperationalSummaryOneInput,
+  ): Promise<MeetingOutcomeItem[]> {
+    const result = await this.pool.query<MeetingOutcomeRow>(
+      STAFF_MEETINGS_BY_OUTCOME_SQL,
+      [
+        input.organizationId,
+        input.staffUserId,
+        input.requestedRange?.from ?? null,
+        input.requestedRange?.to ?? null,
+        input.requestTime,
+      ],
+    );
+    return result.rows.map((row) => ({
+      outcome: row.outcome,
+      count: Number(row.count),
     }));
   }
 

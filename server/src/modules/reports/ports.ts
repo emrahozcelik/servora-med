@@ -5,6 +5,7 @@ import type {
   DeliveryPurposeItem,
   DeliveryReportReadInput,
   DeliveryReportResponse,
+  MeetingOutcomeItem,
   ReportStaffIdentity,
   StaffOperationalSummary,
   StaffOperationalSummaryManyInput,
@@ -24,6 +25,8 @@ export interface ReportsReadModel extends StaffOperationalSummaryPort {
     Promise<ReportStaffIdentity | null>;
   getStaffDeliveriesByPurpose(input: StaffOperationalSummaryOneInput):
     Promise<DeliveryPurposeItem[]>;
+  getStaffMeetingsByOutcome(input: StaffOperationalSummaryOneInput):
+    Promise<MeetingOutcomeItem[]>;
   getDeliveryReport(input: DeliveryReportReadInput): Promise<DeliveryReportResponse>;
   getApprovalSummary(input: { organizationId: string; requestTime: Date }):
     Promise<ApprovalSummary>;
