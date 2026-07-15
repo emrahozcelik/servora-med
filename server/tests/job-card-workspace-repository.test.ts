@@ -136,6 +136,30 @@ describe('PostgresJobCardRepository workspace list', () => {
     });
   });
 
+  it('parameterizes a Sales Meeting filter without joining structured details', async () => {
+    const createdAt = new Date('2026-07-15T08:00:00.000Z');
+    const { pool, calls } = poolDouble([{
+      id: 'job-meeting', type: 'SALES_MEETING', status: 'PLANNED', version: 2,
+      title: 'Kontrol görüşmesi', priority: 'normal', due_date: '2026-07-20',
+      created_at: createdAt, updated_at: createdAt, staff_completed_at: null,
+      customer_id: 'customer-1', customer_name: 'ABC Klinik',
+      contact_id: null, contact_name: null,
+      assignee_id: 'staff-1', assignee_name: 'Ayşe Personel', delivery_item_count: 0,
+    }], 1);
+
+    const result = await new PostgresJobCardRepository(pool as never).listJobCards(
+      { organizationId: 'org-1', assignedTo: null },
+      { ...baseQuery, type: 'SALES_MEETING' },
+    );
+
+    expect(calls[0]!.values).toContain('SALES_MEETING');
+    expect(calls[1]!.sql).not.toContain('job_card_meeting_details');
+    expect(result.items[0]).toMatchObject({
+      id: 'job-meeting', type: 'SALES_MEETING', deliveryItemCount: 0,
+      customer: { id: 'customer-1', name: 'ABC Klinik' },
+    });
+  });
+
   it('projects related names and delivery item count without summing mixed quantities', async () => {
     const createdAt = new Date('2026-07-13T08:00:00.000Z');
     const updatedAt = new Date('2026-07-13T09:00:00.000Z');

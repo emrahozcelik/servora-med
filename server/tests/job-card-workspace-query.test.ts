@@ -69,10 +69,13 @@ describe('JobCard workspace list query', () => {
     expect(() => parseJobCardListQuery({ status })).toThrowError(validationError);
   });
 
-  it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const)('accepts canonical type %s', (type) => {
-    expect(parseJobCardListQuery({ type }).type).toBe(type);
-    expect(parseJobCardBoardQuery({ type }).type).toBe(type);
-  });
+  it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const)(
+    'accepts canonical type %s',
+    (type) => {
+      expect(parseJobCardListQuery({ type }).type).toBe(type);
+      expect(parseJobCardBoardQuery({ type }).type).toBe(type);
+    },
+  );
 
   it.each(['', 'UNKNOWN', 'product_delivery'])('rejects invalid type %j', (type) => {
     expect(() => parseJobCardListQuery({ type })).toThrowError(validationError);

@@ -89,6 +89,31 @@ describe('PostgresJobCardRepository board projection', () => {
     });
   });
 
+  it('maps a Sales Meeting board item without loading meeting details', async () => {
+    const { pool } = poolDouble();
+    const query = vi.fn(async (sql: string) => {
+      if (/GROUP BY j\.status/.test(sql)) return { rows: [{ status: 'PLANNED', count: 1 }] };
+      return {
+        rows: [{
+          ...itemRow('job-meeting', 'PLANNED'),
+          type: 'SALES_MEETING',
+          delivery_item_count: 0,
+        }],
+      };
+    });
+    const repository = new PostgresJobCardRepository({ ...pool, query } as never);
+
+    const board = await repository.listBoard(
+      { organizationId: 'org-1', assignedTo: null },
+      { ...boardQuery, type: 'SALES_MEETING' },
+    );
+
+    expect(board.columns.PLANNED.items[0]).toMatchObject({
+      id: 'job-meeting', type: 'SALES_MEETING', deliveryItemCount: 0,
+    });
+    expect(query.mock.calls.every(([sql]) => !sql.includes('job_card_meeting_details'))).toBe(true);
+  });
+
   it('reuses canonical item projection and returns pre-limit active and closed counts', async () => {
     const { pool, calls } = poolDouble();
     const repository = new PostgresJobCardRepository(pool as never);

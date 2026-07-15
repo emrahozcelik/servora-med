@@ -621,7 +621,7 @@ git commit -m "feat: validate sales meeting submission"
 - Consumes: canonical `JOB_CARD_TYPES`; preserves `deliveryItemCount` projection and
   existing Staff visibility/ordering.
 
-- [ ] **Step 1: Write failing third-type workspace tests**
+- [x] **Step 1: Write failing third-type workspace tests**
 
 Add parser, repository, board-column, role-scope, search, pagination, approval, dashboard,
 and Staff-counter fixtures for `SALES_MEETING`. Assert list projection returns
@@ -634,7 +634,7 @@ expect(page.items.find((item) => item.id === meetingId)).toMatchObject({
 });
 ```
 
-- [ ] **Step 2: Run focused workspace/report tests and verify RED**
+- [x] **Step 2: Run focused workspace/report tests and verify RED**
 
 ```bash
 cd server && npm test -- --run tests/job-card-workspace-query.test.ts \
@@ -645,12 +645,17 @@ cd server && npm test -- --run tests/job-card-workspace-query.test.ts \
 
 Expected: FAIL at third-type parsing/fixtures.
 
-- [ ] **Step 3: Extend only canonical type-aware boundaries**
+**Task 6 TDD note (2026-07-15):** the new third-type tests passed on their first run
+because Task 1 had already extended the canonical `JOB_CARD_TYPES` set and the existing
+workspace/report SQL was intentionally generic. No production change was required;
+the PostgreSQL acceptance fixture below provides the new behavioral coverage.
+
+- [x] **Step 3: Extend only canonical type-aware boundaries**
 
 Use `JOB_CARD_TYPES` in exact query parsing and preserve existing SQL filters. Do not join
 meeting details into list/board or special-case all-type counters.
 
-- [ ] **Step 4: Run ordinary and PostgreSQL workspace regressions**
+- [x] **Step 4: Run ordinary and PostgreSQL workspace regressions**
 
 ```bash
 cd server && npm test -- --run tests/job-card-workspace-query.test.ts \
@@ -664,7 +669,7 @@ cd server && npm run build
 
 Expected: all-type surfaces include Sales Meeting; visibility and ordering PASS.
 
-- [ ] **Step 5: Commit Task 6**
+- [x] **Step 5: Commit Task 6**
 
 ```bash
 git add server/src/modules/job-cards/workspace-query.ts \
