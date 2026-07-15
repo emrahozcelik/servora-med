@@ -710,14 +710,14 @@ git commit -m "feat: filter workspace by JobCard type"
 - Produces: web `JobCardType`, both-type request filters, exact create request builders,
   exhaustive `jobTypeLabels`, and canonical URL ownership.
 
-- [ ] **Step 1: Write failing API/search/filter tests**
+- [x] **Step 1: Write failing API/search/filter tests**
 
 Assert Product and General create bodies contain only their union fields. Parse
 `type=GENERAL_TASK`; preserve it through refresh/deep-link/Back/Forward helpers; remove
 empty/repeated/unknown type with canonical replace state; reset offset on type change; and
 render both textual filter options.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd web && npm test -- --run tests/jobs-api.test.ts tests/job-search.test.ts \
@@ -726,7 +726,7 @@ cd web && npm test -- --run tests/jobs-api.test.ts tests/job-search.test.ts \
 
 Expected: FAIL because web type filters and create input are Product-only.
 
-- [ ] **Step 3: Implement minimum web contracts**
+- [x] **Step 3: Implement minimum web contracts**
 
 ```ts
 export type JobCardType = 'PRODUCT_DELIVERY' | 'GENERAL_TASK'
@@ -741,7 +741,7 @@ value in `parseJobSearch`; existing `canonicalJobSearchParams` removes every inv
 repeated scalar with replace navigation. Add `Genel görev` to `JobFilters` and keep offset
 reset in `updateJobSearch`.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run Step 2 and:
 
@@ -751,7 +751,7 @@ cd web && npm test -- --run tests/job-list.test.tsx tests/job-board.test.tsx
 
 Expected: PASS with no change to mobile board suppression.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/jobs/jobs-api.ts web/src/jobs/job-search.ts \

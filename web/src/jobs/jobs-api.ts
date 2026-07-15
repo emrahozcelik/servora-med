@@ -66,7 +66,7 @@ export type DeliveryItem = {
 };
 
 export type JobCardListFilters = Partial<{
-  q: string; status: JobCardStatusFilter; type: 'PRODUCT_DELIVERY'; assignedTo: string;
+  q: string; status: JobCardStatusFilter; type: JobCardType; assignedTo: string;
   customerId: string; priority: JobCardPriority; dueBefore: string; dueAfter: string;
   limit: number; offset: number;
 }>;

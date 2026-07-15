@@ -11,9 +11,18 @@ describe('canonical JobCard URL state', () => {
 
   it('drops unknown, repeated, unsupported, malformed, and default values', () => {
     const parsed = parseJobSearch(new URLSearchParams(
-      'unknown=x&q=%20%20&type=GENERAL_TASK&priority=critical&assignedTo=nope&customerId=nope&dueBefore=2026-02-30&status=active&status=closed&view=grid&offset=-1',
+      'unknown=x&q=%20%20&type=UNKNOWN&priority=critical&assignedTo=nope&customerId=nope&dueBefore=2026-02-30&status=active&status=closed&view=grid&offset=-1',
     ));
     expect(parsed).toEqual({ status: 'active', view: 'list', offset: 0 });
+  });
+
+  it('preserves a General Task filter through canonical deep-link parsing', () => {
+    const params = new URLSearchParams('type=GENERAL_TASK&status=NEW&offset=25');
+
+    expect(parseJobSearch(params)).toMatchObject({
+      type: 'GENERAL_TASK', status: 'NEW', offset: 25,
+    });
+    expect(updateJobSearch(params, {}).toString()).toBe('status=NEW&type=GENERAL_TASK');
   });
 
   it('parses the exact supported filters and board omits status', () => {
@@ -32,6 +41,12 @@ describe('canonical JobCard URL state', () => {
     const current = new URLSearchParams('status=closed&view=list&offset=50&priority=urgent');
     expect(updateJobSearch(current, { priority: 'normal', status: 'active' }).toString())
       .toBe('priority=normal');
+  });
+
+  it('resets offset when the JobCard type changes', () => {
+    const current = new URLSearchParams('type=PRODUCT_DELIVERY&offset=50');
+    expect(updateJobSearch(current, { type: 'GENERAL_TASK' }).toString())
+      .toBe('type=GENERAL_TASK');
   });
 
   it('enters board by removing status/offset while retaining canonical non-status filters', () => {

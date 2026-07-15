@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import type { CurrentUser } from '../services/api';
 import type { JobCardStatusFilter } from './jobs-api';
+import { jobTypeLabels } from './job-labels';
 import { isValidJobFilterUuid, type JobSearchState } from './job-search';
 
 type FilterName = 'status';
@@ -44,7 +45,8 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
     if (Object.keys(nextErrors).length > 0) return;
     onApply({
       q: search.trim() || undefined,
-      type: advanced.type === 'PRODUCT_DELIVERY' ? advanced.type : undefined,
+      type: advanced.type === 'PRODUCT_DELIVERY' || advanced.type === 'GENERAL_TASK'
+        ? advanced.type : undefined,
       assignedTo: advanced.assignedTo || undefined,
       customerId: advanced.customerId || undefined,
       priority: advanced.priority === 'low' || advanced.priority === 'normal' || advanced.priority === 'high' || advanced.priority === 'urgent' ? advanced.priority : undefined,
@@ -78,7 +80,9 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
           </select></div>
         <div className="field-group"><label htmlFor="job-type">İş türü</label>
           <select id="job-type" value={advanced.type} onChange={(event) => setAdvanced({ ...advanced, type: event.target.value })}>
-            <option value="">Tümü</option><option value="PRODUCT_DELIVERY">Ürün teslimi</option>
+            <option value="">Tümü</option>
+            {Object.entries(jobTypeLabels).map(([value, label]) =>
+              <option key={value} value={value}>{label}</option>)}
           </select></div>
         {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="job-assignee">Sorumlu personel</label>
           <input id="job-assignee" maxLength={36} value={advanced.assignedTo} aria-invalid={errors.assignedTo ? true : undefined}

@@ -175,4 +175,26 @@ describe('JobCard workspace transport', () => {
       .resolves.toEqual(job);
     await expect(getJobCard('job-1')).resolves.toEqual(job);
   });
+
+  it.each([
+    [{
+      clientActionId: 'delivery-create', type: 'PRODUCT_DELIVERY' as const, title: 'Teslim',
+      customerId: 'customer-1', assignedTo: 'staff-1',
+    }],
+    [{
+      clientActionId: 'task-create', type: 'GENERAL_TASK' as const, title: 'Doktoru ara',
+      assignedTo: 'staff-1', description: 'Randevu durumunu sor', customerId: null,
+      contactId: null, priority: 'normal' as const, dueDate: null,
+    }],
+  ])('sends an exact discriminated create body %#', async (input) => {
+    const response = input.type === 'GENERAL_TASK'
+      ? { ...job, type: 'GENERAL_TASK', title: input.title, customerId: null, contactId: null }
+      : job;
+    const fetch = vi.fn().mockResolvedValue(json(response, 201));
+    vi.stubGlobal('fetch', fetch);
+
+    await createJobCard(input);
+
+    expect(JSON.parse(String(fetch.mock.calls[0]![1]!.body))).toEqual(input);
+  });
 });

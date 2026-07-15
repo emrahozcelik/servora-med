@@ -1,3 +1,10 @@
+import type { JobCardType } from './jobs-api';
+
+export const jobTypeLabels: Record<JobCardType, string> = {
+  PRODUCT_DELIVERY: 'Ürün teslimi',
+  GENERAL_TASK: 'Genel görev',
+};
+
 export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_STARTED',
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
