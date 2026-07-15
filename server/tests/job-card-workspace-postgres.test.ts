@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCardActor, JobCardBaseFilters, JobCardListQuery } from '../src/modules/job-cards/types.js';
+import { PostgresReportsRepository } from '../src/modules/reports/repository.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const filters: JobCardBaseFilters = {
@@ -45,10 +46,25 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       const managerId = await user('Yönetici', 'MANAGER');
       const staffId = await user('Ayşe Personel', 'STAFF');
       const otherStaffId = await user('Başka Personel', 'STAFF');
+      await pool.query(
+        `INSERT INTO sessions (user_id, token_hash, expires_at)
+         VALUES ($1, $2, NOW() + interval '1 day')`,
+        [managerId, 'a'.repeat(64)],
+      );
+      await pool.query(
+        `INSERT INTO staff_profiles (organization_id, user_id, manager_user_id)
+         VALUES ($1, $2, $3), ($1, $4, $3)`,
+        [organizationId, staffId, managerId, otherStaffId],
+      );
       const customerId = (await pool.query<{ id: string }>(
         `INSERT INTO customers (organization_id, name, customer_type, status)
          VALUES ($1, 'ABC Klinik', 'clinic', 'active') RETURNING id`, [organizationId],
       )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO contacts (organization_id, customer_id, name, is_primary)
+         VALUES ($1, $2, 'Dr. Deniz', TRUE)`,
+        [organizationId, customerId],
+      );
       const productId = (await pool.query<{ id: string }>(
         `INSERT INTO products (organization_id, name, unit) VALUES ($1, 'İmplant Seti', 'adet') RETURNING id`, [organizationId],
       )).rows[0]!.id;
@@ -67,6 +83,82 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       const service = new JobCardService(repository, () => new Date('2026-07-14T09:00:00.000Z'));
       const staff: JobCardActor = { id: staffId, organizationId, role: 'STAFF' };
       const manager: JobCardActor = { id: managerId, organizationId, role: 'MANAGER' };
+
+      let generalTask = await service.create(staff, {
+        clientActionId: 'create-general-task', type: 'GENERAL_TASK',
+        title: 'Klinik dönüşünü takip et', description: null,
+        customerId: null, contactId: null, assignedTo: staffId,
+        priority: 'normal', dueDate: null,
+      });
+      expect(generalTask).toMatchObject({
+        type: 'GENERAL_TASK', status: 'NEW', version: 1,
+        title: 'Klinik dönüşünü takip et', description: null,
+        customer: null, contact: null,
+        assignee: { id: staffId, name: 'Ayşe Personel' },
+      });
+
+      const generalTaskList = await service.list(staff, {
+        ...listQuery, type: 'GENERAL_TASK',
+      });
+      expect(generalTaskList.items.map((item) => item.title))
+        .toContain('Klinik dönüşünü takip et');
+      await expect(service.list({ id: otherStaffId, organizationId, role: 'STAFF' }, {
+        ...listQuery, type: 'GENERAL_TASK',
+      })).resolves.toMatchObject({ items: [], total: 0 });
+      expect((await service.list(manager, { ...listQuery, type: 'GENERAL_TASK' })).items)
+        .toHaveLength(1);
+      expect((await service.list(manager, { ...listQuery, type: 'PRODUCT_DELIVERY' })).items)
+        .toHaveLength(3);
+
+      await expect(service.listDeliveryItems(staff, generalTask.id))
+        .rejects.toMatchObject({ code: 'INVALID_JOB_TYPE', statusCode: 409 });
+      await expect(service.addDeliveryItem(staff, generalTask.id, {
+        clientActionId: 'invalid-general-delivery', expectedVersion: generalTask.version,
+        productId, deliveryPurpose: 'SALE', deliveredAt: '2026-07-14T08:00:00.000Z', quantity: 1,
+      })).rejects.toMatchObject({ code: 'INVALID_JOB_TYPE', statusCode: 409 });
+      await expect(service.patchDeliveryItem(staff, generalTask.id, randomUUID(), {
+        expectedVersion: generalTask.version, quantity: 3,
+      })).rejects.toMatchObject({ code: 'INVALID_JOB_TYPE', statusCode: 409 });
+      await expect(service.removeDeliveryItem(staff, generalTask.id, randomUUID(), {
+        expectedVersion: generalTask.version,
+      })).rejects.toMatchObject({ code: 'INVALID_JOB_TYPE', statusCode: 409 });
+      expect((await pool.query<{ count: string }>(
+        'SELECT COUNT(*)::text AS count FROM job_card_delivery_items WHERE job_card_id = $1',
+        [generalTask.id],
+      )).rows[0]!.count).toBe('0');
+
+      generalTask = await service.start(staff, generalTask.id, {
+        clientActionId: 'start-general-task', expectedVersion: generalTask.version,
+      });
+      generalTask = await service.submitForApproval(staff, generalTask.id, {
+        clientActionId: 'submit-general-task', expectedVersion: generalTask.version,
+      });
+      generalTask = await service.requestRevision(manager, generalTask.id, {
+        clientActionId: 'revise-general-task', expectedVersion: generalTask.version,
+        revisionReason: 'Takip sonucunu açıklayın',
+      });
+      generalTask = await service.resume(staff, generalTask.id, {
+        clientActionId: 'resume-general-task', expectedVersion: generalTask.version,
+      });
+      generalTask = await service.submitForApproval(staff, generalTask.id, {
+        clientActionId: 'resubmit-general-task', expectedVersion: generalTask.version,
+      });
+      generalTask = await service.approve(manager, generalTask.id, {
+        clientActionId: 'approve-general-task', expectedVersion: generalTask.version,
+      });
+      expect(generalTask).toMatchObject({ status: 'COMPLETED', version: 7 });
+      const generalTaskNote = await service.addNote(staff, generalTask.id, {
+        clientActionId: 'note-general-task', note: 'Klinik dönüşü alındı.',
+      });
+      expect(generalTaskNote.note).toBe('Klinik dönüşü alındı.');
+      const generalTaskActivity = await service.listActivity(manager, generalTask.id, {
+        limit: 50, offset: 0,
+      });
+      expect(generalTaskActivity.items.map((item) => item.eventType)).toEqual(expect.arrayContaining([
+        'JOB_CREATED', 'JOB_STARTED', 'JOB_SUBMITTED_FOR_APPROVAL',
+        'JOB_REVISION_REQUESTED', 'JOB_RESUMED', 'JOB_APPROVED', 'NOTE_ADDED',
+      ]));
+      expect(JSON.stringify(generalTaskActivity)).not.toContain('Klinik dönüşü alındı.');
 
       const staffList = await service.list(staff, listQuery);
       expect(staffList.items.map((item) => item.id)).toEqual(expect.arrayContaining([completedJobId, cancelledJobId]));
@@ -119,7 +211,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         .rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE' });
 
       const closedBoard = await service.board(manager, { ...filters, limit: 25 });
-      expect(closedBoard.closedCounts).toEqual({ COMPLETED: 1, CANCELLED: 1 });
+      expect(closedBoard.closedCounts).toEqual({ COMPLETED: 2, CANCELLED: 1 });
       const activity = await service.listActivity(manager, completedJobId, { limit: 50, offset: 0 });
       expect(activity.items.map((item) => item.eventType)).toEqual(expect.arrayContaining([
         'DELIVERY_ITEM_ADDED', 'JOB_PLANNED', 'JOB_STARTED', 'JOB_SUBMITTED_FOR_APPROVAL',
@@ -127,6 +219,23 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       ]));
       expect(activity.items.filter((item) => item.eventType === 'JOB_APPROVED')).toHaveLength(1);
       expect(JSON.stringify(activity)).not.toMatch(/oldValue|newValue|metadata|clientActionId|Birinci not|İkinci not/);
+
+      const reports = new PostgresReportsRepository(pool);
+      const dashboard = await reports.getDashboard({
+        organizationId, requestedRange: { from: '2026-07-14', to: '2026-07-14' },
+        requestTime: new Date('2026-07-14T09:00:00.000Z'),
+      });
+      expect(dashboard.counters.completedInPeriod).toBe(2);
+      expect(dashboard.completedTrend).toEqual([{ date: '2026-07-14', count: 2 }]);
+      const deliveries = await reports.getDeliveryReport({
+        organizationId, requestedRange: { from: '2026-07-14', to: '2026-07-14' },
+        requestTime: new Date('2026-07-14T09:00:00.000Z'), groupBy: 'purpose',
+        staffUserId: null, limit: 50, offset: 0,
+      });
+      expect(deliveries).toMatchObject({
+        groupBy: 'purpose', total: 1,
+        items: [{ purpose: 'SALE', unit: 'adet', quantity: '2.000' }],
+      });
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

@@ -9,10 +9,24 @@ function assertSameOrganization(actor: JobCardActor, organizationId: string) {
   if (actor.organizationId !== organizationId) forbidden();
 }
 
+export function assertCreateAssignmentRequest(actor: JobCardActor, assignedTo: string) {
+  if (actor.role === 'STAFF' && actor.id !== assignedTo) forbidden();
+}
+
 export function assertCanCreateForAssignee(actor: JobCardActor, assignee: JobCardAssignee) {
   assertSameOrganization(actor, assignee.organizationId);
   if (!assignee.isActive || assignee.role !== 'STAFF') forbidden();
   if (actor.role === 'STAFF' && actor.id !== assignee.id) forbidden();
+}
+
+export function assertProductDeliveryJob(job: JobCard) {
+  if (job.type !== 'PRODUCT_DELIVERY') {
+    throw new AppError(
+      'INVALID_JOB_TYPE',
+      409,
+      'Teslim kalemleri yalnız ürün teslimi işlerinde kullanılabilir.',
+    );
+  }
 }
 
 export function assertCanEdit(actor: JobCardActor, job: JobCard) {

@@ -1,10 +1,10 @@
 # Servora-Med
 
-Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, the Product Delivery tracer, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, and trusted operational reports through Slice 08.
+Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, Product Delivery and General Task workflows, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, and trusted operational reports through Slice 09.
 
 ## Current Scope
 
-Implemented through Slice 08:
+Implemented through Slice 09:
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -53,11 +53,13 @@ Implemented through Slice 08:
 - grouped approved-delivery reports with exact decimal-string quantities
 - oldest-first approval queue with non-negative age buckets
 - stable report routes with URL-owned filters, pagination, and role boundaries
+- separate General Task quick create, shared approval lifecycle, type-aware detail, and
+  list/board/report integration without delivery-item leakage
 
 Not implemented yet:
 
 - Staff confidential notes and related follow-up cards
-- General Task and structured Sales Meeting flows
+- structured Sales Meeting flow
 - production deployment hardening and measured realtime
 
 ## Prerequisites
@@ -276,6 +278,35 @@ text enlargement, reduced motion, color-independent meaning, and no horizontal p
 overflow. Lighthouse reported an accessibility score of 100 for the mobile report
 snapshot. Slice 08 added no migration, report table, cache, materialized view, financial
 metric, inventory metric, or ranking.
+
+## General Tasks
+
+Slice 09 activates `GENERAL_TASK` as the second pilot-core JobCard type. One exact
+`POST /api/job-cards` discriminated union preserves the existing Product Delivery request
+while allowing a title-and-assignee task with optional description, due date, Customer,
+and Contact context. Both types share Staff self-assignment, management eligibility,
+idempotent creation, lifecycle, approval, notes, activity, visibility, and concurrency
+policies. Type-specific submission rules remain exhaustive and backend-owned.
+
+The web app exposes `/jobs/new-task` as a separate quick-create flow and keeps
+`/jobs/new-delivery` unchanged. One type-aware detail shell renders canonical assignee,
+Customer, and Contact identities. General Task neither requests nor renders delivery
+items; every delivery list/add/update/remove operation returns `INVALID_JOB_TYPE` for that
+type. Workspace list and board filters accept both canonical types. Operational counters
+and approval queues include General Task, while delivery quantities remain Product
+Delivery-only.
+
+Final Slice 09 verification passed the server build and ordinary suite at 48 files passed,
+5 PostgreSQL-conditional files skipped, 669 tests passed, and 15 skipped. A disposable
+PostgreSQL 16.13 database migrated through 001–006 passed all 53 server files and all 684
+tests with no unexpected skip. The web suite passed 40 files and 315 tests, and its
+production build passed. Both production dependency audits reported zero vulnerabilities.
+Playwright MCP acceptance covered Staff create/start/submit/resume, Manager
+revision/approval, deep links, refresh and Back/Forward URL state, keyboard-only use,
+visible focus and restoration, 44 CSS px targets, 390×844 mobile, 320 CSS px effective
+reflow, 200% text enlargement, reduced motion, semantic structure, and zero General Task
+delivery requests. Slice 09 added no migration, dependency, generic form builder, JSON
+details model, financial behavior, inventory behavior, or report storage.
 
 Pull requests and pushes to `main` run these server/web build, test, audit, and
 PostgreSQL-backed checks through `.github/workflows/ci.yml`.

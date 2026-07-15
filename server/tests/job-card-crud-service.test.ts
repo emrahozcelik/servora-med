@@ -14,6 +14,7 @@ import type {
   JobCardActor,
   JobCardAssignee,
   JobCardListQuery,
+  NormalizedJobCardCreateInput,
 } from '../src/modules/job-cards/types.js';
 
 const listQuery: JobCardListQuery = {
@@ -39,18 +40,41 @@ class CrudMemoryRepository implements JobCardRepository {
   ];
   jobs: JobCard[] = [];
   activities: string[] = [];
+  assigneeLookupCount = 0;
   completed = new Map<string, unknown>();
+  processing = new Set<string>();
+  failActivity = false;
   listCalls: Array<{ scope: JobCardReadScope; query: JobCardListQuery }> = [];
+
+  private detail(job: JobCard) {
+    return {
+      ...job,
+      assignee: { id: job.assignedTo, name: job.assignedTo === 'staff-2' ? 'Staff Two' : 'Staff One' },
+      customer: job.customerId ? { id: job.customerId, name: `Customer ${job.customerId}` } : null,
+      contact: job.contactId ? { id: job.contactId, name: `Contact ${job.contactId}` } : null,
+    };
+  }
 
   async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
     if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T };
+    if (this.processing.has(key)) return { kind: 'processing' as const };
+    this.processing.add(key);
+    const jobsBefore = this.jobs.map((job) => ({ ...job }));
+    const activityCount = this.activities.length;
     const tx: JobCardTransaction = {
       getJob: async () => null,
       getJobForUpdate: async () => null,
+      getJobDetail: async (org, id) => {
+        const job = this.jobs.find((item) => item.organizationId === org && item.id === id);
+        return job ? this.detail(job) : null;
+      },
       transitionWithVersion: async () => null,
       getAssignee: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
-      getAssigneeForUpdate: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
+      getAssigneeForUpdate: async (org, id) => {
+        this.assigneeLookupCount += 1;
+        return this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null;
+      },
       customerExists: async (org, id) => this.customers.some((item) => item.organizationId === org && item.id === id),
       getCustomerForUpdate: async (org, id) => this.customers.find((item) => item.organizationId === org && item.id === id) ?? null,
       getContactForUpdate: async (org, id) => this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
@@ -58,10 +82,21 @@ class CrudMemoryRepository implements JobCardRepository {
         const job: JobCard = { id: `job-${this.jobs.length + 1}`, status: 'NEW', version: 1, ...input };
         this.jobs.push(job); return job;
       },
-      appendActivity: async (input) => { this.activities.push(input.event); },
+      appendActivity: async (input) => {
+        if (this.failActivity) throw new Error('activity failed');
+        this.activities.push(input.event);
+      },
     };
-    const response = await work(tx); this.completed.set(key, response);
-    return { kind: 'completed' as const, response };
+    try {
+      const response = await work(tx); this.completed.set(key, response);
+      return { kind: 'completed' as const, response };
+    } catch (error) {
+      this.jobs = jobsBefore;
+      this.activities.splice(activityCount);
+      throw error;
+    } finally {
+      this.processing.delete(key);
+    }
   }
 
   async listJobCards(scope: JobCardReadScope, query: JobCardListQuery) {
@@ -74,11 +109,19 @@ class CrudMemoryRepository implements JobCardRepository {
   async findJobCard(organizationId: string, id: string) {
     return this.jobs.find((job) => job.organizationId === organizationId && job.id === id) ?? null;
   }
+  async findJobCardDetail(organizationId: string, id: string) {
+    const job = await this.findJobCard(organizationId, id);
+    return job ? this.detail(job) : null;
+  }
   async executeTransaction<T>(work: (tx: JobCardTransaction) => Promise<T>) {
     const before = this.jobs.map((job) => ({ ...job })); const eventCount = this.activities.length;
     const tx: JobCardTransaction = {
       getJob: async (org, id) => this.jobs.find((job) => job.organizationId === org && job.id === id) ?? null,
       getJobForUpdate: async (org, id) => this.jobs.find((job) => job.organizationId === org && job.id === id) ?? null,
+      getJobDetail: async (org, id) => {
+        const job = this.jobs.find((item) => item.organizationId === org && item.id === id);
+        return job ? this.detail(job) : null;
+      },
       transitionWithVersion: async () => null,
       getAssignee: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
       getAssigneeForUpdate: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
@@ -101,12 +144,118 @@ class CrudMemoryRepository implements JobCardRepository {
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
 const admin: JobCardActor = { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' };
-const createInput = {
+const createInput: NormalizedJobCardCreateInput = {
   clientActionId: 'create-1', type: 'PRODUCT_DELIVERY' as const, title: ' ABC Klinik teslimi ',
-  customerId: 'customer-1', assignedTo: 'staff-1', priority: 'normal' as const,
+  description: null, customerId: 'customer-1', contactId: null,
+  assignedTo: 'staff-1', priority: 'normal' as const, dueDate: null,
+};
+const generalTaskInput: NormalizedJobCardCreateInput = {
+  clientActionId: 'task-create-1', type: 'GENERAL_TASK' as const, title: ' Doktoru ara ',
+  description: null, customerId: null, contactId: null, assignedTo: 'staff-1',
+  priority: 'normal' as const, dueDate: null,
 };
 
 describe('JobCardService create and reads', () => {
+  it('creates a title-only General Task with nullable context and one JOB_CREATED event', async () => {
+    const repository = new CrudMemoryRepository();
+    const result = await new JobCardService(repository).create(staff, generalTaskInput);
+
+    expect(result).toMatchObject({
+      type: 'GENERAL_TASK', status: 'NEW', version: 1, title: 'Doktoru ara',
+      customerId: null, contactId: null, assignedTo: 'staff-1', priority: 'normal',
+      assignee: { id: 'staff-1', name: 'Staff One' }, customer: null, contact: null,
+    });
+    expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+
+  it('persists optional matching Customer and Contact context on a General Task', async () => {
+    const repository = new CrudMemoryRepository();
+    const result = await new JobCardService(repository).create(staff, {
+      ...generalTaskInput, clientActionId: 'task-with-context',
+      customerId: 'customer-1', contactId: 'contact-1',
+    });
+
+    expect(result).toMatchObject({
+      type: 'GENERAL_TASK', customerId: 'customer-1', contactId: 'contact-1',
+      assignee: { id: 'staff-1', name: 'Staff One' },
+      customer: { id: 'customer-1', name: 'Customer customer-1' },
+      contact: { id: 'contact-1', name: 'Contact contact-1' },
+    });
+  });
+
+  it('applies the shared assignment boundary to General Task before lookup', async () => {
+    const repository = new CrudMemoryRepository();
+
+    await expect(new JobCardService(repository).create(staff, {
+      ...generalTaskInput, assignedTo: 'staff-2',
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    expect(repository.assigneeLookupCount).toBe(0);
+  });
+
+  it('applies canonical optional Customer and Contact errors to General Task', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+
+    await expect(service.create(staff, {
+      ...generalTaskInput, clientActionId: 'task-contact-without-customer', contactId: 'contact-1',
+    })).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER', statusCode: 409 });
+    await expect(service.create(staff, {
+      ...generalTaskInput, clientActionId: 'task-contact-mismatch',
+      customerId: 'customer-1', contactId: 'contact-2',
+    })).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER', statusCode: 409 });
+    await expect(service.create(staff, {
+      ...generalTaskInput, clientActionId: 'task-inactive-customer', customerId: 'customer-inactive',
+    })).rejects.toMatchObject({ code: 'CUSTOMER_INACTIVE', statusCode: 409 });
+    await expect(service.create(staff, {
+      ...generalTaskInput, clientActionId: 'task-inactive-contact',
+      customerId: 'customer-1', contactId: 'contact-inactive',
+    })).rejects.toMatchObject({ code: 'CONTACT_INACTIVE', statusCode: 409 });
+  });
+
+  it('replays General Task creation without another record or activity', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const first = await service.create(staff, generalTaskInput);
+
+    await expect(service.create(staff, generalTaskInput)).resolves.toEqual(first);
+    expect(repository.jobs).toHaveLength(1);
+    expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+
+  it('returns ACTION_IN_PROGRESS for a live duplicate General Task claim', async () => {
+    const repository = new CrudMemoryRepository();
+    repository.processing.add('org-1:staff-1:task-create-1:JOB_CREATE');
+
+    await expect(new JobCardService(repository).create(staff, generalTaskInput))
+      .rejects.toMatchObject({ code: 'ACTION_IN_PROGRESS', statusCode: 409 });
+    expect(repository.jobs).toHaveLength(0);
+    expect(repository.activities).toHaveLength(0);
+  });
+
+  it('allows only one concurrent General Task create claim to complete', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+
+    const results = await Promise.allSettled([
+      service.create(staff, generalTaskInput),
+      service.create(staff, generalTaskInput),
+    ]);
+
+    expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+    expect(results.filter((result) => result.status === 'rejected')).toHaveLength(1);
+    expect(results.find((result) => result.status === 'rejected')).toMatchObject({
+      reason: { code: 'ACTION_IN_PROGRESS', statusCode: 409 },
+    });
+    expect(repository.jobs).toHaveLength(1);
+    expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+
+  it('rolls back General Task creation when JOB_CREATED append fails', async () => {
+    const repository = new CrudMemoryRepository(); repository.failActivity = true;
+
+    await expect(new JobCardService(repository).create(staff, generalTaskInput))
+      .rejects.toThrow('activity failed');
+    expect(repository.jobs).toHaveLength(0);
+    expect(repository.activities).toHaveLength(0);
+  });
+
   it('creates a staff self-assigned delivery with one JOB_CREATED event', async () => {
     const repository = new CrudMemoryRepository();
     const result = await new JobCardService(repository).create(staff, createInput);
@@ -124,7 +273,31 @@ describe('JobCardService create and reads', () => {
   it('rejects staff assignment to another user and cross-org references', async () => {
     const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
     await expect(service.create(staff, { ...createInput, assignedTo: 'staff-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(repository.assigneeLookupCount).toBe(0);
     await expect(service.create(staff, { ...createInput, customerId: 'missing' })).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND' });
+  });
+
+  it('uses the canonical assignee errors after manager assignment lookup', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    repository.assignees.push(
+      { id: 'staff-inactive', organizationId: 'org-1', role: 'STAFF', isActive: false },
+      { id: 'manager-assignee', organizationId: 'org-1', role: 'MANAGER', isActive: true },
+      { id: 'staff-cross-org', organizationId: 'org-2', role: 'STAFF', isActive: true },
+    );
+
+    await expect(service.create(manager, {
+      ...createInput, clientActionId: 'missing-assignee', assignedTo: 'missing',
+    })).rejects.toMatchObject({ code: 'ASSIGNEE_NOT_FOUND', statusCode: 404 });
+    await expect(service.create(manager, {
+      ...createInput, clientActionId: 'cross-org-assignee', assignedTo: 'staff-cross-org',
+    })).rejects.toMatchObject({ code: 'ASSIGNEE_NOT_FOUND', statusCode: 404 });
+    await expect(service.create(manager, {
+      ...createInput, clientActionId: 'inactive-assignee', assignedTo: 'staff-inactive',
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    await expect(service.create(manager, {
+      ...createInput, clientActionId: 'non-staff-assignee', assignedTo: 'manager-assignee',
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    expect(repository.assigneeLookupCount).toBe(4);
   });
 
   it('allows a manager to assign an active same-organization staff user', async () => {
@@ -135,12 +308,12 @@ describe('JobCardService create and reads', () => {
 
   it('persists a valid Contact and rejects a Contact from another Customer', async () => {
     const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
-    const created = await service.create(staff, { ...createInput, contactId: 'contact-1' } as never);
+    const created = await service.create(staff, { ...createInput, contactId: 'contact-1' });
     expect(created.contactId).toBe('contact-1');
 
     await expect(service.create(staff, {
       ...createInput, clientActionId: 'create-contact-mismatch', contactId: 'contact-2',
-    } as never)).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER' });
+    })).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER' });
   });
 
   it('rejects inactive and cross-organization references', async () => {
@@ -150,10 +323,10 @@ describe('JobCardService create and reads', () => {
     })).rejects.toMatchObject({ code: 'CUSTOMER_INACTIVE' });
     await expect(service.create(staff, {
       ...createInput, clientActionId: 'inactive-contact', contactId: 'contact-inactive',
-    } as never)).rejects.toMatchObject({ code: 'CONTACT_INACTIVE' });
+    })).rejects.toMatchObject({ code: 'CONTACT_INACTIVE' });
     await expect(service.create(staff, {
       ...createInput, clientActionId: 'cross-contact', contactId: 'contact-cross-org',
-    } as never)).rejects.toMatchObject({ code: 'CONTACT_NOT_FOUND' });
+    })).rejects.toMatchObject({ code: 'CONTACT_NOT_FOUND' });
   });
 
   it('patches a compatible Contact and clears it when Customer changes without one', async () => {
@@ -178,6 +351,9 @@ describe('JobCardService create and reads', () => {
     expect((await service.list(manager, listQuery)).items).toHaveLength(2);
     await expect(service.detail(staff, 'job-2')).rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND' });
     await expect(service.detail(manager, 'job-2')).resolves.toMatchObject({ id: 'job-2' });
+    await expect(service.detail(manager, 'job-2')).resolves.toMatchObject({
+      assignee: { id: 'staff-2', name: 'Staff Two' },
+    });
   });
 
   it('keeps Staff scope authoritative and short-circuits a conflicting assignee filter', async () => {
@@ -211,6 +387,10 @@ describe('JobCardService create and reads', () => {
     const created = await service.create(staff, createInput);
     const updated = await service.patch(staff, created.id, { expectedVersion: 1, title: 'Güncel teslim', priority: 'high' });
     expect(updated).toMatchObject({ title: 'Güncel teslim', priority: 'high', version: 2 });
+    expect(updated).toMatchObject({
+      assignee: { id: 'staff-1', name: 'Staff One' },
+      customer: { id: 'customer-1', name: 'Customer customer-1' }, contact: null,
+    });
     expect(repository.activities).toEqual(['JOB_CREATED', 'JOB_FIELDS_UPDATED']);
   });
 

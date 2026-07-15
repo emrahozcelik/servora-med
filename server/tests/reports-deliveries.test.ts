@@ -98,7 +98,7 @@ describe('PostgresReportsRepository grouped delivery reports', () => {
     expect(calls[2]?.text).toContain('date DESC');
   });
 
-  it('keeps null, lowercase, and uppercase units as separate purpose groups', async () => {
+  it('keeps delivery purpose quantities unchanged when General Tasks exist', async () => {
     const rows = [
       { delivery_purpose: 'SALE', unit: 'Kutu', quantity: '3.000' },
       { delivery_purpose: 'SALE', unit: 'kutu', quantity: '12.500' },
@@ -122,6 +122,7 @@ describe('PostgresReportsRepository grouped delivery reports', () => {
       offset: 0,
     });
     expect(result.items[0]).not.toHaveProperty('date');
+    expect(result.items.map((item) => item.quantity)).toEqual(['3.000', '12.500', '0.500']);
     expectCanonicalDeliverySql(calls);
     expect(calls[2]?.text).toContain("WHEN 'SALE' THEN 1");
     expect(calls[2]?.text).toContain("WHEN 'OTHER' THEN 5");

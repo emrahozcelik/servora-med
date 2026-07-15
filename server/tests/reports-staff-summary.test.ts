@@ -62,14 +62,15 @@ describe('PostgresReportsRepository Staff operational summaries', () => {
     expect(query).not.toHaveBeenCalled();
   });
 
-  it('loads a deduplicated Staff list in one query and maps zero counters', async () => {
+  it('loads one batch including General Tasks owned through assigned_to', async () => {
     const { pool, query } = recordingPool([
       row(STAFF_ONE, {
-        open_job_cards: '3',
-        waiting_approval: '2',
-        revision_requested: '1',
-        overdue_job_cards: '1',
-        completed_in_period: '4',
+        // Named General Tasks are owned by STAFF_ONE through assigned_to.
+        open_job_cards: '4',
+        waiting_approval: '3',
+        revision_requested: '2',
+        overdue_job_cards: '2',
+        completed_in_period: '5',
       }),
       row(STAFF_TWO),
     ]);
@@ -95,11 +96,11 @@ describe('PostgresReportsRepository Staff operational summaries', () => {
       staffUserId: STAFF_ONE,
       range: { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' },
       counters: {
-        openJobCards: 3,
-        waitingApproval: 2,
-        revisionRequested: 1,
-        overdueJobCards: 1,
-        completedInPeriod: 4,
+        openJobCards: 4,
+        waitingApproval: 3,
+        revisionRequested: 2,
+        overdueJobCards: 2,
+        completedInPeriod: 5,
       },
     });
     expect(summaries.get(STAFF_TWO)?.counters).toEqual({

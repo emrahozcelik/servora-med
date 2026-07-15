@@ -53,6 +53,15 @@ describe('structured JobCard list', () => {
     expect(renderList({ kind: 'ready', page: page([{ ...item, contact: null }]) })).not.toContain('İlgili kişi');
   });
 
+  it('does not fabricate delivery facts for General Task rows', () => {
+    const html = renderList({ kind: 'ready', page: page([{
+      ...item, type: 'GENERAL_TASK', title: 'Teklif dönüşünü takip et', deliveryItemCount: 0,
+    }]) });
+
+    expect(html).not.toContain('<dt>Teslim</dt>');
+    expect(html).not.toContain('0 ürün kalemi');
+  });
+
   it('renders the server page range and explicit previous/next actions', () => {
     const html = renderList({ kind: 'ready', page: page([item], 25, 80) });
     expect(html).toContain('26–50 / 80'); expect(html).toContain('Önceki'); expect(html).toContain('Sonraki');
@@ -267,5 +276,19 @@ describe('routed JobCard workspace', () => {
     await act(async () => (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Onaya göndermek için aç') as HTMLButtonElement).click());
     expect(command).toHaveBeenCalledWith({ name: 'submit', jobId: 'job-1', expectedVersion: 7 });
     expect(command.mock.results[0]?.value).toBeUndefined();
+  });
+
+  it('shows the canonical General Task type in the expanded row summary', async () => {
+    const load = vi.fn().mockResolvedValue(page([{
+      ...item, type: 'GENERAL_TASK', title: 'Klinik dönüşünü takip et', deliveryItemCount: 0,
+    }]));
+    await mount('/jobs', load);
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')!.click());
+
+    const row = container.querySelector<HTMLElement>('[data-job-id="job-1"]')!;
+    expect(row.textContent).toContain('Genel görev');
+    expect(row.textContent).not.toContain('Ürün teslimi');
+    expect(row.textContent).not.toContain('ürün kalemi');
   });
 });

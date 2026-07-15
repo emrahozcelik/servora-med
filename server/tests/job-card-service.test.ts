@@ -30,6 +30,15 @@ class MemoryJobCardRepository implements JobCardRepository {
     const tx: JobCardTransaction = {
       getJobForUpdate: async (organizationId, id) =>
         this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null,
+      getJobDetail: async (organizationId, id) =>
+        this.job.organizationId === organizationId && this.job.id === id
+          ? {
+              ...this.job,
+              assignee: { id: this.job.assignedTo, name: 'Staff One' },
+              customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
+              contact: null,
+            }
+          : null,
       transitionWithVersion: async (input) => {
         if (this.job.id !== input.jobCardId || this.job.version !== input.expectedVersion) return null;
         this.job = { ...this.job, status: input.status, version: this.job.version + 1 };

@@ -62,18 +62,41 @@ describe('JobCard routes', () => {
 
   it('dispatches create, list, detail, and patch with the authenticated actor', async () => {
     const { app, service } = await createApp();
-    const body = { clientActionId: 'c1', type: 'PRODUCT_DELIVERY', title: 'Teslim', customerId: 'customer-1', contactId: 'contact-1', assignedTo: 'staff-1' };
+    const body = {
+      clientActionId: 'c1', type: 'PRODUCT_DELIVERY', title: 'Teslim',
+      customerId: '22222222-2222-4222-8222-222222222222',
+      contactId: '33333333-3333-4333-8333-333333333333',
+      assignedTo: '11111111-1111-4111-8111-111111111111',
+    };
     expect((await app.inject({ method: 'POST', url: '/api/job-cards', payload: body })).statusCode).toBe(201);
     await app.inject({ method: 'GET', url: '/api/job-cards' });
     await app.inject({ method: 'GET', url: '/api/job-cards/job-1' });
     await app.inject({ method: 'PATCH', url: '/api/job-cards/job-1', payload: { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' } });
-    expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), body);
+    expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), {
+      ...body, description: null, priority: 'normal', dueDate: null,
+    });
     expect(service.list).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'staff-1' }),
       expect.objectContaining({ status: 'active', limit: 25, offset: 0 }),
     );
     expect(service.detail).toHaveBeenCalledWith(expect.anything(), 'job-1');
     expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' });
+  });
+
+  it('dispatches the exact normalized General Task create body', async () => {
+    const { app, service } = await createApp();
+    const body = {
+      clientActionId: 'task-create-1', type: 'GENERAL_TASK', title: 'Doktoru ara',
+      assignedTo: '11111111-1111-4111-8111-111111111111',
+    };
+
+    const response = await app.inject({ method: 'POST', url: '/api/job-cards', payload: body });
+
+    expect(response.statusCode).toBe(201);
+    expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), {
+      ...body, description: null, customerId: null, contactId: null,
+      priority: 'normal', dueDate: null,
+    });
   });
 
   it('returns the canonical page and forwards the parsed list query', async () => {
@@ -100,7 +123,7 @@ describe('JobCard routes', () => {
   it.each([
     '/api/job-cards?unknown=value',
     '/api/job-cards?status=active&status=closed',
-    '/api/job-cards?type=GENERAL_TASK',
+    '/api/job-cards?type=SALES_MEETING',
     '/api/job-cards?dueBefore=2026-02-30',
     '/api/job-cards?limit=101',
   ])('rejects invalid list query %s', async (url) => {
@@ -148,6 +171,36 @@ describe('JobCard routes', () => {
     expect(service.listDeliveryItems).toHaveBeenCalled();
     expect(service.patchDeliveryItem).toHaveBeenCalled();
     expect(service.removeDeliveryItem).toHaveBeenCalled();
+  });
+
+  it('returns the canonical General Task delivery-resource error on all four paths', async () => {
+    const { app, service } = await createApp();
+    const error = new AppError(
+      'INVALID_JOB_TYPE', 409,
+      'Teslim kalemleri yalnız ürün teslimi işlerinde kullanılabilir.',
+    );
+    service.listDeliveryItems.mockRejectedValueOnce(error);
+    service.addDeliveryItem.mockRejectedValueOnce(error);
+    service.patchDeliveryItem.mockRejectedValueOnce(error);
+    service.removeDeliveryItem.mockRejectedValueOnce(error);
+    const addBody = {
+      clientActionId: 'delivery-add', expectedVersion: 1, productId: 'product-1',
+      deliveryPurpose: 'SALE', deliveredAt: '2026-07-15T08:00:00.000Z', quantity: 1,
+    };
+
+    for (const request of [
+      { method: 'GET' as const, url: '/api/job-cards/job-1/delivery-items' },
+      { method: 'POST' as const, url: '/api/job-cards/job-1/delivery-items', payload: addBody },
+      { method: 'PATCH' as const, url: '/api/job-cards/job-1/delivery-items/item-1', payload: { expectedVersion: 1, quantity: 2 } },
+      { method: 'DELETE' as const, url: '/api/job-cards/job-1/delivery-items/item-1', payload: { expectedVersion: 1 } },
+    ]) {
+      const response = await app.inject(request);
+      expect(response.statusCode).toBe(409);
+      expect(response.json()).toMatchObject({
+        code: 'INVALID_JOB_TYPE',
+        error: 'Teslim kalemleri yalnız ürün teslimi işlerinde kullanılabilir.',
+      });
+    }
   });
 
   it('serializes nullable delivery snapshots without fallback values', async () => {

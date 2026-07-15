@@ -173,13 +173,32 @@ Product delivery stores purpose, positive quantity, product snapshot, and actual
 
 Delivery purposes are `SALE`, `SAMPLE`, `CONSIGNMENT`, `RETURN`, and `OTHER`. They are operational classifications. No purpose creates inventory, invoice, payment, revenue, or commission side effects in MVP.
 
-### 7.4 Activity timeline
+### 7.4 General Task
+
+General Task is the second pilot-core JobCard type. It uses the same persistence model,
+processed-action boundary, state machine, approval engine, notes, and activity timeline as
+Product Delivery. Creation and submission delegate only their type-specific requirements
+to exhaustive policies: General Task requires a non-empty title and eligible assignee,
+while Customer and Contact remain optional common context.
+
+The public create contract is one exact `type`-discriminated union. Staff self-assignment
+and management assignee eligibility are shared policies, so Product Delivery behavior does
+not fork. Canonical detail uses organization-scoped joins for assignee, Customer, and
+Contact display identities. The web detail shell selects a small type presentation;
+General Task never calls or renders delivery-item subresources, and all four delivery
+operations reject it with `INVALID_JOB_TYPE`.
+
+The stable quick-create route is `/jobs/new-task`; `/jobs/new-delivery` remains unchanged.
+This slice adds no migration, generic form builder, JSON details model, new dependency,
+financial behavior, inventory behavior, or report storage.
+
+### 7.5 Activity timeline
 
 Critical JobCard commands append a canonical activity event in the same transaction. Lifecycle events carry old and new status, so no second generic status-change event is created.
 
 JobCard activity is scoped to JobCard operations. Organization-level configuration audit requires a separate future design.
 
-### 7.5 Operational reports read model
+### 7.6 Operational reports read model
 
 Reports is a read-only module inside the modular monolith. It derives organization-scoped
 operational summaries from persisted JobCard and delivery data and owns no report table,

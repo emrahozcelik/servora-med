@@ -22,10 +22,11 @@ type BoardState =
   | { kind: 'ready'; board: JobCardBoard }
   | { kind: 'error'; message: string };
 
-export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
+export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask, onCommand, load = listJobCards, loadBoard = getJobCardBoard }: {
   user: CurrentUser;
   notice?: string;
-  onCreate?: () => void;
+  onCreateDelivery?: () => void;
+  onCreateTask?: () => void;
   onCommand?: (intent: JobCommandIntent) => void;
   load?: typeof listJobCards;
   loadBoard?: typeof getJobCardBoard;
@@ -129,7 +130,10 @@ export function JobWorkspace({ user, notice = '', onCreate, onCommand, load = li
   return <main className="workspace job-workspace">
     {notice && <div className="success-message" role="status">{notice}</div>}
     <div className="workspace-heading"><div><p className="eyebrow">Çalışma alanı</p><h1>{user.role === 'STAFF' ? 'İşlerim' : 'İşler'}</h1></div>
-      {onCreate && <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni teslim</button>}</div>
+      {(onCreateDelivery || onCreateTask) && <div className="workspace-create-actions">
+        {onCreateTask && <button className="primary-button compact-button" type="button" onClick={onCreateTask}>Yeni görev</button>}
+        {onCreateDelivery && <button className="secondary-button compact-button" type="button" onClick={onCreateDelivery}>Yeni teslim</button>}
+      </div>}</div>
     <nav className="job-quick-views" aria-label="Hızlı iş görünümleri">
       <Link to={{ search: filterHref(params, 'active') }} aria-current={filters.status === 'active' ? 'page' : undefined}>Aktif işler</Link>
       {user.role !== 'STAFF' && <Link to={{ search: filterHref(params, 'WAITING_APPROVAL') }}

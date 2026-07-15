@@ -69,9 +69,14 @@ describe('JobCard workspace list query', () => {
     expect(() => parseJobCardListQuery({ status })).toThrowError(validationError);
   });
 
-  it('accepts only the Slice 07 type filter', () => {
-    expect(parseJobCardListQuery({ type: 'PRODUCT_DELIVERY' }).type).toBe('PRODUCT_DELIVERY');
-    expect(() => parseJobCardListQuery({ type: 'GENERAL_TASK' })).toThrowError(validationError);
+  it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const)('accepts canonical type %s', (type) => {
+    expect(parseJobCardListQuery({ type }).type).toBe(type);
+    expect(parseJobCardBoardQuery({ type }).type).toBe(type);
+  });
+
+  it.each(['', 'UNKNOWN', 'product_delivery'])('rejects invalid type %j', (type) => {
+    expect(() => parseJobCardListQuery({ type })).toThrowError(validationError);
+    expect(() => parseJobCardBoardQuery({ type })).toThrowError(validationError);
   });
 
   it.each(['low', 'normal', 'high', 'urgent'])('accepts priority %s', (priority) => {
@@ -190,6 +195,11 @@ describe('JobCard board query', () => {
 describe('shared JobCard validation', () => {
   it('counts Unicode code points rather than UTF-16 code units', () => {
     expect(codePointLength('😀')).toBe(1);
+  });
+
+  it('rejects repeated scalar board filters', () => {
+    expect(() => parseJobCardBoardQuery({ type: ['PRODUCT_DELIVERY', 'GENERAL_TASK'] }))
+      .toThrowError(validationError);
   });
 
   it.each([' ', '\t\n', '\r', '\f', '\v', '\u00A0', '\u2028', '\u2029'])

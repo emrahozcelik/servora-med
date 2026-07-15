@@ -11,7 +11,8 @@ import type { DeliveryItem, JobCard } from '../src/jobs/jobs-api';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const job: JobCard = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 4,
-  title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null };
+  title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
+  assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'Klinik' }, contact: null };
 const item: DeliveryItem = { id: 'i1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'p1', deliveryPurpose: 'SALE',
   deliveredAt: '2026-07-11T10:00:00Z', quantity: 2, unit: 'adet', productNameSnapshot: 'İmplant seti', productSkuSnapshot: null,
   productModelSnapshot: null, lotNo: null, serialNo: null, expiryDate: null, deliveryNote: null };
@@ -57,6 +58,55 @@ describe('Manager review', () => {
       revise: vi.fn(), refresh, createActionId: () => 'approve-1',
     });
     expect(result).toEqual({ kind: 'conflict', job: refreshed });
+  });
+
+  it('never requests delivery items for a General Task, including conflict truth reload', async () => {
+    const initialTask = {
+      ...job, type: 'GENERAL_TASK' as const, status: 'NEW' as const, title: 'Klinik dönüşünü takip et',
+      description: 'Sonucu karta yaz.', priority: 'high' as const, dueDate: '2026-07-20',
+      contactId: 'contact-1', contact: { id: 'contact-1', name: 'Dr. Ayşe' },
+    };
+    const refreshedTask = { ...initialTask, status: 'PLANNED' as const, version: 5 };
+    let detailReads = 0;
+    let deliveryReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) {
+        deliveryReads += 1;
+        return Response.json({ items: [] });
+      }
+      if (url.includes('/notes?')) return Response.json(page);
+      if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
+      if (url.endsWith('/start') && init?.method === 'POST') {
+        return Response.json({ error: 'İş güncellendi.', code: 'VERSION_CONFLICT' }, { status: 409 });
+      }
+      if (url.endsWith('/api/job-cards/job-1')) {
+        detailReads += 1;
+        return Response.json(detailReads === 1 ? initialTask : refreshedTask);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(host.textContent).toContain('Genel görev');
+      expect(host.textContent).not.toContain('Teslim bilgileri');
+      const start = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'İşi başlat')!;
+      await act(async () => {
+        start.click();
+        await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(detailReads).toBe(2);
+      expect(deliveryReads).toBe(0);
+      expect(host.textContent).toContain('En güncel durum gösteriliyor');
+    } finally {
+      await act(async () => root.unmount()); host.remove();
+    }
   });
 
   it.each([

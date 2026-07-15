@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  assertCreateAssignmentRequest,
   assertCanCreateForAssignee,
   assertCanEdit,
   assertCanTransition,
@@ -20,6 +21,14 @@ const item: DeliveryItem = {
 };
 
 describe('JobCard policy', () => {
+  it('rejects a Staff assignment request for another identifier before assignee lookup', () => {
+    expect(() => assertCreateAssignmentRequest(staff, 'staff-1')).not.toThrow();
+    expect(() => assertCreateAssignmentRequest(staff, 'staff-2'))
+      .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+    expect(() => assertCreateAssignmentRequest(manager, 'staff-2')).not.toThrow();
+    expect(() => assertCreateAssignmentRequest(admin, 'staff-2')).not.toThrow();
+  });
+
   it('allows staff self-assignment and rejects assigning another user', () => {
     expect(() => assertCanCreateForAssignee(staff, { id: 'staff-1', organizationId: 'org-1', role: 'STAFF', isActive: true })).not.toThrow();
     expect(() => assertCanCreateForAssignee(staff, { id: 'staff-2', organizationId: 'org-1', role: 'STAFF', isActive: true }))

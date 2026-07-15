@@ -13,6 +13,9 @@ class DeliveryRepository implements JobCardRepository {
   replacementProduct: ProductReference = { id: 'product-2', organizationId: 'org-1', name: 'Greft Seti', sku: 'GRF-2', model: 'G2', unit: 'kutu', isActive: true };
   items: DeliveryItemRecord[] = []; events: string[] = []; completed = new Map<string, unknown>();
   getProductCalls: string[] = [];
+  getItemCalls = 0;
+  bumpVersionCalls = 0;
+  listDeliveryItemCalls = 0;
 
   private tx(): JobCardTransaction { return {
     getJobForUpdate: async (org, id) => org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
@@ -24,11 +27,17 @@ class DeliveryRepository implements JobCardRepository {
       const product = [this.product, this.replacementProduct].find((candidate) => candidate.organizationId === org && candidate.id === id);
       return product ? { ...product } : null;
     },
-    getDeliveryItemForUpdate: async (org, job, id) => this.items.find((i) => i.organizationId === org && i.jobCardId === job && i.id === id) ?? null,
+    getDeliveryItemForUpdate: async (org, job, id) => {
+      this.getItemCalls += 1;
+      return this.items.find((i) => i.organizationId === org && i.jobCardId === job && i.id === id) ?? null;
+    },
     createDeliveryItem: async (input) => { const item = { ...input, id: `item-${this.items.length + 1}` }; this.items.push(item); return item; },
     updateDeliveryItem: async (id, input) => { const index = this.items.findIndex((i) => i.id === id); this.items[index] = { ...this.items[index]!, ...input }; return this.items[index]!; },
     deleteDeliveryItem: async (id) => { this.items = this.items.filter((i) => i.id !== id); },
-    bumpVersion: async (_org, _id, version) => { if (this.job.version !== version) return null; this.job.version++; return { ...this.job }; },
+    bumpVersion: async (_org, _id, version) => {
+      this.bumpVersionCalls += 1;
+      if (this.job.version !== version) return null; this.job.version++; return { ...this.job };
+    },
   }; }
   async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
     const key = `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
@@ -36,8 +45,20 @@ class DeliveryRepository implements JobCardRepository {
     const response = await work(this.tx()); this.completed.set(key, response); return { kind: 'completed' as const, response };
   }
   async executeTransaction<T>(work: (tx: JobCardTransaction) => Promise<T>) { return work(this.tx()); }
-  async listJobCards() { return [this.job]; } async findJobCard() { return this.job; }
-  async listDeliveryItems() { return this.items; }
+  async listJobCards() { return [this.job]; }
+  async findJobCard(organizationId: string, jobCardId: string) {
+    return this.job.organizationId === organizationId && this.job.id === jobCardId ? this.job : null;
+  }
+  async findJobCardDetail(organizationId: string, jobCardId: string) {
+    const job = await this.findJobCard(organizationId, jobCardId);
+    return job ? {
+      ...job,
+      assignee: { id: job.assignedTo, name: 'Staff One' },
+      customer: job.customerId ? { id: job.customerId, name: 'Demo Klinik' } : null,
+      contact: null,
+    } : null;
+  }
+  async listDeliveryItems() { this.listDeliveryItemCalls += 1; return this.items; }
 }
 
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
@@ -45,6 +66,43 @@ const create = { clientActionId: 'item-action-1', expectedVersion: 1, productId:
   deliveryPurpose: 'SAMPLE' as const, deliveredAt: '2026-07-11T10:00:00.000Z', quantity: 2, deliveryNote: 'Deneme' };
 
 describe('delivery item mutations', () => {
+  it.each([
+    ['list', async (service: JobCardService) => service.listDeliveryItems(staff, 'job-1')],
+    ['add', async (service: JobCardService) => service.addDeliveryItem(staff, 'job-1', {
+      ...create, expectedVersion: 99,
+    })],
+    ['patch', async (service: JobCardService) => service.patchDeliveryItem(
+      staff, 'job-1', 'item-1', { expectedVersion: 99, quantity: 3 },
+    )],
+    ['remove', async (service: JobCardService) => service.removeDeliveryItem(
+      staff, 'job-1', 'item-1', { expectedVersion: 99 },
+    )],
+  ] as const)('rejects General Task delivery %s before subresource work', async (_path, run) => {
+    const repo = new DeliveryRepository(); repo.job.type = 'GENERAL_TASK';
+
+    await expect(run(new JobCardService(repo))).rejects.toMatchObject({
+      code: 'INVALID_JOB_TYPE', statusCode: 409,
+      message: 'Teslim kalemleri yalnız ürün teslimi işlerinde kullanılabilir.',
+    });
+    expect(repo.listDeliveryItemCalls).toBe(0);
+    expect(repo.getProductCalls).toEqual([]);
+    expect(repo.getItemCalls).toBe(0);
+    expect(repo.bumpVersionCalls).toBe(0);
+    expect(repo.items).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
+  });
+
+  it('conceals a missing or cross-organization parent before delivery access', async () => {
+    const repo = new DeliveryRepository(); const service = new JobCardService(repo);
+
+    await expect(service.listDeliveryItems(staff, 'missing'))
+      .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+    await expect(service.addDeliveryItem({ ...staff, organizationId: 'org-2' }, 'job-1', create))
+      .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+    expect(repo.listDeliveryItemCalls).toBe(0);
+    expect(repo.getProductCalls).toEqual([]);
+  });
+
   it('creates from the catalog snapshot, increments parent version, and emits one event', async () => {
     const repo = new DeliveryRepository(); const result = await new JobCardService(repo).addDeliveryItem(staff, 'job-1', create);
     expect(result).toMatchObject({ item: { productNameSnapshot: 'İmplant Seti', productSkuSnapshot: 'IMP-1', unit: 'adet', quantity: 2 }, jobCardVersion: 2 });

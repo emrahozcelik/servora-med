@@ -11,7 +11,10 @@ afterEach(() => vi.unstubAllGlobals());
 
 const job = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
   version: 1, title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1',
-  contactId: 'contact-1', createdBy: 'staff-1', priority: 'normal', dueDate: null };
+  contactId: 'contact-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
+  assignee: { id: 'staff-1', name: 'Ayşe Personel' },
+  customer: { id: 'customer-1', name: 'Klinik' },
+  contact: { id: 'contact-1', name: 'Dr. Deniz' } };
 const jobListItem = {
   id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 1, title: 'Teslim',
   priority: 'normal', dueDate: null, createdAt: '2026-07-11T10:00:00.000Z',

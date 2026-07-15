@@ -5,7 +5,8 @@ export const JOB_CARD_STATUSES = [
   'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
-export type JobCardType = 'PRODUCT_DELIVERY' | 'GENERAL_TASK';
+export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const;
+export type JobCardType = (typeof JOB_CARD_TYPES)[number];
 
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
@@ -40,6 +41,34 @@ export type JobCard = {
   dueDate: string | null;
 };
 
+export type JobCardCreateInput =
+  | {
+    clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string;
+    description?: string | null; customerId: string; contactId?: string | null;
+    assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
+  }
+  | {
+    clientActionId: string; type: 'GENERAL_TASK'; title: string;
+    description?: string | null; customerId?: string | null; contactId?: string | null;
+    assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
+  };
+
+type NormalizedCommonCreateInput = {
+  clientActionId: string; title: string; description: string | null; contactId: string | null;
+  assignedTo: string; priority: JobCardPriority; dueDate: string | null;
+};
+
+export type NormalizedJobCardCreateInput =
+  | NormalizedCommonCreateInput & { type: 'PRODUCT_DELIVERY'; customerId: string }
+  | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null };
+
+export type RelatedIdentity = { id: string; name: string };
+export type JobCardDetail = JobCard & {
+  assignee: RelatedIdentity;
+  customer: RelatedIdentity | null;
+  contact: RelatedIdentity | null;
+};
+
 export type DeliveryItem = {
   id?: string;
   organizationId?: string;
@@ -71,7 +100,7 @@ export type JobCardStatusFilter = JobCardStatus | 'active' | 'closed' | 'all';
 
 export type JobCardBaseFilters = {
   q: string | null;
-  type: 'PRODUCT_DELIVERY' | null;
+  type: JobCardType | null;
   assignedTo: string | null;
   customerId: string | null;
   priority: JobCardPriority | null;

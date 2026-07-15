@@ -3,6 +3,7 @@ const encoded = (value: string) => encodeURIComponent(value);
 export const paths = {
   jobs: '/jobs',
   newDelivery: '/jobs/new-delivery',
+  newTask: '/jobs/new-task',
   users: '/users',
   staff: '/staff',
   reports: '/reports',

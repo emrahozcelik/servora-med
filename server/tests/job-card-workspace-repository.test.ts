@@ -113,6 +113,29 @@ describe('PostgresJobCardRepository workspace list', () => {
     expect(calls[0]!.values).toEqual(['org-1', 'staff-2']);
   });
 
+  it('parameterizes a General Task type filter and maps zero delivery items', async () => {
+    const createdAt = new Date('2026-07-15T08:00:00.000Z');
+    const { pool, calls } = poolDouble([{
+      id: 'job-general', type: 'GENERAL_TASK', status: 'NEW', version: 1,
+      title: 'Doktoru ara', priority: 'normal', due_date: null,
+      created_at: createdAt, updated_at: createdAt, staff_completed_at: null,
+      customer_id: null, customer_name: null, contact_id: null, contact_name: null,
+      assignee_id: 'staff-1', assignee_name: 'Ayşe Personel', delivery_item_count: 0,
+    }], 1);
+
+    const result = await new PostgresJobCardRepository(pool as never).listJobCards(
+      { organizationId: 'org-1', assignedTo: null },
+      { ...baseQuery, type: 'GENERAL_TASK' },
+    );
+
+    expect(calls[0]!.sql).toContain('j.type = $2');
+    expect(calls[0]!.values).toContain('GENERAL_TASK');
+    expect(result.items[0]).toMatchObject({
+      id: 'job-general', type: 'GENERAL_TASK', customer: null, contact: null,
+      deliveryItemCount: 0,
+    });
+  });
+
   it('projects related names and delivery item count without summing mixed quantities', async () => {
     const createdAt = new Date('2026-07-13T08:00:00.000Z');
     const updatedAt = new Date('2026-07-13T09:00:00.000Z');

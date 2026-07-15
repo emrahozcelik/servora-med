@@ -69,6 +69,26 @@ function poolDouble() {
 }
 
 describe('PostgresJobCardRepository board projection', () => {
+  it('maps a General Task board item with zero delivery items', async () => {
+    const { pool } = poolDouble();
+    const repository = new PostgresJobCardRepository({
+      ...pool,
+      async query(sql: string, values: unknown[] = []) {
+        if (/GROUP BY j\.status/.test(sql)) return { rows: [{ status: 'NEW', count: 1 }] };
+        return { rows: [{ ...itemRow('job-general', 'NEW'), type: 'GENERAL_TASK', delivery_item_count: 0 }] };
+      },
+    } as never);
+
+    const board = await repository.listBoard(
+      { organizationId: 'org-1', assignedTo: null },
+      { ...boardQuery, type: 'GENERAL_TASK' },
+    );
+
+    expect(board.columns.NEW.items[0]).toMatchObject({
+      id: 'job-general', type: 'GENERAL_TASK', deliveryItemCount: 0,
+    });
+  });
+
   it('reuses canonical item projection and returns pre-limit active and closed counts', async () => {
     const { pool, calls } = poolDouble();
     const repository = new PostgresJobCardRepository(pool as never);

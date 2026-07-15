@@ -1,6 +1,12 @@
 import { AppError } from '../../errors/index.js';
 import { presentActivity } from './activity-presenter.js';
-import { assertCanCreateForAssignee, assertCanEdit, assertCanTransition, assertDeliveryReadyForSubmission } from './policy.js';
+import {
+  assertCanCreateForAssignee,
+  assertCanEdit,
+  assertCanTransition,
+  assertCreateAssignmentRequest,
+  assertProductDeliveryJob,
+} from './policy.js';
 import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, PageQuery, ProductReference } from './repository.js';
 import {
   DELIVERY_PURPOSES,
@@ -12,24 +18,14 @@ import {
   type JobCardBoardQuery,
   type JobCardActivityEvent,
   type JobCardListQuery,
+  type NormalizedJobCardCreateInput,
   type JobCardPriority,
   type JobCardStatus,
   type LifecycleCommand,
 } from './types.js';
 import { optionalLifecycleNote, requireActionId, requireLifecycleReason, validation } from './validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
-
-type CreateInput = {
-  clientActionId: string;
-  type: 'PRODUCT_DELIVERY';
-  title: string;
-  description?: string | null;
-  customerId: string;
-  contactId?: string | null;
-  assignedTo: string;
-  priority?: JobCardPriority;
-  dueDate?: string | null;
-};
+import { validateSubmission } from './submission-policy.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
@@ -107,13 +103,15 @@ export class JobCardService {
     return this.notesService.addNote(actor, jobCardId, input);
   }
 
-  async create(actor: JobCardActor, input: CreateInput) {
+  async create(actor: JobCardActor, input: NormalizedJobCardCreateInput) {
     const title = input.title.trim();
-    const priority = input.priority ?? 'normal';
-    if (!input.clientActionId.trim() || !title || input.type !== 'PRODUCT_DELIVERY' ||
-      !input.customerId || !input.assignedTo || !JOB_CARD_PRIORITIES.includes(priority)) {
+    const priority = input.priority;
+    if (!input.clientActionId.trim() || !title ||
+      (input.type === 'PRODUCT_DELIVERY' && !input.customerId) ||
+      !input.assignedTo || !JOB_CARD_PRIORITIES.includes(priority)) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard oluşturma bilgileri geçersiz.');
     }
+    assertCreateAssignmentRequest(actor, input.assignedTo);
     const result = await this.repository.executeCriticalAction(
       {
         organizationId: actor.organizationId, userId: actor.id,
@@ -123,20 +121,22 @@ export class JobCardService {
         const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, input.assignedTo);
         if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
         assertCanCreateForAssignee(actor, assignee);
-        await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId ?? null);
+        await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId);
         const job = await transaction.createJobCard({
           organizationId: actor.organizationId, type: input.type, title,
           description: input.description?.trim() || null, customerId: input.customerId,
-          contactId: input.contactId ?? null,
+          contactId: input.contactId,
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
-          dueDate: input.dueDate ?? null,
+          dueDate: input.dueDate,
         });
         await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
           event: 'JOB_CREATED', clientActionId: input.clientActionId,
           newValue: { status: job.status, assignedTo: job.assignedTo, version: job.version },
         });
-        return job;
+        const detail = await transaction.getJobDetail(actor.organizationId, job.id);
+        if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        return detail;
       },
     );
     if (result.kind === 'processing') {
@@ -181,7 +181,7 @@ export class JobCardService {
   }
 
   async detail(actor: JobCardActor, jobCardId: string) {
-    const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
+    const job = await this.repository.findJobCardDetail(actor.organizationId, jobCardId);
     if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
       throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
     }
@@ -245,11 +245,19 @@ export class JobCardService {
           newValue: Object.fromEntries(nonAssignmentFields.map((key) => [key, updated[key as keyof typeof updated]])),
         });
       }
-      return updated;
+      const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
+      if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      return detail;
     });
   }
 
-  private async validateJobReferences(tx: JobCardTransaction, organizationId: string, customerId: string, contactId: string | null) {
+  private async validateJobReferences(tx: JobCardTransaction, organizationId: string, customerId: string | null, contactId: string | null) {
+    if (!customerId) {
+      if (contactId) {
+        throw new AppError('CONTACT_NOT_IN_CUSTOMER', 409, 'İlgili kişi seçilen müşteriye bağlı değil.');
+      }
+      return;
+    }
     const customer = await tx.getCustomerForUpdate(organizationId, customerId);
     if (!customer) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
     if (customer.status === 'inactive') throw new AppError('CUSTOMER_INACTIVE', 409, 'Pasif müşteri için iş oluşturulamaz.');
@@ -268,9 +276,12 @@ export class JobCardService {
       async (tx) => {
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        if (actor.role === 'STAFF' && actor.id !== job.assignedTo) {
+          throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        }
+        assertProductDeliveryJob(job);
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         assertCanEdit(actor, job);
-        if (job.type !== 'PRODUCT_DELIVERY') throw new AppError('INVALID_JOB_TYPE', 409, 'Bu JobCard teslim ürünü kabul etmez.');
         const product = await tx.getProduct(actor.organizationId, input.productId);
         if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
         const item = await tx.createDeliveryItem(deliveryRecord(actor.organizationId, jobCardId, input, product));
@@ -290,6 +301,10 @@ export class JobCardService {
     return this.repository.executeTransaction(async (tx) => {
       const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
       if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      if (actor.role === 'STAFF' && actor.id !== job.assignedTo) {
+        throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      }
+      assertProductDeliveryJob(job);
       if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       assertCanEdit(actor, job);
       const current = await tx.getDeliveryItemForUpdate(actor.organizationId, jobCardId, itemId);
@@ -319,6 +334,10 @@ export class JobCardService {
     return this.repository.executeTransaction(async (tx) => {
       const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
       if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      if (actor.role === 'STAFF' && actor.id !== job.assignedTo) {
+        throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      }
+      assertProductDeliveryJob(job);
       if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       assertCanEdit(actor, job);
       const item = await tx.getDeliveryItemForUpdate(actor.organizationId, jobCardId, itemId);
@@ -333,7 +352,8 @@ export class JobCardService {
   }
 
   async listDeliveryItems(actor: JobCardActor, jobCardId: string) {
-    await this.detail(actor, jobCardId);
+    const job = await this.detail(actor, jobCardId);
+    assertProductDeliveryJob(job);
     return this.repository.listDeliveryItems(actor.organizationId, jobCardId);
   }
 
@@ -431,17 +451,7 @@ export class JobCardService {
           definition.revisionReason ?? definition.cancelReason ?? undefined,
         );
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
-          if (!job.customerId || !(await tx.customerExists(actor.organizationId, job.customerId))) {
-            throw new AppError('DELIVERY_NOT_READY', 400, 'Ürün teslimi için geçerli müşteri zorunludur.');
-          }
-          const assignee = await tx.getAssignee(actor.organizationId, job.assignedTo);
-          if (!assignee?.isActive || assignee.role !== 'STAFF') {
-            throw new AppError('ASSIGNEE_NOT_ELIGIBLE', 400, 'Atanan personel aktif ve uygun olmalıdır.');
-          }
-          assertDeliveryReadyForSubmission(
-            job,
-            await tx.getSubmissionDeliveryItems(actor.organizationId, job.id),
-          );
+          await validateSubmission(tx, actor, job);
         }
         const occurredAt = this.now();
         const updated = await tx.transitionWithVersion({
@@ -454,7 +464,9 @@ export class JobCardService {
         await tx.appendActivity({ organizationId: actor.organizationId, jobCardId, actorId: actor.id,
           event: definition.event, clientActionId: input.clientActionId,
           oldValue: { status: job.status, version: job.version }, newValue: { status: updated.status, version: updated.version } });
-        return updated;
+        const detail = await tx.getJobDetail(actor.organizationId, jobCardId);
+        if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        return detail;
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     return result.response;

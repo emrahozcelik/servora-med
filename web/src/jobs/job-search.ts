@@ -1,9 +1,9 @@
-import type { JobCardPriority, JobCardStatusFilter } from './jobs-api';
+import type { JobCardPriority, JobCardStatusFilter, JobCardType } from './jobs-api';
 
 export type JobSearchState = {
   q?: string;
   status?: JobCardStatusFilter;
-  type?: 'PRODUCT_DELIVERY';
+  type?: JobCardType;
   assignedTo?: string;
   customerId?: string;
   priority?: JobCardPriority;
@@ -22,6 +22,7 @@ const STATUSES = [
   'WAITING_APPROVAL', 'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
+const TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isValidJobFilterUuid(value: string) {
@@ -46,7 +47,7 @@ export function parseJobSearch(params: URLSearchParams): JobSearchState {
   const q = scalar(params, 'q')?.trim();
   if (q && Array.from(q).length <= 200) state.q = q;
   const type = scalar(params, 'type');
-  if (type === 'PRODUCT_DELIVERY') state.type = type;
+  if (TYPES.includes(type as JobCardType)) state.type = type as JobCardType;
   const assignedTo = scalar(params, 'assignedTo');
   if (assignedTo && isValidJobFilterUuid(assignedTo)) state.assignedTo = assignedTo;
   const customerId = scalar(params, 'customerId');

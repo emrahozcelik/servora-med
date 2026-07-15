@@ -16,14 +16,23 @@ export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
 export type JobCardStatusFilter = (typeof JOB_CARD_STATUS_FILTERS)[number];
 export type JobCardPriority = (typeof JOB_CARD_PRIORITIES)[number];
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
+export type JobCardType = 'PRODUCT_DELIVERY' | 'GENERAL_TASK';
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
 export type RelatedName = { id: string; name: string };
 export type JobCard = {
-  id: string; organizationId: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus;
+  id: string; organizationId: string; type: JobCardType; status: JobCardStatus;
   version: number; title: string; description: string | null; customerId: string | null;
   contactId: string | null; assignedTo: string; createdBy: string; priority: JobCardPriority;
-  dueDate: string | null;
+  dueDate: string | null; assignee: RelatedName; customer: RelatedName | null;
+  contact: RelatedName | null;
 };
+export type JobCardCreateInput =
+  | { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
+    assignedTo: string; description?: string | null; contactId?: string | null;
+    priority?: JobCardPriority; dueDate?: string | null }
+  | { clientActionId: string; type: 'GENERAL_TASK'; title: string; assignedTo: string;
+    description?: string | null; customerId?: string | null; contactId?: string | null;
+    priority?: JobCardPriority; dueDate?: string | null };
 export type JobCardListItem = {
   id: string; type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK'; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; createdAt: string; updatedAt: string;
@@ -57,7 +66,7 @@ export type DeliveryItem = {
 };
 
 export type JobCardListFilters = Partial<{
-  q: string; status: JobCardStatusFilter; type: 'PRODUCT_DELIVERY'; assignedTo: string;
+  q: string; status: JobCardStatusFilter; type: JobCardType; assignedTo: string;
   customerId: string; priority: JobCardPriority; dueBefore: string; dueAfter: string;
   limit: number; offset: number;
 }>;
@@ -107,12 +116,14 @@ function parseJobCard(value: unknown): JobCard {
   const v = object(value);
   return {
     id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
-    type: oneOf(v.type, 'type', ['PRODUCT_DELIVERY'] as const),
+    type: oneOf(v.type, 'type', ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const),
     status: oneOf(v.status, 'status', JOB_CARD_STATUSES), version: positiveCount(v.version, 'version'),
     title: string(v.title, 'title'), description: nullableString(v.description, 'description'),
     customerId: nullableString(v.customerId, 'customerId'), contactId: nullableString(v.contactId, 'contactId'),
     assignedTo: string(v.assignedTo, 'assignedTo'), createdBy: string(v.createdBy, 'createdBy'),
     priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES), dueDate: nullableString(v.dueDate, 'dueDate'),
+    assignee: related(v.assignee, 'assignee'), customer: nullableRelated(v.customer, 'customer'),
+    contact: nullableRelated(v.contact, 'contact'),
   };
 }
 export function parseJobCardListItem(value: unknown): JobCardListItem {
@@ -209,7 +220,7 @@ export const getJobCardBoard = async (filters: JobCardBoardFilters = {}) =>
   parseBoard(await request(`/api/job-cards/board${query(filters)}`));
 export const listJobCardBoard = getJobCardBoard;
 export const getJobCard = async (id: string) => parseJobCard(await request(jobPath(id)));
-export const createJobCard = async (input: { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string; contactId?: string | null; assignedTo: string; description?: string; priority?: JobCardPriority; dueDate?: string }) =>
+export const createJobCard = async (input: JobCardCreateInput) =>
   parseJobCard(await request('/api/job-cards', json('POST', input)));
 export const patchJobCard = async (id: string, input: { expectedVersion: number; title?: string; priority?: JobCardPriority; dueDate?: string | null }) =>
   parseJobCard(await request(jobPath(id), json('PATCH', input)));

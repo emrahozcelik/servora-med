@@ -2,6 +2,7 @@ import { Link } from 'react-router-dom';
 
 import { paths } from '../paths';
 import type { JobCardBoard, JobCardListItem, JobCardPriority } from './jobs-api';
+import { jobTypeLabels } from './job-labels';
 import { selectStatus } from './job-search';
 
 const columns = [
@@ -29,13 +30,14 @@ function BoardCard({ job }: { job: JobCardListItem }) {
   return <article className="job-board-card" data-board-card={job.id}>
     <Link to={paths.job(job.id)}>
       <strong>{job.title}</strong>
+      <span className="job-board-type">{jobTypeLabels[job.type]}</span>
       <span className={`job-board-priority job-priority-${job.priority}`}>{priorityLabels[job.priority]}</span>
       <dl>
         <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
         {job.contact && <div><dt>İlgili kişi</dt><dd>{job.contact.name}</dd></div>}
         <div><dt>Sorumlu</dt><dd>{job.assignee.name}</dd></div>
         <div><dt>Termin</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{formatDate(job.dueDate)}</time> : 'Belirtilmedi'}</dd></div>
-        <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>
+        {job.type === 'PRODUCT_DELIVERY' && <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>}
       </dl>
     </Link>
   </article>;

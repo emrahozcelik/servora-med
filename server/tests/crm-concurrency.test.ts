@@ -47,6 +47,7 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
     const customerId = randomUUID();
     const contactId = randomUUID();
     const blocker: PoolClient = await pool!.connect();
+    const inFlight: Promise<unknown>[] = [];
     const crm = new CrmService(new PostgresCrmRepository(pool!));
     const jobs = new JobCardService(new PostgresJobCardRepository(pool!));
     const staff = { id: staffId, organizationId, role: 'STAFF' as const };
@@ -74,10 +75,12 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
       const customerRace = Promise.allSettled([
         jobs.create(staff, {
           clientActionId: `customer-race-${randomUUID()}`, type: 'PRODUCT_DELIVERY',
-          title: 'Customer race', customerId, assignedTo: staffId,
+          title: 'Customer race', description: null, customerId, contactId: null,
+          assignedTo: staffId, priority: 'normal', dueDate: null,
         }),
         crm.deactivateCustomer(manager, customerId, 1),
       ]);
+      inFlight.push(customerRace);
       await waitForBlockedProductionQueries(2);
       await blocker.query('COMMIT');
       const customerResults = await bounded(customerRace);
@@ -103,10 +106,12 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
       const contactRace = Promise.allSettled([
         jobs.create(staff, {
           clientActionId: `contact-race-${randomUUID()}`, type: 'PRODUCT_DELIVERY',
-          title: 'Contact race', customerId, contactId, assignedTo: staffId,
+          title: 'Contact race', description: null, customerId, contactId,
+          assignedTo: staffId, priority: 'normal', dueDate: null,
         }),
         crm.deactivateContact(manager, customerId, contactId, 1),
       ]);
+      inFlight.push(contactRace);
       await waitForBlockedProductionQueries(2);
       await blocker.query('COMMIT');
       const contactResults = await bounded(contactRace);
@@ -123,6 +128,7 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
     } finally {
       await blocker.query('ROLLBACK').catch(() => undefined);
       blocker.release();
+      await Promise.allSettled(inFlight);
       await pool!.query('DELETE FROM job_card_activity_logs WHERE organization_id=$1', [organizationId]);
       await pool!.query('DELETE FROM job_cards WHERE organization_id=$1', [organizationId]);
       await pool!.query('DELETE FROM processed_actions WHERE organization_id=$1', [organizationId]);

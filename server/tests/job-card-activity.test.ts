@@ -156,15 +156,18 @@ describe('JobCard activity service scope', () => {
   };
 
   it('projects a canonical page after enforcing Staff visibility and organization scope', async () => {
-    const findJobCard = vi.fn().mockResolvedValue(ownJob);
+    const findJobCardDetail = vi.fn().mockResolvedValue({
+      ...ownJob, assignee: { id: 'staff-1', name: 'Staff One' },
+      customer: { id: 'customer-1', name: 'Demo Klinik' }, contact: null,
+    });
     const listActivity = vi.fn().mockResolvedValue({
       items: [baseRecord('JOB_CREATED')], total: 1, limit: 5, offset: 2,
     });
-    const service = new JobCardService({ findJobCard, listActivity } as never);
+    const service = new JobCardService({ findJobCardDetail, listActivity } as never);
 
     const result = await service.listActivity(staff, 'job-1', { limit: 5, offset: 2 });
 
-    expect(findJobCard).toHaveBeenCalledWith('org-1', 'job-1');
+    expect(findJobCardDetail).toHaveBeenCalledWith('org-1', 'job-1');
     expect(listActivity).toHaveBeenCalledWith('org-1', 'job-1', { limit: 5, offset: 2 });
     expect(result).toEqual({
       items: [expect.objectContaining({ eventType: 'JOB_CREATED', details: { kind: 'NONE' } })],
@@ -174,9 +177,12 @@ describe('JobCard activity service scope', () => {
   });
 
   it('hides another Staff user assignment without querying activity', async () => {
-    const findJobCard = vi.fn().mockResolvedValue({ ...ownJob, assignedTo: 'staff-2' });
+    const findJobCardDetail = vi.fn().mockResolvedValue({
+      ...ownJob, assignedTo: 'staff-2', assignee: { id: 'staff-2', name: 'Staff Two' },
+      customer: { id: 'customer-1', name: 'Demo Klinik' }, contact: null,
+    });
     const listActivity = vi.fn();
-    const service = new JobCardService({ findJobCard, listActivity } as never);
+    const service = new JobCardService({ findJobCardDetail, listActivity } as never);
 
     await expect(service.listActivity(staff, 'job-1', { limit: 50, offset: 0 }))
       .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
