@@ -36,6 +36,8 @@ TARGET_PGPORT="${TARGET_PGPORT:-5432}"
 TARGET_PGUSER="${TARGET_PGUSER:-${PGUSER:-}}"
 TARGET_PGDATABASE="${TARGET_PGDATABASE:-servora_med_restore_rehearsal}"
 OPS_LOG="${OPS_LOG:-/var/log/servora-med/restore-ops.log}"
+PG_RESTORE_BIN="${PG_RESTORE_BIN:-pg_restore}"
+PSQL_BIN="${PSQL_BIN:-psql}"
 start_epoch="$(date +%s)"
 target_created=false
 
@@ -72,7 +74,7 @@ validate_ident() {
 cleanup_target() {
   if [[ "$target_created" == true && "$KEEP" != true ]]; then
     PGHOST="$TARGET_PGHOST" PGPORT="$TARGET_PGPORT" PGUSER="$TARGET_PGUSER" \
-      psql -d postgres -v ON_ERROR_STOP=1 \
+      "$PSQL_BIN" -d postgres -v ON_ERROR_STOP=1 \
       -c "DROP DATABASE IF EXISTS \"${TARGET_PGDATABASE}\";" >/dev/null 2>&1 || true
     target_created=false
   fi
@@ -141,12 +143,12 @@ fi
 
 export PGHOST="$TARGET_PGHOST" PGPORT="$TARGET_PGPORT" PGUSER="$TARGET_PGUSER"
 
-psql -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${TARGET_PGDATABASE}\";"
-psql -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${TARGET_PGDATABASE}\";"
+"$PSQL_BIN" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${TARGET_PGDATABASE}\";"
+"$PSQL_BIN" -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${TARGET_PGDATABASE}\";"
 target_created=true
 
 export PGDATABASE="$TARGET_PGDATABASE"
-pg_restore \
+"$PG_RESTORE_BIN" \
   --exit-on-error \
   --single-transaction \
   --no-owner \
@@ -154,20 +156,20 @@ pg_restore \
   -d "$TARGET_PGDATABASE" \
   "$DUMP_PATH"
 
-migration_count="$(psql -d "$TARGET_PGDATABASE" -Atc 'SELECT COUNT(*) FROM schema_migrations')"
+migration_count="$("$PSQL_BIN" -d "$TARGET_PGDATABASE" -Atc 'SELECT COUNT(*) FROM schema_migrations')"
 if [[ "${migration_count}" -lt 1 ]]; then
   # Intentional exit does not fire ERR trap — cleanup must run explicitly.
   fail_exit 5 "Restore failed: schema_migrations empty or missing." "schema_migrations_missing"
 fi
 
-psql -d "$TARGET_PGDATABASE" -v ON_ERROR_STOP=1 -c 'SELECT COUNT(*) FROM users;' >/dev/null
+"$PSQL_BIN" -d "$TARGET_PGDATABASE" -v ON_ERROR_STOP=1 -c 'SELECT COUNT(*) FROM users;' >/dev/null
 # job_cards may be empty; still prove the relation exists.
-psql -d "$TARGET_PGDATABASE" -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM job_cards LIMIT 1;' >/dev/null || true
+"$PSQL_BIN" -d "$TARGET_PGDATABASE" -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM job_cards LIMIT 1;' >/dev/null || true
 
 log_ops "success" "migrations=${migration_count}"
 
 if [[ "$KEEP" != true ]]; then
-  psql -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${TARGET_PGDATABASE}\";"
+  "$PSQL_BIN" -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${TARGET_PGDATABASE}\";"
   target_created=false
 fi
 

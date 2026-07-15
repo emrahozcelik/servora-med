@@ -17,6 +17,8 @@ PGDATABASE="${PGDATABASE:?PGDATABASE is required}"
 LOCK_FILE="${BACKUP_DIR}/.backup.lock"
 LOCK_DIR="${BACKUP_DIR}/.backup.lock.d"
 OFFSITE_COPY_HOOK="${OFFSITE_COPY_HOOK:-}"
+# Allow matching server major version in CI/prod (e.g. /usr/lib/postgresql/17/bin/pg_dump).
+PG_DUMP_BIN="${PG_DUMP_BIN:-pg_dump}"
 LOCK_MODE=""
 
 timestamp="$(date -u +%Y%m%dT%H%M%SZ)"
@@ -134,7 +136,7 @@ fi
 
 export PGHOST PGPORT PGUSER PGDATABASE
 
-pg_dump -Fc --no-owner --no-acl -f "$partial_path"
+"$PG_DUMP_BIN" -Fc --no-owner --no-acl -f "$partial_path"
 
 digest="$(hash_file "$partial_path")"
 # Portable sidecar: hash + basename only (no absolute path).

@@ -55,6 +55,14 @@ jobs:
           bash ../ops/ci/verify-systemd-units.sh
       - name: caddy validate Caddyfile
         run: bash ../ops/ci/verify-caddyfile.sh
+      - name: Install PostgreSQL 17 client tools
+        run: |
+          set -Eeuo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-client-17
+          echo "/usr/lib/postgresql/17/bin" >> "$GITHUB_PATH"
+          pg_dump --version
+          pg_restore --version
       - run: npm ci
       - run: npm run build
       - name: production release dependency smoke
@@ -71,6 +79,10 @@ jobs:
           test -f dist/db/migrate.js
       - run: npx tsx src/db/migrate.ts
       - run: npm test -- --run
+        env:
+          PG_DUMP_BIN: /usr/lib/postgresql/17/bin/pg_dump
+          PG_RESTORE_BIN: /usr/lib/postgresql/17/bin/pg_restore
+          PSQL_BIN: /usr/lib/postgresql/17/bin/psql
       - run: npm audit --audit-level=high
 
   web:
