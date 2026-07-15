@@ -12,29 +12,26 @@
 		-Server
 	}
 
-	# API — no caching; reverse proxy to loopback Fastify only.
+	# API — no store/cache; reverse proxy to loopback Fastify only.
 	handle /api/* {
 		header Cache-Control "no-store"
 		reverse_proxy 127.0.0.1:3000
 	}
 
-	# React SPA
-	handle {
+	# Vite hashed assets only (versioned filenames under /assets/).
+	handle /assets/* {
 		root * /opt/servora-med/current/web/dist
-		try_files {path} /index.html
+		header Cache-Control "public, max-age=31536000, immutable"
 		file_server
 	}
 
-	# Vite hashed build assets only (e.g. /assets/index-XXXX.js)
-	@immutable {
-		path /assets/*
+	# SPA app shell + client routes: always revalidate (no long-lived cache).
+	handle {
+		root * /opt/servora-med/current/web/dist
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
 	}
-	header @immutable Cache-Control "public, max-age=31536000, immutable"
-
-	@index {
-		path / /index.html
-	}
-	header @index Cache-Control "no-cache"
 
 	log {
 		output file /var/log/caddy/servora-med-access.log

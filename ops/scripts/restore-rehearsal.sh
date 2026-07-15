@@ -63,14 +63,28 @@ validate_ident() {
   fi
 }
 
+# shellcheck disable=SC2329
 cleanup_target() {
   if [[ "$target_created" == true && "$KEEP" != true ]]; then
     PGHOST="$TARGET_PGHOST" PGPORT="$TARGET_PGPORT" PGUSER="$TARGET_PGUSER" \
       psql -d postgres -v ON_ERROR_STOP=1 \
       -c "DROP DATABASE IF EXISTS \"${TARGET_PGDATABASE}\";" >/dev/null 2>&1 || true
+    target_created=false
   fi
 }
 
+fail_exit() {
+  local code="$1"
+  local message="$2"
+  local detail="${3:-failure}"
+  log_ops "failure" "$detail"
+  echo "$message" >&2
+  cleanup_target
+  exit "$code"
+}
+
+# Invoked via trap ERR — ShellCheck SC2329.
+# shellcheck disable=SC2329
 on_error() {
   local code=$?
   log_ops "failure" "err_trap_exit_${code}"
@@ -105,9 +119,7 @@ fi
 
 checksum_path="${DUMP_PATH}.sha256"
 if [[ ! -f "$checksum_path" ]]; then
-  log_ops "failure" "checksum_missing"
-  echo "Checksum file required: ${checksum_path}" >&2
-  exit 4
+  fail_exit 4 "Checksum file required: ${checksum_path}" "checksum_missing"
 fi
 
 expected="$(awk '{print $1; exit}' "$checksum_path")"
@@ -116,15 +128,11 @@ if command -v sha256sum >/dev/null 2>&1; then
 elif command -v shasum >/dev/null 2>&1; then
   actual="$(shasum -a 256 "$DUMP_PATH" | awk '{print $1}')"
 else
-  log_ops "failure" "checksum_utility_missing"
-  echo "sha256sum or shasum required" >&2
-  exit 4
+  fail_exit 4 "sha256sum or shasum required" "checksum_utility_missing"
 fi
 
 if [[ "$expected" != "$actual" ]]; then
-  log_ops "failure" "checksum_mismatch"
-  echo "Checksum mismatch" >&2
-  exit 4
+  fail_exit 4 "Checksum mismatch" "checksum_mismatch"
 fi
 
 export PGHOST="$TARGET_PGHOST" PGPORT="$TARGET_PGPORT" PGUSER="$TARGET_PGUSER"
@@ -144,12 +152,12 @@ pg_restore \
 
 migration_count="$(psql -d "$TARGET_PGDATABASE" -Atc 'SELECT COUNT(*) FROM schema_migrations')"
 if [[ "${migration_count}" -lt 1 ]]; then
-  log_ops "failure" "schema_migrations_missing"
-  echo "Restore failed: schema_migrations empty or missing." >&2
-  exit 5
+  # Intentional exit does not fire ERR trap — cleanup must run explicitly.
+  fail_exit 5 "Restore failed: schema_migrations empty or missing." "schema_migrations_missing"
 fi
 
 psql -d "$TARGET_PGDATABASE" -v ON_ERROR_STOP=1 -c 'SELECT COUNT(*) FROM users;' >/dev/null
+# job_cards may be empty; still prove the relation exists.
 psql -d "$TARGET_PGDATABASE" -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM job_cards LIMIT 1;' >/dev/null || true
 
 log_ops "success" "migrations=${migration_count}"

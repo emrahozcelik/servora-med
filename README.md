@@ -382,7 +382,7 @@ cd web && npm audit --omit=dev
 | `LOG_LEVEL` | no | allowlist: `fatal` `error` `warn` `info` `debug` `trace` `silent`; defaults to `info` |
 | `CORS_ORIGIN` | production | single exact origin without a path; production requires `https`; local default is `http://127.0.0.1:5173` |
 | `TRUSTED_PROXY` | production | `loopback`, `127.0.0.1`, or `::1`; defaults to `loopback` outside production |
-| `HEALTH_SCHEMA_VERSION` | no | optional migration version name required for readiness |
+| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (e.g. `007_sales_meeting`); optional in development/test |
 | `SESSION_TTL_SECONDS` | no | opaque session lifetime; defaults to `28800` (8 hours) |
 | `LOGIN_RATE_LIMIT_MAX` | no | login attempts allowed per limiter window; defaults to `5` |
 | `RATE_LIMIT_WINDOW_MS` | no | login limiter window in milliseconds; defaults to `60000` |

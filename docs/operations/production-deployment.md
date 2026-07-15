@@ -39,34 +39,70 @@ Required production highlights:
 - `HEALTH_SCHEMA_VERSION=007_sales_meeting` (exact latest migration name; update each release that adds a migration)
 - `DATABASE_URL` PostgreSQL only (prefer peer/`PGPASSFILE`, never log the URL)
 
-## Build release
+## Build release (immutable dependencies)
 
 On a clean builder with Node 22:
 
 ```bash
-cd server && npm ci && npm run build
-cd ../web && npm ci && npm run build
+cd server
+npm ci
+npm run build
+# Production runtime deps only — lockfile-pinned, no devDependencies
+npm ci --omit=dev
+
+cd ../web
+npm ci
+npm run build
 ```
 
-Copy `server/` (including `dist/`, `package.json`), `web/dist/`, and `ops/` into
-`/opt/servora-med/releases/<git-sha>/`.
+Copy into `/opt/servora-med/releases/<git-sha>/`:
 
-## Deploy sequence (exact)
+```text
+server/dist/
+server/package.json
+server/package-lock.json
+server/node_modules/          # from npm ci --omit=dev
+web/dist/
+ops/
+```
 
-Migration **must** run from the **new release directory**, never from the still-active
-`current` symlink.
+`node dist/index.js` must resolve `fastify`, `pg`, and other runtime packages from
+`server/node_modules` in that release directory. Do **not** omit `package-lock.json`
+or run an open-ended `npm install` on the VPS.
+
+Smoke after copy (on builder or staging):
 
 ```bash
-# As a deploy operator with sudo where needed.
+cd /opt/servora-med/releases/<sha>/server
+node -e "require('fs').accessSync('node_modules/fastify'); require('fs').accessSync('dist/index.js')"
+# ESM package: also
+node --input-type=module -e "import 'fastify'; import 'pg'; console.log('deps-ok')"
+```
+
+## Deploy sequence (fail-closed)
+
+Migration **must** run from the **new release directory**, never from the still-active
+`current` symlink. Prefer the checked-in helper:
+
+```bash
+sudo SHA=<git-sha> SERVORA_FQDN=app.example.com \
+  ENV_FILE=/etc/servora-med/servora-med.env \
+  /opt/servora-med/releases/<git-sha>/ops/scripts/deploy-release.sh
+```
+
+Equivalent expanded sequence (`set -Eeuo pipefail` semantics):
+
+```bash
+set -Eeuo pipefail
 SHA="<git-sha>"
 NEW_RELEASE="/opt/servora-med/releases/${SHA}"
 ENV_FILE="/etc/servora-med/servora-med.env"
 
-# 1) Pre-deploy backup (uses backup env file; no secrets on argv)
-sudo systemctl start servora-med-backup.service
+# 1) Pre-deploy backup — failure aborts (no further deploy steps)
+systemctl start servora-med-backup.service
 
 # 2) Stop accepting traffic
-sudo systemctl stop servora-med
+systemctl stop servora-med
 
 # 3) Load production environment without printing secrets
 set -a
@@ -75,24 +111,28 @@ source "$ENV_FILE"
 set +a
 
 # 4) Migrate using the NEW release binaries only
-node "${NEW_RELEASE}/server/dist/db/migrate.js"
+#    On failure: do NOT change symlink; restart previous service
+if ! node "${NEW_RELEASE}/server/dist/db/migrate.js"; then
+  echo "Migration failed; current symlink unchanged" >&2
+  systemctl start servora-med || true
+  exit 1
+fi
 
-# 5) Switch release pointer only after migrate succeeds
+# 5) Switch release pointer only after successful migration
 ln -sfn "$NEW_RELEASE" /opt/servora-med/current
 
 # 6) Start application
-sudo systemctl start servora-med
+systemctl start servora-med
 
 # 7) Readiness + smoke
-curl -fsS "https://${SERVORA_FQDN:-app.example.com}/api/health"
+curl -fsS "https://${SERVORA_FQDN}/api/health"
 # Expect: {"status":"ok"}
-# Smoke: SPA loads; login works over HTTPS
-# Record deployed SHA in external ops notes (no secrets)
 ```
 
 Do **not**:
 
-- run `node /opt/servora-med/current/server/dist/db/migrate.js` before `ln -sfn`
+- run migrate from `/opt/servora-med/current/...` before `ln -sfn`
+- continue deploy after backup or migration failure
 - put passwords on the command line
 - run migrations on every process start (`start:prod` never migrates)
 
@@ -117,7 +157,7 @@ sudo systemctl enable --now servora-med-backup.timer
 ## Caddy
 
 Example: `ops/caddy/Caddyfile.example`.
-API responses use `Cache-Control: no-store`. Hashed Vite assets under `/assets/*` are immutable; SPA `index.html` is `no-cache`.
+API responses use `Cache-Control: no-store`. Hashed Vite assets under `/assets/*` are immutable; SPA app-shell routes use `no-cache`.
 
 ## Health
 

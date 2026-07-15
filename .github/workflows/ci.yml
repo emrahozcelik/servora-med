@@ -39,30 +39,36 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
-      - run: bash -n ../ops/scripts/backup-postgres.sh ../ops/scripts/restore-rehearsal.sh
+      - run: bash -n ../ops/scripts/backup-postgres.sh ../ops/scripts/restore-rehearsal.sh ../ops/scripts/deploy-release.sh
       - name: shellcheck ops scripts
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq shellcheck
-          shellcheck -x ../ops/scripts/backup-postgres.sh ../ops/scripts/restore-rehearsal.sh
+          shellcheck -x \
+            ../ops/scripts/backup-postgres.sh \
+            ../ops/scripts/restore-rehearsal.sh \
+            ../ops/scripts/deploy-release.sh
       - name: systemd-analyze verify units
         run: |
-          if command -v systemd-analyze >/dev/null 2>&1; then
-            systemd-analyze verify ../ops/systemd/servora-med.service \
-              ../ops/systemd/servora-med-backup.service \
-              ../ops/systemd/servora-med-backup.timer
-          else
-            echo "systemd-analyze not available; skipping unit verify"
-          fi
-      - name: caddy validate (optional)
-        run: |
-          if command -v caddy >/dev/null 2>&1; then
-            caddy validate --config ../ops/caddy/Caddyfile.example --adapter caddyfile
-          else
-            echo "caddy not installed on runner; skipping Caddyfile validate"
-          fi
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq systemd
+          bash ../ops/ci/verify-systemd-units.sh
+      - name: caddy validate Caddyfile
+        run: bash ../ops/ci/verify-caddyfile.sh
       - run: npm ci
       - run: npm run build
+      - name: production release dependency smoke
+        run: |
+          set -Eeuo pipefail
+          SMOKE="$(mktemp -d)"
+          cp -R dist package.json package-lock.json "$SMOKE/"
+          cd "$SMOKE"
+          npm ci --omit=dev
+          test -d node_modules/fastify
+          test -d node_modules/pg
+          node --input-type=module -e "import 'fastify'; import 'pg'; console.log('deps-ok')"
+          test -f dist/index.js
+          test -f dist/db/migrate.js
       - run: npx tsx src/db/migrate.ts
       - run: npm test -- --run
       - run: npm audit --audit-level=high

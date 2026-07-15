@@ -15,10 +15,15 @@ const restoreScript = fileURLToPath(
 
 describe('operations scripts', () => {
   it('passes bash syntax checks', () => {
+    const deployScript = fileURLToPath(
+      new URL('../../ops/scripts/deploy-release.sh', import.meta.url),
+    );
     expect(existsSync(backupScript)).toBe(true);
     expect(existsSync(restoreScript)).toBe(true);
+    expect(existsSync(deployScript)).toBe(true);
     execFileSync('bash', ['-n', backupScript], { stdio: 'pipe' });
     execFileSync('bash', ['-n', restoreScript], { stdio: 'pipe' });
+    execFileSync('bash', ['-n', deployScript], { stdio: 'pipe' });
   });
 
   it('restore script refuses production database name', () => {
