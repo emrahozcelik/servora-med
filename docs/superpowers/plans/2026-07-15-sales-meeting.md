@@ -1077,8 +1077,10 @@ git commit -m "feat: present sales meetings in workspace"
 
 **Files:**
 - Create: `server/tests/sales-meeting-postgres.test.ts`
+- Modify: `server/src/modules/job-cards/repository.ts`
 - Modify: `server/tests/job-card-workspace-postgres.test.ts`
 - Modify: `server/tests/reports-postgres.test.ts`
+- Modify: `web/src/styles.css`
 - Modify: `web/tests/accessibility-contract.test.ts`
 
 **Interfaces:**
@@ -1086,14 +1088,14 @@ git commit -m "feat: present sales meetings in workspace"
   no Playwright dependency or config.
 - Consumes: Tasks 1–11 complete vertical flow.
 
-- [ ] **Step 1: Write failing live PostgreSQL acceptance test**
+- [x] **Step 1: Write failing live PostgreSQL acceptance test**
 
 Seed Staff, Manager, Customer, Contact, Product Delivery, General Task, and Sales Meeting.
 Exercise create replay; empty detail invariant; concurrent detail PATCH; no-op/version;
 safe activity; submit error priority; +15-minute boundary; revision; approval; Staff
 visibility; all-type queues/counters; exact outcome report; and delivery exclusions.
 
-- [ ] **Step 2: Run the live acceptance tests**
+- [x] **Step 2: Run the live acceptance tests**
 
 ```bash
 cd server && TEST_DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run \
@@ -1104,14 +1106,14 @@ cd server && TEST_DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run \
 Expected: PASS against a real disposable PostgreSQL database. A conditional skip is not
 accepted as live verification.
 
-- [ ] **Step 3: Correct only integration gaps exposed by acceptance and rerun**
+- [x] **Step 3: Correct only integration gaps exposed by acceptance and rerun**
 
 If Step 2 exposes a gap, first add the narrow failing assertion, correct only its source,
 and rerun the same command. Use public services/routes and real constraints; do not
 duplicate production SQL in test helpers. If Step 2 is already green, make no production
 change in this step.
 
-- [ ] **Step 4: Run Playwright MCP browser acceptance**
+- [x] **Step 4: Run Playwright MCP browser acceptance**
 
 Start the existing server/web development processes against disposable PostgreSQL. With
 Playwright MCP, verify Staff plan → result save → submit → review lock; Manager approve;
@@ -1123,7 +1125,7 @@ safe timeline; and Staff four-outcome report.
 Expected: no uncaught console error, no horizontal overflow in required reflow viewport,
 no inaccessible critical control, and backend truth preserved after refresh.
 
-- [ ] **Step 5: Run focused accessibility contracts**
+- [x] **Step 5: Run focused accessibility contracts**
 
 ```bash
 cd web && npm test -- --run tests/accessibility-contract.test.ts \
@@ -1133,7 +1135,7 @@ cd web && npm test -- --run tests/accessibility-contract.test.ts \
 
 Expected: semantic, focus, follow-up optionality, and responsive contracts PASS.
 
-- [ ] **Step 6: Commit Task 12**
+- [x] **Step 6: Commit Task 12**
 
 ```bash
 git add server/tests/sales-meeting-postgres.test.ts \

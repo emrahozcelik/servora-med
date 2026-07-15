@@ -167,7 +167,8 @@ export interface JobCardRepository {
 type JobCardRow = {
   id: string; organization_id: string; type: JobCard['type']; status: JobCardStatus;
   version: number; title: string; description: string | null; customer_id: string | null; contact_id: string | null;
-  assigned_to: string; created_by: string; priority: JobCardPriority; due_date: string | null;
+  assigned_to: string; created_by: string; priority: JobCardPriority;
+  due_date: string | Date | null;
 };
 type JobCardDetailRow = JobCardRow & {
   assignee_id: string; assignee_name: string;
@@ -181,7 +182,7 @@ type JobCardListRow = {
   version: number;
   title: string;
   priority: JobCardPriority;
-  due_date: string | null;
+  due_date: string | Date | null;
   created_at: Date;
   updated_at: Date;
   staff_completed_at: Date | null;
@@ -242,8 +243,16 @@ function mapJobCard(row: JobCardRow): JobCard {
     id: row.id, organizationId: row.organization_id, type: row.type, status: row.status,
     version: row.version, title: row.title, description: row.description,
     customerId: row.customer_id, contactId: row.contact_id, assignedTo: row.assigned_to, createdBy: row.created_by,
-    priority: row.priority, dueDate: row.due_date,
+    priority: row.priority, dueDate: mapCalendarDate(row.due_date),
   };
+}
+
+function mapCalendarDate(value: string | Date | null) {
+  if (value === null || typeof value === 'string') return value;
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
@@ -282,7 +291,7 @@ function mapJobCardListItem(row: JobCardListRow): JobCardListItem {
     version: row.version,
     title: row.title,
     priority: row.priority,
-    dueDate: row.due_date,
+    dueDate: mapCalendarDate(row.due_date),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
     staffCompletedAt: row.staff_completed_at?.toISOString() ?? null,
