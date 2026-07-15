@@ -67,7 +67,8 @@ Not implemented yet:
 
 - Staff confidential notes and related follow-up cards
 - measured realtime / WebSocket
-- live VPS cutover and first recorded restore rehearsal on the target host
+- live VPS/TLS cutover, host-recorded restore rehearsal, and real offsite copy
+  (repository implements scripts/tests; host execution is operator-owned)
 
 ## Prerequisites
 

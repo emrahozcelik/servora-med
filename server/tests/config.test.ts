@@ -12,6 +12,7 @@ const productionBase = {
   HOST: '127.0.0.1',
   CORS_ORIGIN: 'https://app.example.com',
   TRUSTED_PROXY: 'loopback',
+  HEALTH_SCHEMA_VERSION: '007_sales_meeting',
 };
 
 describe('loadConfig', () => {
@@ -67,7 +68,15 @@ describe('loadConfig', () => {
       host: '127.0.0.1',
       corsOrigin: 'https://app.example.com',
       trustedProxy: 'loopback',
+      healthSchemaVersion: '007_sales_meeting',
     });
+  });
+
+  it('requires HEALTH_SCHEMA_VERSION in production', () => {
+    const { HEALTH_SCHEMA_VERSION: _omit, ...without } = productionBase;
+    expect(() => loadConfig(without)).toThrow(
+      'HEALTH_SCHEMA_VERSION is required in production',
+    );
   });
 
   it('requires a database URL', () => {
@@ -145,6 +154,7 @@ describe('loadConfig', () => {
       NODE_ENV: 'production',
       HOST: '127.0.0.1',
       CORS_ORIGIN: 'https://app.example.com',
+      HEALTH_SCHEMA_VERSION: '007_sales_meeting',
     })).toThrow('TRUSTED_PROXY is required in production');
   });
 

@@ -492,19 +492,20 @@ timeline, outcome reporting, 200% text, and 400% reflow without horizontal overf
 - [x] Auth secrets and sensitive payloads do not appear in logs.
 - [x] Public health reveals no infrastructure detail.
 - [x] Backup exits clearly on failure and records timestamp and destination externally.
-- [x] Restore is performed against a safe test target and documented.
+- [ ] Restore is performed against a safe test target and documented. *(disposable CI/local PG acceptance automated; live host rehearsal record pending)*
 - [x] No product-domain backup status table is required.
 - [x] Full server tests and both builds pass.
 
-Slice 11 was verified on the implementation branch with production config rejection
-tests, loopback trusted-proxy rate-limit identity tests, generic readiness health
-(`200`/`503`), migrate-not-on-start source contract, graceful shutdown helper tests,
-serialized log redaction coverage, bash ops script checks, backup/restore scripts,
-systemd and Caddy templates, and operations runbooks. Server build passed; ordinary
-suite 761 tests with 21 PostgreSQL skips; PostgreSQL-enabled suite 782 tests;
-web 42 files/340 tests; both production builds and high-severity dependency audits
-reported zero vulnerabilities. Live VPS cutover and first host-recorded restore
-rehearsal remain operator steps after release install.
+Slice 11 implementation verification is complete: production config rejection,
+required `HEALTH_SCHEMA_VERSION`, loopback trusted-proxy rate-limit identity,
+generic readiness health (`200`/`503` with exact migration pin in production),
+migrate-not-on-start, graceful shutdown, real `buildApp` log redaction,
+fail-closed backup/restore scripts, systemd/Caddy templates, and runbooks that
+migrate from `NEW_RELEASE` before switching `current`. Disposable PostgreSQL
+backup→restore acceptance is automated under `TEST_DATABASE_URL`.
+
+Operator-only remaining steps: live VPS/TLS cutover, host-recorded restore
+rehearsal under `docs/operations/restore-rehearsals/`, and real offsite copy.
 
 ## 15. Slice 12: WebSocket Only if Polling Is Insufficient
 

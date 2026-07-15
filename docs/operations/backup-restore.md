@@ -7,27 +7,21 @@ Script: `ops/scripts/backup-postgres.sh`
 ### Properties
 
 - `set -Eeuo pipefail`, `umask 077`
+- Required env: `BACKUP_DIR`, `OPS_LOG`, `PGHOST`, `PGPORT`, `PGUSER`, `PGDATABASE` (no silent defaults)
 - `pg_dump -Fc --no-owner --no-acl`
-- Write `*.partial` then atomic rename
-- `*.sha256` sidecar
+- Write `*.partial` then checksum `*.sha256.partial` (portable: `<hash>  <basename>`)
+- Verify partial, then atomic rename dump + checksum
 - `flock` single concurrent backup
 - Local retention ~7 days (mtime)
-- Ops log: `/var/log/servora-med/backup-ops.log` (no passwords/URLs)
-- Optional `OFFSITE_COPY_CMD` after success
+- Ops log without passwords/URLs
+- Optional executable `OFFSITE_COPY_HOOK` receiving dump path and checksum path (no `eval`)
 
-### Environment
+### systemd
 
-| Variable | Purpose |
-|----------|---------|
-| `BACKUP_DIR` | Default `/var/backups/servora-med` |
-| `OPS_LOG` | Ops log path |
-| `PGHOST` `PGPORT` `PGUSER` `PGDATABASE` | Connection |
-| `PGPASSFILE` | Preferred secret material |
-| `OFFSITE_COPY_CMD` | Optional encrypted copy hook |
-
-### Schedule
-
-- systemd timer: daily **02:30 UTC** (`servora-med-backup.timer`)
+- Unit: `ops/systemd/servora-med-backup.service` with **required**
+  `EnvironmentFile=/etc/servora-med/servora-med-backup.env`
+- Example: `ops/examples/servora-med-backup.env.example`
+- Timer: daily **02:30 UTC**
 - Always take a **pre-deploy** backup before migrate/release switch
 
 ### Targets
@@ -50,36 +44,27 @@ Script: `ops/scripts/restore-rehearsal.sh`
   --i-accept-destructive-restore
 ```
 
-### Guards
+### Guards and fail-closed restore
 
 - Requires `--i-accept-destructive-restore`
-- Refuses when `TARGET_PGDATABASE == PRODUCTION_PGDATABASE`
-- Refuses production host+database pair when `PRODUCTION_PGHOST` is set
-- Verifies checksum when `*.sha256` exists
-- Restores only into disposable DB (default `servora_med_restore_rehearsal`)
-- Verifies `schema_migrations` non-empty
-- Drops disposable DB unless `--keep`
+- Validates `TARGET_PGDATABASE` / `TARGET_PGUSER` as `^[A-Za-z_][A-Za-z0-9_]*$`
+- Refuses production database name / production host+db pair
+- Requires portable checksum file; mismatch exits non-zero
+- `pg_restore --exit-on-error --single-transaction --no-owner --no-acl`
+- Any non-zero path: ops failure log, no success message, ERR trap cleanup
+- Drops disposable DB unless explicit `--keep`
 
 ### Rehearsal cadence
 
-1. **Required** once before first production pilot traffic  
+1. **Required** once before first production pilot traffic (host-recorded)
 2. Monthly thereafter (ops policy)
 
-### Record template
+### Repository vs host claims
 
-Store under `docs/operations/restore-rehearsals/` (no secrets):
-
-```text
-date/time (UTC):
-operator:
-application SHA:
-backup timestamp / filename:
-checksum:
-safe target db name:
-duration:
-result: pass|fail
-follow-up:
-```
+| Claim | Status |
+|-------|--------|
+| Disposable CI/local PG backup→restore acceptance | automated tests with `TEST_DATABASE_URL` |
+| Live host restore rehearsal markdown under `restore-rehearsals/` | **pending** until performed |
 
 ## Product boundary
 

@@ -29,10 +29,11 @@ PRODUCTION_PGHOST="${PRODUCTION_PGHOST:-}"
 PRODUCTION_PGDATABASE="${PRODUCTION_PGDATABASE:-servora_med}"
 TARGET_PGHOST="${TARGET_PGHOST:-127.0.0.1}"
 TARGET_PGPORT="${TARGET_PGPORT:-5432}"
-TARGET_PGUSER="${TARGET_PGUSER:-${PGUSER:-servora}}"
+TARGET_PGUSER="${TARGET_PGUSER:-${PGUSER:-}}"
 TARGET_PGDATABASE="${TARGET_PGDATABASE:-servora_med_restore_rehearsal}"
 OPS_LOG="${OPS_LOG:-/var/log/servora-med/restore-ops.log}"
 start_epoch="$(date +%s)"
+target_created=false
 
 log_ops() {
   local result="$1"
@@ -52,6 +53,42 @@ log_ops() {
   fi
 }
 
+validate_ident() {
+  local value="$1"
+  local name="$2"
+  if [[ ! "$value" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]]; then
+    log_ops "refused" "invalid_${name}"
+    echo "Invalid ${name}: must match ^[A-Za-z_][A-Za-z0-9_]*$" >&2
+    exit 6
+  fi
+}
+
+cleanup_target() {
+  if [[ "$target_created" == true && "$KEEP" != true ]]; then
+    PGHOST="$TARGET_PGHOST" PGPORT="$TARGET_PGPORT" PGUSER="$TARGET_PGUSER" \
+      psql -d postgres -v ON_ERROR_STOP=1 \
+      -c "DROP DATABASE IF EXISTS \"${TARGET_PGDATABASE}\";" >/dev/null 2>&1 || true
+  fi
+}
+
+on_error() {
+  local code=$?
+  log_ops "failure" "err_trap_exit_${code}"
+  cleanup_target
+  echo "Restore failed (exit ${code})." >&2
+  exit "$code"
+}
+trap on_error ERR
+
+if [[ -z "${TARGET_PGUSER}" ]]; then
+  log_ops "refused" "missing_target_pguser"
+  echo "TARGET_PGUSER (or PGUSER) is required." >&2
+  exit 2
+fi
+
+validate_ident "$TARGET_PGDATABASE" "TARGET_PGDATABASE"
+validate_ident "$TARGET_PGUSER" "TARGET_PGUSER"
+
 if [[ -n "$PRODUCTION_PGHOST" && "$TARGET_PGHOST" == "$PRODUCTION_PGHOST" \
   && "$TARGET_PGDATABASE" == "$PRODUCTION_PGDATABASE" ]]; then
   log_ops "refused" "production_target_guard"
@@ -67,35 +104,45 @@ if [[ "$TARGET_PGDATABASE" == "$PRODUCTION_PGDATABASE" ]]; then
 fi
 
 checksum_path="${DUMP_PATH}.sha256"
-if [[ -f "$checksum_path" ]]; then
-  if command -v sha256sum >/dev/null 2>&1; then
-    sha256sum -c "$checksum_path"
-  elif command -v shasum >/dev/null 2>&1; then
-    expected="$(awk '{print $1}' "$checksum_path")"
-    actual="$(shasum -a 256 "$DUMP_PATH" | awk '{print $1}')"
-    [[ "$expected" == "$actual" ]] || {
-      log_ops "failure" "checksum_mismatch"
-      echo "Checksum mismatch" >&2
-      exit 4
-    }
-  fi
+if [[ ! -f "$checksum_path" ]]; then
+  log_ops "failure" "checksum_missing"
+  echo "Checksum file required: ${checksum_path}" >&2
+  exit 4
+fi
+
+expected="$(awk '{print $1; exit}' "$checksum_path")"
+if command -v sha256sum >/dev/null 2>&1; then
+  actual="$(sha256sum "$DUMP_PATH" | awk '{print $1}')"
+elif command -v shasum >/dev/null 2>&1; then
+  actual="$(shasum -a 256 "$DUMP_PATH" | awk '{print $1}')"
 else
-  echo "Warning: no checksum file at ${checksum_path}" >&2
+  log_ops "failure" "checksum_utility_missing"
+  echo "sha256sum or shasum required" >&2
+  exit 4
+fi
+
+if [[ "$expected" != "$actual" ]]; then
+  log_ops "failure" "checksum_mismatch"
+  echo "Checksum mismatch" >&2
+  exit 4
 fi
 
 export PGHOST="$TARGET_PGHOST" PGPORT="$TARGET_PGPORT" PGUSER="$TARGET_PGUSER"
 
-# Drop/create disposable target (requires CREATEDB privilege).
 psql -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${TARGET_PGDATABASE}\";"
 psql -d postgres -v ON_ERROR_STOP=1 -c "CREATE DATABASE \"${TARGET_PGDATABASE}\";"
+target_created=true
 
 export PGDATABASE="$TARGET_PGDATABASE"
-pg_restore --no-owner --no-acl -d "$TARGET_PGDATABASE" "$DUMP_PATH" || {
-  # pg_restore can exit non-zero with warnings; require schema_migrations present.
-  true
-}
+pg_restore \
+  --exit-on-error \
+  --single-transaction \
+  --no-owner \
+  --no-acl \
+  -d "$TARGET_PGDATABASE" \
+  "$DUMP_PATH"
 
-migration_count="$(psql -d "$TARGET_PGDATABASE" -Atc 'SELECT COUNT(*) FROM schema_migrations' || echo 0)"
+migration_count="$(psql -d "$TARGET_PGDATABASE" -Atc 'SELECT COUNT(*) FROM schema_migrations')"
 if [[ "${migration_count}" -lt 1 ]]; then
   log_ops "failure" "schema_migrations_missing"
   echo "Restore failed: schema_migrations empty or missing." >&2
@@ -103,12 +150,13 @@ if [[ "${migration_count}" -lt 1 ]]; then
 fi
 
 psql -d "$TARGET_PGDATABASE" -v ON_ERROR_STOP=1 -c 'SELECT COUNT(*) FROM users;' >/dev/null
-psql -d "$TARGET_PGDATABASE" -v ON_ERROR_STOP=1 -c 'SELECT id FROM job_cards LIMIT 1;' >/dev/null || true
+psql -d "$TARGET_PGDATABASE" -v ON_ERROR_STOP=1 -c 'SELECT 1 FROM job_cards LIMIT 1;' >/dev/null || true
 
 log_ops "success" "migrations=${migration_count}"
 
 if [[ "$KEEP" != true ]]; then
   psql -d postgres -v ON_ERROR_STOP=1 -c "DROP DATABASE IF EXISTS \"${TARGET_PGDATABASE}\";"
+  target_created=false
 fi
 
 echo "Restore rehearsal succeeded against ${TARGET_PGDATABASE}"

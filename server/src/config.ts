@@ -120,9 +120,18 @@ function readTrustedProxy(
   return raw as TrustedProxy;
 }
 
-function readHealthSchemaVersion(value: string | undefined): string | null {
-  const resolved = value?.trim();
-  return resolved ? resolved : null;
+function readHealthSchemaVersion(
+  value: string | undefined,
+  nodeEnv: NodeEnvironment,
+): string | null {
+  const resolved = value?.trim() ?? '';
+  if (nodeEnv === 'production') {
+    if (!resolved) {
+      throw new Error('HEALTH_SCHEMA_VERSION is required in production');
+    }
+    return resolved;
+  }
+  return resolved || null;
 }
 
 /** Fastify trustProxy option derived from validated config. Never "true" for all peers. */
@@ -152,6 +161,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     loginRateLimitMax: readPositiveInteger(env.LOGIN_RATE_LIMIT_MAX, 5, 'LOGIN_RATE_LIMIT_MAX'),
     rateLimitWindowMs: readPositiveInteger(env.RATE_LIMIT_WINDOW_MS, 60_000, 'RATE_LIMIT_WINDOW_MS'),
     trustedProxy: readTrustedProxy(env.TRUSTED_PROXY, typedNodeEnv),
-    healthSchemaVersion: readHealthSchemaVersion(env.HEALTH_SCHEMA_VERSION),
+    healthSchemaVersion: readHealthSchemaVersion(env.HEALTH_SCHEMA_VERSION, typedNodeEnv),
   };
 }

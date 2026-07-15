@@ -9,7 +9,7 @@ User=servora-med
 Group=servora-med
 WorkingDirectory=/opt/servora-med/current/server
 Environment=NODE_ENV=production
-EnvironmentFile=-/etc/servora-med/servora-med.env
+EnvironmentFile=/etc/servora-med/servora-med.env
 ExecStart=/usr/bin/node dist/index.js
 Restart=on-failure
 RestartSec=5
@@ -20,8 +20,6 @@ NoNewPrivileges=true
 PrivateTmp=true
 ProtectSystem=strict
 ProtectHome=true
-# Adjust if the service must write local files outside journal.
-# ReadWritePaths=
 
 StandardOutput=journal
 StandardError=journal

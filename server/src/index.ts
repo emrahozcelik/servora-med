@@ -18,55 +18,74 @@ import { createShutdown } from './shutdown.js';
 async function main() {
   const config = loadConfig();
   const database = createDatabase(config.databaseUrl);
-  const credentials = new AuthCredentialAdministration();
-  const sessions = new PostgresSessionRevocationPort();
-  const customerAssignments = new PostgresCustomerAssignmentCleanup();
-  const jobCards = new PostgresJobCardRepository(database.pool);
-  const reports = new PostgresReportsRepository(database.pool);
-  const app = await buildApp(config, {
-    authRepository: new PostgresAuthRepository(database.pool),
-    jobCardRepository: jobCards,
-    peopleRepository: new PostgresPeopleRepository(
-      database.pool, credentials, sessions, customerAssignments,
-    ),
-    crmRepository: new PostgresCrmRepository(database.pool),
-    productRepository: new PostgresProductRepository(database.pool),
-    approvalQueueItemPort: jobCards,
-    reportsRepository: reports,
-    healthReadiness: createPostgresReadiness(database.pool, config.healthSchemaVersion),
-  });
-
-  const shutdown = createShutdown({
-    closeApp: () => app.close(),
-    closeDb: () => closeDatabase(database),
-    log: (message, fields) => app.log.info(fields ?? {}, message),
-    exit: (code) => {
-      process.exitCode = code;
-      if (code !== 0) process.exit(code);
-    },
-  });
-
-  process.once('SIGINT', () => {
-    void shutdown('SIGINT').catch((error) => {
-      app.log.error({ err: error }, 'Shutdown handler failed');
-      process.exit(1);
-    });
-  });
-  process.once('SIGTERM', () => {
-    void shutdown('SIGTERM').catch((error) => {
-      app.log.error({ err: error }, 'Shutdown handler failed');
-      process.exit(1);
-    });
-  });
+  let app: Awaited<ReturnType<typeof buildApp>> | undefined;
+  let listening = false;
 
   try {
+    const credentials = new AuthCredentialAdministration();
+    const sessions = new PostgresSessionRevocationPort();
+    const customerAssignments = new PostgresCustomerAssignmentCleanup();
+    const jobCards = new PostgresJobCardRepository(database.pool);
+    const reports = new PostgresReportsRepository(database.pool);
+    app = await buildApp(config, {
+      authRepository: new PostgresAuthRepository(database.pool),
+      jobCardRepository: jobCards,
+      peopleRepository: new PostgresPeopleRepository(
+        database.pool, credentials, sessions, customerAssignments,
+      ),
+      crmRepository: new PostgresCrmRepository(database.pool),
+      productRepository: new PostgresProductRepository(database.pool),
+      approvalQueueItemPort: jobCards,
+      reportsRepository: reports,
+      healthReadiness: createPostgresReadiness(database.pool, config.healthSchemaVersion),
+    });
+
+    const shutdown = createShutdown({
+      closeApp: () => app!.close(),
+      closeDb: () => closeDatabase(database),
+      log: (message, fields) => app!.log.info(fields ?? {}, message),
+      exit: (code) => {
+        process.exitCode = code;
+        if (code !== 0) process.exit(code);
+      },
+    });
+
+    process.once('SIGINT', () => {
+      void shutdown('SIGINT').catch((error) => {
+        app?.log.error({ err: error }, 'Shutdown handler failed');
+        process.exit(1);
+      });
+    });
+    process.once('SIGTERM', () => {
+      void shutdown('SIGTERM').catch((error) => {
+        app?.log.error({ err: error }, 'Shutdown handler failed');
+        process.exit(1);
+      });
+    });
+
     // Migrations are applied only via migrate / migrate:prod — never on process start.
     await app.listen({ host: config.host, port: config.port });
+    listening = true;
   } catch (error) {
-    app.log.error({ err: error }, 'Server startup failed');
-    await app.close();
-    await closeDatabase(database);
+    if (app) {
+      app.log.error({ err: error }, 'Server startup failed');
+    } else {
+      console.error('Server startup failed', error);
+    }
     process.exitCode = 1;
+  } finally {
+    if (!listening) {
+      try {
+        await app?.close();
+      } catch {
+        // best-effort
+      }
+      try {
+        await closeDatabase(database);
+      } catch {
+        // best-effort
+      }
+    }
   }
 }
 

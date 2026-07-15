@@ -55,15 +55,25 @@ export type AppDependencies = {
   approvalQueueItemPort?: ApprovalQueueItemPort;
   reportsRepository?: ReportsReadModel;
   healthReadiness?: HealthReadinessPort;
+  /** Optional Pino destination for tests that capture serialized log lines. */
+  loggerDestination?: NodeJS.WritableStream;
 };
+
+export function buildLoggerOptions(
+  config: AppConfig,
+  destination?: NodeJS.WritableStream,
+) {
+  return {
+    level: config.logLevel,
+    redact: LOGGER_REDACT_PATHS,
+    ...(destination ? { stream: destination } : {}),
+  };
+}
 
 export async function buildApp(config: AppConfig, dependencies: AppDependencies = {}) {
   const app = Fastify({
     trustProxy: resolveTrustProxyOption(config.trustedProxy),
-    logger: {
-      level: config.logLevel,
-      redact: LOGGER_REDACT_PATHS,
-    },
+    logger: buildLoggerOptions(config, dependencies.loggerDestination),
   });
 
   await app.register(cookie);
