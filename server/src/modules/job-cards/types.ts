@@ -100,7 +100,7 @@ export type JobCardStatusFilter = JobCardStatus | 'active' | 'closed' | 'all';
 
 export type JobCardBaseFilters = {
   q: string | null;
-  type: 'PRODUCT_DELIVERY' | null;
+  type: JobCardType | null;
   assignedTo: string | null;
   customerId: string | null;
   priority: JobCardPriority | null;

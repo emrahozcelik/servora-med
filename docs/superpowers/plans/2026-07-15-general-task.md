@@ -648,13 +648,13 @@ git commit -m "feat: project JobCard detail identities"
 **Interfaces:**
 - Produces: `JobCardBaseFilters.type: JobCardType | null` and strict list/board parsing.
 
-- [ ] **Step 1: Write failing query/repository tests**
+- [x] **Step 1: Write failing query/repository tests**
 
 Accept each canonical type, omit type for both, and reject empty, repeated, or unknown
 type with `400 VALIDATION_ERROR`. Assert parameterized SQL applies `j.type = $n`, General
 Task rows map `deliveryItemCount: 0`, and board/list reuse `JobCardListItem`.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd server && npm test -- --run tests/job-card-workspace-query.test.ts \
@@ -663,7 +663,7 @@ cd server && npm test -- --run tests/job-card-workspace-query.test.ts \
 
 Expected: FAIL because `optionalType` accepts only Product Delivery.
 
-- [ ] **Step 3: Implement minimum both-type parsing**
+- [x] **Step 3: Implement minimum both-type parsing**
 
 ```ts
 function optionalType(value: unknown): JobCardType | null {
@@ -676,7 +676,7 @@ function optionalType(value: unknown): JobCardType | null {
 Keep exact-query array rejection for repeated scalars and existing repository SQL shape.
 Do not add a second General Task query.
 
-- [ ] **Step 4: Verify GREEN**
+- [x] **Step 4: Verify GREEN**
 
 Run Step 2 and:
 
@@ -686,7 +686,7 @@ cd server && npm test -- --run tests/job-card-workspace-postgres.test.ts
 
 Expected: unit tests PASS; gated PostgreSQL result is reported accurately.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/job-cards/types.ts server/src/modules/job-cards/workspace-query.ts \

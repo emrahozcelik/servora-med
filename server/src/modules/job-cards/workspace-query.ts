@@ -1,11 +1,13 @@
 import {
   JOB_CARD_PRIORITIES,
   JOB_CARD_STATUSES,
+  JOB_CARD_TYPES,
   type JobCardBaseFilters,
   type JobCardBoardQuery,
   type JobCardListQuery,
   type JobCardPriority,
   type JobCardStatusFilter,
+  type JobCardType,
 } from './types.js';
 import { boundedTrimmedString, isoDate, validation } from './validation.js';
 
@@ -43,8 +45,8 @@ function optionalUuid(value: unknown, field: string) {
 
 function optionalType(value: unknown) {
   if (value === undefined) return null;
-  if (value !== 'PRODUCT_DELIVERY') throw validation('type');
-  return value;
+  if (!JOB_CARD_TYPES.includes(value as JobCardType)) throw validation('type');
+  return value as JobCardType;
 }
 
 function optionalPriority(value: unknown) {
