@@ -59,9 +59,18 @@ const validateGeneralTaskSubmission: SubmissionPolicy = async (transaction, acto
   await assertEligibleAssignee(transaction, actor, jobCard);
 };
 
+const validateSalesMeetingSubmission: SubmissionPolicy = async () => {
+  throw new AppError(
+    'MEETING_NOT_READY',
+    400,
+    'Satış görüşmesi yapılandırılmış sonuç bilgileri tamamlanmalıdır.',
+  );
+};
+
 const submissionPolicies: Record<JobCardType, SubmissionPolicy> = {
   PRODUCT_DELIVERY: validateProductDeliverySubmission,
   GENERAL_TASK: validateGeneralTaskSubmission,
+  SALES_MEETING: validateSalesMeetingSubmission,
 };
 
 export function validateSubmission(

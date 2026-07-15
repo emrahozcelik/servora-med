@@ -150,24 +150,29 @@ Vitest, Playwright MCP.
 - Modify: `server/src/modules/job-cards/types.ts`
 - Modify: `server/src/modules/job-cards/create-input.ts`
 - Create: `server/src/modules/job-cards/meeting-details-input.ts`
+- Modify: `server/src/modules/job-cards/submission-policy.ts`
 - Modify: `server/tests/job-card-create-input.test.ts`
 - Create: `server/tests/sales-meeting-input.test.ts`
+- Modify: `server/tests/job-card-lifecycle-service.test.ts`
+- Modify: `server/tests/job-card-routes.test.ts`
 
 **Interfaces:**
 - Produces: `MeetingOutcome`, `MEETING_OUTCOMES`, `MeetingDetails`,
   `PatchMeetingDetailsInput`, `parseMeetingDetailsPatch`, `parseMeetingJobCardId`, and the
-  exact third `SalesMeetingCreateInput` discriminant.
+  exact third `SalesMeetingCreateInput` discriminant. The exhaustive submission registry
+  temporarily fails closed with `MEETING_NOT_READY` until Task 5 adds persisted readiness.
 - Consumes: existing `boundedTrimmedString`, code-point helpers, UUID/date validation,
   priority defaults, and `AppError` conventions.
 
-- [ ] **Step 1: Write failing parser and type-contract tests**
+- [x] **Step 1: Write failing parser and type-contract tests**
 
 Add table-driven tests that accept the exact Sales Meeting create shape and reject result
 fields, unknown fields, malformed body UUIDs, impossible calendar dates, accepted past
-dates,
-naive instants, unknown outcomes, over-4,000-code-point summaries, and PATCH without a
+dates, naive instants, unknown outcomes, over-4,000-code-point summaries, and PATCH without a
 detail field. Assert malformed `:jobCardId` maps to `JOB_CARD_NOT_FOUND` without a
-repository call.
+repository call. Add a lifecycle test proving the newly exhaustive Sales Meeting policy
+fails closed without transition or activity. Replace the obsolete route expectation that
+treated `type=SALES_MEETING` as invalid with canonical parsed-query coverage.
 
 ```ts
 expect(parseJobCardCreateInput({
@@ -185,7 +190,7 @@ try {
 expect(thrown).toMatchObject({ code: 'VALIDATION_ERROR' });
 ```
 
-- [ ] **Step 2: Run the focused tests and verify RED**
+- [x] **Step 2: Run the focused tests and verify RED**
 
 Run:
 
@@ -195,7 +200,7 @@ cd server && npm test -- --run tests/job-card-create-input.test.ts tests/sales-m
 
 Expected: FAIL because the third discriminant and meeting parser are absent.
 
-- [ ] **Step 3: Add minimal exact types and parsers**
+- [x] **Step 3: Add minimal exact types and parsers**
 
 Implement the canonical constants and public shapes exactly:
 
@@ -218,27 +223,33 @@ export type MeetingDetails = {
 
 Use separate create allowlists per discriminant. Require offset or `Z` for instants,
 canonicalize with `toISOString()`, normalize empty summary to null, and require at least
-one of the four mutable fields.
+one of the four mutable fields. Add the third registry entry as a tested fail-closed
+`MEETING_NOT_READY` policy; Task 5 replaces it with exact persisted readiness checks.
 
-- [ ] **Step 4: Run focused tests and server build**
+- [x] **Step 4: Run focused tests and server build**
 
 Run:
 
 ```bash
-cd server && npm test -- --run tests/job-card-create-input.test.ts tests/sales-meeting-input.test.ts
+cd server && npm test -- --run tests/job-card-create-input.test.ts \
+  tests/sales-meeting-input.test.ts tests/job-card-lifecycle-service.test.ts \
+  tests/job-card-routes.test.ts
 cd server && npm run build
 ```
 
-Expected: both test files and build PASS; Product Delivery and General Task parser cases
-remain unchanged.
+Expected: focused parser/lifecycle/route files and build PASS; Product Delivery and
+General Task parser cases remain unchanged.
 
-- [ ] **Step 5: Commit Task 1**
+- [x] **Step 5: Commit Task 1**
 
 ```bash
 git add server/src/modules/job-cards/types.ts \
   server/src/modules/job-cards/create-input.ts \
   server/src/modules/job-cards/meeting-details-input.ts \
-  server/tests/job-card-create-input.test.ts server/tests/sales-meeting-input.test.ts
+  server/src/modules/job-cards/submission-policy.ts \
+  server/tests/job-card-create-input.test.ts server/tests/sales-meeting-input.test.ts \
+  server/tests/job-card-lifecycle-service.test.ts server/tests/job-card-routes.test.ts \
+  docs/superpowers/plans/2026-07-15-sales-meeting.md
 git commit -m "feat: add sales meeting contracts"
 ```
 

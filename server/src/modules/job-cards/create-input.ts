@@ -12,18 +12,31 @@ import {
   validation,
 } from './validation.js';
 
-const CREATE_FIELDS = [
+const COMMON_CREATE_FIELDS = [
   'clientActionId', 'type', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate',
 ] as const;
 
-function exactRecord(value: unknown) {
+const CREATE_FIELDS_BY_TYPE = {
+  PRODUCT_DELIVERY: COMMON_CREATE_FIELDS,
+  GENERAL_TASK: COMMON_CREATE_FIELDS,
+  SALES_MEETING: COMMON_CREATE_FIELDS,
+} as const;
+
+type CreateType = keyof typeof CREATE_FIELDS_BY_TYPE;
+
+function exactRecord(value: unknown): Record<string, unknown> & { type: CreateType } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) throw validation('body');
   const record = value as Record<string, unknown>;
-  if (Object.keys(record).some((key) => !CREATE_FIELDS.includes(key as never))) {
+  if (record.type !== 'PRODUCT_DELIVERY' && record.type !== 'GENERAL_TASK'
+    && record.type !== 'SALES_MEETING') {
+    throw validation('type');
+  }
+  const allowed = CREATE_FIELDS_BY_TYPE[record.type];
+  if (Object.keys(record).some((key) => !allowed.includes(key as never))) {
     throw validation('body');
   }
-  return record;
+  return record as Record<string, unknown> & { type: CreateType };
 }
 
 function nullableText(value: unknown, field: string) {
@@ -48,9 +61,6 @@ function dueDate(value: unknown) {
 
 export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreateInput {
   const input = exactRecord(value);
-  if (input.type !== 'PRODUCT_DELIVERY' && input.type !== 'GENERAL_TASK') {
-    throw validation('type');
-  }
   const common = {
     clientActionId: requireActionId(input.clientActionId),
     title: boundedTrimmedString(input.title, 'title', 1, 255),
@@ -62,6 +72,14 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
   };
   if (input.type === 'PRODUCT_DELIVERY') {
     return { ...common, type: input.type, customerId: uuidString(input.customerId, 'customerId') };
+  }
+  if (input.type === 'SALES_MEETING') {
+    return {
+      ...common,
+      type: input.type,
+      customerId: uuidString(input.customerId, 'customerId'),
+      dueDate: isoDate(input.dueDate, 'dueDate'),
+    };
   }
   return { ...common, type: input.type, customerId: optionalUuid(input.customerId, 'customerId') };
 }

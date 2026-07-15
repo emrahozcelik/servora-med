@@ -106,7 +106,7 @@ describe('JobCard routes', () => {
 
     const response = await app.inject({
       method: 'GET',
-      url: '/api/job-cards?status=closed&type=PRODUCT_DELIVERY&priority=urgent&dueAfter=2026-07-01&dueBefore=2026-07-31&limit=1&offset=2',
+      url: '/api/job-cards?status=closed&type=SALES_MEETING&priority=urgent&dueAfter=2026-07-01&dueBefore=2026-07-31&limit=1&offset=2',
     });
 
     expect(response.statusCode).toBe(200);
@@ -114,7 +114,7 @@ describe('JobCard routes', () => {
     expect(service.list).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
       expect.objectContaining({
-        status: 'closed', type: 'PRODUCT_DELIVERY', priority: 'urgent',
+        status: 'closed', type: 'SALES_MEETING', priority: 'urgent',
         dueAfter: '2026-07-01', dueBefore: '2026-07-31', limit: 1, offset: 2,
       }),
     );
@@ -123,7 +123,6 @@ describe('JobCard routes', () => {
   it.each([
     '/api/job-cards?unknown=value',
     '/api/job-cards?status=active&status=closed',
-    '/api/job-cards?type=SALES_MEETING',
     '/api/job-cards?dueBefore=2026-02-30',
     '/api/job-cards?limit=101',
   ])('rejects invalid list query %s', async (url) => {

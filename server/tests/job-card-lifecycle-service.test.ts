@@ -396,6 +396,20 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.events.map((item) => item.event)).toEqual(['JOB_SUBMITTED_FOR_APPROVAL']);
   });
 
+  it('fails closed when Sales Meeting structured readiness is not implemented yet', async () => {
+    const repo = new LifecycleRepository();
+    repo.job = {
+      ...repo.job, type: 'SALES_MEETING', title: 'Kontrol görüşmesi',
+      customerId: 'customer-1', contactId: null, dueDate: '2026-07-15',
+    };
+
+    await expect(new JobCardService(repo).submitForApproval(
+      staff, 'job-1', input('meeting-submit'),
+    )).rejects.toMatchObject({ code: 'MEETING_NOT_READY' });
+    expect(repo.transitions).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
+  });
+
   it('rejects a General Task with an invalid persisted title or ineligible assignee', async () => {
     const invalidTitle = new LifecycleRepository();
     invalidTitle.job = {
