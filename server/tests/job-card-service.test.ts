@@ -44,6 +44,7 @@ class MemoryJobCardRepository implements JobCardRepository {
         this.job = { ...this.job, status: input.status, version: this.job.version + 1 };
         return { ...this.job };
       },
+      createMeetingDetails: async () => { throw new Error('unused'); },
       appendActivity: async (input) => {
         if (this.failActivity) throw new Error('activity failed');
         this.activities.push({ event: input.event, jobCardId: input.jobCardId, actorId: input.actorId, clientActionId: input.clientActionId });

@@ -101,6 +101,7 @@ export interface JobCardTransaction {
   customerExists(organizationId: string, customerId: string): Promise<boolean>;
   getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
   createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
+  createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
   getProduct(organizationId: string, productId: string): Promise<ProductReference | null>;
   getDeliveryItemForUpdate(organizationId: string, jobCardId: string, itemId: string): Promise<DeliveryItemRecord | null>;
@@ -467,6 +468,14 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         input.contactId, input.assignedTo, input.createdBy, input.priority, input.dueDate],
     );
     return mapJobCard(result.rows[0]!);
+  }
+
+  async createMeetingDetails(input: { organizationId: string; jobCardId: string }) {
+    await this.client.query(
+      `INSERT INTO job_card_meeting_details (organization_id, job_card_id)
+       VALUES ($1, $2)`,
+      [input.organizationId, input.jobCardId],
+    );
   }
 
   async updateFieldsWithVersion(input: UpdateJobCardInput) {

@@ -367,7 +367,7 @@ git commit -m "feat: add sales meeting schema"
 - Consumes: Task 1 normalized create union and existing assignment/relation/idempotency
   policy.
 
-- [ ] **Step 1: Write failing create transaction tests**
+- [x] **Step 1: Write failing create transaction tests**
 
 Cover Staff self-assignment, pre-lookup mismatch, management assignment, required active
 Customer, optional active Contact, required due date, lock order, exactly one empty detail,
@@ -382,7 +382,7 @@ expect(repository.meetingDetailsFor(result.id)).toEqual({
 expect(repository.eventsFor(result.id)).toEqual(['JOB_CREATED']);
 ```
 
-- [ ] **Step 2: Run create tests and verify RED**
+- [x] **Step 2: Run create tests and verify RED**
 
 ```bash
 cd server && npm test -- --run \
@@ -391,7 +391,7 @@ cd server && npm test -- --run \
 
 Expected: FAIL because create does not persist the required detail row.
 
-- [ ] **Step 3: Implement minimal atomic create**
+- [x] **Step 3: Implement minimal atomic create**
 
 Extend the transaction port and PostgreSQL transaction:
 
@@ -406,7 +406,7 @@ In the existing critical `JOB_CREATE` work, preserve lock order
 `users -> customers -> contacts -> job_cards -> meeting_details`, create the empty detail
 only for `SALES_MEETING`, append only `JOB_CREATED`, then return canonical detail.
 
-- [ ] **Step 4: Run focused and Product Delivery regressions**
+- [x] **Step 4: Run focused and Product Delivery regressions**
 
 ```bash
 cd server && npm test -- --run tests/job-card-create-input.test.ts \
@@ -417,7 +417,7 @@ cd server && npm run build
 
 Expected: Sales Meeting create/replay/rollback PASS and existing two create variants PASS.
 
-- [ ] **Step 5: Commit Task 3**
+- [x] **Step 5: Commit Task 3**
 
 ```bash
 git add server/src/modules/job-cards/repository.ts \

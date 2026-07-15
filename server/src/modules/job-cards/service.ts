@@ -129,6 +129,12 @@ export class JobCardService {
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
           dueDate: input.dueDate,
         });
+        if (input.type === 'SALES_MEETING') {
+          await transaction.createMeetingDetails({
+            organizationId: actor.organizationId,
+            jobCardId: job.id,
+          });
+        }
         await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
           event: 'JOB_CREATED', clientActionId: input.clientActionId,
