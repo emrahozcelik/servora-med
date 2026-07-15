@@ -33,6 +33,10 @@ grep -v '^[[:space:]]*#' "$TEMPLATE" \
     -e "s|/etc/cloudflared|/config|g" \
   >"${TMP}/config.yml"
 
+# cloudflared image runs as non-root; ensure mounted files are world-readable.
+chmod 0644 "${TMP}/config.yml" "${TMP}/${UUID}.json"
+chmod 0755 "${TMP}"
+
 # Ensure required origin Host alignment is present after substitution.
 grep -F 'hostname: app.example.com' "${TMP}/config.yml" >/dev/null
 grep -F 'httpHostHeader: app.example.com' "${TMP}/config.yml" >/dev/null
