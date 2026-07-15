@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
@@ -64,6 +65,13 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('Notlar ve zaman çizelgesi');
     expect(html).not.toContain('Teslim bilgileri');
     expect(html).not.toContain('Ürün teslimi');
+  });
+
+  it('guards both the delivery request and delivery section by canonical type', () => {
+    const source = readFileSync(`${process.cwd()}/src/JobDetail.tsx`, 'utf8');
+
+    expect(source).toContain("job.type === 'PRODUCT_DELIVERY' ? await listDeliveryItems(jobId) : []");
+    expect(source).toContain("{job.type === 'PRODUCT_DELIVERY' && <section className=\"delivery-lines\"");
   });
 
   it('shows submit only after the backend status is IN_PROGRESS', () => {

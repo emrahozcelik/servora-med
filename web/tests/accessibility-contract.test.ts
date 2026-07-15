@@ -91,4 +91,19 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.job-board-items \{[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
     expect(css).not.toMatch(/\.job-board-card[^}]*box-shadow|\.job-board-column[^}]*gradient/);
   });
+
+  it('keeps General Task creation and type cues accessible without color-only meaning', () => {
+    expect(css).toMatch(/\.task-optional summary \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.inline-action \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.workspace-create-actions \{[^}]*display: flex;/);
+    expect(css).toMatch(/\.job-board-type \{[^}]*font-size:/);
+    expect(css).toMatch(/@media \(max-width: 40rem\)[\s\S]*\.workspace-create-actions > \* \{[^}]*flex: 1 1 9rem;/);
+  });
+
+  it('allows text-enlarged workspace controls to wrap without intrinsic-width overflow', () => {
+    expect(css).toMatch(/\.compact-shell-header \{[^}]*flex-wrap: wrap;/);
+    expect(css).toMatch(/\.workspace-heading \{[^}]*flex-wrap: wrap;/);
+    expect(css).toMatch(/\.job-filter-disclosure \{[^}]*min-width: 0;[^}]*max-width: 100%;/);
+    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-filter-secondary \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+  });
 });

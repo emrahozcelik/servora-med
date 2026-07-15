@@ -1026,6 +1026,7 @@ git commit -m "test: cover General Task report scope"
 
 **Files:**
 - Modify: `server/tests/job-card-workspace-postgres.test.ts`
+- Modify: `web/src/styles.css`
 - Modify: `web/tests/accessibility-contract.test.ts`
 - Modify: `web/tests/general-task-create.test.tsx`
 - Modify: `web/tests/job-detail.test.tsx`
@@ -1033,7 +1034,7 @@ git commit -m "test: cover General Task report scope"
 **Interfaces:**
 - Produces: live-database and browser evidence; no new Playwright dependency/config.
 
-- [ ] **Step 1: Write the failing PostgreSQL acceptance extension**
+- [x] **Step 1: Write the failing PostgreSQL acceptance extension**
 
 Extend the isolated schema flow to migrate 001–006, create Staff/Manager/session/reference
 rows, create a title-only General Task, start, submit, approve, revision/resume path,
@@ -1041,7 +1042,7 @@ append note/activity, verify visibility, both-type filters, canonical identities
 delivery items, all four `INVALID_JOB_TYPE` operations, report inclusion, and delivery
 report exclusion.
 
-- [ ] **Step 2: Run PostgreSQL acceptance against a disposable database**
+- [x] **Step 2: Run PostgreSQL acceptance against a disposable database**
 
 ```bash
 cd server && TEST_DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run \
@@ -1052,11 +1053,13 @@ Expected: PASS with a real disposable PostgreSQL URL. Do not accept the conditio
 as live verification; create/remove the disposable database using the established project
 procedure and record its PostgreSQL version.
 
-- [ ] **Step 3: Strengthen automated accessibility contracts**
+- [x] **Step 3: Strengthen automated accessibility contracts**
 
 Assert the quick-create disclosure, persistent labels, error associations, focusable error
 summary, two 44×44 create actions, textual type labels, and absence of delivery UI/request
-for General Task. Run:
+for General Task. Preserve narrow-screen reflow under enlarged text; the browser acceptance
+identified and the implementation corrected intrinsic-width overflow in the workspace
+header and secondary filter grid. Run:
 
 ```bash
 cd web && npm test -- --run tests/accessibility-contract.test.ts \
@@ -1065,7 +1068,7 @@ cd web && npm test -- --run tests/accessibility-contract.test.ts \
 
 Expected: PASS.
 
-- [ ] **Step 4: Run browser acceptance with Playwright MCP**
+- [x] **Step 4: Run browser acceptance with Playwright MCP**
 
 Against the disposable PostgreSQL-backed running app, verify Staff create → start → submit,
 Manager approve and revision, refresh/deep link/Back/Forward type filter, keyboard-only
@@ -1074,10 +1077,11 @@ effective reflow, 200% text enlargement, applicable 400% zoom, reduced motion, s
 snapshot, and zero General Task delivery request in the network log. Record each result in
 Task 14; do not add Playwright packages.
 
-- [ ] **Step 5: Commit acceptance tests**
+- [x] **Step 5: Commit acceptance tests**
 
 ```bash
 git add server/tests/job-card-workspace-postgres.test.ts \
+  web/src/styles.css \
   web/tests/accessibility-contract.test.ts web/tests/general-task-create.test.tsx \
   web/tests/job-detail.test.tsx
 git commit -m "test: verify General Task acceptance"

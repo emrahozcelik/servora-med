@@ -159,6 +159,29 @@ describe('General Task quick create', () => {
     expect(onCancel).toHaveBeenCalledOnce();
   });
 
+  it('keeps disclosure labels and moves focus to an associated error summary', async () => {
+    await act(async () => root.render(
+      <GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />,
+    ));
+    const disclosure = container.querySelector('details.task-optional')!;
+    expect(disclosure.querySelector('summary')?.textContent).toBe('Ek bilgiler');
+    for (const label of ['Başlık', 'Açıklama (isteğe bağlı)', 'Öncelik', 'Son tarih (isteğe bağlı)',
+      'Müşteri (isteğe bağlı)', 'İlgili kişi (isteğe bağlı)']) {
+      expect(container.textContent).toContain(label);
+    }
+
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    const summary = container.querySelector<HTMLElement>('.form-error')!;
+    const title = container.querySelector<HTMLInputElement>('#task-title')!;
+    expect(summary.getAttribute('role')).toBe('alert');
+    expect(summary.tabIndex).toBe(-1);
+    expect(document.activeElement).toBe(summary);
+    expect(title.getAttribute('aria-invalid')).toBe('true');
+    expect(title.getAttribute('aria-describedby')).toBe('task-title-error');
+    expect(container.querySelector('#task-title-error')?.textContent)
+      .toContain('Başlık 1 ile 255 karakter arasında olmalıdır');
+  });
+
   it('loads all optional Customer and Contact pages and clears stale Contact state', async () => {
     crm.listCustomers.mockImplementation(({ offset }: { offset: number }) => Promise.resolve(offset === 0
       ? { items: [customer('c1', 'A Klinik'), customer('c2', 'B Klinik')], total: 3, limit: 200, offset: 0 }
