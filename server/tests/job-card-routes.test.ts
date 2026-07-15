@@ -123,7 +123,7 @@ describe('JobCard routes', () => {
   it.each([
     '/api/job-cards?unknown=value',
     '/api/job-cards?status=active&status=closed',
-    '/api/job-cards?type=GENERAL_TASK',
+    '/api/job-cards?type=SALES_MEETING',
     '/api/job-cards?dueBefore=2026-02-30',
     '/api/job-cards?limit=101',
   ])('rejects invalid list query %s', async (url) => {
