@@ -168,6 +168,40 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.transitions).toHaveLength(1);
   });
 
+  it.each([
+    ['plan', 'NEW', 'PLANNED', 'JOB_PLANNED'],
+    ['start', 'PLANNED', 'IN_PROGRESS', 'JOB_STARTED'],
+    ['submitForApproval', 'IN_PROGRESS', 'WAITING_APPROVAL', 'JOB_SUBMITTED_FOR_APPROVAL'],
+    ['approve', 'WAITING_APPROVAL', 'COMPLETED', 'JOB_APPROVED'],
+    ['requestRevision', 'WAITING_APPROVAL', 'REVISION_REQUESTED', 'JOB_REVISION_REQUESTED'],
+    ['resume', 'REVISION_REQUESTED', 'IN_PROGRESS', 'JOB_RESUMED'],
+    ['cancel', 'IN_PROGRESS', 'CANCELLED', 'JOB_CANCELLED'],
+  ] as const)('runs General Task %s through the shared lifecycle engine', async (
+    method, source, target, event,
+  ) => {
+    const repo = new LifecycleRepository();
+    repo.job = {
+      ...repo.job, type: 'GENERAL_TASK', status: source, customerId: null,
+      contactId: null, title: 'Doktoru ara',
+    };
+    repo.items = [];
+    const commandInput = method === 'requestRevision'
+      ? { ...input(`task-${method}`), revisionReason: ' Düzeltin ' }
+      : method === 'cancel'
+        ? { ...input(`task-${method}`), cancelReason: ' İptal edildi ' }
+        : input(`task-${method}`);
+    const commandActor = method === 'approve' || method === 'requestRevision' || method === 'cancel'
+      ? manager : staff;
+
+    const result = await new JobCardService(repo, () => time)[method](
+      commandActor, 'job-1', commandInput as never,
+    );
+
+    expect(result).toMatchObject({ type: 'GENERAL_TASK', status: target, version: 3 });
+    expect(repo.events.map((item) => item.event)).toEqual([event]);
+    expect(repo.transitions).toHaveLength(1);
+  });
+
   it('sets plannedAt and preserves the first startedAt across start and resume', async () => {
     const repo = new LifecycleRepository(); const service = new JobCardService(repo, () => time);
     repo.job.status = 'NEW';
@@ -321,6 +355,41 @@ describe('JobCard lifecycle commands', () => {
     repo.items = new LifecycleRepository().items; repo.assignee.isActive = false;
     await expect(new JobCardService(repo).submitForApproval(staff, 'job-1', input('inactive-assignee')))
       .rejects.toMatchObject({ code: 'ASSIGNEE_NOT_ELIGIBLE' });
+  });
+
+  it('submits a title-only General Task without Customer or delivery items', async () => {
+    const repo = new LifecycleRepository();
+    repo.job = {
+      ...repo.job, type: 'GENERAL_TASK', title: 'Doktoru ara', customerId: null, contactId: null,
+    };
+    repo.items = [];
+
+    await expect(new JobCardService(repo).submitForApproval(staff, 'job-1', input('task-submit')))
+      .resolves.toMatchObject({ type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', version: 3 });
+    expect(repo.events.map((item) => item.event)).toEqual(['JOB_SUBMITTED_FOR_APPROVAL']);
+  });
+
+  it('rejects a General Task with an invalid persisted title or ineligible assignee', async () => {
+    const invalidTitle = new LifecycleRepository();
+    invalidTitle.job = {
+      ...invalidTitle.job, type: 'GENERAL_TASK', title: '   ', customerId: null, contactId: null,
+    };
+    invalidTitle.items = [];
+    await expect(new JobCardService(invalidTitle).submitForApproval(
+      staff, 'job-1', input('invalid-task-title'),
+    )).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    expect(invalidTitle.transitions).toHaveLength(0);
+
+    const inactiveAssignee = new LifecycleRepository();
+    inactiveAssignee.job = {
+      ...inactiveAssignee.job, type: 'GENERAL_TASK', customerId: null, contactId: null,
+    };
+    inactiveAssignee.items = [];
+    inactiveAssignee.assignee.isActive = false;
+    await expect(new JobCardService(inactiveAssignee).submitForApproval(
+      staff, 'job-1', input('inactive-task-assignee'),
+    )).rejects.toMatchObject({ code: 'ASSIGNEE_NOT_ELIGIBLE', statusCode: 400 });
+    expect(inactiveAssignee.transitions).toHaveLength(0);
   });
 });
 

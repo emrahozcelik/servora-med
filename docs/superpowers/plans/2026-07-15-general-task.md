@@ -444,7 +444,7 @@ git commit -m "feat: create General Task JobCards"
 - Consumes: transaction `customerExists`, `getAssignee`, and
   `getSubmissionDeliveryItems` methods.
 
-- [ ] **Step 1: Write failing readiness and lifecycle tests**
+- [x] **Step 1: Write failing readiness and lifecycle tests**
 
 Test that General Task with title and eligible assignee submits without Customer or items;
 empty persisted title or newly inactive/non-Staff assignee fails without transition. Keep
@@ -453,7 +453,7 @@ full plan/start/submit/approve/revision/resume/cancel matrix for General Task, i
 stale version, replay, concurrent duplicate, terminal immutability, first-start timestamp,
 and activity rollback.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd server && npm test -- --run tests/job-card-lifecycle-service.test.ts
@@ -461,7 +461,7 @@ cd server && npm test -- --run tests/job-card-lifecycle-service.test.ts
 
 Expected: FAIL with `DELIVERY_NOT_READY` for General Task.
 
-- [ ] **Step 3: Implement the exact policy registry**
+- [x] **Step 3: Implement the exact policy registry**
 
 ```ts
 export type SubmissionPolicy = (
@@ -482,7 +482,7 @@ Move existing Product Delivery readiness unchanged into its policy. General Task
 trimmed 1–255-code-point title and active same-organization Staff assignee. Replace only
 the inline submit block in `runLifecycle` with `await validateSubmission(tx, actor, job)`.
 
-- [ ] **Step 4: Verify GREEN and Product Delivery regression**
+- [x] **Step 4: Verify GREEN and Product Delivery regression**
 
 ```bash
 cd server && npm test -- --run tests/job-card-lifecycle-service.test.ts
@@ -491,7 +491,7 @@ cd server && npm test -- --run tests/delivery-item-service.test.ts tests/job-car
 
 Expected: PASS; both types use the same transition/idempotency/activity engine.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/job-cards/submission-policy.ts \

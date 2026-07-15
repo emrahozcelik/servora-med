@@ -5,7 +5,6 @@ import {
   assertCanEdit,
   assertCanTransition,
   assertCreateAssignmentRequest,
-  assertDeliveryReadyForSubmission,
 } from './policy.js';
 import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, PageQuery, ProductReference } from './repository.js';
 import {
@@ -25,6 +24,7 @@ import {
 } from './types.js';
 import { optionalLifecycleNote, requireActionId, requireLifecycleReason, validation } from './validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
+import { validateSubmission } from './submission-policy.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
@@ -434,17 +434,7 @@ export class JobCardService {
           definition.revisionReason ?? definition.cancelReason ?? undefined,
         );
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
-          if (!job.customerId || !(await tx.customerExists(actor.organizationId, job.customerId))) {
-            throw new AppError('DELIVERY_NOT_READY', 400, 'Ürün teslimi için geçerli müşteri zorunludur.');
-          }
-          const assignee = await tx.getAssignee(actor.organizationId, job.assignedTo);
-          if (!assignee?.isActive || assignee.role !== 'STAFF') {
-            throw new AppError('ASSIGNEE_NOT_ELIGIBLE', 400, 'Atanan personel aktif ve uygun olmalıdır.');
-          }
-          assertDeliveryReadyForSubmission(
-            job,
-            await tx.getSubmissionDeliveryItems(actor.organizationId, job.id),
-          );
+          await validateSubmission(tx, actor, job);
         }
         const occurredAt = this.now();
         const updated = await tx.transitionWithVersion({
