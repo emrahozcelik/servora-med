@@ -49,6 +49,7 @@ ROLE="servora_ci_auth"
 DBNAME="servora_ci_auth_db"
 # Build app URL without putting password on helper argv: pure bash concatenation into env only.
 # Parse host/port from admin URL with node (no password printed).
+# shellcheck disable=SC2016 # Node source must not expand under bash.
 HOST_PORT="$(
   env -i PATH="$(command -v node | xargs dirname):/usr/bin:/bin" \
     U="${ADMIN_URL}" \
@@ -140,6 +141,7 @@ env -i \
   node "${VERIFY_JS}"
 
 # Cleanup role/db (best-effort) without printing passwords.
+# shellcheck disable=SC2016 # Node source must not expand under bash.
 env -i \
   PATH="$(command -v node | xargs dirname):/usr/bin:/bin" \
   HOME="${HOME:-/tmp}" \
