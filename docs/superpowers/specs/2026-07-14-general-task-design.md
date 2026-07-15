@@ -1,6 +1,6 @@
 # Servora-Med Slice 09 — General Task Design
 
-> Status: Approved design; implementation not started
+> Status: Implemented and verified
 > Date: 2026-07-14
 > Scope: General Task creation, lifecycle participation, type-aware detail, and workspace integration
 
@@ -732,31 +732,31 @@ Documentation must not claim Slice 09 is implemented before that closeout.
 
 Slice 09 implementation is complete only when all statements below are true:
 
-- [ ] One exact `POST /api/job-cards` discriminated union supports Product Delivery and
+- [x] One exact `POST /api/job-cards` discriminated union supports Product Delivery and
       General Task.
-- [ ] Staff create requires `assignedTo` to equal the authenticated Staff ID and rejects a
+- [x] Staff create requires `assignedTo` to equal the authenticated Staff ID and rejects a
       different ID with pre-lookup `403 FORBIDDEN`; management accepts only eligible
       same-organization Staff.
-- [ ] General Task supports optional Customer and Contact with the canonical relation
+- [x] General Task supports optional Customer and Contact with the canonical relation
       invariants.
-- [ ] A title-only General Task with an eligible assignee can complete manager approval.
-- [ ] Submission readiness is selected by an exhaustive type policy while lifecycle
+- [x] A title-only General Task with an eligible assignee can complete manager approval.
+- [x] Submission readiness is selected by an exhaustive type policy while lifecycle
       execution remains shared.
-- [ ] All four delivery subresource operations return `409 INVALID_JOB_TYPE` for General
+- [x] All four delivery subresource operations return `409 INVALID_JOB_TYPE` for General
       Task and perform no partial work.
-- [ ] Canonical detail provides assignee, Customer, and Contact display identities in one
+- [x] Canonical detail provides assignee, Customer, and Contact display identities in one
       organization-scoped read.
-- [ ] `/jobs/new-task` is refresh-safe, accessible, responsive, and separate from Product
+- [x] `/jobs/new-task` is refresh-safe, accessible, responsive, and separate from Product
       Delivery creation.
-- [ ] General Task detail never requests or renders delivery data.
-- [ ] List, board, and URL-owned type filters support both types without false delivery
+- [x] General Task detail never requests or renders delivery data.
+- [x] List, board, and URL-owned type filters support both types without false delivery
       presentation.
-- [ ] Approval, Staff, and all-type operational metrics include General Tasks; delivery
+- [x] Approval, Staff, and all-type operational metrics include General Tasks; delivery
       metrics exclude them.
-- [ ] Existing Product Delivery behavior and tests remain passing.
-- [ ] No migration, new details model, generic form builder, or out-of-scope feature is
+- [x] Existing Product Delivery behavior and tests remain passing.
+- [x] No migration, new details model, generic form builder, or out-of-scope feature is
       introduced.
-- [ ] Server, web, PostgreSQL, browser, accessibility, and documentation closeout evidence
+- [x] Server, web, PostgreSQL, browser, accessibility, and documentation closeout evidence
       is recorded truthfully.
 
 ## 23. Alternatives Considered
@@ -808,12 +808,12 @@ encourage false delivery UI.
       explicit.
 - [x] No migration, report storage, financial, inventory, score, custom JSON, checklist,
       attachment, subtask, notification, realtime, or Sales Meeting scope was introduced.
-- [x] No implementation claim is made for Slice 09.
+- [x] The implementation claim is backed by the recorded automated, PostgreSQL, browser,
+      accessibility, and documentation evidence.
 - [x] No placeholder or unresolved behavior remains.
 
-## 25. Execution Stop
+## 25. Execution Closeout
 
-This design is approved and Slice 09 implementation has not started. The next stage is
-to prepare a separate implementation plan with `superpowers:writing-plans`. No
-implementation code may be written until that plan has also been reviewed and explicitly
-approved by the user.
+Slice 09 implementation is verified on `feature/slice-09-general-task`. The approved
+design was implemented through the separate reviewed plan; the closeout commit and remote
+parity check are the remaining execution-record steps.

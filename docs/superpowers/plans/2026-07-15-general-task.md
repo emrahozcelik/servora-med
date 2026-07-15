@@ -1094,6 +1094,7 @@ git commit -m "test: verify General Task acceptance"
 - Modify: `SERVORA_MED_ARCHITECTURE_PLAN.md`
 - Modify: `SERVORA_MED_MVP_SLICES.md`
 - Modify: `README.md`
+- Modify: `docs/superpowers/specs/2026-07-14-general-task-design.md`
 - Modify: `docs/superpowers/plans/2026-07-15-general-task.md`
 - Refresh: `server/.codebase-memory/`
 - Refresh: `web/.codebase-memory/`
@@ -1101,7 +1102,7 @@ git commit -m "test: verify General Task acceptance"
 **Interfaces:**
 - Consumes: verified Tasks 1–13; produces the truthful Slice 09 closeout record.
 
-- [ ] **Step 1: Run the complete server verification**
+- [x] **Step 1: Run the complete server verification**
 
 ```bash
 cd server && npm run build
@@ -1111,7 +1112,7 @@ cd server && npm test -- --run
 Expected: PASS. Record exact files/tests/skips; skipped PostgreSQL tests do not replace
 Task 13 live evidence.
 
-- [ ] **Step 2: Run the PostgreSQL-enabled complete server suite**
+- [x] **Step 2: Run the PostgreSQL-enabled complete server suite**
 
 ```bash
 cd server && TEST_DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run
@@ -1120,7 +1121,7 @@ cd server && TEST_DATABASE_URL="$TEST_DATABASE_URL" npm test -- --run
 Expected: PASS with every PostgreSQL-conditional file enabled. Record database version,
 file count, test count, and zero unexpected skips.
 
-- [ ] **Step 3: Run complete web verification**
+- [x] **Step 3: Run complete web verification**
 
 ```bash
 cd web && npm test -- --run
@@ -1129,7 +1130,7 @@ cd web && npm run build
 
 Expected: PASS. Record exact file/test counts.
 
-- [ ] **Step 4: Run dependency and diff hygiene checks**
+- [x] **Step 4: Run dependency and diff hygiene checks**
 
 ```bash
 cd server && npm audit --omit=dev
@@ -1141,7 +1142,7 @@ git status --short
 Expected: audits report zero production vulnerabilities, diff check passes, and status
 contains only intended closeout files before commit.
 
-- [ ] **Step 5: Update SSOT and evidence**
+- [x] **Step 5: Update SSOT and evidence**
 
 Document the exact create union, assignment 400/403/404 matrix, submission strategies,
 canonical detail projection, `INVALID_JOB_TYPE`, both-type filters, route/UI behavior,
@@ -1149,25 +1150,46 @@ tests, and browser evidence. Mark Slice 09 implemented/verified only now. Keep S
 open. State explicitly that no migration, generic form builder, JSON details, financial,
 inventory, or report-storage feature was added.
 
-- [ ] **Step 6: Refresh Codebase Memory**
+**Task 14 verification record (2026-07-15):** the server build passed. The ordinary
+server suite passed 48 files and 669 tests, with 5 PostgreSQL-conditional files and 15
+tests skipped. A disposable PostgreSQL 16.13 database migrated through 001–006 passed all
+53 files and all 684 tests with no unexpected skip. The web suite passed 40 files and 315
+tests, and its production build passed. Both production dependency audits reported zero
+vulnerabilities. Task 13 Playwright MCP evidence covers the approved Staff and Manager
+flows, URL history, keyboard/focus/target semantics, mobile and enlarged-text reflow,
+reduced motion, semantic structure, and zero General Task delivery requests.
+
+- [x] **Step 6: Refresh Codebase Memory**
 
 Run Codebase Memory change detection for server and web from the Slice 09 base, then index
 both repositories with persistence enabled. Verify index status and architecture counts;
 store refreshed `.codebase-memory/graph.db.zst` artifacts. Do not invent counts—copy tool
 results exactly.
 
-- [ ] **Step 7: Self-review implementation against the approved design**
+Codebase Memory finished with persisted artifacts and ready status. Server contains 1,374
+nodes and 3,467 edges; web contains 808 nodes and 1,780 edges.
+
+- [x] **Step 7: Self-review implementation against the approved design**
 
 Verify every acceptance criterion in design sections 6–22 has a passing test/evidence;
 search production and docs for unresolved markers; verify no migration or dependency
 change; verify Product Delivery tests and behavior; verify all report type scopes; verify
 General Task network evidence contains no delivery request.
 
-- [ ] **Step 8: Commit closeout**
+Self-review mapped every section 22 acceptance criterion to automated or Task 13 browser
+evidence. Exact parsing, assignment/relation policies, idempotent create, exhaustive
+submission, four delivery guards, canonical detail identities, both-type workspace and
+reports, Product Delivery regressions, accessibility, and documentation are covered. The
+Slice 09 diff contains no migration or dependency file and production/source searches
+found no unresolved marker, generic form builder, JSON details model, financial,
+inventory, or report-storage implementation.
+
+- [x] **Step 8: Commit closeout**
 
 ```bash
 git add SERVORA_MED_API_DRAFT.md SERVORA_MED_ARCHITECTURE_PLAN.md \
   SERVORA_MED_MVP_SLICES.md README.md \
+  docs/superpowers/specs/2026-07-14-general-task-design.md \
   docs/superpowers/plans/2026-07-15-general-task.md \
   server/.codebase-memory web/.codebase-memory
 git commit -m "docs: close Slice 09 general tasks"
@@ -1208,8 +1230,8 @@ do not merge or open a PR unless explicitly requested.
       speculative abstraction is planned.
 - [x] No unresolved marker or deferred implementation instruction remains.
 
-## Execution Stop
+## Execution Closeout
 
-This plan is a documentation-only deliverable awaiting user review. Slice 09 implementation
-has not started. No production or test code may be changed until this plan is explicitly
-approved by the user.
+Slice 09 implementation is verified on `feature/slice-09-general-task`. Tasks 1–13 and
+Task 14 verification, SSOT, self-review, and Codebase Memory steps are complete; the
+closeout commit and remote parity check remain.

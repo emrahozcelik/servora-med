@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
 > Date: 2026-07-10  
-> Status: Living implementation order; verified through Slice 08
+> Status: Living implementation order; verified through Slice 09
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -405,11 +405,26 @@ removed a duplicate unused detail component, and added PostgreSQL-backed GitHub 
 
 ### Acceptance
 
-- [ ] General Task requires title and eligible assignee.
-- [ ] It uses the same plan, start, submit, approve, revision, resume, and cancel commands.
-- [ ] Product delivery fields are neither required nor accepted for General Task.
-- [ ] Approval, activity, idempotency, concurrency, ownership, and immutability tests apply.
-- [ ] Mobile quick create and manager review remain accessible.
+- [x] General Task requires title and eligible assignee.
+- [x] It uses the same plan, start, submit, approve, revision, resume, and cancel commands.
+- [x] Product delivery fields are neither required nor accepted for General Task.
+- [x] Approval, activity, idempotency, concurrency, ownership, and immutability tests apply.
+- [x] Mobile quick create and manager review remain accessible.
+
+Slice 09 was verified with the exact discriminated create parser, shared Staff and
+management assignee policy, optional Customer/Contact relation policy, idempotent create,
+exhaustive submission strategy, all four delivery type guards, canonical related-identity
+detail projection, list/board type filters, `/jobs/new-task`, and the type-aware detail
+shell. General Task contributes to all-type operational counters and approval queues but
+never to delivery quantities.
+
+Disposable PostgreSQL 16.13 acceptance covered the full General Task revision and approval
+paths, activity and note safety, Staff visibility, both type filters, zero delivery rows,
+and Product Delivery-only reports. Browser acceptance covered Staff and Manager flows,
+deep links and browser history, keyboard and focus behavior, 44 CSS px targets, mobile and
+enlarged-text reflow, reduced motion, semantic structure, and zero General Task delivery
+requests. No migration, dependency, generic form builder, JSON details model, financial,
+inventory, or report-storage feature was added.
 
 ## 13. Slice 10: Structured Sales Meeting
 

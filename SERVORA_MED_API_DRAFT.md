@@ -1,7 +1,7 @@
 # Servora-Med API Draft
 
 > Date: 2026-07-10  
-> Status: Living API contract; implemented through Slice 08 Operational Reports and verified closeout
+> Status: Living API contract; implemented and verified through Slice 09 General Task
 > Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT
 
 ## 1. General Contract
@@ -106,6 +106,8 @@ INVALID_CONTACT_STATUS_TRANSITION
 CONTACT_PRIMARY_REQUIRES_ACTIVE
 CONTACT_ALREADY_PRIMARY
 CUSTOMER_ASSIGNEE_NOT_ELIGIBLE
+ASSIGNEE_NOT_FOUND
+INVALID_JOB_TYPE
 ```
 
 Validation details may identify fields but must not expose SQL, stack traces, hashes, tokens, cookies, or internal infrastructure.
@@ -461,6 +463,9 @@ limit
 offset
 ```
 
+`type` accepts exactly `PRODUCT_DELIVERY` or `GENERAL_TASK`. Repeated scalar filters,
+unknown values, and unknown query keys return `400 VALIDATION_ERROR`.
+
 The list response is canonical and paginated. Board cards reuse the same item shape,
 group only `NEW`, `PLANNED`, `IN_PROGRESS`, `WAITING_APPROVAL`, and
 `REVISION_REQUESTED`, and expose `COMPLETED`/`CANCELLED` as counts. Mobile clients use
@@ -468,23 +473,52 @@ the list route and do not request the board projection.
 
 ### POST `/api/job-cards`
 
-Request:
+The request body is one exact discriminated union:
 
-```json
-{
-  "clientActionId": "uuid",
-  "type": "PRODUCT_DELIVERY",
-  "title": "ABC Klinik ürün teslimi",
-  "description": "İmplant seti teslimi",
-  "customerId": "uuid",
-  "contactId": "uuid",
-  "assignedTo": "uuid",
-  "priority": "high",
-  "dueDate": "2026-07-15"
+```ts
+type ProductDeliveryCreateInput = {
+  clientActionId: string
+  type: 'PRODUCT_DELIVERY'
+  title: string
+  description?: string | null
+  customerId: string
+  contactId?: string | null
+  assignedTo: string
+  priority?: 'low' | 'normal' | 'high' | 'urgent'
+  dueDate?: string | null
 }
+
+type GeneralTaskCreateInput = {
+  clientActionId: string
+  type: 'GENERAL_TASK'
+  title: string
+  assignedTo: string
+  description?: string | null
+  customerId?: string | null
+  contactId?: string | null
+  priority?: 'low' | 'normal' | 'high' | 'urgent'
+  dueDate?: string | null
+}
+
+type JobCardCreateInput = ProductDeliveryCreateInput | GeneralTaskCreateInput
 ```
 
-Delivery items are not accepted in this request. Staff can assign only themselves; manager and admin can assign an eligible user in the same organization.
+Unknown fields and delivery-item fields are rejected. Product Delivery still requires a
+Customer; General Task permits nullable Customer and Contact context. A non-null Contact
+requires an active same-organization Customer and must belong to it.
+
+Exact assignee behavior is shared by both variants:
+
+| Input and actor | Response |
+| --- | --- |
+| malformed `assignedTo` | `400 VALIDATION_ERROR` before lookup |
+| Staff sends an ID other than their own | `403 FORBIDDEN` before lookup |
+| missing or cross-organization assignee | `404 ASSIGNEE_NOT_FOUND` |
+| inactive or non-Staff assignee | `403 FORBIDDEN` |
+| inactive same-organization assignee at submit | submission rejected by the same eligibility policy |
+
+The Staff web form sends the authenticated Staff ID and renders no assignee selector.
+Manager and Admin select an active same-organization Staff user.
 
 Response creates `JOB_CREATED` with the initial assignee in event metadata. Initial assignment does not create a second activity row.
 
@@ -607,6 +641,10 @@ For `GENERAL_TASK`:
 - non-empty title
 - eligible assignee
 
+An exhaustive backend policy keyed by the canonical JobCard type selects these readiness
+requirements. The lifecycle transaction, state transition, timestamps, versioning,
+idempotency, and activity append remain shared.
+
 Submit records staff completion identity/time, changes status, increments version, and appends `JOB_SUBMITTED_FOR_APPROVAL` in one transaction.
 
 ### Approval and revision review lock
@@ -722,8 +760,17 @@ type JobCardDto = {
   cancelReason: string | null
   createdAt: string
   updatedAt: string
+  assignee: { id: string; name: string }
+  customer: { id: string; name: string } | null
+  contact: { id: string; name: string } | null
 }
 ```
+
+The organization-scoped JobCard repository produces these related identities in the same
+canonical detail projection. Product Delivery continues to load its delivery-items
+subresource. General Task never requests or renders that subresource; list, add, patch,
+and remove attempts all return `409 INVALID_JOB_TYPE` after parent visibility checks and
+before item, Product, or version work.
 
 Conceptual delivery-item response:
 
