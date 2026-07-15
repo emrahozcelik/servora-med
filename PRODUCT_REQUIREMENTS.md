@@ -63,6 +63,21 @@ Staff or manager creates a GENERAL_TASK
 Manager approves or requests revision
 ```
 
+### Structured sales meeting
+
+```text
+Staff or manager plans a SALES_MEETING for an organization-local dueDate
+  -> assignee records the actual meetingAt, canonical outcome, and summary afterward
+  -> optional nextFollowUpAt may be added when a date is known
+  -> assignee submits the structured result for approval
+Manager approves or requests revision
+```
+
+The four outcomes are `POSITIVE`, `FOLLOW_UP_REQUIRED`, `NO_DECISION`, and
+`NOT_INTERESTED`. `FOLLOW_UP_REQUIRED` strongly recommends a follow-up date in the UI but
+does not require one. Approved Staff reporting groups completed meetings by these values
+and actual `meetingAt`; free-text notes do not replace the structured result.
+
 ### Revision
 
 When a manager requests revision, the reason is mandatory. The JobCard returns to the assignee, who resumes it, corrects the data, and submits it again. The previous attempt remains visible in the activity history.
@@ -73,10 +88,7 @@ When a manager requests revision, the reason is mandatory. The JobCard returns t
 
 - `PRODUCT_DELIVERY`
 - `GENERAL_TASK`
-
-### Deferred structured type
-
-`SALES_MEETING` is delivered in a later, explicit slice after its structured meeting details are designed. The intended details are meeting time, outcome, follow-up time, and summary. It is not an active pilot-core type.
+- `SALES_MEETING`
 
 ### Lifecycle
 
@@ -213,9 +225,10 @@ Company profile fields may be managed within admin scope. Small user preferences
 - Users and staff profiles
 - Customers and contacts
 - Product catalog without stock quantity
-- `PRODUCT_DELIVERY` and `GENERAL_TASK` JobCards
+- `PRODUCT_DELIVERY`, `GENERAL_TASK`, and structured `SALES_MEETING` JobCards
 - Explicit backend state machine
 - Product delivery purpose, quantity, and delivered time
+- Sales Meeting planned day, actual time, canonical outcome, summary, and optional follow-up
 - Manager approval and revision workflow
 - Notes and append-only activity timeline
 - Mobile staff workflow

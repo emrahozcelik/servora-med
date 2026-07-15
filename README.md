@@ -1,10 +1,10 @@
 # Servora-Med
 
-Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, Product Delivery and General Task workflows, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, and trusted operational reports through Slice 09.
+Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, Product Delivery, General Task, and Structured Sales Meeting workflows, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, and trusted operational reports through Slice 10.
 
 ## Current Scope
 
-Implemented through Slice 09:
+Implemented through Slice 10:
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -55,11 +55,12 @@ Implemented through Slice 09:
 - stable report routes with URL-owned filters, pagination, and role boundaries
 - separate General Task quick create, shared approval lifecycle, type-aware detail, and
   list/board/report integration without delivery-item leakage
+- separate Sales Meeting planning and structured result capture with four canonical
+  outcomes, optional follow-up, manager review, safe activity, and Staff outcome reports
 
 Not implemented yet:
 
 - Staff confidential notes and related follow-up cards
-- structured Sales Meeting flow
 - production deployment hardening and measured realtime
 
 ## Prerequisites
@@ -83,9 +84,10 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable 001–006 files for the ledger, authentication,
+The migration runner applies the immutable 001–007 files for the ledger, authentication,
 Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog,
-and JobCard workspace notes/indexes/lifecycle timestamp constraints.
+JobCard workspace notes/indexes/lifecycle timestamp constraints, and Structured Sales
+Meeting details.
 
 ### First Admin Bootstrap
 
@@ -308,6 +310,36 @@ reflow, 200% text enlargement, reduced motion, semantic structure, and zero Gene
 delivery requests. Slice 09 added no migration, dependency, generic form builder, JSON
 details model, financial behavior, inventory behavior, or report storage.
 
+## Structured Sales Meetings
+
+Slice 10 activates `SALES_MEETING` as the third canonical JobCard type. The separate
+`/jobs/new-meeting` flow records a required organization-local planned day. The assignee
+later records actual meeting time, one of `POSITIVE`, `FOLLOW_UP_REQUIRED`,
+`NO_DECISION`, or `NOT_INTERESTED`, a normalized summary, and an optional later follow-up.
+`FOLLOW_UP_REQUIRED` recommends but does not require the follow-up date. Submission uses
+the shared Customer → assignee → type-readiness validation order and the existing
+revision/manager-approval lifecycle.
+
+Migration `007_sales_meeting.sql` adds the exact third type, fifteenth activity event,
+one-to-one detail table, chronology and content constraints, and partial actual-time
+index. Detail PATCH is target-scoped idempotent, uses the parent JobCard version, and
+publishes only changed-field names in `MEETING_DETAILS_UPDATED`. Staff reports show four
+zero-filled outcome rows using completed meetings, `assigned_to`, and actual
+`meeting_at`; all-type counters include Sales Meeting while delivery quantities remain
+Product Delivery-only.
+
+Verified implementation SHA: `d93441802832f91fe149b603fb55ef2a29b04089`.
+The ordinary server suite passed 51 files with 732 tests and 7 PostgreSQL-conditional
+files with 21 tests skipped. A disposable PostgreSQL database migrated through 001–007
+and passed all 58 files and all 753 tests. The web suite passed all 42 files and all 335
+tests. Both production builds and both production dependency audits passed with zero
+vulnerabilities. Playwright MCP covered Staff planning/result/submission, Manager
+revision/approval, deep links, refresh, Back/Forward, 390×844 mobile, keyboard focus,
+44 CSS px controls, reduced motion, safe timeline and Staff outcome reporting. Both the
+planning and completed-detail views reflowed at 200% and 400% text without horizontal
+overflow. Later documentation-only and Codebase Memory commits did not rerun these full
+suites.
+
 Pull requests and pushes to `main` run these server/web build, test, audit, and
 PostgreSQL-backed checks through `.github/workflows/ci.yml`.
 
@@ -316,10 +348,10 @@ PostgreSQL-backed checks through `.github/workflows/ci.yml`.
 ```bash
 cd server && npm run build
 cd server && npm test -- --run
-cd server && npm audit --audit-level=high
+cd server && npm audit --omit=dev
 cd web && npm test -- --run
 cd web && npm run build
-cd web && npm audit --audit-level=high
+cd web && npm audit --omit=dev
 ```
 
 ## Environment

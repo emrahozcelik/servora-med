@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
 > Date: 2026-07-10  
-> Status: Living implementation order; verified through Slice 09
+> Status: Living implementation order; verified through Slice 10
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -444,11 +444,28 @@ inventory, or report-storage feature was added.
 
 ### Acceptance
 
-- [ ] Meeting type and details ship in the same migration and domain slice.
-- [ ] Submit requires customer, assignee, meeting time, outcome, and summary.
-- [ ] Follow-up time is optional but validated when present.
-- [ ] Meeting lifecycle uses canonical JobCard commands and events.
-- [ ] Unstructured notes do not replace required meeting details.
+- [x] Meeting type and details ship in the same migration and domain slice.
+- [x] Submit requires customer, assignee, meeting time, outcome, and summary.
+- [x] Follow-up time is optional but validated when present.
+- [x] Meeting lifecycle uses canonical JobCard commands and events.
+- [x] Unstructured notes do not replace required meeting details.
+
+Slice 10 was verified with migration 007, the exact third create discriminant, one empty
+detail row per meeting, target-scoped idempotent result PATCH, one parent JobCard version,
+deterministic Customer → assignee → readiness submission validation, safe
+`MEETING_DETAILS_UPDATED`, and the shared revision/approval lifecycle. The separate
+`/jobs/new-meeting` flow plans the local day; the type-aware detail records actual time,
+closed outcome, normalized summary, and optional later follow-up.
+
+All-type workspace, dashboard, approval, and Staff counters include Sales Meeting.
+`meetingsByOutcome` uses only completed meetings, `assigned_to`, actual `meeting_at`, and
+four canonical zero-filled rows; delivery quantities remain Product Delivery-only and
+exact decimal strings. Disposable PostgreSQL passed all 58 server files and 753 tests;
+the ordinary server suite passed 732 tests with 21 PostgreSQL skips. The web suite passed
+42 files and 335 tests. Both builds and production dependency audits passed. Playwright
+covered Staff/Manager plan, result, revision, approval, deep-link/history, mobile,
+keyboard/focus, 44 px controls, reduced motion, optional follow-up guidance, safe
+timeline, outcome reporting, 200% text, and 400% reflow without horizontal overflow.
 
 ## 14. Slice 11: Production Deployment, Backup, and Hardening
 

@@ -144,8 +144,13 @@ the JobCard or delivery facts.
 
 - `PRODUCT_DELIVERY`
 - `GENERAL_TASK`
+- `SALES_MEETING`
 
-`SALES_MEETING` is a later structured slice. Quote follow-up, collection follow-up, warehouse, accounting, and configurable record types are outside MVP.
+Sales Meeting uses the same lifecycle engine, notes, activity, idempotency, visibility,
+and `job_cards.version` concurrency source as the other types. Its result is stored in a
+one-to-one structured detail row; `dueDate` is the planned organization-local day and
+`meetingAt` is the actual instant. Quote follow-up, collection follow-up, warehouse,
+accounting, and configurable record types are outside MVP.
 
 ### 7.2 State machine
 
@@ -192,13 +197,29 @@ The stable quick-create route is `/jobs/new-task`; `/jobs/new-delivery` remains 
 This slice adds no migration, generic form builder, JSON details model, new dependency,
 financial behavior, inventory behavior, or report storage.
 
-### 7.5 Activity timeline
+### 7.5 Structured Sales Meeting
+
+Sales Meeting is the third canonical JobCard type and uses a two-stage planning/result
+flow. Creation atomically writes the JobCard and one empty `job_card_meeting_details`
+row. The exact `/jobs/new-meeting` form owns planning; the type-aware detail shell alone
+loads and patches `/api/job-cards/:id/meeting-details`. Other JobCard types never request
+that subresource.
+
+Meeting result mutation locks the JobCard before its detail row, validates one
+`expectedVersion`, updates the detail, bumps the parent version once, and appends one
+`MEETING_DETAILS_UPDATED` event in the same transaction. Activity carries only changed
+field names. Submit readiness deterministically validates Customer, assignee, then actual
+meeting time/outcome/summary. Approved Staff reporting groups only completed Sales
+Meetings by outcome using actual `meeting_at` and `assigned_to`; delivery reports remain
+Product Delivery-only.
+
+### 7.6 Activity timeline
 
 Critical JobCard commands append a canonical activity event in the same transaction. Lifecycle events carry old and new status, so no second generic status-change event is created.
 
 JobCard activity is scoped to JobCard operations. Organization-level configuration audit requires a separate future design.
 
-### 7.6 Operational reports read model
+### 7.7 Operational reports read model
 
 Reports is a read-only module inside the modular monolith. It derives organization-scoped
 operational summaries from persisted JobCard and delivery data and owns no report table,
@@ -216,7 +237,9 @@ All Staff report attribution uses `job_cards.assigned_to`. Delivery quantities r
 exact decimal strings grouped by persisted nullable unit, and organization-local date
 boundaries are resolved by PostgreSQL. Approval age uses one authoritative request time,
 clamps future submission timestamps to zero, and derives summary totals from the complete
-queue rather than its current page.
+queue rather than its current page. Staff meeting outcomes use completed
+`SALES_MEETING` rows, actual `meeting_at`, the same organization-local range, canonical
+four-row zero-filled ordering, and the same assigned Staff ownership.
 
 ## 8. Authentication and Session Security
 

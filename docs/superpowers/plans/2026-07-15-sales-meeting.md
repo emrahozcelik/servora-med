@@ -1164,7 +1164,7 @@ git commit -m "test: verify sales meeting acceptance"
   updated Codebase Memory artifacts, clean branch, and local/remote parity.
 - Consumes: every previous task and the approved closeout contract.
 
-- [ ] **Step 1: Run the complete server verification gate**
+- [x] **Step 1: Run the complete server verification gate**
 
 ```bash
 cd server && npm run build
@@ -1176,7 +1176,7 @@ cd server && npm audit --omit=dev
 Expected: build PASS; ordinary and PostgreSQL-enabled suites report zero failures;
 production dependency audit reports zero vulnerabilities. Record exact pass/skip counts.
 
-- [ ] **Step 2: Run the complete web verification gate**
+- [x] **Step 2: Run the complete web verification gate**
 
 ```bash
 cd web && npm run build
@@ -1187,7 +1187,7 @@ cd web && npm audit --omit=dev
 Expected: build and all tests PASS; production dependency audit reports zero
 vulnerabilities. Preserve Task 12 Playwright evidence.
 
-- [ ] **Step 3: Capture the verified implementation SHA**
+- [x] **Step 3: Capture the verified implementation SHA**
 
 ```bash
 git diff --check
@@ -1198,7 +1198,7 @@ git rev-parse HEAD
 Expected: no unstaged/uncommitted implementation change before documentation editing.
 Store this exact SHA and all verification totals for closeout docs.
 
-- [ ] **Step 4: Update SSOTs and durable decision**
+- [x] **Step 4: Update SSOTs and durable decision**
 
 Mark Sales Meeting implemented only now. Record in `DECISIONS.md` the two-stage model,
 `dueDate` versus `meetingAt`, closed four-outcome vocabulary, and optional follow-up for
@@ -1207,7 +1207,7 @@ README scope/totals, design status `Implemented and verified`, plan checkboxes, 
 implementation SHA, and the explicit note that full tests were not rerun for a later
 docs-only closeout commit.
 
-- [ ] **Step 5: Verify and commit documentation closeout**
+- [x] **Step 5: Verify and commit documentation closeout**
 
 ```bash
 git diff --check
@@ -1291,8 +1291,11 @@ The plan was checked task-by-task against every section of the approved design.
 - Type and method names are consistent across producer/consumer tasks.
 - No unresolved drafting marker or deferred implementation instruction remains.
 
-## Execution Stop
+## Execution Closeout
 
-This plan is the only new deliverable of the planning turn. Implementation has not
-started. The plan requires separate explicit user approval before any migration, test,
-application code, or Codebase Memory change is made.
+Tasks 1–12 and Task 13 verification/documentation steps were executed. The exact fully
+verified implementation SHA is `d93441802832f91fe149b603fb55ef2a29b04089`: server build,
+732 ordinary tests with 21 PostgreSQL-conditional skips, all 753 tests against disposable
+PostgreSQL, server production audit, web build, all 335 web tests, web production audit,
+and Playwright Staff/Manager acceptance passed. Codebase Memory refresh and remote parity
+remain the final closeout steps; later docs/memory-only commits do not rerun these suites.

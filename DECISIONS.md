@@ -13,6 +13,7 @@ Bu dosya ürün ve mimari için kabul edilmiş, uzun ömürlü kararları kayded
 - Slice 07 JobCard workspace design: `docs/superpowers/specs/2026-07-13-jobcard-workspace-design.md`
 - Slice 08 operational reports design: `docs/superpowers/specs/2026-07-14-operational-reports-design.md`
 - Slice 09 General Task design: `docs/superpowers/specs/2026-07-14-general-task-design.md`
+- Slice 10 Structured Sales Meeting design: `docs/superpowers/specs/2026-07-15-sales-meeting-design.md`
 - Agent discipline: `AGENTS.md`
 - Historical inputs: `docs/archive/inputs/`
 
@@ -139,7 +140,7 @@ MVP does not store unit price, discount, line total, revenue, margin, commission
 ## DOM-002: Structured Sales Meeting deferral
 
 - **Date:** 2026-07-10
-- **Status:** Accepted
+- **Status:** Superseded by DOM-007 after Slice 10 verification
 - **Scope:** Pilot JobCard types
 
 ### Context
@@ -442,3 +443,61 @@ minutes to the first bucket.
 - Slice 08 adds no report table, materialized view, cache, or speculative index migration.
 - Revenue, margin, commission, stock, invoice, payment, and employee-ranking metrics
   remain outside MVP.
+
+## DOM-007: Structured Sales Meeting uses two-stage planning and actual-result reporting
+
+- **Date:** 2026-07-15
+- **Status:** Accepted and verified
+- **Scope:** Slice 10 Structured Sales Meeting
+
+### Context
+
+A Sales Meeting must be schedulable before it occurs, but outcome reporting must use the
+actual event rather than a planned date or free-text note. Requiring the result at create
+time would prevent planning; modeling the meeting as General Task plus notes would make
+outcomes and follow-up intent unreliable.
+
+### Decision
+
+`SALES_MEETING` is the third canonical JobCard type and uses two stages. Create records a
+required `dueDate`, meaning the planned organization-local calendar day, and atomically
+creates one nullable one-to-one detail row. After the meeting, the assignee records
+`meetingAt`, meaning the actual instant, one canonical outcome, and a normalized summary.
+No `scheduledAt` is introduced.
+
+The closed outcome vocabulary and Turkish labels are:
+
+```text
+POSITIVE           -> Olumlu
+FOLLOW_UP_REQUIRED -> Takip gerekli
+NO_DECISION        -> Karar verilmedi
+NOT_INTERESTED     -> İlgilenmiyor
+```
+
+`nextFollowUpAt` is optional for every outcome, including `FOLLOW_UP_REQUIRED`; the UI
+strongly recommends it for that outcome without required semantics. When present it must
+be strictly later than `meetingAt`. Submit checks Customer, assignee, then structured
+readiness and permits actual meeting time up to 15 minutes after authoritative request
+time for clock tolerance.
+
+Meeting result mutation uses the parent JobCard version and appends only changed field
+names in `MEETING_DETAILS_UPDATED`. Staff outcome reporting attributes ownership through
+`job_cards.assigned_to`, includes only manager-approved completed Sales Meetings, and
+filters by actual `meeting_at`. Operational counters include the type; delivery quantity
+reports remain Product Delivery-only.
+
+### Consequences
+
+- Planning and result capture remain separate mobile tasks under one lifecycle.
+- Notes supplement but never replace the structured outcome and summary.
+- Adding an outcome requires an explicit migration and API/UI/report vocabulary change.
+- No automatic follow-up JobCard, notification, scheduler, calendar event, generic JSON
+  details model, report cache/table/view, financial behavior, or inventory behavior is
+  created by this decision.
+
+### Verification
+
+Verified at implementation commit `d93441802832f91fe149b603fb55ef2a29b04089` with
+migration 007 clean/upgrade/rollback/no-reapply coverage, ordinary and PostgreSQL-enabled
+server suites, complete web suite, production builds/audits, and the Staff/Manager
+Playwright acceptance flow.
