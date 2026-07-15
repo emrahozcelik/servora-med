@@ -3,6 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError } from '../../errors/index.js';
 import type { JobCardService } from './service.js';
 import type { JobCardActor } from './types.js';
+import { parseJobCardCreateInput } from './create-input.js';
 import { validation } from './validation.js';
 import { parseJobCardBoardQuery, parseJobCardListQuery } from './workspace-query.js';
 
@@ -42,7 +43,6 @@ function page(raw: unknown, defaultLimit: number) {
   return { limit: integer('limit', defaultLimit, 1, 100), offset: integer('offset', 0, 0) };
 }
 
-const CREATE_FIELDS = ['clientActionId', 'type', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
 const PATCH_FIELDS = ['expectedVersion', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
@@ -51,7 +51,7 @@ const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
 export function createJobCardHandlers(service: JobCardService) {
   return {
     create: async (request: FastifyRequest, reply: FastifyReply) =>
-      reply.code(201).send(await service.create(actor(request), body(request, CREATE_FIELDS) as never)),
+      reply.code(201).send(await service.create(actor(request), parseJobCardCreateInput(request.body) as never)),
     list: async (request: FastifyRequest) =>
       service.list(actor(request), parseJobCardListQuery(request.query)),
     board: async (request: FastifyRequest) =>

@@ -21,6 +21,8 @@ const job = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 7,
   title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: 'ct1',
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
+  assignee: related('s1', 'Ayşe Personel'), customer: related('c1', 'ABC Klinik'),
+  contact: related('ct1', 'Dr. Deniz'),
 };
 const note = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
@@ -44,7 +46,7 @@ describe('JobCard workspace transport', () => {
     );
   });
 
-  it('accepts GENERAL_TASK only in the canonical read-list projection', async () => {
+  it('accepts GENERAL_TASK in canonical list and detail projections', async () => {
     const generalTask = { ...listItem, type: 'GENERAL_TASK', deliveryItemCount: 0 };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
       items: [generalTask], total: 1, limit: 25, offset: 0,
@@ -52,8 +54,12 @@ describe('JobCard workspace transport', () => {
 
     await expect(listJobCards()).resolves.toMatchObject({ items: [generalTask] });
 
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...job, type: 'GENERAL_TASK' })));
-    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    const generalTaskDetail = {
+      ...job, type: 'GENERAL_TASK', customerId: null, contactId: null,
+      customer: null, contact: null,
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(generalTaskDetail)));
+    await expect(getJobCard('job-1')).resolves.toEqual(generalTaskDetail);
   });
 
   it('runtime-validates all board columns and closed counts', async () => {
@@ -154,6 +160,10 @@ describe('JobCard workspace transport', () => {
     ['board count', { columns: { NEW: { items: [], count: -1 } }, closedCounts: { COMPLETED: 0, CANCELLED: 0 } }, () => getJobCardBoard()],
     ['note author', { items: [{ ...note, author: null }], total: 1, limit: 25, offset: 0 }, () => listJobCardNotes('job-1')],
     ['activity details', { items: [{ id: 'a1', jobCardId: 'job-1', eventType: 'JOB_STARTED', actor: null, details: { kind: 'STATUS_TRANSITION', fromStatus: 'BAD', toStatus: 'IN_PROGRESS' }, createdAt: 'x' }], total: 1, limit: 50, offset: 0 }, () => listActivity('job-1')],
+    ['detail assignee', { ...job, assignee: null }, () => getJobCard('job-1')],
+    ['detail customer', { ...job, customer: { id: 'c1' } }, () => getJobCard('job-1')],
+    ['detail contact', { ...job, contact: { name: 'Dr. Deniz' } }, () => getJobCard('job-1')],
+    ['detail type', { ...job, type: 'SALES_MEETING' }, () => getJobCard('job-1')],
   ])('rejects malformed successful %s responses', async (_name, body, call) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(body)));
     await expect(call()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });

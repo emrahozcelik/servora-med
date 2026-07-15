@@ -153,6 +153,8 @@ Vitest, Playwright MCP.
 - Test: `server/tests/job-card-create-input.test.ts`
 - Modify: `web/src/jobs/jobs-api.ts`
 - Test: `web/tests/jobs-api.test.ts`
+- Modify: `web/tests/manager-review.test.tsx` — canonical detail fixture identities.
+- Modify: `web/tests/tracer-client.test.ts` — canonical detail fixture identities.
 
 **Interfaces:**
 - Produces: `JOB_CARD_TYPES`, `JobCardType`, public `JobCardCreateInput`, internal
@@ -161,7 +163,7 @@ Vitest, Playwright MCP.
 - Consumes: current `validation`, `boundedTrimmedString`, `isoDate`, priorities, and web
   response primitives.
 
-- [ ] **Step 1: Write failing exact-contract tests**
+- [x] **Step 1: Write failing exact-contract tests**
 
 Add table-driven server cases that accept the two approved bodies and reject absent or
 unknown `type`, arrays, unknown/delivery fields, malformed UUIDs, whitespace-only/256-code-
@@ -185,7 +187,7 @@ expect(() => parseJobCardCreateInput({
 })).toThrowError(expect.objectContaining({ code: 'VALIDATION_ERROR' }))
 ```
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 Run:
 
@@ -196,7 +198,7 @@ cd web && npm test -- --run tests/jobs-api.test.ts
 
 Expected: FAIL because the parser/types and General Task web discriminant do not exist.
 
-- [ ] **Step 3: Implement the minimum exact contracts**
+- [x] **Step 3: Implement the minimum exact contracts**
 
 Use the approved union, not a partially optional common object:
 
@@ -251,7 +253,7 @@ create: async (request, reply) => reply.code(201).send(
 On web, change `JobCard.type` to both values, require the three relation projections, and
 export the same create union. Do not alter Product Delivery fields.
 
-- [ ] **Step 4: Verify GREEN and Product Delivery parser regression**
+- [x] **Step 4: Verify GREEN and Product Delivery parser regression**
 
 Run the two targeted commands from Step 2, then:
 
@@ -262,12 +264,14 @@ cd web && npm test -- --run tests/delivery-create.test.tsx tests/delivery-create
 
 Expected: PASS; Product Delivery create/parser fixtures remain valid.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/job-cards/create-input.ts server/src/modules/job-cards/types.ts \
   server/src/modules/job-cards/validation.ts server/src/modules/job-cards/handlers.ts \
   server/tests/job-card-create-input.test.ts web/src/jobs/jobs-api.ts web/tests/jobs-api.test.ts
+git add web/tests/manager-review.test.tsx web/tests/tracer-client.test.ts \
+  docs/superpowers/plans/2026-07-15-general-task.md
 git commit -m "feat: define General Task contracts"
 ```
 

@@ -8,6 +8,7 @@ export function validation(field: string) {
 }
 
 export const codePointLength = (value: string) => Array.from(value).length;
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function boundedTrimmedString(
   value: unknown,
@@ -30,6 +31,11 @@ export function isoDate(value: unknown, field: string) {
   if (Number.isNaN(parsed.valueOf()) || parsed.toISOString().slice(0, 10) !== value) {
     throw validation(field);
   }
+  return value;
+}
+
+export function uuidString(value: unknown, field: string) {
+  if (typeof value !== 'string' || !UUID_PATTERN.test(value)) throw validation(field);
   return value;
 }
 
