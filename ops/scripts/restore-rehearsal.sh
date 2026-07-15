@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 # Restore a Servora-Med backup into a disposable database only.
+#
+# SC2317/SC2329: on_error/cleanup_target are trap/fail_exit helpers;
+# ShellCheck cannot see trap dispatch and reports false-positive unreachable code.
+# shellcheck disable=SC2317,SC2329
 set -Eeuo pipefail
 umask 077
 
@@ -63,7 +67,8 @@ validate_ident() {
   fi
 }
 
-# shellcheck disable=SC2329
+# Trap / fail_exit helpers. ShellCheck cannot see trap dispatch (SC2317/SC2329).
+# shellcheck disable=SC2317,SC2329
 cleanup_target() {
   if [[ "$target_created" == true && "$KEEP" != true ]]; then
     PGHOST="$TARGET_PGHOST" PGPORT="$TARGET_PGPORT" PGUSER="$TARGET_PGUSER" \
@@ -83,8 +88,7 @@ fail_exit() {
   exit "$code"
 }
 
-# Invoked via trap ERR — ShellCheck SC2329.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 on_error() {
   local code=$?
   log_ops "failure" "err_trap_exit_${code}"

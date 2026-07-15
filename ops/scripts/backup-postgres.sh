@@ -1,6 +1,10 @@
 #!/usr/bin/env bash
 # Servora-Med PostgreSQL backup — atomic dump with portable checksum and ops log.
 # Secrets: use PGPASSFILE or peer auth. Never put passwords on argv.
+#
+# SC2317/SC2329: on_error/on_exit/cleanup/release_lock are invoked via trap only;
+# ShellCheck cannot see trap dispatch and reports false-positive unreachable code.
+# shellcheck disable=SC2317,SC2329
 set -Eeuo pipefail
 umask 077
 
@@ -40,13 +44,13 @@ log_ops() {
   fi
 }
 
-# Called from trap handlers (on_error / on_exit) — ShellCheck SC2329.
-# shellcheck disable=SC2329
+# Trap-invoked helpers (ERR/EXIT). ShellCheck cannot see trap dispatch.
+# shellcheck disable=SC2317,SC2329
 cleanup_partials() {
   rm -f "$partial_path" "$checksum_partial"
 }
 
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 release_lock() {
   if [[ "$LOCK_MODE" == "flock" ]]; then
     # Kernel drops flock when FD 9 closes; nothing else required.
@@ -56,8 +60,7 @@ release_lock() {
   fi
 }
 
-# Invoked via trap ERR / EXIT — ShellCheck SC2329.
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 on_error() {
   cleanup_partials
   if [[ ! -f "$checksum_path" ]]; then
@@ -68,7 +71,7 @@ on_error() {
   exit 1
 }
 
-# shellcheck disable=SC2329
+# shellcheck disable=SC2317,SC2329
 on_exit() {
   release_lock
 }
