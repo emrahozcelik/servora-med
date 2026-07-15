@@ -45,17 +45,16 @@ try {
 
   const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
   if (exists.rowCount === 0) {
-    // Identifier validated above; password only as bind parameter.
+    // Identifier validated above. Create without password, then set password via bind
+    // parameter so the secret is never interpolated into SQL text or process argv.
     await client.query(
-      `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD $1`,
-      [password],
-    );
-  } else {
-    await client.query(
-      `ALTER ROLE ${role} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD $1`,
-      [password],
+      `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE`,
     );
   }
+  await client.query(
+    `ALTER ROLE ${role} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD $1`,
+    [password],
+  );
 
   const flags = await client.query(
     `SELECT rolsuper, rolcreatedb, rolcreaterole
