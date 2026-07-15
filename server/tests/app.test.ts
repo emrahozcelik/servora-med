@@ -14,6 +14,8 @@ const testConfig = {
   sessionTtlSeconds: 28_800,
   loginRateLimitMax: 5,
   rateLimitWindowMs: 60_000,
+  trustedProxy: 'loopback' as const,
+  healthSchemaVersion: null,
 };
 
 afterEach(async () => {
@@ -21,7 +23,7 @@ afterEach(async () => {
 });
 
 describe('GET /api/health', () => {
-  it('returns only the generic public health status', async () => {
+  it('returns only the generic public health status when readiness is ok', async () => {
     const app = await buildApp(testConfig);
     apps.push(app);
 

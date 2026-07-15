@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
 > Date: 2026-07-10  
-> Status: Living implementation order; verified through Slice 10
+> Status: Living implementation order; verified through Slice 11
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -488,13 +488,24 @@ timeline, outcome reporting, 200% text, and 400% reflow without horizontal overf
 
 ### Acceptance
 
-- [ ] Production refuses unsafe CORS and cookie settings.
-- [ ] Auth secrets and sensitive payloads do not appear in logs.
-- [ ] Public health reveals no infrastructure detail.
-- [ ] Backup exits clearly on failure and records timestamp and destination externally.
-- [ ] Restore is performed against a safe test target and documented.
-- [ ] No product-domain backup status table is required.
-- [ ] Full server tests and both builds pass.
+- [x] Production refuses unsafe CORS and cookie settings.
+- [x] Auth secrets and sensitive payloads do not appear in logs.
+- [x] Public health reveals no infrastructure detail.
+- [x] Backup exits clearly on failure and records timestamp and destination externally.
+- [ ] Restore is performed against a safe test target and documented. *(disposable CI/local PG acceptance automated; live host rehearsal record pending)*
+- [x] No product-domain backup status table is required.
+- [x] Full server tests and both builds pass.
+
+Slice 11 implementation verification is complete: production config rejection,
+required `HEALTH_SCHEMA_VERSION`, loopback trusted-proxy rate-limit identity,
+generic readiness health (`200`/`503` with exact migration pin in production),
+migrate-not-on-start, graceful shutdown, real `buildApp` log redaction,
+fail-closed backup/restore scripts, systemd/Caddy templates, and runbooks that
+migrate from `NEW_RELEASE` before switching `current`. Disposable PostgreSQL
+backup→restore acceptance is automated under `TEST_DATABASE_URL`.
+
+Operator-only remaining steps: live VPS/TLS cutover, host-recorded restore
+rehearsal under `docs/operations/restore-rehearsals/`, and real offsite copy.
 
 ## 15. Slice 12: WebSocket Only if Polling Is Insufficient
 

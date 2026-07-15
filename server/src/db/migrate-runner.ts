@@ -5,6 +5,7 @@ export interface MigrationStore {
   initialize(): Promise<void>;
   getAppliedVersions(): Promise<string[]>;
   applyMigration(version: string, sql: string): Promise<void>;
+  withMigrationLock?<T>(fn: () => Promise<T>): Promise<T>;
 }
 
 export type MigrationLogger = {
@@ -18,11 +19,11 @@ type RunMigrationsOptions = {
   logger?: MigrationLogger;
 };
 
-export async function runMigrations({
-  migrationsDirectory,
-  store,
-  logger = console,
-}: RunMigrationsOptions): Promise<{ appliedVersions: string[] }> {
+async function applyPending(
+  migrationsDirectory: string,
+  store: MigrationStore,
+  logger: MigrationLogger,
+): Promise<{ appliedVersions: string[] }> {
   await store.initialize();
 
   const appliedVersions = new Set(await store.getAppliedVersions());
@@ -49,4 +50,15 @@ export async function runMigrations({
   }
 
   return { appliedVersions: newlyApplied };
+}
+
+export async function runMigrations({
+  migrationsDirectory,
+  store,
+  logger = console,
+}: RunMigrationsOptions): Promise<{ appliedVersions: string[] }> {
+  if (store.withMigrationLock) {
+    return store.withMigrationLock(() => applyPending(migrationsDirectory, store, logger));
+  }
+  return applyPending(migrationsDirectory, store, logger);
 }

@@ -4,8 +4,13 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 
 import type { AppConfig } from './config.js';
+import { resolveTrustProxyOption } from './config.js';
 import { toErrorResponse } from './errors/index.js';
 import { healthRoutes } from './modules/health/routes.js';
+import {
+  alwaysOkReadiness,
+  type HealthReadinessPort,
+} from './modules/health/service.js';
 import { AuthService } from './modules/auth/service.js';
 import type { AuthRepository } from './modules/auth/repository.js';
 import { authRoutes } from './modules/auth/routes.js';
@@ -49,14 +54,26 @@ export type AppDependencies = {
   productRepository?: ProductRepository;
   approvalQueueItemPort?: ApprovalQueueItemPort;
   reportsRepository?: ReportsReadModel;
+  healthReadiness?: HealthReadinessPort;
+  /** Optional Pino destination for tests that capture serialized log lines. */
+  loggerDestination?: NodeJS.WritableStream;
 };
+
+export function buildLoggerOptions(
+  config: AppConfig,
+  destination?: NodeJS.WritableStream,
+) {
+  return {
+    level: config.logLevel,
+    redact: LOGGER_REDACT_PATHS,
+    ...(destination ? { stream: destination } : {}),
+  };
+}
 
 export async function buildApp(config: AppConfig, dependencies: AppDependencies = {}) {
   const app = Fastify({
-    logger: {
-      level: config.logLevel,
-      redact: LOGGER_REDACT_PATHS,
-    },
+    trustProxy: resolveTrustProxyOption(config.trustedProxy),
+    logger: buildLoggerOptions(config, dependencies.loggerDestination),
   });
 
   await app.register(cookie);
@@ -81,7 +98,10 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
     return reply.code(response.statusCode).send(response.body);
   });
 
-  await app.register(healthRoutes, { prefix: '/api/health' });
+  await app.register(healthRoutes, {
+    prefix: '/api/health',
+    readiness: dependencies.healthReadiness ?? alwaysOkReadiness,
+  });
   if (dependencies.authRepository) {
     const authService = new AuthService(dependencies.authRepository, config.sessionTtlSeconds);
     await app.register(authRoutes, {

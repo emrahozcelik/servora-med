@@ -1,0 +1,46 @@
+# Replace {$SERVORA_FQDN} or set the env when running Caddy.
+# Secrets do not belong in this file.
+
+{$SERVORA_FQDN:app.example.com} {
+	encode gzip
+
+	header {
+		Strict-Transport-Security "max-age=31536000; includeSubDomains"
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+	}
+
+	# API — no store/cache; reverse proxy to loopback Fastify only.
+	handle /api/* {
+		header Cache-Control "no-store"
+		reverse_proxy 127.0.0.1:3000
+	}
+
+	# Vite hashed assets only (versioned filenames under /assets/).
+	handle /assets/* {
+		root * /opt/servora-med/current/web/dist
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# SPA app shell + client routes: always revalidate (no long-lived cache).
+	handle {
+		root * /opt/servora-med/current/web/dist
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /var/log/caddy/servora-med-access.log
+		format filter {
+			wrap json
+			fields {
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+			}
+		}
+	}
+}
