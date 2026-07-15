@@ -1,5 +1,5 @@
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, mkdirSync, writeFileSync, chmodSync } from 'node:fs';
+import { existsSync, mkdtempSync, mkdirSync, writeFileSync, chmodSync, readdirSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -65,7 +65,6 @@ describe('ensure-macos-service-identity', () => {
     mkdirSync(path.join(store, 'groups'), { recursive: true });
     mkdirSync(path.join(store, 'uids'), { recursive: true });
     mkdirSync(path.join(store, 'gids'), { recursive: true });
-    // Occupy every id in the tiny test range under a foreign name.
     for (const id of ['420', '421', '422', '423', '424', '425']) {
       writeFileSync(path.join(store, 'uids', id), 'foreign\n');
       writeFileSync(path.join(store, 'gids', id), 'foreign\n');
@@ -106,5 +105,53 @@ describe('ensure-macos-service-identity', () => {
     const result = run(store, ['servora-med']);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toMatch(/admin/i);
+  });
+
+  it('rolls back group when user creation fails after group (after_group is before user)', () => {
+    const store = mkdtempSync(path.join(tmpdir(), 'servora-id-'));
+    // Seed a foreign identity that must never be deleted.
+    mkdirSync(path.join(store, 'users'), { recursive: true });
+    mkdirSync(path.join(store, 'groups'), { recursive: true });
+    mkdirSync(path.join(store, 'uids'), { recursive: true });
+    mkdirSync(path.join(store, 'gids'), { recursive: true });
+    writeFileSync(path.join(store, 'users', 'foreign'), '419\n');
+    writeFileSync(path.join(store, 'groups', 'foreign'), '419\n');
+    writeFileSync(path.join(store, 'uids', '419'), 'foreign\n');
+    writeFileSync(path.join(store, 'gids', '419'), 'foreign\n');
+
+    const result = run(store, ['servora-med'], { SERVORA_IDENTITY_FAIL_AT: 'after_group' });
+    expect(result.status).not.toBe(0);
+    expect(existsSync(path.join(store, 'groups', 'servora-med'))).toBe(false);
+    expect(existsSync(path.join(store, 'users', 'servora-med'))).toBe(false);
+    expect(existsSync(path.join(store, 'users', 'foreign'))).toBe(true);
+    expect(existsSync(path.join(store, 'groups', 'foreign'))).toBe(true);
+  });
+
+  it('rolls back user+group when failure injects after_user_create', () => {
+    const store = mkdtempSync(path.join(tmpdir(), 'servora-id-'));
+    mkdirSync(path.join(store, 'users'), { recursive: true });
+    mkdirSync(path.join(store, 'groups'), { recursive: true });
+    mkdirSync(path.join(store, 'uids'), { recursive: true });
+    mkdirSync(path.join(store, 'gids'), { recursive: true });
+    writeFileSync(path.join(store, 'users', 'foreign'), '419\n');
+    writeFileSync(path.join(store, 'groups', 'foreign'), '419\n');
+    writeFileSync(path.join(store, 'uids', '419'), 'foreign\n');
+    writeFileSync(path.join(store, 'gids', '419'), 'foreign\n');
+
+    const result = run(store, ['servora-med'], { SERVORA_IDENTITY_FAIL_AT: 'after_user_create' });
+    expect(result.status).not.toBe(0);
+    expect(existsSync(path.join(store, 'users', 'servora-med'))).toBe(false);
+    expect(existsSync(path.join(store, 'groups', 'servora-med'))).toBe(false);
+    expect(readdirSync(path.join(store, 'uids'))).toEqual(['419']);
+    expect(readdirSync(path.join(store, 'gids'))).toEqual(['419']);
+    expect(existsSync(path.join(store, 'users', 'foreign'))).toBe(true);
+  });
+
+  it('rolls back user+group when property set fails after_user_uid', () => {
+    const store = mkdtempSync(path.join(tmpdir(), 'servora-id-'));
+    const result = run(store, ['servora-postgres'], { SERVORA_IDENTITY_FAIL_AT: 'after_user_uid' });
+    expect(result.status).not.toBe(0);
+    expect(existsSync(path.join(store, 'users', 'servora-postgres'))).toBe(false);
+    expect(existsSync(path.join(store, 'groups', 'servora-postgres'))).toBe(false);
   });
 });

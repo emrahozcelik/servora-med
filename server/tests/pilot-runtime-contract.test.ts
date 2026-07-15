@@ -41,8 +41,15 @@ describe('macOS pilot runtime contracts', () => {
     expect(envExample).not.toMatch(
       /^DATABASE_URL=postgresql:\/\/servora@127\.0\.0\.1:5432\/servora_med\s*$/m,
     );
+    expect(envExample).toMatch(/URL-safe|percent-encoded/i);
     expect(runbook).toMatch(/password-bearing DATABASE_URL/);
     expect(runbook).toMatch(/root:servora-med.*0640|mode 0640/);
+    expect(runbook).toMatch(/openssl rand -hex 32/);
+    expect(runbook).toMatch(/scram-sha-256/);
+    expect(runbook).toMatch(/verify-db-auth\.mjs/);
+    expect(runbook).toMatch(/bootstrap-app-role\.mjs/);
+    expect(runbook).toMatch(/Never use:/);
+    expect(runbook).not.toMatch(/openssl rand -base64/);
   });
 
   it('backup env documents matching password material without committing secrets', () => {

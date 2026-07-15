@@ -30,7 +30,7 @@ session cookie remains host-only
 Cloudflare Tunnel ≠ Servora-Med authentication
 Cloudflare Tunnel ≠ offsite backup
 never commit cert.pem, token, or tunnel credential JSON
-canonical DB auth: password-bearing DATABASE_URL in private env (not peer trust)
+canonical DB auth: password-bearing DATABASE_URL (URL-safe hex; no secret on argv; SCRAM host)
 ```
 
 ### Threat boundary (client IP)
@@ -174,6 +174,7 @@ SHA="$(git rev-parse HEAD)"
 ROOT="/opt/servora-med"
 sudo mkdir -p "$ROOT/releases/$SHA"
 sudo rsync -a server/dist server/package.json server/package-lock.json server/node_modules \
+  server/scripts \
   "$ROOT/releases/$SHA/server/"
 sudo rsync -a web/dist "$ROOT/releases/$SHA/web/"
 sudo rsync -a ops "$ROOT/releases/$SHA/"
@@ -214,7 +215,7 @@ LOG_LEVEL=info
 
 `CORS_ORIGIN` must be the **public https** origin users type in the browser.
 
-Do **not** rely on Homebrew default peer/trust authentication for the app role. The API must connect with the password embedded in `DATABASE_URL` under a private env file (`root:servora-med`, mode **0640**). The password must not be committed, must not appear on process argv of long-lived helpers, and must not be printed to logs.
+Do **not** rely on Homebrew default peer/trust authentication for the app role. The API must connect with the password embedded in `DATABASE_URL` under a private env file (`root:servora-med`, mode **0640**). The password must be **URL-safe** (canonical: `openssl rand -hex 32`) or **percent-encoded** in the URL. Never put the password or full `DATABASE_URL` on process **argv** (no `psql "$DATABASE_URL"`). Verify with Node/`pg` and environment only (`server/scripts/verify-db-auth.mjs`). Never print secrets to logs.
 
 ### Backup binary paths (absolute)
 
@@ -253,14 +254,31 @@ sudo ./ops/scripts/ensure-macos-service-identity.sh servora-postgres "Servora Po
 
 # Homebrew data directory (Apple Silicon example; Intel uses /usr/local/...):
 PG_DATA="$(/opt/homebrew/bin/brew --prefix postgresql@16)/var/postgresql@16"
-# First-time init if empty:
+# First-time init if empty — SCRAM for host TCP, peer for local sockets:
 if [[ ! -d "$PG_DATA/base" ]]; then
   sudo mkdir -p "$PG_DATA"
   sudo chown servora-postgres:servora-postgres "$PG_DATA"
-  sudo -u servora-postgres /opt/homebrew/opt/postgresql@16/bin/initdb -D "$PG_DATA"
+  sudo -u servora-postgres /opt/homebrew/opt/postgresql@16/bin/initdb \
+    --auth-local=peer \
+    --auth-host=scram-sha-256 \
+    -D "$PG_DATA"
 fi
 sudo chown -R servora-postgres:servora-postgres "$PG_DATA"
 sudo chmod 0700 "$PG_DATA"
+```
+
+**Existing cluster (do not re-run `initdb`):** fail-closed host auth upgrade:
+
+```bash
+PG_HBA="$PG_DATA/pg_hba.conf"
+# Inspect host rules — refuse silent re-init of data.
+grep -E '^(local|host)' "$PG_HBA"
+# Replace any host "trust" / "password" (md5-only) rules for app access with scram-sha-256, e.g.:
+#   host  all  all  127.0.0.1/32  scram-sha-256
+#   host  all  all  ::1/128       scram-sha-256
+# Keep local peer for OS bootstrap as servora-postgres if desired.
+sudo -u servora-postgres /opt/homebrew/opt/postgresql@16/bin/pg_ctl -D "$PG_DATA" reload
+# Then run correct + incorrect password tests (section 4.3 / 4.5).
 ```
 
 ### 4.2 Boot-time PostgreSQL (non-root service user)
@@ -286,58 +304,64 @@ ps -o user=,pid=,command= -c postgres 2>/dev/null || ps aux | grep '[p]ostgres'
 # Intel: /usr/local/opt/postgresql@16/bin/pg_isready -h 127.0.0.1
 ```
 
-### 4.3 Fail-closed app role + password-bearing DATABASE_URL
+### 4.3 Fail-closed app role + password-bearing DATABASE_URL (no argv secrets)
 
 Do **not** use `createuser -s` (superuser). Application role is **`servora`**.
-Canonical auth for the API: **password-bearing `DATABASE_URL`** in `/etc/servora-med/servora-med.env`.
+Canonical auth: **password-bearing `DATABASE_URL`** in `/etc/servora-med/servora-med.env`.
+Host TCP auth: **SCRAM-SHA-256**. Bootstrap as OS user **`servora-postgres`** over **local peer** (socket). Never put passwords or DATABASE_URL on process argv.
 
 ```bash
-# Use absolute tools for your arch (Intel: /usr/local instead of /opt/homebrew).
-PSQL_BIN="/opt/homebrew/opt/postgresql@16/bin/psql"
-CREATEDB_BIN="/opt/homebrew/opt/postgresql@16/bin/createdb"
+# URL-safe password (hex only — safe in URI userinfo without encoding).
+APP_DB_PASSWORD="$(openssl rand -hex 32)"
 
-# Generate app password once; write only into private env files (not shell history if possible).
-APP_DB_PASSWORD="$(openssl rand -base64 32 | tr -d '\n')"
-
-# Create/update private env with password-bearing URL (mode 0640, root:servora-med).
-# Edit /etc/servora-med/servora-med.env:
-#   DATABASE_URL=postgresql://servora:${APP_DB_PASSWORD}@127.0.0.1:5432/servora_med
-# Edit /etc/servora-med/servora-med-backup.env:
-#   PGPASSWORD=${APP_DB_PASSWORD}
+# Write private env files (mode 0640, root:servora-med). Never commit.
+# DATABASE_URL=postgresql://servora:${APP_DB_PASSWORD}@127.0.0.1:5432/servora_med
+# PGPASSWORD=${APP_DB_PASSWORD}   # backup env only, same secret
 sudo chown root:servora-med /etc/servora-med/servora-med.env /etc/servora-med/servora-med-backup.env
 sudo chmod 0640 /etc/servora-med/servora-med.env /etc/servora-med/servora-med-backup.env
 
-# Apply role via SQL as the DB superuser peer (local admin), password via psql variable (not long-lived argv).
-# Run as the OS user that can peer-auth to the bootstrap superuser (often the installer account once).
-if ! "$PSQL_BIN" -h 127.0.0.1 -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'servora'" | grep -qx 1; then
-  "$PSQL_BIN" -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 \
-    -v pass="${APP_DB_PASSWORD}" <<'SQL'
-CREATE ROLE servora LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'pass';
-SQL
-else
-  "$PSQL_BIN" -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 \
-    -v pass="${APP_DB_PASSWORD}" <<'SQL'
-ALTER ROLE servora WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'pass';
-SQL
-fi
+# Confirm host rules are scram-sha-256 (not trust).
+grep -E '^host' "$PG_DATA/pg_hba.conf"
 
-super="$("$PSQL_BIN" -h 127.0.0.1 -d postgres -tAc "SELECT rolsuper FROM pg_roles WHERE rolname = 'servora'")"
-if [[ "$super" != "f" ]]; then
-  echo "refusing: servora must exist and rolsuper must be false (got: ${super:-missing})" >&2
-  exit 1
-fi
+# Bootstrap role via Node parameterized PASSWORD $1 (secret only in env).
+RELEASE=/opt/servora-med/current
+# Peer/socket admin URL for superuser (no password on argv). Adjust socket dir for your Homebrew install.
+SOCKET_DIR="$(sudo -u servora-postgres /opt/homebrew/opt/postgresql@16/bin/psql -d postgres -Atc 'SHOW unix_socket_directories' | awk '{print $1}')"
+ADMIN_DATABASE_URL="postgresql:///postgres?host=${SOCKET_DIR}"
 
-if ! "$PSQL_BIN" -h 127.0.0.1 -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'servora_med'" | grep -qx 1; then
-  "$CREATEDB_BIN" -h 127.0.0.1 --owner=servora servora_med
-fi
+sudo -u servora-postgres env -i \
+  PATH="/opt/homebrew/bin:/usr/bin:/bin" \
+  HOME=/var/empty \
+  ADMIN_DATABASE_URL="${ADMIN_DATABASE_URL}" \
+  APP_DB_PASSWORD="${APP_DB_PASSWORD}" \
+  APP_DB_ROLE=servora \
+  APP_DB_NAME=servora_med \
+  /opt/homebrew/bin/node "$RELEASE/server/scripts/bootstrap-app-role.mjs"
 
-# Prove password auth works (no peer trust reliance for app role).
+# Correct password succeeds (Node/pg; DATABASE_URL only in environment).
 set -a
 # shellcheck disable=SC1091
 source /etc/servora-med/servora-med.env
 set +a
-"$PSQL_BIN" "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc 'SELECT current_user' | grep -qx servora
+env -i PATH="/opt/homebrew/bin:/usr/bin:/bin" HOME=/var/empty \
+  DATABASE_URL="${DATABASE_URL}" \
+  EXPECT_USER=servora \
+  /opt/homebrew/bin/node "$RELEASE/server/scripts/verify-db-auth.mjs"
+
+# Wrong password must fail (negative test).
+env -i PATH="/opt/homebrew/bin:/usr/bin:/bin" HOME=/var/empty \
+  DATABASE_URL="postgresql://servora:wrong-password@127.0.0.1:5432/servora_med" \
+  EXPECT_FAIL=1 \
+  /opt/homebrew/bin/node "$RELEASE/server/scripts/verify-db-auth.mjs"
+
 unset APP_DB_PASSWORD
+```
+
+Never use:
+
+```bash
+psql "$DATABASE_URL"
+psql -v pass="$APP_DB_PASSWORD"
 ```
 
 If PostgreSQL is unavailable or the operator lacks permission, these commands **exit non-zero**. Do not append `|| true`.
@@ -351,14 +375,22 @@ source /etc/servora-med/servora-med.env
 set +a
 
 cd /opt/servora-med/current/server
-# Prefer the same absolute node path used by the API wrapper.
-/opt/homebrew/bin/node dist/db/migrate.js
+# migrate reads DATABASE_URL from environment only (no URL on argv).
+env -i PATH="/opt/homebrew/bin:/usr/bin:/bin" \
+  DATABASE_URL="${DATABASE_URL}" \
+  /opt/homebrew/bin/node dist/db/migrate.js
 
 export BOOTSTRAP_ORGANIZATION_NAME="…"
 export BOOTSTRAP_ADMIN_NAME="…"
 export BOOTSTRAP_ADMIN_EMAIL="…"
 export BOOTSTRAP_ADMIN_PASSWORD="…"
-/opt/homebrew/bin/node dist/db/bootstrap-admin.js
+env -i PATH="/opt/homebrew/bin:/usr/bin:/bin" \
+  DATABASE_URL="${DATABASE_URL}" \
+  BOOTSTRAP_ORGANIZATION_NAME="${BOOTSTRAP_ORGANIZATION_NAME}" \
+  BOOTSTRAP_ADMIN_NAME="${BOOTSTRAP_ADMIN_NAME}" \
+  BOOTSTRAP_ADMIN_EMAIL="${BOOTSTRAP_ADMIN_EMAIL}" \
+  BOOTSTRAP_ADMIN_PASSWORD="${BOOTSTRAP_ADMIN_PASSWORD}" \
+  /opt/homebrew/bin/node dist/db/bootstrap-admin.js
 unset BOOTSTRAP_ADMIN_PASSWORD
 ```
 
@@ -371,13 +403,14 @@ After launchd API install (section 7):
 pgrep -lf 'dist/index.js' || true
 # Must run as servora-med, not root
 
-# DB connectivity as the service user with only the private env (minimal environment).
+# DB connectivity as the service user — Node/pg, env only (no psql URL argv).
 sudo -u servora-med env -i \
-  PATH=/usr/bin:/bin \
+  PATH="/opt/homebrew/bin:/usr/bin:/bin" \
   HOME=/var/empty \
-  bash -c 'set -a; source /etc/servora-med/servora-med.env; set +a; /opt/homebrew/opt/postgresql@16/bin/psql "$DATABASE_URL" -tAc "SELECT 1"'
+  bash -c 'set -a; source /etc/servora-med/servora-med.env; set +a; \
+    exec /opt/homebrew/bin/node /opt/servora-med/current/server/scripts/verify-db-auth.mjs'
 
-# Application readiness
+# Application readiness (SCRAM path already validated above)
 curl -fsS -H 'Host: app.example.com' http://127.0.0.1:3000/api/health
 # Expect: {"status":"ok"}
 ```

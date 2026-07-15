@@ -8,12 +8,13 @@
 #
 # Behavior:
 #   - Existing matching name → verify non-admin + consistent UID/GID mapping; exit 0
-#   - Name missing → allocate an unused UID/GID in [SERVORA_ID_MIN, SERVORA_ID_MAX]
-#   - UID/GID owned by another principal → abort
-#   - Partial user/group mismatch → abort (no silent repair of foreign ownership)
+#   - Name missing → choose unused UID/GID; create group then user
+#   - On failure of this invocation → rollback only records created here
+#   - Pre-existing/foreign identities are never deleted
 #
-# Test hook (Linux/CI):
-#   SERVORA_IDENTITY_STORE=/tmp/store  uses a flat-file backend instead of dscl.
+# Test hooks:
+#   SERVORA_IDENTITY_STORE=/tmp/store   flat-file backend (Linux CI)
+#   SERVORA_IDENTITY_FAIL_AT=after_group|after_user_create|after_user_uid
 #
 # shellcheck disable=SC2317,SC2329
 set -Eeuo pipefail
@@ -22,6 +23,11 @@ NAME="${1:-}"
 REAL_NAME="${2:-Servora service ${NAME}}"
 ID_MIN="${SERVORA_ID_MIN:-420}"
 ID_MAX="${SERVORA_ID_MAX:-489}"
+FAIL_AT="${SERVORA_IDENTITY_FAIL_AT:-}"
+
+CREATED_GROUP=0
+CREATED_USER=0
+ALLOCATED_ID=""
 
 if [[ -z "${NAME}" ]]; then
   printf 'usage: %s <service-username> ["Real Name"]\n' "$(basename "$0")" >&2
@@ -40,7 +46,20 @@ STORE="${SERVORA_IDENTITY_STORE:-}"
 
 die() {
   printf 'ensure-macos-service-identity: %s\n' "$*" >&2
+  # Explicit exit does not fire ERR traps; roll back on the way out.
+  if [[ "${CREATED_USER}" -eq 1 || "${CREATED_GROUP}" -eq 1 ]]; then
+    if declare -F rollback_created >/dev/null 2>&1; then
+      rollback_created || true
+    fi
+  fi
   exit 1
+}
+
+maybe_fail() {
+  local point="$1"
+  if [[ "${FAIL_AT}" == "${point}" ]]; then
+    die "injected failure at ${point}"
+  fi
 }
 
 # --- backend: flat-file mock (tests) -----------------------------------------
@@ -73,13 +92,42 @@ mock_is_admin() {
   [[ -f "${STORE}/admins/${NAME}" ]]
 }
 
-mock_create() {
-  local uid="$1"
+mock_create_group() {
   local gid="$1"
-  printf '%s\n' "${uid}" >"${STORE}/users/${NAME}"
   printf '%s\n' "${gid}" >"${STORE}/groups/${NAME}"
-  printf '%s\n' "${NAME}" >"${STORE}/uids/${uid}"
   printf '%s\n' "${NAME}" >"${STORE}/gids/${gid}"
+}
+
+mock_create_user() {
+  local uid="$1"
+  printf '%s\n' "${uid}" >"${STORE}/users/${NAME}"
+  printf '%s\n' "${NAME}" >"${STORE}/uids/${uid}"
+}
+
+mock_delete_user() {
+  local uid
+  if [[ -f "${STORE}/users/${NAME}" ]]; then
+    uid="$(cat "${STORE}/users/${NAME}")"
+    rm -f "${STORE}/users/${NAME}"
+    if [[ -n "${uid}" && -f "${STORE}/uids/${uid}" ]]; then
+      if [[ "$(cat "${STORE}/uids/${uid}")" == "${NAME}" ]]; then
+        rm -f "${STORE}/uids/${uid}"
+      fi
+    fi
+  fi
+}
+
+mock_delete_group() {
+  local gid
+  if [[ -f "${STORE}/groups/${NAME}" ]]; then
+    gid="$(cat "${STORE}/groups/${NAME}")"
+    rm -f "${STORE}/groups/${NAME}"
+    if [[ -n "${gid}" && -f "${STORE}/gids/${gid}" ]]; then
+      if [[ "$(cat "${STORE}/gids/${gid}")" == "${NAME}" ]]; then
+        rm -f "${STORE}/gids/${gid}"
+      fi
+    fi
+  fi
 }
 
 # --- backend: macOS dscl -----------------------------------------------------
@@ -115,21 +163,25 @@ dscl_gid_owner() {
 }
 
 dscl_is_admin() {
-  # Member of admin group is not allowed for pilot service identities.
   dseditgroup -o checkmember -m "${NAME}" admin >/dev/null 2>&1
 }
 
-dscl_create() {
-  local id="$1"
-  dscl . -create "/Groups/${NAME}" || die "failed creating group ${NAME}"
-  dscl . -create "/Groups/${NAME}" PrimaryGroupID "${id}" || die "failed setting group id for ${NAME}"
-  dscl . -create "/Users/${NAME}" || die "failed creating user ${NAME}"
-  dscl . -create "/Users/${NAME}" UserShell /usr/bin/false || die "failed setting shell for ${NAME}"
-  dscl . -create "/Users/${NAME}" RealName "${REAL_NAME}" || die "failed setting RealName for ${NAME}"
-  dscl . -create "/Users/${NAME}" UniqueID "${id}" || die "failed setting UniqueID for ${NAME}"
-  dscl . -create "/Users/${NAME}" PrimaryGroupID "${id}" || die "failed setting PrimaryGroupID for ${NAME}"
-  dscl . -create "/Users/${NAME}" NFSHomeDirectory /var/empty || die "failed setting home for ${NAME}"
-  dscl . -create "/Users/${NAME}" IsHidden 1 || true
+dscl_create_group() {
+  local gid="$1"
+  dscl . -create "/Groups/${NAME}" || return 1
+  dscl . -create "/Groups/${NAME}" PrimaryGroupID "${gid}" || return 1
+}
+
+dscl_delete_user() {
+  if dscl . -read "/Users/${NAME}" UniqueID >/dev/null 2>&1; then
+    dscl . -delete "/Users/${NAME}" || return 1
+  fi
+}
+
+dscl_delete_group() {
+  if dscl . -read "/Groups/${NAME}" PrimaryGroupID >/dev/null 2>&1; then
+    dscl . -delete "/Groups/${NAME}" || return 1
+  fi
 }
 
 # --- dispatch ----------------------------------------------------------------
@@ -143,7 +195,19 @@ if [[ -n "${STORE}" ]]; then
   uid_owner() { mock_uid_owner "$1"; }
   gid_owner() { mock_gid_owner "$1"; }
   is_admin() { mock_is_admin; }
-  create_identity() { mock_create "$1"; }
+  create_group() {
+    mock_create_group "$1"
+    CREATED_GROUP=1
+    maybe_fail after_group
+  }
+  create_user() {
+    mock_create_user "$1"
+    CREATED_USER=1
+    maybe_fail after_user_create
+    maybe_fail after_user_uid
+  }
+  delete_user() { mock_delete_user; }
+  delete_group() { mock_delete_group; }
 else
   if ! command -v dscl >/dev/null 2>&1; then
     die "dscl not available; set SERVORA_IDENTITY_STORE for non-macOS tests"
@@ -155,7 +219,26 @@ else
   uid_owner() { dscl_uid_owner "$1"; }
   gid_owner() { dscl_gid_owner "$1"; }
   is_admin() { dscl_is_admin; }
-  create_identity() { dscl_create "$1"; }
+  create_group() {
+    dscl_create_group "$1"
+    CREATED_GROUP=1
+    maybe_fail after_group
+  }
+  create_user() {
+    # Create user shell first so CREATED_USER is set before later property failures.
+    dscl . -create "/Users/${NAME}" || return 1
+    CREATED_USER=1
+    maybe_fail after_user_create
+    dscl . -create "/Users/${NAME}" UserShell /usr/bin/false || return 1
+    dscl . -create "/Users/${NAME}" RealName "${REAL_NAME}" || return 1
+    maybe_fail after_user_uid
+    dscl . -create "/Users/${NAME}" UniqueID "${1}" || return 1
+    dscl . -create "/Users/${NAME}" PrimaryGroupID "${1}" || return 1
+    dscl . -create "/Users/${NAME}" NFSHomeDirectory /var/empty || return 1
+    dscl . -create "/Users/${NAME}" IsHidden 1 || true
+  }
+  delete_user() { dscl_delete_user; }
+  delete_group() { dscl_delete_group; }
 fi
 
 allocate_free_id() {
@@ -170,6 +253,41 @@ allocate_free_id() {
   done
   die "no free UID/GID in range ${ID_MIN}-${ID_MAX}"
 }
+
+rollback_created() {
+  local errors=0
+  if [[ "${CREATED_USER}" -eq 1 ]]; then
+    if ! delete_user; then
+      printf 'ensure-macos-service-identity: rollback failed deleting user %s\n' "${NAME}" >&2
+      printf 'manual recovery: remove user %s only if created by this failed run (id=%s)\n' "${NAME}" "${ALLOCATED_ID}" >&2
+      errors=1
+    else
+      CREATED_USER=0
+    fi
+  fi
+  if [[ "${CREATED_GROUP}" -eq 1 ]]; then
+    if ! delete_group; then
+      printf 'ensure-macos-service-identity: rollback failed deleting group %s\n' "${NAME}" >&2
+      printf 'manual recovery: remove group %s only if created by this failed run (id=%s)\n' "${NAME}" "${ALLOCATED_ID}" >&2
+      errors=1
+    else
+      CREATED_GROUP=0
+    fi
+  fi
+  return "${errors}"
+}
+
+# ERR covers non-die command failures; die() rolls back itself.
+on_error() {
+  local exit_code=$?
+  if [[ "${CREATED_USER}" -eq 1 || "${CREATED_GROUP}" -eq 1 ]]; then
+    if ! rollback_created; then
+      printf 'ensure-macos-service-identity: partial rollback; foreign identities were not modified\n' >&2
+    fi
+  fi
+  exit "${exit_code}"
+}
+trap on_error ERR
 
 # --- main --------------------------------------------------------------------
 
@@ -207,25 +325,27 @@ if [[ "${ue}" -eq 1 && "${ge}" -eq 1 ]]; then
   exit 0
 fi
 
-# Neither user nor group exists — allocate.
-new_id="$(allocate_free_id)"
-# Re-check ownership immediately before create (TOCTOU reduced, still best-effort).
-owner_u="$(uid_owner "${new_id}" || true)"
-owner_g="$(gid_owner "${new_id}" || true)"
+# Neither user nor group exists — allocate and create with rollback on failure.
+ALLOCATED_ID="$(allocate_free_id)"
+owner_u="$(uid_owner "${ALLOCATED_ID}" || true)"
+owner_g="$(gid_owner "${ALLOCATED_ID}" || true)"
 if [[ -n "${owner_u}" || -n "${owner_g}" ]]; then
-  die "UID/GID ${new_id} became owned during allocation (user=${owner_u:-none} group=${owner_g:-none})"
+  die "UID/GID ${ALLOCATED_ID} became owned during allocation (user=${owner_u:-none} group=${owner_g:-none})"
 fi
 
-create_identity "${new_id}"
+create_group "${ALLOCATED_ID}"
+create_user "${ALLOCATED_ID}"
 
 # Post-create verification
 user_exists || die "create reported success but user ${NAME} missing"
 group_exists || die "create reported success but group ${NAME} missing"
 uid="$(user_uid)"
 gid="$(group_gid)"
-[[ "${uid}" == "${new_id}" && "${gid}" == "${new_id}" ]] || die "post-create id mismatch for ${NAME}"
+[[ "${uid}" == "${ALLOCATED_ID}" && "${gid}" == "${ALLOCATED_ID}" ]] || die "post-create id mismatch for ${NAME}"
 if is_admin; then
   die "created ${NAME} but it is admin; aborting"
 fi
 
+# Success — do not roll back on EXIT.
+trap - ERR
 printf 'ok created non-admin identity %s uid/gid=%s\n' "${NAME}" "${uid}"
