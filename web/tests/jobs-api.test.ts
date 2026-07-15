@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   addJobCardNote, approveJobCard, cancelJobCard, createJobCard, getJobCard,
-  getJobCardBoard, listActivity, listDeliveryItems, listJobCardNotes, listJobCards, planJobCard,
+  getJobCardBoard, getMeetingDetails, listActivity, listDeliveryItems, listJobCardNotes,
+  listJobCards, patchMeetingDetails, planJobCard,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
 } from '../src/jobs/jobs-api';
 import { jobActivityLabel } from '../src/jobs/job-labels';
@@ -46,7 +47,7 @@ describe('JobCard workspace transport', () => {
     );
   });
 
-  it('accepts GENERAL_TASK in canonical list and detail projections', async () => {
+  it('accepts GENERAL_TASK and SALES_MEETING in canonical list and detail projections', async () => {
     const generalTask = { ...listItem, type: 'GENERAL_TASK', deliveryItemCount: 0 };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
       items: [generalTask], total: 1, limit: 25, offset: 0,
@@ -60,6 +61,49 @@ describe('JobCard workspace transport', () => {
     };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(generalTaskDetail)));
     await expect(getJobCard('job-1')).resolves.toEqual(generalTaskDetail);
+
+    const meeting = { ...listItem, type: 'SALES_MEETING', deliveryItemCount: 0 };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [meeting], total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listJobCards()).resolves.toMatchObject({ items: [meeting] });
+
+    const meetingDetail = { ...job, type: 'SALES_MEETING', dueDate: '2026-07-20' };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(meetingDetail)));
+    await expect(getJobCard('job-1')).resolves.toEqual(meetingDetail);
+  });
+
+  it('parses exact meeting details and sends an exact patch body', async () => {
+    const details = {
+      jobCardId: 'job-1', meetingAt: '2026-07-20T09:15:00.000Z', outcome: 'POSITIVE',
+      meetingSummary: 'Yeni ürün grubu görüşüldü.', nextFollowUpAt: null,
+      jobCardVersion: 8,
+    };
+    const input = {
+      clientActionId: 'meeting-result-1', expectedVersion: 7,
+      meetingAt: details.meetingAt, outcome: 'POSITIVE' as const,
+      meetingSummary: details.meetingSummary, nextFollowUpAt: null,
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(json(details)).mockResolvedValueOnce(json(details));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(getMeetingDetails('job-1')).resolves.toEqual(details);
+    await expect(patchMeetingDetails('job-1', input)).resolves.toEqual(details);
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/job-cards/job-1/meeting-details',
+      expect.objectContaining({ method: 'PATCH', body: JSON.stringify(input) }));
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...details, unexpected: true })));
+    await expect(getMeetingDetails('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+
+    for (const invalidDetails of [
+      { ...details, meetingAt: '2026-07-20T09:15:00Z' },
+      { ...details, meetingAt: '2026-07-20T12:15:00.000+03:00' },
+      { ...details, outcome: 'FUTURE_OUTCOME' },
+      { ...details, jobCardVersion: 0 },
+    ]) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(invalidDetails)));
+      await expect(getMeetingDetails('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
   });
 
   it('runtime-validates all board columns and closed counts', async () => {
@@ -114,6 +158,33 @@ describe('JobCard workspace transport', () => {
     await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
+  it('parses only canonical ordered meeting changed fields without values', async () => {
+    const activity = (changedFields: unknown) => ({
+      id: 'a1', jobCardId: 'job-1', eventType: 'MEETING_DETAILS_UPDATED', actor: null,
+      details: { kind: 'MEETING_DETAILS', changedFields }, createdAt: '2026-07-20T10:00:00Z',
+    });
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ items: [activity([
+      'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+    ])], total: 1, limit: 50, offset: 0 })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({ items: [{ details: {
+      kind: 'MEETING_DETAILS',
+      changedFields: ['meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt'],
+    } }] });
+
+    for (const fields of [['meetingSummary', 'outcome'], ['outcome', 'outcome'], ['secret']]) {
+      vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+        items: [activity(fields)], total: 1, limit: 50, offset: 0,
+      })));
+      await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+    }
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...activity(['outcome']), details: {
+        kind: 'MEETING_DETAILS', changedFields: ['outcome'], meetingSummary: 'gizli',
+      } }], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it.each([0, -1])('rejects delivery item quantity %s', async (quantity) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ items: [{
       id: 'i1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'p1',
@@ -163,7 +234,7 @@ describe('JobCard workspace transport', () => {
     ['detail assignee', { ...job, assignee: null }, () => getJobCard('job-1')],
     ['detail customer', { ...job, customer: { id: 'c1' } }, () => getJobCard('job-1')],
     ['detail contact', { ...job, contact: { name: 'Dr. Deniz' } }, () => getJobCard('job-1')],
-    ['detail type', { ...job, type: 'SALES_MEETING' }, () => getJobCard('job-1')],
+    ['detail type', { ...job, type: 'UNKNOWN' }, () => getJobCard('job-1')],
   ])('rejects malformed successful %s responses', async (_name, body, call) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(body)));
     await expect(call()).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
@@ -186,10 +257,17 @@ describe('JobCard workspace transport', () => {
       assignedTo: 'staff-1', description: 'Randevu durumunu sor', customerId: null,
       contactId: null, priority: 'normal' as const, dueDate: null,
     }],
+    [{
+      clientActionId: 'meeting-create', type: 'SALES_MEETING' as const,
+      title: 'Yeni ürün görüşmesi', customerId: 'customer-1', assignedTo: 'staff-1',
+      contactId: 'contact-1', priority: 'high' as const, dueDate: '2026-07-20',
+    }],
   ])('sends an exact discriminated create body %#', async (input) => {
     const response = input.type === 'GENERAL_TASK'
       ? { ...job, type: 'GENERAL_TASK', title: input.title, customerId: null, contactId: null }
-      : job;
+      : input.type === 'SALES_MEETING'
+        ? { ...job, type: 'SALES_MEETING', title: input.title, dueDate: input.dueDate }
+        : job;
     const fetch = vi.fn().mockResolvedValue(json(response, 201));
     vi.stubGlobal('fetch', fetch);
 

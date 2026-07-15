@@ -1,6 +1,7 @@
 import type {
   DeliveryPurpose,
   JobCardListItem,
+  MeetingOutcome,
 } from '../jobs/jobs-api';
 
 export type RequestedReportRange = { from: string; to: string } | null;
@@ -74,6 +75,7 @@ export type StaffReportResponse = {
   range: ResolvedReportRange;
   counters: StaffOperationalCounters;
   deliveriesByPurpose: DeliveryPurposeItem[];
+  meetingsByOutcome: Array<{ outcome: MeetingOutcome; count: number }>;
 };
 
 export type ApprovalItem = JobCardListItem & { waitingMinutes: number };

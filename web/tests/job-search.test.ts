@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  enterBoard, forceMobileList, parseJobSearch, selectStatus, updateJobSearch,
+  canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus,
+  updateJobSearch,
 } from '../src/jobs/job-search';
 
 describe('canonical JobCard URL state', () => {
@@ -23,6 +24,22 @@ describe('canonical JobCard URL state', () => {
       type: 'GENERAL_TASK', status: 'NEW', offset: 25,
     });
     expect(updateJobSearch(params, {}).toString()).toBe('status=NEW&type=GENERAL_TASK');
+  });
+
+  it('preserves a Sales Meeting deep link and resets offset when type changes', () => {
+    const params = new URLSearchParams('type=SALES_MEETING&status=NEW&offset=25');
+    expect(parseJobSearch(params)).toMatchObject({
+      type: 'SALES_MEETING', status: 'NEW', offset: 25,
+    });
+    expect(updateJobSearch(new URLSearchParams('type=GENERAL_TASK&offset=50'), {
+      type: 'SALES_MEETING',
+    }).toString()).toBe('type=SALES_MEETING');
+  });
+
+  it('canonicalizes repeated Sales Meeting type parameters by dropping the scalar', () => {
+    const params = new URLSearchParams('type=SALES_MEETING&type=GENERAL_TASK&offset=25');
+    expect(parseJobSearch(params)).toEqual({ status: 'active', view: 'list', offset: 25 });
+    expect(canonicalJobSearchParams(params).toString()).toBe('offset=25');
   });
 
   it('parses the exact supported filters and board omits status', () => {

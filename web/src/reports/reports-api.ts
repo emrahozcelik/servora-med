@@ -9,6 +9,7 @@ import {
 } from '../services/api';
 import {
   DELIVERY_PURPOSES,
+  MEETING_OUTCOMES,
   parseJobCardListItem,
 } from '../jobs/jobs-api';
 import type {
@@ -113,6 +114,17 @@ function parseStaffCounters(value: unknown): StaffOperationalCounters {
   };
 }
 
+function parseMeetingsByOutcome(value: unknown) {
+  const values = array(value, 'meetingsByOutcome');
+  if (values.length !== MEETING_OUTCOMES.length) invalid('meetingsByOutcome');
+  return values.map((value, index) => {
+    const row = exactObject(value, 'meetingOutcomeItem', ['outcome', 'count']);
+    const outcome = oneOf(row.outcome, 'outcome', MEETING_OUTCOMES);
+    if (outcome !== MEETING_OUTCOMES[index]) invalid('meetingsByOutcome');
+    return { outcome, count: nonNegativeInteger(row.count, 'count') };
+  });
+}
+
 function parseDeliveryDayItem(value: unknown): DeliveryDayItem {
   const row = exactObject(value, 'deliveryDayItem', ['date', 'unit', 'quantity']);
   return { date: string(row.date, 'date'), unit: nullableString(row.unit, 'unit'),
@@ -191,12 +203,14 @@ export function parseDashboardReport(value: unknown): DashboardReportResponse {
 
 export function parseStaffReport(value: unknown): StaffReportResponse {
   const row = exactObject(value, 'staffReport', [
-    'staff', 'range', 'counters', 'deliveriesByPurpose',
+    'staff', 'range', 'counters', 'deliveriesByPurpose', 'meetingsByOutcome',
   ]);
   return { staff: parseStaffIdentity(row.staff), range: parseResolvedRange(row.range),
     counters: parseStaffCounters(row.counters), deliveriesByPurpose: array(
       row.deliveriesByPurpose, 'deliveriesByPurpose',
-    ).map(parseDeliveryPurposeItem) };
+    ).map(parseDeliveryPurposeItem), meetingsByOutcome: parseMeetingsByOutcome(
+      row.meetingsByOutcome,
+    ) };
 }
 
 function parseApprovalItem(value: unknown): ApprovalItem {

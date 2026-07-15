@@ -1,19 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
+import { jobTypeLabels } from '../jobs/job-labels';
+
 import { paths } from '../paths';
 import { getApprovalReport } from './reports-api';
 import { approvalSearch, readApprovalSearch } from './report-search';
 import type { ApprovalReportResponse } from './report-types';
 
-const typeLabels = { PRODUCT_DELIVERY: 'Ürün teslimi', GENERAL_TASK: 'Genel görev' } as const;
 const duration = (minutes: number) => minutes < 60 ? `${minutes} dakika` : `${Math.floor(minutes / 60)} saat`;
 
 export function ApprovalReportView({ report }: { report: ApprovalReportResponse }) {
   const values = [['Toplam bekleyen', report.summary.pendingCount], ['En uzun bekleme', report.summary.oldestWaitingMinutes === null ? 'Yok' : duration(report.summary.oldestWaitingMinutes)], ['Ortalama bekleme', report.summary.averageWaitingMinutes === null ? 'Yok' : duration(report.summary.averageWaitingMinutes)], ['2 saatten kısa', report.summary.under2Hours], ['2–8 saat', report.summary.between2And8Hours], ['8–24 saat', report.summary.between8And24Hours], ['24 saatten uzun', report.summary.over24Hours]] as const;
   return <><dl className="approval-summary">{values.map(([label, value]) => <div key={label}><dt>{label}</dt><dd>{value}</dd></div>)}</dl>
     {report.items.length === 0 ? <div className="report-empty"><p>Onay bekleyen iş bulunmuyor.</p></div>
-      : <ul className="approval-list">{report.items.map((item) => <li key={item.id}><div><span>{typeLabels[item.type]}</span><h2>{item.title}</h2><p>{item.assignee.name}{item.customer ? ` · ${item.customer.name}` : ''}</p></div><strong>{duration(item.waitingMinutes)}</strong></li>)}</ul>}</>;
+      : <ul className="approval-list">{report.items.map((item) => <li key={item.id}><div><span>{jobTypeLabels[item.type]}</span><h2>{item.title}</h2><p>{item.assignee.name}{item.customer ? ` · ${item.customer.name}` : ''}</p></div><strong>{duration(item.waitingMinutes)}</strong></li>)}</ul>}</>;
 }
 
 export function ApprovalReport() {

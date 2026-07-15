@@ -8,6 +8,13 @@ export const JOB_CARD_STATUSES = [
 ] as const;
 export const JOB_CARD_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
+export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
+export const MEETING_OUTCOMES = [
+  'POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED',
+] as const;
+export const MEETING_DETAIL_FIELDS = [
+  'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+] as const;
 export const JOB_CARD_STATUS_FILTERS = [
   'active', 'closed', 'all', ...JOB_CARD_STATUSES,
 ] as const;
@@ -16,7 +23,9 @@ export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
 export type JobCardStatusFilter = (typeof JOB_CARD_STATUS_FILTERS)[number];
 export type JobCardPriority = (typeof JOB_CARD_PRIORITIES)[number];
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
-export type JobCardType = 'PRODUCT_DELIVERY' | 'GENERAL_TASK';
+export type JobCardType = (typeof JOB_CARD_TYPES)[number];
+export type MeetingOutcome = (typeof MEETING_OUTCOMES)[number];
+export type MeetingDetailField = (typeof MEETING_DETAIL_FIELDS)[number];
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
 export type RelatedName = { id: string; name: string };
 export type JobCard = {
@@ -32,9 +41,12 @@ export type JobCardCreateInput =
     priority?: JobCardPriority; dueDate?: string | null }
   | { clientActionId: string; type: 'GENERAL_TASK'; title: string; assignedTo: string;
     description?: string | null; customerId?: string | null; contactId?: string | null;
-    priority?: JobCardPriority; dueDate?: string | null };
+    priority?: JobCardPriority; dueDate?: string | null }
+  | { clientActionId: string; type: 'SALES_MEETING'; title: string; customerId: string;
+    assignedTo: string; dueDate: string; description?: string | null;
+    contactId?: string | null; priority?: JobCardPriority };
 export type JobCardListItem = {
-  id: string; type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK'; status: JobCardStatus; version: number; title: string;
+  id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; createdAt: string; updatedAt: string;
   staffCompletedAt: string | null; customer: RelatedName | null; contact: RelatedName | null;
   assignee: RelatedName; deliveryItemCount: number;
@@ -53,6 +65,7 @@ export type JobCardActivityDetails =
   | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate'> }
   | { kind: 'DELIVERY_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; purpose: DeliveryPurpose | null; quantity: number | null }
   | { kind: 'NOTE'; noteId: string }
+  | { kind: 'MEETING_DETAILS'; changedFields: MeetingDetailField[] }
   | { kind: 'NONE' };
 export type JobCardActivity = {
   id: string; jobCardId: string; eventType: string; actor: RelatedName | null;
@@ -63,6 +76,15 @@ export type DeliveryItem = {
   deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; unit: string | null;
   productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null;
   lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null;
+};
+export type MeetingDetails = {
+  jobCardId: string; meetingAt: string | null; outcome: MeetingOutcome | null;
+  meetingSummary: string | null; nextFollowUpAt: string | null; jobCardVersion: number;
+};
+export type PatchMeetingDetailsInput = {
+  clientActionId: string; expectedVersion: number; meetingAt?: string | null;
+  outcome?: MeetingOutcome | null; meetingSummary?: string | null;
+  nextFollowUpAt?: string | null;
 };
 
 export type JobCardListFilters = Partial<{
@@ -90,6 +112,11 @@ function array(value: unknown, field: string) {
   if (!Array.isArray(value)) invalid(field);
   return value;
 }
+function exactObject(value: unknown, field: string, keys: readonly string[]) {
+  const parsed = object(value);
+  if (Object.keys(parsed).some((key) => !keys.includes(key))) invalid(field);
+  return parsed;
+}
 function count(value: unknown, field: string) {
   const parsed = number(value, field);
   if (!Number.isInteger(parsed) || parsed < 0) invalid(field);
@@ -112,11 +139,21 @@ function related(value: unknown, field: string): RelatedName {
 function nullableRelated(value: unknown, field: string) {
   return value === null ? null : related(value, field);
 }
+function canonicalInstant(value: unknown, field: string) {
+  const parsed = string(value, field);
+  const instant = new Date(parsed);
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/.test(parsed)
+    || Number.isNaN(instant.valueOf()) || instant.toISOString() !== parsed) invalid(field);
+  return parsed;
+}
+function nullableCanonicalInstant(value: unknown, field: string) {
+  return value === null ? null : canonicalInstant(value, field);
+}
 function parseJobCard(value: unknown): JobCard {
   const v = object(value);
   return {
     id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
-    type: oneOf(v.type, 'type', ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const),
+    type: oneOf(v.type, 'type', JOB_CARD_TYPES),
     status: oneOf(v.status, 'status', JOB_CARD_STATUSES), version: positiveCount(v.version, 'version'),
     title: string(v.title, 'title'), description: nullableString(v.description, 'description'),
     customerId: nullableString(v.customerId, 'customerId'), contactId: nullableString(v.contactId, 'contactId'),
@@ -129,7 +166,7 @@ function parseJobCard(value: unknown): JobCard {
 export function parseJobCardListItem(value: unknown): JobCardListItem {
   const v = object(value);
   return {
-    id: string(v.id, 'id'), type: oneOf(v.type, 'type', ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const),
+    id: string(v.id, 'id'), type: oneOf(v.type, 'type', JOB_CARD_TYPES),
     status: oneOf(v.status, 'status', JOB_CARD_STATUSES), version: positiveCount(v.version, 'version'),
     title: string(v.title, 'title'), priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES),
     dueDate: nullableString(v.dueDate, 'dueDate'), createdAt: string(v.createdAt, 'createdAt'),
@@ -179,6 +216,15 @@ function parseDetails(value: unknown): JobCardActivityDetails {
     purpose: v.purpose === null ? null : oneOf(v.purpose, 'purpose', DELIVERY_PURPOSES),
     quantity: v.quantity === null ? null : positiveFiniteNumber(v.quantity, 'quantity') };
   if (kind === 'NOTE') return { kind, noteId: string(v.noteId, 'noteId') };
+  if (kind === 'MEETING_DETAILS') {
+    const detail = exactObject(v, 'details', ['kind', 'changedFields']);
+    const changedFields = array(detail.changedFields, 'changedFields').map((field) =>
+      oneOf(field, 'changedFields', MEETING_DETAIL_FIELDS));
+    if (changedFields.length === 0 || changedFields.some((field, index) =>
+      MEETING_DETAIL_FIELDS.indexOf(field) <= (index === 0
+        ? -1 : MEETING_DETAIL_FIELDS.indexOf(changedFields[index - 1]!)))) invalid('changedFields');
+    return { kind, changedFields };
+  }
   return invalid('details.kind');
 }
 const RAW_ACTIVITY_KEYS = ['oldValue', 'newValue', 'metadata', 'clientActionId', 'actorId'];
@@ -205,6 +251,20 @@ function parseDeliveryMutation(value: unknown) {
   const v = object(value);
   return { item: parseDelivery(v.item), jobCardVersion: positiveCount(v.jobCardVersion, 'jobCardVersion') };
 }
+export function parseMeetingDetails(value: unknown): MeetingDetails {
+  const v = exactObject(value, 'meetingDetails', [
+    'jobCardId', 'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+    'jobCardVersion',
+  ]);
+  return {
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    meetingAt: nullableCanonicalInstant(v.meetingAt, 'meetingAt'),
+    outcome: v.outcome === null ? null : oneOf(v.outcome, 'outcome', MEETING_OUTCOMES),
+    meetingSummary: nullableString(v.meetingSummary, 'meetingSummary'),
+    nextFollowUpAt: nullableCanonicalInstant(v.nextFollowUpAt, 'nextFollowUpAt'),
+    jobCardVersion: positiveCount(v.jobCardVersion, 'jobCardVersion'),
+  };
+}
 function query(filters: Record<string, string | number | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') params.set(key, String(value));
@@ -224,6 +284,10 @@ export const createJobCard = async (input: JobCardCreateInput) =>
   parseJobCard(await request('/api/job-cards', json('POST', input)));
 export const patchJobCard = async (id: string, input: { expectedVersion: number; title?: string; priority?: JobCardPriority; dueDate?: string | null }) =>
   parseJobCard(await request(jobPath(id), json('PATCH', input)));
+export const getMeetingDetails = async (id: string) =>
+  parseMeetingDetails(await request(`${jobPath(id)}/meeting-details`));
+export const patchMeetingDetails = async (id: string, input: PatchMeetingDetailsInput) =>
+  parseMeetingDetails(await request(`${jobPath(id)}/meeting-details`, json('PATCH', input)));
 
 export const listJobCardNotes = async (id: string, page: Partial<{ limit: number; offset: number }> = {}) =>
   parsePage(await request(`${jobPath(id)}/notes${query(page)}`), parseNote);

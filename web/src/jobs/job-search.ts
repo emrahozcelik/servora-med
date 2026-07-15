@@ -22,7 +22,7 @@ const STATUSES = [
   'WAITING_APPROVAL', 'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
-const TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const;
+const TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export function isValidJobFilterUuid(value: string) {

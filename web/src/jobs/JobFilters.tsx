@@ -46,6 +46,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
     onApply({
       q: search.trim() || undefined,
       type: advanced.type === 'PRODUCT_DELIVERY' || advanced.type === 'GENERAL_TASK'
+        || advanced.type === 'SALES_MEETING'
         ? advanced.type : undefined,
       assignedTo: advanced.assignedTo || undefined,
       customerId: advanced.customerId || undefined,

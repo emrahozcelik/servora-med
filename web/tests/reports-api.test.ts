@@ -55,10 +55,28 @@ describe('Reports runtime contract', () => {
       range,
       counters,
       deliveriesByPurpose: [{ purpose: 'SALE', unit: null, quantity: '12.500' }],
+      meetingsByOutcome: [
+        { outcome: 'POSITIVE', count: 1 },
+        { outcome: 'FOLLOW_UP_REQUIRED', count: 2 },
+        { outcome: 'NO_DECISION', count: 0 },
+        { outcome: 'NOT_INTERESTED', count: 0 },
+      ],
     };
     expect(parseStaffReport(staff)).toEqual(staff);
     expect(() => parseStaffReport({ ...staff, staff: { ...staff.staff, role: 'STAFF' } }))
       .toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+
+    for (const meetingsByOutcome of [
+      staff.meetingsByOutcome.slice(0, 3),
+      [...staff.meetingsByOutcome, { outcome: 'FUTURE', count: 0 }],
+      staff.meetingsByOutcome.map((item, index) => index === 3
+        ? { outcome: 'NO_DECISION', count: 0 } : item),
+      staff.meetingsByOutcome.map((item, index) => index === 0
+        ? { ...item, count: -1 } : item),
+    ]) {
+      expect(() => parseStaffReport({ ...staff, meetingsByOutcome }))
+        .toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+    }
   });
 
   it.each([
@@ -113,9 +131,15 @@ describe('Reports runtime contract', () => {
         overdueJobCards: 0, waitingApproval: 0, revisionRequested: 0,
         completedInPeriod: 0, cancelledInPeriod: 0 }, completedTrend: [] }))
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        range, counters, deliveriesByPurpose: [] }))
+        range, counters, deliveriesByPurpose: [], meetingsByOutcome: [
+          { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
+          { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
+        ] }))
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        range, counters, deliveriesByPurpose: [] }))
+        range, counters, deliveriesByPurpose: [], meetingsByOutcome: [
+          { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
+          { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
+        ] }))
       .mockResolvedValueOnce(response({ groupBy: 'staff', items: [], range,
         total: 0, limit: 25, offset: 10 }))
       .mockResolvedValueOnce(response({ summary: { pendingCount: 0,

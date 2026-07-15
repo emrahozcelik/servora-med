@@ -776,6 +776,7 @@ regression suites without source changes.
 - Modify: `web/src/jobs/job-labels.ts`
 - Modify: `web/src/reports/report-types.ts`
 - Modify: `web/src/reports/reports-api.ts`
+- Modify: `web/src/reports/ApprovalReport.tsx`
 - Modify: `web/tests/jobs-api.test.ts`
 - Modify: `web/tests/job-search.test.ts`
 - Modify: `web/tests/reports-api.test.ts`
@@ -786,7 +787,7 @@ regression suites without source changes.
   report parser, and URL-owned `SALES_MEETING` filter.
 - Consumes: server public contracts from Tasks 1, 4, 6, and 7.
 
-- [ ] **Step 1: Write failing exact web parser tests**
+- [x] **Step 1: Write failing exact web parser tests**
 
 Cover all three types, create payload compile fixtures, MeetingDetails exact keys and
 instants, activity changed-field allowlist/order, report exact four-row cardinality/order,
@@ -799,7 +800,7 @@ expect(parseStaffReport(payload).meetingsByOutcome.map((item) => item.outcome)).
 ]);
 ```
 
-- [ ] **Step 2: Run web contract tests and verify RED**
+- [x] **Step 2: Run web contract tests and verify RED**
 
 ```bash
 cd web && npm test -- --run tests/jobs-api.test.ts \
@@ -808,7 +809,7 @@ cd web && npm test -- --run tests/jobs-api.test.ts \
 
 Expected: FAIL because current parsers accept only two types and no meeting/report DTO.
 
-- [ ] **Step 3: Implement exact web types, API calls, and parsers**
+- [x] **Step 3: Implement exact web types, API calls, and parsers**
 
 Add explicit API functions:
 
@@ -821,7 +822,7 @@ export const patchMeetingDetails = async (id: string, input: PatchMeetingDetails
 
 Use exhaustive constants and exact objects; do not derive business validation in React.
 
-- [ ] **Step 4: Run web contract suite and build**
+- [x] **Step 4: Run web contract suite and build**
 
 ```bash
 cd web && npm test -- --run tests/jobs-api.test.ts \
@@ -831,11 +832,12 @@ cd web && npm run build
 
 Expected: exact parsers, URL ownership, and build PASS.
 
-- [ ] **Step 5: Commit Task 8**
+- [x] **Step 5: Commit Task 8**
 
 ```bash
 git add web/src/jobs/{jobs-api.ts,job-search.ts,JobFilters.tsx,job-labels.ts} \
   web/src/reports/{report-types.ts,reports-api.ts} \
+  web/src/reports/ApprovalReport.tsx \
   web/tests/jobs-api.test.ts web/tests/job-search.test.ts web/tests/reports-api.test.ts
 git commit -m "feat: add sales meeting web contracts"
 ```
