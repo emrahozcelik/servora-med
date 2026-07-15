@@ -26,6 +26,8 @@ describe('application routes', () => {
     ['/jobs', 'İşler', manager],
     ['/jobs/new-delivery', 'Ürün teslimi', staff],
     ['/jobs/new-delivery', 'Ürün teslimi', manager],
+    ['/jobs/new-task', 'Genel görev', staff],
+    ['/jobs/new-task', 'Genel görev', manager],
     ['/jobs/job-1', 'İş detayları yükleniyor', staff],
     ['/users', 'Kullanıcılar', admin],
     ['/staff', 'Personel', manager],
@@ -67,6 +69,7 @@ describe('application routes', () => {
 
   it('exports encoded route helpers', () => {
     expect(paths.job('job/1')).toBe('/jobs/job%2F1');
+    expect(paths.newTask).toBe('/jobs/new-task');
     expect(paths.staffProfile('staff 1')).toBe('/staff/staff%201');
     expect(paths.staffReport('staff 1')).toBe('/staff/staff%201/reports');
     expect(paths.reports).toBe('/reports');

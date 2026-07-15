@@ -1,6 +1,7 @@
 import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
 
 import { DeliveryCreateView } from './DeliveryCreate';
+import { GeneralTaskCreateScreen } from './GeneralTaskCreate';
 import { CustomerCreateScreen, CustomerListScreen } from './CustomerList';
 import { CustomerDetailScreen } from './CustomerDetail';
 import { ContactDetailScreen } from './ContactManagement';
@@ -94,10 +95,13 @@ export function AppRouter({ user, customers, notice, onClearNotice, onDeliveryCr
       <Route path="/" element={<Navigate to={paths.jobs} replace />} />
       <Route path="/login" element={<Navigate to={paths.jobs} replace />} />
       <Route path={paths.jobs} element={<JobWorkspace user={user} notice={notice}
-        onCreate={() => { onClearNotice(); navigate(paths.newDelivery); }}
+        onCreateDelivery={() => { onClearNotice(); navigate(paths.newDelivery); }}
+        onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}
         onCommand={(intent) => navigate(paths.job(intent.jobId))} />} />
       <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} customers={customers} onCancel={() => navigate(paths.jobs)}
         onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />} />
+      <Route path={paths.newTask} element={<GeneralTaskCreateScreen user={user}
+        onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />} />
       <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
       <Route path={paths.users} element={user.role === 'ADMIN'
         ? <UserManagementScreen onBack={() => navigate(paths.jobs)} /> : <ForbiddenView />} />

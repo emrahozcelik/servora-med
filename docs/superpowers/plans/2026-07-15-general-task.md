@@ -777,7 +777,7 @@ git commit -m "feat: support General Task web contracts"
 - Produces: `GeneralTaskCreateScreen`, `paths.newTask`, and workspace props
   `onCreateDelivery`/`onCreateTask` for explicit create links.
 
-- [ ] **Step 1: Write failing form and route tests**
+- [x] **Step 1: Write failing form and route tests**
 
 Cover direct route/refresh, Staff fixed identity with zero Staff-list calls, management
 active Staff loading/error/retry, title/description, accessible `Ek bilgiler`, default
@@ -785,7 +785,7 @@ priority, due date, optional Customer/Contact, clearing and stale-response prote
 CRM failure with context-free submit, exact request body, pending lock, stable retry action
 ID, error focus/value preservation, cancel, and success navigation to `/jobs/:id`.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd web && npm test -- --run tests/general-task-create.test.tsx tests/router.test.tsx
@@ -793,7 +793,7 @@ cd web && npm test -- --run tests/general-task-create.test.tsx tests/router.test
 
 Expected: FAIL because route and screen do not exist.
 
-- [ ] **Step 3: Implement the standalone form**
+- [x] **Step 3: Implement the standalone form**
 
 Add `newTask: '/jobs/new-task'`. Keep `DeliveryCreate` untouched. The create call must be:
 
@@ -819,7 +819,7 @@ optional section opens, load active Customers through repeated
 reaches `total`. Load selected-Customer Contacts through the same bounded paging pattern
 with `listContacts`; do not silently truncate either selector.
 
-- [ ] **Step 4: Verify GREEN and Product Delivery regression**
+- [x] **Step 4: Verify GREEN and Product Delivery regression**
 
 Run Step 2 and:
 
@@ -830,7 +830,7 @@ cd web && npm test -- --run tests/delivery-create.test.tsx \
 
 Expected: PASS; `/jobs/new-delivery` behavior remains unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/GeneralTaskCreate.tsx web/src/paths.ts web/src/AppRouter.tsx \
