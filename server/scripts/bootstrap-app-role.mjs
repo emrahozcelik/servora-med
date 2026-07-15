@@ -45,16 +45,23 @@ try {
 
   const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
   if (exists.rowCount === 0) {
-    // Identifier validated above. Create without password, then set password via bind
-    // parameter so the secret is never interpolated into SQL text or process argv.
+    // Identifier validated above (safe for %I).
     await client.query(
       `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE`,
     );
   }
-  await client.query(
-    `ALTER ROLE ${role} WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD $1`,
-    [password],
+  // PASSWORD cannot use extended-query $1 placeholders in PostgreSQL DDL.
+  // Build DDL with format(%L) using bind parameters so the secret never appears on argv
+  // and is not string-concatenated in application code.
+  const ddl = await client.query(
+    `SELECT format(
+       'ALTER ROLE %I WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
+       $1::text,
+       $2::text
+     ) AS stmt`,
+    [role, password],
   );
+  await client.query(ddl.rows[0].stmt);
 
   const flags = await client.query(
     `SELECT rolsuper, rolcreatedb, rolcreaterole
