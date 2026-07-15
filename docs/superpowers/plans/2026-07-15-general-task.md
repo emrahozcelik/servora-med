@@ -916,14 +916,14 @@ git commit -m "feat: render type-aware JobCard detail"
 - Consumes: `jobTypeLabels`, `JobCardListItem.type`, and `deliveryItemCount`.
 - Produces: text-based type presentation without false delivery facts.
 
-- [ ] **Step 1: Write failing row/card/create-action tests**
+- [x] **Step 1: Write failing row/card/create-action tests**
 
 Assert each row/card exposes the textual type. General Task shows no `Teslim`, product
 count, or delivery empty state even when canonical count is zero; Product Delivery keeps
 its count. Assert `Yeni teslim` and `Yeni görev` are distinct accessible actions with
 stable routes and mobile targets.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd web && npm test -- --run tests/job-list.test.tsx tests/job-board.test.tsx \
@@ -932,7 +932,7 @@ cd web && npm test -- --run tests/job-list.test.tsx tests/job-board.test.tsx \
 
 Expected: FAIL because current row/card hard-code Product Delivery and delivery count.
 
-- [ ] **Step 3: Implement minimum type presentation**
+- [x] **Step 3: Implement minimum type presentation**
 
 Use `jobTypeLabels[job.type]` in row summary and board card. Wrap delivery facts only in:
 
@@ -943,7 +943,7 @@ Use `jobTypeLabels[job.type]` in row summary and board card. Wrap delivery facts
 
 Do not use color as the only type cue and do not add new card colors per type.
 
-- [ ] **Step 4: Verify GREEN and responsive unit contracts**
+- [x] **Step 4: Verify GREEN and responsive unit contracts**
 
 Run Step 2 and:
 
@@ -953,7 +953,7 @@ cd web && npm test -- --run tests/accessibility-contract.test.ts
 
 Expected: PASS with existing list/board lifecycle links and mobile list behavior intact.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/jobs/JobRow.tsx web/src/jobs/JobBoard.tsx \

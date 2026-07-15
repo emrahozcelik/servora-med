@@ -80,7 +80,7 @@ describe('read-only JobCard board', () => {
     expect(host.querySelectorAll('.job-status-shape')).toHaveLength(5);
 
     const card = host.querySelector<HTMLElement>('[data-board-card="job-waiting"]')!;
-    for (const value of ['ABC Klinik teslimi', 'Acil öncelik', 'ABC Klinik', 'Dr. Deniz', 'Ayşe Personel', '20 Tem 2026', '2 ürün kalemi']) {
+    for (const value of ['ABC Klinik teslimi', 'Ürün teslimi', 'Acil öncelik', 'ABC Klinik', 'Dr. Deniz', 'Ayşe Personel', '20 Tem 2026', '2 ürün kalemi']) {
       expect(card.textContent).toContain(value);
     }
     expect(card.querySelectorAll('a')).toHaveLength(1);
@@ -93,6 +93,26 @@ describe('read-only JobCard board', () => {
     expect(closedLinks[0]?.getAttribute('href')).toContain('offset=0');
     expect(host.querySelector('button, [role="menu"], [draggable="true"]')).toBeNull();
     expect(host.textContent?.toLocaleLowerCase('tr-TR')).not.toMatch(/sürükle|drag|bırak/);
+  });
+
+  it('labels General Task cards without delivery facts or empty delivery state', () => {
+    const generalTask = {
+      ...baseItem, id: 'task-1', type: 'GENERAL_TASK' as const,
+      title: 'Teklif dönüşünü takip et', deliveryItemCount: 0,
+    };
+    const mixedBoard: JobCardBoard = {
+      ...board,
+      columns: { ...board.columns, NEW: { items: [generalTask], count: 1 } },
+    };
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={mixedBoard} params={new URLSearchParams()} /></MemoryRouter>,
+    );
+    const card = host.querySelector<HTMLElement>('[data-board-card="task-1"]')!;
+
+    expect(card.textContent).toContain('Genel görev');
+    expect(card.textContent).not.toContain('Teslim');
+    expect(card.textContent).not.toContain('ürün kalemi');
   });
 });
 

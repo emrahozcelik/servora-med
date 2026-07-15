@@ -1,10 +1,13 @@
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { JobFilters } from '../src/jobs/JobFilters';
 import { jobTypeLabels } from '../src/jobs/job-labels';
+import { JobWorkspace } from '../src/jobs/JobWorkspace';
+import { paths } from '../src/paths';
 
 describe('JobCard workspace ownership', () => {
   it('renders both exhaustive JobCard type filter labels', () => {
@@ -29,5 +32,18 @@ describe('JobCard workspace ownership', () => {
     expect(api).not.toContain('LegacyWorkspaceJob');
     expect(app).not.toContain('WorkspaceState');
     expect(app).not.toContain('listLegacyWorkspaceJobs');
+  });
+
+  it('exposes distinct accessible create actions with stable routes', () => {
+    const html = renderToStaticMarkup(<MemoryRouter><JobWorkspace
+      user={{ id: 'manager-1', organizationId: 'org-1', name: 'Manager', email: 'm@test.local',
+        role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 }}
+      onCreateDelivery={() => undefined} onCreateTask={() => undefined}
+    /></MemoryRouter>);
+
+    expect(html).toContain('>Yeni teslim</button>');
+    expect(html).toContain('>Yeni görev</button>');
+    expect(paths.newDelivery).toBe('/jobs/new-delivery');
+    expect(paths.newTask).toBe('/jobs/new-task');
   });
 });

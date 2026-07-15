@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
 import type { JobCardListItem, JobCardPriority, JobCardStatus } from './jobs-api';
+import { jobTypeLabels } from './job-labels';
 
 const statusLabels: Record<JobCardStatus, string> = {
   NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor',
@@ -61,7 +62,7 @@ export function JobRow({ job, user, onCommand }: {
     <dl className="job-row-facts">
       <div><dt>Sorumlu</dt><dd>{job.assignee.name}</dd></div>
       <div><dt>Termin</dt><dd>{job.dueDate ? formatDate(job.dueDate) : 'Belirtilmedi'}</dd></div>
-      <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>
+      {job.type === 'PRODUCT_DELIVERY' && <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>}
     </dl>
     <button className="secondary-button job-expand" type="button" aria-expanded={expanded} aria-controls={summaryId}
       onClick={() => setExpanded((value) => !value)}>
@@ -69,7 +70,7 @@ export function JobRow({ job, user, onCommand }: {
     </button>
     {expanded && <div className="job-row-summary" id={summaryId}>
       <dl>
-        <div><dt>İş türü</dt><dd>Ürün teslimi</dd></div>
+        <div><dt>İş türü</dt><dd>{jobTypeLabels[job.type]}</dd></div>
         <div><dt>Oluşturma</dt><dd>{formatDate(job.createdAt)}</dd></div>
         <div><dt>Son güncelleme</dt><dd>{formatDate(job.updatedAt)}</dd></div>
         {job.staffCompletedAt && <div><dt>Onaya gönderim</dt><dd>{formatDate(job.staffCompletedAt)}</dd></div>}
