@@ -266,7 +266,7 @@ git commit -m "feat: add sales meeting contracts"
   `meeting_details_org_time_job_idx`.
 - Consumes: existing migration runner transaction and `schema_migrations` behavior.
 
-- [ ] **Step 1: Write failing clean-install and upgrade tests**
+- [x] **Step 1: Write failing clean-install and upgrade tests**
 
 Test clean 001→007 and applied 001→006→007 paths. Query PostgreSQL constraints and assert
 set equality, not substring presence:
@@ -283,7 +283,7 @@ Insert null draft data, valid visible summary, space/tab/newline-only summaries,
 code points, invalid outcome, cross-organization FK, and invalid follow-up chronology.
 Assert failed migration leaves neither table nor migration row.
 
-- [ ] **Step 2: Run migration tests and verify RED**
+- [x] **Step 2: Run migration tests and verify RED**
 
 Run:
 
@@ -296,7 +296,7 @@ Expected: FAIL because migration 007 and its exact constraints do not exist. If
 `TEST_DATABASE_URL` is absent, stop this task and provide a disposable PostgreSQL URL;
 do not count skipped tests as verification.
 
-- [ ] **Step 3: Implement migration 007**
+- [x] **Step 3: Implement migration 007**
 
 Use one transactional migration with these essential definitions:
 
@@ -328,7 +328,7 @@ CREATE TABLE job_card_meeting_details (
 Replace named checks with exact value sets and add the approved partial index. Do not add
 a child composite unique constraint or trigger.
 
-- [ ] **Step 4: Verify both migration paths and immutable history**
+- [x] **Step 4: Verify both migration paths and immutable history**
 
 Run:
 
@@ -345,7 +345,7 @@ cd server && npm run build
 Expected: migrations 001–006 unchanged; clean, upgrade, rollback, and no-reapply cases
 PASS; build copies 007 into `dist`.
 
-- [ ] **Step 5: Commit Task 2**
+- [x] **Step 5: Commit Task 2**
 
 ```bash
 git add server/src/db/migrations/007_sales_meeting.sql \

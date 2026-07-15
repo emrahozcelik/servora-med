@@ -47,7 +47,7 @@ class MemoryMigrationStore implements MigrationStore {
 }
 
 describe('runMigrations', () => {
-  it('ships the complete ordered migration set through JobCard workspace', async () => {
+  it('ships the complete ordered migration set through Sales Meeting', async () => {
     const migrationsDirectory = fileURLToPath(
       new URL('../src/db/migrations', import.meta.url),
     );
@@ -61,6 +61,7 @@ describe('runMigrations', () => {
       '004_crm_contacts.sql',
       '005_product_catalog.sql',
       '006_jobcard_workspace.sql',
+      '007_sales_meeting.sql',
     ]);
   });
 
