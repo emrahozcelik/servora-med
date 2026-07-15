@@ -103,7 +103,11 @@ describe('Sales Meeting planning flow', () => {
     expect(jobs.createJobCard).not.toHaveBeenCalled();
     expect(container.querySelector('.form-error')).toBe(document.activeElement);
     for (const id of ['meeting-title', 'meeting-customer', 'meeting-due-date', 'meeting-assignee']) {
-      expect(container.querySelector(`#${id}`)?.getAttribute('aria-invalid')).toBe('true');
+      const control = container.querySelector(`#${id}`);
+      expect(control?.getAttribute('aria-invalid')).toBe('true');
+      const errorId = control?.getAttribute('aria-describedby');
+      expect(errorId).toBe(`${id}-error`);
+      expect(container.querySelector(`#${errorId}`)?.textContent).not.toBe('');
     }
   });
 

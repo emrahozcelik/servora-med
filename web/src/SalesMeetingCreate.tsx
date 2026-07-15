@@ -122,22 +122,27 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
       <div className="task-field-pair">
         <div className="field-group"><label htmlFor="meeting-customer">Müşteri</label>
           <select id="meeting-customer" required value={customerId} disabled={customerState !== 'ready'}
-            aria-invalid={fieldErrors.customerId ? true : undefined} onChange={(event) => changeCustomer(event.target.value)}>
+            aria-invalid={fieldErrors.customerId ? true : undefined}
+            aria-describedby={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
+            onChange={(event) => changeCustomer(event.target.value)}>
             <option value="">Seçin</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
-          {fieldErrors.customerId && <span className="field-error">{fieldErrors.customerId}</span>}</div>
+          {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
         <div className="field-group"><label htmlFor="meeting-due-date">Planlanan görüşme günü</label>
           <input id="meeting-due-date" type="date" required value={dueDate} aria-invalid={fieldErrors.dueDate ? true : undefined}
+            aria-describedby={fieldErrors.dueDate ? 'meeting-due-date-error' : undefined}
             onChange={(event) => setDueDate(event.target.value)} />
-          {fieldErrors.dueDate && <span className="field-error">{fieldErrors.dueDate}</span>}</div>
+          {fieldErrors.dueDate && <span id="meeting-due-date-error" className="field-error">{fieldErrors.dueDate}</span>}</div>
       </div>
       {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
         : <div className="field-group"><label htmlFor="meeting-assignee">Sorumlu personel</label>
           <select id="meeting-assignee" required value={assignedTo} disabled={staffState !== 'ready'}
-            aria-invalid={fieldErrors.assignedTo ? true : undefined} onChange={(event) => setAssignedTo(event.target.value)}>
+            aria-invalid={fieldErrors.assignedTo ? true : undefined}
+            aria-describedby={fieldErrors.assignedTo ? 'meeting-assignee-error' : undefined}
+            onChange={(event) => setAssignedTo(event.target.value)}>
             <option value="">Seçin</option>{staff.map((item) => <option key={item.user.id} value={item.user.id}>{item.user.name}</option>)}</select>
           {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
           {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi.{' '}<button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
-          {fieldErrors.assignedTo && <span className="field-error">{fieldErrors.assignedTo}</span>}</div>}
+          {fieldErrors.assignedTo && <span id="meeting-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}</div>}
       <div className="field-group"><label htmlFor="meeting-contact">İlgili kişi (isteğe bağlı)</label>
         <select id="meeting-contact" value={contactId} disabled={!customerId || contactState !== 'ready'} onChange={(event) => setContactId(event.target.value)}>
           <option value="">İlgili kişi seçilmedi</option>{contacts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
