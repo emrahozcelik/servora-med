@@ -107,6 +107,7 @@ CONTACT_PRIMARY_REQUIRES_ACTIVE
 CONTACT_ALREADY_PRIMARY
 CUSTOMER_ASSIGNEE_NOT_ELIGIBLE
 ASSIGNEE_NOT_FOUND
+ASSIGNEE_NOT_ELIGIBLE
 INVALID_JOB_TYPE
 ```
 
@@ -507,7 +508,7 @@ Unknown fields and delivery-item fields are rejected. Product Delivery still req
 Customer; General Task permits nullable Customer and Contact context. A non-null Contact
 requires an active same-organization Customer and must belong to it.
 
-Exact assignee behavior is shared by both variants:
+Create and patch assignee resolution is shared by both variants:
 
 | Input and actor | Response |
 | --- | --- |
@@ -515,10 +516,13 @@ Exact assignee behavior is shared by both variants:
 | Staff sends an ID other than their own | `403 FORBIDDEN` before lookup |
 | missing or cross-organization assignee | `404 ASSIGNEE_NOT_FOUND` |
 | inactive or non-Staff assignee | `403 FORBIDDEN` |
-| inactive same-organization assignee at submit | submission rejected by the same eligibility policy |
 
 The Staff web form sends the authenticated Staff ID and renders no assignee selector.
 Manager and Admin select an active same-organization Staff user.
+
+At submit readiness, a persisted assignee that is no longer an active,
+same-organization Staff user returns `400 ASSIGNEE_NOT_ELIGIBLE`. This existing Product
+Delivery behavior is shared by both canonical JobCard types.
 
 Response creates `JOB_CREATED` with the initial assignee in event metadata. Initial assignment does not create a second activity row.
 
@@ -727,10 +731,10 @@ Unauthenticated health responses do not expose environment, host, filesystem, da
 
 ## 17. DTO Shape
 
-Conceptual JobCard response:
+Canonical JobCard detail response:
 
 ```ts
-type JobCardDto = {
+type JobCardDetail = {
   id: string
   organizationId: string
   type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK'
@@ -744,22 +748,6 @@ type JobCardDto = {
   createdBy: string
   priority: JobCardPriority
   dueDate: string | null
-  plannedAt: string | null
-  startedAt: string | null
-  staffCompletedAt: string | null
-  staffCompletedBy: string | null
-  staffCompletionNote: string | null
-  managerApprovedAt: string | null
-  managerApprovedBy: string | null
-  managerApprovalNote: string | null
-  revisionRequestedAt: string | null
-  revisionRequestedBy: string | null
-  revisionReason: string | null
-  cancelledAt: string | null
-  cancelledBy: string | null
-  cancelReason: string | null
-  createdAt: string
-  updatedAt: string
   assignee: { id: string; name: string }
   customer: { id: string; name: string } | null
   contact: { id: string; name: string } | null

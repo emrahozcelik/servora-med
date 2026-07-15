@@ -1,10 +1,10 @@
 # Servora-Med
 
-Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, the Product Delivery tracer, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, and trusted operational reports through Slice 08.
+Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, Product Delivery and General Task workflows, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, and trusted operational reports through Slice 09.
 
 ## Current Scope
 
-Implemented through Slice 08:
+Implemented through Slice 09:
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -53,11 +53,13 @@ Implemented through Slice 08:
 - grouped approved-delivery reports with exact decimal-string quantities
 - oldest-first approval queue with non-negative age buckets
 - stable report routes with URL-owned filters, pagination, and role boundaries
+- separate General Task quick create, shared approval lifecycle, type-aware detail, and
+  list/board/report integration without delivery-item leakage
 
 Not implemented yet:
 
 - Staff confidential notes and related follow-up cards
-- General Task and structured Sales Meeting flows
+- structured Sales Meeting flow
 - production deployment hardening and measured realtime
 
 ## Prerequisites

@@ -53,7 +53,7 @@ The database already accepts `PRODUCT_DELIVERY` and `GENERAL_TASK` in
 activity, notes, workspace projections, approval queue, and operational reports already
 operate on JobCards.
 
-The implementation currently exposes these gaps:
+Before Slice 09, the implementation exposed these gaps:
 
 - create service input and validation accept only `PRODUCT_DELIVERY`;
 - list and board type filters accept only `PRODUCT_DELIVERY`;
@@ -190,9 +190,10 @@ Managers and Admins cannot assign a General Task to themselves unless their user
 the canonical Staff role; roles are not treated as interchangeable. General Task does not
 define a new assignee error standard.
 
-The same eligibility check runs again at submit time. A user who becomes inactive or
-ceases to be eligible after creation prevents submission until the task is reassigned to
-an eligible Staff user.
+Submit readiness re-checks the persisted assignee. If that user is no longer an active,
+same-organization Staff user, submission returns `400 ASSIGNEE_NOT_ELIGIBLE` until the
+task is reassigned. This is the existing Product Delivery contract shared by both
+canonical JobCard types; it does not change create or patch assignee resolution.
 
 ### 7.3 Customer and Contact
 
@@ -594,6 +595,7 @@ code:
 | missing/cross-organization assignee | `404 ASSIGNEE_NOT_FOUND` |
 | inactive/non-Staff assignee | `403 FORBIDDEN` |
 | Staff actor supplies an assignee other than self | `403 FORBIDDEN` before assignee lookup |
+| persisted assignee is not an active same-organization Staff user at submit readiness | `400 ASSIGNEE_NOT_ELIGIBLE` |
 | missing/cross-organization Customer | `404 CUSTOMER_NOT_FOUND` |
 | inactive Customer | `409 CUSTOMER_INACTIVE` |
 | missing/cross-organization Contact | `404 CONTACT_NOT_FOUND` |
