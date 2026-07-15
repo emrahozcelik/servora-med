@@ -11,8 +11,11 @@
     "dev": "tsx watch --env-file=.env src/index.ts",
     "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs",
     "start": "node --env-file-if-exists=.env dist/index.js",
+    "start:prod": "node dist/index.js",
     "migrate": "tsx --env-file=.env src/db/migrate.ts",
+    "migrate:prod": "node dist/db/migrate.js",
     "bootstrap:admin": "tsx --env-file=.env src/db/bootstrap-admin.ts",
+    "bootstrap:admin:prod": "node dist/db/bootstrap-admin.js",
     "db:seed:dev": "tsx --env-file=.env src/db/seed-dev.ts",
     "test": "vitest"
   },

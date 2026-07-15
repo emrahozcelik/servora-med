@@ -4,8 +4,13 @@ import cors from '@fastify/cors';
 import rateLimit from '@fastify/rate-limit';
 
 import type { AppConfig } from './config.js';
+import { resolveTrustProxyOption } from './config.js';
 import { toErrorResponse } from './errors/index.js';
 import { healthRoutes } from './modules/health/routes.js';
+import {
+  alwaysOkReadiness,
+  type HealthReadinessPort,
+} from './modules/health/service.js';
 import { AuthService } from './modules/auth/service.js';
 import type { AuthRepository } from './modules/auth/repository.js';
 import { authRoutes } from './modules/auth/routes.js';
@@ -49,10 +54,12 @@ export type AppDependencies = {
   productRepository?: ProductRepository;
   approvalQueueItemPort?: ApprovalQueueItemPort;
   reportsRepository?: ReportsReadModel;
+  healthReadiness?: HealthReadinessPort;
 };
 
 export async function buildApp(config: AppConfig, dependencies: AppDependencies = {}) {
   const app = Fastify({
+    trustProxy: resolveTrustProxyOption(config.trustedProxy),
     logger: {
       level: config.logLevel,
       redact: LOGGER_REDACT_PATHS,
@@ -81,7 +88,10 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
     return reply.code(response.statusCode).send(response.body);
   });
 
-  await app.register(healthRoutes, { prefix: '/api/health' });
+  await app.register(healthRoutes, {
+    prefix: '/api/health',
+    readiness: dependencies.healthReadiness ?? alwaysOkReadiness,
+  });
   if (dependencies.authRepository) {
     const authService = new AuthService(dependencies.authRepository, config.sessionTtlSeconds);
     await app.register(authRoutes, {

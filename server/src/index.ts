@@ -1,9 +1,7 @@
-import { fileURLToPath } from 'node:url';
-
 import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { closeDatabase, createDatabase } from './db/index.js';
-import { runMigrations } from './db/migrate-runner.js';
+import { createPostgresReadiness } from './modules/health/postgres-readiness.js';
 import { PostgresAuthRepository } from './modules/auth/repository.js';
 import { PostgresJobCardRepository } from './modules/job-cards/repository.js';
 import {
@@ -15,6 +13,7 @@ import { PostgresCustomerAssignmentCleanup } from './modules/crm/people-adapter.
 import { PostgresCrmRepository } from './modules/crm/repository.js';
 import { PostgresProductRepository } from './modules/products/repository.js';
 import { PostgresReportsRepository } from './modules/reports/repository.js';
+import { createShutdown } from './shutdown.js';
 
 async function main() {
   const config = loadConfig();
@@ -27,34 +26,41 @@ async function main() {
   const app = await buildApp(config, {
     authRepository: new PostgresAuthRepository(database.pool),
     jobCardRepository: jobCards,
-    peopleRepository: new PostgresPeopleRepository(database.pool, credentials, sessions, customerAssignments),
+    peopleRepository: new PostgresPeopleRepository(
+      database.pool, credentials, sessions, customerAssignments,
+    ),
     crmRepository: new PostgresCrmRepository(database.pool),
     productRepository: new PostgresProductRepository(database.pool),
     approvalQueueItemPort: jobCards,
     reportsRepository: reports,
+    healthReadiness: createPostgresReadiness(database.pool, config.healthSchemaVersion),
   });
-  const migrationsDirectory = fileURLToPath(new URL('./db/migrations/', import.meta.url));
-  let shuttingDown = false;
 
-  const shutdown = async (signal: NodeJS.Signals) => {
-    if (shuttingDown) {
-      return;
-    }
-    shuttingDown = true;
-    app.log.info({ signal }, 'Shutting down');
-    await app.close();
-    await closeDatabase(database);
-  };
+  const shutdown = createShutdown({
+    closeApp: () => app.close(),
+    closeDb: () => closeDatabase(database),
+    log: (message, fields) => app.log.info(fields ?? {}, message),
+    exit: (code) => {
+      process.exitCode = code;
+      if (code !== 0) process.exit(code);
+    },
+  });
 
-  process.once('SIGINT', () => void shutdown('SIGINT'));
-  process.once('SIGTERM', () => void shutdown('SIGTERM'));
+  process.once('SIGINT', () => {
+    void shutdown('SIGINT').catch((error) => {
+      app.log.error({ err: error }, 'Shutdown handler failed');
+      process.exit(1);
+    });
+  });
+  process.once('SIGTERM', () => {
+    void shutdown('SIGTERM').catch((error) => {
+      app.log.error({ err: error }, 'Shutdown handler failed');
+      process.exit(1);
+    });
+  });
 
   try {
-    await runMigrations({
-      migrationsDirectory,
-      store: database.migrations,
-      logger: app.log,
-    });
+    // Migrations are applied only via migrate / migrate:prod — never on process start.
     await app.listen({ host: config.host, port: config.port });
   } catch (error) {
     app.log.error({ err: error }, 'Server startup failed');

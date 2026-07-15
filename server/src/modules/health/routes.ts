@@ -1,8 +1,13 @@
-import type { FastifyInstance } from 'fastify';
+import type { FastifyPluginAsync } from 'fastify';
 
-import { getHealthHandler } from './handlers.js';
+import { createHealthHandlers } from './handlers.js';
+import type { HealthReadinessPort } from './service.js';
 
-export async function healthRoutes(app: FastifyInstance) {
-  app.get('/', getHealthHandler);
-}
+export type HealthRoutesOptions = {
+  readiness: HealthReadinessPort;
+};
 
+export const healthRoutes: FastifyPluginAsync<HealthRoutesOptions> = async (app, options) => {
+  const handlers = createHealthHandlers(options.readiness);
+  app.get('/', handlers.getHealth);
+};

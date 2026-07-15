@@ -16,6 +16,9 @@ type MigrationPool = {
   connect(): Promise<MigrationClient>;
 };
 
+/** Stable key for serializing production migrate processes. */
+export const MIGRATION_ADVISORY_LOCK_KEY = 872_014_011;
+
 export class PostgresMigrationStore implements MigrationStore {
   constructor(private readonly pool: MigrationPool) {}
 
@@ -47,6 +50,20 @@ export class PostgresMigrationStore implements MigrationStore {
       client.release();
     }
   }
+
+  async withMigrationLock<T>(fn: () => Promise<T>): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('SELECT pg_advisory_lock($1)', [MIGRATION_ADVISORY_LOCK_KEY]);
+      return await fn();
+    } finally {
+      try {
+        await client.query('SELECT pg_advisory_unlock($1)', [MIGRATION_ADVISORY_LOCK_KEY]);
+      } finally {
+        client.release();
+      }
+    }
+  }
 }
 
 export type Database = {
@@ -54,8 +71,24 @@ export type Database = {
   migrations: PostgresMigrationStore;
 };
 
-export function createDatabase(databaseUrl: string): Database {
-  const pool = new Pool({ connectionString: databaseUrl });
+export type CreateDatabaseOptions = {
+  max?: number;
+  connectionTimeoutMillis?: number;
+  idleTimeoutMillis?: number;
+  applicationName?: string;
+};
+
+export function createDatabase(
+  databaseUrl: string,
+  options: CreateDatabaseOptions = {},
+): Database {
+  const pool = new Pool({
+    connectionString: databaseUrl,
+    max: options.max ?? 20,
+    connectionTimeoutMillis: options.connectionTimeoutMillis ?? 5_000,
+    idleTimeoutMillis: options.idleTimeoutMillis ?? 30_000,
+    application_name: options.applicationName ?? 'servora-med',
+  });
   return {
     pool,
     migrations: new PostgresMigrationStore(pool),
@@ -65,4 +98,3 @@ export function createDatabase(databaseUrl: string): Database {
 export async function closeDatabase(database: Database) {
   await database.pool.end();
 }
-
