@@ -1,6 +1,7 @@
 import type {
   DeliveryItem,
   JobCard,
+  JobCardDetail,
   JobCardActivityEvent,
   JobCardAssignee,
   JobCardBaseFilters,
@@ -90,6 +91,7 @@ export type JobContactReference = { id: string; customerId: string; isActive: bo
 export interface JobCardTransaction {
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
+  getJobDetail(organizationId: string, jobCardId: string): Promise<JobCardDetail | null>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
   appendActivity(input: ActivityInput): Promise<void>;
   createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
@@ -125,6 +127,7 @@ export interface JobCardRepository {
   ): Promise<Paginated<JobCardListItem>>;
   listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
+  findJobCardDetail(organizationId: string, jobCardId: string): Promise<JobCardDetail | null>;
   executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>): Promise<T>;
   listDeliveryItems(organizationId: string, jobCardId: string): Promise<DeliveryItemRecord[]>;
   listActivity(
@@ -144,6 +147,11 @@ type JobCardRow = {
   id: string; organization_id: string; type: JobCard['type']; status: JobCardStatus;
   version: number; title: string; description: string | null; customer_id: string | null; contact_id: string | null;
   assigned_to: string; created_by: string; priority: JobCardPriority; due_date: string | null;
+};
+type JobCardDetailRow = JobCardRow & {
+  assignee_id: string; assignee_name: string;
+  customer_id_join: string | null; customer_name: string | null;
+  contact_id_join: string | null; contact_name: string | null;
 };
 type JobCardListRow = {
   id: string;
@@ -198,6 +206,34 @@ function mapJobCard(row: JobCardRow): JobCard {
     version: row.version, title: row.title, description: row.description,
     customerId: row.customer_id, contactId: row.contact_id, assignedTo: row.assigned_to, createdBy: row.created_by,
     priority: row.priority, dueDate: row.due_date,
+  };
+}
+
+const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
+       j.title, j.description, j.customer_id, j.contact_id, j.assigned_to, j.created_by,
+       j.priority, j.due_date,
+       assignee.id AS assignee_id, assignee.name AS assignee_name,
+       customer.id AS customer_id_join, customer.name AS customer_name,
+       contact.id AS contact_id_join, contact.name AS contact_name
+FROM job_cards j
+JOIN users assignee
+  ON assignee.organization_id = j.organization_id AND assignee.id = j.assigned_to
+LEFT JOIN customers customer
+  ON customer.organization_id = j.organization_id AND customer.id = j.customer_id
+LEFT JOIN contacts contact
+  ON contact.organization_id = j.organization_id AND contact.id = j.contact_id
+WHERE j.organization_id = $1 AND j.id = $2`;
+
+function mapJobCardDetail(row: JobCardDetailRow): JobCardDetail {
+  return {
+    ...mapJobCard(row),
+    assignee: { id: row.assignee_id, name: row.assignee_name },
+    customer: row.customer_id_join === null
+      ? null
+      : { id: row.customer_id_join, name: row.customer_name! },
+    contact: row.contact_id_join === null
+      ? null
+      : { id: row.contact_id_join, name: row.contact_name! },
   };
 }
 
@@ -310,6 +346,14 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
+  async getJobDetail(organizationId: string, jobCardId: string) {
+    const result = await this.client.query<JobCardDetailRow>(
+      JOB_CARD_DETAIL_QUERY,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
   }
 
   async transitionWithVersion(input: TransitionInput) {
@@ -666,6 +710,14 @@ implements JobCardRepository, ApprovalQueueItemPort {
        FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
+  async findJobCardDetail(organizationId: string, jobCardId: string) {
+    const result = await this.pool.query<JobCardDetailRow>(
+      JOB_CARD_DETAIL_QUERY,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
   }
 
   async executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>) {

@@ -42,6 +42,14 @@ class LifecycleRepository implements JobCardRepository {
     return {
       getJobForUpdate: async (org, id) =>
         org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
+      getJobDetail: async (org, id) => org === this.job.organizationId && id === this.job.id
+        ? {
+            ...this.job,
+            assignee: { id: this.job.assignedTo, name: 'Staff One' },
+            customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
+            contact: null,
+          }
+        : null,
       transitionWithVersion: async (input) => {
         this.transitions.push(input);
         if (this.failTransition || input.expectedVersion !== this.job.version) return null;
@@ -92,6 +100,13 @@ class LifecycleRepository implements JobCardRepository {
   async listJobCards() { return { items: [], total: 0, limit: 25, offset: 0 }; }
   async listBoard() { throw new Error('unused'); }
   async findJobCard() { return this.job; }
+  async findJobCardDetail() {
+    return {
+      ...this.job, assignee: { id: this.job.assignedTo, name: 'Staff One' },
+      customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
+      contact: null,
+    };
+  }
   async listDeliveryItems() { return this.items; }
   async listActivity() { return this.events as never; }
   async listReferenceCustomers() { return []; }
@@ -117,6 +132,17 @@ function twoJobRepository() {
         getJobForUpdate: async (organizationId: string, id: string) => {
           const job = jobs.get(id);
           return job?.organizationId === organizationId ? { ...job } : null;
+        },
+        getJobDetail: async (organizationId: string, id: string) => {
+          const job = jobs.get(id);
+          return job?.organizationId === organizationId
+            ? {
+                ...job,
+                assignee: { id: job.assignedTo, name: 'Staff One' },
+                customer: job.customerId ? { id: job.customerId, name: 'Demo Klinik' } : null,
+                contact: null,
+              }
+            : null;
         },
         transitionWithVersion: async (input: TransitionInput) => {
           const job = jobs.get(input.jobCardId);
@@ -198,6 +224,7 @@ describe('JobCard lifecycle commands', () => {
     );
 
     expect(result).toMatchObject({ type: 'GENERAL_TASK', status: target, version: 3 });
+    expect(result).toMatchObject({ assignee: { id: 'staff-1', name: 'Staff One' } });
     expect(repo.events.map((item) => item.event)).toEqual([event]);
     expect(repo.transitions).toHaveLength(1);
   });

@@ -49,6 +49,15 @@ class DeliveryRepository implements JobCardRepository {
   async findJobCard(organizationId: string, jobCardId: string) {
     return this.job.organizationId === organizationId && this.job.id === jobCardId ? this.job : null;
   }
+  async findJobCardDetail(organizationId: string, jobCardId: string) {
+    const job = await this.findJobCard(organizationId, jobCardId);
+    return job ? {
+      ...job,
+      assignee: { id: job.assignedTo, name: 'Staff One' },
+      customer: job.customerId ? { id: job.customerId, name: 'Demo Klinik' } : null,
+      contact: null,
+    } : null;
+  }
   async listDeliveryItems() { this.listDeliveryItemCalls += 1; return this.items; }
 }
 

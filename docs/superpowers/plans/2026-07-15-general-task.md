@@ -567,19 +567,22 @@ git commit -m "feat: guard JobCard delivery resources"
 - Create: `server/tests/job-card-detail-repository.test.ts`
 - Modify: `server/tests/job-card-crud-service.test.ts`
 - Modify: `server/tests/job-card-lifecycle-service.test.ts`
+- Modify: `server/tests/job-card-service.test.ts` — lifecycle repository double follows the detail port.
+- Modify: `server/tests/delivery-item-service.test.ts` — delivery repository double follows the detail port.
+- Modify: `server/tests/job-card-activity.test.ts` — activity service doubles follow the public detail port.
 
 **Interfaces:**
 - Produces: `findJobCardDetail(organizationId, jobCardId)` and transaction
   `getJobDetail(organizationId, jobCardId)` returning `JobCardDetail | null`.
 
-- [ ] **Step 1: Write failing projection and response tests**
+- [x] **Step 1: Write failing projection and response tests**
 
 Assert one organization-scoped query maps assignee, nullable Customer, and nullable
 Contact identities. Cross-organization rows return null. Assert GET detail, create, patch,
 and lifecycle responses contain the exact projection and idempotent replay retains its
 stored projection.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd server && npm test -- --run tests/job-card-detail-repository.test.ts \
@@ -588,7 +591,7 @@ cd server && npm test -- --run tests/job-card-detail-repository.test.ts \
 
 Expected: FAIL because repository detail currently returns raw IDs only.
 
-- [ ] **Step 3: Implement the projection once**
+- [x] **Step 3: Implement the projection once**
 
 Use one selected column set for public and transaction reads:
 
@@ -613,7 +616,7 @@ Map raw identifiers and additive identities exactly. Inside create/patch/lifecyc
 transactions, read the projection before completing the processed response so replay
 stores the same DTO; do not compose names through People/CRM HTTP calls.
 
-- [ ] **Step 4: Verify GREEN and visibility**
+- [x] **Step 4: Verify GREEN and visibility**
 
 Run Step 2 and:
 
@@ -623,12 +626,13 @@ cd server && npm test -- --run tests/job-card-routes.test.ts tests/job-card-serv
 
 Expected: PASS; Product Delivery retains all previous fields plus additive identities.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/job-cards/repository.ts server/src/modules/job-cards/service.ts \
   server/tests/job-card-detail-repository.test.ts server/tests/job-card-crud-service.test.ts \
-  server/tests/job-card-lifecycle-service.test.ts
+  server/tests/job-card-lifecycle-service.test.ts server/tests/job-card-service.test.ts \
+  server/tests/delivery-item-service.test.ts server/tests/job-card-activity.test.ts
 git commit -m "feat: project JobCard detail identities"
 ```
 

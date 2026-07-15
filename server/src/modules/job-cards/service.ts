@@ -134,7 +134,9 @@ export class JobCardService {
           event: 'JOB_CREATED', clientActionId: input.clientActionId,
           newValue: { status: job.status, assignedTo: job.assignedTo, version: job.version },
         });
-        return job;
+        const detail = await transaction.getJobDetail(actor.organizationId, job.id);
+        if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        return detail;
       },
     );
     if (result.kind === 'processing') {
@@ -179,7 +181,7 @@ export class JobCardService {
   }
 
   async detail(actor: JobCardActor, jobCardId: string) {
-    const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
+    const job = await this.repository.findJobCardDetail(actor.organizationId, jobCardId);
     if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
       throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
     }
@@ -243,7 +245,9 @@ export class JobCardService {
           newValue: Object.fromEntries(nonAssignmentFields.map((key) => [key, updated[key as keyof typeof updated]])),
         });
       }
-      return updated;
+      const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
+      if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      return detail;
     });
   }
 
@@ -460,7 +464,9 @@ export class JobCardService {
         await tx.appendActivity({ organizationId: actor.organizationId, jobCardId, actorId: actor.id,
           event: definition.event, clientActionId: input.clientActionId,
           oldValue: { status: job.status, version: job.version }, newValue: { status: updated.status, version: updated.version } });
-        return updated;
+        const detail = await tx.getJobDetail(actor.organizationId, jobCardId);
+        if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        return detail;
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     return result.response;

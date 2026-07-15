@@ -46,6 +46,15 @@ class CrudMemoryRepository implements JobCardRepository {
   failActivity = false;
   listCalls: Array<{ scope: JobCardReadScope; query: JobCardListQuery }> = [];
 
+  private detail(job: JobCard) {
+    return {
+      ...job,
+      assignee: { id: job.assignedTo, name: job.assignedTo === 'staff-2' ? 'Staff Two' : 'Staff One' },
+      customer: job.customerId ? { id: job.customerId, name: `Customer ${job.customerId}` } : null,
+      contact: job.contactId ? { id: job.contactId, name: `Contact ${job.contactId}` } : null,
+    };
+  }
+
   async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
     if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T };
@@ -56,6 +65,10 @@ class CrudMemoryRepository implements JobCardRepository {
     const tx: JobCardTransaction = {
       getJob: async () => null,
       getJobForUpdate: async () => null,
+      getJobDetail: async (org, id) => {
+        const job = this.jobs.find((item) => item.organizationId === org && item.id === id);
+        return job ? this.detail(job) : null;
+      },
       transitionWithVersion: async () => null,
       getAssignee: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
       getAssigneeForUpdate: async (org, id) => {
@@ -96,11 +109,19 @@ class CrudMemoryRepository implements JobCardRepository {
   async findJobCard(organizationId: string, id: string) {
     return this.jobs.find((job) => job.organizationId === organizationId && job.id === id) ?? null;
   }
+  async findJobCardDetail(organizationId: string, id: string) {
+    const job = await this.findJobCard(organizationId, id);
+    return job ? this.detail(job) : null;
+  }
   async executeTransaction<T>(work: (tx: JobCardTransaction) => Promise<T>) {
     const before = this.jobs.map((job) => ({ ...job })); const eventCount = this.activities.length;
     const tx: JobCardTransaction = {
       getJob: async (org, id) => this.jobs.find((job) => job.organizationId === org && job.id === id) ?? null,
       getJobForUpdate: async (org, id) => this.jobs.find((job) => job.organizationId === org && job.id === id) ?? null,
+      getJobDetail: async (org, id) => {
+        const job = this.jobs.find((item) => item.organizationId === org && item.id === id);
+        return job ? this.detail(job) : null;
+      },
       transitionWithVersion: async () => null,
       getAssignee: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
       getAssigneeForUpdate: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
@@ -142,6 +163,7 @@ describe('JobCardService create and reads', () => {
     expect(result).toMatchObject({
       type: 'GENERAL_TASK', status: 'NEW', version: 1, title: 'Doktoru ara',
       customerId: null, contactId: null, assignedTo: 'staff-1', priority: 'normal',
+      assignee: { id: 'staff-1', name: 'Staff One' }, customer: null, contact: null,
     });
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });
@@ -155,6 +177,9 @@ describe('JobCardService create and reads', () => {
 
     expect(result).toMatchObject({
       type: 'GENERAL_TASK', customerId: 'customer-1', contactId: 'contact-1',
+      assignee: { id: 'staff-1', name: 'Staff One' },
+      customer: { id: 'customer-1', name: 'Customer customer-1' },
+      contact: { id: 'contact-1', name: 'Contact contact-1' },
     });
   });
 
@@ -326,6 +351,9 @@ describe('JobCardService create and reads', () => {
     expect((await service.list(manager, listQuery)).items).toHaveLength(2);
     await expect(service.detail(staff, 'job-2')).rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND' });
     await expect(service.detail(manager, 'job-2')).resolves.toMatchObject({ id: 'job-2' });
+    await expect(service.detail(manager, 'job-2')).resolves.toMatchObject({
+      assignee: { id: 'staff-2', name: 'Staff Two' },
+    });
   });
 
   it('keeps Staff scope authoritative and short-circuits a conflicting assignee filter', async () => {
@@ -359,6 +387,10 @@ describe('JobCardService create and reads', () => {
     const created = await service.create(staff, createInput);
     const updated = await service.patch(staff, created.id, { expectedVersion: 1, title: 'Güncel teslim', priority: 'high' });
     expect(updated).toMatchObject({ title: 'Güncel teslim', priority: 'high', version: 2 });
+    expect(updated).toMatchObject({
+      assignee: { id: 'staff-1', name: 'Staff One' },
+      customer: { id: 'customer-1', name: 'Customer customer-1' }, contact: null,
+    });
     expect(repository.activities).toEqual(['JOB_CREATED', 'JOB_FIELDS_UPDATED']);
   });
 
