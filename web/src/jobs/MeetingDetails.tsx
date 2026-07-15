@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError, type CurrentUser } from '../services/api';
 import type {
-  JobCard, MeetingDetails, MeetingOutcome, PatchMeetingDetailsInput,
+  JobCard, MeetingDetailField, MeetingDetails, MeetingOutcome, PatchMeetingDetailsInput,
 } from './jobs-api';
 
 const outcomeLabels: Record<MeetingOutcome, string> = {
@@ -10,6 +10,10 @@ const outcomeLabels: Record<MeetingOutcome, string> = {
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
 const editableStatuses: JobCard['status'][] = ['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'];
+type MeetingFieldErrors = Partial<Record<MeetingDetailField, string>>;
+const meetingFields: MeetingDetailField[] = [
+  'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+];
 
 function localValue(value: string | null) {
   if (!value) return '';
@@ -17,17 +21,27 @@ function localValue(value: string | null) {
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
 function instant(value: string) { return value ? new Date(value).toISOString() : null; }
-function timezoneLabel() {
-  const part = new Intl.DateTimeFormat('tr-TR', { timeZoneName: 'longOffset' })
-    .formatToParts(new Date()).find((entry) => entry.type === 'timeZoneName')?.value;
-  return part ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-}
+function timezoneLabel() { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
 function formatInstant(value: string | null) {
   return value ? new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value)) : 'Belirtilmedi';
 }
+function serverFieldErrors(error: unknown): MeetingFieldErrors {
+  if (!(error instanceof ApiError) || error.code !== 'MEETING_NOT_READY') return {};
+  const value = error.details?.fieldErrors;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  const source = value as Record<string, unknown>; const result: MeetingFieldErrors = {};
+  for (const field of meetingFields) {
+    if (typeof source[field] === 'string' && source[field]) result[field] = source[field];
+  }
+  return result;
+}
+function describedBy(...ids: Array<string | false | undefined>) {
+  return ids.filter(Boolean).join(' ') || undefined;
+}
 
-export function MeetingDetailsSection({ job, details, user, mutationPending, onSave }: {
+export function MeetingDetailsSection({ job, details, user, mutationPending, submissionError, onSave }: {
   job: JobCard; details: MeetingDetails; user: CurrentUser; mutationPending: boolean;
+  submissionError?: ApiError | null;
   onSave: (input: PatchMeetingDetailsInput) => Promise<MeetingDetails>;
 }) {
   const [meetingAt, setMeetingAt] = useState(localValue(details.meetingAt));
@@ -35,23 +49,32 @@ export function MeetingDetailsSection({ job, details, user, mutationPending, onS
   const [summary, setSummary] = useState(details.meetingSummary ?? '');
   const [followUp, setFollowUp] = useState(localValue(details.nextFollowUpAt));
   const [feedback, setFeedback] = useState(''); const [error, setError] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<MeetingFieldErrors>({});
   const actionId = useRef<string | null>(null); const feedbackRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setMeetingAt(localValue(details.meetingAt)); setOutcome(details.outcome ?? '');
     setSummary(details.meetingSummary ?? ''); setFollowUp(localValue(details.nextFollowUpAt)); }, [details]);
+  useEffect(() => { setFieldErrors(serverFieldErrors(submissionError)); }, [submissionError]);
   useEffect(() => { if (feedback || error) feedbackRef.current?.focus(); }, [feedback, error]);
   const canEdit = editableStatuses.includes(job.status)
     && (user.role !== 'STAFF' || user.id === job.assignedTo);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); if (mutationPending) return; setError(''); setFeedback('');
+    event.preventDefault(); if (mutationPending) return; setError(''); setFeedback(''); setFieldErrors({});
+    const normalizedSummary = summary.trim();
+    if (Array.from(normalizedSummary).length > 4_000) {
+      setFieldErrors({ meetingSummary: 'Görüşme özeti en fazla 4.000 karakter olabilir.' });
+      setError('Görüşme sonucunu kaydetmeden önce işaretli alanı düzeltin.');
+      return;
+    }
     actionId.current ??= crypto.randomUUID();
     try {
       await onSave({ clientActionId: actionId.current, expectedVersion: job.version,
         meetingAt: instant(meetingAt), outcome: outcome || null,
-        meetingSummary: summary.trim() || null, nextFollowUpAt: instant(followUp) });
+        meetingSummary: normalizedSummary || null, nextFollowUpAt: instant(followUp) });
       actionId.current = null; setFeedback('Görüşme sonucu kaydedildi.');
     } catch (caught) {
       if (caught instanceof ApiError && !caught.retryable) actionId.current = null;
+      setFieldErrors(serverFieldErrors(caught));
       setError(caught instanceof Error ? caught.message : 'Görüşme sonucu kaydedilemedi.');
     }
   }
@@ -73,17 +96,31 @@ export function MeetingDetailsSection({ job, details, user, mutationPending, onS
       role={error ? 'alert' : 'status'} tabIndex={-1}>{error || feedback}</div>}
     <form className="meeting-result-form" onSubmit={submit} noValidate><fieldset disabled={mutationPending}>
       <div className="field-group"><label htmlFor="meeting-actual-at">Gerçekleşme zamanı</label>
-        <input id="meeting-actual-at" type="datetime-local" value={meetingAt} onChange={(event) => setMeetingAt(event.target.value)} />
-        <span className="field-status">Saat dilimi: {timezoneLabel()}</span></div>
+        <input id="meeting-actual-at" type="datetime-local" value={meetingAt}
+          aria-invalid={fieldErrors.meetingAt ? true : undefined}
+          aria-describedby={describedBy('meeting-timezone-help', fieldErrors.meetingAt && 'meeting-actual-at-error')}
+          onChange={(event) => setMeetingAt(event.target.value)} />
+        <span id="meeting-timezone-help" className="field-status">Saat dilimi: {timezoneLabel()}</span>
+        {fieldErrors.meetingAt && <span id="meeting-actual-at-error" className="field-error">{fieldErrors.meetingAt}</span>}</div>
       <div className="field-group"><label htmlFor="meeting-outcome">Sonuç</label>
-        <select id="meeting-outcome" value={outcome} onChange={(event) => setOutcome(event.target.value as MeetingOutcome | '')}>
-          <option value="">Sonuç seçin</option>{Object.entries(outcomeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+        <select id="meeting-outcome" value={outcome} aria-invalid={fieldErrors.outcome ? true : undefined}
+          aria-describedby={fieldErrors.outcome ? 'meeting-outcome-error' : undefined}
+          onChange={(event) => setOutcome(event.target.value as MeetingOutcome | '')}>
+          <option value="">Sonuç seçin</option>{Object.entries(outcomeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select>
+        {fieldErrors.outcome && <span id="meeting-outcome-error" className="field-error">{fieldErrors.outcome}</span>}</div>
       <div className="field-group"><label htmlFor="meeting-summary">Görüşme özeti</label>
-        <textarea id="meeting-summary" rows={5} maxLength={4000} value={summary} onChange={(event) => setSummary(event.target.value)} /></div>
+        <textarea id="meeting-summary" rows={5} value={summary}
+          aria-invalid={fieldErrors.meetingSummary ? true : undefined}
+          aria-describedby={fieldErrors.meetingSummary ? 'meeting-summary-error' : undefined}
+          onChange={(event) => setSummary(event.target.value)} />
+        {fieldErrors.meetingSummary && <span id="meeting-summary-error" className="field-error">{fieldErrors.meetingSummary}</span>}</div>
       <div className="field-group"><label htmlFor="meeting-follow-up-at">Takip zamanı (isteğe bağlı)</label>
-        <input id="meeting-follow-up-at" type="datetime-local" value={followUp} aria-describedby="meeting-follow-up-help"
+        <input id="meeting-follow-up-at" type="datetime-local" value={followUp}
+          aria-invalid={fieldErrors.nextFollowUpAt ? true : undefined}
+          aria-describedby={describedBy('meeting-follow-up-help', fieldErrors.nextFollowUpAt && 'meeting-follow-up-at-error')}
           onChange={(event) => setFollowUp(event.target.value)} />
-        <span id="meeting-follow-up-help" className={outcome === 'FOLLOW_UP_REQUIRED' ? 'field-guidance' : 'field-status'}>{followUpHelp}</span></div>
+        <span id="meeting-follow-up-help" className={outcome === 'FOLLOW_UP_REQUIRED' ? 'field-guidance' : 'field-status'}>{followUpHelp}</span>
+        {fieldErrors.nextFollowUpAt && <span id="meeting-follow-up-at-error" className="field-error">{fieldErrors.nextFollowUpAt}</span>}</div>
     </fieldset><button className="primary-button compact-button" type="submit" disabled={mutationPending}>
       {mutationPending ? 'Kaydediliyor…' : 'Görüşme sonucunu kaydet'}</button></form>
   </section>;
