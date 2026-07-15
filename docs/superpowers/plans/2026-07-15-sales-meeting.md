@@ -914,7 +914,6 @@ no new CSS rule was necessary.
 **Files:**
 - Create: `web/src/jobs/MeetingDetails.tsx`
 - Modify: `web/src/JobDetail.tsx`
-- Modify: `web/src/styles.css`
 - Create: `web/tests/meeting-details.test.tsx`
 - Modify: `web/tests/job-detail.test.tsx`
 - Modify: `web/tests/manager-review.test.tsx`
@@ -1021,7 +1020,7 @@ git commit -m "feat: add sales meeting result flow"
   Sales Meeting, safe Turkish activity presentation, and four-row Staff outcome summary.
 - Consumes: Task 8 exact parsers and Task 10 type-aware navigation/detail behavior.
 
-- [ ] **Step 1: Write failing presentation tests**
+- [x] **Step 1: Write failing presentation tests**
 
 Cover list/board `Satış görüşmesi`, textual type cue, `Planlanan görüşme günü`, no delivery
 fact, create navigation, safe changed-field activity, four visible outcome rows, all-zero
@@ -1034,7 +1033,7 @@ const outcomes = screen.getByRole('region', { name: 'Görüşme sonuçları' });
 expect(within(outcomes).getAllByRole('row')).toHaveLength(5); // header + four outcomes
 ```
 
-- [ ] **Step 2: Run presentation tests and verify RED**
+- [x] **Step 2: Run presentation tests and verify RED**
 
 ```bash
 cd web && npm test -- --run tests/workspace-view.test.tsx tests/job-list.test.tsx \
@@ -1044,14 +1043,14 @@ cd web && npm test -- --run tests/workspace-view.test.tsx tests/job-list.test.ts
 
 Expected: FAIL because workspace, timeline, and report components lack meeting output.
 
-- [ ] **Step 3: Implement minimal explicit presentation**
+- [x] **Step 3: Implement minimal explicit presentation**
 
 Add `onCreateMeeting` to `JobWorkspace`, exhaustive labels, type-aware due/review copy,
 the `Görüşme sonucu güncellendi` safe timeline row, and a semantic outcome section with
 `aria-labelledby` so its accessible name is `Görüşme sonuçları`. Keep all four outcome
 rows visible at zero.
 
-- [ ] **Step 4: Run UI regressions and build**
+- [x] **Step 4: Run UI regressions and build**
 
 ```bash
 cd web && npm test -- --run tests/workspace-view.test.tsx tests/job-list.test.tsx \
@@ -1063,11 +1062,11 @@ cd web && npm run build
 
 Expected: type, activity, report, and delivery-report regressions PASS.
 
-- [ ] **Step 5: Commit Task 11**
+- [x] **Step 5: Commit Task 11**
 
 ```bash
 git add web/src/jobs/{JobWorkspace.tsx,JobRow.tsx,JobBoard.tsx,JobTimeline.tsx} \
-  web/src/reports/StaffOperationalReport.tsx web/src/styles.css \
+  web/src/reports/StaffOperationalReport.tsx \
   web/tests/workspace-view.test.tsx web/tests/job-list.test.tsx \
   web/tests/job-board.test.tsx web/tests/job-timeline.test.tsx \
   web/tests/staff-operational-report.test.tsx web/tests/reports-accessibility.test.tsx

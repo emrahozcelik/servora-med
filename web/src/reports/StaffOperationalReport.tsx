@@ -7,7 +7,7 @@ import type {
   StaffOperationalCounters,
   StaffReportResponse,
 } from './report-types';
-import type { DeliveryPurpose } from '../jobs/jobs-api';
+import type { DeliveryPurpose, MeetingOutcome } from '../jobs/jobs-api';
 
 const staffCounterLabels: Record<keyof StaffOperationalCounters, string> = {
   openJobCards: 'Açık işler',
@@ -23,6 +23,10 @@ const purposeLabels: Record<DeliveryPurpose, string> = {
   CONSIGNMENT: 'Konsinye',
   RETURN: 'İade',
   OTHER: 'Diğer',
+};
+const outcomeLabels: Record<MeetingOutcome, string> = {
+  POSITIVE: 'Olumlu', FOLLOW_UP_REQUIRED: 'Takip gerekli',
+  NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
 
 function formatDate(value: string) {
@@ -69,6 +73,18 @@ function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
   </div>;
 }
 
+function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsByOutcome'] }) {
+  const total = items.reduce((sum, item) => sum + item.count, 0);
+  return <section className="meeting-outcome-report" aria-labelledby="meeting-outcome-title">
+    <h3 id="meeting-outcome-title">Görüşme sonuçları</h3>
+    {total === 0 && <p className="report-empty-copy">Bu dönemde onaylı satış görüşmesi bulunmuyor.</p>}
+    <div className="report-table-wrap"><table className="report-table responsive-report-table">
+      <thead><tr><th scope="col">Sonuç</th><th scope="col">Görüşme sayısı</th></tr></thead>
+      <tbody>{items.map((item) => <tr key={item.outcome}><th scope="row" data-label="Sonuç">{outcomeLabels[item.outcome]}</th>
+        <td data-label="Görüşme sayısı">{item.count}</td></tr>)}</tbody></table></div>
+  </section>;
+}
+
 export function StaffOperationalReport({ report }: { report: StaffReportResponse }) {
   return <section className="staff-operational-report" aria-labelledby="staff-report-title">
     <div className="report-section-heading">
@@ -81,6 +97,7 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
     <p className="report-range">{formatReportRange(report.range)}</p>
     <StaffCounterList counters={report.counters} />
     <DeliveryPurposeTable items={report.deliveriesByPurpose} />
+    <MeetingOutcomeTable items={report.meetingsByOutcome} />
   </section>;
 }
 

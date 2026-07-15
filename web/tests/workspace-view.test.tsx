@@ -13,6 +13,7 @@ describe('JobCard workspace ownership', () => {
   it('renders both exhaustive JobCard type filter labels', () => {
     expect(jobTypeLabels).toEqual({
       PRODUCT_DELIVERY: 'Ürün teslimi', GENERAL_TASK: 'Genel görev',
+      SALES_MEETING: 'Satış görüşmesi',
     });
     const html = renderToStaticMarkup(<JobFilters
       user={{ id: 'manager-1', organizationId: 'org-1', name: 'Manager', email: 'm@test.local',
@@ -39,11 +40,14 @@ describe('JobCard workspace ownership', () => {
       user={{ id: 'manager-1', organizationId: 'org-1', name: 'Manager', email: 'm@test.local',
         role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 }}
       onCreateDelivery={() => undefined} onCreateTask={() => undefined}
+      onCreateMeeting={() => undefined}
     /></MemoryRouter>);
 
     expect(html).toContain('>Yeni teslim</button>');
     expect(html).toContain('>Yeni görev</button>');
+    expect(html).toContain('>Yeni görüşme</button>');
     expect(paths.newDelivery).toBe('/jobs/new-delivery');
     expect(paths.newTask).toBe('/jobs/new-task');
+    expect(paths.newMeeting).toBe('/jobs/new-meeting');
   });
 });

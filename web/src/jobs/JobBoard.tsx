@@ -36,7 +36,7 @@ function BoardCard({ job }: { job: JobCardListItem }) {
         <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
         {job.contact && <div><dt>İlgili kişi</dt><dd>{job.contact.name}</dd></div>}
         <div><dt>Sorumlu</dt><dd>{job.assignee.name}</dd></div>
-        <div><dt>Termin</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{formatDate(job.dueDate)}</time> : 'Belirtilmedi'}</dd></div>
+        <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Termin'}</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{formatDate(job.dueDate)}</time> : 'Belirtilmedi'}</dd></div>
         {job.type === 'PRODUCT_DELIVERY' && <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>}
       </dl>
     </Link>

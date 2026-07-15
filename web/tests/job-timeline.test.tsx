@@ -47,6 +47,19 @@ describe('safe JobCard timeline', () => {
     if (import.meta.env.DEV) expect(warn).toHaveBeenCalledWith('Unknown JobCard activity event', { eventType: 'FUTURE_EVENT' });
   });
 
+  it('presents safe meeting field names without values', async () => {
+    const activity: JobCardActivity = { id: 'a3', jobCardId: 'job-1',
+      eventType: 'MEETING_DETAILS_UPDATED', actor: { id: 'staff-1', name: 'Ayşe' },
+      details: { kind: 'MEETING_DETAILS', changedFields: ['outcome', 'meetingSummary'] },
+      createdAt: '2026-07-14T08:00:00.000Z' };
+    await act(async () => root.render(<JobTimeline jobId="job-1"
+      load={vi.fn().mockResolvedValue(page([activity]))} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(host.textContent).toContain('Görüşme sonucu güncellendi');
+    expect(host.textContent).toContain('Sonuç, Görüşme özeti');
+    expect(host.textContent).not.toContain('meetingSummary');
+  });
+
   it('keeps timeline failures local and retryable', async () => {
     const load = vi.fn().mockRejectedValueOnce(new ApiError(503, 'TEMPORARY', 'Geçmiş yüklenemedi.', true)).mockResolvedValueOnce(page([]));
     await act(async () => root.render(<JobTimeline jobId="job-1" load={load} />));

@@ -98,6 +98,7 @@ export function AppRouter({ user, customers, notice, onClearNotice, onDeliveryCr
       <Route path={paths.jobs} element={<JobWorkspace user={user} notice={notice}
         onCreateDelivery={() => { onClearNotice(); navigate(paths.newDelivery); }}
         onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}
+        onCreateMeeting={() => { onClearNotice(); navigate(paths.newMeeting); }}
         onCommand={(intent) => navigate(paths.job(intent.jobId))} />} />
       <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} customers={customers} onCancel={() => navigate(paths.jobs)}
         onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />} />

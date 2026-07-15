@@ -52,6 +52,7 @@ export function JobRow({ job, user, onCommand }: {
           <span className="job-status-shape" aria-hidden="true" />{statusLabels[job.status]}
         </span>
         <span className={`job-priority job-priority-${job.priority}`}>{priorityLabels[job.priority]}</span>
+        <span className="job-row-type">{jobTypeLabels[job.type]}</span>
       </div>
       <h2><Link to={paths.job(job.id)}>{job.title}</Link></h2>
       <dl className="job-row-relations">
@@ -61,7 +62,7 @@ export function JobRow({ job, user, onCommand }: {
     </div>
     <dl className="job-row-facts">
       <div><dt>Sorumlu</dt><dd>{job.assignee.name}</dd></div>
-      <div><dt>Termin</dt><dd>{job.dueDate ? formatDate(job.dueDate) : 'Belirtilmedi'}</dd></div>
+      <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Termin'}</dt><dd>{job.dueDate ? formatDate(job.dueDate) : 'Belirtilmedi'}</dd></div>
       {job.type === 'PRODUCT_DELIVERY' && <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>}
     </dl>
     <button className="secondary-button job-expand" type="button" aria-expanded={expanded} aria-controls={summaryId}
