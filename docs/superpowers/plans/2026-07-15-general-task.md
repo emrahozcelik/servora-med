@@ -1195,7 +1195,7 @@ git add SERVORA_MED_API_DRAFT.md SERVORA_MED_ARCHITECTURE_PLAN.md \
 git commit -m "docs: close Slice 09 general tasks"
 ```
 
-- [ ] **Step 9: Push and verify remote parity**
+- [x] **Step 9: Push and verify remote parity**
 
 ```bash
 git push origin feature/slice-09-general-task
@@ -1230,8 +1230,8 @@ do not merge or open a PR unless explicitly requested.
       speculative abstraction is planned.
 - [x] No unresolved marker or deferred implementation instruction remains.
 
-## Execution Closeout
+## Execution Complete
 
-Slice 09 implementation is verified on `feature/slice-09-general-task`. Tasks 1–13 and
-Task 14 verification, SSOT, self-review, and Codebase Memory steps are complete; the
-closeout commit and remote parity check remain.
+Slice 09 implementation and closeout are complete on
+`feature/slice-09-general-task`. Tasks 1–14 were executed and verified, persisted Codebase
+Memory artifacts were refreshed, and the branch was pushed with local/remote parity.

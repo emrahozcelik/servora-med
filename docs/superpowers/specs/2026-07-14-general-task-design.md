@@ -812,8 +812,9 @@ encourage false delivery UI.
       accessibility, and documentation evidence.
 - [x] No placeholder or unresolved behavior remains.
 
-## 25. Execution Closeout
+## 25. Execution Complete
 
-Slice 09 implementation is verified on `feature/slice-09-general-task`. The approved
-design was implemented through the separate reviewed plan; the closeout commit and remote
-parity check are the remaining execution-record steps.
+Slice 09 implementation and closeout are complete on
+`feature/slice-09-general-task`. The approved design was implemented through the separate
+reviewed plan, Tasks 1–14 were verified, and the branch was pushed with local/remote
+parity for user review.
