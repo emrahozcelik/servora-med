@@ -28,6 +28,10 @@ const report: StaffReportResponse = {
     { purpose: 'SALE', unit: 'Kutu', quantity: '12.500' },
     { purpose: 'SAMPLE', unit: null, quantity: '3.000' },
   ],
+  meetingsByOutcome: [
+    { outcome: 'POSITIVE', count: 1 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 2 },
+    { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
+  ],
 };
 
 describe('Staff operational report', () => {
@@ -58,15 +62,19 @@ describe('Staff operational report', () => {
     expect(html).toContain('Onaylı teslimler');
     expect(html).toContain('12.500');
     expect(html).toContain('Birim belirtilmedi');
+    expect(html).toContain('Görüşme sonuçları');
+    expect(html).toContain('Takip gerekli');
     expect(html).not.toMatch(/puan|sıralama|ciro|stok|komisyon|type="date"|select/i);
   });
 
   it('renders an explanatory no-delivery state', () => {
     const html = renderToStaticMarkup(<StaffOperationalReport report={{
       ...report, deliveriesByPurpose: [],
+      meetingsByOutcome: report.meetingsByOutcome.map((item) => ({ ...item, count: 0 })),
     }} />);
     expect(html).toContain('Bu dönemde onaylı teslim bulunmuyor.');
-    expect(html).not.toContain('<table');
+    expect(html).toContain('Bu dönemde onaylı satış görüşmesi bulunmuyor.');
+    expect((html.match(/<tr/g) ?? []).length).toBe(5);
   });
 
   it('loads the own report independently with the default range', async () => {

@@ -5,8 +5,13 @@ export const JOB_CARD_STATUSES = [
   'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
-export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const;
+export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
 export type JobCardType = (typeof JOB_CARD_TYPES)[number];
+
+export const MEETING_OUTCOMES = [
+  'POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED',
+] as const;
+export type MeetingOutcome = (typeof MEETING_OUTCOMES)[number];
 
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
@@ -19,6 +24,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
+  'MEETING_DETAILS_UPDATED',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -51,6 +57,11 @@ export type JobCardCreateInput =
     clientActionId: string; type: 'GENERAL_TASK'; title: string;
     description?: string | null; customerId?: string | null; contactId?: string | null;
     assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
+  }
+  | {
+    clientActionId: string; type: 'SALES_MEETING'; title: string;
+    description?: string | null; customerId: string; contactId?: string | null;
+    assignedTo: string; priority?: JobCardPriority; dueDate: string;
   };
 
 type NormalizedCommonCreateInput = {
@@ -60,7 +71,38 @@ type NormalizedCommonCreateInput = {
 
 export type NormalizedJobCardCreateInput =
   | NormalizedCommonCreateInput & { type: 'PRODUCT_DELIVERY'; customerId: string }
-  | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null };
+  | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null }
+  | NormalizedCommonCreateInput & {
+      type: 'SALES_MEETING'; customerId: string; dueDate: string;
+    };
+
+export type MeetingDetails = {
+  jobCardId: string;
+  meetingAt: string | null;
+  outcome: MeetingOutcome | null;
+  meetingSummary: string | null;
+  nextFollowUpAt: string | null;
+  jobCardVersion: number;
+};
+
+export type MeetingDetailsCandidate = Pick<
+  MeetingDetails,
+  'meetingAt' | 'outcome' | 'meetingSummary' | 'nextFollowUpAt'
+>;
+
+export const MEETING_DETAIL_FIELDS = [
+  'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+] as const;
+export type MeetingDetailField = (typeof MEETING_DETAIL_FIELDS)[number];
+
+export type PatchMeetingDetailsInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  meetingAt?: string | null;
+  outcome?: MeetingOutcome | null;
+  meetingSummary?: string | null;
+  nextFollowUpAt?: string | null;
+};
 
 export type RelatedIdentity = { id: string; name: string };
 export type JobCardDetail = JobCard & {
@@ -194,6 +236,7 @@ export type JobCardActivityDetails =
       quantity: number | null;
     }
   | { kind: 'NOTE'; noteId: string }
+  | { kind: 'MEETING_DETAILS'; changedFields: MeetingDetailField[] }
   | { kind: 'NONE' };
 
 export type JobCardActivityDto = {

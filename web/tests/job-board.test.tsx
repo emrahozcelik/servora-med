@@ -114,6 +114,18 @@ describe('read-only JobCard board', () => {
     expect(card.textContent).not.toContain('Teslim');
     expect(card.textContent).not.toContain('ürün kalemi');
   });
+
+  it('labels Sales Meeting cards and omits delivery facts', () => {
+    const meeting = { ...baseItem, id: 'meeting-1', type: 'SALES_MEETING' as const,
+      title: 'İmplant görüşmesi', deliveryItemCount: 0 };
+    const meetingBoard = { ...board, columns: { ...board.columns,
+      NEW: { items: [meeting], count: 1 } } };
+    const host = document.createElement('div'); host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={meetingBoard} params={new URLSearchParams()} /></MemoryRouter>);
+    const card = host.querySelector('[data-board-card="meeting-1"]')!;
+    expect(card.textContent).toContain('Satış görüşmesi'); expect(card.textContent).toContain('Planlanan görüşme günü');
+    expect(card.textContent).not.toContain('ürün kalemi');
+  });
 });
 
 describe('responsive routed JobCard board', () => {

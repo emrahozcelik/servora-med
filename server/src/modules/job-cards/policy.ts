@@ -29,6 +29,16 @@ export function assertProductDeliveryJob(job: JobCard) {
   }
 }
 
+export function assertSalesMeetingJob(job: JobCard) {
+  if (job.type !== 'SALES_MEETING') {
+    throw new AppError(
+      'INVALID_JOB_TYPE',
+      409,
+      'Görüşme bilgileri yalnız satış görüşmesi işlerinde kullanılabilir.',
+    );
+  }
+}
+
 export function assertCanEdit(actor: JobCardActor, job: JobCard) {
   assertSameOrganization(actor, job.organizationId);
   if (['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'].includes(job.status)) {

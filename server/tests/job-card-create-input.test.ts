@@ -51,6 +51,27 @@ describe('JobCard create input', () => {
     });
   });
 
+  it('normalizes the exact Sales Meeting body and accepts a past planned day', () => {
+    expect(parseJobCardCreateInput({
+      clientActionId: '  meeting-create-1  ',
+      type: 'SALES_MEETING',
+      title: '  Kontrol görüşmesi  ',
+      customerId: CUSTOMER_ID,
+      assignedTo: STAFF_ID,
+      dueDate: '2025-12-01',
+    })).toEqual({
+      clientActionId: 'meeting-create-1',
+      type: 'SALES_MEETING',
+      title: 'Kontrol görüşmesi',
+      description: null,
+      customerId: CUSTOMER_ID,
+      contactId: null,
+      assignedTo: STAFF_ID,
+      priority: 'normal',
+      dueDate: '2025-12-01',
+    });
+  });
+
   it.each([
     undefined,
     null,
@@ -91,4 +112,22 @@ describe('JobCard create input', () => {
       clientActionId: 'a1', type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: STAFF_ID,
     })).toThrowError(validationError);
   });
+
+  it.each(['customerId', 'dueDate'])('requires Sales Meeting %s', (field) => {
+    const input: Record<string, unknown> = {
+      clientActionId: 'a1', type: 'SALES_MEETING', title: 'Görüşme',
+      customerId: CUSTOMER_ID, assignedTo: STAFF_ID, dueDate: '2026-07-15',
+    };
+    delete input[field];
+    expect(() => parseJobCardCreateInput(input)).toThrowError(validationError);
+  });
+
+  it.each(['meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt'])
+    ('rejects result field %s from Sales Meeting create', (field) => {
+      expect(() => parseJobCardCreateInput({
+        clientActionId: 'a1', type: 'SALES_MEETING', title: 'Görüşme',
+        customerId: CUSTOMER_ID, assignedTo: STAFF_ID, dueDate: '2026-07-15',
+        [field]: 'unexpected',
+      })).toThrowError(validationError);
+    });
 });

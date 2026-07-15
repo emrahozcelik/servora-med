@@ -3,6 +3,7 @@ import type { JobCardType } from './jobs-api';
 export const jobTypeLabels: Record<JobCardType, string> = {
   PRODUCT_DELIVERY: 'Ürün teslimi',
   GENERAL_TASK: 'Genel görev',
+  SALES_MEETING: 'Satış görüşmesi',
 };
 
 export const JOB_CARD_ACTIVITY_EVENTS = [
@@ -10,6 +11,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
+  'MEETING_DETAILS_UPDATED',
 ] as const;
 
 export type KnownJobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
@@ -29,6 +31,7 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   DELIVERY_ITEM_UPDATED: 'Teslim ürünü güncellendi',
   DELIVERY_ITEM_REMOVED: 'Teslim ürünü kaldırıldı',
   NOTE_ADDED: 'Operasyon notu eklendi',
+  MEETING_DETAILS_UPDATED: 'Görüşme sonucu güncellendi',
 };
 
 export function isKnownJobCardActivityEvent(value: string): value is KnownJobCardActivityEvent {

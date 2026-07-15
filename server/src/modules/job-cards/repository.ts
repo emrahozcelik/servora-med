@@ -15,6 +15,8 @@ import type {
   LifecycleCommand,
   Paginated,
   JobCardNoteDto,
+  MeetingDetailsCandidate,
+  MeetingOutcome,
 } from './types.js';
 import type { Pool, PoolClient } from 'pg';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
@@ -60,6 +62,10 @@ export type CreateJobCardRecord = {
   customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string;
   priority: JobCardPriority; dueDate: string | null;
 };
+export type MeetingDetailsRecord = MeetingDetailsCandidate & {
+  organizationId: string;
+  jobCardId: string;
+};
 
 export type JobCardReadScope = { organizationId: string; assignedTo: string | null };
 export type UpdateJobCardFields = Partial<Pick<
@@ -86,6 +92,7 @@ export type ActivityRecord = {
 export type PageQuery = { limit: number; offset: number };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
+export type SubmissionCustomer = JobCustomerReference & { organizationId: string };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
 
 export interface JobCardTransaction {
@@ -99,8 +106,18 @@ export interface JobCardTransaction {
   getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
   customerExists(organizationId: string, customerId: string): Promise<boolean>;
+  getSubmissionCustomer(
+    organizationId: string,
+    customerId: string,
+  ): Promise<SubmissionCustomer | null>;
   getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
   createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
+  createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
+  getMeetingDetailsForUpdate(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<MeetingDetailsCandidate | null>;
+  updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
   getProduct(organizationId: string, productId: string): Promise<ProductReference | null>;
   getDeliveryItemForUpdate(organizationId: string, jobCardId: string, itemId: string): Promise<DeliveryItemRecord | null>;
@@ -128,6 +145,10 @@ export interface JobCardRepository {
   listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   findJobCardDetail(organizationId: string, jobCardId: string): Promise<JobCardDetail | null>;
+  findMeetingDetails(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<MeetingDetailsCandidate | null>;
   executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>): Promise<T>;
   listDeliveryItems(organizationId: string, jobCardId: string): Promise<DeliveryItemRecord[]>;
   listActivity(
@@ -146,7 +167,8 @@ export interface JobCardRepository {
 type JobCardRow = {
   id: string; organization_id: string; type: JobCard['type']; status: JobCardStatus;
   version: number; title: string; description: string | null; customer_id: string | null; contact_id: string | null;
-  assigned_to: string; created_by: string; priority: JobCardPriority; due_date: string | null;
+  assigned_to: string; created_by: string; priority: JobCardPriority;
+  due_date: string | Date | null;
 };
 type JobCardDetailRow = JobCardRow & {
   assignee_id: string; assignee_name: string;
@@ -160,7 +182,7 @@ type JobCardListRow = {
   version: number;
   title: string;
   priority: JobCardPriority;
-  due_date: string | null;
+  due_date: string | Date | null;
   created_at: Date;
   updated_at: Date;
   staff_completed_at: Date | null;
@@ -183,6 +205,22 @@ type NoteRow = {
   id: string; job_card_id: string; note: string; author_id: string;
   author_name: string; created_at: Date;
 };
+type MeetingDetailsRow = {
+  job_card_id: string;
+  meeting_at: Date | null;
+  outcome: MeetingOutcome | null;
+  meeting_summary: string | null;
+  next_follow_up_at: Date | null;
+};
+
+function mapMeetingDetails(row: MeetingDetailsRow): MeetingDetailsCandidate {
+  return {
+    meetingAt: row.meeting_at?.toISOString() ?? null,
+    outcome: row.outcome,
+    meetingSummary: row.meeting_summary,
+    nextFollowUpAt: row.next_follow_up_at?.toISOString() ?? null,
+  };
+}
 function mapNote(row: NoteRow): JobCardNoteDto {
   return {
     id: row.id, jobCardId: row.job_card_id, note: row.note,
@@ -205,8 +243,16 @@ function mapJobCard(row: JobCardRow): JobCard {
     id: row.id, organizationId: row.organization_id, type: row.type, status: row.status,
     version: row.version, title: row.title, description: row.description,
     customerId: row.customer_id, contactId: row.contact_id, assignedTo: row.assigned_to, createdBy: row.created_by,
-    priority: row.priority, dueDate: row.due_date,
+    priority: row.priority, dueDate: mapCalendarDate(row.due_date),
   };
+}
+
+function mapCalendarDate(value: string | Date | null) {
+  if (value === null || typeof value === 'string') return value;
+  const year = value.getFullYear();
+  const month = String(value.getMonth() + 1).padStart(2, '0');
+  const day = String(value.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
 }
 
 const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
@@ -245,7 +291,7 @@ function mapJobCardListItem(row: JobCardListRow): JobCardListItem {
     version: row.version,
     title: row.title,
     priority: row.priority,
-    dueDate: row.due_date,
+    dueDate: mapCalendarDate(row.due_date),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
     staffCompletedAt: row.staff_completed_at?.toISOString() ?? null,
@@ -447,6 +493,23 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     return (result.rowCount ?? 0) > 0;
   }
 
+  async getSubmissionCustomer(organizationId: string, customerId: string) {
+    const result = await this.client.query<{
+      id: string;
+      organization_id: string;
+      status: SubmissionCustomer['status'];
+    }>(
+      `SELECT id, organization_id, status
+         FROM customers
+        WHERE organization_id = $1 AND id = $2`,
+      [organizationId, customerId],
+    );
+    const row = result.rows[0];
+    return row
+      ? { id: row.id, organizationId: row.organization_id, status: row.status }
+      : null;
+  }
+
   async getContactForUpdate(organizationId: string, contactId: string) {
     const result = await this.client.query<{ id: string; customer_id: string; is_active: boolean }>(
       `SELECT id, customer_id, is_active FROM contacts
@@ -467,6 +530,36 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         input.contactId, input.assignedTo, input.createdBy, input.priority, input.dueDate],
     );
     return mapJobCard(result.rows[0]!);
+  }
+
+  async createMeetingDetails(input: { organizationId: string; jobCardId: string }) {
+    await this.client.query(
+      `INSERT INTO job_card_meeting_details (organization_id, job_card_id)
+       VALUES ($1, $2)`,
+      [input.organizationId, input.jobCardId],
+    );
+  }
+
+  async getMeetingDetailsForUpdate(organizationId: string, jobCardId: string) {
+    const result = await this.client.query<MeetingDetailsRow>(
+      `SELECT job_card_id, meeting_at, outcome, meeting_summary, next_follow_up_at
+         FROM job_card_meeting_details
+        WHERE organization_id = $1 AND job_card_id = $2
+        FOR UPDATE`,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapMeetingDetails(result.rows[0]) : null;
+  }
+
+  async updateMeetingDetails(input: MeetingDetailsRecord) {
+    await this.client.query(
+      `UPDATE job_card_meeting_details
+          SET meeting_at = $3, outcome = $4, meeting_summary = $5,
+              next_follow_up_at = $6, updated_at = NOW()
+        WHERE organization_id = $1 AND job_card_id = $2`,
+      [input.organizationId, input.jobCardId, input.meetingAt, input.outcome,
+        input.meetingSummary, input.nextFollowUpAt],
+    );
   }
 
   async updateFieldsWithVersion(input: UpdateJobCardInput) {
@@ -718,6 +811,16 @@ implements JobCardRepository, ApprovalQueueItemPort {
       [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
+  }
+
+  async findMeetingDetails(organizationId: string, jobCardId: string) {
+    const result = await this.pool.query<MeetingDetailsRow>(
+      `SELECT job_card_id, meeting_at, outcome, meeting_summary, next_follow_up_at
+         FROM job_card_meeting_details
+        WHERE organization_id = $1 AND job_card_id = $2`,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapMeetingDetails(result.rows[0]) : null;
   }
 
   async executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>) {

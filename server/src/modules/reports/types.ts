@@ -1,6 +1,7 @@
 import type {
   DeliveryPurpose,
   JobCardListItem,
+  MeetingOutcome,
 } from '../job-cards/types.js';
 
 export type RequestedReportRange = Readonly<{ from: string; to: string }> | null;
@@ -139,11 +140,17 @@ export type ReportStaffIdentity = {
   isActive: boolean;
 };
 
+export type MeetingOutcomeItem = {
+  outcome: MeetingOutcome;
+  count: number;
+};
+
 export type StaffReportResponse = {
   staff: ReportStaffIdentity;
   range: ResolvedReportRange;
   counters: StaffOperationalCounters;
   deliveriesByPurpose: DeliveryPurposeItem[];
+  meetingsByOutcome: MeetingOutcomeItem[];
 };
 
 export type ReportRangeQuery = { requestedRange: RequestedReportRange };

@@ -1,7 +1,7 @@
 # Servora-Med API Draft
 
 > Date: 2026-07-10  
-> Status: Living API contract; implemented and verified through Slice 09 General Task
+> Status: Living API contract; implemented and verified through Slice 10 Structured Sales Meeting
 > Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT
 
 ## 1. General Contract
@@ -109,6 +109,9 @@ CUSTOMER_ASSIGNEE_NOT_ELIGIBLE
 ASSIGNEE_NOT_FOUND
 ASSIGNEE_NOT_ELIGIBLE
 INVALID_JOB_TYPE
+JOB_CARD_NOT_FOUND
+JOB_NOT_EDITABLE
+MEETING_NOT_READY
 ```
 
 Validation details may identify fields but must not expose SQL, stack traces, hashes, tokens, cookies, or internal infrastructure.
@@ -464,7 +467,7 @@ limit
 offset
 ```
 
-`type` accepts exactly `PRODUCT_DELIVERY` or `GENERAL_TASK`. Repeated scalar filters,
+`type` accepts exactly `PRODUCT_DELIVERY`, `GENERAL_TASK`, or `SALES_MEETING`. Repeated scalar filters,
 unknown values, and unknown query keys return `400 VALIDATION_ERROR`.
 
 The list response is canonical and paginated. Board cards reuse the same item shape,
@@ -501,14 +504,30 @@ type GeneralTaskCreateInput = {
   dueDate?: string | null
 }
 
-type JobCardCreateInput = ProductDeliveryCreateInput | GeneralTaskCreateInput
+type SalesMeetingCreateInput = {
+  clientActionId: string
+  type: 'SALES_MEETING'
+  title: string
+  description?: string | null
+  customerId: string
+  contactId?: string | null
+  assignedTo: string
+  priority?: 'low' | 'normal' | 'high' | 'urgent'
+  dueDate: string
+}
+
+type JobCardCreateInput =
+  | ProductDeliveryCreateInput
+  | GeneralTaskCreateInput
+  | SalesMeetingCreateInput
 ```
 
 Unknown fields and delivery-item fields are rejected. Product Delivery still requires a
-Customer; General Task permits nullable Customer and Contact context. A non-null Contact
-requires an active same-organization Customer and must belong to it.
+Customer; General Task permits nullable Customer and Contact context; Sales Meeting
+requires an active Customer and an organization-local planned calendar day in `dueDate`.
+A non-null Contact requires an active same-organization Customer and must belong to it.
 
-Create and patch assignee resolution is shared by both variants:
+Create and patch assignee resolution is shared by all three variants:
 
 | Input and actor | Response |
 | --- | --- |
@@ -522,7 +541,7 @@ Manager and Admin select an active same-organization Staff user.
 
 At submit readiness, a persisted assignee that is no longer an active,
 same-organization Staff user returns `400 ASSIGNEE_NOT_ELIGIBLE`. This existing Product
-Delivery behavior is shared by both canonical JobCard types.
+Delivery behavior is shared by all canonical JobCard types.
 
 Response creates `JOB_CREATED` with the initial assignee in event metadata. Initial assignment does not create a second activity row.
 
@@ -582,7 +601,46 @@ Rules:
 
 Successful commands append `DELIVERY_ITEM_ADDED`, `DELIVERY_ITEM_UPDATED`, or `DELIVERY_ITEM_REMOVED` and increment JobCard version atomically.
 
-## 12. Notes and Activity
+## 12. Sales Meeting Details
+
+| Method | Path | Roles | Behavior |
+| --- | --- | --- | --- |
+| GET | `/:jobCardId/meeting-details` | visible Sales Meeting | canonical structured result |
+| PATCH | `/:jobCardId/meeting-details` | edit policy | target-scoped idempotent update |
+
+Canonical response:
+
+```ts
+type MeetingOutcome =
+  | 'POSITIVE'
+  | 'FOLLOW_UP_REQUIRED'
+  | 'NO_DECISION'
+  | 'NOT_INTERESTED'
+
+type MeetingDetails = {
+  jobCardId: string
+  meetingAt: string | null
+  outcome: MeetingOutcome | null
+  meetingSummary: string | null
+  nextFollowUpAt: string | null
+  jobCardVersion: number
+}
+```
+
+PATCH accepts exactly `clientActionId`, `expectedVersion`, and at least one of
+`meetingAt`, `outcome`, `meetingSummary`, or `nextFollowUpAt`. Instants require an explicit
+offset or `Z`. Summary is trimmed, blank becomes null, and the maximum is 4000 Unicode
+code points. A follow-up, when present, must be strictly later than `meetingAt`.
+
+Parent concealment occurs before the Sales Meeting type guard and version/detail work.
+Malformed `:jobCardId` returns `404 JOB_CARD_NOT_FOUND` before PostgreSQL; a visible
+non-meeting parent returns `409 INVALID_JOB_TYPE`. `WAITING_APPROVAL`, `COMPLETED`, and
+`CANCELLED` reuse `409 JOB_NOT_EDITABLE`. Stale version returns `409 VERSION_CONFLICT`;
+an empty or no-op patch returns `400 VALIDATION_ERROR`. A successful transaction locks
+JobCard then detail, updates the result, increments the parent version once, and appends
+one `MEETING_DETAILS_UPDATED` event containing only ordered changed-field names.
+
+## 13. Notes and Activity
 
 | Method | Path | Roles | Behavior |
 | --- | --- | --- | --- |
@@ -605,7 +663,7 @@ or increment the JobCard version. Successful addition atomically appends `NOTE_A
 Notes are append-only through the application contract; no public or repository
 update/delete operation exists.
 
-## 13. Named JobCard Commands
+## 14. Named JobCard Commands
 
 There is no generic transition route.
 
@@ -645,6 +703,18 @@ For `GENERAL_TASK`:
 - non-empty title
 - eligible assignee
 
+For `SALES_MEETING`, validation order is deterministic:
+
+1. active same-organization Customer
+2. eligible assignee
+3. actual `meetingAt`, one canonical outcome, and normalized non-empty summary
+
+`meetingAt` may be at most 15 minutes after the authoritative request time. A non-null
+follow-up must be later than the meeting; `FOLLOW_UP_REQUIRED` does not make follow-up
+mandatory. Relation failures retain `CUSTOMER_NOT_FOUND`, `CUSTOMER_INACTIVE`, and
+`ASSIGNEE_NOT_ELIGIBLE`; structured field failures return `400 MEETING_NOT_READY` with
+safe `details.fieldErrors` keys only.
+
 An exhaustive backend policy keyed by the canonical JobCard type selects these readiness
 requirements. The lifecycle transaction, state transition, timestamps, versioning,
 idempotency, and activity append remain shared.
@@ -662,7 +732,7 @@ While `WAITING_APPROVAL`:
 
 Approval appends `JOB_APPROVED`. Revision appends `JOB_REVISION_REQUESTED`. Resume appends `JOB_RESUMED`. Cancel appends `JOB_CANCELLED`. Plan and start append `JOB_PLANNED` and `JOB_STARTED`.
 
-## 14. Board Read Projection
+## 15. Board Read Projection
 
 `GET /api/job-cards/board` may return grouped lists without becoming a second data source:
 
@@ -684,7 +754,7 @@ Approval appends `JOB_APPROVED`. Revision appends `JOB_REVISION_REQUESTED`. Resu
 
 Completed and cancelled records are represented only by filtered counts in the board projection. Their records remain available through the canonical paginated list. Mobile clients use the list route rather than rendering a squeezed board.
 
-## 15. Reports `/api/reports`
+## 16. Reports `/api/reports`
 
 | Method | Path | Roles | Behavior |
 | --- | --- | --- | --- |
@@ -712,7 +782,12 @@ Delivery responses are discriminated by `groupBy` into exact day, purpose, Produ
 
 Dashboard completion counts and the single daily completion trend use `managerApprovedAt`; cancellation counts use `cancelledAt`. Current active, overdue, waiting-approval, and revision-requested counters are point-in-time values. Approval age covers only `WAITING_APPROVAL`, begins at `staffCompletedAt`, and is calculated against one authoritative server request time.
 
-Dashboard counters and trend, Staff JobCard counters, and approval queue metrics include every JobCard type. Delivery report quantities and Staff `deliveriesByPurpose` include only `PRODUCT_DELIVERY`. Activating `GENERAL_TASK` in Slice 09 therefore affects operational counters and approval metrics but never delivery quantities.
+Dashboard counters and trend, Staff JobCard counters, and approval queue metrics include every JobCard type. Delivery report quantities and Staff `deliveriesByPurpose` include only `PRODUCT_DELIVERY`. General Task and Sales Meeting therefore affect operational counters and approval metrics but never delivery quantities.
+
+Staff responses also contain exactly four zero-filled `meetingsByOutcome` rows in
+canonical order. They include only `COMPLETED SALES_MEETING` JobCards, attribute ownership
+through `job_cards.assigned_to`, and apply the requested organization-local date range to
+actual `meeting_at`, not `due_date`, submission, or approval time.
 
 Approval elapsed time is clamped with `GREATEST(requestTime - staff_completed_at, interval '0 seconds')`. Summary values cover the complete filtered queue rather than the current item page. `pendingCount` equals `total` and the sum of the four mutually exclusive age buckets. A future `staffCompletedAt` contributes zero minutes to `under2Hours`.
 
@@ -720,7 +795,7 @@ Approval `items` use the canonical `JobCardListItem` projection plus a non-negat
 
 The complete Slice 08 DTO, timezone, grouping, bucket, sorting, and accessibility contract is defined in `docs/superpowers/specs/2026-07-14-operational-reports-design.md`.
 
-## 16. Health `/api/health`
+## 17. Health `/api/health`
 
 | Method | Path | Auth | Behavior |
 | --- | --- | --- | --- |
@@ -729,7 +804,7 @@ The complete Slice 08 DTO, timezone, grouping, bucket, sorting, and accessibilit
 
 Unauthenticated health responses do not expose environment, host, filesystem, database name, migration filenames, or dependency versions.
 
-## 17. DTO Shape
+## 18. DTO Shape
 
 Canonical JobCard detail response:
 
@@ -737,7 +812,7 @@ Canonical JobCard detail response:
 type JobCardDetail = {
   id: string
   organizationId: string
-  type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK'
+  type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' | 'SALES_MEETING'
   status: JobCardStatus
   version: number
   title: string
@@ -755,10 +830,12 @@ type JobCardDetail = {
 ```
 
 The organization-scoped JobCard repository produces these related identities in the same
-canonical detail projection. Product Delivery continues to load its delivery-items
-subresource. General Task never requests or renders that subresource; list, add, patch,
-and remove attempts all return `409 INVALID_JOB_TYPE` after parent visibility checks and
-before item, Product, or version work.
+canonical detail projection. Product Delivery loads its delivery-items subresource,
+Sales Meeting loads its meeting-details subresource, and General Task loads neither.
+Delivery list/add/patch/remove attempts for either non-delivery type return
+`409 INVALID_JOB_TYPE` after parent visibility checks and before item, Product, or
+version work. Meeting-details requests for either non-meeting type follow the same parent
+concealment and type-guard order.
 
 Conceptual delivery-item response:
 
@@ -781,7 +858,7 @@ type DeliveryItemDto = {
 }
 ```
 
-## 18. Explicitly Absent API Areas
+## 19. Explicitly Absent API Areas
 
 - stock and warehouse mutations
 - invoices, payments, revenue, margins, and commissions

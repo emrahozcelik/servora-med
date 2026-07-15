@@ -62,6 +62,14 @@ describe('structured JobCard list', () => {
     expect(html).not.toContain('0 ürün kalemi');
   });
 
+  it('labels Sales Meeting rows with planned day and no delivery fact', () => {
+    const html = renderList({ kind: 'ready', page: page([{
+      ...item, type: 'SALES_MEETING', title: 'İmplant görüşmesi', deliveryItemCount: 0,
+    }]) });
+    expect(html).toContain('Satış görüşmesi'); expect(html).toContain('Planlanan görüşme günü');
+    expect(html).not.toContain('ürün kalemi');
+  });
+
   it('renders the server page range and explicit previous/next actions', () => {
     const html = renderList({ kind: 'ready', page: page([item], 25, 80) });
     expect(html).toContain('26–50 / 80'); expect(html).toContain('Önceki'); expect(html).toContain('Sonraki');

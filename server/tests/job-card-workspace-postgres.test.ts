@@ -28,6 +28,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       for (const migration of [
         '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
         '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
+        '007_sales_meeting.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await pool.query(await readFile(path, 'utf8'));
@@ -160,6 +161,73 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       ]));
       expect(JSON.stringify(generalTaskActivity)).not.toContain('Klinik dönüşü alındı.');
 
+      let salesMeeting = await service.create(staff, {
+        clientActionId: 'create-sales-meeting', type: 'SALES_MEETING',
+        title: 'Kontrol görüşmesi', description: null,
+        customerId, contactId: null, assignedTo: staffId,
+        priority: 'normal', dueDate: '2026-07-14',
+      });
+      expect(salesMeeting).toMatchObject({
+        type: 'SALES_MEETING', status: 'NEW', version: 1,
+        customer: { id: customerId, name: 'ABC Klinik' },
+        assignee: { id: staffId, name: 'Ayşe Personel' },
+      });
+      expect((await service.list(staff, {
+        ...listQuery, type: 'SALES_MEETING',
+      })).items).toEqual([
+        expect.objectContaining({
+          id: salesMeeting.id, type: 'SALES_MEETING', deliveryItemCount: 0,
+        }),
+      ]);
+      expect((await service.board(staff, {
+        ...filters, type: 'SALES_MEETING', limit: 25,
+      })).columns.NEW.items).toEqual([
+        expect.objectContaining({ id: salesMeeting.id, type: 'SALES_MEETING' }),
+      ]);
+
+      salesMeeting = await service.start(staff, salesMeeting.id, {
+        clientActionId: 'start-sales-meeting', expectedVersion: salesMeeting.version,
+      });
+      const meetingDetails = await service.patchMeetingDetails(staff, salesMeeting.id, {
+        clientActionId: 'save-sales-meeting-result', expectedVersion: salesMeeting.version,
+        meetingAt: '2026-07-14T08:00:00.000Z', outcome: 'FOLLOW_UP_REQUIRED',
+        meetingSummary: 'Kontrol ziyareti tamamlandı.', nextFollowUpAt: null,
+      });
+      salesMeeting = await service.submitForApproval(staff, salesMeeting.id, {
+        clientActionId: 'submit-sales-meeting',
+        expectedVersion: meetingDetails.jobCardVersion,
+      });
+      const waitingReports = new PostgresReportsRepository(pool);
+      await expect(waitingReports.getApprovalSummary({
+        organizationId,
+        requestTime: new Date('2026-07-14T09:00:00.000Z'),
+      })).resolves.toMatchObject({ pendingCount: 1 });
+      await expect(repository.getApprovalItems({
+        organizationId,
+        requestTime: new Date('2026-07-14T09:00:00.000Z'),
+        limit: 25,
+        offset: 0,
+      })).resolves.toEqual([
+        expect.objectContaining({ id: salesMeeting.id, type: 'SALES_MEETING' }),
+      ]);
+      salesMeeting = await service.approve(manager, salesMeeting.id, {
+        clientActionId: 'approve-sales-meeting', expectedVersion: salesMeeting.version,
+      });
+      expect(salesMeeting).toMatchObject({ status: 'COMPLETED', version: 5 });
+      const salesMeetingActivity = await service.listActivity(manager, salesMeeting.id, {
+        limit: 50, offset: 0,
+      });
+      expect(salesMeetingActivity.items).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          eventType: 'MEETING_DETAILS_UPDATED',
+          details: {
+            kind: 'MEETING_DETAILS',
+            changedFields: ['meetingAt', 'outcome', 'meetingSummary'],
+          },
+        }),
+      ]));
+      expect(JSON.stringify(salesMeetingActivity)).not.toContain('Kontrol ziyareti tamamlandı.');
+
       const staffList = await service.list(staff, listQuery);
       expect(staffList.items.map((item) => item.id)).toEqual(expect.arrayContaining([completedJobId, cancelledJobId]));
       expect(staffList.items.map((item) => item.id)).not.toContain(hiddenJobId);
@@ -211,7 +279,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         .rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE' });
 
       const closedBoard = await service.board(manager, { ...filters, limit: 25 });
-      expect(closedBoard.closedCounts).toEqual({ COMPLETED: 2, CANCELLED: 1 });
+      expect(closedBoard.closedCounts).toEqual({ COMPLETED: 3, CANCELLED: 1 });
       const activity = await service.listActivity(manager, completedJobId, { limit: 50, offset: 0 });
       expect(activity.items.map((item) => item.eventType)).toEqual(expect.arrayContaining([
         'DELIVERY_ITEM_ADDED', 'JOB_PLANNED', 'JOB_STARTED', 'JOB_SUBMITTED_FOR_APPROVAL',
@@ -225,8 +293,16 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         organizationId, requestedRange: { from: '2026-07-14', to: '2026-07-14' },
         requestTime: new Date('2026-07-14T09:00:00.000Z'),
       });
-      expect(dashboard.counters.completedInPeriod).toBe(2);
-      expect(dashboard.completedTrend).toEqual([{ date: '2026-07-14', count: 2 }]);
+      expect(dashboard.counters.completedInPeriod).toBe(3);
+      expect(dashboard.completedTrend).toEqual([{ date: '2026-07-14', count: 3 }]);
+      await expect(reports.getOne({
+        organizationId,
+        staffUserId: staffId,
+        requestedRange: { from: '2026-07-14', to: '2026-07-14' },
+        requestTime: new Date('2026-07-14T09:00:00.000Z'),
+      })).resolves.toMatchObject({
+        counters: { completedInPeriod: 3 },
+      });
       const deliveries = await reports.getDeliveryReport({
         organizationId, requestedRange: { from: '2026-07-14', to: '2026-07-14' },
         requestTime: new Date('2026-07-14T09:00:00.000Z'), groupBy: 'purpose',

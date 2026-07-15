@@ -41,10 +41,10 @@ prospect | active | inactive
 ### job_card_type
 
 ```text
-PRODUCT_DELIVERY | GENERAL_TASK
+PRODUCT_DELIVERY | GENERAL_TASK | SALES_MEETING
 ```
 
-`SALES_MEETING` is added only with its structured detail slice. Quote and collection types are outside MVP.
+Quote and collection types are outside MVP.
 
 ### job_card_status
 
@@ -485,9 +485,10 @@ Multiple rows of the same type are locked in stable UUID order. Customer/Contact
 lifecycle guards, JobCard relationship validation, and Staff-assignment cleanup reuse
 the caller-owned transaction so the eligibility check cannot interleave with the write.
 
-## 6. Deferred Structured Sales Meeting
+## 6. Structured Sales Meeting
 
-The later Sales Meeting slice adds the enum value and a one-to-one detail table together:
+Migration `007_sales_meeting.sql` adds the third type, the fifteenth canonical activity
+event `MEETING_DETAILS_UPDATED`, and this one-to-one detail table together:
 
 ```text
 job_card_meeting_details
@@ -499,7 +500,18 @@ job_card_meeting_details
 - meeting_summary
 ```
 
-This is a deferred design boundary, not part of initial migrations or pilot completion.
+`job_card_id` is the primary key. `(organization_id, job_card_id)` references the parent
+JobCard ownership key with `ON DELETE RESTRICT`. Draft result fields are nullable;
+`outcome`, when present, is one of `POSITIVE`, `FOLLOW_UP_REQUIRED`, `NO_DECISION`, or
+`NOT_INTERESTED`. A summary is at most 4000 characters and contains at least one
+non-whitespace character. A non-null `next_follow_up_at` requires a non-null
+`meeting_at` and must be strictly later. The partial
+`meeting_details_org_time_job_idx` indexes only rows with actual meeting time.
+
+The database does not infer the parent type through a trigger. Create and mutation
+services enforce that only `SALES_MEETING` owns a detail row, while PostgreSQL integration
+tests protect the one-to-one, ownership, vocabulary, chronology, and migration rollback
+contracts. `job_cards.version` remains the only concurrency version.
 
 ## 7. Development Seed and Production Bootstrap
 
@@ -525,10 +537,10 @@ Applied slice-aligned migrations:
 | `004_crm_contacts.sql` | versioned Customers, Contacts, JobCard Contact relationship, CRM indexes and audits |
 | `005_product_catalog.sql` | nullable informational Product fields, Product versions/audits, duplicate SKU support, nullable delivery unit snapshots |
 | `006_jobcard_workspace.sql` | application-contract append-only JobCard notes, workspace indexes, planned/started timestamp guards |
+| `007_sales_meeting.sql` | Sales Meeting type/event vocabularies, one-to-one structured results, constraints and report index |
 
-Applied migrations 001–006 are immutable. Reports, General Task, and deferred Sales
-Meeting remain later unnumbered groups whose exact filenames are assigned only when
-those slices begin.
+Applied migrations 001–007 are immutable. Reports and General Task required no schema
+migration.
 
 ## 9. Explicit Omissions
 

@@ -67,10 +67,12 @@ describe('Staff JobCard detail', () => {
     expect(html).not.toContain('Ürün teslimi');
   });
 
-  it('guards both the delivery request and delivery section by canonical type', () => {
+  it('uses exactly one structured subresource for each canonical type', () => {
     const source = readFileSync(`${process.cwd()}/src/JobDetail.tsx`, 'utf8');
 
-    expect(source).toContain("job.type === 'PRODUCT_DELIVERY' ? await listDeliveryItems(jobId) : []");
+    expect(source).toContain("if (job.type === 'PRODUCT_DELIVERY') return { kind: job.type");
+    expect(source).toContain("if (job.type === 'GENERAL_TASK') return { kind: job.type");
+    expect(source).toContain('meetingDetails: await getMeetingDetails(jobId)');
     expect(source).toContain("{job.type === 'PRODUCT_DELIVERY' && <section className=\"delivery-lines\"");
   });
 

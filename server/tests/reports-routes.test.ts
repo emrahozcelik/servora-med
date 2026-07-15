@@ -72,6 +72,12 @@ function dependencies() {
     })),
     getMany: vi.fn(),
     getStaffDeliveriesByPurpose: vi.fn(async () => []),
+    getStaffMeetingsByOutcome: vi.fn(async () => ([
+      { outcome: 'POSITIVE', count: 0 },
+      { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
+      { outcome: 'NO_DECISION', count: 0 },
+      { outcome: 'NOT_INTERESTED', count: 0 },
+    ])),
     getDeliveryReport: vi.fn(async (input) => ({
       groupBy: input.groupBy,
       items: [],

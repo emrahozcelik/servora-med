@@ -111,10 +111,11 @@ export class ReportsService {
       requestedRange: query.requestedRange,
       requestTime,
     };
-    const [identity, summary, deliveriesByPurpose] = await Promise.all([
+    const [identity, summary, deliveriesByPurpose, meetingsByOutcome] = await Promise.all([
       this.reports.getStaffIdentity({ organizationId, staffUserId }),
       this.reports.getOne(input),
       this.reports.getStaffDeliveriesByPurpose(input),
+      this.reports.getStaffMeetingsByOutcome(input),
     ]);
     if (!identity || !summary) throw staffProfileNotFound();
     return {
@@ -122,6 +123,7 @@ export class ReportsService {
       range: summary.range,
       counters: summary.counters,
       deliveriesByPurpose,
+      meetingsByOutcome,
     };
   }
 }

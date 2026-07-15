@@ -82,6 +82,10 @@ describe('Report accessibility contract', () => {
       counters: { openJobCards: 1, waitingApproval: 2, revisionRequested: 3,
         overdueJobCards: 4, completedInPeriod: 5 },
       deliveriesByPurpose: delivery.items,
+      meetingsByOutcome: [
+        { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
+        { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
+      ],
     };
 
     for (const view of [

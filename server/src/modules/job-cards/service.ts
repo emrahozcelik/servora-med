@@ -6,6 +6,7 @@ import {
   assertCanTransition,
   assertCreateAssignmentRequest,
   assertProductDeliveryJob,
+  assertSalesMeetingJob,
 } from './policy.js';
 import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, PageQuery, ProductReference } from './repository.js';
 import {
@@ -22,10 +23,15 @@ import {
   type JobCardPriority,
   type JobCardStatus,
   type LifecycleCommand,
+  MEETING_DETAIL_FIELDS,
+  type MeetingDetails,
+  type MeetingDetailsCandidate,
+  type PatchMeetingDetailsInput,
 } from './types.js';
 import { optionalLifecycleNote, requireActionId, requireLifecycleReason, validation } from './validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 import { validateSubmission } from './submission-policy.js';
+import { validateMeetingDetailsCandidate } from './meeting-details-input.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
@@ -68,6 +74,22 @@ function assertKnownFields(input: object, allowed: readonly string[]) {
   if (Object.keys(input).some((key) => !allowed.includes(key))) {
     throw new AppError('VALIDATION_ERROR', 400, 'İstek desteklenmeyen alan içeriyor.');
   }
+}
+
+function invariantViolation(): never {
+  throw new AppError(
+    'INVARIANT_VIOLATION',
+    500,
+    'İş kaydının yapılandırılmış görüşme bilgileri bulunamadı.',
+  );
+}
+
+function meetingDetailsResponse(
+  jobCardId: string,
+  jobCardVersion: number,
+  details: MeetingDetailsCandidate,
+): MeetingDetails {
+  return { jobCardId, ...details, jobCardVersion };
 }
 
 const DELIVERY_FIELDS = [
@@ -129,6 +151,12 @@ export class JobCardService {
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
           dueDate: input.dueDate,
         });
+        if (input.type === 'SALES_MEETING') {
+          await transaction.createMeetingDetails({
+            organizationId: actor.organizationId,
+            jobCardId: job.id,
+          });
+        }
         await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
           event: 'JOB_CREATED', clientActionId: input.clientActionId,
@@ -186,6 +214,104 @@ export class JobCardService {
       throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
     }
     return job;
+  }
+
+  async getMeetingDetails(actor: JobCardActor, jobCardId: string) {
+    const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
+    if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
+      throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    }
+    assertSalesMeetingJob(job);
+    const details = await this.repository.findMeetingDetails(actor.organizationId, jobCardId);
+    if (!details) invariantViolation();
+    return meetingDetailsResponse(jobCardId, job.version, details);
+  }
+
+  async patchMeetingDetails(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: PatchMeetingDetailsInput,
+  ) {
+    const clientActionId = requireActionId(input.clientActionId);
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw validation('expectedVersion');
+    }
+    if (!MEETING_DETAIL_FIELDS.some((field) => Object.hasOwn(input, field))) {
+      throw validation('body');
+    }
+    const result = await this.repository.executeCriticalAction(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId,
+        operationKey: `MEETING_DETAILS_UPDATE:${jobCardId}`,
+      },
+      async (transaction) => {
+        const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
+        if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
+          throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        }
+        assertSalesMeetingJob(job);
+        if (job.version !== input.expectedVersion) {
+          throw new AppError(
+            'VERSION_CONFLICT',
+            409,
+            'JobCard başka bir işlem tarafından güncellendi.',
+          );
+        }
+        assertCanEdit(actor, job);
+        const current = await transaction.getMeetingDetailsForUpdate(
+          actor.organizationId,
+          jobCardId,
+        );
+        if (!current) invariantViolation();
+        const candidate: MeetingDetailsCandidate = {
+          meetingAt: input.meetingAt === undefined ? current.meetingAt : input.meetingAt,
+          outcome: input.outcome === undefined ? current.outcome : input.outcome,
+          meetingSummary: input.meetingSummary === undefined
+            ? current.meetingSummary
+            : input.meetingSummary,
+          nextFollowUpAt: input.nextFollowUpAt === undefined
+            ? current.nextFollowUpAt
+            : input.nextFollowUpAt,
+        };
+        validateMeetingDetailsCandidate(candidate);
+        const changedFields = MEETING_DETAIL_FIELDS.filter(
+          (field) => Object.hasOwn(input, field) && candidate[field] !== current[field],
+        );
+        if (changedFields.length === 0) throw validation('body');
+        await transaction.updateMeetingDetails({
+          organizationId: actor.organizationId,
+          jobCardId,
+          ...candidate,
+        });
+        const updated = await transaction.bumpVersion(
+          actor.organizationId,
+          jobCardId,
+          input.expectedVersion,
+        );
+        if (!updated) {
+          throw new AppError(
+            'VERSION_CONFLICT',
+            409,
+            'JobCard başka bir işlem tarafından güncellendi.',
+          );
+        }
+        await transaction.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: 'MEETING_DETAILS_UPDATED',
+          clientActionId,
+          metadata: { changedFields },
+        });
+        return meetingDetailsResponse(jobCardId, updated.version, candidate);
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    return result.response;
   }
 
   async patch(actor: JobCardActor, jobCardId: string, input: PatchInput) {
@@ -438,6 +564,7 @@ export class JobCardService {
     input: { clientActionId: string; expectedVersion: number },
     definition: LifecycleDefinition,
   ) {
+    const requestTime = this.now();
     const result = await this.repository.executeCriticalAction(
       { organizationId: actor.organizationId, userId: actor.id,
         clientActionId: input.clientActionId,
@@ -451,9 +578,9 @@ export class JobCardService {
           definition.revisionReason ?? definition.cancelReason ?? undefined,
         );
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
-          await validateSubmission(tx, actor, job);
+          await validateSubmission(tx, actor, job, requestTime);
         }
-        const occurredAt = this.now();
+        const occurredAt = requestTime;
         const updated = await tx.transitionWithVersion({
           organizationId: actor.organizationId, jobCardId, expectedVersion: input.expectedVersion,
           command: definition.command, status: definition.target, occurredAt, actorId: actor.id,

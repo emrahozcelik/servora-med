@@ -109,6 +109,55 @@ describe('Manager review', () => {
     }
   });
 
+  it('loads only meeting details for Sales Meeting and retries one version mismatch', async () => {
+    const meeting = { ...job, type: 'SALES_MEETING' as const, status: 'IN_PROGRESS' as const,
+      title: 'Satış görüşmesi', dueDate: '2026-07-20' };
+    let jobReads = 0; let meetingReads = 0; let deliveryReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) { deliveryReads += 1; return Response.json({ items: [] }); }
+      if (url.endsWith('/meeting-details')) {
+        meetingReads += 1; return Response.json({ jobCardId: 'job-1', meetingAt: null,
+          outcome: null, meetingSummary: null, nextFollowUpAt: null,
+          jobCardVersion: meetingReads === 1 ? meeting.version - 1 : meeting.version });
+      }
+      if (url.includes('/notes?')) return Response.json(page);
+      if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) { jobReads += 1; return Response.json(meeting); }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => { root.render(<JobDetailScreen jobId="job-1" user={manager}
+        onBack={() => {}} onChanged={() => {}} />); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(jobReads).toBe(2); expect(meetingReads).toBe(2); expect(deliveryReads).toBe(0);
+      expect(host.textContent).toContain('Görüşme sonucu');
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it('stops after the second meeting version mismatch and offers an explicit retry', async () => {
+    const meeting = { ...job, type: 'SALES_MEETING' as const, status: 'IN_PROGRESS' as const,
+      title: 'Satış görüşmesi', dueDate: '2026-07-20' };
+    let jobReads = 0; let meetingReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details')) { meetingReads += 1; return Response.json({
+        jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
+        nextFollowUpAt: null, jobCardVersion: meeting.version - 1,
+      }); }
+      if (url.endsWith('/api/job-cards/job-1')) { jobReads += 1; return Response.json(meeting); }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => { root.render(<JobDetailScreen jobId="job-1" user={manager}
+        onBack={() => {}} onChanged={() => {}} />); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      expect(jobReads).toBe(2); expect(meetingReads).toBe(2);
+      expect(host.textContent).toContain('İş ve görüşme bilgileri eşleşmedi');
+      expect(Array.from(host.querySelectorAll('button')).some((button) => button.textContent === 'Tekrar dene')).toBe(true);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
   it.each([
     ['revision', job, 'Düzeltme iste', 'Düzeltme nedeni', '/request-revision', 'REVISION_REQUESTED'],
     ['cancel', { ...job, status: 'NEW' as const }, 'İşi iptal et', 'İptal nedeni', '/cancel', 'CANCELLED'],

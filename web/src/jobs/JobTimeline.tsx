@@ -13,6 +13,10 @@ const fieldLabels = {
   title: 'Başlık', description: 'Açıklama', customer: 'Müşteri', contact: 'İlgili kişi',
   assignee: 'Sorumlu', priority: 'Öncelik', dueDate: 'Termin',
 } as const;
+const meetingFieldLabels = {
+  meetingAt: 'Gerçekleşme zamanı', outcome: 'Sonuç', meetingSummary: 'Görüşme özeti',
+  nextFollowUpAt: 'Takip zamanı',
+} as const;
 
 type TimelineState =
   | { kind: 'loading' }
@@ -27,6 +31,8 @@ function detailText(details: JobCardActivityDetails) {
     return details.quantity === null ? operation : `${operation}, miktar ${details.quantity}`;
   }
   if (details.kind === 'NOTE') return 'Not geçmişe eklendi';
+  if (details.kind === 'MEETING_DETAILS') return details.changedFields
+    .map((field) => meetingFieldLabels[field]).join(', ');
   return '';
 }
 

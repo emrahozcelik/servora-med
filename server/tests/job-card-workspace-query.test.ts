@@ -69,10 +69,13 @@ describe('JobCard workspace list query', () => {
     expect(() => parseJobCardListQuery({ status })).toThrowError(validationError);
   });
 
-  it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const)('accepts canonical type %s', (type) => {
-    expect(parseJobCardListQuery({ type }).type).toBe(type);
-    expect(parseJobCardBoardQuery({ type }).type).toBe(type);
-  });
+  it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const)(
+    'accepts canonical type %s',
+    (type) => {
+      expect(parseJobCardListQuery({ type }).type).toBe(type);
+      expect(parseJobCardBoardQuery({ type }).type).toBe(type);
+    },
+  );
 
   it.each(['', 'UNKNOWN', 'product_delivery'])('rejects invalid type %j', (type) => {
     expect(() => parseJobCardListQuery({ type })).toThrowError(validationError);
@@ -235,6 +238,7 @@ describe('canonical JobCard types', () => {
       'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
       'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
       'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
+      'MEETING_DETAILS_UPDATED',
     ]);
     const commands: LifecycleCommand[] = [
       'PLAN', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION', 'RESUME', 'CANCEL',
