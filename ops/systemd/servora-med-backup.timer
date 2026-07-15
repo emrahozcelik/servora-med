@@ -1,0 +1,10 @@
+[Unit]
+Description=Daily Servora-Med PostgreSQL backup
+
+[Timer]
+OnCalendar=*-*-* 02:30:00 UTC
+Persistent=true
+Unit=servora-med-backup.service
+
+[Install]
+WantedBy=timers.target

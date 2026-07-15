@@ -330,18 +330,20 @@ General JSON settings bags, custom fields, user-created database tables, form bu
 
 ## 14. Deployment and Operations
 
-Production assumptions:
+Production assumptions (Slice 11 implemented):
 
-- TLS terminates at Nginx or Caddy.
-- Fastify trusts only the configured proxy topology.
-- CORS allows only the production web origin with credentials.
-- Health output is generic for unauthenticated callers.
-- Process handles graceful termination.
-- Database backup runs on a schedule and writes exit status, timestamp, and destination to external operations logs.
-- Backup copies leave the VPS according to the restore plan.
-- Restore is rehearsed, not merely documented.
+- TLS terminates at **Caddy** (canonical). Nginx remains an architecture-level alternative only.
+- Fastify binds loopback only and trusts only a configured **loopback** proxy hop.
+- CORS allows only the production **https** web origin with credentials.
+- Schema migrations run via explicit `migrate:prod`, not on process start.
+- Health readiness is generic for unauthenticated callers (`ok` / `unavailable`).
+- Process handles graceful termination with bounded shutdown.
+- Database backup scripts write exit status, timestamp, and destination to external operations logs.
+- Backup copies leave the VPS through an optional encrypted offsite hook.
+- Restore is rehearsed against disposable targets; production target guards are mandatory.
 
-Backup status does not require a product-domain database table in MVP.
+Backup status does not require a product-domain database table in MVP.  
+Runbooks: `docs/operations/production-deployment.md`, `docs/operations/backup-restore.md`.
 
 ## 15. Verification Strategy
 

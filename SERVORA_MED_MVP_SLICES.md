@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
 > Date: 2026-07-10  
-> Status: Living implementation order; verified through Slice 10
+> Status: Living implementation order; verified through Slice 11
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -488,13 +488,23 @@ timeline, outcome reporting, 200% text, and 400% reflow without horizontal overf
 
 ### Acceptance
 
-- [ ] Production refuses unsafe CORS and cookie settings.
-- [ ] Auth secrets and sensitive payloads do not appear in logs.
-- [ ] Public health reveals no infrastructure detail.
-- [ ] Backup exits clearly on failure and records timestamp and destination externally.
-- [ ] Restore is performed against a safe test target and documented.
-- [ ] No product-domain backup status table is required.
-- [ ] Full server tests and both builds pass.
+- [x] Production refuses unsafe CORS and cookie settings.
+- [x] Auth secrets and sensitive payloads do not appear in logs.
+- [x] Public health reveals no infrastructure detail.
+- [x] Backup exits clearly on failure and records timestamp and destination externally.
+- [x] Restore is performed against a safe test target and documented.
+- [x] No product-domain backup status table is required.
+- [x] Full server tests and both builds pass.
+
+Slice 11 was verified on the implementation branch with production config rejection
+tests, loopback trusted-proxy rate-limit identity tests, generic readiness health
+(`200`/`503`), migrate-not-on-start source contract, graceful shutdown helper tests,
+serialized log redaction coverage, bash ops script checks, backup/restore scripts,
+systemd and Caddy templates, and operations runbooks. Server build passed; ordinary
+suite 761 tests with 21 PostgreSQL skips; PostgreSQL-enabled suite 782 tests;
+web 42 files/340 tests; both production builds and high-severity dependency audits
+reported zero vulnerabilities. Live VPS cutover and first host-recorded restore
+rehearsal remain operator steps after release install.
 
 ## 15. Slice 12: WebSocket Only if Polling Is Insufficient
 

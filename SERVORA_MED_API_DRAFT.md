@@ -1,7 +1,7 @@
 # Servora-Med API Draft
 
 > Date: 2026-07-10  
-> Status: Living API contract; implemented and verified through Slice 10 Structured Sales Meeting
+> Status: Living API contract; implemented and verified through Slice 11 Production Deployment
 > Responsibility: HTTP contract, authorization behavior, command semantics, and error model SSOT
 
 ## 1. General Contract
@@ -799,10 +799,11 @@ The complete Slice 08 DTO, timezone, grouping, bucket, sorting, and accessibilit
 
 | Method | Path | Auth | Behavior |
 | --- | --- | --- | --- |
-| GET | `/` | public | generic status only |
-| GET | `/detailed` | admin | bounded database and migration state |
+| GET | `/` | public | readiness: `200 {"status":"ok"}` when the database is reachable and required schema is present; otherwise `503 {"status":"unavailable"}` |
 
-Unauthenticated health responses do not expose environment, host, filesystem, database name, migration filenames, or dependency versions.
+Unauthenticated health responses do not expose environment, host, filesystem, database name, migration filenames/versions, exception text, or dependency versions.
+
+Admin `GET /detailed` remains **deferred** (not implemented in Slice 11).
 
 ## 18. DTO Shape
 

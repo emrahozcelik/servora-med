@@ -1,10 +1,10 @@
 # Servora-Med
 
-Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, Product Delivery, General Task, and Structured Sales Meeting workflows, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, and trusted operational reports through Slice 10.
+Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, Product Delivery, General Task, and Structured Sales Meeting workflows, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, trusted operational reports, and production deployment/backup hardening through Slice 11.
 
 ## Current Scope
 
-Implemented through Slice 10:
+Implemented through Slice 11:
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -57,11 +57,17 @@ Implemented through Slice 10:
   list/board/report integration without delivery-item leakage
 - separate Sales Meeting planning and structured result capture with four canonical
   outcomes, optional follow-up, manager review, safe activity, and Staff outcome reports
+- production config hardening (HTTPS CORS, loopback bind, trusted proxy)
+- generic readiness health (`200` / `503`) without infrastructure leakage
+- explicit production migrate/start scripts (no migrate-on-start)
+- PostgreSQL backup/restore rehearsal scripts, systemd and Caddy templates
+- operations runbooks under `docs/operations/`
 
 Not implemented yet:
 
 - Staff confidential notes and related follow-up cards
-- production deployment hardening and measured realtime
+- measured realtime / WebSocket
+- live VPS cutover and first recorded restore rehearsal on the target host
 
 ## Prerequisites
 
@@ -117,13 +123,13 @@ All three are created with the `mustChangePassword` flag. The command refuses `N
 
 The development seed also creates one Staff profile assigned to the demo Manager, `Demo Dental Klinik`, primary Contact `Dr. Ayşe Yılmaz`, one catalog product, and one Contact-linked `NEW` Product Delivery JobCard with its `JOB_CREATED` activity. These are local reference records, not production migration data.
 
-Public health:
+Public health (readiness):
 
 ```text
 GET http://127.0.0.1:3000/api/health
 ```
 
-Response:
+Response when the database is reachable and schema migrations are present:
 
 ```json
 {
@@ -131,7 +137,17 @@ Response:
 }
 ```
 
-The public response intentionally contains no database, environment, host, filesystem, or dependency detail.
+When the database is unreachable or required schema is missing:
+
+```json
+{
+  "status": "unavailable"
+}
+```
+
+with HTTP status `503`. The public response intentionally contains no database, environment, host, filesystem, migration version, or dependency detail.
+
+Production deploy/backup runbooks: `docs/operations/production-deployment.md` and `docs/operations/backup-restore.md`.
 
 ## Web Setup
 
@@ -359,11 +375,13 @@ cd web && npm audit --omit=dev
 | Variable | Required | Purpose |
 | --- | --- | --- |
 | `NODE_ENV` | no | `development`, `test`, or `production`; defaults to development |
-| `HOST` | no | listen address; defaults to `127.0.0.1` |
+| `HOST` | no | listen address; defaults to `127.0.0.1`; production must be loopback only |
 | `PORT` | no | listen port; defaults to `3000` |
-| `DATABASE_URL` | yes | PostgreSQL connection URL |
-| `LOG_LEVEL` | no | Fastify/Pino log level; defaults to `info` |
-| `CORS_ORIGIN` | production | single exact web origin without a path; local default is `http://127.0.0.1:5173` |
+| `DATABASE_URL` | yes | PostgreSQL `postgresql://` or `postgres://` URL |
+| `LOG_LEVEL` | no | allowlist: `fatal` `error` `warn` `info` `debug` `trace` `silent`; defaults to `info` |
+| `CORS_ORIGIN` | production | single exact origin without a path; production requires `https`; local default is `http://127.0.0.1:5173` |
+| `TRUSTED_PROXY` | production | `loopback`, `127.0.0.1`, or `::1`; defaults to `loopback` outside production |
+| `HEALTH_SCHEMA_VERSION` | no | optional migration version name required for readiness |
 | `SESSION_TTL_SECONDS` | no | opaque session lifetime; defaults to `28800` (8 hours) |
 | `LOGIN_RATE_LIMIT_MAX` | no | login attempts allowed per limiter window; defaults to `5` |
 | `RATE_LIMIT_WINDOW_MS` | no | login limiter window in milliseconds; defaults to `60000` |
@@ -386,3 +404,6 @@ Production secrets must come from the deployment environment. Raw passwords, ses
 - UI context: `PRODUCT.md` and `DESIGN.md`
 - Durable decisions: `DECISIONS.md`
 - Agent discipline: `AGENTS.md`
+- Production deploy: `docs/operations/production-deployment.md`
+- Backup/restore: `docs/operations/backup-restore.md`
+- Ops templates: `ops/`
