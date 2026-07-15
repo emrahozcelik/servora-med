@@ -14,7 +14,7 @@ Internet
         → Caddy http://app.example.com:8080 bind 127.0.0.1 (LaunchDaemon, user servora-med)
           ├── web/dist
           └── /api/* → Fastify 127.0.0.1:3000 (LaunchDaemon, user servora-med)
-                         → PostgreSQL localhost (boot service)
+                         → PostgreSQL localhost (boot service, user servora-postgres)
 ```
 
 ### Hard rules
@@ -25,10 +25,12 @@ no public Fastify (3000) or PostgreSQL
 Caddy binds 127.0.0.1 only; site address uses public Host matcher
 Fastify HOST=127.0.0.1
 API and backup processes run as servora-med (never root)
+PostgreSQL OS process runs as servora-postgres (never root)
 session cookie remains host-only
 Cloudflare Tunnel ≠ Servora-Med authentication
 Cloudflare Tunnel ≠ offsite backup
 never commit cert.pem, token, or tunnel credential JSON
+canonical DB auth: password-bearing DATABASE_URL in private env (not peer trust)
 ```
 
 ### Threat boundary (client IP)
@@ -43,25 +45,28 @@ never commit cert.pem, token, or tunnel credential JSON
 
 | Component | Boot mechanism | Identity |
 |-----------|----------------|----------|
-| PostgreSQL | `sudo brew services start postgresql@16` (system LaunchDaemon) | Homebrew formula service |
+| PostgreSQL | `sudo brew services --sudo-service-user=servora-postgres start postgresql@16` | **servora-postgres** |
 | Fastify API | `/Library/LaunchDaemons/com.servora-med.api.plist` | **servora-med** |
 | Caddy | `/Library/LaunchDaemons/com.servora-med.caddy.plist` | **servora-med** |
 | cloudflared | `sudo cloudflared service install` | official Cloudflare LaunchDaemon |
 | Backup timer | `/Library/LaunchDaemons/com.servora-med.backup.plist` | **servora-med** |
 
-Do **not** use login-dependent `brew services start` (without `sudo`) as the pilot install path. User LaunchAgents stop when nobody is logged in.
+Do **not** use login-dependent `brew services start` (without `sudo`) as the pilot install path. Do **not** use bare `sudo brew services start postgresql@16` (that can leave Postgres owned by root or an interactive admin). User LaunchAgents stop when nobody is logged in.
 
 ### Reboot acceptance (no interactive login)
 
 ```text
 reboot Mac
 do not log in to a GUI session
-PostgreSQL accepts local connections
-Fastify listens on 127.0.0.1:3000
+PostgreSQL starts; process owner is servora-postgres (not root)
+pg_isready -h 127.0.0.1 succeeds
+Fastify listens on 127.0.0.1:3000 as servora-med
 Caddy responds on 127.0.0.1:8080 with Host: app.example.com
 cloudflared shows a connected tunnel
 public https://app.example.com/api/health returns {"status":"ok"}
 ```
+
+Operator-owned until executed on a real Mac: full reboot drill above.
 
 ## Supported assumptions
 
@@ -78,24 +83,31 @@ brew install node@22 postgresql@16 caddy cloudflared
 # Do not use non-sudo brew services as the pilot runtime path.
 ```
 
-## 0. Dedicated service identity (`servora-med`)
+## 0. Dedicated service identities (collision-safe UID/GID)
 
-Canonical user/group name: **`servora-med`** (same as Ubuntu systemd units).
+Canonical names:
 
-```bash
-# Create non-admin service user + group (macOS).
-sudo dscl . -create /Groups/servora-med
-sudo dscl . -create /Groups/servora-med PrimaryGroupID 550
-sudo dscl . -create /Users/servora-med
-sudo dscl . -create /Users/servora-med UserShell /usr/bin/false
-sudo dscl . -create /Users/servora-med RealName "Servora-Med Service"
-sudo dscl . -create /Users/servora-med UniqueID 550
-sudo dscl . -create /Users/servora-med PrimaryGroupID 550
-sudo dscl . -create /Users/servora-med NFSHomeDirectory /var/empty
-sudo dscl . -create /Users/servora-med IsHidden 1
+| Name | Purpose |
+|------|---------|
+| **servora-med** | Fastify, Caddy, backup (same name as Ubuntu systemd units) |
+| **servora-postgres** | PostgreSQL OS process (Homebrew service user) |
+
+Do **not** hardcode `UniqueID` / `PrimaryGroupID` values. Use the repository helper, which:
+
+```text
+existing username/group → verify expected identity and non-admin status
+new identity → choose an unused UID/GID in a private range
+UID/GID already owned by another principal → abort
+partial user/group creation → report and abort safely
 ```
 
-If `dscl` create fails because the name already exists, verify the account is non-admin and continue. Do not run API or backup as an interactive admin user or as **root**.
+```bash
+# From a checkout (or installed release copy of the script):
+sudo ./ops/scripts/ensure-macos-service-identity.sh servora-med "Servora-Med Service"
+sudo ./ops/scripts/ensure-macos-service-identity.sh servora-postgres "Servora PostgreSQL"
+```
+
+Do not run API, backup, or PostgreSQL as an interactive admin user or as **root**.
 
 ### Permissions contract
 
@@ -108,6 +120,7 @@ private env /etc/servora-med/*.env: root:servora-med mode 0640 (readable by serv
 tunnel credentials /etc/cloudflared/<UUID>.json: root:wheel mode 0600 (cloudflared service)
 API/backup wrappers /usr/local/libexec/servora-med/*.sh: root:wheel mode 0755
 LaunchDaemon plists /Library/LaunchDaemons/com.servora-med.*.plist: root:wheel mode 0644
+PostgreSQL data dir (Homebrew): owned by servora-postgres:servora-postgres (not root)
 ```
 
 ```bash
@@ -186,7 +199,7 @@ sudo chown root:servora-med /etc/servora-med/servora-med.env /etc/servora-med/se
 sudo chmod 0640 /etc/servora-med/servora-med.env /etc/servora-med/servora-med-backup.env
 ```
 
-Minimum API keys:
+Minimum API keys (canonical **password-bearing DATABASE_URL**):
 
 ```text
 NODE_ENV=production
@@ -195,11 +208,13 @@ PORT=3000
 CORS_ORIGIN=https://app.example.com
 TRUSTED_PROXY=loopback
 HEALTH_SCHEMA_VERSION=007_sales_meeting
-DATABASE_URL=postgresql://servora@127.0.0.1:5432/servora_med
+DATABASE_URL=postgresql://servora:<APP_DB_PASSWORD>@127.0.0.1:5432/servora_med
 LOG_LEVEL=info
 ```
 
 `CORS_ORIGIN` must be the **public https** origin users type in the browser.
+
+Do **not** rely on Homebrew default peer/trust authentication for the app role. The API must connect with the password embedded in `DATABASE_URL` under a private env file (`root:servora-med`, mode **0640**). The password must not be committed, must not appear on process argv of long-lived helpers, and must not be printed to logs.
 
 ### Backup binary paths (absolute)
 
@@ -231,57 +246,107 @@ The backup wrapper sets a minimal `PATH=/usr/bin:/bin` and **refuses** relative 
 
 ## 4. PostgreSQL boot service + least-privilege app role
 
-### 4.1 Boot-time PostgreSQL
+### 4.1 OS identity + data directory
 
 ```bash
-# System LaunchDaemon (survives reboot without GUI login)
-sudo brew services start postgresql@16
+sudo ./ops/scripts/ensure-macos-service-identity.sh servora-postgres "Servora PostgreSQL"
+
+# Homebrew data directory (Apple Silicon example; Intel uses /usr/local/...):
+PG_DATA="$(/opt/homebrew/bin/brew --prefix postgresql@16)/var/postgresql@16"
+# First-time init if empty:
+if [[ ! -d "$PG_DATA/base" ]]; then
+  sudo mkdir -p "$PG_DATA"
+  sudo chown servora-postgres:servora-postgres "$PG_DATA"
+  sudo -u servora-postgres /opt/homebrew/opt/postgresql@16/bin/initdb -D "$PG_DATA"
+fi
+sudo chown -R servora-postgres:servora-postgres "$PG_DATA"
+sudo chmod 0700 "$PG_DATA"
+```
+
+### 4.2 Boot-time PostgreSQL (non-root service user)
+
+```bash
+# System LaunchDaemon owned by servora-postgres (survives reboot without GUI login).
+sudo brew services \
+  --sudo-service-user=servora-postgres \
+  start postgresql@16
+
 sudo brew services list | grep postgresql
 ```
 
-Verify without login assumptions:
+Verify process identity and readiness (no interactive login assumptions):
 
 ```bash
+# Process owner must be servora-postgres, never root.
+pgrep -lf postgres | head
+ps -o user=,pid=,command= -c postgres 2>/dev/null || ps aux | grep '[p]ostgres'
+# Expect USER column servora-postgres
+
 /opt/homebrew/opt/postgresql@16/bin/pg_isready -h 127.0.0.1
 # Intel: /usr/local/opt/postgresql@16/bin/pg_isready -h 127.0.0.1
 ```
 
-### 4.2 Fail-closed app role (non-superuser)
+### 4.3 Fail-closed app role + password-bearing DATABASE_URL
 
-Do **not** use `createuser -s` (superuser). Application role is **`servora`** (matches `DATABASE_URL` examples).
+Do **not** use `createuser -s` (superuser). Application role is **`servora`**.
+Canonical auth for the API: **password-bearing `DATABASE_URL`** in `/etc/servora-med/servora-med.env`.
 
 ```bash
-# Use the absolute psql/createuser for your arch.
-CREATEUSER_BIN="/opt/homebrew/opt/postgresql@16/bin/createuser"
-CREATEDB_BIN="/opt/homebrew/opt/postgresql@16/bin/createdb"
+# Use absolute tools for your arch (Intel: /usr/local instead of /opt/homebrew).
 PSQL_BIN="/opt/homebrew/opt/postgresql@16/bin/psql"
-# Intel: replace /opt/homebrew with /usr/local
+CREATEDB_BIN="/opt/homebrew/opt/postgresql@16/bin/createdb"
 
-# Create role only if missing; never swallow unrelated failures.
-if ! "$PSQL_BIN" -h 127.0.0.1 -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'servora'" | grep -qx 1; then
-  "$CREATEUSER_BIN" --no-superuser --no-createdb --no-createrole --pwprompt servora
+# Generate app password once; write only into private env files (not shell history if possible).
+APP_DB_PASSWORD="$(openssl rand -base64 32 | tr -d '\n')"
+
+# Create/update private env with password-bearing URL (mode 0640, root:servora-med).
+# Edit /etc/servora-med/servora-med.env:
+#   DATABASE_URL=postgresql://servora:${APP_DB_PASSWORD}@127.0.0.1:5432/servora_med
+# Edit /etc/servora-med/servora-med-backup.env:
+#   PGPASSWORD=${APP_DB_PASSWORD}
+sudo chown root:servora-med /etc/servora-med/servora-med.env /etc/servora-med/servora-med-backup.env
+sudo chmod 0640 /etc/servora-med/servora-med.env /etc/servora-med/servora-med-backup.env
+
+# Apply role via SQL as the DB superuser peer (local admin), password via psql variable (not long-lived argv).
+# Run as the OS user that can peer-auth to the bootstrap superuser (often the installer account once).
+if ! "$PSQL_BIN" -h 127.0.0.1 -d postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname = 'servora'" | grep -qx 1; then
+  "$PSQL_BIN" -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 \
+    -v pass="${APP_DB_PASSWORD}" <<'SQL'
+CREATE ROLE servora LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'pass';
+SQL
 else
-  echo "role servora already exists — verifying non-superuser"
+  "$PSQL_BIN" -h 127.0.0.1 -d postgres -v ON_ERROR_STOP=1 \
+    -v pass="${APP_DB_PASSWORD}" <<'SQL'
+ALTER ROLE servora WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD :'pass';
+SQL
 fi
 
-# Fail closed if role is superuser or missing.
-super="$("$PSQL_BIN" -h 127.0.0.1 -tAc "SELECT rolsuper FROM pg_roles WHERE rolname = 'servora'")"
+super="$("$PSQL_BIN" -h 127.0.0.1 -d postgres -tAc "SELECT rolsuper FROM pg_roles WHERE rolname = 'servora'")"
 if [[ "$super" != "f" ]]; then
   echo "refusing: servora must exist and rolsuper must be false (got: ${super:-missing})" >&2
   exit 1
 fi
 
-if ! "$PSQL_BIN" -h 127.0.0.1 -tAc "SELECT 1 FROM pg_database WHERE datname = 'servora_med'" | grep -qx 1; then
-  "$CREATEDB_BIN" --owner=servora servora_med
+if ! "$PSQL_BIN" -h 127.0.0.1 -d postgres -tAc "SELECT 1 FROM pg_database WHERE datname = 'servora_med'" | grep -qx 1; then
+  "$CREATEDB_BIN" -h 127.0.0.1 --owner=servora servora_med
 fi
+
+# Prove password auth works (no peer trust reliance for app role).
+set -a
+# shellcheck disable=SC1091
+source /etc/servora-med/servora-med.env
+set +a
+"$PSQL_BIN" "$DATABASE_URL" -v ON_ERROR_STOP=1 -tAc 'SELECT current_user' | grep -qx servora
+unset APP_DB_PASSWORD
 ```
 
 If PostgreSQL is unavailable or the operator lacks permission, these commands **exit non-zero**. Do not append `|| true`.
 
-### 4.3 Migrate + first Admin
+### 4.4 Migrate + first Admin
 
 ```bash
 set -a
+# shellcheck disable=SC1091
 source /etc/servora-med/servora-med.env
 set +a
 
@@ -295,6 +360,26 @@ export BOOTSTRAP_ADMIN_EMAIL="…"
 export BOOTSTRAP_ADMIN_PASSWORD="…"
 /opt/homebrew/bin/node dist/db/bootstrap-admin.js
 unset BOOTSTRAP_ADMIN_PASSWORD
+```
+
+### 4.5 API process as servora-med — DB + health smoke
+
+After launchd API install (section 7):
+
+```bash
+# Process identity
+pgrep -lf 'dist/index.js' || true
+# Must run as servora-med, not root
+
+# DB connectivity as the service user with only the private env (minimal environment).
+sudo -u servora-med env -i \
+  PATH=/usr/bin:/bin \
+  HOME=/var/empty \
+  bash -c 'set -a; source /etc/servora-med/servora-med.env; set +a; /opt/homebrew/opt/postgresql@16/bin/psql "$DATABASE_URL" -tAc "SELECT 1"'
+
+# Application readiness
+curl -fsS -H 'Host: app.example.com' http://127.0.0.1:3000/api/health
+# Expect: {"status":"ok"}
 ```
 
 ## 5. Caddy (tunnel origin) — boot LaunchDaemon
