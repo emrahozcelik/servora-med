@@ -538,7 +538,7 @@ git commit -m "feat: add sales meeting details API"
 - Consumes: Task 4 locked detail read, existing Customer and assignee reads, shared
   lifecycle transition transaction, and exact outcomes.
 
-- [ ] **Step 1: Write failing readiness and priority tests**
+- [x] **Step 1: Write failing readiness and priority tests**
 
 Cover Customer missing/cross-org/inactive before assignee; assignee invalid before
 details; each required detail; four outcomes; exact +15-minute boundary and one
@@ -553,7 +553,7 @@ await expect(service.submitForApproval(actor, jobId, commandInput))
   } });
 ```
 
-- [ ] **Step 2: Run lifecycle tests and verify RED**
+- [x] **Step 2: Run lifecycle tests and verify RED**
 
 ```bash
 cd server && npm test -- --run \
@@ -562,7 +562,7 @@ cd server && npm test -- --run \
 
 Expected: FAIL because `SALES_MEETING` has no exhaustive submission policy.
 
-- [ ] **Step 3: Implement the third policy**
+- [x] **Step 3: Implement the third policy**
 
 Add a transaction read returning the canonical detail and implement:
 
@@ -583,7 +583,7 @@ Capture service `requestTime` once at operation entry. Validate Customer, then s
 assignee eligibility, then detail readiness. Return only approved field-error keys and no
 persisted values.
 
-- [ ] **Step 4: Run all lifecycle and delivery regressions**
+- [x] **Step 4: Run all lifecycle and delivery regressions**
 
 ```bash
 cd server && npm test -- --run tests/job-card-lifecycle-service.test.ts \
@@ -594,7 +594,7 @@ cd server && npm run build
 
 Expected: all three policies PASS; Product Delivery and General Task semantics unchanged.
 
-- [ ] **Step 5: Commit Task 5**
+- [x] **Step 5: Commit Task 5**
 
 ```bash
 git add server/src/modules/job-cards/submission-policy.ts \

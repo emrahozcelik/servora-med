@@ -564,6 +564,7 @@ export class JobCardService {
     input: { clientActionId: string; expectedVersion: number },
     definition: LifecycleDefinition,
   ) {
+    const requestTime = this.now();
     const result = await this.repository.executeCriticalAction(
       { organizationId: actor.organizationId, userId: actor.id,
         clientActionId: input.clientActionId,
@@ -577,9 +578,9 @@ export class JobCardService {
           definition.revisionReason ?? definition.cancelReason ?? undefined,
         );
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
-          await validateSubmission(tx, actor, job);
+          await validateSubmission(tx, actor, job, requestTime);
         }
-        const occurredAt = this.now();
+        const occurredAt = requestTime;
         const updated = await tx.transitionWithVersion({
           organizationId: actor.organizationId, jobCardId, expectedVersion: input.expectedVersion,
           command: definition.command, status: definition.target, occurredAt, actorId: actor.id,

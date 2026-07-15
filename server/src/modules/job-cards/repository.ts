@@ -92,6 +92,7 @@ export type ActivityRecord = {
 export type PageQuery = { limit: number; offset: number };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
+export type SubmissionCustomer = JobCustomerReference & { organizationId: string };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
 
 export interface JobCardTransaction {
@@ -105,6 +106,10 @@ export interface JobCardTransaction {
   getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
   customerExists(organizationId: string, customerId: string): Promise<boolean>;
+  getSubmissionCustomer(
+    organizationId: string,
+    customerId: string,
+  ): Promise<SubmissionCustomer | null>;
   getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
   createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
@@ -477,6 +482,23 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `SELECT 1 FROM customers WHERE organization_id=$1 AND id=$2 LIMIT 1`, [organizationId, customerId],
     );
     return (result.rowCount ?? 0) > 0;
+  }
+
+  async getSubmissionCustomer(organizationId: string, customerId: string) {
+    const result = await this.client.query<{
+      id: string;
+      organization_id: string;
+      status: SubmissionCustomer['status'];
+    }>(
+      `SELECT id, organization_id, status
+         FROM customers
+        WHERE organization_id = $1 AND id = $2`,
+      [organizationId, customerId],
+    );
+    const row = result.rows[0];
+    return row
+      ? { id: row.id, organizationId: row.organization_id, status: row.status }
+      : null;
   }
 
   async getContactForUpdate(organizationId: string, contactId: string) {
