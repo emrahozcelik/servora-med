@@ -24,6 +24,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
+  'MEETING_DETAILS_UPDATED',
 ] as const;
 export type JobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
 
@@ -88,6 +89,11 @@ export type MeetingDetailsCandidate = Pick<
   MeetingDetails,
   'meetingAt' | 'outcome' | 'meetingSummary' | 'nextFollowUpAt'
 >;
+
+export const MEETING_DETAIL_FIELDS = [
+  'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
+] as const;
+export type MeetingDetailField = (typeof MEETING_DETAIL_FIELDS)[number];
 
 export type PatchMeetingDetailsInput = {
   clientActionId: string;
@@ -230,6 +236,7 @@ export type JobCardActivityDetails =
       quantity: number | null;
     }
   | { kind: 'NOTE'; noteId: string }
+  | { kind: 'MEETING_DETAILS'; changedFields: MeetingDetailField[] }
   | { kind: 'NONE' };
 
 export type JobCardActivityDto = {

@@ -3,6 +3,7 @@ import {
   DELIVERY_PURPOSES,
   JOB_CARD_PRIORITIES,
   JOB_CARD_STATUSES,
+  MEETING_DETAIL_FIELDS,
   type DeliveryPurpose,
   type JobCardActivityDetails,
   type JobCardActivityDto,
@@ -125,6 +126,19 @@ function deliveryDetails(
   };
 }
 
+function meetingDetails(metadata: unknown): JobCardActivityDetails {
+  const record = jsonRecord(metadata);
+  if (!record || !Array.isArray(record.changedFields)) return { kind: 'NONE' };
+  const persisted = new Set(record.changedFields.filter(
+    (field): field is (typeof MEETING_DETAIL_FIELDS)[number] =>
+      MEETING_DETAIL_FIELDS.includes(field as (typeof MEETING_DETAIL_FIELDS)[number]),
+  ));
+  const changedFields = MEETING_DETAIL_FIELDS.filter((field) => persisted.has(field));
+  return changedFields.length > 0
+    ? { kind: 'MEETING_DETAILS', changedFields }
+    : { kind: 'NONE' };
+}
+
 function details(record: ActivityRecord): JobCardActivityDetails {
   switch (record.eventType) {
     case 'JOB_CREATED': return { kind: 'NONE' };
@@ -149,6 +163,8 @@ function details(record: ActivityRecord): JobCardActivityDetails {
         ? { kind: 'NOTE', noteId: metadata.noteId }
         : { kind: 'NONE' };
     }
+    case 'MEETING_DETAILS_UPDATED':
+      return meetingDetails(record.metadata);
   }
 }
 

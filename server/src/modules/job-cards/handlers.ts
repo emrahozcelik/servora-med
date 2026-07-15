@@ -4,6 +4,7 @@ import { AppError } from '../../errors/index.js';
 import type { JobCardService } from './service.js';
 import type { JobCardActor } from './types.js';
 import { parseJobCardCreateInput } from './create-input.js';
+import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
 import { validation } from './validation.js';
 import { parseJobCardBoardQuery, parseJobCardListQuery } from './workspace-query.js';
 
@@ -57,6 +58,14 @@ export function createJobCardHandlers(service: JobCardService) {
     board: async (request: FastifyRequest) =>
       service.board(actor(request), parseJobCardBoardQuery(request.query)),
     detail: async (request: FastifyRequest<{ Params: Params }>) => service.detail(actor(request), request.params.id),
+    meetingDetails: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.getMeetingDetails(actor(request), parseMeetingJobCardId(request.params.id)),
+    patchMeetingDetails: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.patchMeetingDetails(
+        actor(request),
+        parseMeetingJobCardId(request.params.id),
+        parseMeetingDetailsPatch(request.body),
+      ),
     patch: async (request: FastifyRequest<{ Params: Params }>) =>
       service.patch(actor(request), request.params.id, body(request, PATCH_FIELDS) as never),
     listDeliveryItems: async (request: FastifyRequest<{ Params: Params }>) =>

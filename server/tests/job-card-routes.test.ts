@@ -22,6 +22,15 @@ function serviceDouble() {
       closedCounts: { COMPLETED: 0, CANCELLED: 0 },
     }),
     detail: vi.fn().mockResolvedValue(result), patch: vi.fn().mockResolvedValue({ ...result, version: 2 }),
+    getMeetingDetails: vi.fn().mockResolvedValue({
+      jobCardId: '11111111-1111-4111-8111-111111111111', meetingAt: null,
+      outcome: null, meetingSummary: null, nextFollowUpAt: null, jobCardVersion: 1,
+    }),
+    patchMeetingDetails: vi.fn().mockResolvedValue({
+      jobCardId: '11111111-1111-4111-8111-111111111111',
+      meetingAt: '2026-07-15T10:00:00.000Z', outcome: 'POSITIVE',
+      meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, jobCardVersion: 2,
+    }),
     listDeliveryItems: vi.fn().mockResolvedValue([]), addDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 2 }),
     patchDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 3 }),
     removeDeliveryItem: vi.fn().mockResolvedValue({ id: 'item-1', jobCardVersion: 4 }),
@@ -118,6 +127,56 @@ describe('JobCard routes', () => {
         dueAfter: '2026-07-01', dueBefore: '2026-07-31', limit: 1, offset: 2,
       }),
     );
+  });
+
+  it('dispatches exact Sales Meeting detail GET and normalized PATCH', async () => {
+    const { app, service } = await createApp();
+    const jobCardId = '11111111-1111-4111-8111-111111111111';
+
+    const getResponse = await app.inject({
+      method: 'GET', url: `/api/job-cards/${jobCardId}/meeting-details`,
+    });
+    const patchResponse = await app.inject({
+      method: 'PATCH',
+      url: `/api/job-cards/${jobCardId}/meeting-details`,
+      payload: {
+        clientActionId: 'meeting-save-1', expectedVersion: 1,
+        meetingAt: '2026-07-15T12:00:00+02:00',
+        outcome: 'POSITIVE', meetingSummary: '  Olumlu görüşme  ',
+      },
+    });
+
+    expect(getResponse.statusCode).toBe(200);
+    expect(patchResponse.statusCode).toBe(200);
+    expect(service.getMeetingDetails).toHaveBeenCalledWith(expect.anything(), jobCardId);
+    expect(service.patchMeetingDetails).toHaveBeenCalledWith(expect.anything(), jobCardId, {
+      clientActionId: 'meeting-save-1', expectedVersion: 1,
+      meetingAt: '2026-07-15T10:00:00.000Z',
+      outcome: 'POSITIVE', meetingSummary: 'Olumlu görüşme',
+    });
+  });
+
+  it('rejects malformed meeting paths before service and exact-body violations', async () => {
+    const { app, service } = await createApp();
+    const validId = '11111111-1111-4111-8111-111111111111';
+
+    const malformedPath = await app.inject({
+      method: 'GET', url: '/api/job-cards/not-a-uuid/meeting-details',
+    });
+    const unknownBody = await app.inject({
+      method: 'PATCH', url: `/api/job-cards/${validId}/meeting-details`,
+      payload: {
+        clientActionId: 'meeting-save-2', expectedVersion: 1,
+        outcome: 'POSITIVE', hidden: true,
+      },
+    });
+
+    expect(malformedPath.statusCode).toBe(404);
+    expect(malformedPath.json()).toMatchObject({ code: 'JOB_CARD_NOT_FOUND' });
+    expect(unknownBody.statusCode).toBe(400);
+    expect(unknownBody.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.getMeetingDetails).not.toHaveBeenCalled();
+    expect(service.patchMeetingDetails).not.toHaveBeenCalled();
   });
 
   it.each([

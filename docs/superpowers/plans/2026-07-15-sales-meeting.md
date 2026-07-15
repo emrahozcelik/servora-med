@@ -449,7 +449,7 @@ git commit -m "feat: create structured sales meetings"
 - Consumes: Task 1 parser, Task 2 table, Task 3 detail invariant, existing
   `assertCanEdit`, concealment, `bumpVersion`, and critical-action repository.
 
-- [ ] **Step 1: Write failing route/service tests**
+- [x] **Step 1: Write failing route/service tests**
 
 Cover GET scope/type/missing invariant, PATCH malformed path/body distinction, parent
 concealment before type guard, wrong type, all editable and immutable statuses, Staff
@@ -465,7 +465,7 @@ expect(await service.patchMeetingDetails(actor, jobId, {
 })).toMatchObject({ outcome: 'FOLLOW_UP_REQUIRED', jobCardVersion: 3 });
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 ```bash
 cd server && npm test -- --run tests/job-card-policy.test.ts \
@@ -476,7 +476,7 @@ cd server && npm test -- --run tests/job-card-policy.test.ts \
 Expected: FAIL because the guard, repository operations, service methods, and routes are
 absent.
 
-- [ ] **Step 3: Implement minimal GET/PATCH flow**
+- [x] **Step 3: Implement minimal GET/PATCH flow**
 
 Register:
 
@@ -501,7 +501,7 @@ task that first emits it. Present only:
 
 filtered to fields actually changed and kept in canonical order. Never expose values.
 
-- [ ] **Step 4: Run service, route, concurrency, and build verification**
+- [x] **Step 4: Run service, route, concurrency, and build verification**
 
 ```bash
 cd server && npm test -- --run tests/job-card-policy.test.ts \
@@ -514,7 +514,7 @@ cd server && npm run build
 Expected: all focused tests PASS; exact existing `JOB_NOT_EDITABLE`, `VERSION_CONFLICT`,
 `INVALID_JOB_TYPE`, `ACTION_IN_PROGRESS`, and concealment behavior is preserved.
 
-- [ ] **Step 5: Commit Task 4**
+- [x] **Step 5: Commit Task 4**
 
 ```bash
 git add server/src/modules/job-cards/{types.ts,policy.ts,repository.ts,service.ts,handlers.ts,routes.ts,activity-presenter.ts} \

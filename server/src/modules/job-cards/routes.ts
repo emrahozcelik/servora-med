@@ -13,6 +13,8 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.get('/board', secured, h.board);
   app.get<{ Params: { id: string } }>('/:id', secured, h.detail);
   app.patch<{ Params: { id: string } }>('/:id', secured, h.patch);
+  app.get<{ Params: { id: string } }>('/:id/meeting-details', secured, h.meetingDetails);
+  app.patch<{ Params: { id: string } }>('/:id/meeting-details', secured, h.patchMeetingDetails);
   app.get<{ Params: { id: string } }>('/:id/delivery-items', secured, h.listDeliveryItems);
   app.post<{ Params: { id: string } }>('/:id/delivery-items', secured, h.addDeliveryItem);
   app.patch<{ Params: { id: string; itemId: string } }>('/:id/delivery-items/:itemId', secured, h.patchDeliveryItem);

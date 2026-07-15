@@ -4,7 +4,12 @@ import { presentActivity } from '../src/modules/job-cards/activity-presenter.js'
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import type { ActivityRecord } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
-import type { JobCard, JobCardActivityEvent, JobCardActor } from '../src/modules/job-cards/types.js';
+import {
+  JOB_CARD_ACTIVITY_EVENTS,
+  type JobCard,
+  type JobCardActivityEvent,
+  type JobCardActor,
+} from '../src/modules/job-cards/types.js';
 
 const createdAt = new Date('2026-07-13T12:00:00.000Z');
 const baseRecord = (eventType: JobCardActivityEvent, values: Partial<ActivityRecord> = {}): ActivityRecord => ({
@@ -29,6 +34,18 @@ const lifecycleCases = [
 ] as const;
 
 describe('safe JobCard activity presenter', () => {
+  it('keeps the canonical activity vocabulary at exactly 15 unique events', () => {
+    expect(JOB_CARD_ACTIVITY_EVENTS).toHaveLength(15);
+    expect(new Set(JOB_CARD_ACTIVITY_EVENTS).size).toBe(15);
+    expect(new Set(JOB_CARD_ACTIVITY_EVENTS)).toEqual(new Set([
+      'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_STARTED',
+      'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
+      'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED',
+      'DELIVERY_ITEM_ADDED', 'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED',
+      'NOTE_ADDED', 'MEETING_DETAILS_UPDATED',
+    ]));
+  });
+
   it('presents JOB_CREATED with NONE details and only public DTO keys', () => {
     const result = presentActivity(baseRecord('JOB_CREATED'));
     expect(result).toEqual({
@@ -94,6 +111,23 @@ describe('safe JobCard activity presenter', () => {
     }));
     expect(result.details).toEqual({ kind: 'NOTE', noteId: 'note-1' });
     expect(JSON.stringify(result)).not.toMatch(/Hasta|özel not|metadata/);
+  });
+
+  it('presents meeting changes in canonical field order without persisted values', () => {
+    const result = presentActivity(baseRecord('MEETING_DETAILS_UPDATED', {
+      oldValue: { meetingSummary: 'Eski gizli özet', outcome: 'NO_DECISION' },
+      newValue: { meetingSummary: 'Yeni gizli özet', outcome: 'POSITIVE' },
+      metadata: {
+        changedFields: ['nextFollowUpAt', 'meetingSummary', 'outcome'],
+        meetingSummary: 'Metadata gizli özet',
+      },
+    }));
+
+    expect(result.details).toEqual({
+      kind: 'MEETING_DETAILS',
+      changedFields: ['outcome', 'meetingSummary', 'nextFollowUpAt'],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/Eski|Yeni|Metadata|NO_DECISION|POSITIVE/);
   });
 
   it.each([

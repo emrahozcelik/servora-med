@@ -6,6 +6,7 @@ import {
   assertCanEdit,
   assertCanTransition,
   assertDeliveryReadyForSubmission,
+  assertSalesMeetingJob,
 } from '../src/modules/job-cards/policy.js';
 import type { DeliveryItem, JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
 
@@ -49,6 +50,14 @@ describe('JobCard policy', () => {
     }
     expect(() => assertCanEdit(staff, job)).not.toThrow();
     expect(() => assertCanEdit({ ...staff, id: 'staff-2' }, job)).toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
+  });
+
+  it('accepts only Sales Meeting parents for structured meeting details', () => {
+    expect(() => assertSalesMeetingJob({ ...job, type: 'SALES_MEETING' })).not.toThrow();
+    for (const type of ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const) {
+      expect(() => assertSalesMeetingJob({ ...job, type }))
+        .toThrowError(expect.objectContaining({ code: 'INVALID_JOB_TYPE', statusCode: 409 }));
+    }
   });
 
   it.each([
