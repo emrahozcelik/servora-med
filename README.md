@@ -1,10 +1,38 @@
 # Servora-Med
 
-Servora-Med is a browser-based B2B operations platform for medical and dental product companies. The implementation currently covers secure authentication, Product Delivery, General Task, and Structured Sales Meeting workflows, People administration, role-aware Customer/Contact CRM, the informational Product catalog, the JobCard workspace, trusted operational reports, and production deployment/backup hardening through Slice 11.
+Servora-Med is a browser-based B2B operations platform for medical and dental product companies. Staff record product deliveries, general tasks, and sales meetings as **JobCards**; managers approve or request revision. Authentication, CRM, product catalog, operational reports, and pilot deployment tooling are included.
 
-## Current Scope
+**User manual (Turkish):** [docs/user-manual/servora-med-user-manual.md](docs/user-manual/servora-med-user-manual.md)
 
-Implemented through Slice 11:
+## Implemented scope
+
+Full slice inventory and acceptance live in [`SERVORA_MED_MVP_SLICES.md`](SERVORA_MED_MVP_SLICES.md) (through **Slice 12** pilot docs/templates). Summary:
+
+- Auth (Admin / Manager / Staff), JobCard lifecycle, Product Delivery, General Task, Sales Meeting
+- Customers/contacts, product catalog, notes/timeline, operational reports
+- Production/pilot hardening (config, health, backup/restore scripts, Caddy/systemd templates)
+- Local macOS + Cloudflare Tunnel pilot runbook and install chooser (this README)
+
+## Quick architecture
+
+```text
+Browser → (pilot) Cloudflare HTTPS → Tunnel → Caddy loopback
+       → Fastify API loopback → PostgreSQL local/private
+```
+
+Ubuntu VPS with public Caddy TLS remains a supported **reference** topology ([production-deployment.md](docs/operations/production-deployment.md)).
+
+## Choose your setup
+
+| Path | Guide |
+|------|--------|
+| **Local development** | Sections below (*Five-minute development start*) |
+| **macOS pilot (Cloudflare Tunnel)** | [local-macos-cloudflare-tunnel.md](docs/operations/local-macos-cloudflare-tunnel.md) |
+| **Ubuntu VPS reference** | [production-deployment.md](docs/operations/production-deployment.md) |
+
+## Current Scope (detail)
+
+Implemented through Slice 12 (application through Slice 11; pilot docs Slice 12):
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -62,13 +90,15 @@ Implemented through Slice 11:
 - explicit production migrate/start scripts (no migrate-on-start)
 - PostgreSQL backup/restore rehearsal scripts, systemd and Caddy templates
 - operations runbooks under `docs/operations/`
+- macOS Cloudflare Tunnel pilot guide, tunnel Caddy/cloudflared/launchd examples, user manual
 
-Not implemented yet:
+### Not implemented yet / operator-owned
 
 - Staff confidential notes and related follow-up cards
-- measured realtime / WebSocket
-- live VPS/TLS cutover, host-recorded restore rehearsal, and real offsite copy
-  (repository implements scripts/tests; host execution is operator-owned)
+- WebSocket (evidence-gated **Slice 13**)
+- Live public pilot cutover on a real host (docs ready; execution is operator-owned)
+- Host-recorded restore rehearsal file
+- Real offsite backup copy
 
 ## Prerequisites
 
@@ -76,11 +106,43 @@ Not implemented yet:
 - PostgreSQL 16 or newer
 - npm
 
-## Server Setup
+## Five-minute development start
 
 ```bash
 cd server
-npm install
+npm ci          # or: npm install
+cp .env.example .env
+# create local DB named in DATABASE_URL
+npm run migrate
+npm run dev
+```
+
+In another terminal:
+
+```bash
+cd web
+npm ci
+npm run dev
+```
+
+Open the Vite URL (default `http://127.0.0.1:5173`). Use `npm run db:seed:dev` only for local demo data (refuses production).
+
+### Development vs pilot/production commands
+
+| Intent | Development | Pilot / production process |
+|--------|-------------|----------------------------|
+| Install | `npm ci` / `npm install` | `npm ci` then `npm ci --omit=dev` in release `server/` |
+| Env | repo `server/.env` | private file e.g. `/etc/servora-med/servora-med.env` |
+| Migrate | `npm run migrate` | `npm run migrate:prod` / `node dist/db/migrate.js` |
+| Start | `npm run dev` | `npm run start:prod` / `node dist/index.js` |
+| First admin | optional after empty DB | `bootstrap:admin` / `bootstrap:admin:prod` |
+| Demo users | `db:seed:dev` only | **never** in production |
+
+## Server Setup (detail)
+
+```bash
+cd server
+npm ci
 cp .env.example .env
 ```
 
@@ -395,8 +457,31 @@ cd web && npm audit --omit=dev
 
 Production secrets must come from the deployment environment. Raw passwords, session tokens, cookies, and authorization headers must never be committed or logged.
 
+## Backup and restore
+
+Scripts and contracts: [docs/operations/backup-restore.md](docs/operations/backup-restore.md).
+
+| Capability | Status |
+|------------|--------|
+| Local scheduled backup scripts | available |
+| Disposable restore automated tests | available with `TEST_DATABASE_URL` |
+| Host restore rehearsal record | pending until executed on pilot host |
+| Real offsite copy | pending destination + credentials |
+
+Cloudflare Tunnel does **not** move backups off-host.
+
+## Health and troubleshooting
+
+```bash
+curl -fsS http://127.0.0.1:3000/api/health
+# production pilot public: curl -fsS https://app.example.com/api/health
+```
+
+See operations runbooks for tunnel/VPS failures. Do not share passwords, cookies, or full database URLs when escalating.
+
 ## Documentation
 
+- **User manual (TR):** `docs/user-manual/servora-med-user-manual.md`
 - Product scope: `PRODUCT_REQUIREMENTS.md`
 - Architecture: `SERVORA_MED_ARCHITECTURE_PLAN.md`
 - Schema contract: `SERVORA_MED_SCHEMA_DRAFT.md`
@@ -405,6 +490,7 @@ Production secrets must come from the deployment environment. Raw passwords, ses
 - UI context: `PRODUCT.md` and `DESIGN.md`
 - Durable decisions: `DECISIONS.md`
 - Agent discipline: `AGENTS.md`
-- Production deploy: `docs/operations/production-deployment.md`
+- macOS pilot + Tunnel: `docs/operations/local-macos-cloudflare-tunnel.md`
+- Ubuntu VPS: `docs/operations/production-deployment.md`
 - Backup/restore: `docs/operations/backup-restore.md`
 - Ops templates: `ops/`

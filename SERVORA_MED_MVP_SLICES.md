@@ -41,7 +41,8 @@ Relevant lint and focused accessibility commands are added when the project tool
 | 09 | General Task | 02, 07 | second validated JobCard type |
 | 10 | Structured Sales Meeting | 07 | meeting workflow with reportable details |
 | 11 | Production deployment, backup, and hardening | 01-10 | VPS pilot readiness |
-| 12 | WebSocket, only if polling is insufficient | 07 | measured realtime improvement |
+| 12 | Local pilot cutover, installation guide, user manual | 01-11 | macOS + Cloudflare Tunnel pilot |
+| 13 | WebSocket, only if polling is insufficient | 07 | measured realtime improvement |
 
 Warehouse, accounting, native mobile, custom fields, and user-defined tables are not slices in this plan.
 
@@ -507,7 +508,36 @@ backup→restore acceptance is automated under `TEST_DATABASE_URL`.
 Operator-only remaining steps: live VPS/TLS cutover, host-recorded restore
 rehearsal under `docs/operations/restore-rehearsals/`, and real offsite copy.
 
-## 15. Slice 12: WebSocket Only if Polling Is Insufficient
+## 15. Slice 12: Local Pilot Cutover, Installation Guide, and User Manual
+
+**Goal:** Run Servora-Med as a limited pilot on macOS behind Cloudflare Tunnel without
+inbound ports, with clear developer/pilot install docs and a Turkish user manual.
+
+### Deliverables
+
+- local macOS + Cloudflare Tunnel operations runbook
+- cloudflared named-tunnel config example
+- loopback-only tunnel Caddyfile (public HTTPS at Cloudflare edge)
+- launchd examples for API and backup
+- README install chooser (dev / macOS pilot / Ubuntu VPS reference)
+- Turkish Admin/Manager/Staff user manual grounded in real UI routes
+- client-IP trust chain documentation and contract tests
+- roadmap renumber: WebSocket deferred to Slice 13
+
+### Acceptance
+
+- [x] Tunnel Caddy binds loopback only; Fastify remains loopback-only in production config.
+- [x] Cloudflare Tunnel config example has hostname → local Caddy and catch-all `http_status:404`.
+- [x] Client-IP contract: `CF-Connecting-IP` → Caddy client IP → `X-Forwarded-For` + `X-Forwarded-Proto: https` → Fastify rate-limit identity (contract + trust-proxy tests).
+- [x] README separates development setup from pilot/production commands.
+- [x] Turkish user manual covers Staff delivery/task/meeting, Manager approval/CRM/reports, Admin users.
+- [x] No tunnel credentials or secrets committed.
+- [x] Server/web builds and tests pass for Slice 12 artifacts (contract tests + full ordinary suites). Remote CI green is required before merge.
+
+Operator-only (not claimed by repository alone): live public hostname cutover, host restore rehearsal record,
+real offsite copy.
+
+## 16. Slice 13: WebSocket Only if Polling Is Insufficient
 
 **Goal:** Add realtime only after pilot evidence shows polling or manual refresh is inadequate.
 
@@ -526,7 +556,7 @@ rehearsal under `docs/operations/restore-rehearsals/`, and real offsite copy.
 - [ ] Polling or refetch remains a recovery path.
 - [ ] JobCard correctness does not depend on an active socket.
 
-## 16. MVP Pilot Definition of Done
+## 17. MVP Pilot Definition of Done
 
 The pilot is complete when:
 

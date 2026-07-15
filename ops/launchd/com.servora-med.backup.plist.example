@@ -1,0 +1,35 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Servora-Med PostgreSQL backup — daily LaunchDaemon (non-root).
+  Install as /Library/LaunchDaemons/com.servora-med.backup.plist (root:wheel, mode 0644).
+  Wrapper: ops/launchd/run-backup.sh.example → /usr/local/libexec/servora-med/run-backup.sh
+  Runs as dedicated service user servora-med (never root).
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.servora-med.backup</string>
+	<key>UserName</key>
+	<string>servora-med</string>
+	<key>GroupName</key>
+	<string>servora-med</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/servora-med/run-backup.sh</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>2</integer>
+		<key>Minute</key>
+		<integer>30</integer>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/servora-med/backup.stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/servora-med/backup.stderr.log</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

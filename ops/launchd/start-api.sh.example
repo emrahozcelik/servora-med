@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Servora-Med Fastify API wrapper for launchd (pilot).
+# Install: sudo install -o root -g wheel -m 0755 start-api.sh /usr/local/libexec/servora-med/start-api.sh
+# Edit absolute paths below for Apple Silicon (/opt/homebrew) or Intel (/usr/local).
+set -Eeuo pipefail
+
+ENV_FILE="/etc/servora-med/servora-med.env"
+NODE_BIN="/opt/homebrew/bin/node"
+SERVER_DIR="/opt/servora-med/current/server"
+INDEX_JS="${SERVER_DIR}/dist/index.js"
+
+require_abs() {
+  local name="$1"
+  local value="$2"
+  if [[ -z "${value}" || "${value}" != /* ]]; then
+    printf '%s must be an absolute path\n' "${name}" >&2
+    exit 1
+  fi
+}
+
+require_abs ENV_FILE "${ENV_FILE}"
+require_abs NODE_BIN "${NODE_BIN}"
+require_abs SERVER_DIR "${SERVER_DIR}"
+require_abs INDEX_JS "${INDEX_JS}"
+
+if [[ ! -f "${ENV_FILE}" ]]; then
+  printf 'missing env file: %s\n' "${ENV_FILE}" >&2
+  exit 1
+fi
+if [[ ! -x "${NODE_BIN}" ]]; then
+  printf 'node binary missing or not executable: %s\n' "${NODE_BIN}" >&2
+  exit 1
+fi
+if [[ ! -f "${INDEX_JS}" ]]; then
+  printf 'API entry missing: %s\n' "${INDEX_JS}" >&2
+  exit 1
+fi
+
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
+
+cd "${SERVER_DIR}"
+exec "${NODE_BIN}" "${INDEX_JS}"

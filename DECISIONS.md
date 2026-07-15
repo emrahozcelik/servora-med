@@ -14,6 +14,8 @@ Bu dosya ürün ve mimari için kabul edilmiş, uzun ömürlü kararları kayded
 - Slice 08 operational reports design: `docs/superpowers/specs/2026-07-14-operational-reports-design.md`
 - Slice 09 General Task design: `docs/superpowers/specs/2026-07-14-general-task-design.md`
 - Slice 10 Structured Sales Meeting design: `docs/superpowers/specs/2026-07-15-sales-meeting-design.md`
+- Slice 11 production deployment design: `docs/superpowers/specs/2026-07-15-production-deployment-design.md`
+- Slice 12 local pilot cutover design: `docs/superpowers/specs/2026-07-15-local-pilot-cutover-design.md`
 - Agent discipline: `AGENTS.md`
 - Historical inputs: `docs/archive/inputs/`
 
@@ -501,3 +503,30 @@ Verified at implementation commit `d93441802832f91fe149b603fb55ef2a29b04089` wit
 migration 007 clean/upgrade/rollback/no-reapply coverage, ordinary and PostgreSQL-enabled
 server suites, complete web suite, production builds/audits, and the Staff/Manager
 Playwright acceptance flow.
+
+## OPS-001: Initial pilot topology is macOS + Cloudflare Tunnel
+
+- **Date:** 2026-07-15
+- **Status:** Accepted
+- **Scope:** Pilot hosting topology for Servora-Med
+
+### Context
+
+Slice 11 delivered Ubuntu VPS-oriented hardening (systemd, public Caddy TLS templates, backup scripts). The immediate pilot needs a path that does not require opening inbound application or database ports on a public VPS.
+
+### Decision
+
+1. **Initial pilot topology** is a single macOS host running loopback Fastify + loopback Caddy, reached via a **named Cloudflare Tunnel** with HTTPS at Cloudflare Edge.
+2. **Ubuntu VPS** (Slice 11) remains a **supported reference** topology, not abandoned.
+3. **No inbound** application (e.g. 3000) or PostgreSQL ports for pilot; no router port forwarding for the app.
+4. Cloudflare Tunnel **does not** replace Servora-Med session authentication and **does not** satisfy offsite backup requirements.
+5. **WebSocket** remains evidence-gated and is scheduled as Slice 13 (entry criteria unchanged).
+
+### Consequences
+
+- Pilot operators follow `docs/operations/local-macos-cloudflare-tunnel.md`.
+- Canonical cloudflared service model for pilot is **boot-time LaunchDaemon** (`sudo cloudflared service install`) with config under `/etc/cloudflared/`. Login-dependent LaunchAgent is a development alternative only.
+- Tunnel Caddy uses explicit `http://<public-fqdn>:8080` with `bind 127.0.0.1` so public `Host` matches the site address; origin is local HTTP while browsers use HTTPS at Cloudflare edge.
+- Client IP for login rate limits flows: `CF-Connecting-IP` → Caddy trusted loopback proxy + `client_ip_headers` → `X-Forwarded-For {client_ip}` + `X-Forwarded-Proto: https` → Fastify `TRUSTED_PROXY=loopback`.
+- Local header spoof toward loopback Caddy is treated as **host compromise**, not a remote rate-limit bypass claim.
+- Ingress validation against non-default config paths must pass explicit `--config` so personal `~/.cloudflared` configs are not silently used.

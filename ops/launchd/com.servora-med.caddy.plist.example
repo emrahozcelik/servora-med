@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Servora-Med tunnel-origin Caddy — boot-time LaunchDaemon (non-root).
+  Install as /Library/LaunchDaemons/com.servora-med.caddy.plist (root:wheel, mode 0644).
+  Apple Silicon caddy: /opt/homebrew/bin/caddy
+  Intel Homebrew caddy: /usr/local/bin/caddy
+  Config: /usr/local/etc/Caddyfile (from ops/caddy/Caddyfile.tunnel.example)
+  Runs as dedicated service user servora-med (never root). Loopback :8080 only.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.servora-med.caddy</string>
+	<key>UserName</key>
+	<string>servora-med</string>
+	<key>GroupName</key>
+	<string>servora-med</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/opt/homebrew/bin/caddy</string>
+		<string>run</string>
+		<string>--config</string>
+		<string>/usr/local/etc/Caddyfile</string>
+		<string>--adapter</string>
+		<string>caddyfile</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/servora-med/caddy.stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/servora-med/caddy.stderr.log</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

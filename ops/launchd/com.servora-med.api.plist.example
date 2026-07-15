@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Servora-Med Fastify API — boot-time LaunchDaemon (non-root).
+  Install as /Library/LaunchDaemons/com.servora-med.api.plist (root:wheel, mode 0644).
+  Wrapper: ops/launchd/start-api.sh.example → /usr/local/libexec/servora-med/start-api.sh
+  Runs as dedicated service user servora-med (never root).
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.servora-med.api</string>
+	<key>UserName</key>
+	<string>servora-med</string>
+	<key>GroupName</key>
+	<string>servora-med</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/servora-med/start-api.sh</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/opt/servora-med/current/server</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/servora-med/api.stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/servora-med/api.stderr.log</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

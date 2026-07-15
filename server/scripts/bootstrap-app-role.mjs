@@ -1,0 +1,96 @@
+#!/usr/bin/env node
+/**
+ * Create/update application role password without putting secrets on argv.
+ *
+ * Required env:
+ *   ADMIN_DATABASE_URL  superuser/bootstrap connection (prefer peer/socket; may be URL without app password)
+ *   APP_DB_PASSWORD     new password for application role (never logged)
+ * Optional:
+ *   APP_DB_ROLE         default servora
+ *   APP_DB_NAME         default servora_med (created if missing, owned by role)
+ *
+ * Password is applied with a parameterized query ($1), not string interpolation or argv.
+ */
+import pg from 'pg';
+
+const adminUrl = process.env.ADMIN_DATABASE_URL;
+const password = process.env.APP_DB_PASSWORD;
+const role = process.env.APP_DB_ROLE ?? 'servora';
+const dbName = process.env.APP_DB_NAME ?? 'servora_med';
+
+if (!adminUrl) {
+  console.error('ADMIN_DATABASE_URL is required');
+  process.exit(2);
+}
+if (!password) {
+  console.error('APP_DB_PASSWORD is required');
+  process.exit(2);
+}
+if (!/^[a-z][a-z0-9_]*$/.test(role) || !/^[a-z][a-z0-9_]*$/.test(dbName)) {
+  console.error('invalid APP_DB_ROLE or APP_DB_NAME');
+  process.exit(2);
+}
+
+for (const arg of process.argv.slice(2)) {
+  if (arg.includes('postgresql://') || arg.includes('postgres://') || arg === password) {
+    console.error('refuse: secrets must not be passed on argv');
+    process.exit(2);
+  }
+}
+
+const client = new pg.Client({ connectionString: adminUrl });
+
+try {
+  await client.connect();
+
+  const exists = await client.query('SELECT 1 FROM pg_roles WHERE rolname = $1', [role]);
+  if (exists.rowCount === 0) {
+    // Identifier validated above (safe for %I).
+    await client.query(
+      `CREATE ROLE ${role} LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE`,
+    );
+  }
+  // PASSWORD cannot use extended-query $1 placeholders in PostgreSQL DDL.
+  // Build DDL with format(%L) using bind parameters so the secret never appears on argv
+  // and is not string-concatenated in application code.
+  const ddl = await client.query(
+    `SELECT format(
+       'ALTER ROLE %I WITH LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE PASSWORD %L',
+       $1::text,
+       $2::text
+     ) AS stmt`,
+    [role, password],
+  );
+  await client.query(ddl.rows[0].stmt);
+
+  const flags = await client.query(
+    `SELECT rolsuper, rolcreatedb, rolcreaterole
+     FROM pg_roles WHERE rolname = $1`,
+    [role],
+  );
+  const row = flags.rows[0];
+  if (!row || row.rolsuper || row.rolcreatedb || row.rolcreaterole) {
+    console.error('role privilege check failed (must be NOSUPERUSER/NOCREATEDB/NOCREATEROLE)');
+    process.exit(1);
+  }
+
+  const dbExists = await client.query('SELECT 1 FROM pg_database WHERE datname = $1', [dbName]);
+  if (dbExists.rowCount === 0) {
+    await client.query(`CREATE DATABASE ${dbName} OWNER ${role}`);
+  }
+
+  console.log(`ok bootstrap-app-role role=${role} db=${dbName}`);
+  process.exit(0);
+} catch (error) {
+  const err = error instanceof Error ? error : new Error(String(error));
+  // Never print connection strings or passwords — only PG error code/message.
+  const code = 'code' in err && typeof err.code === 'string' ? err.code : '';
+  console.error(`bootstrap-app-role failed${code ? ` code=${code}` : ''}: ${err.message}`);
+  process.exit(1);
+} finally {
+  try {
+    await client.end();
+  } catch {
+    // ignore
+  }
+}

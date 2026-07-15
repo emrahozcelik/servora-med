@@ -65,6 +65,12 @@ Script: `ops/scripts/restore-rehearsal.sh`
 |-------|--------|
 | Disposable CI/local PG backup→restore acceptance | automated tests with `TEST_DATABASE_URL` |
 | Live host restore rehearsal markdown under `restore-rehearsals/` | **pending** until performed |
+| Real offsite copy | **pending** until destination + credentials + successful hook |
+| Cloudflare Tunnel moves backups off-host | **no** — tunnel is app ingress only |
+
+### macOS pilot scheduling
+
+On the macOS pilot host, use `ops/launchd/com.servora-med.backup.plist.example` (LaunchDaemon + wrapper sourcing private env). See [local-macos-cloudflare-tunnel.md](./local-macos-cloudflare-tunnel.md).
 
 ## Product boundary
 
