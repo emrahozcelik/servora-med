@@ -4,6 +4,17 @@ import { buildApp, LOGGER_REDACT_PATHS } from '../src/app.js';
 import type { AppDependencies } from '../src/app.js';
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
+const testConfig = {
+  nodeEnv: 'test' as const,
+  host: '127.0.0.1',
+  port: 3000,
+  databaseUrl: 'postgresql://unused-in-app-test',
+  logLevel: 'silent',
+  corsOrigin: 'http://127.0.0.1:5173',
+  sessionTtlSeconds: 28_800,
+  loginRateLimitMax: 5,
+  rateLimitWindowMs: 60_000,
+};
 
 afterEach(async () => {
   await Promise.all(apps.splice(0).map((app) => app.close()));
@@ -11,17 +22,7 @@ afterEach(async () => {
 
 describe('GET /api/health', () => {
   it('returns only the generic public health status', async () => {
-    const app = await buildApp({
-      nodeEnv: 'test',
-      host: '127.0.0.1',
-      port: 3000,
-      databaseUrl: 'postgresql://unused-in-health-test',
-      logLevel: 'silent',
-      corsOrigin: 'http://127.0.0.1:5173',
-      sessionTtlSeconds: 28_800,
-      loginRateLimitMax: 5,
-      rateLimitWindowMs: 60_000,
-    });
+    const app = await buildApp(testConfig);
     apps.push(app);
 
     const response = await app.inject({ method: 'GET', url: '/api/health' });
@@ -60,5 +61,37 @@ describe('AppDependencies', () => {
       productRepository: {} as AppDependencies['productRepository'],
     } satisfies AppDependencies;
     expect(dependencies.productRepository).toBeDefined();
+  });
+
+  it('registers People only with the shared report read model', async () => {
+    const withoutReports = await buildApp(testConfig, {
+      authRepository: {} as never,
+      peopleRepository: {} as never,
+    });
+    const withReports = await buildApp(testConfig, {
+      authRepository: {} as never,
+      peopleRepository: {} as never,
+      reportsRepository: {} as never,
+    });
+    apps.push(withoutReports, withReports);
+
+    expect(withoutReports.hasRoute({ method: 'GET', url: '/api/staff' })).toBe(false);
+    expect(withReports.hasRoute({ method: 'GET', url: '/api/staff' })).toBe(true);
+  });
+
+  it('registers Reports only with both read-model and approval-item ports', async () => {
+    const withoutApprovalItems = await buildApp(testConfig, {
+      authRepository: {} as never,
+      reportsRepository: {} as never,
+    });
+    const complete = await buildApp(testConfig, {
+      authRepository: {} as never,
+      reportsRepository: {} as never,
+      approvalQueueItemPort: {} as never,
+    });
+    apps.push(withoutApprovalItems, complete);
+
+    expect(withoutApprovalItems.hasRoute({ method: 'GET', url: '/api/reports/dashboard' })).toBe(false);
+    expect(complete.hasRoute({ method: 'GET', url: '/api/reports/dashboard' })).toBe(true);
   });
 });

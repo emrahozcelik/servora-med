@@ -6,6 +6,7 @@ import type {
   AppendAuditInput,
   ManagedUserRecord,
   StaffProfileRecord,
+  StaffProfileDetails,
   StaffProfileSummary,
 } from '../src/modules/people/types.js';
 
@@ -25,6 +26,11 @@ const summary = (record = user(), staff = profile()): StaffProfileSummary => {
   return { id: staff.id, user: safe, title: staff.title, phone: staff.phone, region: staff.region,
     managerUserId: staff.managerUserId, managerName: null, version: staff.version,
     counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 } };
+};
+
+const details = (record = user(), staff = profile()): StaffProfileDetails => {
+  const { counters: _counters, ...result } = summary(record, staff);
+  return result;
 };
 
 class MemoryPeopleRepository implements PeopleRepository {
@@ -56,15 +62,15 @@ class MemoryPeopleRepository implements PeopleRepository {
   }
   async listUsers(org: string) { return this.users.filter((item) => item.organizationId === org).map(({ passwordHash: _, ...safe }) => safe); }
   async getUser(org: string, id: string) { const found = this.users.find((item) => item.organizationId === org && item.id === id); if (!found) return null; const { passwordHash: _, ...safe } = found; return safe; }
-  async getStaffSummary(org: string, id: string) {
+  async getStaffProfile(org: string, id: string) {
     const foundUser = this.users.find((item) => item.organizationId === org && item.id === id);
     const foundProfile = this.profiles.find((item) => item.organizationId === org && item.userId === id);
-    return foundUser && foundProfile ? summary(foundUser, foundProfile) : null;
+    return foundUser && foundProfile ? details(foundUser, foundProfile) : null;
   }
-  async listStaff(org: string, status: 'active' | 'inactive' | 'all') {
+  async listStaffProfiles(org: string, status: 'active' | 'inactive' | 'all') {
     return this.profiles.flatMap((item) => {
       const found = this.users.find((entry) => entry.id === item.userId && entry.organizationId === org);
-      return found && (status === 'all' || found.isActive === (status === 'active')) ? [summary(found, item)] : [];
+      return found && (status === 'all' || found.isActive === (status === 'active')) ? [details(found, item)] : [];
     });
   }
 
@@ -110,7 +116,22 @@ const admin = { id: 'admin-1', organizationId: 'org-1', name: 'Admin', email: 'a
 const manager = { ...admin, id: 'manager-1', role: 'MANAGER' as const };
 const staff = { ...admin, id: 'staff-1', role: 'STAFF' as const };
 const credentials = { validatePassword: () => undefined, hashPassword: async () => 'temporary-hash' };
-const service = (repository = new MemoryPeopleRepository()) => ({ repository, service: new PeopleService(repository, credentials, () => now) });
+const staffSummaries = {
+  getOne: async ({ staffUserId }: { staffUserId: string }) => ({
+    staffUserId,
+    range: { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' },
+    counters: { openJobCards: 0, waitingApproval: 0, revisionRequested: 0, overdueJobCards: 0, completedInPeriod: 0 },
+  }),
+  getMany: async ({ staffUserIds }: { staffUserIds: readonly string[] }) => new Map(staffUserIds.map((staffUserId) => [staffUserId, {
+    staffUserId,
+    range: { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' },
+    counters: { openJobCards: 0, waitingApproval: 0, revisionRequested: 0, overdueJobCards: 0, completedInPeriod: 0 },
+  }])),
+};
+const service = (repository = new MemoryPeopleRepository()) => ({
+  repository,
+  service: new PeopleService(repository, credentials, staffSummaries, () => now),
+});
 
 describe('PeopleService policy', () => {
   it('allows only Admin to list and create users', async () => {

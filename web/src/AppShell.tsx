@@ -37,8 +37,9 @@ function Navigation({ user, onNavigate }: Pick<AppShellProps, 'user'> & { onNavi
     { label: 'İşler', to: paths.jobs },
     { label: 'Müşteriler', to: paths.customers },
     { label: 'Ürünler', to: paths.products },
+    ...(user.role !== 'STAFF' ? [{ label: 'Raporlar', to: paths.reports }] : []),
     ...(user.role === 'ADMIN' ? [{ label: 'Kullanıcılar', to: paths.users }] : []),
-    { label: user.role === 'STAFF' ? 'Profilim' : 'Personel', to: user.role === 'STAFF' ? paths.staffProfile(user.id) : paths.staff },
+    { label: user.role === 'STAFF' ? 'Profilim' : 'Personel', to: paths.staff },
   ];
 
   return (

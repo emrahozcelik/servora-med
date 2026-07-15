@@ -30,6 +30,7 @@ describe('application routes', () => {
     ['/users', 'Kullanıcılar', admin],
     ['/staff', 'Personel', manager],
     ['/staff/staff-1', 'Personel profili', manager],
+    ['/staff/staff-1/reports', 'Operasyon raporu yükleniyor', manager],
     ['/customers?status=inactive', 'Müşteriler', manager],
     ['/customers/new', 'Yeni müşteri', manager],
     ['/customers/customer-1', 'Müşteri detayı', manager],
@@ -46,6 +47,7 @@ describe('application routes', () => {
     ['/users', staff],
     ['/customers/new', staff],
     ['/products/new', staff],
+    ['/staff/staff-1/reports', staff],
   ] as const)('renders the established forbidden state for unauthorized direct route %s', (path, user) => {
     const html = render(path, user);
     expect(html).toContain('Bu alana erişim yetkiniz yok');
@@ -66,6 +68,10 @@ describe('application routes', () => {
   it('exports encoded route helpers', () => {
     expect(paths.job('job/1')).toBe('/jobs/job%2F1');
     expect(paths.staffProfile('staff 1')).toBe('/staff/staff%201');
+    expect(paths.staffReport('staff 1')).toBe('/staff/staff%201/reports');
+    expect(paths.reports).toBe('/reports');
+    expect(paths.deliveryReports).toBe('/reports/deliveries');
+    expect(paths.approvalReports).toBe('/reports/approvals');
     expect(paths.customer('customer/1')).toBe('/customers/customer%2F1');
     expect(paths.contact('customer/1', 'contact 1')).toBe('/customers/customer%2F1/contacts/contact%201');
     expect(paths.products).toBe('/products');

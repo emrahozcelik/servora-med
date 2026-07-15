@@ -79,6 +79,13 @@ describe('responsive authenticated AppShell', () => {
     expect(document.activeElement).toBe(dialog.querySelector('a'));
   });
 
+  it('links Staff own profile navigation to the stable /staff area', async () => {
+    await render(staff, true);
+    const profile = Array.from(container.querySelectorAll<HTMLAnchorElement>('aside nav a'))
+      .find((link) => link.textContent === 'Profilim');
+    expect(profile?.getAttribute('href')).toBe('/staff');
+  });
+
   it('contains focus, closes on Escape, and restores trigger focus', async () => {
     await render(manager, false);
     const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;

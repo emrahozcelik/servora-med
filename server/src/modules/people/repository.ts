@@ -11,8 +11,8 @@ import type {
   CreateUserRecord,
   ManagedUserRecord,
   SafeManagedUser,
+  StaffProfileDetails,
   StaffProfileRecord,
-  StaffProfileSummary,
   StaffStatusFilter,
   UpdateStaffProfileRecord,
 } from './types.js';
@@ -30,11 +30,9 @@ type StaffProfileRow = {
   version: number; created_at: Date; updated_at: Date;
 };
 
-type StaffSummaryRow = UserRow & StaffProfileRow & {
+type StaffProfileDetailsRow = UserRow & StaffProfileRow & {
   profile_id: string; profile_version: number; profile_created_at: Date; profile_updated_at: Date;
-  manager_name: string | null; open_count: string | number; waiting_approval_count: string | number;
-  revision_requested_count: string | number; completed_this_month_count: string | number;
-  overdue_count: string | number;
+  manager_name: string | null;
 };
 
 const USER_COLUMNS = `id, organization_id, name, email, password_hash, role,
@@ -62,7 +60,7 @@ function mapProfile(row: StaffProfileRow): StaffProfileRecord {
   };
 }
 
-function mapSummary(row: StaffSummaryRow): StaffProfileSummary {
+function mapProfileDetails(row: StaffProfileDetailsRow): StaffProfileDetails {
   return {
     id: row.profile_id,
     user: safeUser(row),
@@ -72,13 +70,6 @@ function mapSummary(row: StaffSummaryRow): StaffProfileSummary {
     managerUserId: row.manager_user_id,
     managerName: row.manager_name,
     version: row.profile_version,
-    counters: {
-      open: Number(row.open_count),
-      waitingApproval: Number(row.waiting_approval_count),
-      revisionRequested: Number(row.revision_requested_count),
-      completedThisMonth: Number(row.completed_this_month_count),
-      overdue: Number(row.overdue_count),
-    },
   };
 }
 
@@ -105,8 +96,8 @@ export interface PeopleRepository {
   execute<T>(work: (tx: PeopleTransaction) => Promise<T>): Promise<T>;
   listUsers(organizationId: string): Promise<SafeManagedUser[]>;
   getUser(organizationId: string, userId: string): Promise<SafeManagedUser | null>;
-  getStaffSummary(organizationId: string, userId: string, now: Date): Promise<StaffProfileSummary | null>;
-  listStaff(organizationId: string, status: StaffStatusFilter, now: Date): Promise<StaffProfileSummary[]>;
+  getStaffProfile(organizationId: string, userId: string): Promise<StaffProfileDetails | null>;
+  listStaffProfiles(organizationId: string, status: StaffStatusFilter): Promise<StaffProfileDetails[]>;
 }
 
 class PostgresPeopleTransaction implements PeopleTransaction {
@@ -264,29 +255,15 @@ class PostgresPeopleTransaction implements PeopleTransaction {
   }
 }
 
-const STAFF_SUMMARY_SELECT = `
+const STAFF_PROFILE_SELECT = `
   SELECT u.id, u.organization_id, u.name, u.email, u.password_hash, u.role,
     u.must_change_password, u.is_active, u.version, u.last_login_at, u.created_at, u.updated_at,
     sp.id AS profile_id, sp.title, sp.phone, sp.region, sp.manager_user_id,
     sp.version AS profile_version, sp.created_at AS profile_created_at,
-    sp.updated_at AS profile_updated_at, manager.name AS manager_name,
-    COUNT(jc.id) FILTER (WHERE jc.status IN ('NEW', 'PLANNED', 'IN_PROGRESS')) AS open_count,
-    COUNT(jc.id) FILTER (WHERE jc.status = 'WAITING_APPROVAL') AS waiting_approval_count,
-    COUNT(jc.id) FILTER (WHERE jc.status = 'REVISION_REQUESTED') AS revision_requested_count,
-    COUNT(jc.id) FILTER (WHERE jc.status = 'COMPLETED' AND manager_approved_at >=
-      (date_trunc('month', $2::timestamptz AT TIME ZONE o.timezone) AT TIME ZONE o.timezone)
-      AND manager_approved_at <
-      ((date_trunc('month', $2::timestamptz AT TIME ZONE o.timezone) + interval '1 month') AT TIME ZONE o.timezone)
-    ) AS completed_this_month_count,
-    COUNT(jc.id) FILTER (WHERE due_date < ($2::timestamptz AT TIME ZONE o.timezone)::date
-      AND jc.status NOT IN ('COMPLETED', 'CANCELLED')) AS overdue_count
+    sp.updated_at AS profile_updated_at, manager.name AS manager_name
   FROM staff_profiles sp
   JOIN users u ON u.id = sp.user_id AND u.organization_id = sp.organization_id
-  JOIN organizations o ON o.id = sp.organization_id
-  LEFT JOIN users manager ON manager.id = sp.manager_user_id
-  LEFT JOIN job_cards jc ON jc.organization_id = sp.organization_id AND jc.assigned_to = sp.user_id`;
-
-const STAFF_SUMMARY_GROUP = `GROUP BY u.id, sp.id, manager.name, o.timezone`;
+  LEFT JOIN users manager ON manager.id = sp.manager_user_id`;
 
 export class PostgresPeopleRepository implements PeopleRepository {
   constructor(
@@ -333,25 +310,23 @@ export class PostgresPeopleRepository implements PeopleRepository {
     return result.rows[0] ? safeUser(result.rows[0]) : null;
   }
 
-  async getStaffSummary(organizationId: string, userId: string, now: Date) {
-    const result = await this.pool.query<StaffSummaryRow>(
-      `${STAFF_SUMMARY_SELECT}
-       WHERE sp.organization_id = $1 AND sp.user_id = $3
-       ${STAFF_SUMMARY_GROUP}`,
-      [organizationId, now, userId],
+  async getStaffProfile(organizationId: string, userId: string) {
+    const result = await this.pool.query<StaffProfileDetailsRow>(
+      `${STAFF_PROFILE_SELECT}
+       WHERE sp.organization_id = $1 AND sp.user_id = $2`,
+      [organizationId, userId],
     );
-    return result.rows[0] ? mapSummary(result.rows[0]) : null;
+    return result.rows[0] ? mapProfileDetails(result.rows[0]) : null;
   }
 
-  async listStaff(organizationId: string, status: StaffStatusFilter, now: Date) {
+  async listStaffProfiles(organizationId: string, status: StaffStatusFilter) {
     const activeFilter = status === 'all' ? '' : ` AND u.is_active = ${status === 'active' ? 'TRUE' : 'FALSE'}`;
-    const result = await this.pool.query<StaffSummaryRow>(
-      `${STAFF_SUMMARY_SELECT}
+    const result = await this.pool.query<StaffProfileDetailsRow>(
+      `${STAFF_PROFILE_SELECT}
        WHERE sp.organization_id = $1${activeFilter}
-       ${STAFF_SUMMARY_GROUP}
        ORDER BY u.name, u.id`,
-      [organizationId, now],
+      [organizationId],
     );
-    return result.rows.map(mapSummary);
+    return result.rows.map(mapProfileDetails);
   }
 }

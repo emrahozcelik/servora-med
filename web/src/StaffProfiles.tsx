@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent } from 'react';
 
 import type { CurrentUser } from './services/api';
 import { getOwnStaffProfile, getStaffProfile, listStaff, listUsers, updateStaffProfile, type ManagedUser, type StaffProfile } from './services/people-api';
+import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
 
 const counterLabels = { open: 'Açık işler', waitingApproval: 'Onay bekliyor', revisionRequested: 'Düzeltme istendi', completedThisMonth: 'Bu ay tamamlandı', overdue: 'Geciken' } as const;
 
@@ -11,6 +12,7 @@ export function OwnStaffProfileView({ profile, onBack }: { profile: StaffProfile
   return <main className="workspace"><button className="back-link" onClick={onBack}>İşlere dön</button><p className="eyebrow">Profilim</p><h1>{profile.user.name}</h1>
     <ProfileFacts profile={profile} /><section aria-labelledby="counter-title"><h2 id="counter-title">Operasyon özeti</h2><dl className="counter-grid">
       {(Object.keys(counterLabels) as Array<keyof typeof counterLabels>).map((key) => <div key={key}><dt>{counterLabels[key]}</dt><dd>{profile.counters[key]}</dd></div>)}</dl></section>
+    <StaffOperationalReportScreen embedded onBack={onBack} />
   </main>;
 }
 
@@ -26,14 +28,14 @@ export function StaffDirectoryView({ profiles, status, canFilterInactive, onStat
   </main>;
 }
 
-export function StaffProfileEditView({ profile: initial, managers, onBack, onChanged }: { profile: StaffProfile; managers: ManagedUser[]; onBack: () => void; onChanged: (profile: StaffProfile) => void }) {
+export function StaffProfileEditView({ profile: initial, managers, onBack, onChanged, onOpenReport }: { profile: StaffProfile; managers: ManagedUser[]; onBack: () => void; onChanged: (profile: StaffProfile) => void; onOpenReport?: () => void }) {
   const [profile, setProfile] = useState(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState(''); const [pending, setPending] = useState(false);
   async function submit(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setPending(true); setError(''); const data = new FormData(event.currentTarget);
     try { const updated = await updateStaffProfile(profile.user.id, { expectedVersion: profile.version, title: String(data.get('title') ?? '') || null,
       phone: String(data.get('phone') ?? '') || null, region: String(data.get('region') ?? '') || null, managerUserId: String(data.get('managerUserId') ?? '') || null });
       setProfile(updated); onChanged(updated); setNotice('Personel profili güncellendi.'); }
     catch (e) { setError(e instanceof Error ? e.message : 'Profil güncellenemedi.'); } finally { setPending(false); } }
-  return <main className="people-form"><div className="detail-heading"><div><p className="eyebrow">Personel</p><h1>{profile.user.name}</h1></div><button className="secondary-button" onClick={onBack}>Listeye dön</button></div>
+  return <main className="people-form"><div className="detail-heading"><div><p className="eyebrow">Personel</p><h1>{profile.user.name}</h1></div><div className="people-actions">{onOpenReport && <button className="secondary-button" onClick={onOpenReport}>Operasyon raporunu aç</button>}<button className="secondary-button" onClick={onBack}>Listeye dön</button></div></div>
     {error && <div className="form-error" role="alert">{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     <form onSubmit={submit}><label className="field-group">Unvan<input name="title" defaultValue={profile.title ?? ''} disabled={pending} /></label>
       <label className="field-group">Telefon<input name="phone" type="tel" defaultValue={profile.phone ?? ''} disabled={pending} /></label>
@@ -48,16 +50,18 @@ export function StaffProfileEditRoute(props: {
   managers: ManagedUser[];
   onBack: () => void;
   onChanged: (profile: StaffProfile) => void;
+  onOpenReport?: () => void;
 }) {
   return <StaffProfileEditView key={props.profile.user.id} {...props} />;
 }
 
-export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenProfile, onProfileBack }: {
+export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenProfile, onProfileBack, onOpenReport }: {
   user: CurrentUser;
   onBack: () => void;
   initialStaffUserId?: string;
   onOpenProfile?: (staffUserId: string) => void;
   onProfileBack?: () => void;
+  onOpenReport?: (staffUserId: string) => void;
 }) {
   const [profiles, setProfiles] = useState<StaffProfile[]>([]); const [own, setOwn] = useState<StaffProfile | null>(null); const [selected, setSelected] = useState<StaffProfile | null>(null);
   const [managers, setManagers] = useState<ManagedUser[]>([]); const [status, setStatus] = useState<'active' | 'inactive' | 'all'>('active'); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
@@ -70,7 +74,7 @@ export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenPr
   if (loading) return <main className="workspace" aria-busy="true"><h1>{initialStaffUserId ? 'Personel profili yükleniyor' : 'Personel bilgileri yükleniyor'}</h1></main>;
   if (error) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Personel bilgileri yüklenemedi</h1><p>{error}</p></div></main>;
   if (user.role === 'STAFF' && own) return <OwnStaffProfileView profile={own} onBack={onBack} />;
-  if (selected) return <StaffProfileEditRoute profile={selected} managers={managers} onBack={() => { setSelected(null); onProfileBack?.(); }} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} />;
+  if (selected) return <StaffProfileEditRoute profile={selected} managers={managers} onBack={() => { setSelected(null); onProfileBack?.(); }} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} onOpenReport={onOpenReport ? () => onOpenReport(selected.user.id) : undefined} />;
   return <StaffDirectoryView profiles={profiles} status={status} canFilterInactive={user.role === 'ADMIN'} onStatusChange={setStatus} onBack={onBack}
     onOpen={(id) => { if (onOpenProfile) onOpenProfile(id); else void getStaffProfile(id).then(setSelected).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')); }} />;
 }

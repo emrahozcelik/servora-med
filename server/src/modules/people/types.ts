@@ -63,6 +63,8 @@ export type StaffProfileSummary = {
   counters: StaffCounters;
 };
 
+export type StaffProfileDetails = Omit<StaffProfileSummary, 'counters'>;
+
 export type CreateUserRecord = {
   organizationId: string;
   name: string;

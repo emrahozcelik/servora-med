@@ -179,6 +179,26 @@ Critical JobCard commands append a canonical activity event in the same transact
 
 JobCard activity is scoped to JobCard operations. Organization-level configuration audit requires a separate future design.
 
+### 7.5 Operational reports read model
+
+Reports is a read-only module inside the modular monolith. It derives organization-scoped
+operational summaries from persisted JobCard and delivery data and owns no report table,
+cache, materialized view, mutation, or migration.
+
+The Reports module consumes the canonical JobCard approval projection through a narrow
+port; it does not copy the JobCard list DTO mapping. People consumes only the Reports
+module's `StaffOperationalSummaryPort` and related types through type-only imports.
+`getMany` batches Staff summaries for `listStaff`, while `getOne` serves profile detail.
+Reports never calls People, no module calls another through HTTP, and the composition root
+constructs and injects one Reports repository instance. This dependency direction avoids
+a People/Reports runtime cycle and preserves one Staff counter definition.
+
+All Staff report attribution uses `job_cards.assigned_to`. Delivery quantities remain
+exact decimal strings grouped by persisted nullable unit, and organization-local date
+boundaries are resolved by PostgreSQL. Approval age uses one authoritative request time,
+clamps future submission timestamps to zero, and derives summary totals from the complete
+queue rather than its current page.
+
 ## 8. Authentication and Session Security
 
 Authentication uses email and password with an adaptive password hash. Session behavior:

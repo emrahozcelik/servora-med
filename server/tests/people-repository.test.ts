@@ -27,6 +27,43 @@ function recordingPool(rows: unknown[] = []) {
 }
 
 describe('PostgresPeopleRepository transactions', () => {
+  it('reads Staff profile identity without JobCard counter SQL', async () => {
+    const recorded = recordingPool([{
+      id: 'staff-1', organization_id: 'org-1', name: 'Ayşe Personel',
+      email: 'staff@example.com', password_hash: 'hash', role: 'STAFF',
+      must_change_password: false, is_active: true, version: 2,
+      last_login_at: null, created_at: new Date('2026-07-01T00:00:00.000Z'),
+      updated_at: new Date('2026-07-02T00:00:00.000Z'), profile_id: 'profile-1',
+      title: 'Saha Uzmanı', phone: null, region: 'Marmara', manager_user_id: null,
+      profile_version: 3, profile_created_at: new Date('2026-07-01T00:00:00.000Z'),
+      profile_updated_at: new Date('2026-07-02T00:00:00.000Z'), manager_name: null,
+    }]);
+    const repository = new PostgresPeopleRepository(
+      recorded.pool, recorded.credentials, recorded.sessions,
+    );
+
+    await expect(repository.getStaffProfile('org-1', 'staff-1')).resolves.toMatchObject({
+      id: 'profile-1', user: { id: 'staff-1' }, version: 3,
+    });
+
+    expect(recorded.calls[0]?.values).toEqual(['org-1', 'staff-1']);
+    expect(recorded.calls[0]?.text).not.toMatch(/job_cards|COUNT\(|manager_approved_at/i);
+  });
+
+  it('lists Staff profile identities with the requested active-state filter', async () => {
+    const recorded = recordingPool();
+    const repository = new PostgresPeopleRepository(
+      recorded.pool, recorded.credentials, recorded.sessions,
+    );
+
+    await repository.listStaffProfiles('org-1', 'inactive');
+
+    expect(recorded.calls[0]?.values).toEqual(['org-1']);
+    expect(recorded.calls[0]?.text).toMatch(/u\.is_active = FALSE/);
+    expect(recorded.calls[0]?.text).toMatch(/ORDER BY u\.name, u\.id/);
+    expect(recorded.calls[0]?.text).not.toMatch(/job_cards|COUNT\(/i);
+  });
+
   it('fails closed when Customer cleanup wiring is missing', async () => {
     const recorded = recordingPool();
     const repository = new PostgresPeopleRepository(

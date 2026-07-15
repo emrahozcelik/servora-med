@@ -25,7 +25,7 @@ export type JobCard = {
   dueDate: string | null;
 };
 export type JobCardListItem = {
-  id: string; type: 'PRODUCT_DELIVERY'; status: JobCardStatus; version: number; title: string;
+  id: string; type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK'; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; createdAt: string; updatedAt: string;
   staffCompletedAt: string | null; customer: RelatedName | null; contact: RelatedName | null;
   assignee: RelatedName; deliveryItemCount: number;
@@ -115,10 +115,10 @@ function parseJobCard(value: unknown): JobCard {
     priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES), dueDate: nullableString(v.dueDate, 'dueDate'),
   };
 }
-function parseListItem(value: unknown): JobCardListItem {
+export function parseJobCardListItem(value: unknown): JobCardListItem {
   const v = object(value);
   return {
-    id: string(v.id, 'id'), type: oneOf(v.type, 'type', ['PRODUCT_DELIVERY'] as const),
+    id: string(v.id, 'id'), type: oneOf(v.type, 'type', ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const),
     status: oneOf(v.status, 'status', JOB_CARD_STATUSES), version: positiveCount(v.version, 'version'),
     title: string(v.title, 'title'), priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES),
     dueDate: nullableString(v.dueDate, 'dueDate'), createdAt: string(v.createdAt, 'createdAt'),
@@ -136,7 +136,7 @@ function parsePage<T>(value: unknown, parser: (entry: unknown) => T): Paginated<
 }
 function parseColumn(value: unknown) {
   const v = object(value);
-  return { items: array(v.items, 'items').map(parseListItem), count: count(v.count, 'count') };
+  return { items: array(v.items, 'items').map(parseJobCardListItem), count: count(v.count, 'count') };
 }
 function parseBoard(value: unknown): JobCardBoard {
   const v = object(value); const columns = object(v.columns); const closed = object(v.closedCounts);
@@ -203,7 +203,7 @@ const segment = (value: string) => encodeURIComponent(value);
 const jobPath = (id: string) => `/api/job-cards/${segment(id)}`;
 
 export const listJobCards = async (filters: JobCardListFilters = {}) => parsePage(
-  await request(`/api/job-cards${query(filters)}`), parseListItem,
+  await request(`/api/job-cards${query(filters)}`), parseJobCardListItem,
 );
 export const getJobCardBoard = async (filters: JobCardBoardFilters = {}) =>
   parseBoard(await request(`/api/job-cards/board${query(filters)}`));
