@@ -1,0 +1,63 @@
+# Servora-Med pilot — Cloudflare Tunnel origin (loopback HTTP only).
+# Replace app.example.com with the public hostname Cloudflare routes to this host.
+# Do not enable local automatic TLS; HTTPS terminates at Cloudflare edge.
+#
+# Listen: loopback only. Public Host header must match the site address below.
+
+{
+	auto_https off
+	servers :8080 {
+		# Only local cloudflared (same host) may supply client IP headers.
+		trusted_proxies static 127.0.0.0/8 ::1
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
+http://app.example.com:8080 {
+	bind 127.0.0.1
+
+	encode gzip
+
+	header {
+		X-Content-Type-Options nosniff
+		Referrer-Policy strict-origin-when-cross-origin
+		X-Frame-Options DENY
+		-Server
+	}
+
+	# API — no store; forward trusted client IP and public HTTPS semantics.
+	handle /api/* {
+		header Cache-Control "no-store"
+		reverse_proxy 127.0.0.1:3000 {
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	# Vite hashed assets.
+	handle /assets/* {
+		root * /opt/servora-med/current/web/dist
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	# SPA app shell + client routes.
+	handle {
+		root * /opt/servora-med/current/web/dist
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+
+	log {
+		output file /usr/local/var/log/servora-med/caddy-access.log
+		format filter {
+			wrap json
+			fields {
+				request>headers>Cookie delete
+				request>headers>Authorization delete
+			}
+		}
+	}
+}

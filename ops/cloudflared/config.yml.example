@@ -1,0 +1,22 @@
+# Locally-managed Cloudflare named tunnel for Servora-Med pilot.
+# Do NOT commit real tunnel UUIDs or credential JSON files.
+#
+# Install canonical paths for boot-time LaunchDaemon (preferred pilot model):
+#   config:      /etc/cloudflared/config.yml
+#   credentials: /etc/cloudflared/<TUNNEL_UUID>.json
+#
+# Validation (always pass --config when not using the default path):
+#   cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
+#   cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule https://app.example.com
+#   cloudflared tunnel list
+#   cloudflared tunnel info <name-or-uuid>
+
+tunnel: <TUNNEL_UUID>
+credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
+
+ingress:
+  # Public hostname → local tunnel Caddy (loopback HTTP).
+  - hostname: app.example.com
+    service: http://127.0.0.1:8080
+  # Mandatory catch-all (Cloudflare requires a final rule).
+  - service: http_status:404

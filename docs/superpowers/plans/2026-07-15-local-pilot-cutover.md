@@ -60,10 +60,10 @@ server domain modules / migrations
 
 **Files:** `SERVORA_MED_MVP_SLICES.md`, `SERVORA_MED_ARCHITECTURE_PLAN.md` (index only if needed)
 
-- [ ] **Step 1:** Insert new Slice 12 section: Local Pilot Cutover… with deliverables and acceptance from design.
-- [ ] **Step 2:** Rename current WebSocket section to **Slice 13**; preserve entry criteria and acceptance **verbatim**.
-- [ ] **Step 3:** Update slice table row 12/13.
-- [ ] **Step 4:** Commit
+- [x] **Step 1:** Insert new Slice 12 section: Local Pilot Cutover… with deliverables and acceptance from design.
+- [x] **Step 2:** Rename current WebSocket section to **Slice 13**; preserve entry criteria and acceptance **verbatim**.
+- [x] **Step 3:** Update slice table row 12/13.
+- [x] **Step 4:** Commit
 
 ```bash
 git commit -m "docs: renumber Slice 12 pilot cutover and defer WebSocket to 13"
@@ -78,7 +78,7 @@ git commit -m "docs: renumber Slice 12 pilot cutover and defer WebSocket to 13"
 - Create `server/tests/tunnel-caddy-contract.test.ts`  
 - Optional: `ops/ci/verify-tunnel-caddyfile.sh`
 
-- [ ] **Step 1: Write failing contract tests** that read the tunnel Caddyfile and assert:
+- [x] **Step 1: Write failing contract tests** that read the tunnel Caddyfile and assert:
 
 ```text
 127.0.0.1:8080 or bind loopback
@@ -92,10 +92,10 @@ trusted_proxies or equivalent client IP config present
 client_ip_headers includes CF-Connecting-IP (exact final directive names per Caddy version used in validate)
 ```
 
-- [ ] **Step 2: RED** — file missing or incomplete.
-- [ ] **Step 3: Implement Caddyfile.tunnel.example** from design §5.3–5.4.
-- [ ] **Step 4:** Add CI validation via pinned `caddy:2.9.1-alpine` (reuse Slice 11 pattern).
-- [ ] **Step 5:** GREEN + commit
+- [x] **Step 2: RED** — file missing or incomplete.
+- [x] **Step 3: Implement Caddyfile.tunnel.example** from design §5.3–5.4.
+- [x] **Step 4:** Add CI validation via pinned `caddy:2.9.1-alpine` (reuse Slice 11 pattern).
+- [x] **Step 5:** GREEN + commit
 
 ```bash
 git commit -m "feat: add loopback Caddyfile for Cloudflare Tunnel pilot"
@@ -107,9 +107,9 @@ git commit -m "feat: add loopback Caddyfile for Cloudflare Tunnel pilot"
 
 **Files:** `ops/cloudflared/config.yml.example`
 
-- [ ] **Step 1:** Author template with tunnel UUID placeholder, credentials-file absolute path placeholder, hostname → `http://127.0.0.1:8080`, catch-all `http_status:404`.
-- [ ] **Step 2:** Add a lightweight test or CI step: YAML structure contains `ingress` and final catch-all service (no secrets).
-- [ ] **Step 3:** Commit
+- [x] **Step 1:** Author template with tunnel UUID placeholder, credentials-file absolute path placeholder, hostname → `http://127.0.0.1:8080`, catch-all `http_status:404`.
+- [x] **Step 2:** Add a lightweight test or CI step: YAML structure contains `ingress` and final catch-all service (no secrets).
+- [x] **Step 3:** Commit
 
 ```bash
 git commit -m "docs: add cloudflared named tunnel config example"
@@ -123,15 +123,15 @@ git commit -m "docs: add cloudflared named tunnel config example"
 `ops/launchd/com.servora-med.api.plist.example`  
 `ops/launchd/com.servora-med.backup.plist.example`
 
-- [ ] **Step 1:** Author plists with absolute path placeholders, KeepAlive, logging paths, no secret literals, backup calendar interval.
-- [ ] **Step 2:** Verification
+- [x] **Step 1:** Author plists with absolute path placeholders, KeepAlive, logging paths, no secret literals, backup calendar interval.
+- [x] **Step 2:** Verification
 
 ```bash
 plutil -lint ops/launchd/*.plist.example   # when plutil exists
 # else CI documents skip only if not on macOS; prefer XML well-formed check
 ```
 
-- [ ] **Step 3:** Commit
+- [x] **Step 3:** Commit
 
 ```bash
 git commit -m "docs: add macOS launchd examples for API and backup"
@@ -143,11 +143,11 @@ git commit -m "docs: add macOS launchd examples for API and backup"
 
 **Files:** `docs/operations/local-macos-cloudflare-tunnel.md`
 
-- [ ] **Step 1:** Write full runbook covering design §5.1 and §5.6 (power/sleep checklist).
-- [ ] **Step 2:** Cross official Cloudflare service install steps for macOS; document config path active for service (`~/.cloudflared` vs `/etc/cloudflared`).
-- [ ] **Step 3:** Include IP chain diagram and rate-limit expectations.
-- [ ] **Step 4:** Link backup-restore honesty table; host restore still pending until executed.
-- [ ] **Step 5:** Commit
+- [x] **Step 1:** Write full runbook covering design §5.1 and §5.6 (power/sleep checklist).
+- [x] **Step 2:** Cross official Cloudflare service install steps for macOS; document config path active for service (`~/.cloudflared` vs `/etc/cloudflared`).
+- [x] **Step 3:** Include IP chain diagram and rate-limit expectations.
+- [x] **Step 4:** Link backup-restore honesty table; host restore still pending until executed.
+- [x] **Step 5:** Commit
 
 ```bash
 git commit -m "docs: add local macOS Cloudflare Tunnel pilot runbook"
@@ -159,7 +159,7 @@ git commit -m "docs: add local macOS Cloudflare Tunnel pilot runbook"
 
 **Files:** `docs/user-manual/servora-med-user-manual.md`
 
-- [ ] **Step 1:** Extract labels/routes from:
+- [x] **Step 1:** Extract labels/routes from:
 
 ```text
 web/src/paths.ts
@@ -179,9 +179,9 @@ web/src/PasswordChange.tsx
 web/src/App.tsx (login)
 ```
 
-- [ ] **Step 2:** Write all required sections (ortak, Staff, Manager, Admin, sorun giderme, güvenlik).
-- [ ] **Step 3:** Add a small doc test or script that fails if manual references non-existent paths (optional but preferred): scan for `/jobs`, `/reports`, etc. against `paths.ts`.
-- [ ] **Step 4:** Commit
+- [x] **Step 2:** Write all required sections (ortak, Staff, Manager, Admin, sorun giderme, güvenlik).
+- [x] **Step 3:** Add a small doc test or script that fails if manual references non-existent paths (optional but preferred): scan for `/jobs`, `/reports`, etc. against `paths.ts`.
+- [x] **Step 4:** Commit
 
 ```bash
 git commit -m "docs: add Turkish Servora-Med user manual"
@@ -193,10 +193,10 @@ git commit -m "docs: add Turkish Servora-Med user manual"
 
 **Files:** `README.md`
 
-- [ ] **Step 1:** Rewrite per design §6; link runbooks and user manual; do not dump full manual into README.
-- [ ] **Step 2:** Clearly separate dev vs pilot/prod commands.
-- [ ] **Step 3:** Known limitations: host restore rehearsal, offsite, WebSocket deferred.
-- [ ] **Step 4:** Commit
+- [x] **Step 1:** Rewrite per design §6; link runbooks and user manual; do not dump full manual into README.
+- [x] **Step 2:** Clearly separate dev vs pilot/prod commands.
+- [x] **Step 3:** Known limitations: host restore rehearsal, offsite, WebSocket deferred.
+- [x] **Step 4:** Commit
 
 ```bash
 git commit -m "docs: restructure README for development and pilot install paths"
@@ -208,9 +208,9 @@ git commit -m "docs: restructure README for development and pilot install paths"
 
 **Files:** `DECISIONS.md`, `SERVORA_MED_ARCHITECTURE_PLAN.md`, ops cross-links
 
-- [ ] **Step 1:** Record durable pilot topology decisions.
-- [ ] **Step 2:** Architecture: pilot = macOS+tunnel; VPS = reference; no inbound ports; tunnel ≠ backup.
-- [ ] **Step 3:** Commit
+- [x] **Step 1:** Record durable pilot topology decisions.
+- [x] **Step 2:** Architecture: pilot = macOS+tunnel; VPS = reference; no inbound ports; tunnel ≠ backup.
+- [x] **Step 3:** Commit
 
 ```bash
 git commit -m "docs: record macOS Cloudflare Tunnel pilot architecture decisions"
@@ -222,9 +222,9 @@ git commit -m "docs: record macOS Cloudflare Tunnel pilot architecture decisions
 
 **Files:** runbook + existing `trust-proxy-rate-limit.test.ts` + Caddy contract
 
-- [ ] **Step 1:** Confirm Fastify tests still cover loopback trust vs spoof.
-- [ ] **Step 2:** Document operator verification steps for two real browsers/IPs if automated CF path impossible.
-- [ ] **Step 3:** Commit only if code/docs change needed
+- [x] **Step 1:** Confirm Fastify tests still cover loopback trust vs spoof.
+- [x] **Step 2:** Document operator verification steps for two real browsers/IPs if automated CF path impossible.
+- [x] **Step 3:** Commit only if code/docs change needed
 
 ```bash
 git commit -m "test: assert tunnel Caddy client IP trust contract"
@@ -236,10 +236,10 @@ git commit -m "test: assert tunnel Caddy client IP trust contract"
 
 **Files:** `.github/workflows/ci.yml`
 
-- [ ] **Step 1:** Validate tunnel Caddyfile with same pinned Caddy image.
-- [ ] **Step 2:** shellcheck any new shell scripts; bash -n.
-- [ ] **Step 3:** plutil when available (may skip on Linux with explicit message **only if** plist XML is otherwise validated).
-- [ ] **Step 4:** Commit
+- [x] **Step 1:** Validate tunnel Caddyfile with same pinned Caddy image.
+- [x] **Step 2:** shellcheck any new shell scripts; bash -n.
+- [x] **Step 3:** plutil when available (may skip on Linux with explicit message **only if** plist XML is otherwise validated).
+- [x] **Step 4:** Commit
 
 ```bash
 git commit -m "ci: validate tunnel Caddyfile and pilot ops artifacts"
@@ -249,7 +249,7 @@ git commit -m "ci: validate tunnel Caddyfile and pilot ops artifacts"
 
 ### Task 11: Full verification and Slice 12 closeout
 
-- [ ] **Step 1: Run**
+- [x] **Step 1: Run**
 
 ```bash
 cd server && npm run build && npm test -- --run
@@ -262,9 +262,9 @@ shellcheck -x ops/scripts/*.sh ops/ci/*.sh 2>/dev/null || true
 git diff --check
 ```
 
-- [ ] **Step 2:** Update MVP Slice 12 acceptance checkboxes only for items verified in-repo (docs/templates/tests). Mark operator-only pilot live checks as pending in text—not falsely checked.
-- [ ] **Step 3:** Push branch; open PR only if user asks.
-- [ ] **Step 4:** Report summary format from slice brief.
+- [x] **Step 2:** Update MVP Slice 12 acceptance checkboxes only for items verified in-repo (docs/templates/tests). Mark operator-only pilot live checks as pending in text—not falsely checked.
+- [x] **Step 3:** Push branch; open PR only if user asks.
+- [x] **Step 4:** Report summary format from slice brief.
 
 ---
 
@@ -286,4 +286,4 @@ Task 1 roadmap
 
 ## Execution stop
 
-**Do not implement Tasks 1–11 until the user explicitly approves this plan and the design.**
+**Approved** 2026-07-15 — implement Tasks 1–11; single implementation review at end.

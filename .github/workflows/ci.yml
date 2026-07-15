@@ -39,7 +39,7 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
-      - run: bash -n ../ops/scripts/backup-postgres.sh ../ops/scripts/restore-rehearsal.sh ../ops/scripts/deploy-release.sh
+      - run: bash -n ../ops/scripts/backup-postgres.sh ../ops/scripts/restore-rehearsal.sh ../ops/scripts/deploy-release.sh ../ops/ci/verify-caddyfile.sh ../ops/ci/verify-tunnel-caddyfile.sh ../ops/ci/verify-systemd-units.sh
       - name: shellcheck ops scripts
         run: |
           sudo apt-get update -qq
@@ -47,14 +47,19 @@ jobs:
           shellcheck -x \
             ../ops/scripts/backup-postgres.sh \
             ../ops/scripts/restore-rehearsal.sh \
-            ../ops/scripts/deploy-release.sh
+            ../ops/scripts/deploy-release.sh \
+            ../ops/ci/verify-caddyfile.sh \
+            ../ops/ci/verify-tunnel-caddyfile.sh \
+            ../ops/ci/verify-systemd-units.sh
       - name: systemd-analyze verify units
         run: |
           sudo apt-get update -qq
           sudo apt-get install -y -qq systemd
           bash ../ops/ci/verify-systemd-units.sh
-      - name: caddy validate Caddyfile
+      - name: caddy validate Caddyfile (VPS)
         run: bash ../ops/ci/verify-caddyfile.sh
+      - name: caddy validate Caddyfile (tunnel pilot)
+        run: bash ../ops/ci/verify-tunnel-caddyfile.sh
       - name: Install PostgreSQL 17 client tools
         run: |
           set -Eeuo pipefail

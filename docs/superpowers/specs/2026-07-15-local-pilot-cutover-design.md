@@ -1,9 +1,9 @@
 # Slice 12 — Local Pilot Cutover, Installation Guide, and User Manual
 
-> **Status:** Proposed design; implementation not started  
-> **Baseline:** `main` @ `167d24a71f79c9c7a2f966c901700d6459ca1321`  
-> **Date:** 2026-07-15  
-> **Scope:** macOS local pilot via Cloudflare Tunnel, README install restructuring, Turkish user manual, ops templates  
+> **Status:** Approved design; implementation verified in-repo (operator live cutover remains host-owned)
+> **Baseline:** `main` @ `167d24a71f79c9c7a2f966c901700d6459ca1321`
+> **Date:** 2026-07-15
+> **Scope:** macOS local pilot via Cloudflare Tunnel, README install restructuring, Turkish user manual, ops templates
 > **Out of scope:** WebSocket, new domain features, Docker/K8s, committed tunnel credentials, automatic OS/router config
 
 ---
@@ -29,7 +29,7 @@ WebSocket remains **evidence-gated** and is renumbered to **Slice 13** (same ent
 | **12** | Local Pilot Cutover, Installation Guide, and User Manual |
 | **13** | WebSocket Only if Polling Is Insufficient *(unchanged criteria)* |
 
-VPS (Ubuntu + systemd + public Caddy TLS) remains a **supported reference topology** from Slice 11.  
+VPS (Ubuntu + systemd + public Caddy TLS) remains a **supported reference topology** from Slice 11.
 **Initial pilot topology** is local macOS + Cloudflare Tunnel.
 
 ---
@@ -73,8 +73,8 @@ VPS (Ubuntu + systemd + public Caddy TLS) remains a **supported reference topolo
 Internet
   → Cloudflare Edge TLS (public hostname HTTPS)
     → named Cloudflare Tunnel
-      → cloudflared (macOS launch agent/daemon per Cloudflare docs)
-        → Caddy http://127.0.0.1:8080  (loopback only, no local TLS)
+      → cloudflared LaunchDaemon (boot-time; /etc/cloudflared/)
+        → Caddy http://app.example.com:8080 bind 127.0.0.1 (loopback HTTP; Host = public FQDN)
           ├── static: web/dist
           └── /api/* → Fastify 127.0.0.1:3000
                          → PostgreSQL localhost only
@@ -85,23 +85,24 @@ Internet
 ```text
 no router port forwarding
 no public Fastify / PostgreSQL ports
-Caddy binds loopback only (8080)
+Caddy binds loopback only (8080); site address uses explicit http:// and public Host matcher
 Fastify binds loopback only (3000)
 PostgreSQL listens locally only
-public hostname uses HTTPS at Cloudflare edge
+public hostname uses HTTPS at Cloudflare edge (X-Forwarded-Proto to Fastify is https)
 session cookie remains host-only (no Domain=)
 Cloudflare Tunnel ≠ application auth (Servora-Med session remains SSOT)
 Cloudflare Access optional, not required
 tunnel credentials never committed
 local disk backup ≠ offsite backup
+canonical cloudflared service: sudo cloudflared service install (LaunchDaemon)
 ```
 
 ### Durable decisions (for DECISIONS.md closeout)
 
-1. Local macOS + Cloudflare named tunnel is the **initial pilot topology**.  
-2. Ubuntu VPS remains a **supported reference** topology (Slice 11).  
-3. No inbound application/database ports for pilot.  
-4. Cloudflare Tunnel does **not** satisfy offsite backup.  
+1. Local macOS + Cloudflare named tunnel is the **initial pilot topology**.
+2. Ubuntu VPS remains a **supported reference** topology (Slice 11).
+3. No inbound application/database ports for pilot.
+4. Cloudflare Tunnel does **not** satisfy offsite backup.
 5. WebSocket remains evidence-gated (Slice 13).
 
 ---
@@ -120,9 +121,10 @@ Homebrew, Node 22+, PostgreSQL 16+, Caddy, cloudflared
 clone/update, production build, npm ci --omit=dev in server release dir
 DB create, env files under private paths (not repo .env for pilot)
 migrate:prod, bootstrap:admin:prod (never commit real bootstrap secrets)
-Caddy with tunnel Caddyfile on 127.0.0.1:8080
-cloudflared login, named tunnel create, DNS route, config.yml, validate
-launch agent install (official cloudflared service path)
+Caddy with tunnel Caddyfile: http://<public-fqdn>:8080 + bind 127.0.0.1
+cloudflared login, named tunnel create, DNS route, config under /etc/cloudflared
+tunnel ingress validate/rule with explicit --config (never silent personal config)
+boot-time LaunchDaemon: sudo cloudflared service install (LaunchAgent = dev alternative only)
 health + login smoke on public hostname
 backup schedule (launchd) + restore rehearsal checklist
 upgrade/deploy/rollback boundaries
@@ -141,36 +143,63 @@ Aligned with Cloudflare published-application config (catch-all required):
 
 ```yaml
 # Locally-managed named tunnel — do not commit real UUID or credentials JSON.
+# Canonical pilot paths (LaunchDaemon):
+#   config:      /etc/cloudflared/config.yml
+#   credentials: /etc/cloudflared/<TUNNEL_UUID>.json
 tunnel: <TUNNEL_UUID>
-credentials-file: /absolute/private/path/<TUNNEL_UUID>.json
+credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
 
 ingress:
   - hostname: app.example.com
     service: http://127.0.0.1:8080
-  - service: http_status:404
+  - service: http_status:404   # mandatory catch-all
 ```
 
-Document operator commands (from Cloudflare docs):
+Document operator commands (from Cloudflare docs). When the active file is not the CLI default, **always** pass `--config`:
 
 ```bash
+cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
+cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule https://app.example.com
 cloudflared tunnel list
-cloudflared tunnel ingress validate
-cloudflared tunnel ingress rule https://app.example.com
 cloudflared tunnel info <name-or-uuid>
 ```
 
-macOS service install follows official “run as a service on macOS” flow after tunnel + config exist (`cloudflared service install` / launchd under Cloudflare guidance). Config used by service may live under `/etc/cloudflared/config.yml` when installed as system service—runbook must state **which path is active**.
+macOS service models (Cloudflare official):
+
+| Model | Command | Paths | Pilot use |
+|-------|---------|-------|-----------|
+| **LaunchDaemon (canonical)** | `sudo cloudflared service install` | `/etc/cloudflared/` | Boot-time pilot |
+| LaunchAgent (dev alternative) | `cloudflared service install` | `~/.cloudflared/` | Login-dependent only |
 
 ### 5.3 Tunnel Caddyfile
 
-**Create:** `ops/caddy/Caddyfile.tunnel.example`  
+**Create:** `ops/caddy/Caddyfile.tunnel.example`
 **Do not modify** VPS `Caddyfile.example` semantics beyond shared header conventions.
+
+`auto_https off` alone does **not** make the site HTTP. The site address must use explicit `http://` and must match the public `Host` (not bare `http://127.0.0.1:8080` as the site matcher). Canonical shape:
+
+```caddyfile
+{
+    servers :8080 {
+        trusted_proxies static 127.0.0.0/8 ::1
+        client_ip_headers CF-Connecting-IP
+    }
+}
+
+http://app.example.com:8080 {
+    bind 127.0.0.1
+    # API / assets / SPA + reverse_proxy with:
+    #   header_up X-Forwarded-For {client_ip}
+    #   header_up X-Forwarded-Proto https
+}
+```
 
 Requirements:
 
 ```text
-listen 127.0.0.1:8080 only
-plain HTTP (no local automatic TLS)
+bind 127.0.0.1 only
+explicit http:// + public FQDN site matcher (Host alignment executable-tested)
+plain HTTP origin (HTTPS at Cloudflare edge)
 root → pilot release web/dist
 /api/* → reverse_proxy 127.0.0.1:3000 + Cache-Control: no-store
 /assets/* → immutable long cache
@@ -181,26 +210,30 @@ log filters: strip Cookie and Authorization
 ### 5.4 Real client IP chain
 
 ```text
-Browser → Cloudflare edge
-  CF-Connecting-IP = true visitor IP
-cloudflared → Caddy (loopback)
-Caddy trusted_proxies = loopback/cloudflared local only
-Caddy client_ip_headers = CF-Connecting-IP (and documented XFF behavior)
-Caddy → Fastify: X-Forwarded-For set to trusted client IP
-Fastify TRUSTED_PROXY=loopback → request.ip for login rate limit
+public https request
+  → CF-Connecting-IP preserved (Cloudflare single visitor IP header)
+  → cloudflared → Caddy on loopback
+  → Caddy trusted_proxies = 127.0.0.0/8 ::1
+  → Caddy client_ip_headers = CF-Connecting-IP
+  → X-Forwarded-For = {client_ip}
+  → X-Forwarded-Proto = https   (never accidental http for public browser traffic)
+  → Fastify TRUSTED_PROXY=loopback → request.ip = visitor IP (login rate limit)
 ```
+
+**Threat boundary (must stay honest):**
+
+- Internet users cannot reach Caddy directly; only the tunnel hop on loopback can.
+- Caddy listens only on loopback.
+- A malicious process on the same host could spoof `CF-Connecting-IP` toward Caddy; that is **host compromise**, not a remote bypass.
+- Do **not** write acceptance that claims “all local spoof is prevented.”
 
 **Test obligation (smallest executable proof):**
 
 | Case | Expected |
 |------|----------|
-| Two different `CF-Connecting-IP` / forwarded client IPs via trusted loopback peer | Independent login rate-limit buckets |
-| Direct connection with spoofed `X-Forwarded-For` / `CF-Connecting-IP` from non-trusted peer | Not trusted as distinct clients |
-
-Implementation options (pick one in plan, prefer no new runtime dep):
-
-- Documented Caddy snippet + extend existing Fastify trust-proxy tests; and/or  
-- Lightweight integration test that injects Fastify with loopback trust (already present) plus a **contract test** asserting tunnel Caddyfile contains `trusted_proxies` / `client_ip_headers` / no public bind.
+| Two different visitor IPs via trusted loopback peer (`X-Forwarded-For` after Caddy resolution) | Independent login rate-limit buckets |
+| Spoofed `X-Forwarded-For` from non-loopback peer | Not trusted as distinct clients |
+| Tunnel Caddyfile contract | `trusted_proxies`, `client_ip_headers CF-Connecting-IP`, `header_up X-Forwarded-For {client_ip}`, `header_up X-Forwarded-Proto https`, Host matcher + bind |
 
 Full multi-process CF stack in CI is **not** required.
 
@@ -213,19 +246,21 @@ ops/launchd/com.servora-med.api.plist.example
 ops/launchd/com.servora-med.backup.plist.example
 ```
 
-Properties:
+Properties (exact; launchd does **not** load interactive shell `PATH` or repo `.env`):
 
 ```text
-absolute paths to node/scripts/release
-EnvironmentFiles / env vars without secret literals
-KeepAlive / RunAtLoad as appropriate for pilot
-logs under /usr/local/var/log/servora-med or ~/Library/Logs/servora-med
-backup StartCalendarInterval schedule
+absolute executable paths (wrapper scripts, not bare "npm" / relative node)
+Apple Silicon vs Intel Homebrew path notes in comments (/opt/homebrew vs /usr/local)
+no secrets in plist (no DATABASE_URL / passwords)
+wrapper sources private EnvironmentFile (/etc/servora-med/*.env)
+log directories under /usr/local/var/log/servora-med
+API: RunAtLoad + KeepAlive
+backup: StartCalendarInterval
 ```
 
-Verification: `plutil -lint` in CI when macOS runner unavailable → document Linux CI skip only if tool missing; on developer macOS lint is required in plan. Prefer checking plist XML well-formedness with `plutil` in a macOS job **or** validate structure with a small test that rejects relative WorkingDirectory / secret-looking keys.
+Verification: contract tests for absolute paths and no secret literals; `plutil -lint` on macOS when available; Linux CI relies on XML/contract tests when `plutil` is absent.
 
-Cloudflared: use **official** service install rather than inventing a third plist unless official path is insufficient—document which is canonical.
+Cloudflared: **official** `sudo cloudflared service install` is canonical—do not invent a third-party cloudflared plist.
 
 ### 5.6 Power / host availability checklist
 
@@ -332,7 +367,7 @@ Status table (must appear in ops + README limitations):
 | Host restore rehearsal | **pending** until executed on pilot host |
 | Real offsite copy | **pending** until destination + credentials configured |
 
-Cloudflare Tunnel **does not** transport backups.  
+Cloudflare Tunnel **does not** transport backups.
 Optional rclone/S3/R2 example may live as a **separate optional appendix**, never as “offsite complete”.
 
 ---
@@ -426,5 +461,4 @@ automatic router or macOS security configuration
 
 ## 13. Approval gate
 
-**Implementation must not start** until this design and  
-`docs/superpowers/plans/2026-07-15-local-pilot-cutover.md` receive **explicit user approval**.
+**Approved** 2026-07-15 with mandatory technical clarifications (exact HTTP Host matcher, CF-Connecting-IP / trusted_proxies, X-Forwarded-Proto https, LaunchDaemon canonical model, `--config` validation). No second design approval required; single implementation review after Tasks 1–11.

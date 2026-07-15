@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Servora-Med PostgreSQL backup — daily LaunchDaemon example.
+  Install as /Library/LaunchDaemons/com.servora-med.backup.plist after replacing paths.
+  Environment (BACKUP_DIR, OPS_LOG, PG*) must come from a private env file via wrapper.
+  No passwords or DATABASE_URL secrets in this plist.
+
+  Wrapper example (/usr/local/libexec/servora-med/run-backup.sh):
+    #!/bin/bash
+    set -euo pipefail
+    set -a
+    source /etc/servora-med/servora-med-backup.env
+    set +a
+    exec /opt/servora-med/current/ops/scripts/backup-postgres.sh
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.servora-med.backup</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/servora-med/run-backup.sh</string>
+	</array>
+	<key>StartCalendarInterval</key>
+	<dict>
+		<key>Hour</key>
+		<integer>2</integer>
+		<key>Minute</key>
+		<integer>30</integer>
+	</dict>
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/servora-med/backup.stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/servora-med/backup.stderr.log</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

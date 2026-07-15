@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Servora-Med Fastify API — pilot LaunchDaemon example (boot-time).
+  Install as /Library/LaunchDaemons/com.servora-med.api.plist after replacing paths.
+  Secrets stay in the EnvironmentFile sourced by the wrapper — never in this plist.
+
+  Apple Silicon Homebrew node: /opt/homebrew/bin/node
+  Intel Homebrew node:         /usr/local/bin/node
+
+  Wrapper example (/usr/local/libexec/servora-med/start-api.sh):
+    #!/bin/bash
+    set -euo pipefail
+    set -a
+    source /etc/servora-med/servora-med.env
+    set +a
+    cd /opt/servora-med/current/server
+    exec /opt/homebrew/bin/node dist/index.js
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.servora-med.api</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/servora-med/start-api.sh</string>
+	</array>
+	<key>WorkingDirectory</key>
+	<string>/opt/servora-med/current/server</string>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/servora-med/api.stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/servora-med/api.stderr.log</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

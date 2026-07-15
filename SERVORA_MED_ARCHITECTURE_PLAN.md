@@ -330,20 +330,40 @@ General JSON settings bags, custom fields, user-created database tables, form bu
 
 ## 14. Deployment and Operations
 
-Production assumptions (Slice 11 implemented):
+### Initial pilot topology (Slice 12)
 
-- TLS terminates at **Caddy** (canonical). Nginx remains an architecture-level alternative only.
+```text
+Internet
+  → Cloudflare Edge TLS (public hostname HTTPS)
+    → named Cloudflare Tunnel
+      → cloudflared LaunchDaemon (boot; /etc/cloudflared/)
+        → Caddy http://<public-fqdn>:8080 bind 127.0.0.1 only
+          ├── static web/dist
+          └── /api/* → Fastify 127.0.0.1:3000 → PostgreSQL local only
+```
+
+- No inbound application (3000) or PostgreSQL ports; no router port forwarding.
+- Public HTTPS semantics: browser is HTTPS even though the tunnel origin is local HTTP.
+- Client IP for login rate limits: `CF-Connecting-IP` → Caddy `trusted_proxies` (loopback) + `client_ip_headers` → `X-Forwarded-For {client_ip}` + `X-Forwarded-Proto https` → Fastify `TRUSTED_PROXY=loopback`.
+- Cloudflare Tunnel does **not** replace Servora-Med session auth and does **not** move backups off-host.
+- Runbook: `docs/operations/local-macos-cloudflare-tunnel.md`. Templates: `ops/caddy/Caddyfile.tunnel.example`, `ops/cloudflared/`, `ops/launchd/`.
+
+### Ubuntu VPS reference (Slice 11)
+
+Production assumptions (still supported):
+
+- TLS terminates at **Caddy** on the VPS (canonical for this topology). Nginx remains an architecture-level alternative only.
 - Fastify binds loopback only and trusts only a configured **loopback** proxy hop.
 - CORS allows only the production **https** web origin with credentials.
 - Schema migrations run via explicit `migrate:prod`, not on process start.
 - Health readiness is generic for unauthenticated callers (`ok` / `unavailable`).
 - Process handles graceful termination with bounded shutdown.
 - Database backup scripts write exit status, timestamp, and destination to external operations logs.
-- Backup copies leave the VPS through an optional encrypted offsite hook.
+- Backup copies leave the host through an optional encrypted offsite hook.
 - Restore is rehearsed against disposable targets; production target guards are mandatory.
 
 Backup status does not require a product-domain database table in MVP.  
-Runbooks: `docs/operations/production-deployment.md`, `docs/operations/backup-restore.md`.
+Runbooks: `docs/operations/local-macos-cloudflare-tunnel.md` (pilot), `docs/operations/production-deployment.md` (VPS), `docs/operations/backup-restore.md`.
 
 ## 15. Verification Strategy
 

@@ -1,6 +1,6 @@
-# Production deployment — Servora-Med
+# Production deployment — Servora-Med (Ubuntu VPS reference)
 
-Canonical pilot topology for a single Ubuntu 24.04 VPS.
+**Ubuntu 24.04 VPS** reference topology (Slice 11). For the **initial macOS pilot** with Cloudflare Tunnel (no inbound app ports), use [local-macos-cloudflare-tunnel.md](./local-macos-cloudflare-tunnel.md) instead.
 
 ## Topology
 
