@@ -926,7 +926,7 @@ no new CSS rule was necessary.
 - Consumes: Task 8 meeting API, current lifecycle functions, Task 9 navigation, existing
   focus feedback, notes, and timeline.
 
-- [ ] **Step 1: Write failing detail-state and interaction tests**
+- [x] **Step 1: Write failing detail-state and interaction tests**
 
 Assert exactly one type-specific request, invalid variant impossibility through fixtures,
 JobCard/detail version match, one retry then error, editable/immutable states, role scope,
@@ -940,7 +940,7 @@ expect(screen.getByText('Saat dilimi: GMT+03:00')).toBeVisible();
 expect(submitButton).toBeDisabledDuring('savingMeeting');
 ```
 
-- [ ] **Step 2: Run detail tests and verify RED**
+- [x] **Step 2: Run detail tests and verify RED**
 
 ```bash
 cd web && npm test -- --run tests/meeting-details.test.tsx \
@@ -949,7 +949,7 @@ cd web && npm test -- --run tests/meeting-details.test.tsx \
 
 Expected: FAIL because detail state still uses `job + items` and has no meeting form.
 
-- [ ] **Step 3: Implement explicit union and result component**
+- [x] **Step 3: Implement explicit union and result component**
 
 Define:
 
@@ -972,14 +972,14 @@ type LoadedJobDetail =
 Use one mutex for `savingMeeting` versus `runningLifecycle`; notes keep independent state.
 After PATCH, update job version and normalized detail atomically.
 
-- [ ] **Step 4: Add explicit follow-up and accessibility behavior**
+- [x] **Step 4: Add explicit follow-up and accessibility behavior**
 
 When outcome is `FOLLOW_UP_REQUIRED`, show prominent helper text linked to the follow-up
 control. Do not set `required`, `aria-required`, or a visual required marker. Confirm save
 and submit remain enabled without follow-up. Focus error summary, success status, and
 conflict-refresh status according to the design.
 
-- [ ] **Step 5: Run focused detail, lifecycle, and accessibility tests**
+- [x] **Step 5: Run focused detail, lifecycle, and accessibility tests**
 
 ```bash
 cd web && npm test -- --run tests/meeting-details.test.tsx \
@@ -991,7 +991,7 @@ cd web && npm run build
 Expected: all three detail variants, bounded concurrency, optional follow-up, focus, and
 build PASS.
 
-- [ ] **Step 6: Commit Task 10**
+- [x] **Step 6: Commit Task 10**
 
 ```bash
 git add web/src/jobs/MeetingDetails.tsx web/src/JobDetail.tsx web/src/styles.css \

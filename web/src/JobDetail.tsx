@@ -5,10 +5,12 @@ import {
 
 import { ApiError, type CurrentUser } from './services/api';
 import {
-  approveJobCard, cancelJobCard, getJobCard, listDeliveryItems, planJobCard,
+  approveJobCard, cancelJobCard, getJobCard, getMeetingDetails, listDeliveryItems,
+  patchMeetingDetails, planJobCard,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
-  type DeliveryItem, type JobCard,
+  type DeliveryItem, type JobCard, type MeetingDetails, type PatchMeetingDetailsInput,
 } from './jobs/jobs-api';
+import { MeetingDetailsSection } from './jobs/MeetingDetails';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { jobTypeLabels } from './jobs/job-labels';
@@ -155,7 +157,7 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', pending, mess
       <div><dt>Durum</dt><dd>{statusLabels[job.status]}</dd></div>
       <div><dt>Sorumlu personel</dt><dd>{job.assignee.name}</dd></div>
       <div><dt>Öncelik</dt><dd>{priorityLabels[job.priority]}</dd></div>
-      <div><dt>Son tarih</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi'}</dd></div>
+      <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Son tarih'}</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi'}</dd></div>
       <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
       <div><dt>İlgili kişi</dt><dd>{job.contact?.name ?? 'Belirtilmedi'}</dd></div>
       <div className="detail-summary-wide"><dt>Açıklama</dt><dd>{job.description ?? 'Belirtilmedi'}</dd></div>
@@ -170,17 +172,34 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', pending, mess
         className={command === 'cancel' || command === 'revise' ? 'secondary-button' : 'primary-button compact-button'}
         type="button" disabled={pending} onClick={() => onCommand(command)}>{pending ? 'İşleniyor…' : commandLabels[command]}</button>)}</div></section>}
     {job.status === 'WAITING_APPROVAL' && viewerRole === 'STAFF' && <div className="workspace-message" role="status"><h2>Yönetici onayı bekleniyor</h2>
-      <p>{job.type === 'PRODUCT_DELIVERY' ? 'Teslim bilgileri' : 'Görev bilgileri'} inceleme tamamlanana kadar değiştirilemez.</p></div>}
+      <p>{job.type === 'PRODUCT_DELIVERY' ? 'Teslim bilgileri' : job.type === 'SALES_MEETING' ? 'Görüşme bilgileri' : 'Görev bilgileri'} inceleme tamamlanana kadar değiştirilemez.</p></div>}
     {children}
   </main>;
 }
 
-type DetailState = { kind: 'loading' } | { kind: 'ready'; job: JobCard; items: DeliveryItem[] } | { kind: 'error'; message: string; retryable: boolean };
+export type LoadedJobDetail =
+  | { kind: 'PRODUCT_DELIVERY'; job: JobCard & { type: 'PRODUCT_DELIVERY' }; deliveryItems: DeliveryItem[] }
+  | { kind: 'GENERAL_TASK'; job: JobCard & { type: 'GENERAL_TASK' } }
+  | { kind: 'SALES_MEETING'; job: JobCard & { type: 'SALES_MEETING' }; meetingDetails: MeetingDetails };
+type DetailState = { kind: 'loading' } | { kind: 'ready'; detail: LoadedJobDetail }
+  | { kind: 'error'; message: string; retryable: boolean };
 
-async function loadJobDetail(jobId: string) {
+async function loadJobDetailOnce(jobId: string): Promise<LoadedJobDetail> {
   const job = await getJobCard(jobId);
-  const items = job.type === 'PRODUCT_DELIVERY' ? await listDeliveryItems(jobId) : [];
-  return { job, items };
+  if (job.type === 'PRODUCT_DELIVERY') return { kind: job.type,
+    job: { ...job, type: job.type }, deliveryItems: await listDeliveryItems(jobId) };
+  if (job.type === 'GENERAL_TASK') return { kind: job.type, job: { ...job, type: job.type } };
+  return { kind: job.type, job: { ...job, type: job.type },
+    meetingDetails: await getMeetingDetails(jobId) };
+}
+async function loadJobDetail(jobId: string) {
+  let detail = await loadJobDetailOnce(jobId);
+  if (detail.kind !== 'SALES_MEETING' || detail.job.version === detail.meetingDetails.jobCardVersion) return detail;
+  detail = await loadJobDetailOnce(jobId);
+  if (detail.kind !== 'SALES_MEETING' || detail.job.version !== detail.meetingDetails.jobCardVersion) {
+    throw new ApiError(409, 'VERSION_CONFLICT', 'İş ve görüşme bilgileri eşleşmedi. Tekrar deneyin.', true);
+  }
+  return detail;
 }
 
 export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: string; user: CurrentUser; onBack: () => void; onChanged: () => void }) {
@@ -192,13 +211,14 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   const [timelineKey, setTimelineKey] = useState(0);
   const [dialog, setDialog] = useState<'revise' | 'cancel' | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const mutationInFlight = useRef(false);
   const feedbackRef = useRef<HTMLDivElement>(null);
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
 
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
     loadJobDetail(jobId)
-      .then(({ job, items }) => { if (active) setState({ kind: 'ready', job, items }); })
+      .then((detail) => { if (active) setState({ kind: 'ready', detail }); })
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof ApiError ? error.message : 'İş yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
     return () => { active = false; };
   }, [jobId, reloadKey]);
@@ -212,14 +232,15 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
     requestAnimationFrame(() => dialogTriggerRef.current?.focus());
   }
   async function refreshTruth() {
-    const { job, items } = await loadJobDetail(jobId);
-    setState({ kind: 'ready', job, items });
+    const detail = await loadJobDetail(jobId);
+    setState({ kind: 'ready', detail });
     setTimelineKey((value) => value + 1);
   }
   async function execute(command: LifecycleCommand, reason = '') {
-    if (state.kind !== 'ready') return;
+    if (state.kind !== 'ready' || mutationInFlight.current) return;
+    mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false);
-    const input = { clientActionId: crypto.randomUUID(), expectedVersion: state.job.version };
+    const input = { clientActionId: crypto.randomUUID(), expectedVersion: state.detail.job.version };
     try {
       const updated = command === 'plan' ? await planJobCard(jobId, input)
         : command === 'start' ? await startJobCard(jobId, input)
@@ -228,7 +249,10 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
         : command === 'revise' ? await requestJobCardRevision(jobId, { ...input, revisionReason: reason })
         : command === 'resume' ? await resumeJobCard(jobId, input)
         : await cancelJobCard(jobId, { ...input, cancelReason: reason });
-      setState({ ...state, job: updated });
+      setState({ kind: 'ready', detail: state.detail.kind === 'SALES_MEETING'
+        ? { ...state.detail, job: updated as JobCard & { type: 'SALES_MEETING' },
+          meetingDetails: { ...state.detail.meetingDetails, jobCardVersion: updated.version } }
+        : { ...state.detail, job: updated } as LoadedJobDetail });
       setTimelineKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) setDialog(null);
@@ -243,7 +267,27 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
         setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
         setMessageIsError(true);
       }
-    } finally { setPending(false); }
+    } finally { mutationInFlight.current = false; setPending(false); }
+  }
+  async function saveMeeting(input: PatchMeetingDetailsInput) {
+    if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
+      || mutationInFlight.current) {
+      throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
+    }
+    mutationInFlight.current = true;
+    setPending(true); setMessage(''); setMessageIsError(false);
+    try {
+      const meetingDetails = await patchMeetingDetails(jobId, input);
+      setState({ kind: 'ready', detail: { ...state.detail,
+        job: { ...state.detail.job, version: meetingDetails.jobCardVersion }, meetingDetails } });
+      setTimelineKey((value) => value + 1); onChanged(); return meetingDetails;
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
+        await refreshTruth();
+        throw new ApiError(409, 'VERSION_CONFLICT', 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+      }
+      throw caught;
+    } finally { mutationInFlight.current = false; setPending(false); }
   }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
     if (commandName === 'revise' || commandName === 'cancel') {
@@ -255,9 +299,12 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   if (state.kind === 'loading') return <main className="job-detail" aria-busy="true"><p>İş detayları yükleniyor</p></main>;
   if (state.kind === 'error') return <main className="job-detail"><div className="workspace-message" role="alert"><h1>İş yüklenemedi</h1><p>{state.message}</p>
     {state.retryable && <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button>}</div></main>;
-  return <JobDetailPanel job={state.job} items={state.items} viewerRole={user.role} pending={pending}
+  const { detail } = state;
+  return <JobDetailPanel job={detail.job} items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []} viewerRole={user.role} pending={pending}
     message={message} messageIsError={messageIsError} feedbackRef={feedbackRef} onBack={onBack}
     onCommand={(name) => command(name, document.activeElement as HTMLElement)}>
+    {detail.kind === 'SALES_MEETING' && <MeetingDetailsSection job={detail.job} details={detail.meetingDetails}
+      user={user} mutationPending={pending} onSave={saveMeeting} />}
     <div className="job-detail-sections"><JobNotes jobId={jobId} onAdded={() => setTimelineKey((value) => value + 1)} /><JobTimeline jobId={jobId} refreshKey={timelineKey} /></div>
     {dialog && <ReasonDialog kind={dialog} pending={pending} onClose={closeDialog} onConfirm={(reason) => void execute(dialog, reason)} />}
   </JobDetailPanel>;
