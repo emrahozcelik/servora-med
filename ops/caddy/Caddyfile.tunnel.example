@@ -6,8 +6,8 @@
 
 {
 	auto_https off
-	servers :8080 {
-		# Only local cloudflared (same host) may supply client IP headers.
+	# Trusted hop is local cloudflared only. Prefer CF-Connecting-IP for client IP.
+	servers {
 		trusted_proxies static 127.0.0.0/8 ::1
 		client_ip_headers CF-Connecting-IP
 	}
@@ -25,11 +25,13 @@ http://app.example.com:8080 {
 		-Server
 	}
 
-	# API — no store; forward trusted client IP and public HTTPS semantics.
+	# API — no store; forward visitor IP + public HTTPS semantics to Fastify.
+	# Use CF-Connecting-IP explicitly (Cloudflare single-value visitor IP) so reverse_proxy
+	# does not fall back to the loopback peer address as X-Forwarded-For.
 	handle /api/* {
 		header Cache-Control "no-store"
 		reverse_proxy 127.0.0.1:3000 {
-			header_up X-Forwarded-For {client_ip}
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 			header_up X-Forwarded-Proto https
 			header_up X-Forwarded-Host {host}
 		}

@@ -17,7 +17,7 @@ describe('Cloudflare Tunnel origin contracts', () => {
   it('binds Caddy to loopback HTTP with explicit public Host matcher', () => {
     expect(caddy).toMatch(/http:\/\/app\.example\.com:8080/);
     expect(caddy).toMatch(/\bbind\s+127\.0\.0\.1\b/);
-    expect(caddy).toMatch(/servers\s+:8080/);
+    expect(caddy).toMatch(/servers\s*\{/);
     expect(caddy).not.toMatch(/:\s*443\b/);
   });
 
@@ -28,7 +28,10 @@ describe('Cloudflare Tunnel origin contracts', () => {
 
   it('forwards visitor IP and public HTTPS semantics to Fastify', () => {
     expect(caddy).toMatch(/reverse_proxy\s+127\.0\.0\.1:3000/);
-    expect(caddy).toMatch(/header_up\s+X-Forwarded-For\s+\{client_ip\}/);
+    // Explicit CF header (not loopback peer) so Fastify request.ip is the visitor.
+    expect(caddy).toMatch(
+      /header_up\s+X-Forwarded-For\s+\{http\.request\.header\.CF-Connecting-IP\}/,
+    );
     expect(caddy).toMatch(/header_up\s+X-Forwarded-Proto\s+https/);
     expect(caddy).toMatch(/header_up\s+X-Forwarded-Host\s+\{host\}/);
   });

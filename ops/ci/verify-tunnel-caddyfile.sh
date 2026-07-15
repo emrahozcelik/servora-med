@@ -9,7 +9,7 @@ test -f "$CONFIG"
 
 grep -F 'bind 127.0.0.1' "$CONFIG" >/dev/null
 grep -F 'CF-Connecting-IP' "$CONFIG" >/dev/null
-grep -F 'header_up X-Forwarded-For {client_ip}' "$CONFIG" >/dev/null
+grep -F 'header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}' "$CONFIG" >/dev/null
 grep -F 'header_up X-Forwarded-Proto https' "$CONFIG" >/dev/null
 grep -F 'Cache-Control "no-store"' "$CONFIG" >/dev/null
 grep -F 'Cache-Control "no-cache"' "$CONFIG" >/dev/null

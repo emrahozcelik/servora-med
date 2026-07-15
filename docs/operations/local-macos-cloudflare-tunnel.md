@@ -35,7 +35,7 @@ never commit cert.pem, token, or tunnel credential JSON
 
 - Visitors reach only Cloudflare; Caddy is not on the public internet.
 - Caddy trusts client IP headers **only** from loopback (`127.0.0.0/8`, `::1`) where `cloudflared` connects.
-- Caddy resolves `CF-Connecting-IP` → `{client_ip}` and forwards `X-Forwarded-For: {client_ip}` plus `X-Forwarded-Proto: https` to Fastify.
+- Caddy trusts loopback proxies and forwards `CF-Connecting-IP` as `X-Forwarded-For` plus `X-Forwarded-Proto: https` to Fastify.
 - Fastify `TRUSTED_PROXY=loopback` uses that IP for login rate limits.
 - A compromised local process on the pilot host could spoof headers to Caddy; that is **host compromise**, not a remote rate-limit bypass.
 

@@ -24,7 +24,7 @@ test -f "$TEMPLATE"
 grep -F 'bind 127.0.0.1' "$TEMPLATE" >/dev/null
 grep -F 'client_ip_headers CF-Connecting-IP' "$TEMPLATE" >/dev/null
 grep -F 'trusted_proxies static 127.0.0.0/8 ::1' "$TEMPLATE" >/dev/null
-grep -F 'header_up X-Forwarded-For {client_ip}' "$TEMPLATE" >/dev/null
+grep -F 'header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}' "$TEMPLATE" >/dev/null
 grep -F 'header_up X-Forwarded-Proto https' "$TEMPLATE" >/dev/null
 grep -F 'header_up X-Forwarded-Host {host}' "$TEMPLATE" >/dev/null
 grep -F 'Cache-Control "no-store"' "$TEMPLATE" >/dev/null
@@ -56,11 +56,11 @@ mkdir -p "$TMP/web/dist/assets"
 printf '%s\n' '<!doctype html><title>spa</title><h1>servora-spa</h1>' >"$TMP/web/dist/index.html"
 printf '%s\n' 'console.log("asset")' >"$TMP/web/dist/assets/app.js"
 
-# Single Caddy process: backend echo site + public Host site with the pilot contracts.
+# Mirror pilot contracts with disposable ports/paths (single Caddy process).
 cat >"$TMP/Caddyfile" <<EOF
 {
 	auto_https off
-	servers :${CADDY_PORT} {
+	servers {
 		trusted_proxies static 127.0.0.0/8 ::1
 		client_ip_headers CF-Connecting-IP
 	}
@@ -77,7 +77,7 @@ http://${PUBLIC_HOST}:${CADDY_PORT} {
 	handle /api/* {
 		header Cache-Control "no-store"
 		reverse_proxy 127.0.0.1:${BACKEND_PORT} {
-			header_up X-Forwarded-For {client_ip}
+			header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}
 			header_up X-Forwarded-Proto https
 			header_up X-Forwarded-Host {host}
 		}
