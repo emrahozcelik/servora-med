@@ -39,6 +39,7 @@ class CrudMemoryRepository implements JobCardRepository {
   ];
   jobs: JobCard[] = [];
   activities: string[] = [];
+  assigneeLookupCount = 0;
   completed = new Map<string, unknown>();
   listCalls: Array<{ scope: JobCardReadScope; query: JobCardListQuery }> = [];
 
@@ -50,7 +51,10 @@ class CrudMemoryRepository implements JobCardRepository {
       getJobForUpdate: async () => null,
       transitionWithVersion: async () => null,
       getAssignee: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
-      getAssigneeForUpdate: async (org, id) => this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
+      getAssigneeForUpdate: async (org, id) => {
+        this.assigneeLookupCount += 1;
+        return this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null;
+      },
       customerExists: async (org, id) => this.customers.some((item) => item.organizationId === org && item.id === id),
       getCustomerForUpdate: async (org, id) => this.customers.find((item) => item.organizationId === org && item.id === id) ?? null,
       getContactForUpdate: async (org, id) => this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
@@ -124,7 +128,31 @@ describe('JobCardService create and reads', () => {
   it('rejects staff assignment to another user and cross-org references', async () => {
     const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
     await expect(service.create(staff, { ...createInput, assignedTo: 'staff-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
+    expect(repository.assigneeLookupCount).toBe(0);
     await expect(service.create(staff, { ...createInput, customerId: 'missing' })).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND' });
+  });
+
+  it('uses the canonical assignee errors after manager assignment lookup', async () => {
+    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    repository.assignees.push(
+      { id: 'staff-inactive', organizationId: 'org-1', role: 'STAFF', isActive: false },
+      { id: 'manager-assignee', organizationId: 'org-1', role: 'MANAGER', isActive: true },
+      { id: 'staff-cross-org', organizationId: 'org-2', role: 'STAFF', isActive: true },
+    );
+
+    await expect(service.create(manager, {
+      ...createInput, clientActionId: 'missing-assignee', assignedTo: 'missing',
+    })).rejects.toMatchObject({ code: 'ASSIGNEE_NOT_FOUND', statusCode: 404 });
+    await expect(service.create(manager, {
+      ...createInput, clientActionId: 'cross-org-assignee', assignedTo: 'staff-cross-org',
+    })).rejects.toMatchObject({ code: 'ASSIGNEE_NOT_FOUND', statusCode: 404 });
+    await expect(service.create(manager, {
+      ...createInput, clientActionId: 'inactive-assignee', assignedTo: 'staff-inactive',
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    await expect(service.create(manager, {
+      ...createInput, clientActionId: 'non-staff-assignee', assignedTo: 'manager-assignee',
+    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    expect(repository.assigneeLookupCount).toBe(4);
   });
 
   it('allows a manager to assign an active same-organization staff user', async () => {

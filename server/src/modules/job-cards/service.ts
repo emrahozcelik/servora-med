@@ -1,6 +1,12 @@
 import { AppError } from '../../errors/index.js';
 import { presentActivity } from './activity-presenter.js';
-import { assertCanCreateForAssignee, assertCanEdit, assertCanTransition, assertDeliveryReadyForSubmission } from './policy.js';
+import {
+  assertCanCreateForAssignee,
+  assertCanEdit,
+  assertCanTransition,
+  assertCreateAssignmentRequest,
+  assertDeliveryReadyForSubmission,
+} from './policy.js';
 import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, PageQuery, ProductReference } from './repository.js';
 import {
   DELIVERY_PURPOSES,
@@ -114,6 +120,7 @@ export class JobCardService {
       !input.customerId || !input.assignedTo || !JOB_CARD_PRIORITIES.includes(priority)) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard oluşturma bilgileri geçersiz.');
     }
+    assertCreateAssignmentRequest(actor, input.assignedTo);
     const result = await this.repository.executeCriticalAction(
       {
         organizationId: actor.organizationId, userId: actor.id,

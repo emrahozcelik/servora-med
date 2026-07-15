@@ -288,7 +288,7 @@ git commit -m "feat: define General Task contracts"
 - Produces: `assertCreateAssignmentRequest(actor, assignedTo)` and the exact assignee
   error matrix used by both create types.
 
-- [ ] **Step 1: Write failing policy and lookup-order tests**
+- [x] **Step 1: Write failing policy and lookup-order tests**
 
 Use a repository double that counts `getAssigneeForUpdate` calls. Assert:
 
@@ -308,7 +308,7 @@ cross-organization, inactive, and non-Staff candidates. Cover Customer absent fo
 Task, active Customer, active matching Contact, Contact without Customer, mismatched
 Contact, inactive Customer, and inactive Contact.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd server && npm test -- --run tests/job-card-policy.test.ts tests/job-card-crud-service.test.ts
@@ -317,7 +317,7 @@ cd server && npm test -- --run tests/job-card-policy.test.ts tests/job-card-crud
 Expected: FAIL because Staff mismatch currently reaches assignee lookup and General Task
 relation paths are not active.
 
-- [ ] **Step 3: Implement minimum shared policy**
+- [x] **Step 3: Implement minimum shared policy**
 
 Add and call this before any assignee lookup:
 
@@ -332,7 +332,7 @@ this order exactly: validate parsed input → pre-lookup Staff equality → assi
 `404 ASSIGNEE_NOT_FOUND` when absent → active/Staff policy → optional Customer/Contact
 locks and canonical relation errors. Do not derive or replace `assignedTo`.
 
-- [ ] **Step 4: Verify GREEN and Product Delivery behavior**
+- [x] **Step 4: Verify GREEN and Product Delivery behavior**
 
 ```bash
 cd server && npm test -- --run tests/job-card-policy.test.ts tests/job-card-crud-service.test.ts
@@ -342,7 +342,7 @@ cd server && npm test -- --run tests/job-card-service.test.ts tests/delivery-ite
 Expected: PASS with the exact 400/403/404 matrix and unchanged valid Product Delivery
 creation.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/src/modules/job-cards/policy.ts server/src/modules/job-cards/service.ts \

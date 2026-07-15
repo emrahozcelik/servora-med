@@ -9,6 +9,10 @@ function assertSameOrganization(actor: JobCardActor, organizationId: string) {
   if (actor.organizationId !== organizationId) forbidden();
 }
 
+export function assertCreateAssignmentRequest(actor: JobCardActor, assignedTo: string) {
+  if (actor.role === 'STAFF' && actor.id !== assignedTo) forbidden();
+}
+
 export function assertCanCreateForAssignee(actor: JobCardActor, assignee: JobCardAssignee) {
   assertSameOrganization(actor, assignee.organizationId);
   if (!assignee.isActive || assignee.role !== 'STAFF') forbidden();
