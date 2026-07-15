@@ -18,6 +18,7 @@ const item: DeliveryItem = { id: 'i1', organizationId: 'org-1', jobCardId: 'job-
   productModelSnapshot: null, lotNo: null, serialNo: null, expiryDate: null, deliveryNote: null };
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Yönetici', email: 'manager@test.local',
   role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1 };
+const staff: CurrentUser = { ...manager, id: 's1', name: 'Ayşe Personel', role: 'STAFF' };
 const page = { items: [], total: 0, limit: 25, offset: 0 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -132,6 +133,54 @@ describe('Manager review', () => {
         onBack={() => {}} onChanged={() => {}} />); await new Promise((resolve) => setTimeout(resolve, 0)); });
       expect(jobReads).toBe(2); expect(meetingReads).toBe(2); expect(deliveryReads).toBe(0);
       expect(host.textContent).toContain('Görüşme sonucu');
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it('projects submit readiness errors into the meeting form and focuses the summary', async () => {
+    const meeting = { ...job, type: 'SALES_MEETING' as const, status: 'IN_PROGRESS' as const,
+      title: 'Satış görüşmesi', dueDate: '2026-07-20' };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details')) return Response.json({
+        jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
+        nextFollowUpAt: null, jobCardVersion: meeting.version,
+      });
+      if (url.includes('/notes?')) return Response.json(page);
+      if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
+      if (url.endsWith('/submit-for-approval') && init?.method === 'POST') return Response.json({
+        error: 'Satış görüşmesi yapılandırılmış sonuç bilgileri tamamlanmalıdır.',
+        code: 'MEETING_NOT_READY',
+        details: { fieldErrors: {
+          meetingAt: 'Gerçekleşme zamanı zorunludur.', outcome: 'Sonuç zorunludur.',
+          meetingSummary: 'Özet zorunludur.', nextFollowUpAt: 'Takip zamanı geçersizdir.',
+          hiddenRelation: 'Gizli bilgi',
+        } },
+      }, { status: 400 });
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => { root.render(<JobDetailScreen jobId="job-1" user={staff}
+        onBack={() => {}} onChanged={() => {}} />); await new Promise((resolve) => setTimeout(resolve, 0)); });
+      const submit = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Onaya gönder')!;
+      await act(async () => { submit.click(); await new Promise((resolve) => setTimeout(resolve, 0)); });
+
+      const alert = host.querySelector<HTMLElement>('[role="alert"]')!;
+      expect(alert).toBe(document.activeElement);
+      expect(alert.textContent).toContain('yapılandırılmış sonuç bilgileri');
+      for (const [controlId, errorId] of [
+        ['meeting-actual-at', 'meeting-actual-at-error'],
+        ['meeting-outcome', 'meeting-outcome-error'],
+        ['meeting-summary', 'meeting-summary-error'],
+        ['meeting-follow-up-at', 'meeting-follow-up-at-error'],
+      ]) {
+        const control = host.querySelector(`#${controlId}`);
+        expect(control?.getAttribute('aria-invalid')).toBe('true');
+        expect(control?.getAttribute('aria-describedby')).toContain(errorId);
+      }
+      expect(host.textContent).not.toContain('Gizli bilgi');
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 

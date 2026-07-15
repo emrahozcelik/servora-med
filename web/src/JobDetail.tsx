@@ -207,6 +207,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
+  const [meetingSubmissionError, setMeetingSubmissionError] = useState<ApiError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [timelineKey, setTimelineKey] = useState(0);
   const [dialog, setDialog] = useState<'revise' | 'cancel' | null>(null);
@@ -239,7 +240,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   async function execute(command: LifecycleCommand, reason = '') {
     if (state.kind !== 'ready' || mutationInFlight.current) return;
     mutationInFlight.current = true;
-    setPending(true); setMessage(''); setMessageIsError(false);
+    setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     const input = { clientActionId: crypto.randomUUID(), expectedVersion: state.detail.job.version };
     try {
       const updated = command === 'plan' ? await planJobCard(jobId, input)
@@ -266,6 +267,10 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
       } else {
         setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
         setMessageIsError(true);
+        if (caught instanceof ApiError && caught.code === 'MEETING_NOT_READY') {
+          setMeetingSubmissionError(caught);
+        }
+        setFeedbackFocusRequest((value) => value + 1);
       }
     } finally { mutationInFlight.current = false; setPending(false); }
   }
@@ -275,7 +280,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
     }
     mutationInFlight.current = true;
-    setPending(true); setMessage(''); setMessageIsError(false);
+    setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     try {
       const meetingDetails = await patchMeetingDetails(jobId, input);
       setState({ kind: 'ready', detail: { ...state.detail,
@@ -304,7 +309,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
     message={message} messageIsError={messageIsError} feedbackRef={feedbackRef} onBack={onBack}
     onCommand={(name) => command(name, document.activeElement as HTMLElement)}>
     {detail.kind === 'SALES_MEETING' && <MeetingDetailsSection job={detail.job} details={detail.meetingDetails}
-      user={user} mutationPending={pending} onSave={saveMeeting} />}
+      user={user} mutationPending={pending} submissionError={meetingSubmissionError}
+      onSave={saveMeeting} />}
     <div className="job-detail-sections"><JobNotes jobId={jobId} onAdded={() => setTimelineKey((value) => value + 1)} /><JobTimeline jobId={jobId} refreshKey={timelineKey} /></div>
     {dialog && <ReasonDialog kind={dialog} pending={pending} onClose={closeDialog} onConfirm={(reason) => void execute(dialog, reason)} />}
   </JobDetailPanel>;

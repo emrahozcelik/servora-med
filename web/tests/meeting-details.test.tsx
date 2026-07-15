@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { MeetingDetailsSection } from '../src/jobs/MeetingDetails';
 import type { JobCard, MeetingDetails } from '../src/jobs/jobs-api';
-import type { CurrentUser } from '../src/services/api';
+import { ApiError, type CurrentUser } from '../src/services/api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const user: CurrentUser = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'a@x', role: 'STAFF', mustChangePassword: false, isActive: true, version: 1 };
@@ -42,6 +42,76 @@ describe('MeetingDetailsSection', () => {
       meetingSummary: 'Ürün sunumu yapıldı.', nextFollowUpAt: null,
     }));
     expect(new Date(onSave.mock.calls[0]![0].meetingAt as string).toString()).not.toBe('Invalid Date');
+  });
+
+  it('accepts exactly 4,000 astral Unicode code points without a UTF-16 maxlength', async () => {
+    const onSave = vi.fn(async (input) => ({ ...details, ...input, jobCardVersion: 4 }));
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details}
+      user={user} mutationPending={false} onSave={onSave} />));
+    const summary = container.querySelector('#meeting-summary') as HTMLTextAreaElement;
+    expect(summary.maxLength).toBe(-1);
+    change(summary, '😀'.repeat(4_000));
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
+      meetingSummary: '😀'.repeat(4_000),
+    }));
+  });
+
+  it('rejects more than 4,000 Unicode code points with an associated field error', async () => {
+    const onSave = vi.fn();
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details}
+      user={user} mutationPending={false} onSave={onSave} />));
+    const summary = container.querySelector('#meeting-summary') as HTMLTextAreaElement;
+    change(summary, '😀'.repeat(4_001));
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave).not.toHaveBeenCalled();
+    expect(summary.getAttribute('aria-invalid')).toBe('true');
+    expect(summary.getAttribute('aria-describedby')).toBe('meeting-summary-error');
+    expect(container.querySelector('#meeting-summary-error')?.textContent).toContain('4.000');
+    expect(container.querySelector('[role="alert"]')).toBe(document.activeElement);
+  });
+
+  it('maps only canonical MEETING_NOT_READY field errors to associated controls', async () => {
+    const onSave = vi.fn().mockRejectedValue(new ApiError(
+      400,
+      'MEETING_NOT_READY',
+      'Görüşme bilgilerini tamamlayın.',
+      false,
+      { fieldErrors: {
+        meetingAt: 'Gerçekleşme zamanı zorunludur.',
+        outcome: 'Sonuç zorunludur.',
+        meetingSummary: 'Özet zorunludur.',
+        nextFollowUpAt: 'Takip zamanı geçersizdir.',
+        hiddenRelation: 'Gizli bilgi',
+      } },
+    ));
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details}
+      user={user} mutationPending={false} onSave={onSave} />));
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+
+    for (const [controlId, errorId] of [
+      ['meeting-actual-at', 'meeting-actual-at-error'],
+      ['meeting-outcome', 'meeting-outcome-error'],
+      ['meeting-summary', 'meeting-summary-error'],
+      ['meeting-follow-up-at', 'meeting-follow-up-at-error'],
+    ]) {
+      const control = container.querySelector(`#${controlId}`);
+      expect(control?.getAttribute('aria-invalid')).toBe('true');
+      expect(control?.getAttribute('aria-describedby')).toContain(errorId);
+      expect(container.querySelector(`#${errorId}`)?.textContent).not.toBe('');
+    }
+    expect(container.textContent).not.toContain('Gizli bilgi');
+    expect(container.querySelector('[role="alert"]')).toBe(document.activeElement);
+  });
+
+  it('describes local date-time inputs with the device IANA timezone', async () => {
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details}
+      user={user} mutationPending={false} onSave={vi.fn()} />));
+    const timezone = Intl.DateTimeFormat().resolvedOptions().timeZone;
+    expect(container.querySelector('#meeting-timezone-help')?.textContent)
+      .toBe(`Saat dilimi: ${timezone}`);
+    expect(container.querySelector('#meeting-actual-at')?.getAttribute('aria-describedby'))
+      .toContain('meeting-timezone-help');
   });
 
   it('uses semantic read-only results in review-locked states', async () => {
