@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+# Servora-Med PostgreSQL backup wrapper for launchd (pilot).
+# Install: sudo install -o root -g wheel -m 0755 run-backup.sh /usr/local/libexec/servora-med/run-backup.sh
+# Requires absolute PG_*_BIN in the env file (launchd PATH is minimal — do not rely on Homebrew PATH).
+set -Eeuo pipefail
+
+ENV_FILE="/etc/servora-med/servora-med-backup.env"
+BACKUP_SCRIPT="/opt/servora-med/current/ops/scripts/backup-postgres.sh"
+
+require_abs() {
+  local name="$1"
+  local value="$2"
+  if [[ -z "${value}" || "${value}" != /* ]]; then
+    printf '%s must be an absolute path\n' "${name}" >&2
+    exit 1
+  fi
+}
+
+require_abs ENV_FILE "${ENV_FILE}"
+require_abs BACKUP_SCRIPT "${BACKUP_SCRIPT}"
+
+if [[ ! -f "${ENV_FILE}" ]]; then
+  printf 'missing env file: %s\n' "${ENV_FILE}" >&2
+  exit 1
+fi
+if [[ ! -f "${BACKUP_SCRIPT}" ]]; then
+  printf 'backup script missing: %s\n' "${BACKUP_SCRIPT}" >&2
+  exit 1
+fi
+
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
+
+for var in PG_DUMP_BIN PG_RESTORE_BIN PSQL_BIN; do
+  value="${!var:-}"
+  require_abs "${var}" "${value}"
+  if [[ ! -x "${value}" ]]; then
+    printf '%s is not executable: %s\n' "${var}" "${value}" >&2
+    exit 1
+  fi
+done
+
+# Minimal PATH so bare `pg_dump` cannot accidentally resolve to a random system binary.
+export PATH="/usr/bin:/bin"
+export PG_DUMP_BIN PG_RESTORE_BIN PSQL_BIN
+
+exec /bin/bash "${BACKUP_SCRIPT}"

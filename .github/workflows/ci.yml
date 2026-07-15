@@ -39,7 +39,18 @@ jobs:
           node-version: 22
           cache: npm
           cache-dependency-path: server/package-lock.json
-      - run: bash -n ../ops/scripts/backup-postgres.sh ../ops/scripts/restore-rehearsal.sh ../ops/scripts/deploy-release.sh ../ops/ci/verify-caddyfile.sh ../ops/ci/verify-tunnel-caddyfile.sh ../ops/ci/verify-systemd-units.sh
+      - run: |
+          bash -n \
+            ../ops/scripts/backup-postgres.sh \
+            ../ops/scripts/restore-rehearsal.sh \
+            ../ops/scripts/deploy-release.sh \
+            ../ops/ci/verify-caddyfile.sh \
+            ../ops/ci/verify-tunnel-caddyfile.sh \
+            ../ops/ci/verify-tunnel-caddy-behavior.sh \
+            ../ops/ci/verify-cloudflared-ingress.sh \
+            ../ops/ci/verify-systemd-units.sh \
+            ../ops/launchd/start-api.sh.example \
+            ../ops/launchd/run-backup.sh.example
       - name: shellcheck ops scripts
         run: |
           sudo apt-get update -qq
@@ -50,7 +61,11 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/ci/verify-caddyfile.sh \
             ../ops/ci/verify-tunnel-caddyfile.sh \
-            ../ops/ci/verify-systemd-units.sh
+            ../ops/ci/verify-tunnel-caddy-behavior.sh \
+            ../ops/ci/verify-cloudflared-ingress.sh \
+            ../ops/ci/verify-systemd-units.sh \
+            ../ops/launchd/start-api.sh.example \
+            ../ops/launchd/run-backup.sh.example
       - name: systemd-analyze verify units
         run: |
           sudo apt-get update -qq
@@ -60,6 +75,10 @@ jobs:
         run: bash ../ops/ci/verify-caddyfile.sh
       - name: caddy validate Caddyfile (tunnel pilot)
         run: bash ../ops/ci/verify-tunnel-caddyfile.sh
+      - name: caddy tunnel behavior smoke
+        run: bash ../ops/ci/verify-tunnel-caddy-behavior.sh
+      - name: cloudflared ingress validate
+        run: bash ../ops/ci/verify-cloudflared-ingress.sh
       - name: Install PostgreSQL 17 client tools
         run: |
           set -Eeuo pipefail

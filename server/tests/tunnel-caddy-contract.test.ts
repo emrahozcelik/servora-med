@@ -30,6 +30,7 @@ describe('Cloudflare Tunnel origin contracts', () => {
     expect(caddy).toMatch(/reverse_proxy\s+127\.0\.0\.1:3000/);
     expect(caddy).toMatch(/header_up\s+X-Forwarded-For\s+\{client_ip\}/);
     expect(caddy).toMatch(/header_up\s+X-Forwarded-Proto\s+https/);
+    expect(caddy).toMatch(/header_up\s+X-Forwarded-Host\s+\{host\}/);
   });
 
   it('keeps cache contracts for API, assets, and SPA shell', () => {
@@ -44,13 +45,20 @@ describe('Cloudflare Tunnel origin contracts', () => {
     expect(caddy).toMatch(/Authorization\s+delete/);
   });
 
-  it('defines a valid named-tunnel ingress with mandatory catch-all', () => {
+  it('defines a valid named-tunnel ingress with Host alignment and catch-all', () => {
     expect(tunnel).toMatch(/tunnel:\s*<TUNNEL_UUID>/);
     expect(tunnel).toMatch(/credentials-file:\s*\/etc\/cloudflared\/<TUNNEL_UUID>\.json/);
     expect(tunnel).toMatch(/hostname:\s*app\.example\.com/);
     expect(tunnel).toMatch(/service:\s*http:\/\/127\.0\.0\.1:8080/);
+    expect(tunnel).toMatch(/httpHostHeader:\s*app\.example\.com/);
     expect(tunnel).toMatch(/service:\s*http_status:404/);
-    // Ignore comment lines; last non-comment ingress service must be the catch-all.
+
+    // hostname and httpHostHeader must be the same public FQDN.
+    const hostMatch = tunnel.match(/^\s*-?\s*hostname:\s*([^\s#]+)/m);
+    const headerMatch = tunnel.match(/^\s*httpHostHeader:\s*([^\s#]+)/m);
+    expect(hostMatch?.[1]).toBe('app.example.com');
+    expect(headerMatch?.[1]).toBe(hostMatch?.[1]);
+
     const serviceLines = tunnel
       .split('\n')
       .map((line) => line.trim())

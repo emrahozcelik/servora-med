@@ -5,6 +5,9 @@
 #   config:      /etc/cloudflared/config.yml
 #   credentials: /etc/cloudflared/<TUNNEL_UUID>.json
 #
+# After files are in place, install the official service (no custom --config flag):
+#   sudo cloudflared service install
+#
 # Validation (always pass --config when not using the default path):
 #   cloudflared tunnel --config /etc/cloudflared/config.yml ingress validate
 #   cloudflared tunnel --config /etc/cloudflared/config.yml ingress rule https://app.example.com
@@ -16,7 +19,10 @@ credentials-file: /etc/cloudflared/<TUNNEL_UUID>.json
 
 ingress:
   # Public hostname → local tunnel Caddy (loopback HTTP).
+  # httpHostHeader must match Caddy's site address Host matcher.
   - hostname: app.example.com
     service: http://127.0.0.1:8080
+    originRequest:
+      httpHostHeader: app.example.com
   # Mandatory catch-all (Cloudflare requires a final rule).
   - service: http_status:404
