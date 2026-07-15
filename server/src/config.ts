@@ -1,5 +1,7 @@
 export type NodeEnvironment = 'development' | 'test' | 'production';
 
+export type TrustedProxy = 'loopback' | '127.0.0.1' | '::1';
+
 export type AppConfig = {
   nodeEnv: NodeEnvironment;
   host: string;
@@ -10,9 +12,16 @@ export type AppConfig = {
   sessionTtlSeconds: number;
   loginRateLimitMax: number;
   rateLimitWindowMs: number;
+  trustedProxy: TrustedProxy;
+  healthSchemaVersion: string | null;
 };
 
 const NODE_ENVIRONMENTS = new Set<NodeEnvironment>(['development', 'test', 'production']);
+const LOG_LEVELS = new Set([
+  'fatal', 'error', 'warn', 'info', 'debug', 'trace', 'silent',
+]);
+const TRUSTED_PROXIES = new Set<TrustedProxy>(['loopback', '127.0.0.1', '::1']);
+const PRODUCTION_LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1']);
 
 function readNonEmpty(value: string | undefined, fallback: string, name: string): string {
   const resolved = value?.trim() || fallback;
@@ -42,6 +51,27 @@ function readPositiveInteger(
   return parsed;
 }
 
+function readDatabaseUrl(value: string | undefined): string {
+  const databaseUrl = value?.trim();
+  if (!databaseUrl) {
+    throw new Error('DATABASE_URL is required');
+  }
+  if (!/^postgres(ql)?:\/\//i.test(databaseUrl)) {
+    throw new Error('DATABASE_URL must be a postgresql:// or postgres:// URL');
+  }
+  return databaseUrl;
+}
+
+function readLogLevel(value: string | undefined): string {
+  const logLevel = readNonEmpty(value, 'info', 'LOG_LEVEL');
+  if (!LOG_LEVELS.has(logLevel)) {
+    throw new Error(
+      'LOG_LEVEL must be one of fatal, error, warn, info, debug, trace, silent',
+    );
+  }
+  return logLevel;
+}
+
 function readCorsOrigin(value: string | undefined, nodeEnv: NodeEnvironment): string {
   const resolved = value?.trim() || (nodeEnv === 'production' ? '' : 'http://127.0.0.1:5173');
   if (!resolved) {
@@ -53,17 +83,56 @@ function readCorsOrigin(value: string | undefined, nodeEnv: NodeEnvironment): st
     if (!['http:', 'https:'].includes(url.protocol) || url.origin !== resolved) {
       throw new Error('invalid origin');
     }
+    if (nodeEnv === 'production' && url.protocol !== 'https:') {
+      throw new Error('CORS_ORIGIN must use https in production');
+    }
     return url.origin;
-  } catch {
+  } catch (error) {
+    if (error instanceof Error && error.message === 'CORS_ORIGIN must use https in production') {
+      throw error;
+    }
     throw new Error('CORS_ORIGIN must be one http or https origin without a path');
   }
 }
 
-export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
-  const databaseUrl = env.DATABASE_URL?.trim();
-  if (!databaseUrl) {
-    throw new Error('DATABASE_URL is required');
+function readHost(value: string | undefined, nodeEnv: NodeEnvironment): string {
+  const host = readNonEmpty(value, '127.0.0.1', 'HOST');
+  if (nodeEnv === 'production' && !PRODUCTION_LOOPBACK_HOSTS.has(host)) {
+    throw new Error('HOST must be 127.0.0.1 or ::1 in production');
   }
+  return host;
+}
+
+function readTrustedProxy(
+  value: string | undefined,
+  nodeEnv: NodeEnvironment,
+): TrustedProxy {
+  const raw = value?.trim();
+  if (!raw) {
+    if (nodeEnv === 'production') {
+      throw new Error('TRUSTED_PROXY is required in production');
+    }
+    return 'loopback';
+  }
+  if (!TRUSTED_PROXIES.has(raw as TrustedProxy)) {
+    throw new Error('TRUSTED_PROXY must be loopback, 127.0.0.1, or ::1');
+  }
+  return raw as TrustedProxy;
+}
+
+function readHealthSchemaVersion(value: string | undefined): string | null {
+  const resolved = value?.trim();
+  return resolved ? resolved : null;
+}
+
+/** Fastify trustProxy option derived from validated config. Never "true" for all peers. */
+export function resolveTrustProxyOption(trustedProxy: TrustedProxy): boolean | string {
+  if (trustedProxy === 'loopback') return 'loopback';
+  return trustedProxy;
+}
+
+export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const databaseUrl = readDatabaseUrl(env.DATABASE_URL);
 
   const nodeEnv = readNonEmpty(env.NODE_ENV, 'development', 'NODE_ENV');
   if (!NODE_ENVIRONMENTS.has(nodeEnv as NodeEnvironment)) {
@@ -74,13 +143,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
 
   return {
     nodeEnv: typedNodeEnv,
-    host: readNonEmpty(env.HOST, '127.0.0.1', 'HOST'),
+    host: readHost(env.HOST, typedNodeEnv),
     port: readPort(env.PORT),
     databaseUrl,
-    logLevel: readNonEmpty(env.LOG_LEVEL, 'info', 'LOG_LEVEL'),
+    logLevel: readLogLevel(env.LOG_LEVEL),
     corsOrigin: readCorsOrigin(env.CORS_ORIGIN, typedNodeEnv),
     sessionTtlSeconds: readPositiveInteger(env.SESSION_TTL_SECONDS, 28_800, 'SESSION_TTL_SECONDS'),
     loginRateLimitMax: readPositiveInteger(env.LOGIN_RATE_LIMIT_MAX, 5, 'LOGIN_RATE_LIMIT_MAX'),
     rateLimitWindowMs: readPositiveInteger(env.RATE_LIMIT_WINDOW_MS, 60_000, 'RATE_LIMIT_WINDOW_MS'),
+    trustedProxy: readTrustedProxy(env.TRUSTED_PROXY, typedNodeEnv),
+    healthSchemaVersion: readHealthSchemaVersion(env.HEALTH_SCHEMA_VERSION),
   };
 }

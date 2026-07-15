@@ -14,6 +14,8 @@ const testConfig = {
   sessionTtlSeconds: 28_800,
   loginRateLimitMax: 5,
   rateLimitWindowMs: 60_000,
+  trustedProxy: 'loopback' as const,
+  healthSchemaVersion: null,
 };
 
 afterEach(async () => {

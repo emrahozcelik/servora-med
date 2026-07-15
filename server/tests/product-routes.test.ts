@@ -24,6 +24,7 @@ const config = {
   databaseUrl: 'postgresql://unused', logLevel: 'silent',
   corsOrigin: 'https://app.example.com', sessionTtlSeconds: 28_800,
   loginRateLimitMax: 100, rateLimitWindowMs: 60_000,
+  trustedProxy: 'loopback' as const, healthSchemaVersion: null,
 };
 const PRODUCT_ID = '11111111-1111-4111-8111-111111111111';
 

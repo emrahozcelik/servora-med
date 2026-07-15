@@ -1,6 +1,6 @@
 # Slice 11 — Production Deployment, Backup, and Hardening
 
-> **Status:** Proposed design; implementation not started  
+> **Status:** Approved design; implementation in progress  
 > **Baseline:** `main` @ `23031b39599e3f16fab232987a288577aad717f4`  
 > **Date:** 2026-07-15  
 > **Scope:** Public VPS pilot readiness — configuration, reverse proxy, process lifecycle, backup/restore, verification  

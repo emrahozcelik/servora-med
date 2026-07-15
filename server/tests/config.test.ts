@@ -6,6 +6,14 @@ const validEnvironment = {
   DATABASE_URL: 'postgresql://servora:servora@localhost:5432/servora_med',
 };
 
+const productionBase = {
+  ...validEnvironment,
+  NODE_ENV: 'production',
+  HOST: '127.0.0.1',
+  CORS_ORIGIN: 'https://app.example.com',
+  TRUSTED_PROXY: 'loopback',
+};
+
 describe('loadConfig', () => {
   it('parses explicit values', () => {
     expect(
@@ -19,6 +27,8 @@ describe('loadConfig', () => {
         SESSION_TTL_SECONDS: '7200',
         LOGIN_RATE_LIMIT_MAX: '8',
         RATE_LIMIT_WINDOW_MS: '90000',
+        TRUSTED_PROXY: '127.0.0.1',
+        HEALTH_SCHEMA_VERSION: '007_sales_meeting',
       }),
     ).toEqual({
       nodeEnv: 'test',
@@ -30,6 +40,8 @@ describe('loadConfig', () => {
       sessionTtlSeconds: 7200,
       loginRateLimitMax: 8,
       rateLimitWindowMs: 90000,
+      trustedProxy: '127.0.0.1',
+      healthSchemaVersion: '007_sales_meeting',
     });
   });
 
@@ -44,12 +56,32 @@ describe('loadConfig', () => {
       sessionTtlSeconds: 28800,
       loginRateLimitMax: 5,
       rateLimitWindowMs: 60000,
+      trustedProxy: 'loopback',
+      healthSchemaVersion: null,
+    });
+  });
+
+  it('accepts production loopback host with https CORS and trusted proxy', () => {
+    expect(loadConfig(productionBase)).toMatchObject({
+      nodeEnv: 'production',
+      host: '127.0.0.1',
+      corsOrigin: 'https://app.example.com',
+      trustedProxy: 'loopback',
     });
   });
 
   it('requires a database URL', () => {
     expect(() => loadConfig({})).toThrow('DATABASE_URL is required');
   });
+
+  it.each(['mysql://localhost/db', 'http://example.com', 'not-a-url'])(
+    'rejects non-PostgreSQL database URL %s',
+    (databaseUrl) => {
+      expect(() => loadConfig({ DATABASE_URL: databaseUrl })).toThrow(
+        'DATABASE_URL must be a postgresql:// or postgres:// URL',
+      );
+    },
+  );
 
   it.each(['0', '65536', 'abc'])('rejects invalid port %s', (port) => {
     expect(() => loadConfig({ ...validEnvironment, PORT: port })).toThrow(
@@ -64,9 +96,19 @@ describe('loadConfig', () => {
   });
 
   it('requires an explicit CORS origin in production', () => {
-    expect(() => loadConfig({ ...validEnvironment, NODE_ENV: 'production' })).toThrow(
-      'CORS_ORIGIN is required in production',
-    );
+    expect(() => loadConfig({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+      HOST: '127.0.0.1',
+      TRUSTED_PROXY: 'loopback',
+    })).toThrow('CORS_ORIGIN is required in production');
+  });
+
+  it('rejects http CORS origin in production', () => {
+    expect(() => loadConfig({
+      ...productionBase,
+      CORS_ORIGIN: 'http://app.example.com',
+    })).toThrow('CORS_ORIGIN must use https in production');
   });
 
   it.each(['*', 'https://med.example.com/path', 'not-a-url'])(
@@ -75,6 +117,44 @@ describe('loadConfig', () => {
       expect(() => loadConfig({ ...validEnvironment, CORS_ORIGIN: corsOrigin })).toThrow(
         'CORS_ORIGIN must be one http or https origin without a path',
       );
+    },
+  );
+
+  it.each(['0.0.0.0', '192.168.1.10', '::'])(
+    'rejects non-loopback production host %s',
+    (host) => {
+      expect(() => loadConfig({ ...productionBase, HOST: host })).toThrow(
+        'HOST must be 127.0.0.1 or ::1 in production',
+      );
+    },
+  );
+
+  it.each(['verbose', 'tracee'])(
+    'rejects invalid log level %s',
+    (logLevel) => {
+      expect(() => loadConfig({
+        ...validEnvironment,
+        LOG_LEVEL: logLevel,
+      })).toThrow('LOG_LEVEL must be one of fatal, error, warn, info, debug, trace, silent');
+    },
+  );
+
+  it('requires TRUSTED_PROXY in production', () => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      NODE_ENV: 'production',
+      HOST: '127.0.0.1',
+      CORS_ORIGIN: 'https://app.example.com',
+    })).toThrow('TRUSTED_PROXY is required in production');
+  });
+
+  it.each(['true', '*', '0.0.0.0/0', '10.0.0.1'])(
+    'rejects invalid TRUSTED_PROXY %s',
+    (trustedProxy) => {
+      expect(() => loadConfig({
+        ...productionBase,
+        TRUSTED_PROXY: trustedProxy,
+      })).toThrow('TRUSTED_PROXY must be loopback, 127.0.0.1, or ::1');
     },
   );
 

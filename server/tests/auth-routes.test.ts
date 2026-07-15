@@ -38,6 +38,7 @@ const baseConfig = {
   databaseUrl: 'postgresql://unused', logLevel: 'silent',
   corsOrigin: 'https://app.example.com', sessionTtlSeconds: 28_800,
   loginRateLimitMax: 2, rateLimitWindowMs: 60_000,
+  trustedProxy: 'loopback' as const, healthSchemaVersion: null,
 };
 
 describe('auth HTTP routes', () => {
