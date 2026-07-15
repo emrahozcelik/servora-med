@@ -96,7 +96,8 @@ async function readCheckValues(pool: Pool, constraintName: string) {
   const result = await pool.query<{ definition: string }>(
     `SELECT pg_get_constraintdef(oid) AS definition
        FROM pg_constraint
-      WHERE conname = $1`,
+      WHERE conname = $1
+        AND connamespace = current_schema()::regnamespace`,
     [constraintName],
   );
   expect(result.rows).toHaveLength(1);
@@ -195,7 +196,7 @@ describe.skipIf(!databaseUrl)('007 Sales Meeting PostgreSQL migration', () => {
 
       await expect(runMigrations({ migrationsDirectory: brokenDirectory, store })).rejects.toThrow();
       const table = await pool.query<{ name: string | null }>(
-        "SELECT to_regclass('job_card_meeting_details')::text AS name",
+        "SELECT to_regclass(current_schema() || '.job_card_meeting_details')::text AS name",
       );
       expect(table.rows[0]!.name).toBeNull();
       const migration = await pool.query(
