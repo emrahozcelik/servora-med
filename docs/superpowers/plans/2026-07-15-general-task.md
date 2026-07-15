@@ -973,14 +973,14 @@ git commit -m "feat: present General Tasks in workspace"
 **Interfaces:**
 - Consumes: established Slice 08 report queries; produces no production report change.
 
-- [ ] **Step 1: Add mixed-type regression fixtures**
+- [x] **Step 1: Add mixed-type regression fixtures**
 
 First add assertions for one named General Task contribution before adding that fixture;
 this deliberately proves the tests can fail. Cover active/overdue/waiting/revision/
 completed/cancelled/trend and Staff ownership. Add the waiting General Task assertion to
 approval age and assert delivery quantity/purpose totals remain unchanged.
 
-- [ ] **Step 2: Run tests to detect any scope leak**
+- [x] **Step 2: Run tests to detect any scope leak**
 
 ```bash
 cd server && npm test -- --run tests/reports-dashboard.test.ts \
@@ -990,7 +990,7 @@ cd server && npm test -- --run tests/reports-dashboard.test.ts \
 
 Expected: FAIL because the named General Task fixtures have not been inserted yet.
 
-- [ ] **Step 3: Add the minimum mixed-type fixtures**
+- [x] **Step 3: Add the minimum mixed-type fixtures**
 
 Insert the named General Task rows with the exact statuses, dates, and `assigned_to`
 values asserted in Step 1. Do not modify report production code. Delivery fixtures remain
@@ -1004,7 +1004,7 @@ If the completed fixtures reveal a production query contradicting the approved D
 scope, stop execution and report the exact SQL/test evidence for a separate review; do not
 silently broaden this test-only task.
 
-- [ ] **Step 4: Re-run report and People regressions**
+- [x] **Step 4: Re-run report and People regressions**
 
 ```bash
 cd server && npm test -- --run tests/reports-dashboard.test.ts \
@@ -1014,7 +1014,7 @@ cd server && npm test -- --run tests/reports-dashboard.test.ts \
 
 Expected: PASS and exact decimal delivery strings remain unchanged.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add server/tests/reports-dashboard.test.ts server/tests/reports-staff-summary.test.ts \

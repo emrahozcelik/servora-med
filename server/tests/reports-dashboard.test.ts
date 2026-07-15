@@ -23,15 +23,17 @@ function row(overrides: Partial<DashboardRow> = {}): DashboardRow {
     from_date: '2026-07-01',
     to_date: '2026-07-03',
     timezone: 'Europe/Istanbul',
-    active_job_cards: '18',
-    overdue_job_cards: '3',
-    waiting_approval: '4',
-    revision_requested: '2',
-    completed_in_period: '3',
-    cancelled_in_period: '1',
+    // Named General Task aggregate fixtures: overdue active follow-up, approval follow-up,
+    // revision follow-up, completed 2026-07-02 follow-up, and cancelled follow-up.
+    active_job_cards: '19',
+    overdue_job_cards: '4',
+    waiting_approval: '5',
+    revision_requested: '3',
+    completed_in_period: '4',
+    cancelled_in_period: '2',
     completed_trend: [
       { date: '2026-07-01', count: 2 },
-      { date: '2026-07-02', count: 0 },
+      { date: '2026-07-02', count: 1 },
       { date: '2026-07-03', count: 1 },
     ],
     ...overrides,
@@ -49,7 +51,7 @@ function recordingPool(resolveRow: (values: unknown[]) => DashboardRow = () => r
 }
 
 describe('PostgresReportsRepository dashboard', () => {
-  it('maps counters and a complete zero-filled trend from one statement', async () => {
+  it('maps counters including the named General Task fixtures from one statement', async () => {
     const { pool, query } = recordingPool();
     const repository = new PostgresReportsRepository(pool);
 
@@ -69,16 +71,16 @@ describe('PostgresReportsRepository dashboard', () => {
     expect(result).toEqual({
       range: { from: '2026-07-01', to: '2026-07-03', timezone: 'Europe/Istanbul' },
       counters: {
-        activeJobCards: 18,
-        overdueJobCards: 3,
-        waitingApproval: 4,
-        revisionRequested: 2,
-        completedInPeriod: 3,
-        cancelledInPeriod: 1,
+        activeJobCards: 19,
+        overdueJobCards: 4,
+        waitingApproval: 5,
+        revisionRequested: 3,
+        completedInPeriod: 4,
+        cancelledInPeriod: 2,
       },
       completedTrend: [
         { date: '2026-07-01', count: 2 },
-        { date: '2026-07-02', count: 0 },
+        { date: '2026-07-02', count: 1 },
         { date: '2026-07-03', count: 1 },
       ],
     });

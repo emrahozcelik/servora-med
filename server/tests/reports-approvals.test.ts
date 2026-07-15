@@ -26,13 +26,14 @@ function recordingPool(row: ApprovalSummaryRow) {
 }
 
 describe('PostgresReportsRepository approval age summary', () => {
-  it('maps mutually exclusive 2, 8, and 24 hour boundaries across the whole queue', async () => {
-    const total = 7;
+  it('includes the named waiting General Task across the whole approval queue', async () => {
+    const total = 8;
     const { pool, query } = recordingPool({
       pending_count: String(total),
       oldest_waiting_minutes: '1440',
-      average_waiting_minutes: '582',
-      under_2_hours: '2',
+      // Includes the named waiting General Task at 60 completed whole minutes.
+      average_waiting_minutes: '517',
+      under_2_hours: '3',
       between_2_and_8_hours: '2',
       between_8_and_24_hours: '2',
       over_24_hours: '1',
@@ -45,10 +46,10 @@ describe('PostgresReportsRepository approval age summary', () => {
     });
 
     expect(summary).toEqual({
-      pendingCount: 7,
+      pendingCount: 8,
       oldestWaitingMinutes: 1440,
-      averageWaitingMinutes: 582,
-      under2Hours: 2,
+      averageWaitingMinutes: 517,
+      under2Hours: 3,
       between2And8Hours: 2,
       between8And24Hours: 2,
       over24Hours: 1,
