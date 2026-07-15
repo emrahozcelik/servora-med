@@ -5,10 +5,19 @@ import { availableLifecycleCommands, JobDetailPanel, runStaffJobCommand } from '
 import { ApiError, type DeliveryItem, type JobCard } from '../src/services/api';
 
 const job: JobCard = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2,
-  title: 'ABC Klinik ürün teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null };
+  title: 'ABC Klinik ürün teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
+  assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' }, contact: null };
 const item: DeliveryItem = { id: 'i1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'p1', deliveryPurpose: 'SAMPLE',
   deliveredAt: '2026-07-11T10:00:00.000Z', quantity: 2, unit: 'adet', productNameSnapshot: 'İmplant Seti',
   productSkuSnapshot: 'S1', productModelSnapshot: null, lotNo: null, serialNo: null, expiryDate: null, deliveryNote: null };
+const generalTask: JobCard = {
+  ...job, type: 'GENERAL_TASK', title: 'Teklif dönüşünü takip et',
+  description: 'Doktorun kararını öğren ve sonucu karta yaz.', priority: 'high',
+  dueDate: '2026-07-20', customerId: 'c1', contactId: 'contact-1',
+  assignee: { id: 's1', name: 'Ayşe Personel' },
+  customer: { id: 'c1', name: 'Demo Dental Klinik' },
+  contact: { id: 'contact-1', name: 'Dr. Deniz' },
+};
 
 describe('Staff JobCard detail', () => {
   it('exposes the exact Staff and management lifecycle actions by status', () => {
@@ -38,6 +47,23 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('<dd>3</dd>');
     expect(html).not.toContain('3 adet');
     expect(html).not.toContain('3 null');
+  });
+
+  it('renders shared General Task facts and no Product Delivery section', () => {
+    const html = renderToStaticMarkup(<JobDetailPanel job={generalTask} items={[]} pending={false}
+      message="" onBack={() => {}} onCommand={() => {}}><section>Notlar ve zaman çizelgesi</section></JobDetailPanel>);
+
+    expect(html).toContain('Genel görev');
+    expect(html).toContain('Teklif dönüşünü takip et');
+    expect(html).toContain('Doktorun kararını öğren ve sonucu karta yaz.');
+    expect(html).toContain('Ayşe Personel');
+    expect(html).toContain('Demo Dental Klinik');
+    expect(html).toContain('Dr. Deniz');
+    expect(html).toContain('Yüksek');
+    expect(html).toContain('2026-07-20');
+    expect(html).toContain('Notlar ve zaman çizelgesi');
+    expect(html).not.toContain('Teslim bilgileri');
+    expect(html).not.toContain('Ürün teslimi');
   });
 
   it('shows submit only after the backend status is IN_PROGRESS', () => {

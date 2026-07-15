@@ -60,6 +60,55 @@ describe('Manager review', () => {
     expect(result).toEqual({ kind: 'conflict', job: refreshed });
   });
 
+  it('never requests delivery items for a General Task, including conflict truth reload', async () => {
+    const initialTask = {
+      ...job, type: 'GENERAL_TASK' as const, status: 'NEW' as const, title: 'Klinik dönüşünü takip et',
+      description: 'Sonucu karta yaz.', priority: 'high' as const, dueDate: '2026-07-20',
+      contactId: 'contact-1', contact: { id: 'contact-1', name: 'Dr. Ayşe' },
+    };
+    const refreshedTask = { ...initialTask, status: 'PLANNED' as const, version: 5 };
+    let detailReads = 0;
+    let deliveryReads = 0;
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) {
+        deliveryReads += 1;
+        return Response.json({ items: [] });
+      }
+      if (url.includes('/notes?')) return Response.json(page);
+      if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
+      if (url.endsWith('/start') && init?.method === 'POST') {
+        return Response.json({ error: 'İş güncellendi.', code: 'VERSION_CONFLICT' }, { status: 409 });
+      }
+      if (url.endsWith('/api/job-cards/job-1')) {
+        detailReads += 1;
+        return Response.json(detailReads === 1 ? initialTask : refreshedTask);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const host = document.createElement('div'); document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(host.textContent).toContain('Genel görev');
+      expect(host.textContent).not.toContain('Teslim bilgileri');
+      const start = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'İşi başlat')!;
+      await act(async () => {
+        start.click();
+        await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+
+      expect(detailReads).toBe(2);
+      expect(deliveryReads).toBe(0);
+      expect(host.textContent).toContain('En güncel durum gösteriliyor');
+    } finally {
+      await act(async () => root.unmount()); host.remove();
+    }
+  });
+
   it.each([
     ['revision', job, 'Düzeltme iste', 'Düzeltme nedeni', '/request-revision', 'REVISION_REQUESTED'],
     ['cancel', { ...job, status: 'NEW' as const }, 'İşi iptal et', 'İptal nedeni', '/cancel', 'CANCELLED'],

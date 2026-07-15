@@ -851,7 +851,7 @@ git commit -m "feat: add General Task quick create"
 - Consumes: exact `JobCardDetail`, `jobTypeLabels`, lifecycle/notes/timeline clients.
 - Produces: one shared shell with conditional Product Delivery section.
 
-- [ ] **Step 1: Write failing type-aware loading/render tests**
+- [x] **Step 1: Write failing type-aware loading/render tests**
 
 Assert General Task initial load and conflict truth reload make zero delivery-item calls;
 show type/title/description/status/assignee/priority/due date/optional Customer/Contact,
@@ -859,7 +859,7 @@ notes, timeline, and allowed commands; show no delivery text. Assert Product Del
 fetches and renders items. Keep lifecycle success, dialog focus, review lock, and conflict
 feedback cases.
 
-- [ ] **Step 2: Run RED tests**
+- [x] **Step 2: Run RED tests**
 
 ```bash
 cd web && npm test -- --run tests/job-detail.test.tsx tests/manager-review.test.tsx
@@ -867,7 +867,7 @@ cd web && npm test -- --run tests/job-detail.test.tsx tests/manager-review.test.
 
 Expected: FAIL because `Promise.all` always requests delivery items and heading is fixed.
 
-- [ ] **Step 3: Implement the type-aware fetch and shell**
+- [x] **Step 3: Implement the type-aware fetch and shell**
 
 Load detail first, then branch:
 
@@ -883,7 +883,7 @@ Use the same helper for initial load and `refreshTruth`. Render the delivery sec
 for Product Delivery. Keep notes/timeline and lifecycle shell shared; replace fixed eyebrow
 and delivery-only waiting text with exhaustive type-aware labels.
 
-- [ ] **Step 4: Verify GREEN and lifecycle regression**
+- [x] **Step 4: Verify GREEN and lifecycle regression**
 
 Run Step 2 and:
 
@@ -893,7 +893,7 @@ cd web && npm test -- --run tests/job-notes.test.tsx tests/job-timeline.test.tsx
 
 Expected: PASS; General Task makes no delivery request under any tested reload path.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add web/src/JobDetail.tsx web/src/styles.css web/tests/job-detail.test.tsx \

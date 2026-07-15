@@ -11,6 +11,7 @@ import {
 } from './jobs/jobs-api';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
+import { jobTypeLabels } from './jobs/job-labels';
 
 type StaffCommand = 'start' | 'submit';
 export type LifecycleCommand = 'plan' | 'start' | 'submit' | 'approve' | 'revise' | 'resume' | 'cancel';
@@ -88,6 +89,7 @@ export function availableLifecycleCommands(job: JobCard, role: CurrentUser['role
 
 const purposeLabels = { SALE: 'Satış', SAMPLE: 'Numune', CONSIGNMENT: 'Konsinye', RETURN: 'İade', OTHER: 'Diğer' } as const;
 const statusLabels = { NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor', REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi' } as const;
+const priorityLabels = { low: 'Düşük', normal: 'Normal', high: 'Yüksek', urgent: 'Acil' } as const;
 const commandLabels: Record<LifecycleCommand, string> = {
   plan: 'Planla', start: 'İşi başlat', submit: 'Onaya gönder', approve: 'Onayla',
   revise: 'Düzeltme iste', resume: 'İşe devam et', cancel: 'İşi iptal et',
@@ -145,26 +147,41 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', pending, mess
 }) {
   const commands = availableLifecycleCommands(job, viewerRole);
   return <main className="job-detail">
-    <div className="detail-heading"><div><p className="eyebrow">Ürün teslimi</p><h1>{job.title}</h1></div>
+    <div className="detail-heading"><div><p className="eyebrow">{jobTypeLabels[job.type]}</p><h1>{job.title}</h1></div>
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
     {message && <div ref={feedbackRef} className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
       role={messageIsError ? 'alert' : 'status'} tabIndex={-1}>{message}</div>}
-    <dl className="detail-summary"><div><dt>Durum</dt><dd>{statusLabels[job.status]}</dd></div></dl>
-    <section className="delivery-lines" aria-labelledby="delivery-lines-title"><h2 id="delivery-lines-title">Teslim bilgileri</h2>
+    <dl className="detail-summary">
+      <div><dt>Durum</dt><dd>{statusLabels[job.status]}</dd></div>
+      <div><dt>Sorumlu personel</dt><dd>{job.assignee.name}</dd></div>
+      <div><dt>Öncelik</dt><dd>{priorityLabels[job.priority]}</dd></div>
+      <div><dt>Son tarih</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi'}</dd></div>
+      <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
+      <div><dt>İlgili kişi</dt><dd>{job.contact?.name ?? 'Belirtilmedi'}</dd></div>
+      <div className="detail-summary-wide"><dt>Açıklama</dt><dd>{job.description ?? 'Belirtilmedi'}</dd></div>
+    </dl>
+    {job.type === 'PRODUCT_DELIVERY' && <section className="delivery-lines" aria-labelledby="delivery-lines-title"><h2 id="delivery-lines-title">Teslim bilgileri</h2>
       <ul>{items.map((item) => <li key={item.id}><div><strong>{item.productNameSnapshot}</strong><span>{item.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span></div>
         <dl><div><dt>Amaç</dt><dd>{purposeLabels[item.deliveryPurpose]}</dd></div><div><dt>Miktar</dt><dd>{item.quantity}{item.unit ? ` ${item.unit}` : ''}</dd></div>
           <div><dt>Teslim zamanı</dt><dd>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.deliveredAt))}</dd></div></dl></li>)}</ul>
-    </section>
+    </section>}
     {commands.length > 0 && <section className="detail-action" aria-label="İş işlemleri"><p>Yalnızca mevcut duruma uygun işlemler gösterilir.</p>
       <div className="review-buttons">{commands.map((command) => <button key={command}
         className={command === 'cancel' || command === 'revise' ? 'secondary-button' : 'primary-button compact-button'}
         type="button" disabled={pending} onClick={() => onCommand(command)}>{pending ? 'İşleniyor…' : commandLabels[command]}</button>)}</div></section>}
-    {job.status === 'WAITING_APPROVAL' && viewerRole === 'STAFF' && <div className="workspace-message" role="status"><h2>Yönetici onayı bekleniyor</h2><p>Teslim bilgileri inceleme tamamlanana kadar değiştirilemez.</p></div>}
+    {job.status === 'WAITING_APPROVAL' && viewerRole === 'STAFF' && <div className="workspace-message" role="status"><h2>Yönetici onayı bekleniyor</h2>
+      <p>{job.type === 'PRODUCT_DELIVERY' ? 'Teslim bilgileri' : 'Görev bilgileri'} inceleme tamamlanana kadar değiştirilemez.</p></div>}
     {children}
   </main>;
 }
 
 type DetailState = { kind: 'loading' } | { kind: 'ready'; job: JobCard; items: DeliveryItem[] } | { kind: 'error'; message: string; retryable: boolean };
+
+async function loadJobDetail(jobId: string) {
+  const job = await getJobCard(jobId);
+  const items = job.type === 'PRODUCT_DELIVERY' ? await listDeliveryItems(jobId) : [];
+  return { job, items };
+}
 
 export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: string; user: CurrentUser; onBack: () => void; onChanged: () => void }) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
@@ -180,8 +197,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
 
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
-    Promise.all([getJobCard(jobId), listDeliveryItems(jobId)])
-      .then(([job, items]) => { if (active) setState({ kind: 'ready', job, items }); })
+    loadJobDetail(jobId)
+      .then(({ job, items }) => { if (active) setState({ kind: 'ready', job, items }); })
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof ApiError ? error.message : 'İş yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
     return () => { active = false; };
   }, [jobId, reloadKey]);
@@ -195,7 +212,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
     requestAnimationFrame(() => dialogTriggerRef.current?.focus());
   }
   async function refreshTruth() {
-    const [job, items] = await Promise.all([getJobCard(jobId), listDeliveryItems(jobId)]);
+    const { job, items } = await loadJobDetail(jobId);
     setState({ kind: 'ready', job, items });
     setTimelineKey((value) => value + 1);
   }
