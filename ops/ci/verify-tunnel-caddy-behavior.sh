@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Request-level smoke for tunnel Caddyfile (pinned Caddy image). Hard gate when docker missing.
+# Request-level smoke for tunnel Caddy contracts (pinned Caddy image). Hard gate if docker missing.
 # shellcheck disable=SC2317,SC2329
 set -Eeuo pipefail
 
@@ -7,7 +7,7 @@ ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 TEMPLATE="$ROOT/ops/caddy/Caddyfile.tunnel.example"
 PUBLIC_HOST="app.example.com"
 BACKEND_PORT=13000
-CADDY_PORT=8080
+CADDY_PORT=18080
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker required for tunnel Caddy behavior smoke" >&2
@@ -24,14 +24,31 @@ fi
 
 test -f "$TEMPLATE"
 
+# Contract preconditions from the real template (regex tests alone are not enough).
+grep -F 'bind 127.0.0.1' "$TEMPLATE" >/dev/null
+grep -F 'CF-Connecting-IP' "$TEMPLATE" >/dev/null
+grep -F 'header_up X-Forwarded-For {client_ip}' "$TEMPLATE" >/dev/null
+grep -F 'header_up X-Forwarded-Proto https' "$TEMPLATE" >/dev/null
+grep -F 'header_up X-Forwarded-Host {host}' "$TEMPLATE" >/dev/null
+grep -F 'Cache-Control "no-store"' "$TEMPLATE" >/dev/null
+grep -F 'Cache-Control "no-cache"' "$TEMPLATE" >/dev/null
+grep -F 'immutable' "$TEMPLATE" >/dev/null
+
 TMP="$(mktemp -d "${TMPDIR:-/tmp}/servora-caddy-smoke-XXXXXX")"
+CADDY_CID=""
+BACKEND_PID=""
 cleanup() {
-  if [[ -n "${CADDY_CID:-}" ]]; then
+  if [[ -n "${CADDY_CID}" ]]; then
+    docker logs "$CADDY_CID" >"$TMP/caddy.docker.log" 2>&1 || true
     docker rm -f "$CADDY_CID" >/dev/null 2>&1 || true
   fi
-  if [[ -n "${BACKEND_PID:-}" ]]; then
+  if [[ -n "${BACKEND_PID}" ]]; then
     kill "$BACKEND_PID" >/dev/null 2>&1 || true
     wait "$BACKEND_PID" 2>/dev/null || true
+  fi
+  if [[ -f "$TMP/caddy.docker.log" ]]; then
+    echo "---- caddy container logs ----" >&2
+    cat "$TMP/caddy.docker.log" >&2 || true
   fi
   rm -rf "$TMP"
 }
@@ -40,7 +57,43 @@ trap cleanup EXIT
 mkdir -p "$TMP/web/dist/assets"
 printf '%s\n' '<!doctype html><title>spa</title><h1>servora-spa</h1>' >"$TMP/web/dist/index.html"
 printf '%s\n' 'console.log("asset")' >"$TMP/web/dist/assets/app.js"
-: >"$TMP/access.log"
+
+# Smoke Caddyfile: same Host/IP/cache contracts as the template, disposable paths/ports.
+cat >"$TMP/Caddyfile" <<EOF
+{
+	auto_https off
+	servers :${CADDY_PORT} {
+		trusted_proxies static 127.0.0.0/8 ::1
+		client_ip_headers CF-Connecting-IP
+	}
+}
+
+http://${PUBLIC_HOST}:${CADDY_PORT} {
+	bind 127.0.0.1
+
+	handle /api/* {
+		header Cache-Control "no-store"
+		reverse_proxy 127.0.0.1:${BACKEND_PORT} {
+			header_up X-Forwarded-For {client_ip}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {host}
+		}
+	}
+
+	handle /assets/* {
+		root * ${TMP}/web/dist
+		header Cache-Control "public, max-age=31536000, immutable"
+		file_server
+	}
+
+	handle {
+		root * ${TMP}/web/dist
+		header Cache-Control "no-cache"
+		try_files {path} /index.html
+		file_server
+	}
+}
+EOF
 
 cat >"$TMP/backend.mjs" <<'EOF'
 import http from 'node:http';
@@ -80,14 +133,6 @@ if ! grep -q "backend-ready:${BACKEND_PORT}" "$TMP/backend.log" 2>/dev/null; the
   exit 1
 fi
 
-# Rewrite template paths for disposable smoke roots / backend / log.
-sed \
-  -e "s|/opt/servora-med/current/web/dist|${TMP}/web/dist|g" \
-  -e "s|127\\.0\\.0\\.1:3000|127.0.0.1:${BACKEND_PORT}|g" \
-  -e "s|/usr/local/var/log/servora-med/caddy-access.log|${TMP}/access.log|g" \
-  "$TEMPLATE" >"$TMP/Caddyfile"
-
-# Validate rewritten config first.
 docker run --rm \
   -v "$TMP:/cfg:ro" \
   caddy:2.9.1-alpine \
@@ -100,14 +145,26 @@ CADDY_CID="$(
     caddy run --config "$TMP/Caddyfile" --adapter caddyfile
 )"
 
-for _ in $(seq 1 50); do
+ready=0
+for _ in $(seq 1 80); do
+  if ! docker inspect -f '{{.State.Running}}' "$CADDY_CID" 2>/dev/null | grep -qx true; then
+    echo "caddy container exited early" >&2
+    docker logs "$CADDY_CID" >&2 || true
+    exit 1
+  fi
   if curl -fsS -o /dev/null -H "Host: ${PUBLIC_HOST}" "http://127.0.0.1:${CADDY_PORT}/" 2>/dev/null; then
+    ready=1
     break
   fi
   sleep 0.1
 done
+if [[ "$ready" -ne 1 ]]; then
+  echo "caddy did not become ready on 127.0.0.1:${CADDY_PORT}" >&2
+  docker logs "$CADDY_CID" >&2 || true
+  exit 1
+fi
 
-api_headers="$(mktemp)"
+api_headers="$TMP/api.headers"
 api_body="$(
   curl -fsS \
     -D "$api_headers" \
@@ -121,7 +178,7 @@ echo "$api_body" | grep -F '"xfp":"https"' >/dev/null
 echo "$api_body" | grep -F "\"xfh\":\"${PUBLIC_HOST}\"" >/dev/null
 grep -iE '^Cache-Control:.*no-store' "$api_headers" >/dev/null
 
-spa_headers="$(mktemp)"
+spa_headers="$TMP/spa.headers"
 spa_body="$(
   curl -fsS \
     -D "$spa_headers" \
@@ -131,7 +188,7 @@ spa_body="$(
 echo "$spa_body" | grep -F 'servora-spa' >/dev/null
 grep -iE '^Cache-Control:.*no-cache' "$spa_headers" >/dev/null
 
-asset_headers="$(mktemp)"
+asset_headers="$TMP/asset.headers"
 curl -fsS \
   -D "$asset_headers" \
   -o /dev/null \
@@ -139,7 +196,6 @@ curl -fsS \
   "http://127.0.0.1:${CADDY_PORT}/assets/app.js"
 grep -iE '^Cache-Control:.*(immutable|max-age=31536000)' "$asset_headers" >/dev/null
 
-# Wrong Host must not be served as the Servora SPA site.
 wrong_code="$(
   curl -sS -o "$TMP/wrong.body" -w '%{http_code}' \
     -H 'Host: evil.example.com' \
