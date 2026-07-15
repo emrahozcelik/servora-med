@@ -1224,7 +1224,7 @@ git commit -m "docs: close Slice 10 sales meetings"
 
 Expected: docs align to the captured verified SHA; no implementation claim predates it.
 
-- [ ] **Step 6: Refresh Codebase Memory after verified closeout**
+- [x] **Step 6: Refresh Codebase Memory after verified closeout**
 
 Use Codebase Memory MCP `index_repository` in `full` mode with persistence for:
 
@@ -1240,7 +1240,7 @@ git add server/.codebase-memory web/.codebase-memory
 git commit -m "chore: refresh Slice 10 codebase memory"
 ```
 
-- [ ] **Step 7: Recheck documentation-only and memory-only commits**
+- [x] **Step 7: Recheck documentation-only and memory-only commits**
 
 ```bash
 git diff --check HEAD~2 HEAD
@@ -1297,5 +1297,7 @@ Tasks 1–12 and Task 13 verification/documentation steps were executed. The exa
 verified implementation SHA is `d93441802832f91fe149b603fb55ef2a29b04089`: server build,
 732 ordinary tests with 21 PostgreSQL-conditional skips, all 753 tests against disposable
 PostgreSQL, server production audit, web build, all 335 web tests, web production audit,
-and Playwright Staff/Manager acceptance passed. Codebase Memory refresh and remote parity
-remain the final closeout steps; later docs/memory-only commits do not rerun these suites.
+and Playwright Staff/Manager acceptance passed. Codebase Memory is current at the Slice 10
+docs closeout (`215ac9e`) with server 1485 nodes/3771 edges and web 861 nodes/1916 edges.
+Remote parity remains the final closeout step; later docs/memory-only commits do not rerun
+these suites.
