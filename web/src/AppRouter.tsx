@@ -2,6 +2,7 @@ import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-rou
 
 import { DeliveryCreateView } from './DeliveryCreate';
 import { GeneralTaskCreateScreen } from './GeneralTaskCreate';
+import { SalesMeetingCreateScreen } from './SalesMeetingCreate';
 import { CustomerCreateScreen, CustomerListScreen } from './CustomerList';
 import { CustomerDetailScreen } from './CustomerDetail';
 import { ContactDetailScreen } from './ContactManagement';
@@ -101,6 +102,8 @@ export function AppRouter({ user, customers, notice, onClearNotice, onDeliveryCr
       <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} customers={customers} onCancel={() => navigate(paths.jobs)}
         onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />} />
       <Route path={paths.newTask} element={<GeneralTaskCreateScreen user={user}
+        onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />} />
+      <Route path={paths.newMeeting} element={<SalesMeetingCreateScreen user={user}
         onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />} />
       <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
       <Route path={paths.users} element={user.role === 'ADMIN'

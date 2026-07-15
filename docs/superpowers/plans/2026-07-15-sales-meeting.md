@@ -848,7 +848,6 @@ git commit -m "feat: add sales meeting web contracts"
 - Create: `web/src/SalesMeetingCreate.tsx`
 - Modify: `web/src/paths.ts`
 - Modify: `web/src/AppRouter.tsx`
-- Modify: `web/src/styles.css`
 - Create: `web/tests/sales-meeting-create.test.tsx`
 - Modify: `web/tests/router.test.tsx`
 
@@ -858,7 +857,7 @@ git commit -m "feat: add sales meeting web contracts"
 - Consumes: Task 8 `createJobCard`, current CRM/People APIs, request-generation gate,
   `CurrentUser`, and existing route/notice conventions.
 
-- [ ] **Step 1: Write failing planning-flow tests**
+- [x] **Step 1: Write failing planning-flow tests**
 
 Cover Staff fixed self-assignee/no Staff request; Manager/Admin active Staff load; required
 Customer and due date; optional Contact/description/priority; Customer load blocking;
@@ -874,7 +873,7 @@ expect(createJobCard).toHaveBeenCalledWith({
 });
 ```
 
-- [ ] **Step 2: Run create/router tests and verify RED**
+- [x] **Step 2: Run create/router tests and verify RED**
 
 ```bash
 cd web && npm test -- --run \
@@ -883,13 +882,13 @@ cd web && npm test -- --run \
 
 Expected: FAIL because route and screen are absent.
 
-- [ ] **Step 3: Implement the focused planning screen**
+- [x] **Step 3: Implement the focused planning screen**
 
 Add `paths.newMeeting = '/jobs/new-meeting'`, explicit route wiring, and a standalone
 form. Keep result fields out. Use required semantic labels and adjacent retry controls.
 Preserve one UUID per logical create until definitive completion.
 
-- [ ] **Step 4: Run form, route, accessibility, and build checks**
+- [x] **Step 4: Run form, route, accessibility, and build checks**
 
 ```bash
 cd web && npm test -- --run tests/sales-meeting-create.test.tsx \
@@ -899,13 +898,16 @@ cd web && npm run build
 
 Expected: role/reference/retry behavior, direct route, and build PASS.
 
-- [ ] **Step 5: Commit Task 9**
+- [x] **Step 5: Commit Task 9**
 
 ```bash
 git add web/src/SalesMeetingCreate.tsx web/src/paths.ts web/src/AppRouter.tsx \
-  web/src/styles.css web/tests/sales-meeting-create.test.tsx web/tests/router.test.tsx
+  web/tests/sales-meeting-create.test.tsx web/tests/router.test.tsx
 git commit -m "feat: add sales meeting planning flow"
 ```
+
+Execution note: the planning screen reuses the existing responsive task-form primitives;
+no new CSS rule was necessary.
 
 ### Task 10: Type-Aware Detail Shell and Meeting Result Form
 
