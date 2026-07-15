@@ -74,8 +74,11 @@ try {
 
   console.log(`ok bootstrap-app-role role=${role} db=${dbName}`);
   process.exit(0);
-} catch {
-  console.error('bootstrap-app-role failed');
+} catch (error) {
+  const err = error instanceof Error ? error : new Error(String(error));
+  // Never print connection strings or passwords — only PG error code/message.
+  const code = 'code' in err && typeof err.code === 'string' ? err.code : '';
+  console.error(`bootstrap-app-role failed${code ? ` code=${code}` : ''}: ${err.message}`);
   process.exit(1);
 } finally {
   try {
