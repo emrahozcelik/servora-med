@@ -39,8 +39,8 @@ const board: JobCardBoard = {
   closedCounts: { COMPLETED: 6, CANCELLED: 2 },
 };
 
-function page(items: JobCardListItem[]): Paginated<JobCardListItem> {
-  return { items, total: items.length, limit: 25, offset: 0 };
+function page(items: JobCardListItem[], offset = 0, total = items.length): Paginated<JobCardListItem> {
+  return { items, total, limit: 25, offset };
 }
 
 function deferred<T>() {
@@ -145,20 +145,28 @@ describe('responsive routed JobCard board', () => {
     return { router, listLoad, boardLoad };
   }
 
-  it('canonicalizes desktop board URLs before requesting only non-status filters', async () => {
+  it('preserves a closed board URL while loading the terminal list instead of active Kanban', async () => {
     installMatchMedia(true);
-    const { router, listLoad, boardLoad } = await mount('/jobs?q=klinik&status=closed&offset=50&view=board');
+    const listLoad = vi.fn().mockResolvedValue(page([
+      item('COMPLETED', 'job-completed'),
+    ], 50, 80));
+    const boardLoad = vi.fn().mockResolvedValue(board);
+    const { router } = await mount(
+      '/jobs?q=klinik&status=closed&offset=50&view=board', listLoad, boardLoad,
+    );
     await act(async () => { await Promise.resolve(); });
-    expect(router.state.location.search).toBe('?q=klinik&view=board');
-    expect(router.state.historyAction).toBe('REPLACE');
-    expect(boardLoad).toHaveBeenCalledWith({ q: 'klinik' });
-    expect(listLoad).not.toHaveBeenCalled();
-    expect(container.querySelectorAll('[data-board-column]')).toHaveLength(5);
+    expect(router.state.location.search).toBe('?q=klinik&status=closed&view=board&offset=50');
+    expect(listLoad).toHaveBeenCalledWith({ q: 'klinik', status: 'closed', limit: 25, offset: 50 });
+    expect(boardLoad).not.toHaveBeenCalled();
+    expect(container.querySelectorAll('[data-board-column]')).toHaveLength(0);
+    expect(container.textContent).toContain('ABC Klinik teslimi');
   });
 
   it('enters board without status/offset and status selection returns to canonical list offset zero', async () => {
     installMatchMedia(true);
-    const { router, listLoad, boardLoad } = await mount('/jobs?status=closed&offset=25');
+    const listLoad = vi.fn().mockResolvedValue(page([baseItem], 25, 80));
+    const boardLoad = vi.fn().mockResolvedValue(board);
+    const { router } = await mount('/jobs?status=IN_PROGRESS&offset=25', listLoad, boardLoad);
     await act(async () => { await Promise.resolve(); });
     const view = container.querySelector<HTMLSelectElement>('#job-view')!;
     await act(async () => {
