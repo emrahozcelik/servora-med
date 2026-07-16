@@ -186,6 +186,27 @@ All three are created with the `mustChangePassword` flag. The command refuses `N
 
 The development seed also creates one Staff profile assigned to the demo Manager, `Demo Dental Klinik`, primary Contact `Dr. Ayşe Yılmaz`, one catalog product, and one Contact-linked `NEW` Product Delivery JobCard with its `JOB_CREATED` activity. These are local reference records, not production migration data.
 
+### Pilot Product Catalog Import
+
+`pilot-products.example.json` is a reviewed version-1 catalog input. Import requires an explicit
+organization and an active Admin/Manager audit actor. Dry-run is the default:
+
+```bash
+cd server
+npm run products:import:pilot -- \
+  --file ../pilot-products.example.json \
+  --organization-id <organization-uuid> \
+  --actor-user-id <admin-or-manager-uuid>
+```
+
+Add `--apply` only after the dry-run counts are reviewed. The importer matches exact SKU inside
+the organization, or exact name when both source and stored SKU are null. Exact matches are not
+updated. New Products and their `PRODUCT_CREATED` audits are committed in one locked transaction;
+any failure rolls back the complete batch. Re-running the same input is idempotent.
+
+The local `Servora Med Demo` merge on 2026-07-16 produced 81 source Products, 48 existing exact
+matches, and 33 inserts. The repeat dry-run produced 81 matches and zero inserts.
+
 Public health (readiness):
 
 ```text

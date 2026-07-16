@@ -17,7 +17,7 @@ export type PilotProductDocument = {
   categories: string[];
   products: PilotProduct[];
 };
-export type ExistingPilotProduct = PilotProduct & { id: string };
+export type ExistingPilotProduct = ProductFields & { id: string; isActive: boolean };
 export type PilotProductMergePlan = {
   sourceCount: number;
   matched: Array<{ source: PilotProduct; existing: ExistingPilotProduct }>;
@@ -171,7 +171,7 @@ export async function importPilotProducts(pool: Pool, input: {
       id: row.id, name: row.name, sku: row.sku, brand: row.brand,
       category: row.category, model: row.model, unit: row.unit,
       referencePrice: row.default_price === null ? null : Number(row.default_price),
-      isActive: row.is_active as true,
+      isActive: row.is_active,
     }));
     const plan = planPilotProductMerge(input.document, existing);
     if (input.apply) {

@@ -92,6 +92,9 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 ## 6. Ortak ekran davranışları
 
 - **Yükleniyor / boş / hata:** Listeler ve detaylar bu üç durumu gösterir. Hata ekranında **Tekrar dene** varsa kullanın.
+- **Hızlı iş görünümleri:** **Aktif işler**, yönetici için **Onay kuyruğu**,
+  **Düzeltme istenenler** ve **Biten işler** bağlantıları mevcut filtre bağlamında hızlı geçiş
+  sağlar. **Biten işler**, hem **Tamamlandı** hem **İptal edildi** kayıtlarını gösterir.
 - **Version conflict:** Başka biri işi değiştirdiyse işlem reddedilebilir; sayfayı yenileyip güncel haliyle tekrar deneyin.
 - **Notlar:** İş detayında **Notlar** bölümüne iş notu eklenir (salt metin; zorunlu yapılandırılmış alanların yerini tutmaz).
 - **Aktivite:** Aynı detayda zaman çizelgesi; olay etiketleri Türkçe gösterilir.
