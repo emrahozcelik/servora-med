@@ -46,16 +46,20 @@ function render(view: ReactElement) {
 }
 
 describe('Reports dashboard presentation', () => {
-  it('uses primary/secondary KPI hierarchy without claiming exclusive status slices', () => {
+  it('shows overview KPIs before attention KPIs without design-meta copy', () => {
     const html = render(<ReportsDashboardView report={report} approval={approval} />);
+    const overview = html.indexOf('Genel durum');
+    const attention = html.indexOf('Öncelikli göstergeler');
+    expect(overview).toBeGreaterThan(-1);
+    expect(attention).toBeGreaterThan(overview);
     for (const label of ['Onay bekleyen', 'Geciken', 'Düzeltme bekleyen']) {
       expect(html).toContain(label);
     }
     expect(html).toContain('Aktif işler');
     expect(html).toContain('Bu dönemde tamamlanan');
     expect(html).toContain('Bu dönemde iptal edilen');
-    expect(html).toContain('birbirini dışlayan dilimler değildir');
-    expect(html).toContain('bağımsız çubuklar');
+    expect(html).not.toContain('birbirini dışlayan dilimler');
+    expect(html).not.toContain('pasta diyagramı');
   });
 
   it('renders trend as the main visual with an accessible calendar disclosure', () => {

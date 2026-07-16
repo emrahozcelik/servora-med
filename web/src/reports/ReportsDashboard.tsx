@@ -119,12 +119,23 @@ export function ReportsDashboardView({
 
   return (
     <>
-      <section className="report-section" aria-labelledby="primary-kpi-title">
-        <h2 id="primary-kpi-title">Öncelikli göstergeler</h2>
-        <p className="report-section-hint">
-          Bu sayaçlar birbirini dışlayan dilimler değildir; geciken işler açık işlerin alt kümesi olabilir.
-          Bu yüzden yüzde-yüz pasta diyagramı yerine ayrı kartlar ve bağımsız çubuklar kullanılır.
-        </p>
+      <section className="report-section" aria-labelledby="overview-kpi-title">
+        <h2 id="overview-kpi-title">Genel durum</h2>
+        <dl className="report-metrics report-metrics-secondary">
+          {secondary.map(([label, value, scope]) => (
+            <div key={label}>
+              <dt>
+                {label}
+                <span>{scope}</span>
+              </dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      <section className="report-section" aria-labelledby="attention-kpi-title">
+        <h2 id="attention-kpi-title">Öncelikli göstergeler</h2>
         <dl className="report-metrics report-metrics-primary">
           {primary.map((item) => (
             <div key={item.key} className={`report-metric-card report-metric-card--${item.tone}`}>
@@ -137,21 +148,6 @@ export function ReportsDashboardView({
           ))}
         </dl>
         <IndependentMeterBars items={primary} />
-      </section>
-
-      <section className="report-section" aria-labelledby="secondary-kpi-title">
-        <h2 id="secondary-kpi-title">Genel durum</h2>
-        <dl className="report-metrics report-metrics-secondary">
-          {secondary.map(([label, value, scope]) => (
-            <div key={label}>
-              <dt>
-                {label}
-                <span>{scope}</span>
-              </dt>
-              <dd>{value}</dd>
-            </div>
-          ))}
-        </dl>
       </section>
 
       {attention.length > 0 ? (
