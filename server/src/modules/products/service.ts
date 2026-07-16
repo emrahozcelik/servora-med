@@ -87,7 +87,7 @@ function referencePrice(value: number | null) {
   return value;
 }
 
-function normalizeCreate(input: CreateProductInput): ProductFields {
+export function normalizeProductCreateInput(input: CreateProductInput): ProductFields {
   return {
     name: requiredName(input.name),
     sku: optionalText('sku', input.sku ?? null),
@@ -142,7 +142,7 @@ export class ProductService {
 
   async createProduct(actor: ProductActor, input: CreateProductInput) {
     requireWriter(actor);
-    const fields = normalizeCreate(input);
+    const fields = normalizeProductCreateInput(input);
     return this.repository.execute(async (tx) => {
       const created = await tx.createProduct({ organizationId: actor.organizationId, ...fields });
       await tx.appendAudit(audit(

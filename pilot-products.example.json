@@ -1,0 +1,835 @@
+{
+  "version": 1,
+  "description": "Dünya Dental pilot ürün kataloğu. Genel katalogdan çıkarılan ürünler. category ayrı tablo değil — üründe metin alanıdır; categories listesi yalnızca tutarlı isimler için rehberdir.",
+  "fieldGuide": {
+    "name": "Zorunlu. Ürün adı (görünen ad).",
+    "sku": "Opsiyonel. Stok/katalog kodu. UTS kodu kullanıldı.",
+    "brand": "Opsiyonel. Marka.",
+    "category": "Opsiyonel. Aşağıdaki categories listesinden birebir aynı yazın.",
+    "model": "Opsiyonel. Model / varyant.",
+    "unit": "Opsiyonel. Birim (adet, kutu, set, ml, gr).",
+    "referencePrice": "Opsiyonel. Sayı (TRY referans fiyat). Yoksa null.",
+    "isActive": "Opsiyonel. Varsayılan true."
+  },
+  "categories": [
+    "İmplant",
+    "Protez",
+    "Cerrahi Alet",
+    "Sarrafiye / Sarf",
+    "Kemik Greft / Membran",
+    "Ortodonti",
+    "Diğer"
+  ],
+  "products": [
+    {
+      "name": "OMNICHROMA Universal Renk Kompozit",
+      "sku": "4548190101108",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 2.2ml (4.0g) + 20 PLT",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "OMNICHROMA Flow Akışkan Kompozit",
+      "sku": "4548190102266",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 1.8ml (3.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "OMNICHROMA Flow Bulk Bulk Fill Akışkan Kompozit",
+      "sku": "4548190102273",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 2.2ml (4.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "OMNICHROMA Blocker Maskeleyici Kompozit",
+      "sku": "4548190101115",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 2.2ml (4.0g) + 20 PLT",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "OMNICHROMA Blocker Flow Akışkan Maskeleyici",
+      "sku": "4548190102280",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 1.8ml (3.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "OMNICHROMA Selection Set (A0052)",
+      "sku": "A0052",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "2x Omnichroma 4g + 2x Omnichroma Flow 3g + 1x Blocker Flow 3g",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria Essential Kit",
+      "sku": "4548190109319",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "7 Şırınga (A1B, A2B, A3B, A3.5B, A4B, NE, OcE)",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria A1B",
+      "sku": "4548190109418",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria A2B",
+      "sku": "4548190109425",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria A3B",
+      "sku": "4548190109432",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria A3.5B",
+      "sku": "4548190109449",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria A4B",
+      "sku": "4548190109456",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick Intro Kit",
+      "sku": "4548190132041",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Intro Kit",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick A1",
+      "sku": "4548190132102",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick A2",
+      "sku": "4548190132119",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick A3",
+      "sku": "4548190132126",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick A3.5",
+      "sku": "4548190132133",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow A1",
+      "sku": "4548190127245",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow A2",
+      "sku": "4548190127207",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Estelite Paste A1 (Palfique Estelite)",
+      "sku": "4548190113538",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Estelite Paste A2 (Palfique Estelite)",
+      "sku": "4548190113545",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Estelite Paste A3 (Palfique Estelite)",
+      "sku": "4548190113552",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow High A1",
+      "sku": "4548190138005",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "High Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow High A2",
+      "sku": "4548190138012",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "High Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow High A3",
+      "sku": "4548190138029",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "High Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium A1",
+      "sku": "4548190138074",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium A2",
+      "sku": "4548190138081",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium A3",
+      "sku": "4548190138098",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Super Low A1",
+      "sku": "4548190138197",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Super Low Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Super Low A2",
+      "sku": "4548190138203",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Super Low Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Super Low A3",
+      "sku": "4548190138210",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Super Low Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Karakterizasyon Seti",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "13 renk (Beyaz, Sarı, Kırmızı, Gri, Lavanta, Koyu Kahve, Mavi, Şeffaf + Opaklar)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Shield Force Plus Duyarlılık Giderici",
+      "sku": "4548190151127",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Kit (3mL şişe + 25 aplikatör + gode)",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Shield Force Plus Mini Kit",
+      "sku": "4548190151424",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Mini Kit",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bond Force II Adeziv",
+      "sku": "4548190149032",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Kit (5mL şişe + gode + 50 uygulama ucu)",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bond Force II Kalem Adeziv",
+      "sku": "4548190149681",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Kalem Kiti (2mL)",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Universal Bond II Adeziv",
+      "sku": "4548190152001",
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Set (Bond A 5.0ml + Bond B 5.0ml + gode + aplikatörler)",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E8 Otoklav 24L",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "24 Litre, B Class",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E10 Otoklav 18L/24L",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "18-24 Litre, B Class",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "EXL Otoklav 29L",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "29 Litre, B Class",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosafe Smart Termal Dezenfektör",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "Tezgah üstü",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosonic 4D Ultrasonik Yıkama",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "Ultrasonik yıkama cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Euroseal Termal Kapama Cihazı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Termal kapama ruloları",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Aquaosmo Su Arıtma Cihazı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Su arıtma sistemi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Fusion Crysta Ortodontik Adeziv Kit",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Ortodonti",
+      "model": "Işıkla kürlenen ortodontik kit",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Seramik Onarım Kiti",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Seramik onarım seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest ZOE Siman Hızlı Set",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Hızlı set siman",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estecem II Universal Rezin Siman Set",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Universal rezin siman set",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Dr. Talal's Endo Kit (S6 Kavitron Uç Seti)",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "S6 kavitron cihazı için uç seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "S6 LED Işıklı Endodontik Kavitron Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Işıklı endodontik kavitron",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fırçasız Endomotor Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Fırçasız endomotor",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Airflow Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "360° döndürülebilir, şeffaf toz kabı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Apex Bulucu Cihaz",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Apex bulucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gutta-percha Obtürasyon Sistemi",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Gutta-percha obtürasyon",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Periodontal Kavitron Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Periodontal kavitron",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "DTE Elektrikli Dental Motor",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Elektrikli mikromotor + angldruva seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Led Işık Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Diğer",
+      "model": "LED ışık cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Implantmed Classic Işıksız Paket",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "WI-75 E/KM ışıksız implant angldruvası",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Implantmed Plus Işıklı Paket",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "WS-75 L ışıklı implant angldruvası",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Cerrahi Angldruva",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Cerrahi angldruva (kırmızı/mavi kuşak)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Alegra Angldruva ve Havalı Motor",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Angldruva + havalı motor seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Yüksek Saflıkta Sentetik Yağ",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Sarrafiye / Sarf",
+      "model": "Yüksek saflıkta sentetik yağ",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "TOR Matrices Universal Kit",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Universal matrix kiti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "TOR Proxikesim Elmas Strip (Medium)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Proksimal elmas strip, medium",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "TOR Proxikesim Elmas Strip (Coarse)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Proksimal elmas strip, coarse",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "TOR Anterior Transparan Strip Kron Set",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "1910 Anterior strip kron seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "TOR Posterior Transparan Strip Kron Set",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "1911 Posterior strip kron seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "TOR Çok Yönlü Proxikesim Kiti (1.369KT)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Çok yönlü proxikesim kiti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "TOR Plastik Kama Seti (1.840)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Plastik kama seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Renew MDP Self-Etch Bonding Ajanı",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Tek bileşenli self-etch bonding",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Renew Universal Bonding Ajanı",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "10-MDP ve 4-META içeren universal adeziv",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Actino Gel %37 Fosforik Asit Jel",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Dental aşındırma jeli %37 fosforik asit",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Fusion Crysta Adhesive Primer Kit",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Ortodonti",
+      "model": "Etching, primer ve bonding seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Magma NT Nano Hibrit Kompozit (A2)",
+      "sku": "8903388001374",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g seramik içerikli, nano hibrit, A2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Magma NT Nano Hibrit Kompozit (A3)",
+      "sku": "8903388003347",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g seramik içerikli, nano hibrit, A3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Işıkla Kürlenen Universal Nano Hibrit Kompozit (A2)",
+      "sku": "8903388000131",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g nano hibrit, A2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Prevest Ofis Tipi Beyazlatma Sistemi",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Ofis tipi diş beyazlatma",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Orodeka PLEX V-04 (Zor Kanallar İçin)",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "4'lü blister, zor kanallar",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Orodeka PLEX V-06 (Kolay Kanallar İçin)",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "4'lü blister, kolay kanallar",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Medisana Rubberdam Seti (10'lu)",
+      "sku": null,
+      "brand": "Medisana",
+      "category": "Sarrafiye / Sarf",
+      "model": "10'lu rubberdam seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Medisana Rubberdam Seti (7'li)",
+      "sku": null,
+      "brand": "Medisana",
+      "category": "Sarrafiye / Sarf",
+      "model": "7'li rubberdam seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    }
+  ]
+}
