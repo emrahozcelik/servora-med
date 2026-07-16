@@ -137,7 +137,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   return <main className="workspace job-workspace">
     {notice && <div className="success-message" role="status">{notice}</div>}
     <div className="workspace-heading"><div><p className="eyebrow">Çalışma alanı</p><h1>{user.role === 'STAFF' ? 'İşlerim' : 'İşler'}</h1></div>
-      <div className="workspace-create-actions">
+      <div className="workspace-create-actions workspace-create-actions--toolbar">
         <NewJobMenu
           onCreateMeeting={onCreateMeeting}
           onCreateTask={onCreateTask}
