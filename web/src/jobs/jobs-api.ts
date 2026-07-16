@@ -315,5 +315,6 @@ export const startJobCard = (id: string, input: LifecycleInput) => lifecycle(id,
 export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'submit-for-approval', input);
 export const approveJobCard = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'approve', input);
 export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);
+export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);
 export const resumeJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'resume', input);
 export const cancelJobCard = (id: string, input: LifecycleInput & { cancelReason: string }) => lifecycle(id, 'cancel', input);
