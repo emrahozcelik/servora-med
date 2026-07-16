@@ -1,7 +1,7 @@
 # Meeting Lifecycle, Approval Withdrawal, and Cancellation Design
 
-Date: 2026-07-16  
-Status: Product-approved design  
+Date: 2026-07-16
+Status: Product-approved design
 Scope: `SALES_MEETING` visibility and mutation guards, approval withdrawal, and
 `WAITING_APPROVAL` cancellation
 
