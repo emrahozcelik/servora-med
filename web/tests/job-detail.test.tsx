@@ -26,7 +26,8 @@ describe('Staff JobCard detail', () => {
     expect(availableLifecycleCommands({ ...job, status: 'PLANNED' }, 'STAFF')).toEqual(['start']);
     expect(availableLifecycleCommands({ ...job, status: 'IN_PROGRESS' }, 'STAFF')).toEqual(['submit']);
     expect(availableLifecycleCommands({ ...job, status: 'REVISION_REQUESTED' }, 'STAFF')).toEqual(['resume']);
-    expect(availableLifecycleCommands({ ...job, status: 'WAITING_APPROVAL' }, 'STAFF')).toEqual([]);
+    expect(availableLifecycleCommands({ ...job, status: 'WAITING_APPROVAL' }, 'STAFF'))
+      .toEqual(['withdraw', 'cancel']);
     expect(availableLifecycleCommands({ ...job, status: 'WAITING_APPROVAL' }, 'MANAGER')).toEqual(['approve', 'revise']);
     expect(availableLifecycleCommands({ ...job, status: 'NEW' }, 'ADMIN')).toEqual(['plan', 'start', 'cancel']);
     expect(availableLifecycleCommands({ ...job, status: 'COMPLETED' }, 'ADMIN')).toEqual([]);
@@ -72,7 +73,7 @@ describe('Staff JobCard detail', () => {
 
     expect(source).toContain("if (job.type === 'PRODUCT_DELIVERY') return { kind: job.type");
     expect(source).toContain("if (job.type === 'GENERAL_TASK') return { kind: job.type");
-    expect(source).toContain('meetingDetails: await getMeetingDetails(jobId)');
+    expect(source).toContain("['NEW', 'PLANNED'].includes(job.status) ? null : await getMeetingDetails(jobId)");
     expect(source).toContain("{job.type === 'PRODUCT_DELIVERY' && <section className=\"delivery-lines\"");
   });
 

@@ -8,6 +8,7 @@ import {
   approveJobCard, cancelJobCard, getJobCard, getMeetingDetails, listDeliveryItems,
   patchMeetingDetails, planJobCard,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
+  withdrawJobCardFromApproval,
   type DeliveryItem, type JobCard, type MeetingDetails, type PatchMeetingDetailsInput,
 } from './jobs/jobs-api';
 import { MeetingDetailsSection } from './jobs/MeetingDetails';
@@ -17,7 +18,7 @@ import { jobTypeLabels } from './jobs/job-labels';
 import { jobCapabilities } from './jobs/job-capabilities';
 
 type StaffCommand = 'start' | 'submit';
-export type LifecycleCommand = 'plan' | 'start' | 'submit' | 'approve' | 'revise' | 'resume' | 'cancel';
+export type LifecycleCommand = 'plan' | 'start' | 'submit' | 'approve' | 'revise' | 'withdraw' | 'resume' | 'cancel';
 type CommandDependencies = {
   start: typeof startJobCard;
   submit: typeof submitJobCardForApproval;
@@ -78,6 +79,7 @@ export function availableLifecycleCommands(job: JobCard, role: CurrentUser['role
     if (job.status === 'PLANNED') return ['start'];
     if (job.status === 'IN_PROGRESS') return ['submit'];
     if (job.status === 'REVISION_REQUESTED') return ['resume'];
+    if (job.status === 'WAITING_APPROVAL') return ['withdraw', 'cancel'];
     return [];
   }
   if (job.status === 'WAITING_APPROVAL') return ['approve', 'revise'];
@@ -96,6 +98,7 @@ const priorityLabels = { low: 'Düşük', normal: 'Normal', high: 'Yüksek', urg
 const commandLabels: Record<LifecycleCommand, string> = {
   plan: 'Planla', start: 'İşi başlat', submit: 'Onaya gönder', approve: 'Onayla',
   revise: 'Düzeltme iste', resume: 'İşe devam et', cancel: 'İşi iptal et',
+  withdraw: 'Onaydan geri çek ve düzenle',
 };
 
 export function ReasonDialog({ kind, pending, onClose, onConfirm }: {
@@ -128,27 +131,28 @@ export function ReasonDialog({ kind, pending, onClose, onConfirm }: {
   return <div className="dialog-backdrop">
     <div ref={dialogRef} className="reason-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={keyDown}>
       <h2 id={titleId}>{revision ? 'Düzeltme iste' : 'İşi iptal et'}</h2>
-      <p>{revision ? 'Personelin neyi düzeltmesi gerektiğini açıklayın.' : 'İptal nedenini iş geçmişine ekleyin.'}</p>
+      <p>{revision ? 'Personelin neyi düzeltmesi gerektiğini açıklayın.' : 'Bu işlem terminaldir; iptal edilen iş yeniden açılamaz. İptal nedenini iş geçmişine ekleyin.'}</p>
       <form onSubmit={submit} noValidate>
         <div className="field-group"><label htmlFor={`${titleId}-reason`}>{revision ? 'Düzeltme nedeni' : 'İptal nedeni'}</label>
-          <textarea id={`${titleId}-reason`} rows={4} maxLength={2000} value={reason} disabled={pending}
+          <textarea id={`${titleId}-reason`} rows={4} maxLength={2000} value={reason} disabled={pending} required
             aria-invalid={error ? 'true' : undefined} aria-describedby={error ? errorId : undefined}
             onChange={(event) => { setReason(event.target.value); setError(''); }} /></div>
         {error && <p id={errorId} className="field-error" role="alert">{error}</p>}
         <div className="review-buttons"><button ref={cancelRef} className="secondary-button" type="button" disabled={pending} onClick={onClose}>Vazgeç</button>
-          <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'İşleniyor…' : 'Onayla'}</button></div>
+          <button className="primary-button compact-button" type="submit" disabled={pending || !reason.trim()}>{pending ? 'İşleniyor…' : revision ? 'Onayla' : 'İşi iptal et'}</button></div>
       </form>
     </div>
   </div>;
 }
 
-export function JobDetailPanel({ job, items, viewerRole = 'STAFF', pending, message, messageIsError = false,
+export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pending, message, messageIsError = false,
   feedbackRef, onBack, onCommand, children }: {
   job: JobCard; items: DeliveryItem[]; pending: boolean; message: string; messageIsError?: boolean;
-  viewerRole?: CurrentUser['role']; feedbackRef?: Ref<HTMLDivElement>;
+  viewerRole?: CurrentUser['role']; viewerId?: string; feedbackRef?: Ref<HTMLDivElement>;
   onBack: () => void; onCommand: (command: LifecycleCommand) => void; children?: ReactNode;
 }) {
-  const commands = availableLifecycleCommands(job, viewerRole);
+  const commands = viewerRole === 'STAFF' && viewerId !== undefined && viewerId !== job.assignedTo
+    ? [] : availableLifecycleCommands(job, viewerRole);
   return <main className="job-detail">
     <div className="detail-heading"><div><p className="eyebrow">{jobTypeLabels[job.type]}</p><h1>{job.title}</h1></div>
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
@@ -216,6 +220,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   const [dialog, setDialog] = useState<'revise' | 'cancel' | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const mutationInFlight = useRef(false);
+  const actionIds = useRef<Partial<Record<LifecycleCommand, string>>>({});
   const feedbackRef = useRef<HTMLDivElement>(null);
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
 
@@ -244,13 +249,15 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
     if (state.kind !== 'ready' || mutationInFlight.current) return;
     mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
-    const input = { clientActionId: crypto.randomUUID(), expectedVersion: state.detail.job.version };
+    actionIds.current[command] ??= crypto.randomUUID();
+    const input = { clientActionId: actionIds.current[command]!, expectedVersion: state.detail.job.version };
     try {
       const updated = command === 'plan' ? await planJobCard(jobId, input)
         : command === 'start' ? await startJobCard(jobId, input)
         : command === 'submit' ? await submitJobCardForApproval(jobId, input)
         : command === 'approve' ? await approveJobCard(jobId, input)
         : command === 'revise' ? await requestJobCardRevision(jobId, { ...input, revisionReason: reason })
+        : command === 'withdraw' ? await withdrawJobCardFromApproval(jobId, input)
         : command === 'resume' ? await resumeJobCard(jobId, input)
         : await cancelJobCard(jobId, { ...input, cancelReason: reason });
       if (state.detail.kind === 'SALES_MEETING' && command === 'start') {
@@ -262,6 +269,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
             : { ...state.detail.meetingDetails, jobCardVersion: updated.version } }
         : { ...state.detail, job: updated } as LoadedJobDetail });
       }
+      delete actionIds.current[command];
       setTimelineKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) setDialog(null);
@@ -270,9 +278,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
       onChanged();
     } catch (caught) {
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT' || caught.code === 'INVALID_TRANSITION')) {
+        delete actionIds.current[command];
         try { await refreshTruth(); setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.'); }
         catch { setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); setMessageIsError(true); }
       } else {
+        if (!(caught instanceof ApiError) || !caught.retryable) delete actionIds.current[command];
         setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
         setMessageIsError(true);
         if (caught instanceof ApiError && caught.code === 'MEETING_NOT_READY') {
@@ -325,7 +335,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
     && capabilities.canViewMeetingResult && detail.meetingDetails !== null
     && (detail.job.status !== 'CANCELLED' || hasMeetingResult);
   const showNotes = detail.kind !== 'SALES_MEETING' || capabilities.canViewMeetingNotes;
-  return <JobDetailPanel job={detail.job} items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []} viewerRole={user.role} pending={pending}
+  return <JobDetailPanel job={detail.job} items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []} viewerRole={user.role} viewerId={user.id} pending={pending}
     message={message} messageIsError={messageIsError} feedbackRef={feedbackRef} onBack={onBack}
     onCommand={(name) => command(name, document.activeElement as HTMLElement)}>
     {showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails && <MeetingDetailsSection job={detail.job} details={detail.meetingDetails}

@@ -41,6 +41,34 @@ describe('Manager review', () => {
     expect(html).toContain('Vazgeç');
   });
 
+  it('warns that waiting cancellation is terminal and disables blank confirmation', async () => {
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<ReasonDialog kind="cancel" pending={false}
+        onClose={() => {}} onConfirm={() => {}} />));
+      expect(host.textContent).toContain('iptal edilen iş yeniden açılamaz');
+      expect(host.querySelector('textarea')?.required).toBe(true);
+      const confirm = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'İşi iptal et')!;
+      expect(confirm.disabled).toBe(true);
+      const textarea = host.querySelector('textarea')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, '  Neden  ');
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(confirm.disabled).toBe(false);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it('shows assigned Staff withdrawal and cancellation actions while waiting', () => {
+    const meeting = { ...job, type: 'SALES_MEETING' as const, assignedTo: staff.id,
+      assignee: { id: staff.id, name: staff.name } };
+    const html = renderToStaticMarkup(<JobDetailPanel job={meeting} items={[]} viewerRole="STAFF"
+      viewerId={staff.id} pending={false} message="" onBack={() => {}} onCommand={() => {}} />);
+    expect(html).toContain('Onaydan geri çek ve düzenle');
+    expect(html).toContain('İşi iptal et');
+  });
+
   it('sends approve and revision with the current backend version', async () => {
     const approve = vi.fn().mockResolvedValue({ ...job, status: 'COMPLETED', version: 5 });
     const revise = vi.fn().mockResolvedValue({ ...job, status: 'REVISION_REQUESTED', version: 5 });
