@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
-> Date: 2026-07-10  
-> Status: Living implementation order; verified through Slice 11
+> Date: 2026-07-16
+> Status: Living implementation order; repository scope verified through Slice 12
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -64,13 +64,13 @@ Warehouse, accounting, native mobile, custom fields, and user-defined tables are
 
 ### Acceptance
 
-- [ ] Server build passes.
-- [ ] Server smoke test passes against the intended test setup.
-- [ ] Web build passes.
-- [ ] No restaurant table, route, role, or terminology exists.
-- [ ] Missing required environment values fail clearly.
-- [ ] Public health output is generic.
-- [ ] Password, token, cookie, and authorization headers are configured for redaction before auth is added.
+- [x] Server build passes.
+- [x] Server smoke test passes against the intended test setup.
+- [x] Web build passes.
+- [x] No restaurant table, route, role, or terminology exists.
+- [x] Missing required environment values fail clearly.
+- [x] Public health output is generic.
+- [x] Password, token, cookie, and authorization headers are configured for redaction before auth is added.
 
 ### Verification
 
@@ -79,6 +79,11 @@ cd server && npm run build
 cd server && npm test -- --run
 cd web && npm run build
 ```
+
+Slice 00 acceptance remains covered by the current server/web builds and CI, configuration
+failure tests, generic health projection tests, production logger-redaction tests, and the
+Servora-Med-only schema and route vocabulary. These checks remain regression gates in
+later slices rather than historical one-time assertions.
 
 ## 4. Slice 01: Secure Auth and Admin Bootstrap
 
@@ -109,17 +114,17 @@ cd web && npm run build
 
 ### Acceptance
 
-- [ ] Valid login sets the cookie and returns safe user data without a raw token.
-- [ ] Invalid credentials return generic `401 UNAUTHORIZED`.
-- [ ] Database stores only `token_hash`.
-- [ ] Frontend does not store auth tokens in Web Storage.
-- [ ] Logout revokes the session and clears the cookie.
-- [ ] Expired and revoked sessions fail authentication.
-- [ ] Login rate limit is verified.
-- [ ] Unsafe production request with mismatched Origin is rejected.
-- [ ] Staff cannot use an admin-only route.
-- [ ] Development seed refuses production execution.
-- [ ] Login is usable by keyboard with visible focus and accessible labels.
+- [x] Valid login sets the cookie and returns safe user data without a raw token.
+- [x] Invalid credentials return generic `401 UNAUTHORIZED`.
+- [x] Database stores only `token_hash`.
+- [x] Frontend does not store auth tokens in Web Storage.
+- [x] Logout revokes the session and clears the cookie.
+- [x] Expired and revoked sessions fail authentication.
+- [x] Login rate limit is verified.
+- [x] Unsafe production request with mismatched Origin is rejected.
+- [x] Staff cannot use an admin-only route.
+- [x] Development seed refuses production execution.
+- [x] Login is usable by keyboard with visible focus and accessible labels.
 
 ### Verification
 
@@ -130,6 +135,11 @@ cd web && npm run build
 ```
 
 Focused tests cover login success/failure, token hashing, revoke, expiry, rate limit, Origin validation, and role guard.
+
+Slice 01 acceptance remains covered by the auth service/route/setup suites, PostgreSQL
+session schema and seed tests, role-boundary tests, credentialed web client tests, and the
+recorded three-role keyboard/focus browser acceptance. Raw session tokens remain confined
+to the secure cookie boundary and are never returned in the public user DTO.
 
 ## 5. Slice 02: Product-Delivery Tracer Bullet Backend
 
@@ -537,6 +547,15 @@ inbound ports, with clear developer/pilot install docs and a Turkish user manual
 Operator-only (not claimed by repository alone): live public hostname cutover, host restore rehearsal record,
 real offsite copy.
 
+Slice 12 repository closeout was merged by
+[#9](https://github.com/emrahozcelik/servora-med/pull/9) at
+`525e838819f38df6961222b41e344c3b3a917305`. Both PR checks passed, and the post-merge
+`main` CI run
+[`29450061356`](https://github.com/emrahozcelik/servora-med/actions/runs/29450061356)
+completed successfully. This evidence verifies repository
+artifacts and automated contracts only; it does not claim that a real hostname, reboot,
+offsite target, or host restore rehearsal has been completed.
+
 ## 16. Slice 13: WebSocket Only if Polling Is Insufficient
 
 **Goal:** Add realtime only after pilot evidence shows polling or manual refresh is inadequate.
@@ -573,4 +592,5 @@ The pilot is complete when:
 11. Deployment, backup, and restore procedures are verified.
 12. Server build, server tests, and web build pass.
 
-Sales Meeting can follow as its structured slice without blocking the product-delivery pilot. WebSocket does not block pilot completion.
+Structured Sales Meeting is complete in Slice 10. WebSocket remains conditional on the
+measured Slice 13 entry criteria and does not block pilot completion.
