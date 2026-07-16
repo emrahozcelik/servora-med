@@ -19,6 +19,9 @@ function localValue(value: string | null) {
   const date = new Date(value); const offset = date.getTimezoneOffset() * 60_000;
   return new Date(date.getTime() - offset).toISOString().slice(0, 16);
 }
+export function meetingLocalValue(value: string | null, now = new Date()) {
+  return localValue(value ?? now.toISOString());
+}
 function instant(value: string) { return value ? new Date(value).toISOString() : null; }
 function timezoneLabel() { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
 function formatInstant(value: string | null) {
@@ -44,15 +47,21 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
   submissionError?: ApiError | null;
   onSave: (input: PatchMeetingDetailsInput) => Promise<MeetingDetails>;
 }) {
-  const [meetingAt, setMeetingAt] = useState(localValue(details.meetingAt));
+  const [meetingAt, setMeetingAt] = useState(() => meetingLocalValue(details.meetingAt));
   const [outcome, setOutcome] = useState<MeetingOutcome | ''>(details.outcome ?? '');
   const [summary, setSummary] = useState(details.meetingSummary ?? '');
   const [followUp, setFollowUp] = useState(localValue(details.nextFollowUpAt));
   const [feedback, setFeedback] = useState(''); const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<MeetingFieldErrors>({});
   const actionId = useRef<string | null>(null); const feedbackRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { setMeetingAt(localValue(details.meetingAt)); setOutcome(details.outcome ?? '');
-    setSummary(details.meetingSummary ?? ''); setFollowUp(localValue(details.nextFollowUpAt)); }, [details]);
+  const canonicalRef = useRef({ jobCardId: details.jobCardId, version: details.jobCardVersion });
+  useEffect(() => {
+    if (canonicalRef.current.jobCardId === details.jobCardId
+      && canonicalRef.current.version === details.jobCardVersion) return;
+    canonicalRef.current = { jobCardId: details.jobCardId, version: details.jobCardVersion };
+    setMeetingAt(meetingLocalValue(details.meetingAt)); setOutcome(details.outcome ?? '');
+    setSummary(details.meetingSummary ?? ''); setFollowUp(localValue(details.nextFollowUpAt));
+  }, [details]);
   useEffect(() => { setFieldErrors(serverFieldErrors(submissionError)); }, [submissionError]);
   useEffect(() => { if (feedback || error) feedbackRef.current?.focus(); }, [feedback, error]);
   const canEdit = canEditOverride ?? (
@@ -68,11 +77,20 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       setError('Görüşme sonucunu kaydetmeden önce işaretli alanı düzeltin.');
       return;
     }
+    const candidate = {
+      meetingAt: instant(meetingAt), outcome: outcome || null,
+      meetingSummary: normalizedSummary || null, nextFollowUpAt: instant(followUp),
+    };
+    if (candidate.meetingAt === details.meetingAt && candidate.outcome === details.outcome
+      && candidate.meetingSummary === details.meetingSummary
+      && candidate.nextFollowUpAt === details.nextFollowUpAt) {
+      setFeedback('Görüşme sonucunda kaydedilecek bir değişiklik yok.');
+      return;
+    }
     actionId.current ??= crypto.randomUUID();
     try {
       await onSave({ clientActionId: actionId.current, expectedVersion: job.version,
-        meetingAt: instant(meetingAt), outcome: outcome || null,
-        meetingSummary: normalizedSummary || null, nextFollowUpAt: instant(followUp) });
+        ...candidate });
       actionId.current = null; setFeedback('Görüşme sonucu kaydedildi.');
     } catch (caught) {
       if (caught instanceof ApiError && !caught.retryable) actionId.current = null;
