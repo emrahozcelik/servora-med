@@ -36,7 +36,7 @@ Required production highlights:
 - `HOST=127.0.0.1`
 - `CORS_ORIGIN=https://<FQDN>`
 - `TRUSTED_PROXY=loopback`
-- `HEALTH_SCHEMA_VERSION=007_sales_meeting` (exact latest migration name; update each release that adds a migration)
+- `HEALTH_SCHEMA_VERSION=008_meeting_approval_withdrawal` (exact latest migration name; update each release that adds a migration)
 - `DATABASE_URL` PostgreSQL only (prefer peer/`PGPASSFILE`, never log the URL)
 
 ## Build release (immutable dependencies)

@@ -208,7 +208,7 @@ HOST=127.0.0.1
 PORT=3000
 CORS_ORIGIN=https://app.example.com
 TRUSTED_PROXY=loopback
-HEALTH_SCHEMA_VERSION=007_sales_meeting
+HEALTH_SCHEMA_VERSION=008_meeting_approval_withdrawal
 DATABASE_URL=postgresql://servora:<APP_DB_PASSWORD>@127.0.0.1:5432/servora_med
 LOG_LEVEL=info
 ```
