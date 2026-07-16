@@ -401,7 +401,10 @@ describe('Sales Meeting detail reads and mutations', () => {
 
     await expect(service.patchMeetingDetails(staff, job.id, {
       clientActionId: 'no-op', expectedVersion: 2, outcome: 'NO_DECISION',
-    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    })).rejects.toMatchObject({
+      code: 'MEETING_DETAILS_UNCHANGED', statusCode: 400,
+      message: 'Görüşme sonucunda kaydedilecek bir değişiklik yok.',
+    });
     await expect(service.patchMeetingDetails(staff, job.id, {
       clientActionId: 'stale', expectedVersion: 9, outcome: 'POSITIVE',
     })).rejects.toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });

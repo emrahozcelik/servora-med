@@ -280,7 +280,13 @@ export class JobCardService {
         const changedFields = MEETING_DETAIL_FIELDS.filter(
           (field) => Object.hasOwn(input, field) && candidate[field] !== current[field],
         );
-        if (changedFields.length === 0) throw validation('body');
+        if (changedFields.length === 0) {
+          throw new AppError(
+            'MEETING_DETAILS_UNCHANGED',
+            400,
+            'Görüşme sonucunda kaydedilecek bir değişiklik yok.',
+          );
+        }
         await transaction.updateMeetingDetails({
           organizationId: actor.organizationId,
           jobCardId,
