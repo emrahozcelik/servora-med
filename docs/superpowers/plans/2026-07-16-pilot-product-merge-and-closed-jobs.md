@@ -17,7 +17,7 @@
 - Repeat dry-run result: 81 matches, zero inserts.
 - Final local verification passed server build/834 tests/audit, focused real-PostgreSQL importer
   acceptance, and web build/371 tests/audit. Both audits report zero vulnerabilities.
-- Documentation commit, main push, and remote CI remain.
+- Documentation is committed, `main` is pushed, and remote server/web CI is green.
 
 ## Global Constraints
 
