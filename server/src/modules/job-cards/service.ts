@@ -535,6 +535,14 @@ export class JobCardService {
     });
   }
 
+  async withdrawFromApproval(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'WITHDRAW_FROM_APPROVAL', operationKey: 'JOB_WITHDRAW_FROM_APPROVAL',
+      target: 'IN_PROGRESS', event: 'JOB_APPROVAL_WITHDRAWN',
+      note: null, revisionReason: null, cancelReason: null,
+    });
+  }
+
   async resume(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
     return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
       command: 'RESUME', operationKey: 'JOB_RESUME', target: 'IN_PROGRESS', event: 'JOB_RESUMED',

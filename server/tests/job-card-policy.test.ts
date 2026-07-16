@@ -70,6 +70,7 @@ describe('JobCard policy', () => {
     ['APPROVE', 'WAITING_APPROVAL', manager], ['APPROVE', 'WAITING_APPROVAL', admin],
     ['REQUEST_REVISION', 'WAITING_APPROVAL', manager, 'Düzeltin'],
     ['REQUEST_REVISION', 'WAITING_APPROVAL', admin, 'Düzeltin'],
+    ['WITHDRAW_FROM_APPROVAL', 'WAITING_APPROVAL', staff],
     ['RESUME', 'REVISION_REQUESTED', staff],
     ['RESUME', 'REVISION_REQUESTED', manager], ['RESUME', 'REVISION_REQUESTED', admin],
     ['CANCEL', 'NEW', manager, 'İptal'], ['CANCEL', 'PLANNED', admin, 'İptal'],
@@ -90,15 +91,17 @@ describe('JobCard policy', () => {
   it.each([
     ['PLAN', 'PLANNED'], ['START', 'IN_PROGRESS'], ['SUBMIT_FOR_APPROVAL', 'NEW'],
     ['APPROVE', 'IN_PROGRESS'], ['REQUEST_REVISION', 'REVISION_REQUESTED'],
-    ['RESUME', 'IN_PROGRESS'], ['CANCEL', 'WAITING_APPROVAL'],
+    ['WITHDRAW_FROM_APPROVAL', 'IN_PROGRESS'], ['RESUME', 'IN_PROGRESS'],
   ] as const)('rejects %s from invalid source %s', (command, status) => {
-    expect(() => assertCanTransition(manager, { ...job, status }, command, 'Neden'))
+    const actor = command === 'WITHDRAW_FROM_APPROVAL' ? staff : manager;
+    expect(() => assertCanTransition(actor, { ...job, status }, command, 'Neden'))
       .toThrowError(expect.objectContaining({ code: 'INVALID_TRANSITION' }));
   });
 
   it.each(['COMPLETED', 'CANCELLED'] as const)('denies every command from terminal state %s', (status) => {
     for (const command of [
-      'PLAN', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION', 'RESUME', 'CANCEL',
+      'PLAN', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
+      'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
     ] as const) {
       expect(() => assertCanTransition(admin, { ...job, status }, command, 'Neden'))
         .toThrowError(expect.objectContaining({ code: 'INVALID_TRANSITION' }));
@@ -110,6 +113,15 @@ describe('JobCard policy', () => {
       .toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
     expect(() => assertCanTransition({ ...manager, organizationId: 'org-2' }, job, 'START'))
       .toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
+  });
+
+  it('allows only the assigned Staff user to withdraw approval', () => {
+    const waiting = { ...job, status: 'WAITING_APPROVAL' as const };
+    expect(() => assertCanTransition(staff, waiting, 'WITHDRAW_FROM_APPROVAL')).not.toThrow();
+    for (const actor of [{ ...staff, id: 'staff-2' }, manager, admin]) {
+      expect(() => assertCanTransition(actor, waiting, 'WITHDRAW_FROM_APPROVAL'))
+        .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+    }
   });
 
   it.each([

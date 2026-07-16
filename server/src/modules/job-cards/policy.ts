@@ -66,12 +66,14 @@ export function assertCanTransition(
   if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION', 'CANCEL'].includes(command)) {
     forbidden();
   }
+  if (command === 'WITHDRAW_FROM_APPROVAL' && actor.role !== 'STAFF') forbidden();
   const allowedSources: Record<LifecycleCommand, readonly JobCard['status'][]> = {
     PLAN: ['NEW'],
     START: ['NEW', 'PLANNED'],
     SUBMIT_FOR_APPROVAL: ['IN_PROGRESS'],
     APPROVE: ['WAITING_APPROVAL'],
     REQUEST_REVISION: ['WAITING_APPROVAL'],
+    WITHDRAW_FROM_APPROVAL: ['WAITING_APPROVAL'],
     RESUME: ['REVISION_REQUESTED'],
     CANCEL: ['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'],
   };
