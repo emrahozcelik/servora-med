@@ -1,4 +1,4 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import type { CurrentUser } from '../services/api';
 import { FilterSheet, countTruthy } from '../ui/FilterSheet';
@@ -70,6 +70,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
   showViewControl: boolean;
 }) {
   const narrow = useNarrow();
+  const filterTriggerRef = useRef<HTMLButtonElement>(null);
   const [sheetOpen, setSheetOpen] = useState(false);
   const [search, setSearch] = useState(filters.q ?? '');
   const [advanced, setAdvanced] = useState(() => advancedFromFilters(filters));
@@ -189,6 +190,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
 
   if (narrow) {
     return (
+      <div className="filter-region">
       <div className="job-filters job-filters--compact surface">
         <form className="job-filter-compact-bar" role="search" onSubmit={submit}>
           <div className="field-group"><label htmlFor="job-search">İş ara</label>
@@ -196,6 +198,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
               onChange={(event) => setSearch(event.target.value)} /></div>
           <button className="secondary-button job-search-submit" type="submit">Ara</button>
           <button
+            ref={filterTriggerRef}
             type="button"
             className="secondary-button filter-sheet-trigger"
             aria-expanded={sheetOpen}
@@ -210,6 +213,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
           onDismiss={dismissSheet}
           onApply={applySheet}
           onClear={clearSheet}
+          returnFocusRef={filterTriggerRef}
         >
           <div className="field-group"><label htmlFor="job-status-sheet">Durum</label>
             <select id="job-status-sheet" value={draftStatus}
@@ -222,10 +226,11 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
           {advancedFields}
         </FilterSheet>
       </div>
+      </div>
     );
   }
 
-  return <form className="job-filters surface" role="search" onSubmit={submit}>
+  return <div className="filter-region"><form className="job-filters surface" role="search" onSubmit={submit}>
     <div className="job-filter-primary">
       <div className="field-group"><label htmlFor="job-search">İş ara</label>
         <input id="job-search" type="search" maxLength={200} value={search} onChange={(event) => setSearch(event.target.value)} /></div>
@@ -246,5 +251,5 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
       <summary>Diğer filtreler</summary>
       {advancedFields}
     </details>
-  </form>;
+  </form></div>;
 }

@@ -17,11 +17,11 @@ export type NavMenuItem = {
 export type BottomNavItem = NavLinkItem | NavMenuItem;
 
 export type NavigationModel = {
-  /** Full destination list for sidebar + drawer body. */
+  /** Full destination list for sidebar + full drawer body. */
   destinations: NavLinkItem[];
   /** High-frequency mobile bottom destinations. */
   bottom: BottomNavItem[];
-  /** Lower-frequency items intended for drawer overflow (beyond bottom). */
+  /** Lower-frequency items for bottom-nav Menü overflow drawer. */
   overflow: NavLinkItem[];
 };
 
@@ -83,6 +83,7 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
   if (/^\/jobs\/[^/]+/.test(pathname)) return 'İş detayı';
   if (pathname.startsWith('/jobs')) return role === 'STAFF' ? 'İşlerim' : 'İşler';
   if (pathname.startsWith('/customers/new')) return 'Yeni müşteri';
+  if (/^\/customers\/[^/]+\/contacts\//.test(pathname)) return 'İlgili kişi';
   if (/^\/customers\/[^/]+/.test(pathname)) return 'Müşteri';
   if (pathname.startsWith('/customers')) return 'Müşteriler';
   if (pathname.startsWith('/products/new')) return 'Yeni ürün';
@@ -90,17 +91,30 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
   if (pathname.startsWith('/products')) return 'Ürünler';
   if (pathname.startsWith('/reports')) return 'Raporlar';
   if (pathname.startsWith('/users')) return 'Kullanıcılar';
+  if (/^\/staff\/[^/]+\/reports/.test(pathname)) return 'Personel raporu';
+  if (/^\/staff\/[^/]+/.test(pathname)) return role === 'STAFF' ? 'Profilim' : 'Personel profili';
   if (pathname.startsWith('/staff') && role === 'STAFF') return 'Profilim';
   if (pathname.startsWith('/staff')) return 'Personel';
   return 'Servora-Med';
 }
 
-/** Parent list path for nested routes; null on top-level sections. */
+/** Parent path for nested routes; null on top-level sections. */
 export function resolveShellBackTo(pathname: string): string | null {
   if (pathname.startsWith('/jobs/new-') || /^\/jobs\/[^/]+/.test(pathname)) return paths.jobs;
-  if (pathname === paths.newCustomer || /^\/customers\/[^/]+/.test(pathname)) return paths.customers;
+
+  const contactMatch = pathname.match(/^\/customers\/([^/]+)\/contacts\//);
+  if (contactMatch) return paths.customer(contactMatch[1]!);
+
+  if (pathname === paths.newCustomer) return paths.customers;
+  if (/^\/customers\/[^/]+/.test(pathname)) return paths.customers;
+
   if (pathname === paths.newProduct || /^\/products\/[^/]+/.test(pathname)) return paths.products;
+
+  const staffReportMatch = pathname.match(/^\/staff\/([^/]+)\/reports/);
+  if (staffReportMatch) return paths.staffProfile(staffReportMatch[1]!);
+
   if (/^\/staff\/[^/]+/.test(pathname)) return paths.staff;
+
   return null;
 }
 

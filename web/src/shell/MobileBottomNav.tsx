@@ -1,3 +1,4 @@
+import type { RefObject } from 'react';
 import { NavLink } from 'react-router-dom';
 
 import type { BottomNavItem } from './navigation-model';
@@ -5,9 +6,15 @@ import type { BottomNavItem } from './navigation-model';
 export function MobileBottomNav({
   items,
   onOpenMenu,
+  menuExpanded,
+  menuControlsId,
+  menuTriggerRef,
 }: {
   items: BottomNavItem[];
-  onOpenMenu: () => void;
+  onOpenMenu: (opener: HTMLElement) => void;
+  menuExpanded: boolean;
+  menuControlsId: string;
+  menuTriggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   return (
     <nav className="mobile-bottom-nav" aria-label="Mobil ana navigasyon">
@@ -16,9 +23,13 @@ export function MobileBottomNav({
           return (
             <button
               key={item.id}
+              ref={menuTriggerRef}
               type="button"
               className="mobile-bottom-nav-item mobile-bottom-nav-menu"
-              onClick={onOpenMenu}
+              aria-haspopup="dialog"
+              aria-expanded={menuExpanded}
+              aria-controls={menuControlsId}
+              onClick={(event) => onOpenMenu(event.currentTarget)}
             >
               {item.label}
             </button>

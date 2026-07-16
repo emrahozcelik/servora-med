@@ -86,19 +86,27 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   const navigate = useNavigate();
   const model = buildNavigationModel(user);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [drawerMode, setDrawerMode] = useState<'full' | 'overflow'>('full');
+  const topMenuRef = useRef<HTMLButtonElement>(null);
+  const bottomMenuRef = useRef<HTMLButtonElement>(null);
+  const drawerOpenerRef = useRef<HTMLElement | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
   const title = resolveShellTitle(location.pathname, user.role);
   const backTo = resolveShellBackTo(location.pathname);
   const showStickyCreate = !desktop && isJobsListPath(location.pathname);
+  const drawerDestinations = drawerMode === 'overflow' && model.overflow.length > 0
+    ? model.overflow
+    : model.destinations;
 
   function closeDrawer(restoreFocus: boolean) {
     restoreFocusRef.current = restoreFocus;
     setDrawerOpen(false);
   }
 
-  function openDrawer() {
+  function openDrawer(mode: 'full' | 'overflow', opener: HTMLElement) {
+    drawerOpenerRef.current = opener;
+    setDrawerMode(mode);
     setDrawerOpen(true);
   }
 
@@ -108,7 +116,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
 
   useEffect(() => {
     if (!drawerOpen) {
-      if (restoreFocusRef.current) triggerRef.current?.focus();
+      if (restoreFocusRef.current) drawerOpenerRef.current?.focus();
       restoreFocusRef.current = false;
       return;
     }
@@ -148,6 +156,8 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
     }
   }
 
+  const menuExpanded = drawerOpen;
+
   return (
     <div className={`authenticated-shell${desktop ? ' authenticated-shell--desktop' : ' authenticated-shell--mobile'}`}>
       {desktop ? (
@@ -160,10 +170,10 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
         <MobileTopBar
           title={title}
           backTo={backTo}
-          menuExpanded={drawerOpen}
+          menuExpanded={menuExpanded && drawerMode === 'full'}
           menuControlsId="app-navigation-drawer"
-          onOpenMenu={openDrawer}
-          menuTriggerRef={triggerRef}
+          onOpenMenu={(opener) => openDrawer('full', opener)}
+          menuTriggerRef={topMenuRef}
         />
       )}
 
@@ -174,13 +184,23 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
           {showStickyCreate && (
             <div className="sticky-new-job">
               <NewJobMenu
+                presentation="sheet"
                 onCreateMeeting={() => navigate(paths.newMeeting)}
                 onCreateTask={() => navigate(paths.newTask)}
                 onCreateDelivery={() => navigate(paths.newDelivery)}
               />
             </div>
           )}
-          <MobileBottomNav items={model.bottom} onOpenMenu={openDrawer} />
+          <MobileBottomNav
+            items={model.bottom}
+            menuExpanded={menuExpanded && drawerMode === 'overflow'}
+            menuControlsId="app-navigation-drawer"
+            menuTriggerRef={bottomMenuRef}
+            onOpenMenu={(opener) => openDrawer(
+              model.overflow.length > 0 ? 'overflow' : 'full',
+              opener,
+            )}
+          />
         </>
       )}
 
@@ -189,13 +209,13 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
           <div id="app-navigation-drawer" ref={drawerRef} className="shell-drawer" role="dialog" aria-modal="true"
             aria-labelledby="app-navigation-title" onKeyDown={handleDrawerKeyDown}>
             <div className="drawer-heading">
-              <h2 id="app-navigation-title">Menü</h2>
+              <h2 id="app-navigation-title">{drawerMode === 'overflow' ? 'Diğer menü' : 'Menü'}</h2>
               <button className="drawer-close" type="button" aria-label="Menüyü kapat" onClick={() => closeDrawer(true)}>Kapat</button>
             </div>
             <DestinationNav
-              destinations={model.destinations}
+              destinations={drawerDestinations}
               onNavigate={() => closeDrawer(true)}
-              label="Tüm destinasyonlar"
+              label={drawerMode === 'overflow' ? 'Diğer destinasyonlar' : 'Tüm destinasyonlar'}
             />
             <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
           </div>

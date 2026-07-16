@@ -82,17 +82,24 @@ describe('responsive authenticated AppShell', () => {
     expect(document.activeElement).toBe(dialog.querySelector('button, a'));
   });
 
-  it('uses Menü bottom control as a button that opens the shared drawer for managers', async () => {
+  it('uses Menü bottom control as a button that opens overflow drawer and restores focus', async () => {
     await render(manager, false);
     const bottom = container.querySelector('.mobile-bottom-nav')!;
     expect(bottom.textContent).toContain('Raporlar');
-    const menu = Array.from(bottom.querySelectorAll('button')).find((b) => b.textContent === 'Menü');
-    expect(menu).toBeTruthy();
-    expect(menu?.tagName).toBe('BUTTON');
-    await act(async () => menu!.click());
-    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Personel');
-    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Oturumu kapat');
+    const menu = Array.from(bottom.querySelectorAll('button')).find((b) => b.textContent === 'Menü')!;
+    expect(menu.tagName).toBe('BUTTON');
+    expect(menu.getAttribute('aria-controls')).toBe('app-navigation-drawer');
+    menu.focus();
+    await act(async () => menu.click());
+    const dialog = container.querySelector('[role="dialog"]')!;
+    expect(dialog).not.toBeNull();
+    expect(dialog.textContent).toContain('Personel');
+    expect(dialog.textContent).toContain('Ürünler');
+    expect(dialog.textContent).toContain('Oturumu kapat');
+    expect(dialog.textContent).not.toContain('Raporlar');
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(menu);
   });
 
   it('shows sticky Yeni iş on the jobs list without a second heading brand bar', async () => {

@@ -182,14 +182,18 @@ function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
     </>
   );
 
+  const filterTriggerRef = useRef<HTMLButtonElement>(null);
+
   if (narrow) {
     return (
+      <div className="filter-region">
       <div className="customer-filters customer-filters--compact surface">
         <form className="customer-filter-compact-bar" role="search" onSubmit={(event) => event.preventDefault()}>
           <div className="field-group"><label htmlFor="customer-search">Müşteri ara</label>
             <input id="customer-search" type="search" value={filters.q ?? ''}
               onChange={(event) => onChange('q', event.target.value)} /></div>
           <button
+            ref={filterTriggerRef}
             type="button"
             className="secondary-button filter-sheet-trigger"
             aria-expanded={sheetOpen}
@@ -204,18 +208,20 @@ function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
           onDismiss={dismissSheet}
           onApply={applySheet}
           onClear={clearSheet}
+          returnFocusRef={filterTriggerRef}
         >
           {filterFields('customer-sheet')}
         </FilterSheet>
       </div>
+      </div>
     );
   }
 
-  return <form className="customer-filters" role="search" onSubmit={(event) => event.preventDefault()}>
+  return <div className="filter-region"><form className="customer-filters surface" role="search" onSubmit={(event) => event.preventDefault()}>
     <div className="field-group"><label htmlFor="customer-search">Müşteri ara</label>
       <input id="customer-search" type="search" value={filters.q ?? ''} onChange={(event) => onChange('q', event.target.value)} /></div>
     {filterFields('customer')}
-  </form>;
+  </form></div>;
 }
 
 export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters }: {

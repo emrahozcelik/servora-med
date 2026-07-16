@@ -13,7 +13,7 @@ export function MobileTopBar({
   backTo: string | null;
   menuExpanded: boolean;
   menuControlsId: string;
-  onOpenMenu: () => void;
+  onOpenMenu: (opener: HTMLElement) => void;
   menuTriggerRef: RefObject<HTMLButtonElement | null>;
 }) {
   return (
@@ -31,9 +31,10 @@ export function MobileTopBar({
         className="shell-menu-button"
         type="button"
         aria-label="Menüyü aç"
+        aria-haspopup="dialog"
         aria-expanded={menuExpanded}
         aria-controls={menuControlsId}
-        onClick={onOpenMenu}
+        onClick={(event) => onOpenMenu(event.currentTarget)}
       >
         Menü
       </button>

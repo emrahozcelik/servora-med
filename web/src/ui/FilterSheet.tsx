@@ -1,4 +1,4 @@
-import { useEffect, useId, useRef, type ReactNode } from 'react';
+import { useEffect, useId, useRef, type ReactNode, type RefObject } from 'react';
 
 export function FilterSheet({
   open,
@@ -7,6 +7,7 @@ export function FilterSheet({
   onApply,
   onClear,
   children,
+  returnFocusRef,
 }: {
   open: boolean;
   title: string;
@@ -14,18 +15,27 @@ export function FilterSheet({
   onApply: () => void;
   onClear: () => void;
   children: ReactNode;
+  returnFocusRef?: RefObject<HTMLElement | null>;
 }) {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
   const closeRef = useRef<HTMLButtonElement>(null);
+  const openerRef = useRef<HTMLElement | null>(null);
 
   useEffect(() => {
     if (!open) return;
+    openerRef.current = returnFocusRef?.current
+      ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
     const previous = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
     closeRef.current?.focus();
-    return () => { document.body.style.overflow = previous; };
-  }, [open]);
+    return () => {
+      document.body.style.overflow = previous;
+      const target = returnFocusRef?.current ?? openerRef.current;
+      // Defer until panel unmounts from the tree.
+      queueMicrotask(() => target?.focus());
+    };
+  }, [open, returnFocusRef]);
 
   useEffect(() => {
     if (!open || !panelRef.current) return;
@@ -81,12 +91,6 @@ export function FilterSheet({
       </div>
     </div>
   );
-}
-
-export function useIsNarrowFilters(maxWidth = '56rem') {
-  const query = `(max-width: ${maxWidth})`;
-  // lazy import pattern avoided — inline hook in consumers via matchMedia
-  return query;
 }
 
 export function countTruthy(values: Array<string | boolean | undefined | null>): number {

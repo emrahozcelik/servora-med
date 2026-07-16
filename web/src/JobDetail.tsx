@@ -109,6 +109,24 @@ export function availableLifecycleCommands(job: JobCard, role: CurrentUser['role
   return commands;
 }
 
+/** One primary lifecycle action per region; others stay secondary. */
+export function primaryLifecycleCommand(
+  commands: LifecycleCommand[],
+  job: JobCard,
+): LifecycleCommand | null {
+  const preferred: LifecycleCommand[] = [];
+  if (job.status === 'WAITING_APPROVAL') preferred.push('approve');
+  if (job.status === 'IN_PROGRESS') preferred.push('submit');
+  if (job.status === 'REVISION_REQUESTED') preferred.push('resume');
+  if (job.status === 'PLANNED') preferred.push('start');
+  if (job.status === 'NEW') preferred.push('start', 'plan');
+  if (job.status === 'WAITING_APPROVAL') preferred.push('withdraw', 'edit');
+  for (const command of preferred) {
+    if (commands.includes(command)) return command;
+  }
+  return commands.find((command) => command !== 'cancel' && command !== 'revise') ?? null;
+}
+
 const purposeLabels = { SALE: 'Satış', SAMPLE: 'Numune', CONSIGNMENT: 'Konsinye', RETURN: 'İade', OTHER: 'Diğer' } as const;
 const commandLabels: Record<LifecycleCommand, string> = {
   edit: 'Görüşmeyi düzenle',
@@ -169,6 +187,7 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pen
 }) {
   const commands = viewerRole === 'STAFF' && viewerId !== undefined && viewerId !== job.assignedTo
     ? [] : availableLifecycleCommands(job, viewerRole);
+  const primaryCommand = primaryLifecycleCommand(commands, job);
   return <main className="job-detail">
     <div className="detail-heading"><div><p className="eyebrow">{jobTypeLabels[job.type]}</p><h1>{job.title}</h1></div>
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
@@ -190,7 +209,7 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pen
     </section>}
     {commands.length > 0 && <section className="detail-action surface-flat" aria-label="İş işlemleri"><p>Yalnızca mevcut duruma uygun işlemler gösterilir.</p>
       <div className="review-buttons">{commands.map((command) => <button key={command}
-        className={command === 'cancel' || command === 'revise' ? 'secondary-button' : 'primary-button compact-button'}
+        className={command === primaryCommand ? 'primary-button compact-button' : 'secondary-button'}
         type="button" disabled={pending} onClick={() => onCommand(command)}>{pending ? 'İşleniyor…'
           : command === 'edit' && job.status === 'WAITING_APPROVAL'
             ? 'Onaydan geri çek ve düzenle' : commandLabels[command]}</button>)}</div></section>}

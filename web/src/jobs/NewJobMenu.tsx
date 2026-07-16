@@ -6,33 +6,21 @@ export type NewJobMenuProps = {
   onCreateDelivery?: () => void;
   /** When true, hide this control (e.g. sticky mobile create is shown elsewhere). */
   hidden?: boolean;
+  /**
+   * Explicit presentation. Sticky shell create must use `sheet` for all <64rem.
+   * Toolbar desktop uses `popover`. Do not guess from viewport alone for sticky.
+   */
+  presentation?: 'popover' | 'sheet';
 };
 
-function useIsNarrowSheet() {
-  const [narrow, setNarrow] = useState(() => (
-    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia('(max-width: 40rem)').matches
-      : false
-  ));
-  useEffect(() => {
-    if (typeof window.matchMedia !== 'function') return;
-    const media = window.matchMedia('(max-width: 40rem)');
-    const onChange = (event: MediaQueryListEvent) => setNarrow(event.matches);
-    media.addEventListener('change', onChange);
-    setNarrow(media.matches);
-    return () => media.removeEventListener('change', onChange);
-  }, []);
-  return narrow;
-}
-
 export function NewJobMenu({
-  onCreateMeeting, onCreateTask, onCreateDelivery, hidden = false,
+  onCreateMeeting, onCreateTask, onCreateDelivery, hidden = false, presentation = 'popover',
 }: NewJobMenuProps) {
   const [open, setOpen] = useState(false);
   const triggerRef = useRef<HTMLButtonElement>(null);
   const panelRef = useRef<HTMLDivElement>(null);
   const menuId = useId();
-  const isSheet = useIsNarrowSheet();
+  const isSheet = presentation === 'sheet';
   const options = [
     onCreateMeeting ? { key: 'meeting', label: 'Yeni görüşme', run: onCreateMeeting } : null,
     onCreateTask ? { key: 'task', label: 'Yeni görev', run: onCreateTask } : null,
@@ -45,6 +33,7 @@ export function NewJobMenu({
       const target = event.target as Node;
       if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
       setOpen(false);
+      triggerRef.current?.focus();
     }
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') {
@@ -60,6 +49,13 @@ export function NewJobMenu({
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !isSheet) return;
+    const previous = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => { document.body.style.overflow = previous; };
+  }, [open, isSheet]);
 
   useEffect(() => {
     if (!open || !isSheet || !panelRef.current) return;
@@ -95,10 +91,15 @@ export function NewJobMenu({
     run();
   }
 
+  function close() {
+    setOpen(false);
+    triggerRef.current?.focus();
+  }
+
   function onTriggerKey(event: ReactKeyboardEvent<HTMLButtonElement>) {
-    if (event.key === 'ArrowDown' || event.key === 'Enter' || event.key === ' ') {
+    if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
-      setOpen(true);
+      setOpen((value) => !value);
     }
   }
 
@@ -108,7 +109,7 @@ export function NewJobMenu({
         ref={triggerRef}
         type="button"
         className="primary-button compact-button new-job-menu-trigger"
-        aria-haspopup={isSheet ? 'dialog' : 'menu'}
+        aria-haspopup={isSheet ? 'dialog' : 'true'}
         aria-expanded={open}
         aria-controls={menuId}
         onClick={() => setOpen((value) => !value)}
@@ -121,7 +122,7 @@ export function NewJobMenu({
           type="button"
           className="new-job-menu-backdrop"
           aria-label="Menüyü kapat"
-          onClick={() => { setOpen(false); triggerRef.current?.focus(); }}
+          onClick={close}
         />
       )}
       {open && (
@@ -129,7 +130,7 @@ export function NewJobMenu({
           ref={panelRef}
           id={menuId}
           className={`new-job-menu-panel surface-raised${isSheet ? ' new-job-menu-panel--sheet' : ''}`}
-          role={isSheet ? 'dialog' : 'menu'}
+          role={isSheet ? 'dialog' : undefined}
           aria-modal={isSheet ? true : undefined}
           aria-label="Yeni iş oluştur"
         >
@@ -139,18 +140,13 @@ export function NewJobMenu({
               key={option.key}
               type="button"
               className="new-job-menu-item"
-              role={isSheet ? undefined : 'menuitem'}
               onClick={() => choose(option.run)}
             >
               {option.label}
             </button>
           ))}
           {isSheet && (
-            <button
-              type="button"
-              className="secondary-button btn-full"
-              onClick={() => { setOpen(false); triggerRef.current?.focus(); }}
-            >
+            <button type="button" className="secondary-button btn-full" onClick={close}>
               Vazgeç
             </button>
           )}

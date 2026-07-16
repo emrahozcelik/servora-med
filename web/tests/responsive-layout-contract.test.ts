@@ -5,9 +5,11 @@ import { describe, expect, it } from 'vitest';
 const css = readFileSync(resolve(__dirname, '../src/styles.css'), 'utf8');
 
 describe('responsive layout CSS contracts (PR A)', () => {
-  it('collapses multi-column filters by 56rem, not only 720px', () => {
-    expect(css).toMatch(/@media\s*\(\s*max-width:\s*56rem\s*\)/);
-    const block = css.slice(css.indexOf('@media (max-width: 56rem)'));
+  it('collapses multi-column filters by container query on usable width', () => {
+    expect(css).toContain('container-type: inline-size');
+    expect(css).toContain('container-name: filter-region');
+    expect(css).toMatch(/@container\s+filter-region\s*\(\s*max-width:\s*52rem\s*\)/);
+    const block = css.slice(css.indexOf('@container filter-region (max-width: 52rem)'));
     expect(block).toContain('.customer-filters');
     expect(block).toContain('.job-filter-primary');
   });

@@ -137,7 +137,7 @@ export function ReportDateRangeForm({
       ) : null}
       <form
         key={formKey}
-        className={wide ? 'report-filters report-filters-wide' : 'report-filters'}
+        className={`filter-region ${wide ? 'report-filters report-filters-wide' : 'report-filters'}`}
         onSubmit={onSubmit}
         noValidate
       >

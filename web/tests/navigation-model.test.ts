@@ -50,6 +50,8 @@ describe('shell title and back helpers', () => {
     expect(resolveShellTitle('/jobs/abc', 'MANAGER')).toBe('İş detayı');
     expect(resolveShellBackTo('/jobs/abc')).toBe('/jobs');
     expect(resolveShellBackTo('/jobs')).toBeNull();
+    expect(resolveShellBackTo('/customers/c1/contacts/x')).toBe('/customers/c1');
+    expect(resolveShellBackTo('/staff/s1/reports')).toBe('/staff/s1');
     expect(isJobsListPath('/jobs')).toBe(true);
     expect(isJobsListPath('/jobs/abc')).toBe(false);
   });

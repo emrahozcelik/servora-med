@@ -65,21 +65,51 @@ describe('NewJobMenu', () => {
     expect(onCreateDelivery).not.toHaveBeenCalled();
   });
 
-  it('closes on Escape without trapping focus on desktop disclosure', () => {
+  it('closes on Escape for desktop disclosure without menu role', () => {
     host = document.createElement('div');
     document.body.appendChild(host);
     root = createRoot(host);
     act(() => {
       root!.render(
-        <NewJobMenu onCreateMeeting={() => {}} onCreateTask={() => {}} onCreateDelivery={() => {}} />,
+        <NewJobMenu
+          presentation="popover"
+          onCreateMeeting={() => {}}
+          onCreateTask={() => {}}
+          onCreateDelivery={() => {}}
+        />,
       );
     });
     const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
     act(() => { trigger.click(); });
-    expect(host.querySelector('[role="menu"], [role="dialog"]')).toBeTruthy();
+    expect(host.querySelector('.new-job-menu-panel')).toBeTruthy();
+    expect(host.querySelector('[role="menu"]')).toBeNull();
     act(() => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
-    expect(host.querySelector('[role="menu"], [role="dialog"]')).toBeNull();
+    expect(host.querySelector('.new-job-menu-panel')).toBeNull();
+  });
+
+  it('uses sheet presentation with dialog role and body scroll lock for sticky create', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(
+        <NewJobMenu
+          presentation="sheet"
+          onCreateMeeting={() => {}}
+          onCreateTask={() => {}}
+          onCreateDelivery={() => {}}
+        />,
+      );
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    expect(host.querySelector('[role="dialog"]')).toBeTruthy();
+    expect(document.body.style.overflow).toBe('hidden');
+    act(() => {
+      document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+    });
+    expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 });

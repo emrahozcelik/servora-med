@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
 import {
-  availableLifecycleCommands, JobDetailPanel, prepareMeetingEdit, runStaffJobCommand,
+  availableLifecycleCommands, JobDetailPanel, prepareMeetingEdit, primaryLifecycleCommand, runStaffJobCommand,
 } from '../src/JobDetail';
 import { ApiError, type DeliveryItem, type JobCard } from '../src/services/api';
 
@@ -69,6 +69,14 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('2 adet');
     expect(html).toContain('İşi başlat');
     expect(html).toContain('Planla');
+    expect(html.match(/primary-button/g)?.length ?? 0).toBe(1);
+  });
+
+  it('picks a single primary lifecycle command per status', () => {
+    const staffNew = availableLifecycleCommands({ ...job, type: 'SALES_MEETING', status: 'NEW' }, 'STAFF');
+    expect(primaryLifecycleCommand(staffNew, { ...job, type: 'SALES_MEETING', status: 'NEW' })).toBe('start');
+    const waiting = availableLifecycleCommands({ ...job, status: 'WAITING_APPROVAL' }, 'MANAGER');
+    expect(primaryLifecycleCommand(waiting, { ...job, status: 'WAITING_APPROVAL' })).toBe('approve');
   });
 
   it('renders quantity without a fabricated unit when the Product unit is null', () => {
