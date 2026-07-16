@@ -1,8 +1,18 @@
 import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 'react';
-import { NavLink } from 'react-router-dom';
+import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 
+import { NewJobMenu } from './jobs/NewJobMenu';
 import { paths } from './paths';
 import type { CurrentUser } from './services/api';
+import { MobileBottomNav } from './shell/MobileBottomNav';
+import { MobileTopBar } from './shell/MobileTopBar';
+import {
+  buildNavigationModel,
+  isJobsListPath,
+  resolveShellBackTo,
+  resolveShellTitle,
+  type NavLinkItem,
+} from './shell/navigation-model';
 
 export type AppShellProps = {
   user: CurrentUser;
@@ -32,20 +42,19 @@ function useDesktopLayout() {
   return desktop;
 }
 
-function Navigation({ user, onNavigate }: Pick<AppShellProps, 'user'> & { onNavigate?: () => void }) {
-  const destinations = [
-    { label: 'İşler', to: paths.jobs },
-    { label: 'Müşteriler', to: paths.customers },
-    { label: 'Ürünler', to: paths.products },
-    ...(user.role !== 'STAFF' ? [{ label: 'Raporlar', to: paths.reports }] : []),
-    ...(user.role === 'ADMIN' ? [{ label: 'Kullanıcılar', to: paths.users }] : []),
-    { label: user.role === 'STAFF' ? 'Profilim' : 'Personel', to: paths.staff },
-  ];
-
+function DestinationNav({
+  destinations,
+  onNavigate,
+  label = 'Ana navigasyon',
+}: {
+  destinations: NavLinkItem[];
+  onNavigate?: () => void;
+  label?: string;
+}) {
   return (
-    <nav className="shell-nav" aria-label="Ana navigasyon">
+    <nav className="shell-nav" aria-label={label}>
       {destinations.map((destination) => (
-        <NavLink key={destination.to} to={destination.to} onClick={onNavigate}>
+        <NavLink key={destination.id} to={destination.to} onClick={onNavigate}>
           {destination.label}
         </NavLink>
       ))}
@@ -68,19 +77,37 @@ function Account({ user, pendingSignOut, onSignOut }: Omit<AppShellProps, 'child
 }
 
 function focusableElements(container: HTMLElement) {
-  return Array.from(container.querySelectorAll<HTMLElement>('a[href], button:not(:disabled)'));
+  return Array.from(container.querySelectorAll<HTMLElement>('a[href], button:not([disabled])'));
 }
 
 export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShellProps) {
   const desktop = useDesktopLayout();
+  const location = useLocation();
+  const navigate = useNavigate();
+  const model = buildNavigationModel(user);
   const [drawerOpen, setDrawerOpen] = useState(false);
-  const triggerRef = useRef<HTMLButtonElement>(null);
+  const [drawerMode, setDrawerMode] = useState<'full' | 'overflow'>('full');
+  const topMenuRef = useRef<HTMLButtonElement>(null);
+  const bottomMenuRef = useRef<HTMLButtonElement>(null);
+  const drawerOpenerRef = useRef<HTMLElement | null>(null);
   const drawerRef = useRef<HTMLDivElement>(null);
   const restoreFocusRef = useRef(false);
+  const title = resolveShellTitle(location.pathname, user.role);
+  const backTo = resolveShellBackTo(location.pathname);
+  const showStickyCreate = !desktop && isJobsListPath(location.pathname);
+  const drawerDestinations = drawerMode === 'overflow' && model.overflow.length > 0
+    ? model.overflow
+    : model.destinations;
 
   function closeDrawer(restoreFocus: boolean) {
     restoreFocusRef.current = restoreFocus;
     setDrawerOpen(false);
+  }
+
+  function openDrawer(mode: 'full' | 'overflow', opener: HTMLElement) {
+    drawerOpenerRef.current = opener;
+    setDrawerMode(mode);
+    setDrawerOpen(true);
   }
 
   useEffect(() => {
@@ -89,7 +116,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
 
   useEffect(() => {
     if (!drawerOpen) {
-      if (restoreFocusRef.current) triggerRef.current?.focus();
+      if (restoreFocusRef.current) drawerOpenerRef.current?.focus();
       restoreFocusRef.current = false;
       return;
     }
@@ -129,35 +156,67 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
     }
   }
 
+  const menuExpanded = drawerOpen;
+
   return (
-    <div className="authenticated-shell">
+    <div className={`authenticated-shell${desktop ? ' authenticated-shell--desktop' : ' authenticated-shell--mobile'}`}>
       {desktop ? (
         <aside className="shell-sidebar">
           <div className="brand-lockup"><BrandMark /><span>Servora-Med</span></div>
-          <Navigation user={user} />
+          <DestinationNav destinations={model.destinations} />
           <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
         </aside>
       ) : (
-        <header className="compact-shell-header">
-          <div className="brand-lockup"><BrandMark /><span>Servora-Med</span></div>
-          <button ref={triggerRef} className="shell-menu-button" type="button" aria-label="Menüyü aç"
-            aria-expanded={drawerOpen} aria-controls="app-navigation-drawer" onClick={() => setDrawerOpen(true)}>
-            Menü
-          </button>
-        </header>
+        <MobileTopBar
+          title={title}
+          backTo={backTo}
+          menuExpanded={menuExpanded && drawerMode === 'full'}
+          menuControlsId="app-navigation-drawer"
+          onOpenMenu={(opener) => openDrawer('full', opener)}
+          menuTriggerRef={topMenuRef}
+        />
       )}
 
       <div className="shell-content">{children}</div>
+
+      {!desktop && (
+        <>
+          {showStickyCreate && (
+            <div className="sticky-new-job">
+              <NewJobMenu
+                presentation="sheet"
+                onCreateMeeting={() => navigate(paths.newMeeting)}
+                onCreateTask={() => navigate(paths.newTask)}
+                onCreateDelivery={() => navigate(paths.newDelivery)}
+              />
+            </div>
+          )}
+          <MobileBottomNav
+            items={model.bottom}
+            menuExpanded={menuExpanded && drawerMode === 'overflow'}
+            menuControlsId="app-navigation-drawer"
+            menuTriggerRef={bottomMenuRef}
+            onOpenMenu={(opener) => openDrawer(
+              model.overflow.length > 0 ? 'overflow' : 'full',
+              opener,
+            )}
+          />
+        </>
+      )}
 
       {!desktop && drawerOpen && (
         <div className="shell-drawer-backdrop">
           <div id="app-navigation-drawer" ref={drawerRef} className="shell-drawer" role="dialog" aria-modal="true"
             aria-labelledby="app-navigation-title" onKeyDown={handleDrawerKeyDown}>
             <div className="drawer-heading">
-              <h2 id="app-navigation-title">Menü</h2>
+              <h2 id="app-navigation-title">{drawerMode === 'overflow' ? 'Diğer menü' : 'Menü'}</h2>
               <button className="drawer-close" type="button" aria-label="Menüyü kapat" onClick={() => closeDrawer(true)}>Kapat</button>
             </div>
-            <Navigation user={user} onNavigate={() => closeDrawer(true)} />
+            <DestinationNav
+              destinations={drawerDestinations}
+              onNavigate={() => closeDrawer(true)}
+              label={drawerMode === 'overflow' ? 'Diğer destinasyonlar' : 'Tüm destinasyonlar'}
+            />
             <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
           </div>
         </div>

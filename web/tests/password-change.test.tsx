@@ -25,6 +25,14 @@ describe('mandatory password change UI', () => {
     expect(html).toContain('Yeni parolayı doğrulayın');
   });
 
+  it('shows length requirements before submit with aria-describedby', () => {
+    const html = renderToStaticMarkup(<PasswordChangeScreen user={forcedUser} onChanged={() => {}} onSignedOut={() => {}} />);
+    expect(html).toMatch(/12/);
+    expect(html).toMatch(/128/);
+    expect(html).toContain('aria-describedby="new-password-hint"');
+    expect(html).toContain('En az 12, en fazla 128 karakter.');
+  });
+
   it('intercepts the protected workspace for forced-change users', () => {
     const html = renderToStaticMarkup(<App initialUser={forcedUser} />);
     expect(html).toContain('Parolanızı değiştirin');

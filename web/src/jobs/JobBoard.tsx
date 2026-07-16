@@ -1,7 +1,8 @@
 import { Link } from 'react-router-dom';
 
 import { paths } from '../paths';
-import type { JobCardBoard, JobCardListItem, JobCardPriority } from './jobs-api';
+import { PriorityChip } from '../ui/PriorityChip';
+import type { JobCardBoard, JobCardListItem } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
 import { selectStatus } from './job-search';
 
@@ -12,9 +13,6 @@ const columns = [
   { status: 'WAITING_APPROVAL', label: 'Onay bekliyor' },
   { status: 'REVISION_REQUESTED', label: 'Düzeltme istendi' },
 ] as const;
-const priorityLabels: Record<JobCardPriority, string> = {
-  low: 'Düşük öncelik', normal: 'Normal öncelik', high: 'Yüksek öncelik', urgent: 'Acil öncelik',
-};
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('tr-TR', {
@@ -31,7 +29,7 @@ function BoardCard({ job }: { job: JobCardListItem }) {
     <Link to={paths.job(job.id)}>
       <strong>{job.title}</strong>
       <span className="job-board-type">{jobTypeLabels[job.type]}</span>
-      <span className={`job-board-priority job-priority-${job.priority}`}>{priorityLabels[job.priority]}</span>
+      <PriorityChip priority={job.priority} longLabel />
       <dl>
         <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
         {job.contact && <div><dt>İlgili kişi</dt><dd>{job.contact.name}</dd></div>}

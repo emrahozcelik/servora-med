@@ -1,0 +1,33 @@
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+import { describe, expect, it } from 'vitest';
+
+const css = readFileSync(resolve(__dirname, '../src/styles.css'), 'utf8');
+
+describe('responsive layout CSS contracts (PR A)', () => {
+  it('collapses multi-column filters by container query on usable width', () => {
+    expect(css).toContain('container-type: inline-size');
+    expect(css).toContain('container-name: filter-region');
+    expect(css).toMatch(/@container\s+filter-region\s*\(\s*max-width:\s*52rem\s*\)/);
+    const block = css.slice(css.indexOf('@container filter-region (max-width: 52rem)'));
+    expect(block).toContain('.customer-filters');
+    expect(block).toContain('.job-filter-primary');
+    expect(block).toContain('.report-filters');
+    expect(block).toContain('.report-filters-wide');
+  });
+
+  it('gates five-column Kanban on container width with 90rem viewport fallback', () => {
+    expect(css).toContain('container-type: inline-size');
+    expect(css).toContain('container-name: job-board');
+    expect(css).toMatch(/@container\s+job-board\s*\(\s*min-width:\s*68rem\s*\)/);
+    expect(css).toMatch(/@media\s*\(\s*min-width:\s*90rem\s*\)/);
+    expect(css).toMatch(/\.job-board-columns\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+  });
+
+  it('exposes shared form-control and field-hint styles', () => {
+    expect(css).toContain('.form-control');
+    expect(css).toContain('.field-hint');
+    expect(css).toContain('.status-chip');
+    expect(css).toContain('.priority-chip');
+  });
+});

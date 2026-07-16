@@ -18,6 +18,8 @@ import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { jobTypeLabels } from './jobs/job-labels';
 import { jobCapabilities } from './jobs/job-capabilities';
+import { PriorityChip } from './ui/PriorityChip';
+import { StatusChip } from './ui/StatusChip';
 
 type StaffCommand = 'start' | 'submit';
 export type LifecycleCommand = 'edit' | 'plan' | 'start' | 'submit' | 'approve' | 'revise' | 'withdraw' | 'resume' | 'cancel';
@@ -107,9 +109,25 @@ export function availableLifecycleCommands(job: JobCard, role: CurrentUser['role
   return commands;
 }
 
+/** One primary lifecycle action per region; others stay secondary. */
+export function primaryLifecycleCommand(
+  commands: LifecycleCommand[],
+  job: JobCard,
+): LifecycleCommand | null {
+  const preferred: LifecycleCommand[] = [];
+  if (job.status === 'WAITING_APPROVAL') preferred.push('approve');
+  if (job.status === 'IN_PROGRESS') preferred.push('submit');
+  if (job.status === 'REVISION_REQUESTED') preferred.push('resume');
+  if (job.status === 'PLANNED') preferred.push('start');
+  if (job.status === 'NEW') preferred.push('start', 'plan');
+  if (job.status === 'WAITING_APPROVAL') preferred.push('withdraw', 'edit');
+  for (const command of preferred) {
+    if (commands.includes(command)) return command;
+  }
+  return commands.find((command) => command !== 'cancel' && command !== 'revise') ?? null;
+}
+
 const purposeLabels = { SALE: 'Satış', SAMPLE: 'Numune', CONSIGNMENT: 'Konsinye', RETURN: 'İade', OTHER: 'Diğer' } as const;
-const statusLabels = { NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor', REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi' } as const;
-const priorityLabels = { low: 'Düşük', normal: 'Normal', high: 'Yüksek', urgent: 'Acil' } as const;
 const commandLabels: Record<LifecycleCommand, string> = {
   edit: 'Görüşmeyi düzenle',
   plan: 'Planla', start: 'İşi başlat', submit: 'Onaya gönder', approve: 'Onayla',
@@ -169,15 +187,16 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pen
 }) {
   const commands = viewerRole === 'STAFF' && viewerId !== undefined && viewerId !== job.assignedTo
     ? [] : availableLifecycleCommands(job, viewerRole);
+  const primaryCommand = primaryLifecycleCommand(commands, job);
   return <main className="job-detail">
     <div className="detail-heading"><div><p className="eyebrow">{jobTypeLabels[job.type]}</p><h1>{job.title}</h1></div>
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
     {message && <div ref={feedbackRef} className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
       role={messageIsError ? 'alert' : 'status'} tabIndex={-1}>{message}</div>}
-    <dl className="detail-summary">
-      <div><dt>Durum</dt><dd>{statusLabels[job.status]}</dd></div>
+    <dl className="detail-summary surface">
+      <div><dt>Durum</dt><dd><StatusChip status={job.status} /></dd></div>
       <div><dt>Sorumlu personel</dt><dd>{job.assignee.name}</dd></div>
-      <div><dt>Öncelik</dt><dd>{priorityLabels[job.priority]}</dd></div>
+      <div><dt>Öncelik</dt><dd><PriorityChip priority={job.priority} /></dd></div>
       <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Son tarih'}</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi'}</dd></div>
       <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
       <div><dt>İlgili kişi</dt><dd>{job.contact?.name ?? 'Belirtilmedi'}</dd></div>
@@ -188,9 +207,9 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pen
         <dl><div><dt>Amaç</dt><dd>{purposeLabels[item.deliveryPurpose]}</dd></div><div><dt>Miktar</dt><dd>{item.quantity}{item.unit ? ` ${item.unit}` : ''}</dd></div>
           <div><dt>Teslim zamanı</dt><dd>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.deliveredAt))}</dd></div></dl></li>)}</ul>
     </section>}
-    {commands.length > 0 && <section className="detail-action" aria-label="İş işlemleri"><p>Yalnızca mevcut duruma uygun işlemler gösterilir.</p>
+    {commands.length > 0 && <section className="detail-action surface-flat" aria-label="İş işlemleri"><p>Yalnızca mevcut duruma uygun işlemler gösterilir.</p>
       <div className="review-buttons">{commands.map((command) => <button key={command}
-        className={command === 'cancel' || command === 'revise' ? 'secondary-button' : 'primary-button compact-button'}
+        className={command === primaryCommand ? 'primary-button compact-button' : 'secondary-button'}
         type="button" disabled={pending} onClick={() => onCommand(command)}>{pending ? 'İşleniyor…'
           : command === 'edit' && job.status === 'WAITING_APPROVAL'
             ? 'Onaydan geri çek ve düzenle' : commandLabels[command]}</button>)}</div></section>}

@@ -21,7 +21,10 @@ export function StaffDirectoryView({ profiles, status, canFilterInactive, onStat
   onStatusChange: (status: 'active' | 'inactive' | 'all') => void; onOpen: (id: string) => void; onBack: () => void;
 }) {
   return <main className="workspace"><button className="back-link" onClick={onBack}>İşlere dön</button><div className="workspace-heading"><div><p className="eyebrow">Ekip</p><h1>Personel</h1></div>
-    {canFilterInactive && <label className="compact-filter">Durum<select value={status} onChange={(e) => onStatusChange(e.target.value as typeof status)}><option value="active">Aktif</option><option value="inactive">Pasif</option><option value="all">Tümü</option></select></label>}</div>
+    {canFilterInactive && <label className="field-group compact-filter">Durum
+      <select className="form-control" value={status} onChange={(e) => onStatusChange(e.target.value as typeof status)}>
+        <option value="active">Aktif</option><option value="inactive">Pasif</option><option value="all">Tümü</option>
+      </select></label>}</div>
     {profiles.length === 0 ? <div className="workspace-message"><h2>Personel bulunamadı</h2><p>Seçilen durumda personel profili yok.</p></div>
       : <ul className="people-list">{profiles.map((profile) => <li key={profile.id}><article className="people-row"><div><h2>{profile.user.name}</h2><p>{profile.title || 'Unvan belirtilmedi'} · {profile.managerName || 'Yönetici atanmadı'}</p></div>
         <button className="secondary-button" onClick={() => onOpen(profile.user.id)}>Profili aç</button></article></li>)}</ul>}

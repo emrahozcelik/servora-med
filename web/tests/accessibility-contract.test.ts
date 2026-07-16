@@ -11,7 +11,7 @@ beforeAll(async () => {
 describe('shared accessibility CSS contract', () => {
   it('keeps primary controls at least 44 CSS px tall', () => {
     expect(css).toMatch(/button, input \{ min-height: 2\.75rem; \}/);
-    expect(css).toMatch(/\.primary-button, \.secondary-button \{[^}]*display: inline-flex;[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.primary-button, \.secondary-button, \.destructive-button, \.ghost-button \{[^}]*display: inline-flex;[^}]*min-height: 2\.75rem;/s);
   });
 
   it('provides a visible focus indicator independent of color fill', () => {
@@ -36,7 +36,7 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.delivery-heading \{[^}]*flex-wrap: wrap;/);
     expect(css).toMatch(/\.task-form fieldset \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.meeting-result-form fieldset \{[^}]*min-width: 0;/);
-    expect(css).toMatch(/\.field-group input, \.field-group select, \.field-group textarea \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/\.field-group input,\s*\.field-group select,\s*\.field-group textarea,\s*\.form-control\s*\{[^}]*min-width:\s*0;/s);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.primary-button, \.secondary-button \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*overflow-wrap: anywhere;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.delivery-heading > div, \.brand-lockup \{[^}]*min-width: 0;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.delivery-heading h1, \.brand-lockup span \{[^}]*overflow-wrap: anywhere;/);
@@ -120,7 +120,8 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.inline-action \{[^}]*min-height: 2\.75rem;/);
     expect(css).toMatch(/\.workspace-create-actions \{[^}]*display: flex;/);
     expect(css).toMatch(/\.job-board-type \{[^}]*font-size:/);
-    expect(css).toMatch(/@media \(max-width: 40rem\)[\s\S]*\.workspace-create-actions > \* \{[^}]*flex: 1 1 9rem;/);
+    expect(css).toMatch(/@media \(max-width: 40rem\)[\s\S]*\.workspace-create-actions > \* \{[^}]*flex: 1 1 auto;/);
+    expect(css).toMatch(/\.new-job-menu-trigger/);
   });
 
   it('allows text-enlarged workspace controls to wrap without intrinsic-width overflow', () => {

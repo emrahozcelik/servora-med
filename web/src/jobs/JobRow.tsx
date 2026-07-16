@@ -3,16 +3,10 @@ import { Link } from 'react-router-dom';
 
 import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
-import type { JobCardListItem, JobCardPriority, JobCardStatus } from './jobs-api';
+import { PriorityChip } from '../ui/PriorityChip';
+import { StatusChip } from '../ui/StatusChip';
+import type { JobCardListItem } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
-
-const statusLabels: Record<JobCardStatus, string> = {
-  NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor',
-  REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi',
-};
-const priorityLabels: Record<JobCardPriority, string> = {
-  low: 'Düşük öncelik', normal: 'Normal öncelik', high: 'Yüksek öncelik', urgent: 'Acil öncelik',
-};
 
 export type JobCommandIntent = {
   name: 'start' | 'submit' | 'resume' | 'approve' | 'revise';
@@ -44,14 +38,14 @@ export function JobRow({ job, user, onCommand }: {
   const [expanded, setExpanded] = useState(false);
   const summaryId = `job-summary-${job.id}`;
   const commands = permittedJobCommands(user, job);
+  const primaryCommand = commands.find((command) => command.name === 'approve' || command.name === 'submit')
+    ?? commands[0];
 
-  return <article className="structured-job-row" data-job-id={job.id}>
+  return <article className="structured-job-row job-list-card" data-job-id={job.id}>
     <div className="job-row-primary">
       <div className="job-row-signals">
-        <span className={`job-status job-status-${job.status.toLowerCase()}`}>
-          <span className="job-status-shape" aria-hidden="true" />{statusLabels[job.status]}
-        </span>
-        <span className={`job-priority job-priority-${job.priority}`}>{priorityLabels[job.priority]}</span>
+        <StatusChip status={job.status} />
+        <PriorityChip priority={job.priority} longLabel />
         <span className="job-row-type">{jobTypeLabels[job.type]}</span>
       </div>
       <h2><Link to={paths.job(job.id)}>{job.title}</Link></h2>
@@ -65,6 +59,19 @@ export function JobRow({ job, user, onCommand }: {
       <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Termin'}</dt><dd>{job.dueDate ? formatDate(job.dueDate) : 'Belirtilmedi'}</dd></div>
       {job.type === 'PRODUCT_DELIVERY' && <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>}
     </dl>
+    {primaryCommand && (
+      <div className="job-row-mobile-primary">
+        <button
+          className={primaryCommand.name === 'approve' || primaryCommand.name === 'submit'
+            ? 'primary-button compact-button btn-full'
+            : 'secondary-button btn-full'}
+          type="button"
+          onClick={() => onCommand({ name: primaryCommand.name, jobId: job.id, expectedVersion: job.version })}
+        >
+          {primaryCommand.label}
+        </button>
+      </div>
+    )}
     <button className="secondary-button job-expand" type="button" aria-expanded={expanded} aria-controls={summaryId}
       onClick={() => setExpanded((value) => !value)}>
       {expanded ? 'Özeti kapat' : 'Özeti aç'}

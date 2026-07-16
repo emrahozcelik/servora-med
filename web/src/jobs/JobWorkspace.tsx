@@ -10,6 +10,7 @@ import { JobList, type JobListState } from './JobList';
 import type { JobCommandIntent } from './JobRow';
 import { getJobCardBoard, listJobCards, type JobCardBoard } from './jobs-api';
 import { canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectQuickStatusPreservingContext, selectStatus, updateJobSearch, type JobSearchState } from './job-search';
+import { NewJobMenu } from './NewJobMenu';
 
 const PAGE_SIZE = 25;
 
@@ -136,11 +137,13 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   return <main className="workspace job-workspace">
     {notice && <div className="success-message" role="status">{notice}</div>}
     <div className="workspace-heading"><div><p className="eyebrow">Çalışma alanı</p><h1>{user.role === 'STAFF' ? 'İşlerim' : 'İşler'}</h1></div>
-      {(onCreateDelivery || onCreateTask || onCreateMeeting) && <div className="workspace-create-actions">
-        {onCreateMeeting && <button className="primary-button compact-button" type="button" onClick={onCreateMeeting}>Yeni görüşme</button>}
-        {onCreateTask && <button className="primary-button compact-button" type="button" onClick={onCreateTask}>Yeni görev</button>}
-        {onCreateDelivery && <button className="secondary-button compact-button" type="button" onClick={onCreateDelivery}>Yeni teslim</button>}
-      </div>}</div>
+      <div className="workspace-create-actions workspace-create-actions--toolbar">
+        <NewJobMenu
+          onCreateMeeting={onCreateMeeting}
+          onCreateTask={onCreateTask}
+          onCreateDelivery={onCreateDelivery}
+        />
+      </div></div>
     <nav className="job-quick-views" aria-label="Hızlı iş görünümleri">
       <Link to={{ search: filterHref(params, 'active') }} aria-current={filters.status === 'active' ? 'page' : undefined}>Aktif işler</Link>
       {user.role !== 'STAFF' && <Link to={{ search: filterHref(params, 'WAITING_APPROVAL') }}
