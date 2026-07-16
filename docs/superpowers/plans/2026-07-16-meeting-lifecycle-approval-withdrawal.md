@@ -16,7 +16,8 @@
 - Browser acceptance was attempted but could not be completed because the local dataset has
   no active Staff/Manager pair in the same organization with password-change requirements
   cleared. No acceptance records or sessions were left behind.
-- Push, draft PR creation, and remote CI verification remain as the closeout steps.
+- Draft PR [#11](https://github.com/emrahozcelik/servora-med/pull/11) is open; its
+  server and web CI checks are green. The PR remains intentionally unmerged.
 
 ## Global Constraints
 
