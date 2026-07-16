@@ -256,6 +256,20 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.claims[0]?.operationKey).toBe('JOB_WITHDRAW_FROM_APPROVAL:job-1');
   });
 
+  it.each([manager, { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' as const }])
+  ('allows %s to withdraw approval with the canonical audit actor', async (actor) => {
+    const repo = new LifecycleRepository(); repo.job.status = 'WAITING_APPROVAL'; repo.job.version = 3;
+    const result = await new JobCardService(repo).withdrawFromApproval(actor, 'job-1', {
+      clientActionId: `withdraw-${actor.role}`, expectedVersion: 3,
+    });
+
+    expect(result).toMatchObject({ status: 'IN_PROGRESS', version: 4 });
+    expect(repo.events).toHaveLength(1);
+    expect(repo.events[0]).toMatchObject({
+      event: 'JOB_APPROVAL_WITHDRAWN', actorId: actor.id,
+    });
+  });
+
   it('rejects stale and non-waiting withdrawals without mutation', async () => {
     const stale = new LifecycleRepository(); stale.job.status = 'WAITING_APPROVAL'; stale.job.version = 3;
     await expect(new JobCardService(stale).withdrawFromApproval(staff, 'job-1', input('stale-withdraw', 2)))
@@ -349,29 +363,18 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.cancellation).toEqual({ at: time, by: 'manager-1', reason: 'Müşteri iptal etti' });
   });
 
-  it('allows assigned Staff to cancel only while waiting for approval', async () => {
-    const waiting = new LifecycleRepository(); waiting.job.status = 'WAITING_APPROVAL'; waiting.job.version = 3;
-    const result = await new JobCardService(waiting, () => time).cancel(staff, 'job-1', {
-      clientActionId: 'staff-waiting-cancel', expectedVersion: 3,
-      cancelReason: ' Müşteri görüşmeyi iptal etti ',
-    });
-    expect(result).toMatchObject({ status: 'CANCELLED', version: 4 });
-    expect(waiting.cancellation).toEqual({
-      at: time, by: 'staff-1', reason: 'Müşteri görüşmeyi iptal etti',
-    });
-    expect(waiting.events).toHaveLength(1);
-    expect(waiting.events[0]).toMatchObject({
-      event: 'JOB_CANCELLED',
-      oldValue: { status: 'WAITING_APPROVAL' },
-      newValue: { status: 'CANCELLED' },
-    });
-
-    for (const status of ['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const) {
-      const denied = new LifecycleRepository(); denied.job.status = status;
-      await expect(new JobCardService(denied).cancel(staff, 'job-1', {
-        clientActionId: `staff-cancel-${status}`, expectedVersion: denied.job.version,
+  it('allows assigned Staff to cancel throughout the active lifecycle', async () => {
+    for (const status of ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'] as const) {
+      const repo = new LifecycleRepository(); repo.job.status = status;
+      const result = await new JobCardService(repo, () => time).cancel(staff, 'job-1', {
+        clientActionId: `staff-cancel-${status}`, expectedVersion: repo.job.version,
         cancelReason: 'Neden',
-      })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+      });
+      expect(result).toMatchObject({ status: 'CANCELLED', version: 3 });
+      expect(repo.cancellation).toEqual({ at: time, by: 'staff-1', reason: 'Neden' });
+      expect(repo.events[0]).toMatchObject({
+        event: 'JOB_CANCELLED', oldValue: { status }, newValue: { status: 'CANCELLED' },
+      });
     }
   });
 
