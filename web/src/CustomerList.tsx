@@ -9,6 +9,7 @@ import {
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
+import { FilterSheet, countTruthy } from './ui/FilterSheet';
 
 export { createRequestGate } from './services/request-gate';
 
@@ -43,40 +44,181 @@ export function customerFiltersFromParams(params: URLSearchParams): CustomerFilt
   };
 }
 
-function CustomerFiltersView({ filters, staff, onChange }: {
+export function countActiveCustomerFilters(filters: CustomerFilterValues): number {
+  return countTruthy([
+    filters.q,
+    filters.status,
+    filters.customerType,
+    filters.city,
+    filters.assignedStaffUserId,
+    filters.unassigned,
+  ]);
+}
+
+type CustomerDraft = {
+  q: string;
+  status: string;
+  customerType: string;
+  city: string;
+  assignedStaffUserId: string;
+  unassigned: boolean;
+};
+
+function draftFromFilters(filters: CustomerFilterValues): CustomerDraft {
+  return {
+    q: filters.q ?? '',
+    status: filters.status ?? '',
+    customerType: filters.customerType ?? '',
+    city: filters.city ?? '',
+    assignedStaffUserId: filters.assignedStaffUserId ?? '',
+    unassigned: filters.unassigned ?? false,
+  };
+}
+
+/** Compact filter sheet when shell is not desktop (same 64rem gate as AppShell). */
+function useNarrow() {
+  const desktopQuery = '(min-width: 64rem)';
+  const [narrow, setNarrow] = useState(() => (
+    typeof window !== 'undefined' && typeof window.matchMedia === 'function'
+      ? !window.matchMedia(desktopQuery).matches
+      : false
+  ));
+  useEffect(() => {
+    if (typeof window.matchMedia !== 'function') return;
+    const media = window.matchMedia(desktopQuery);
+    const onChange = (event: MediaQueryListEvent) => setNarrow(!event.matches);
+    media.addEventListener('change', onChange);
+    setNarrow(!media.matches);
+    return () => media.removeEventListener('change', onChange);
+  }, []);
+  return narrow;
+}
+
+function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
   filters: CustomerFilterValues;
   staff: StaffProfile[];
   onChange: (name: string, value: string | boolean) => void;
+  onApplyMany?: (next: CustomerDraft) => void;
 }) {
+  const narrow = useNarrow();
+  const [sheetOpen, setSheetOpen] = useState(false);
+  const [draft, setDraft] = useState(() => draftFromFilters(filters));
+  const activeCount = countActiveCustomerFilters(filters);
+
+  useEffect(() => {
+    setDraft(draftFromFilters(filters));
+  }, [filters.q, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned]);
+
+  function openSheet() {
+    setDraft(draftFromFilters(filters));
+    setSheetOpen(true);
+  }
+
+  function dismissSheet() {
+    setDraft(draftFromFilters(filters));
+    setSheetOpen(false);
+  }
+
+  function applySheet() {
+    onApplyMany?.(draft);
+    setSheetOpen(false);
+  }
+
+  function clearSheet() {
+    const cleared: CustomerDraft = {
+      q: '', status: '', customerType: '', city: '', assignedStaffUserId: '', unassigned: false,
+    };
+    setDraft(cleared);
+    onApplyMany?.(cleared);
+    setSheetOpen(false);
+  }
+
+  const filterFields = (prefix: string) => (
+    <>
+      <label className="field-group" htmlFor={`${prefix}-status`}>Durum
+        <select id={`${prefix}-status`} value={narrow ? draft.status : (filters.status ?? '')}
+          onChange={(event) => (narrow
+            ? setDraft({ ...draft, status: event.target.value })
+            : onChange('status', event.target.value))}>
+          <option value="">Aktif ve aday</option><option value="active">Yalnız aktif</option><option value="prospect">Yalnız aday</option><option value="inactive">Pasif</option>
+        </select>
+      </label>
+      <label className="field-group" htmlFor={`${prefix}-type`}>Müşteri türü
+        <select id={`${prefix}-type`} value={narrow ? draft.customerType : (filters.customerType ?? '')}
+          onChange={(event) => (narrow
+            ? setDraft({ ...draft, customerType: event.target.value })
+            : onChange('customerType', event.target.value))}>
+          <option value="">Tümü</option>{Object.entries(customerTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </label>
+      <label className="field-group" htmlFor={`${prefix}-city`}>Şehir
+        <input id={`${prefix}-city`} value={narrow ? draft.city : (filters.city ?? '')}
+          onChange={(event) => (narrow
+            ? setDraft({ ...draft, city: event.target.value })
+            : onChange('city', event.target.value))} />
+      </label>
+      <label className="field-group" htmlFor={`${prefix}-staff`}>Sorumlu personel
+        <select id={`${prefix}-staff`}
+          value={narrow ? draft.assignedStaffUserId : (filters.assignedStaffUserId ?? '')}
+          disabled={narrow ? draft.unassigned : (filters.unassigned ?? false)}
+          onChange={(event) => (narrow
+            ? setDraft({ ...draft, assignedStaffUserId: event.target.value })
+            : onChange('assignedStaffUserId', event.target.value))}>
+          <option value="">Tümü</option>{staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
+        </select>
+      </label>
+      <label className="customer-check" htmlFor={`${prefix}-unassigned`}>
+        <input id={`${prefix}-unassigned`} type="checkbox"
+          checked={narrow ? draft.unassigned : (filters.unassigned ?? false)}
+          onChange={(event) => (narrow
+            ? setDraft({
+              ...draft,
+              unassigned: event.target.checked,
+              assignedStaffUserId: event.target.checked ? '' : draft.assignedStaffUserId,
+            })
+            : onChange('unassigned', event.target.checked))} />
+        <span>Atanmamış müşteriler</span>
+      </label>
+    </>
+  );
+
+  if (narrow) {
+    return (
+      <div className="customer-filters customer-filters--compact surface">
+        <form className="customer-filter-compact-bar" role="search" onSubmit={(event) => event.preventDefault()}>
+          <div className="field-group"><label htmlFor="customer-search">Müşteri ara</label>
+            <input id="customer-search" type="search" value={filters.q ?? ''}
+              onChange={(event) => onChange('q', event.target.value)} /></div>
+          <button
+            type="button"
+            className="secondary-button filter-sheet-trigger"
+            aria-expanded={sheetOpen}
+            onClick={openSheet}
+          >
+            {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
+          </button>
+        </form>
+        <FilterSheet
+          open={sheetOpen}
+          title="Müşteri filtreleri"
+          onDismiss={dismissSheet}
+          onApply={applySheet}
+          onClear={clearSheet}
+        >
+          {filterFields('customer-sheet')}
+        </FilterSheet>
+      </div>
+    );
+  }
+
   return <form className="customer-filters" role="search" onSubmit={(event) => event.preventDefault()}>
     <div className="field-group"><label htmlFor="customer-search">Müşteri ara</label>
       <input id="customer-search" type="search" value={filters.q ?? ''} onChange={(event) => onChange('q', event.target.value)} /></div>
-    <label className="field-group" htmlFor="customer-status">Durum
-      <select id="customer-status" value={filters.status ?? ''} onChange={(event) => onChange('status', event.target.value)}>
-        <option value="">Aktif ve aday</option><option value="active">Yalnız aktif</option><option value="prospect">Yalnız aday</option><option value="inactive">Pasif</option>
-      </select>
-    </label>
-    <label className="field-group" htmlFor="customer-type">Müşteri türü
-      <select id="customer-type" value={filters.customerType ?? ''} onChange={(event) => onChange('customerType', event.target.value)}>
-        <option value="">Tümü</option>{Object.entries(customerTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}
-      </select>
-    </label>
-    <label className="field-group" htmlFor="customer-city">Şehir
-      <input id="customer-city" value={filters.city ?? ''} onChange={(event) => onChange('city', event.target.value)} />
-    </label>
-    <label className="field-group" htmlFor="customer-staff">Sorumlu personel
-      <select id="customer-staff" value={filters.assignedStaffUserId ?? ''} onChange={(event) => onChange('assignedStaffUserId', event.target.value)} disabled={filters.unassigned}>
-        <option value="">Tümü</option>{staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
-      </select>
-    </label>
-    <label className="customer-check" htmlFor="customer-unassigned">
-      <input id="customer-unassigned" type="checkbox" checked={filters.unassigned ?? false} onChange={(event) => onChange('unassigned', event.target.checked)} />
-      <span>Atanmamış müşteriler</span>
-    </label>
+    {filterFields('customer')}
   </form>;
 }
 
-export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange }: {
+export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters }: {
   state: CustomerListState;
   user: CurrentUser;
   hasFilters: boolean;
@@ -85,12 +227,13 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   filters?: CustomerFilterValues;
   staff?: StaffProfile[];
   onFilterChange?: (name: string, value: string | boolean) => void;
+  onApplyFilters?: (next: CustomerDraft) => void;
 }) {
   return <main className="workspace customer-workspace">
     <div className="workspace-heading"><div><p className="eyebrow">CRM</p><h1>Müşteriler</h1></div>
       {user.role !== 'STAFF' && <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>}
     </div>
-    {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} />}
+    {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
     {state.kind === 'loading' && <section className="customer-loading" aria-busy="true" aria-live="polite"><h2>Müşteriler yükleniyor</h2><span /><span /><span /></section>}
     {state.kind === 'error' && <div className="workspace-message" role="alert"><h2>Müşteriler yüklenemedi</h2><p>{state.message}</p>
       {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}</div>}
@@ -207,9 +350,20 @@ export function CustomerListScreen({ user }: { user: CurrentUser }) {
     if (name === 'unassigned' && value === true) next.delete('assignedStaffUserId');
     next.delete('offset'); setParams(next);
   }
+  function applyManyFilters(draft: CustomerDraft) {
+    const next = new URLSearchParams();
+    if (draft.q) next.set('q', draft.q);
+    if (draft.status) next.set('status', draft.status);
+    if (draft.customerType) next.set('customerType', draft.customerType);
+    if (draft.city) next.set('city', draft.city);
+    if (draft.unassigned) next.set('unassigned', 'true');
+    else if (draft.assignedStaffUserId) next.set('assignedStaffUserId', draft.assignedStaffUserId);
+    setParams(next);
+  }
   const hasFilters = Boolean(filters.q || filters.customerType || filters.city || filters.assignedStaffUserId || filters.unassigned || filters.status);
   return <CustomerListView state={state} user={user} hasFilters={hasFilters} filters={filters} staff={staff}
-    onFilterChange={changeFilter} onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)} />;
+    onFilterChange={changeFilter} onApplyFilters={applyManyFilters}
+    onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)} />;
 }
 
 export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
