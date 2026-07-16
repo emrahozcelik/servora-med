@@ -385,9 +385,10 @@ There are no unit-price, discount, line-total, stock-movement, invoice, or payme
 Notes are append-only through the MVP application contract. Public routes, service and
 repository surfaces expose no note update/delete operation, and the UI exposes no such
 control. This does not claim physical immutability for controlled database maintenance;
-no mutation-prevention trigger is required. Staff may add a note to their own JobCard in
-every lifecycle state, including review and terminal states, without changing its version
-or unlocking commercial fields.
+no mutation-prevention trigger is required. Product Delivery and General Task preserve the
+existing note policy. Sales Meeting note writes are service-guarded to `IN_PROGRESS` and
+`REVISION_REQUESTED`; persisted notes remain readable in review and terminal states without
+changing JobCard version or unlocking commercial fields.
 
 ### 3.12 job_card_activity_logs
 
@@ -538,8 +539,9 @@ Applied slice-aligned migrations:
 | `005_product_catalog.sql` | nullable informational Product fields, Product versions/audits, duplicate SKU support, nullable delivery unit snapshots |
 | `006_jobcard_workspace.sql` | application-contract append-only JobCard notes, workspace indexes, planned/started timestamp guards |
 | `007_sales_meeting.sql` | Sales Meeting type/event vocabularies, one-to-one structured results, constraints and report index |
+| `008_meeting_approval_withdrawal.sql` | additive `JOB_APPROVAL_WITHDRAWN` activity constraint value |
 
-Applied migrations 001–007 are immutable. Reports and General Task required no schema
+Applied migrations 001–008 are immutable. Reports and General Task required no schema
 migration.
 
 ## 9. Explicit Omissions

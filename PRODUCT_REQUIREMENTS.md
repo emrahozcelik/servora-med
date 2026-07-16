@@ -106,6 +106,11 @@ Allowed transitions are explicit backend commands. Status is never free text and
 - Only manager or admin can approve a `WAITING_APPROVAL` JobCard.
 - Revision requires a non-empty reason.
 - Commercial fields are immutable for staff and manager while `WAITING_APPROVAL`.
+- Assigned Staff may explicitly withdraw their own `WAITING_APPROVAL` JobCard to
+  `IN_PROGRESS`, edit it, and submit it again; the review snapshot is never edited in place.
+- Assigned Staff may cancel only their own `WAITING_APPROVAL` JobCard with a non-empty reason.
+- Sales Meeting result fields and Staff notes begin only after start; `NEW` and `PLANNED`
+  meetings neither expose nor accept them.
 - `COMPLETED` and `CANCELLED` JobCards are immutable in MVP.
 - Admin override and lifecycle reversal are outside MVP.
 

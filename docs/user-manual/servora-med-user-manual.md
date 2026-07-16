@@ -122,12 +122,18 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 ### 7.3 Sales Meeting (satış görüşmesi)
 
 1. `/jobs/new-meeting` — planlama: başlık, müşteri, planlanan gün, sorumlu.
-2. Detayda **Görüşme sonucu**:
+2. Görüşme **Yeni** veya **Planlandı** durumundayken sonuç ve not bölümleri gösterilmez.
+   **İşi başlat** komutundan sonra bu bölümler açılır.
+3. Detayda **Görüşme sonucu**:
    - Gerçekleşme zamanı
    - Sonuç (Pozitif / Takip gerekli / Karar verilmedi / İlgilenmiyor)
    - Görüşme özeti
    - Takip zamanı (isteğe bağlı)
-3. **Görüşme sonucunu kaydet**, sonra **Onaya gönder**.
+4. **Görüşme sonucunu kaydet**, notlarınızı ekleyin, sonra **Onaya gönder**.
+5. Onay beklerken gönderilen içerik salt okunurdur. Düzeltme gerekiyorsa **Onaydan geri çek
+   ve düzenle** ile işi `Devam ediyor` durumuna alın, değiştirin ve yeniden gönderin.
+6. Kendi onay bekleyen işinizi **İşi iptal et** ile ve zorunlu bir gerekçe yazarak iptal
+   edebilirsiniz. İptal terminaldir; iş yeniden açılamaz.
 
 ### 7.4 Profil
 
@@ -161,7 +167,9 @@ Bu bölüm, uygulamayı ilk kez kullanan bir yönetici için adım adım yazılm
 3. Detayda teslim kalemlerini / görüşme sonucunu / notları okuyun.
 4. Uygunsa **Onayla** — iş **Tamamlandı** olur.
 5. Eksik/hatalıysa **Düzeltme iste** ve **gerekçe** yazın — personel düzeltip yeniden gönderir.
-6. **Onayla** düğmesi yoksa: rolünüz Manager/Admin mi, iş gerçekten **Onay bekliyor** mu, sayfa hâlâ yükleniyor mu kontrol edin.
+6. Personel işi onaydan geri çekerse kart kuyruktan çıkar; yeniden gönderildiğinde güncel
+   içerikle tekrar görünür. İptal edilen kart onaylanamaz.
+7. **Onayla** düğmesi yoksa: rolünüz Manager/Admin mi, iş gerçekten **Onay bekliyor** mu, sayfa hâlâ yükleniyor mu kontrol edin.
 
 ### 8.4 Müşteri ve ilgili kişi (CRM)
 

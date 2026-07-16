@@ -634,8 +634,9 @@ code points. A follow-up, when present, must be strictly later than `meetingAt`.
 
 Parent concealment occurs before the Sales Meeting type guard and version/detail work.
 Malformed `:jobCardId` returns `404 JOB_CARD_NOT_FOUND` before PostgreSQL; a visible
-non-meeting parent returns `409 INVALID_JOB_TYPE`. `WAITING_APPROVAL`, `COMPLETED`, and
-`CANCELLED` reuse `409 JOB_NOT_EDITABLE`. Stale version returns `409 VERSION_CONFLICT`;
+non-meeting parent returns `409 INVALID_JOB_TYPE`. `NEW`, `PLANNED`, `WAITING_APPROVAL`,
+`COMPLETED`, and `CANCELLED` reuse exact `409 JOB_NOT_EDITABLE` with
+`JobCard bu durumda düzenlenemez.` Stale version returns `409 VERSION_CONFLICT`;
 an empty or no-op patch returns `400 VALIDATION_ERROR`. A successful transaction locks
 JobCard then detail, updates the result, increments the parent version once, and appends
 one `MEETING_DETAILS_UPDATED` event containing only ordered changed-field names.
@@ -657,9 +658,10 @@ Note request:
 }
 ```
 
-Staff may add a note to their assigned JobCard in every lifecycle state, including
-`WAITING_APPROVAL`, `COMPLETED`, and `CANCELLED`; this does not unlock commercial fields
-or increment the JobCard version. Successful addition atomically appends `NOTE_ADDED`.
+Product Delivery and General Task retain note creation across lifecycle states. Sales
+Meeting note creation is limited to `IN_PROGRESS` and `REVISION_REQUESTED`; `NEW`,
+`PLANNED`, review, and terminal states return exact `409 JOB_NOT_EDITABLE`. Note reads remain
+available for persisted read-only history. Successful addition atomically appends `NOTE_ADDED`.
 Notes are append-only through the application contract; no public or repository
 update/delete operation exists.
 
@@ -674,8 +676,9 @@ There is no generic transition route.
 | POST | `/:id/submit-for-approval` | IN_PROGRESS | WAITING_APPROVAL | staff own, manager, admin |
 | POST | `/:id/approve` | WAITING_APPROVAL | COMPLETED | manager, admin |
 | POST | `/:id/request-revision` | WAITING_APPROVAL | REVISION_REQUESTED | manager, admin |
+| POST | `/:id/withdraw-from-approval` | WAITING_APPROVAL | IN_PROGRESS | assigned staff |
 | POST | `/:id/resume` | REVISION_REQUESTED | IN_PROGRESS | staff own, manager, admin |
-| POST | `/:id/cancel` | NEW, PLANNED, IN_PROGRESS, or REVISION_REQUESTED | CANCELLED | manager, admin |
+| POST | `/:id/cancel` | NEW, PLANNED, IN_PROGRESS, WAITING_APPROVAL, or REVISION_REQUESTED | CANCELLED | manager/admin; assigned staff only from WAITING_APPROVAL |
 
 Base lifecycle command body:
 

@@ -169,6 +169,12 @@ Required invariants:
 - Revision requires a reason.
 - Type-specific submit requirements are validated before state changes.
 - Staff and manager cannot edit commercial fields in `WAITING_APPROVAL`.
+- `WAITING_APPROVAL` is an immutable review snapshot. Assigned Staff uses the named
+  `withdraw-from-approval` command to return it to `IN_PROGRESS` before any correction.
+- Assigned Staff cancellation is deliberately limited to their own `WAITING_APPROVAL`
+  JobCard and requires a reason; Manager/Admin cancellation authority remains shared policy.
+- Sales Meeting result and note write capability begins at `IN_PROGRESS` and is restored in
+  `REVISION_REQUESTED`; planned meetings do not request or render those subresources.
 - Manager can only approve or request revision while reviewing.
 - `COMPLETED` and `CANCELLED` are immutable in MVP.
 
