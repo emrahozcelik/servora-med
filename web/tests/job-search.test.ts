@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus,
-  updateJobSearch,
+  selectQuickStatusPreservingContext, updateJobSearch,
 } from '../src/jobs/job-search';
 
 describe('canonical JobCard URL state', () => {
@@ -76,6 +76,15 @@ describe('canonical JobCard URL state', () => {
     expect(next.toString()).toBe('q=klinik&status=COMPLETED&priority=urgent&view=list&offset=0');
     expect(selectStatus(new URLSearchParams('status=closed&offset=75'), 'NEW').toString())
       .toBe('status=NEW&view=list&offset=0');
+  });
+
+  it('changes only quick-view status while preserving valid context', () => {
+    expect(selectQuickStatusPreservingContext(new URLSearchParams(
+      'status=active&view=list&offset=50&q=klinik&priority=high',
+    ), 'closed').toString()).toBe('q=klinik&status=closed&priority=high&offset=50');
+    expect(selectQuickStatusPreservingContext(new URLSearchParams(
+      'q=klinik&view=board&priority=high',
+    ), 'closed').toString()).toBe('q=klinik&status=closed&priority=high&view=board');
   });
 
   it('mobile force-list changes only view and desktop growth has no auto-restore helper', () => {

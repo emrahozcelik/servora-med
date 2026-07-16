@@ -9,12 +9,16 @@ import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
 import type { JobCommandIntent } from './JobRow';
 import { getJobCardBoard, listJobCards, type JobCardBoard } from './jobs-api';
-import { canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus, updateJobSearch, type JobSearchState } from './job-search';
+import { canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectQuickStatusPreservingContext, selectStatus, updateJobSearch, type JobSearchState } from './job-search';
 
 const PAGE_SIZE = 25;
 
 function filterHref(params: URLSearchParams, status: JobSearchState['status']) {
   return `?${selectStatus(params, status ?? 'active').toString()}`;
+}
+
+function closedFilterHref(params: URLSearchParams) {
+  return `?${selectQuickStatusPreservingContext(params, 'closed').toString()}`;
 }
 
 type BoardState =
@@ -45,6 +49,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   const queryKey = params.toString();
   const canonicalParams = canonicalJobSearchParams(params);
   const canonicalKey = canonicalParams.toString();
+  const showBoard = filters.view === 'board' && filters.status !== 'closed';
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
@@ -63,7 +68,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       setParams(canonicalParams, { replace: true });
       return;
     }
-    if (filters.view === 'board') {
+    if (showBoard) {
       if (isDesktop === false) {
         requestGate.current.next();
         setParams(forceMobileList(params), { replace: true });
@@ -111,9 +116,9 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
     return () => { requestGate.current.next(); };
   // queryKey owns filter identity; parsed filters are reconstructed from it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canonicalKey, isDesktop, load, loadBoard, queryKey, reload, user.id, user.role]);
+  }, [canonicalKey, isDesktop, load, loadBoard, queryKey, reload, showBoard, user.id, user.role]);
 
-  if (filters.view === 'board' && isDesktop === null) return <main className="workspace job-workspace">
+  if (showBoard && isDesktop === null) return <main className="workspace job-workspace">
     <p className="eyebrow">Çalışma alanı</p><div className="workspace-message">
       <h1>Kanban görünümü henüz kullanıma açık değil</h1>
       <p>Bu görünüm sonraki çalışma diliminde eklenecek. İş kayıtlarına liste görünümünden ulaşabilirsiniz.</p>
@@ -121,7 +126,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
     </div>
   </main>;
 
-  if (filters.view === 'board' && isDesktop === false) return <main className="workspace job-workspace" aria-busy="true">
+  if (showBoard && isDesktop === false) return <main className="workspace job-workspace" aria-busy="true">
     <h1 className="sr-only">Liste görünümüne geçiliyor</h1>
   </main>;
 
@@ -142,14 +147,16 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
         aria-current={filters.status === 'WAITING_APPROVAL' ? 'page' : undefined}>Onay kuyruğu</Link>}
       <Link to={{ search: filterHref(params, 'REVISION_REQUESTED') }}
         aria-current={filters.status === 'REVISION_REQUESTED' ? 'page' : undefined}>Düzeltme istenenler</Link>
+      <Link to={{ search: closedFilterHref(params) }}
+        aria-current={filters.status === 'closed' ? 'page' : undefined}>Biten işler</Link>
     </nav>
     {filters.status === 'WAITING_APPROVAL' && <p className="job-order-note">En uzun süredir onay bekleyen işler önce gösterilir.</p>}
     <JobFilters user={user} filters={filters}
       onApply={(changes) => setParams(updateJobSearch(params, changes))}
       onChange={(_name, value) => setParams(selectStatus(params, value))}
       onViewChange={(view) => setParams(view === 'board' ? enterBoard(params) : forceMobileList(params))}
-      showViewControl={isDesktop === true} />
-    {filters.view === 'board' ? (boardState.kind === 'loading'
+      showViewControl={isDesktop === true && filters.status !== 'closed'} />
+    {showBoard ? (boardState.kind === 'loading'
       ? <div className="job-results" aria-busy="true" aria-live="polite"><h2 className="sr-only">İş panosu yükleniyor</h2></div>
       : boardState.kind === 'error'
         ? <div className="workspace-message" role="alert"><h2>İş panosu yüklenemedi</h2><p>{boardState.message}</p></div>

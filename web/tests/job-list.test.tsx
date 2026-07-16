@@ -149,6 +149,45 @@ describe('routed JobCard workspace', () => {
     const active = Array.from(container.querySelectorAll<HTMLAnchorElement>('a')).find((link) => link.textContent === 'Aktif işler')!;
     await act(async () => active.click());
     expect(router.state.location.search).toBe('?q=klinik');
+    const closed = Array.from(container.querySelectorAll<HTMLAnchorElement>('a')).find((link) => link.textContent === 'Biten işler')!;
+    await act(async () => closed.click());
+    expect(router.state.location.search).toBe('?q=klinik&status=closed');
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'closed', limit: 25 }));
+  });
+
+  it('renders Biten işler after the existing quick views and preserves list context', async () => {
+    const load = vi.fn().mockResolvedValue(page([item], 25, 80));
+    await mount('/jobs?q=klinik&status=closed&priority=high&offset=25', load);
+    await act(async () => { await Promise.resolve(); });
+    const links = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'));
+    expect(links.map((link) => link.textContent)).toEqual([
+      'Aktif işler', 'Onay kuyruğu', 'Düzeltme istenenler', 'Biten işler',
+    ]);
+    const closed = links.at(-1)!;
+    expect(closed.getAttribute('href')).toBe('/jobs?q=klinik&status=closed&priority=high&offset=25');
+    expect(closed.getAttribute('aria-current')).toBe('page');
+  });
+
+  it('shows Biten işler to Staff without exposing the approval queue', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    await mount('/jobs', load, staff); await act(async () => { await Promise.resolve(); });
+    expect(container.textContent).toContain('Biten işler');
+    expect(container.textContent).not.toContain('Onay kuyruğu');
+  });
+
+  it('keeps board URL context but loads the closed list instead of active Kanban', async () => {
+    const load = vi.fn().mockResolvedValue(page([item], 25, 80));
+    const loadBoard = vi.fn();
+    const router = createMemoryRouter([{
+      path: '/jobs', element: <JobWorkspace user={manager} load={load} loadBoard={loadBoard} />,
+    }], { initialEntries: ['/jobs?q=klinik&status=closed&view=board&offset=25'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(router.state.location.search).toBe('?q=klinik&status=closed&view=board&offset=25');
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({
+      q: 'klinik', status: 'closed', offset: 25, limit: 25,
+    }));
+    expect(loadBoard).not.toHaveBeenCalled();
   });
 
   it('ignores stale list responses while keeping URL-owned controls mounted', async () => {

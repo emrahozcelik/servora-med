@@ -62,8 +62,8 @@ export function parseJobSearch(params: URLSearchParams): JobSearchState {
     if (dueAfter) state.dueAfter = dueAfter;
     if (dueBefore) state.dueBefore = dueBefore;
   }
-  if (view === 'list') {
-    const status = scalar(params, 'status');
+  const status = scalar(params, 'status');
+  if (view === 'list' || status === 'closed') {
     state.status = STATUSES.includes(status as JobCardStatusFilter)
       ? status as JobCardStatusFilter : 'active';
     const offset = scalar(params, 'offset');
@@ -121,6 +121,15 @@ export function selectStatus(current: URLSearchParams, status: JobCardStatusFilt
   next.set('status', status);
   next.set('view', 'list');
   next.set('offset', '0');
+  return orderedParams(next);
+}
+
+export function selectQuickStatusPreservingContext(
+  current: URLSearchParams,
+  status: JobCardStatusFilter,
+) {
+  const next = canonicalJobSearchParams(current);
+  next.set('status', status);
   return orderedParams(next);
 }
 
