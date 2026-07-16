@@ -14,7 +14,7 @@
 - Focused real-PostgreSQL acceptance passes, including Manager approve/withdraw and assigned
   Staff meeting-result edit/cancel races.
 - Full local verification passes: server build, 830 ordinary server tests, 851 PostgreSQL-enabled
-  server tests (local trust-auth-only contract excluded), web build, 366 web tests, and both
+  server tests (local trust-auth-only contract excluded), web build, 367 web tests, and both
   high-severity audits with zero vulnerabilities.
 - Sezer Dener live acceptance confirmed the active assigned Sales Meeting and exact
   `MEETING_DETAILS_UNCHANGED` response through the Vite proxy. The temporary session was deleted;
