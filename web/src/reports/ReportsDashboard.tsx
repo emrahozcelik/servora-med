@@ -1,78 +1,314 @@
-import { useCallback, useEffect, useRef, useState, type CSSProperties, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import { paths } from '../paths';
-import { getDashboardReport } from './reports-api';
-import { dashboardSearch, readDashboardSearch, validateRequestedRange } from './report-search';
-import type { DashboardReportResponse } from './report-types';
+import {
+  CompletedTrendCalendar,
+  IndependentMeterBars,
+  SegmentedDistributionBar,
+  TrendBars,
+} from './report-charts';
+import {
+  approvalQueueHref,
+  jobsOverdueHref,
+  jobsStatusHref,
+} from './report-action-links';
+import {
+  formatRefreshTime,
+  formatWaitingDuration,
+  resolveDatePreset,
+  type ReportDatePreset,
+} from './report-range';
+import {
+  dashboardSearch,
+  readDashboardSearch,
+  validateRequestedRange,
+} from './report-search';
+import type {
+  ApprovalReportResponse,
+  DashboardReportResponse,
+} from './report-types';
+import { getApprovalReport, getDashboardReport } from './reports-api';
+import {
+  ReportDateRangeForm,
+  ReportErrorState,
+  ReportLoadingState,
+  ReportShell,
+} from './report-shell';
 
-const formatDate = (value: string) => new Intl.DateTimeFormat('tr-TR', {
-  day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-}).format(new Date(`${value}T00:00:00Z`));
+type AttentionCard = {
+  key: string;
+  title: string;
+  detail: string;
+  actionLabel: string;
+  href: string;
+};
 
-export function ReportsDashboardView({ report }: { report: DashboardReportResponse }) {
-  const current = [
-    ['Aktif işler', report.counters.activeJobCards],
-    ['Geciken işler', report.counters.overdueJobCards],
-    ['Onay bekleyenler', report.counters.waitingApproval],
-    ['Düzeltme bekleyenler', report.counters.revisionRequested],
+function buildAttentionCards(
+  dashboard: DashboardReportResponse,
+  approval: ApprovalReportResponse | null,
+): AttentionCard[] {
+  const cards: AttentionCard[] = [];
+  const { counters, range } = dashboard;
+
+  if (counters.waitingApproval > 0) {
+    const oldest = approval?.summary.oldestWaitingMinutes;
+    cards.push({
+      key: 'waiting',
+      title: `${counters.waitingApproval} iş onay bekliyor`,
+      detail: oldest != null
+        ? `En eskisi ${formatWaitingDuration(oldest)} süredir bekliyor.`
+        : 'Yönetici onayı olmadan tamamlanamaz.',
+      actionLabel: 'Onay kuyruğunu aç',
+      href: approvalQueueHref(),
+    });
+  }
+
+  if (counters.overdueJobCards > 0) {
+    cards.push({
+      key: 'overdue',
+      title: `${counters.overdueJobCards} iş gecikmiş`,
+      detail: 'Termin tarihi geçmiş açık işler.',
+      actionLabel: 'Geciken işleri aç',
+      href: jobsOverdueHref(range.timezone),
+    });
+  }
+
+  if (counters.revisionRequested > 0) {
+    cards.push({
+      key: 'revision',
+      title: `${counters.revisionRequested} iş düzeltme bekliyor`,
+      detail: 'Personelin revizyon tamamlaması gerekiyor.',
+      actionLabel: 'Düzeltme bekleyenleri aç',
+      href: jobsStatusHref('REVISION_REQUESTED'),
+    });
+  }
+
+  // Max three action cards; queue signals take priority over pure SLA aging.
+  return cards.slice(0, 3);
+}
+
+export function ReportsDashboardView({
+  report,
+  approval,
+}: {
+  report: DashboardReportResponse;
+  approval: ApprovalReportResponse | null;
+}) {
+  const primary = [
+    { key: 'waiting', label: 'Onay bekleyen', value: report.counters.waitingApproval, tone: 'warning' as const },
+    { key: 'overdue', label: 'Geciken', value: report.counters.overdueJobCards, tone: 'danger' as const },
+    { key: 'revision', label: 'Düzeltme bekleyen', value: report.counters.revisionRequested, tone: 'warning' as const },
+  ];
+  const secondary = [
+    ['Aktif işler', report.counters.activeJobCards, 'Şu an'],
+    ['Bu dönemde tamamlanan', report.counters.completedInPeriod, 'Seçilen dönem'],
+    ['Bu dönemde iptal edilen', report.counters.cancelledInPeriod, 'Seçilen dönem'],
   ] as const;
-  return <>
-    <dl className="report-metrics">{current.map(([label, value]) => <div key={label}>
-      <dt>{label}<span>Şu an</span></dt><dd>{value}</dd>
-    </div>)}<div><dt>Seçilen dönemde tamamlandı</dt><dd>{report.counters.completedInPeriod}</dd></div>
-      <div><dt>Seçilen dönemde iptal edildi</dt><dd>{report.counters.cancelledInPeriod}</dd></div></dl>
-    <section className="report-section" aria-labelledby="trend-title"><h2 id="trend-title">Tamamlanma eğilimi</h2>
-      <div className="completed-trend" aria-hidden="true">{report.completedTrend.map((point) =>
-        <span key={point.date} style={{ '--count': point.count } as CSSProperties} />)}</div>
-      <table className="report-table responsive-report-table"><caption>Tamamlanan işlerin günlük dağılımı</caption>
-        <thead><tr><th scope="col">Tarih</th><th scope="col">Tamamlanan iş</th></tr></thead>
-        <tbody>{report.completedTrend.map((point) => <tr key={point.date}>
-          <th scope="row" data-label="Tarih">{formatDate(point.date)}</th>
-          <td data-label="Tamamlanan iş">{point.count}</td>
-        </tr>)}</tbody></table></section>
-  </>;
+
+  const attention = buildAttentionCards(report, approval);
+  const slaSegments = approval
+    ? [
+      { key: 'under2', label: '2 saatten kısa', value: approval.summary.under2Hours },
+      { key: 'between2And8', label: '2–8 saat', value: approval.summary.between2And8Hours },
+      { key: 'between8And24', label: '8–24 saat', value: approval.summary.between8And24Hours },
+      { key: 'over24', label: '24 saatten uzun', value: approval.summary.over24Hours },
+    ]
+    : null;
+
+  const trendTotal = report.completedTrend.reduce((sum, point) => sum + point.count, 0);
+
+  return (
+    <>
+      <section className="report-section" aria-labelledby="primary-kpi-title">
+        <h2 id="primary-kpi-title">Öncelikli göstergeler</h2>
+        <p className="report-section-hint">
+          Bu sayaçlar birbirini dışlayan dilimler değildir; geciken işler açık işlerin alt kümesi olabilir.
+          Bu yüzden yüzde-yüz pasta diyagramı yerine ayrı kartlar ve bağımsız çubuklar kullanılır.
+        </p>
+        <dl className="report-metrics report-metrics-primary">
+          {primary.map((item) => (
+            <div key={item.key} className={`report-metric-card report-metric-card--${item.tone}`}>
+              <dt>
+                {item.label}
+                <span>Şu an</span>
+              </dt>
+              <dd>{item.value}</dd>
+            </div>
+          ))}
+        </dl>
+        <IndependentMeterBars items={primary} />
+      </section>
+
+      <section className="report-section" aria-labelledby="secondary-kpi-title">
+        <h2 id="secondary-kpi-title">Genel durum</h2>
+        <dl className="report-metrics report-metrics-secondary">
+          {secondary.map(([label, value, scope]) => (
+            <div key={label}>
+              <dt>
+                {label}
+                <span>{scope}</span>
+              </dt>
+              <dd>{value}</dd>
+            </div>
+          ))}
+        </dl>
+      </section>
+
+      {attention.length > 0 ? (
+        <section className="report-section" aria-labelledby="attention-title">
+          <h2 id="attention-title">Dikkat</h2>
+          <ul className="report-attention-list">
+            {attention.map((card) => (
+              <li key={card.key} className="report-attention-card">
+                <div>
+                  <h3>{card.title}</h3>
+                  <p>{card.detail}</p>
+                </div>
+                <Link className="secondary-button" to={card.href}>{card.actionLabel}</Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      <section className="report-section" aria-labelledby="trend-title">
+        <h2 id="trend-title">Tamamlanma eğilimi</h2>
+        <p className="report-chart-summary">
+          Seçilen dönemde günlük tamamlanan işler. Toplam {trendTotal} tamamlanma.
+        </p>
+        <TrendBars points={report.completedTrend} />
+        <details className="report-data-disclosure">
+          <summary>Tamamlanan işler</summary>
+          <CompletedTrendCalendar points={report.completedTrend} />
+        </details>
+      </section>
+
+      <section className="report-section" aria-labelledby="sla-title">
+        <h2 id="sla-title">Onay bekleme dağılımı</h2>
+        {slaSegments ? (
+          <>
+            <SegmentedDistributionBar segments={slaSegments} />
+            <dl className="approval-summary report-sla-summary">
+              <div>
+                <dt>Toplam bekleyen</dt>
+                <dd>{approval!.summary.pendingCount}</dd>
+              </div>
+              <div>
+                <dt>En uzun bekleme</dt>
+                <dd>
+                  {approval!.summary.oldestWaitingMinutes === null
+                    ? 'Yok'
+                    : formatWaitingDuration(approval!.summary.oldestWaitingMinutes)}
+                </dd>
+              </div>
+              <div>
+                <dt>Ortalama bekleme</dt>
+                <dd>
+                  {approval!.summary.averageWaitingMinutes === null
+                    ? 'Yok'
+                    : formatWaitingDuration(approval!.summary.averageWaitingMinutes)}
+                </dd>
+              </div>
+            </dl>
+          </>
+        ) : (
+          <p className="report-section-hint">Onay bekleme özeti yüklenemedi; özet sayaçlar yine de geçerlidir.</p>
+        )}
+      </section>
+    </>
+  );
 }
 
 export function ReportsDashboard() {
   const [search, setSearch] = useSearchParams();
   const state = readDashboardSearch(search);
   const [report, setReport] = useState<DashboardReportResponse | null>(null);
+  const [approval, setApproval] = useState<ApprovalReportResponse | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [filterError, setFilterError] = useState('');
+  const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
+  const timezone = report?.range.timezone ?? 'Europe/Istanbul';
+
   const load = useCallback(async () => {
-    setLoading(true); setError('');
+    setLoading(true);
+    setError('');
     try {
-      const next = await getDashboardReport(state.from && state.to ? { from: state.from, to: state.to } : null);
-      setReport(next);
-      if (!state.from || !state.to) setSearch(dashboardSearch({ ...next.range, canonical: true }), { replace: true });
-    } catch (reason) { setError(reason instanceof Error ? reason.message : 'Rapor özeti yüklenemedi.'); }
-    finally { setLoading(false); }
+      const range = state.from && state.to ? { from: state.from, to: state.to } : null;
+      const [nextDashboard, nextApproval] = await Promise.all([
+        getDashboardReport(range),
+        getApprovalReport({ limit: 1, offset: 0 }).catch(() => null),
+      ]);
+      setReport(nextDashboard);
+      setApproval(nextApproval);
+      setRefreshedAt(new Date());
+      if (!state.from || !state.to) {
+        setSearch(dashboardSearch({ ...nextDashboard.range, canonical: true }), { replace: true });
+      }
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : 'Rapor özeti yüklenemedi.');
+    } finally {
+      setLoading(false);
+    }
   }, [state.from, state.to, setSearch]);
-  useEffect(() => { if (!state.canonical) setSearch(dashboardSearch(state), { replace: true }); }, [state, setSearch]);
-  useEffect(() => { void load(); }, [load]);
+
+  useEffect(() => {
+    if (!state.canonical) setSearch(dashboardSearch(state), { replace: true });
+  }, [state, setSearch]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
   function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault(); const data = new FormData(event.currentTarget);
-    const result = validateRequestedRange(String(data.get('from') ?? ''), String(data.get('to') ?? ''));
-    if (!result.ok) { setFilterError(result.errors[0]?.message ?? 'Tarih aralığı geçersiz.'); requestAnimationFrame(() => errorRef.current?.focus()); return; }
-    setFilterError(''); setSearch(dashboardSearch({ ...result.value, canonical: true }));
+    event.preventDefault();
+    const data = new FormData(event.currentTarget);
+    const result = validateRequestedRange(
+      String(data.get('from') ?? ''),
+      String(data.get('to') ?? ''),
+    );
+    if (!result.ok) {
+      setFilterError(result.errors[0]?.message ?? 'Tarih aralığı geçersiz.');
+      requestAnimationFrame(() => errorRef.current?.focus());
+      return;
+    }
+    setFilterError('');
+    setSearch(dashboardSearch({ ...result.value, canonical: true }));
   }
-  return <main className="workspace report-workspace"><header className="workspace-heading"><div><p className="eyebrow">Raporlar</p><h1>Operasyon özeti</h1></div>
-    <nav className="report-nav" aria-label="Rapor bölümleri"><Link to={paths.deliveryReports}>Teslimler</Link><Link to={paths.approvalReports}>Onaylar</Link></nav></header>
-    <form key={`${state.from}:${state.to}`} className="report-filters" onSubmit={submit} noValidate>
-      <label>Başlangıç<input name="from" type="date" defaultValue={state.from ?? ''}
-        aria-invalid={filterError ? true : undefined}
-        aria-describedby={filterError ? 'report-filter-error' : undefined} /></label>
-      <label>Bitiş<input name="to" type="date" defaultValue={state.to ?? ''}
-        aria-invalid={filterError ? true : undefined}
-        aria-describedby={filterError ? 'report-filter-error' : undefined} /></label>
-      <button className="secondary-button">Uygula</button></form>
-    {filterError && <div id="report-filter-error" ref={errorRef} className="form-error"
-      role="alert" tabIndex={-1}><h2>Filtreleri kontrol edin</h2><p>{filterError}</p></div>}
-    {loading && <section className="report-loading" aria-busy="true"><h1>Rapor özeti yükleniyor</h1></section>}
-    {!loading && error && <div className="workspace-message" role="alert"><h2>Rapor özeti yüklenemedi</h2><p>{error}</p><button className="secondary-button" onClick={() => void load()}>Tekrar dene</button></div>}
-    {!loading && !error && report && <ReportsDashboardView report={report} />}
-  </main>;
+
+  function applyPreset(preset: ReportDatePreset) {
+    const range = resolveDatePreset(preset, timezone);
+    setFilterError('');
+    setSearch(dashboardSearch({ ...range, canonical: true }));
+  }
+
+  const refreshLabel = refreshedAt
+    ? formatRefreshTime(refreshedAt, timezone)
+    : null;
+
+  return (
+    <ReportShell title="Operasyon özeti" current="summary" refreshLabel={refreshLabel}>
+      <ReportDateRangeForm
+        formKey={`${state.from}:${state.to}`}
+        from={state.from ?? ''}
+        to={state.to ?? ''}
+        filterError={filterError}
+        errorRef={errorRef}
+        onSubmit={submit}
+        onPreset={applyPreset}
+      />
+      {loading && <ReportLoadingState title="Rapor özeti yükleniyor" />}
+      {!loading && error && (
+        <ReportErrorState
+          title="Rapor özeti yüklenemedi"
+          message={error}
+          onRetry={() => void load()}
+        />
+      )}
+      {!loading && !error && report && (
+        <ReportsDashboardView report={report} approval={approval} />
+      )}
+    </ReportShell>
+  );
 }
