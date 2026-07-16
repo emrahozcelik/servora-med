@@ -76,13 +76,17 @@ describe('JobCard policy', () => {
     ['CANCEL', 'NEW', manager, 'İptal'], ['CANCEL', 'PLANNED', admin, 'İptal'],
     ['CANCEL', 'IN_PROGRESS', manager, 'İptal'],
     ['CANCEL', 'REVISION_REQUESTED', admin, 'İptal'],
+    ['CANCEL', 'WAITING_APPROVAL', staff, 'İptal'],
+    ['CANCEL', 'WAITING_APPROVAL', manager, 'İptal'],
+    ['CANCEL', 'WAITING_APPROVAL', admin, 'İptal'],
   ] as const)('allows %s from %s for %s', (command, status, actor, reason) => {
     expect(() => assertCanTransition(actor, { ...job, status }, command, reason)).not.toThrow();
   });
 
   it.each([
     ['APPROVE', 'WAITING_APPROVAL'], ['REQUEST_REVISION', 'WAITING_APPROVAL'],
-    ['CANCEL', 'IN_PROGRESS'],
+    ['CANCEL', 'NEW'], ['CANCEL', 'PLANNED'], ['CANCEL', 'IN_PROGRESS'],
+    ['CANCEL', 'REVISION_REQUESTED'],
   ] as const)('forbids Staff %s even on an assigned %s job', (command, status) => {
     expect(() => assertCanTransition(staff, { ...job, status }, command, 'Neden'))
       .toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
@@ -124,9 +128,17 @@ describe('JobCard policy', () => {
     }
   });
 
+  it('allows only assigned Staff to cancel while waiting for approval', () => {
+    const waiting = { ...job, status: 'WAITING_APPROVAL' as const };
+    expect(() => assertCanTransition(staff, waiting, 'CANCEL', 'Müşteri iptal etti')).not.toThrow();
+    expect(() => assertCanTransition({ ...staff, id: 'staff-2' }, waiting, 'CANCEL', 'Neden'))
+      .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+  });
+
   it.each([
     ['REQUEST_REVISION', 'WAITING_APPROVAL', 'REVISION_REASON_REQUIRED'],
     ['CANCEL', 'IN_PROGRESS', 'CANCEL_REASON_REQUIRED'],
+    ['CANCEL', 'WAITING_APPROVAL', 'CANCEL_REASON_REQUIRED'],
   ] as const)('requires a non-empty reason for %s', (command, status, code) => {
     expect(() => assertCanTransition(manager, { ...job, status }, command, '  '))
       .toThrowError(expect.objectContaining({ code }));

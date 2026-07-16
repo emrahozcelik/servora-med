@@ -349,6 +349,32 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.cancellation).toEqual({ at: time, by: 'manager-1', reason: 'Müşteri iptal etti' });
   });
 
+  it('allows assigned Staff to cancel only while waiting for approval', async () => {
+    const waiting = new LifecycleRepository(); waiting.job.status = 'WAITING_APPROVAL'; waiting.job.version = 3;
+    const result = await new JobCardService(waiting, () => time).cancel(staff, 'job-1', {
+      clientActionId: 'staff-waiting-cancel', expectedVersion: 3,
+      cancelReason: ' Müşteri görüşmeyi iptal etti ',
+    });
+    expect(result).toMatchObject({ status: 'CANCELLED', version: 4 });
+    expect(waiting.cancellation).toEqual({
+      at: time, by: 'staff-1', reason: 'Müşteri görüşmeyi iptal etti',
+    });
+    expect(waiting.events).toHaveLength(1);
+    expect(waiting.events[0]).toMatchObject({
+      event: 'JOB_CANCELLED',
+      oldValue: { status: 'WAITING_APPROVAL' },
+      newValue: { status: 'CANCELLED' },
+    });
+
+    for (const status of ['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const) {
+      const denied = new LifecycleRepository(); denied.job.status = status;
+      await expect(new JobCardService(denied).cancel(staff, 'job-1', {
+        clientActionId: `staff-cancel-${status}`, expectedVersion: denied.job.version,
+        cancelReason: 'Neden',
+      })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    }
+  });
+
   it.each([1, 255] as const)('accepts a %i-code-point action ID', async (length) => {
     const repo = new LifecycleRepository(); repo.job.status = 'NEW';
     await expect(new JobCardService(repo).plan(staff, 'job-1', input('😀'.repeat(length))))

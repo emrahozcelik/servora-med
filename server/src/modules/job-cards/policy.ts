@@ -63,7 +63,10 @@ export function assertCanTransition(
   if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
     throw new AppError('INVALID_TRANSITION', 409, 'JobCard bu geçiş için uygun durumda değil.');
   }
-  if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION', 'CANCEL'].includes(command)) {
+  if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION'].includes(command)) {
+    forbidden();
+  }
+  if (actor.role === 'STAFF' && command === 'CANCEL' && job.status !== 'WAITING_APPROVAL') {
     forbidden();
   }
   if (command === 'WITHDRAW_FROM_APPROVAL' && actor.role !== 'STAFF') forbidden();
@@ -75,7 +78,7 @@ export function assertCanTransition(
     REQUEST_REVISION: ['WAITING_APPROVAL'],
     WITHDRAW_FROM_APPROVAL: ['WAITING_APPROVAL'],
     RESUME: ['REVISION_REQUESTED'],
-    CANCEL: ['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'],
+    CANCEL: ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
   };
   if (!allowedSources[command].includes(job.status)) {
     throw new AppError('INVALID_TRANSITION', 409, 'JobCard bu geçiş için uygun durumda değil.');
