@@ -167,7 +167,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
     });
   });
 
-  it('upgrades an applied 001-006 database with only migration 007', async () => {
+  it('upgrades an applied 001-006 database with migrations 007 and 008', async () => {
     await withIsolatedDatabase(async (pool, store) => {
       const legacyDirectory = await createMigrationSubset(MIGRATIONS_001_TO_006);
       const baseline = await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -177,7 +177,9 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(upgrade).toEqual({ appliedVersions: ['007_sales_meeting'] });
+      expect(upgrade).toEqual({
+        appliedVersions: ['007_sales_meeting', '008_meeting_approval_withdrawal'],
+      });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
     });
   });

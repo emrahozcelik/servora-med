@@ -17,7 +17,7 @@ async function applyMigrations(pool: Pool) {
   for (const migration of [
     '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
     '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
-    '007_sales_meeting.sql',
+    '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(path, 'utf8'));
@@ -147,6 +147,19 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       meeting = await service.submitForApproval(staff, meeting.id, {
         clientActionId: 'meeting-submit', expectedVersion: details.jobCardVersion,
       });
+      const withdrawn = await service.withdrawFromApproval(staff, meeting.id, {
+        clientActionId: 'meeting-withdraw', expectedVersion: meeting.version,
+      });
+      await expect(service.withdrawFromApproval(staff, meeting.id, {
+        clientActionId: 'meeting-withdraw', expectedVersion: meeting.version,
+      })).resolves.toEqual(withdrawn);
+      details = await service.patchMeetingDetails(staff, meeting.id, {
+        clientActionId: 'meeting-after-withdraw', expectedVersion: withdrawn.version,
+        meetingSummary: 'Geri çekildikten sonra düzeltildi.',
+      });
+      meeting = await service.submitForApproval(staff, meeting.id, {
+        clientActionId: 'meeting-after-withdraw-submit', expectedVersion: details.jobCardVersion,
+      });
       meeting = await service.requestRevision(manager, meeting.id, {
         clientActionId: 'meeting-revision', expectedVersion: meeting.version,
         revisionReason: 'Sonucu olumlu olarak düzeltin.',
@@ -203,7 +216,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       const activity = await service.listActivity(manager, meeting.id, { limit: 50, offset: 0 });
       expect(activity.items.map((item) => item.eventType)).toEqual(expect.arrayContaining([
         'JOB_CREATED', 'JOB_STARTED', 'MEETING_DETAILS_UPDATED',
-        'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_REVISION_REQUESTED', 'JOB_RESUMED', 'JOB_APPROVED',
+        'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVAL_WITHDRAWN',
+        'JOB_REVISION_REQUESTED', 'JOB_RESUMED', 'JOB_APPROVED',
       ]));
       expect(JSON.stringify(activity)).not.toMatch(/Takip görüşmesi|Görüşme olumlu|oldValue|newValue|metadata/);
 
