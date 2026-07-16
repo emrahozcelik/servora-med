@@ -26,23 +26,26 @@ const lifecycleCases = [
   ['JOB_SUBMITTED_FOR_APPROVAL', 'IN_PROGRESS', 'WAITING_APPROVAL'],
   ['JOB_APPROVED', 'WAITING_APPROVAL', 'COMPLETED'],
   ['JOB_REVISION_REQUESTED', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
+  ['JOB_APPROVAL_WITHDRAWN', 'WAITING_APPROVAL', 'IN_PROGRESS'],
   ['JOB_RESUMED', 'REVISION_REQUESTED', 'IN_PROGRESS'],
   ['JOB_CANCELLED', 'NEW', 'CANCELLED'],
   ['JOB_CANCELLED', 'PLANNED', 'CANCELLED'],
   ['JOB_CANCELLED', 'IN_PROGRESS', 'CANCELLED'],
   ['JOB_CANCELLED', 'REVISION_REQUESTED', 'CANCELLED'],
+  ['JOB_CANCELLED', 'WAITING_APPROVAL', 'CANCELLED'],
 ] as const;
 
 describe('safe JobCard activity presenter', () => {
-  it('keeps the canonical activity vocabulary at exactly 15 unique events', () => {
-    expect(JOB_CARD_ACTIVITY_EVENTS).toHaveLength(15);
-    expect(new Set(JOB_CARD_ACTIVITY_EVENTS).size).toBe(15);
+  it('keeps the canonical activity vocabulary at exactly 16 unique events', () => {
+    expect(JOB_CARD_ACTIVITY_EVENTS).toHaveLength(16);
+    expect(new Set(JOB_CARD_ACTIVITY_EVENTS).size).toBe(16);
     expect(new Set(JOB_CARD_ACTIVITY_EVENTS)).toEqual(new Set([
       'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_STARTED',
       'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
       'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED',
       'DELIVERY_ITEM_ADDED', 'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED',
       'NOTE_ADDED', 'MEETING_DETAILS_UPDATED',
+      'JOB_APPROVAL_WITHDRAWN',
     ]));
   });
 
@@ -72,7 +75,7 @@ describe('safe JobCard activity presenter', () => {
     ['JOB_APPROVED', 'IN_PROGRESS', 'COMPLETED'],
     ['JOB_REVISION_REQUESTED', 'IN_PROGRESS', 'REVISION_REQUESTED'],
     ['JOB_RESUMED', 'NEW', 'IN_PROGRESS'],
-    ['JOB_CANCELLED', 'WAITING_APPROVAL', 'CANCELLED'],
+    ['JOB_APPROVAL_WITHDRAWN', 'IN_PROGRESS', 'WAITING_APPROVAL'],
   ] as const)('falls back to NONE for semantically incompatible %s transition %s→%s', (
     eventType, fromStatus, toStatus,
   ) => {

@@ -40,6 +40,7 @@ const EXPECTED_ACTIVITY_EVENTS = [
   'DELIVERY_ITEM_REMOVED',
   'NOTE_ADDED',
   'MEETING_DETAILS_UPDATED',
+  'JOB_APPROVAL_WITHDRAWN',
 ] as const;
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -138,15 +139,15 @@ async function expectConstraintViolation(
   await expect(pool.query(sql, values)).rejects.toMatchObject({ code });
 }
 
-describe.skipIf(!databaseUrl)('007 Sales Meeting PostgreSQL migration', () => {
-  it('runs clean 001-007, activates exact vocabularies and does not reapply', async () => {
+describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
+  it('runs clean 001-008, preserves exact vocabularies and does not reapply', async () => {
     await withIsolatedDatabase(async (pool, store) => {
       const firstRun = await runMigrations({
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(7);
-      expect(firstRun.appliedVersions.at(-1)).toBe('007_sales_meeting');
+      expect(firstRun.appliedVersions).toHaveLength(8);
+      expect(firstRun.appliedVersions.at(-1)).toBe('008_meeting_approval_withdrawal');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -155,7 +156,7 @@ describe.skipIf(!databaseUrl)('007 Sales Meeting PostgreSQL migration', () => {
       );
       expect(jobCardTypes).toHaveLength(3);
       expect(new Set(jobCardTypes)).toEqual(new Set(EXPECTED_JOB_CARD_TYPES));
-      expect(activityEvents).toHaveLength(15);
+      expect(activityEvents).toHaveLength(16);
       expect(new Set(activityEvents)).toEqual(new Set(EXPECTED_ACTIVITY_EVENTS));
 
       const secondRun = await runMigrations({

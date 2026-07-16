@@ -18,6 +18,7 @@ type LifecycleEvent =
   | 'JOB_SUBMITTED_FOR_APPROVAL'
   | 'JOB_APPROVED'
   | 'JOB_REVISION_REQUESTED'
+  | 'JOB_APPROVAL_WITHDRAWN'
   | 'JOB_RESUMED'
   | 'JOB_CANCELLED';
 
@@ -27,12 +28,14 @@ const LIFECYCLE_TRANSITIONS: Record<LifecycleEvent, ReadonlyArray<readonly [JobC
   JOB_SUBMITTED_FOR_APPROVAL: [['IN_PROGRESS', 'WAITING_APPROVAL']],
   JOB_APPROVED: [['WAITING_APPROVAL', 'COMPLETED']],
   JOB_REVISION_REQUESTED: [['WAITING_APPROVAL', 'REVISION_REQUESTED']],
+  JOB_APPROVAL_WITHDRAWN: [['WAITING_APPROVAL', 'IN_PROGRESS']],
   JOB_RESUMED: [['REVISION_REQUESTED', 'IN_PROGRESS']],
   JOB_CANCELLED: [
     ['NEW', 'CANCELLED'],
     ['PLANNED', 'CANCELLED'],
     ['IN_PROGRESS', 'CANCELLED'],
     ['REVISION_REQUESTED', 'CANCELLED'],
+    ['WAITING_APPROVAL', 'CANCELLED'],
   ],
 };
 
@@ -150,6 +153,7 @@ function details(record: ActivityRecord): JobCardActivityDetails {
     case 'JOB_SUBMITTED_FOR_APPROVAL':
     case 'JOB_APPROVED':
     case 'JOB_REVISION_REQUESTED':
+    case 'JOB_APPROVAL_WITHDRAWN':
     case 'JOB_RESUMED':
     case 'JOB_CANCELLED':
       return statusDetails(record.eventType, record.oldValue, record.newValue);
