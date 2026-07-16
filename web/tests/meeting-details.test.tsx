@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
-import { MeetingDetailsSection } from '../src/jobs/MeetingDetails';
+import { meetingLocalValue, MeetingDetailsSection } from '../src/jobs/MeetingDetails';
 import type { JobCard, MeetingDetails } from '../src/jobs/jobs-api';
 import { ApiError, type CurrentUser } from '../src/services/api';
 
@@ -24,7 +24,49 @@ describe('MeetingDetailsSection', () => {
   let root: Root; let container: HTMLDivElement;
   beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container);
     Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'save-1') }); });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); });
+
+  it('defaults a null meeting time once to the current local minute', async () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-07-16T12:34:45.000Z');
+    vi.setSystemTime(now);
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={details}
+      user={user} mutationPending={false} onSave={vi.fn()} />));
+    const input = container.querySelector('#meeting-actual-at') as HTMLInputElement;
+    expect(input.value).toBe(meetingLocalValue(null, now));
+
+    change(input, '2026-07-16T18:20');
+    vi.setSystemTime(new Date('2026-07-16T14:00:00.000Z'));
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={{ ...details }}
+      user={user} mutationPending={false} onSave={vi.fn()} />));
+    expect(input.value).toBe('2026-07-16T18:20');
+  });
+
+  it('uses a persisted meeting time instead of the current time', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-16T12:34:45.000Z'));
+    const persisted = { ...details, meetingAt: '2026-07-15T09:20:00.000Z' };
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={persisted}
+      user={user} mutationPending={false} onSave={vi.fn()} />));
+    expect((container.querySelector('#meeting-actual-at') as HTMLInputElement).value)
+      .toBe(meetingLocalValue(persisted.meetingAt));
+  });
+
+  it('does not request a save when persisted result values are unchanged', async () => {
+    const persisted = {
+      ...details, meetingAt: '2026-07-15T09:20:00.000Z', outcome: 'POSITIVE' as const,
+      meetingSummary: 'Olumlu görüşme.',
+    };
+    const onSave = vi.fn();
+    await act(async () => root.render(<MeetingDetailsSection job={job} details={persisted}
+      user={user} mutationPending={false} onSave={onSave} />));
+
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+
+    expect(onSave).not.toHaveBeenCalled();
+    expect(container.querySelector('[role="status"]')?.textContent)
+      .toBe('Görüşme sonucunda kaydedilecek bir değişiklik yok.');
+  });
 
   it('saves canonical result fields and keeps follow-up optional with linked guidance', async () => {
     const onSave = vi.fn(async (input) => ({ ...details, ...input, jobCardVersion: 4 }));
@@ -120,5 +162,13 @@ describe('MeetingDetailsSection', () => {
       mutationPending={false} onSave={vi.fn()} />));
     expect(container.querySelector('form')).toBeNull(); expect(container.querySelector('dl')).not.toBeNull();
     expect(container.textContent).toContain('Olumlu');
+  });
+
+  it('obeys the canonical edit capability instead of deriving NEW as editable', async () => {
+    await act(async () => root.render(<MeetingDetailsSection job={{ ...job, status: 'NEW' }}
+      details={{ ...details, outcome: 'POSITIVE', meetingSummary: 'Önceden kayıtlı.' }} user={user}
+      canEdit={false} mutationPending={false} onSave={vi.fn()} />));
+    expect(container.querySelector('form')).toBeNull();
+    expect(container.querySelector('dl')).not.toBeNull();
   });
 });

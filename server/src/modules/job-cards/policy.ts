@@ -5,6 +5,10 @@ function forbidden(): never {
   throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
 }
 
+function notEditable(): never {
+  throw new AppError('JOB_NOT_EDITABLE', 409, 'JobCard bu durumda düzenlenemez.');
+}
+
 function assertSameOrganization(actor: JobCardActor, organizationId: string) {
   if (actor.organizationId !== organizationId) forbidden();
 }
@@ -42,14 +46,25 @@ export function assertSalesMeetingJob(job: JobCard) {
 export function assertCanEdit(actor: JobCardActor, job: JobCard) {
   assertSameOrganization(actor, job.organizationId);
   if (['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'].includes(job.status)) {
-    throw new AppError('JOB_NOT_EDITABLE', 409, 'JobCard bu durumda düzenlenemez.');
+    notEditable();
   }
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
+}
+
+export function assertCanEditMeetingResult(actor: JobCardActor, job: JobCard) {
+  assertCanEdit(actor, job);
+  if (!['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) notEditable();
 }
 
 export function assertCanAccessNotes(actor: JobCardActor, job: JobCard) {
   assertSameOrganization(actor, job.organizationId);
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
+}
+
+export function assertCanAddNote(actor: JobCardActor, job: JobCard) {
+  assertCanAccessNotes(actor, job);
+  if (job.type === 'SALES_MEETING'
+    && !['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) notEditable();
 }
 
 export function assertCanTransition(
@@ -63,7 +78,7 @@ export function assertCanTransition(
   if (job.status === 'COMPLETED' || job.status === 'CANCELLED') {
     throw new AppError('INVALID_TRANSITION', 409, 'JobCard bu geçiş için uygun durumda değil.');
   }
-  if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION', 'CANCEL'].includes(command)) {
+  if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION'].includes(command)) {
     forbidden();
   }
   const allowedSources: Record<LifecycleCommand, readonly JobCard['status'][]> = {
@@ -72,8 +87,9 @@ export function assertCanTransition(
     SUBMIT_FOR_APPROVAL: ['IN_PROGRESS'],
     APPROVE: ['WAITING_APPROVAL'],
     REQUEST_REVISION: ['WAITING_APPROVAL'],
+    WITHDRAW_FROM_APPROVAL: ['WAITING_APPROVAL'],
     RESUME: ['REVISION_REQUESTED'],
-    CANCEL: ['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'],
+    CANCEL: ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
   };
   if (!allowedSources[command].includes(job.status)) {
     throw new AppError('INVALID_TRANSITION', 409, 'JobCard bu geçiş için uygun durumda değil.');

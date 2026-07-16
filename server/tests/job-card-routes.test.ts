@@ -39,6 +39,7 @@ function serviceDouble() {
     submitForApproval: vi.fn().mockResolvedValue({ ...result, status: 'WAITING_APPROVAL' }),
     approve: vi.fn().mockResolvedValue({ ...result, status: 'COMPLETED' }),
     requestRevision: vi.fn().mockResolvedValue({ ...result, status: 'REVISION_REQUESTED' }),
+    withdrawFromApproval: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     resume: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
     listActivity: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
@@ -279,6 +280,7 @@ describe('JobCard routes', () => {
     ['submit-for-approval', 'submitForApproval', { clientActionId: 'a2', expectedVersion: 2, note: 'Bitti' }],
     ['approve', 'approve', { clientActionId: 'a3', expectedVersion: 3, note: 'Uygun' }],
     ['request-revision', 'requestRevision', { clientActionId: 'a4', expectedVersion: 3, revisionReason: 'Düzeltin' }],
+    ['withdraw-from-approval', 'withdrawFromApproval', { clientActionId: 'a4w', expectedVersion: 3 }],
     ['resume', 'resume', { clientActionId: 'a5', expectedVersion: 4 }],
     ['cancel', 'cancel', { clientActionId: 'a6', expectedVersion: 2, cancelReason: 'Müşteri iptal etti' }],
   ])('dispatches %s lifecycle command', async (path, method, payload) => {
@@ -294,6 +296,7 @@ describe('JobCard routes', () => {
     ['submit-for-approval', { clientActionId: 'x4', expectedVersion: 1, cancelReason: 'forbidden' }],
     ['approve', { clientActionId: 'x5', expectedVersion: 1, revisionReason: 'forbidden' }],
     ['request-revision', { clientActionId: 'x6', expectedVersion: 1, revisionReason: 'Düzelt', note: 'forbidden' }],
+    ['withdraw-from-approval', { clientActionId: 'x6w', expectedVersion: 1, note: 'forbidden' }],
     ['cancel', { clientActionId: 'x7', expectedVersion: 1, cancelReason: 'İptal', note: 'forbidden' }],
   ])('rejects unknown fields for %s lifecycle command', async (path, payload) => {
     const { app, service } = await createApp();

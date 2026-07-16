@@ -504,6 +504,32 @@ migration 007 clean/upgrade/rollback/no-reapply coverage, ordinary and PostgreSQ
 server suites, complete web suite, production builds/audits, and the Staff/Manager
 Playwright acceptance flow.
 
+## JOB-004: Approval review is an explicit immutable snapshot
+
+- **Date:** 2026-07-16
+- **Status:** Accepted
+- **Scope:** Shared JobCard approval lifecycle and Sales Meeting visibility
+
+### Decision
+
+1. `WAITING_APPROVAL` content is read-only. Assigned Staff must call the named,
+   idempotent `withdraw-from-approval` command before editing; withdrawal returns the card
+   to `IN_PROGRESS` and appends `JOB_APPROVAL_WITHDRAWN` without rewriting submission history.
+2. Assigned Staff may cancel only their own `WAITING_APPROVAL` JobCard with a mandatory
+   reason. This does not grant Staff cancellation in any other state.
+3. Sales Meeting result and Staff-note writes begin at `IN_PROGRESS`, remain correctable in
+   `REVISION_REQUESTED`, and use exact `409 JOB_NOT_EDITABLE` elsewhere.
+4. `COMPLETED` and `CANCELLED` remain terminal. Reviewers retain approve/request-revision;
+   they do not silently edit submitted content.
+
+### Consequences
+
+- Migration 008 additively extends the activity check constraint; applied migration 007 is
+  unchanged.
+- Approve, revision, withdrawal, and cancellation races serialize through the existing
+  versioned row lock and critical-action transaction.
+- Product Delivery and General Task note behavior is unchanged.
+
 ## OPS-001: Initial pilot topology is macOS + Cloudflare Tunnel
 
 - **Date:** 2026-07-15

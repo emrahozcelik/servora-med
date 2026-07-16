@@ -110,6 +110,26 @@ describe('JobCard operational notes', () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
+  it('loads persisted notes without rendering the composer in read-only mode', async () => {
+    const load = vi.fn().mockResolvedValue({
+      items: [savedNote], total: 1, limit: 25, offset: 0,
+    });
+    const add = vi.fn();
+    await renderNotes({ load, add, canAdd: false });
+    expect(load).toHaveBeenCalledWith('job-1', { limit: 25, offset: 0 });
+    expect(host.textContent).toContain(savedNote.note);
+    expect(host.querySelector('form')).toBeNull();
+    expect(add).not.toHaveBeenCalled();
+  });
+
+  it('renders nothing for an empty cancelled-note projection', async () => {
+    const load = vi.fn().mockResolvedValue(emptyPage);
+    await renderNotes({ load, canAdd: false, hideWhenEmpty: true });
+    expect(load).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('.job-notes')).toBeNull();
+    expect(host.textContent).not.toContain('Henüz iş notu yok');
+  });
+
   it('returns to and reloads the first page after adding a note from a later page', async () => {
     const older = { ...savedNote, id: 'note-old', note: 'Eski sayfa notu' };
     const firstPage = { items: [{ ...savedNote, id: 'note-first', note: 'İlk sayfa notu' }], total: 30, limit: 25, offset: 0 };

@@ -41,6 +41,86 @@ describe('Manager review', () => {
     expect(html).toContain('Vazgeç');
   });
 
+  it('warns that waiting cancellation is terminal and disables blank confirmation', async () => {
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => root.render(<ReasonDialog kind="cancel" pending={false}
+        onClose={() => {}} onConfirm={() => {}} />));
+      expect(host.textContent).toContain('iptal edilen iş yeniden açılamaz');
+      expect(host.querySelector('textarea')?.required).toBe(true);
+      const confirm = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'İşi iptal et')!;
+      expect(confirm.disabled).toBe(true);
+      const textarea = host.querySelector('textarea')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, '  Neden  ');
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      });
+      expect(confirm.disabled).toBe(false);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it('shows assigned Staff withdrawal and cancellation actions while waiting', () => {
+    const meeting = { ...job, type: 'SALES_MEETING' as const, assignedTo: staff.id,
+      assignee: { id: staff.id, name: staff.name } };
+    const html = renderToStaticMarkup(<JobDetailPanel job={meeting} items={[]} viewerRole="STAFF"
+      viewerId={staff.id} pending={false} message="" onBack={() => {}} onCommand={() => {}} />);
+    expect(html).toContain('Onaydan geri çek ve düzenle');
+    expect(html).toContain('İşi iptal et');
+  });
+
+  it('opens the edit form only after a waiting Staff meeting is withdrawn', async () => {
+    const meeting = {
+      ...job, type: 'SALES_MEETING' as const, assignedTo: staff.id,
+      assignee: { id: staff.id, name: staff.name }, dueDate: '2026-07-20',
+    };
+    const details = {
+      jobCardId: meeting.id, meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'NO_DECISION',
+      meetingSummary: 'İlk görüşme', nextFollowUpAt: null, jobCardVersion: meeting.version,
+    };
+    const customer = {
+      id: 'c1', organizationId: 'org-1', name: 'Klinik', customerType: 'clinic',
+      taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null, assignedStaffName: null, status: 'active', version: 1,
+      primaryContact: null,
+    };
+    const requests: Array<{ url: string; method: string }> = [];
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input); const method = init?.method ?? 'GET'; requests.push({ url, method });
+      if (url.endsWith('/withdraw-from-approval') && method === 'POST') {
+        return Response.json({ ...meeting, status: 'IN_PROGRESS', version: 5 });
+      }
+      if (url.endsWith('/meeting-details')) return Response.json(details);
+      if (url.includes('/notes?')) return Response.json(page);
+      if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
+      if (url.startsWith('/api/customers?')) {
+        return Response.json({ items: [customer], total: 1, limit: 200, offset: 0 });
+      }
+      if (url.includes('/api/customers/c1/contacts?')) {
+        return Response.json({ items: [], total: 0, limit: 200, offset: 0 });
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+      throw new Error(`Unexpected request: ${method} ${url}`);
+    }));
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={staff} onBack={() => {}} onChanged={() => {}} />);
+        await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(host.querySelector('#meeting-edit-title')).toBeNull();
+      const edit = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Onaydan geri çek ve düzenle')!;
+      await act(async () => {
+        edit.click(); await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(requests.some((request) => request.method === 'POST'
+        && request.url.endsWith('/withdraw-from-approval'))).toBe(true);
+      expect(host.querySelector('#meeting-edit-title')).not.toBeNull();
+      expect((host.querySelector('#meeting-edit-title') as HTMLInputElement).value).toBe(meeting.title);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
   it('sends approve and revision with the current backend version', async () => {
     const approve = vi.fn().mockResolvedValue({ ...job, status: 'COMPLETED', version: 5 });
     const revise = vi.fn().mockResolvedValue({ ...job, status: 'REVISION_REQUESTED', version: 5 });
@@ -135,6 +215,31 @@ describe('Manager review', () => {
       expect(host.textContent).toContain('Görüşme sonucu');
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
+
+  it.each(['NEW', 'PLANNED'] as const)(
+    'does not request or render result and notes for a %s Sales Meeting',
+    async (status) => {
+      const meeting = { ...job, type: 'SALES_MEETING' as const, status,
+        title: 'Planlanan görüşme', dueDate: '2026-07-20' };
+      let meetingReads = 0; let noteReads = 0;
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/meeting-details')) { meetingReads += 1; throw new Error('unexpected'); }
+        if (url.includes('/notes?')) { noteReads += 1; throw new Error('unexpected'); }
+        if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
+        if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+      try {
+        await act(async () => { root.render(<JobDetailScreen jobId="job-1" user={staff}
+          onBack={() => {}} onChanged={() => {}} />); await new Promise((resolve) => setTimeout(resolve, 0)); });
+        expect(meetingReads).toBe(0); expect(noteReads).toBe(0);
+        expect(host.textContent).not.toContain('Görüşme sonucu');
+        expect(host.textContent).not.toContain('Notlar');
+      } finally { await act(async () => root.unmount()); host.remove(); }
+    },
+  );
 
   it('projects submit readiness errors into the meeting form and focuses the summary', async () => {
     const meeting = { ...job, type: 'SALES_MEETING' as const, status: 'IN_PROGRESS' as const,

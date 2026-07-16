@@ -12,6 +12,7 @@ export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
   'MEETING_DETAILS_UPDATED',
+  'JOB_APPROVAL_WITHDRAWN',
 ] as const;
 
 export type KnownJobCardActivityEvent = (typeof JOB_CARD_ACTIVITY_EVENTS)[number];
@@ -32,6 +33,7 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   DELIVERY_ITEM_REMOVED: 'Teslim ürünü kaldırıldı',
   NOTE_ADDED: 'Operasyon notu eklendi',
   MEETING_DETAILS_UPDATED: 'Görüşme sonucu güncellendi',
+  JOB_APPROVAL_WITHDRAWN: 'Onaydan geri çekildi',
 };
 
 export function isKnownJobCardActivityEvent(value: string): value is KnownJobCardActivityEvent {

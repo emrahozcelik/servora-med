@@ -3,8 +3,9 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addJobCardNote, approveJobCard, cancelJobCard, createJobCard, getJobCard,
   getJobCardBoard, getMeetingDetails, listActivity, listDeliveryItems, listJobCardNotes,
-  listJobCards, patchMeetingDetails, planJobCard,
+  listJobCards, patchJobCard, patchMeetingDetails, planJobCard,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
+  withdrawJobCardFromApproval,
 } from '../src/jobs/jobs-api';
 import { jobActivityLabel } from '../src/jobs/job-labels';
 
@@ -106,6 +107,32 @@ describe('JobCard workspace transport', () => {
     }
   });
 
+  it('sends the complete existing JobCard patch contract', async () => {
+    const input = {
+      expectedVersion: 7,
+      title: 'Yeni görüşme başlığı',
+      description: 'Yeni açıklama',
+      customerId: 'customer-2',
+      contactId: 'contact-2',
+      assignedTo: 'staff-2',
+      priority: 'high' as const,
+      dueDate: '2026-07-22',
+    };
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      ...job, ...input, version: 8,
+      customer: related('customer-2', 'Yeni Klinik'),
+      contact: related('contact-2', 'Dr. Yeni'),
+      assignee: related('staff-2', 'Yeni Personel'),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await patchJobCard('job-1', input);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1', expect.objectContaining({
+      method: 'PATCH', body: JSON.stringify(input),
+    }));
+  });
+
   it('runtime-validates all board columns and closed counts', async () => {
     const board = {
       columns: {
@@ -204,21 +231,23 @@ describe('JobCard workspace transport', () => {
     await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('supports all seven lifecycle commands and validates every returned JobCard', async () => {
+  it('supports all eight lifecycle commands and validates every returned JobCard', async () => {
     const fetchMock = vi.fn();
-    for (let index = 0; index < 7; index += 1) fetchMock.mockResolvedValueOnce(json({ ...job, version: 8 + index }));
+    for (let index = 0; index < 8; index += 1) fetchMock.mockResolvedValueOnce(json({ ...job, version: 8 + index }));
     vi.stubGlobal('fetch', fetchMock);
     const versioned = { clientActionId: 'action', expectedVersion: 7 };
     await planJobCard('job-1', versioned); await startJobCard('job-1', versioned);
     await submitJobCardForApproval('job-1', { ...versioned, note: 'Bitti' });
     await approveJobCard('job-1', { ...versioned, note: 'Uygun' });
     await requestJobCardRevision('job-1', { ...versioned, revisionReason: 'Düzeltin' });
+    await withdrawJobCardFromApproval('job-1', versioned);
     await resumeJobCard('job-1', versioned);
     await cancelJobCard('job-1', { ...versioned, cancelReason: 'Müşteri iptal etti' });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/job-cards/job-1/plan', '/api/job-cards/job-1/start',
       '/api/job-cards/job-1/submit-for-approval', '/api/job-cards/job-1/approve',
-      '/api/job-cards/job-1/request-revision', '/api/job-cards/job-1/resume',
+      '/api/job-cards/job-1/request-revision', '/api/job-cards/job-1/withdraw-from-approval',
+      '/api/job-cards/job-1/resume',
       '/api/job-cards/job-1/cancel',
     ]);
   });

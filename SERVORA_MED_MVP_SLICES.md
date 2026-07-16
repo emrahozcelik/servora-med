@@ -478,6 +478,12 @@ covered Staff/Manager plan, result, revision, approval, deep-link/history, mobil
 keyboard/focus, 44 px controls, reduced motion, optional follow-up guidance, safe
 timeline, outcome reporting, 200% text, and 400% reflow without horizontal overflow.
 
+Post-Slice lifecycle correction (2026-07-16): planned meetings no longer expose result or
+Staff-note sections. `WAITING_APPROVAL` is a stable review snapshot; assigned Staff may use
+the explicit, idempotent withdrawal command to return to `IN_PROGRESS`, edit, and resubmit,
+or cancel their own waiting JobCard with a mandatory reason. Migration 008 adds only the
+canonical `JOB_APPROVAL_WITHDRAWN` activity value; completed/cancelled remain terminal.
+
 ## 14. Slice 11: Production Deployment, Backup, and Hardening
 
 **Goal:** Make the completed pilot safe to operate on a public VPS.

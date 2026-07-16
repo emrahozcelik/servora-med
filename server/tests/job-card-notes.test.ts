@@ -116,6 +116,44 @@ describe('JobCard note policy', () => {
 });
 
 describe('append-only JobCard notes service', () => {
+  it.each(['NEW', 'PLANNED', 'WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
+    'rejects Sales Meeting note creation in %s with the exact edit contract',
+    async (status) => {
+      const repository = new NotesRepository();
+      repository.jobs.set('job-1', { ...baseJob, type: 'SALES_MEETING', status });
+      await expect(new JobCardService(repository as never).addNote(staff, 'job-1', {
+        clientActionId: `meeting-note-${status}`, note: 'Not',
+      })).rejects.toMatchObject({
+        code: 'JOB_NOT_EDITABLE', statusCode: 409,
+        message: 'JobCard bu durumda düzenlenemez.',
+      });
+      expect(repository.notes).toHaveLength(0);
+      expect(repository.activities).toHaveLength(0);
+    },
+  );
+
+  it.each(['IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
+    'allows Sales Meeting note creation in %s',
+    async (status) => {
+      const repository = new NotesRepository();
+      repository.jobs.set('job-1', { ...baseJob, type: 'SALES_MEETING', status });
+      await expect(new JobCardService(repository as never).addNote(staff, 'job-1', {
+        clientActionId: `meeting-note-${status}`, note: 'Görüşme notu',
+      })).resolves.toMatchObject({ note: 'Görüşme notu' });
+    },
+  );
+
+  it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const)(
+    'keeps %s note creation unchanged in PLANNED',
+    async (type) => {
+      const repository = new NotesRepository();
+      repository.jobs.set('job-1', { ...baseJob, type, status: 'PLANNED' });
+      await expect(new JobCardService(repository as never).addNote(staff, 'job-1', {
+        clientActionId: `other-note-${type}`, note: 'Operasyon notu',
+      })).resolves.toMatchObject({ note: 'Operasyon notu' });
+    },
+  );
+
   it.each([1, 4_000])('accepts and trims a %i-code-point note', async (length) => {
     const repository = new NotesRepository(); const service = new JobCardService(repository as never);
     const result = await service.addNote(staff, 'job-1', {

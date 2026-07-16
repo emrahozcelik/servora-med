@@ -401,7 +401,10 @@ describe('Sales Meeting detail reads and mutations', () => {
 
     await expect(service.patchMeetingDetails(staff, job.id, {
       clientActionId: 'no-op', expectedVersion: 2, outcome: 'NO_DECISION',
-    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    })).rejects.toMatchObject({
+      code: 'MEETING_DETAILS_UNCHANGED', statusCode: 400,
+      message: 'Görüşme sonucunda kaydedilecek bir değişiklik yok.',
+    });
     await expect(service.patchMeetingDetails(staff, job.id, {
       clientActionId: 'stale', expectedVersion: 9, outcome: 'POSITIVE',
     })).rejects.toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
@@ -409,13 +412,28 @@ describe('Sales Meeting detail reads and mutations', () => {
     expect(repository.activities).toHaveLength(0);
   });
 
-  it.each(['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
+  it.each(['IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
     'allows authorized edits in %s',
     async (status) => {
       const repository = new SalesMeetingRepository();
       const job = repository.seedMeeting({ status });
       await expect(new JobCardService(repository).patchMeetingDetails(manager, job.id, patch))
         .resolves.toMatchObject({ jobCardVersion: 3 });
+    },
+  );
+
+  it.each(['NEW', 'PLANNED'] as const)(
+    'rejects result edits before start in %s with the exact edit contract',
+    async (status) => {
+      const repository = new SalesMeetingRepository();
+      const job = repository.seedMeeting({ status });
+      await expect(new JobCardService(repository).patchMeetingDetails(manager, job.id, patch))
+        .rejects.toMatchObject({
+          code: 'JOB_NOT_EDITABLE', statusCode: 409,
+          message: 'JobCard bu durumda düzenlenemez.',
+        });
+      expect(repository.jobs[0]!.version).toBe(2);
+      expect(repository.activities).toHaveLength(0);
     },
   );
 

@@ -86,6 +86,16 @@ export type PatchMeetingDetailsInput = {
   outcome?: MeetingOutcome | null; meetingSummary?: string | null;
   nextFollowUpAt?: string | null;
 };
+export type PatchJobCardInput = {
+  expectedVersion: number;
+  title?: string;
+  description?: string | null;
+  customerId?: string | null;
+  contactId?: string | null;
+  assignedTo?: string;
+  priority?: JobCardPriority;
+  dueDate?: string | null;
+};
 
 export type JobCardListFilters = Partial<{
   q: string; status: JobCardStatusFilter; type: JobCardType; assignedTo: string;
@@ -282,7 +292,7 @@ export const listJobCardBoard = getJobCardBoard;
 export const getJobCard = async (id: string) => parseJobCard(await request(jobPath(id)));
 export const createJobCard = async (input: JobCardCreateInput) =>
   parseJobCard(await request('/api/job-cards', json('POST', input)));
-export const patchJobCard = async (id: string, input: { expectedVersion: number; title?: string; priority?: JobCardPriority; dueDate?: string | null }) =>
+export const patchJobCard = async (id: string, input: PatchJobCardInput) =>
   parseJobCard(await request(jobPath(id), json('PATCH', input)));
 export const getMeetingDetails = async (id: string) =>
   parseMeetingDetails(await request(`${jobPath(id)}/meeting-details`));
@@ -315,5 +325,6 @@ export const startJobCard = (id: string, input: LifecycleInput) => lifecycle(id,
 export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'submit-for-approval', input);
 export const approveJobCard = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'approve', input);
 export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);
+export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);
 export const resumeJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'resume', input);
 export const cancelJobCard = (id: string, input: LifecycleInput & { cancelReason: string }) => lifecycle(id, 'cancel', input);

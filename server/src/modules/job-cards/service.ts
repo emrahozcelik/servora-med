@@ -3,6 +3,7 @@ import { presentActivity } from './activity-presenter.js';
 import {
   assertCanCreateForAssignee,
   assertCanEdit,
+  assertCanEditMeetingResult,
   assertCanTransition,
   assertCreateAssignmentRequest,
   assertProductDeliveryJob,
@@ -259,7 +260,7 @@ export class JobCardService {
             'JobCard başka bir işlem tarafından güncellendi.',
           );
         }
-        assertCanEdit(actor, job);
+        assertCanEditMeetingResult(actor, job);
         const current = await transaction.getMeetingDetailsForUpdate(
           actor.organizationId,
           jobCardId,
@@ -279,7 +280,13 @@ export class JobCardService {
         const changedFields = MEETING_DETAIL_FIELDS.filter(
           (field) => Object.hasOwn(input, field) && candidate[field] !== current[field],
         );
-        if (changedFields.length === 0) throw validation('body');
+        if (changedFields.length === 0) {
+          throw new AppError(
+            'MEETING_DETAILS_UNCHANGED',
+            400,
+            'Görüşme sonucunda kaydedilecek bir değişiklik yok.',
+          );
+        }
         await transaction.updateMeetingDetails({
           organizationId: actor.organizationId,
           jobCardId,
@@ -532,6 +539,14 @@ export class JobCardService {
       command: 'REQUEST_REVISION', operationKey: 'JOB_REQUEST_REVISION', target: 'REVISION_REQUESTED',
       event: 'JOB_REVISION_REQUESTED', note: null,
       revisionReason: lifecycleReason(input.revisionReason, 'revisionReason'), cancelReason: null,
+    });
+  }
+
+  async withdrawFromApproval(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
+    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+      command: 'WITHDRAW_FROM_APPROVAL', operationKey: 'JOB_WITHDRAW_FROM_APPROVAL',
+      target: 'IN_PROGRESS', event: 'JOB_APPROVAL_WITHDRAWN',
+      note: null, revisionReason: null, cancelReason: null,
     });
   }
 

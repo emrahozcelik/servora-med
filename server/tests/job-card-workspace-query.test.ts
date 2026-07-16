@@ -238,11 +238,12 @@ describe('canonical JobCard types', () => {
       'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
       'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
       'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
-      'MEETING_DETAILS_UPDATED',
+      'MEETING_DETAILS_UPDATED', 'JOB_APPROVAL_WITHDRAWN',
     ]);
     const commands: LifecycleCommand[] = [
-      'PLAN', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION', 'RESUME', 'CANCEL',
+      'PLAN', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
+      'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
     ];
-    expect(commands).toHaveLength(7);
+    expect(commands).toHaveLength(8);
   });
 });

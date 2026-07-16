@@ -86,6 +86,8 @@ export function createJobCardHandlers(service: JobCardService) {
       service.approve(actor(request), request.params.id, body(request, LIFECYCLE_NOTE_FIELDS) as never),
     requestRevision: async (request: FastifyRequest<{ Params: Params }>) =>
       service.requestRevision(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'revisionReason']) as never),
+    withdrawFromApproval: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.withdrawFromApproval(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     resume: async (request: FastifyRequest<{ Params: Params }>) =>
       service.resume(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     cancel: async (request: FastifyRequest<{ Params: Params }>) =>
