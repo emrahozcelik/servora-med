@@ -174,7 +174,7 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pen
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
     {message && <div ref={feedbackRef} className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
       role={messageIsError ? 'alert' : 'status'} tabIndex={-1}>{message}</div>}
-    <dl className="detail-summary">
+    <dl className="detail-summary surface">
       <div><dt>Durum</dt><dd><StatusChip status={job.status} /></dd></div>
       <div><dt>Sorumlu personel</dt><dd>{job.assignee.name}</dd></div>
       <div><dt>Öncelik</dt><dd><PriorityChip priority={job.priority} /></dd></div>
@@ -188,7 +188,7 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pen
         <dl><div><dt>Amaç</dt><dd>{purposeLabels[item.deliveryPurpose]}</dd></div><div><dt>Miktar</dt><dd>{item.quantity}{item.unit ? ` ${item.unit}` : ''}</dd></div>
           <div><dt>Teslim zamanı</dt><dd>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.deliveredAt))}</dd></div></dl></li>)}</ul>
     </section>}
-    {commands.length > 0 && <section className="detail-action" aria-label="İş işlemleri"><p>Yalnızca mevcut duruma uygun işlemler gösterilir.</p>
+    {commands.length > 0 && <section className="detail-action surface-flat" aria-label="İş işlemleri"><p>Yalnızca mevcut duruma uygun işlemler gösterilir.</p>
       <div className="review-buttons">{commands.map((command) => <button key={command}
         className={command === 'cancel' || command === 'revise' ? 'secondary-button' : 'primary-button compact-button'}
         type="button" disabled={pending} onClick={() => onCommand(command)}>{pending ? 'İşleniyor…'

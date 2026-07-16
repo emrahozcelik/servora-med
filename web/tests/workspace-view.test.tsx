@@ -43,9 +43,11 @@ describe('JobCard workspace ownership', () => {
       onCreateMeeting={() => undefined}
     /></MemoryRouter>);
 
-    expect(html).toContain('>Yeni teslim</button>');
-    expect(html).toContain('>Yeni görev</button>');
-    expect(html).toContain('>Yeni görüşme</button>');
+    expect(html).toContain('Yeni iş');
+    expect(html).toContain('new-job-menu-trigger');
+    expect(html).not.toContain('>Yeni teslim</button>');
+    expect(html).not.toContain('>Yeni görev</button>');
+    expect(html).not.toContain('>Yeni görüşme</button>');
     expect(paths.newDelivery).toBe('/jobs/new-delivery');
     expect(paths.newTask).toBe('/jobs/new-task');
     expect(paths.newMeeting).toBe('/jobs/new-meeting');

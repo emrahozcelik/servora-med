@@ -55,7 +55,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
     });
   }
 
-  return <form className="job-filters" role="search" onSubmit={submit}>
+  return <form className="job-filters surface" role="search" onSubmit={submit}>
     <div className="job-filter-primary">
       <div className="field-group"><label htmlFor="job-search">İş ara</label>
         <input id="job-search" type="search" maxLength={200} value={search} onChange={(event) => setSearch(event.target.value)} /></div>

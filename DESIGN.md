@@ -154,9 +154,16 @@ components:
 
 ### Button
 
-Variants: **primary**, **secondary**, **destructive**, **ghost**. Sizes: **btn-sm**, **btn-md**.  
-**Width is content by default.** Full width is explicit (`.btn-full` or form-actions scope). Primary does not mean “span the row.”  
+Variants: **primary**, **secondary**, **destructive**, **ghost**. Sizes: **btn-sm** (alias: `compact-button`), **btn-md**.  
+**Width is content by default.** Full width is explicit (`.btn-full`) or reserved for stacked form footers (login, people/task/delivery forms). Primary does not mean “span the row.”  
 This slice keeps a **CSS class contract**; it does not introduce a separate React `Button` abstraction.
+
+### Surfaces
+
+- **Surface** (`.surface`): calm grouping for job filters and detail summary.
+- **Surface-flat** (`.surface-flat`): lifecycle action bar; clear but not elevated.
+- **Raised** (`.surface-raised`): Yeni iş menu / mobile sheet, popovers.
+Desktop list rows stay flat (no card wrappers, no side-stripe accents).
 
 ### FormControl
 
