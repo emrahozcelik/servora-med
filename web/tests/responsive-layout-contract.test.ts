@@ -12,6 +12,8 @@ describe('responsive layout CSS contracts (PR A)', () => {
     const block = css.slice(css.indexOf('@container filter-region (max-width: 52rem)'));
     expect(block).toContain('.customer-filters');
     expect(block).toContain('.job-filter-primary');
+    expect(block).toContain('.report-filters');
+    expect(block).toContain('.report-filters-wide');
   });
 
   it('gates five-column Kanban on container width with 90rem viewport fallback', () => {

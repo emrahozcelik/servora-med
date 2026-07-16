@@ -109,7 +109,7 @@ export function NewJobMenu({
         ref={triggerRef}
         type="button"
         className="primary-button compact-button new-job-menu-trigger"
-        aria-haspopup={isSheet ? 'dialog' : 'true'}
+        aria-haspopup={isSheet ? 'dialog' : undefined}
         aria-expanded={open}
         aria-controls={menuId}
         onClick={() => setOpen((value) => !value)}

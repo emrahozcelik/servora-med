@@ -135,35 +135,37 @@ export function ReportDateRangeForm({
           ))}
         </div>
       ) : null}
-      <form
-        key={formKey}
-        className={`filter-region ${wide ? 'report-filters report-filters-wide' : 'report-filters'}`}
-        onSubmit={onSubmit}
-        noValidate
-      >
-        <label>
-          Başlangıç
-          <input
-            name="from"
-            type="date"
-            defaultValue={from}
-            aria-invalid={filterError ? true : undefined}
-            aria-describedby={filterError ? 'report-filter-error' : undefined}
-          />
-        </label>
-        <label>
-          Bitiş
-          <input
-            name="to"
-            type="date"
-            defaultValue={to}
-            aria-invalid={filterError ? true : undefined}
-            aria-describedby={filterError ? 'report-filter-error' : undefined}
-          />
-        </label>
-        {children}
-        <button type="submit" className="secondary-button">Uygula</button>
-      </form>
+      <div className="filter-region">
+        <form
+          key={formKey}
+          className={wide ? 'report-filters report-filters-wide' : 'report-filters'}
+          onSubmit={onSubmit}
+          noValidate
+        >
+          <label>
+            Başlangıç
+            <input
+              name="from"
+              type="date"
+              defaultValue={from}
+              aria-invalid={filterError ? true : undefined}
+              aria-describedby={filterError ? 'report-filter-error' : undefined}
+            />
+          </label>
+          <label>
+            Bitiş
+            <input
+              name="to"
+              type="date"
+              defaultValue={to}
+              aria-invalid={filterError ? true : undefined}
+              aria-describedby={filterError ? 'report-filter-error' : undefined}
+            />
+          </label>
+          {children}
+          <button type="submit" className="secondary-button">Uygula</button>
+        </form>
+      </div>
       {filterError ? (
         <div
           id="report-filter-error"

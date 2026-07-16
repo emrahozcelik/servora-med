@@ -45,6 +45,15 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
           </div>
         </form>
       </div>
+      <div class="filter-region">
+        <form class="report-filters report-filters-wide">
+          <label>Başlangıç<input type="date"/></label>
+          <label>Bitiş<input type="date"/></label>
+          <label>Personel<select><option>Tümü</option></select></label>
+          <label>Amaç<select><option>Tümü</option></select></label>
+          <button type="button" class="secondary-button">Uygula</button>
+        </form>
+      </div>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="job-board-columns">
           <section class="job-board-column"><h2>Yeni</h2></section>
@@ -121,12 +130,15 @@ async function measure(page) {
     const root = document.documentElement;
     const overflowX = root.scrollWidth > root.clientWidth + 1;
     const results = [];
-    for (const sel of ['.customer-filters', '.job-filter-primary']) {
+    for (const sel of ['.customer-filters', '.job-filter-primary', '.report-filters-wide']) {
       const filters = document.querySelector(sel);
       if (!filters) continue;
       const fr = filters.getBoundingClientRect();
-      const region = filters.closest('.filter-region')?.getBoundingClientRect()
+      const regionEl = filters.closest('.filter-region');
+      const region = regionEl?.getBoundingClientRect()
         ?? filters.closest('main')?.getBoundingClientRect();
+      // Container must be an ancestor, not the same node as the grid target.
+      const containerIsAncestor = Boolean(regionEl && regionEl !== filters);
       let filterOverflow = false;
       if (region && (fr.right > region.right + 2 || fr.left < region.left - 2)) filterOverflow = true;
       const controls = [...filters.querySelectorAll('input, select, button')].map((el) => {
@@ -145,7 +157,10 @@ async function measure(page) {
         }
       }
       const cols = getComputedStyle(filters).gridTemplateColumns.trim().split(/\s+/).filter(Boolean).length;
-      results.push({ sel, filterOverflow, sameRowIntersect, cols, width: fr.width, regionWidth: region?.width ?? 0 });
+      results.push({
+        sel, filterOverflow, sameRowIntersect, cols, width: fr.width,
+        regionWidth: region?.width ?? 0, containerIsAncestor,
+      });
     }
     const columns = document.querySelector('.job-board-columns');
     let boardCols = 0;
@@ -197,8 +212,14 @@ try {
     if (vp.width === 1024) {
       if (!m.sidebarVisible) failures.push(`${vp.name}: sidebar should be visible`);
       for (const r of m.results) {
+        if (!r.containerIsAncestor) {
+          failures.push(`${vp.name}: ${r.sel} filter-region must be ancestor container`);
+        }
         if (r.cols > 1 && r.regionWidth < 52 * 16) {
           failures.push(`${vp.name}: ${r.sel} multi-col in narrow region (${r.regionWidth}px, cols=${r.cols})`);
+        }
+        if (r.sel === '.report-filters-wide' && r.cols !== 1) {
+          failures.push(`${vp.name}: report-filters-wide must be single column under sidebar (cols=${r.cols})`);
         }
       }
     }
@@ -224,6 +245,24 @@ try {
     if (m.overflowX) failures.push('200% text: horizontal overflow');
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
+    }
+    await page.close();
+  }
+
+  {
+    // WCAG 1.4.10 reflow evidence: 400% on 1280 CSS px ≈ 320 CSS px width.
+    // Prefer viewport reflow over document.zoom (zoom distorts getBoundingClientRect).
+    const page = await browser.newPage({ viewport: { width: 320, height: 256 } });
+    await page.goto(url, { waitUntil: 'load' });
+    await page.evaluate(() => window.dispatchEvent(new Event('resize')));
+    const m = await measure(page);
+    console.log(JSON.stringify({ viewport: '320-wcag-400pct-reflow', ...m }));
+    if (m.overflowX) failures.push('400% reflow: horizontal overflow');
+    for (const r of m.results) {
+      if (r.filterOverflow || r.sameRowIntersect) {
+        failures.push(`400% reflow: ${r.sel} layout failure`);
+      }
+      if (r.cols !== 1) failures.push(`400% reflow: ${r.sel} expected 1 col (cols=${r.cols})`);
     }
     await page.close();
   }

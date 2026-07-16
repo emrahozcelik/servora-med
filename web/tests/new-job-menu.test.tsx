@@ -31,6 +31,7 @@ describe('NewJobMenu', () => {
     );
     expect(html).toContain('Yeni iş');
     expect(html).toContain('aria-expanded="false"');
+    expect(html).not.toContain('aria-haspopup');
     expect(html).not.toContain('Yeni görüşme');
     expect(html).not.toContain('Yeni görev');
     expect(html).not.toContain('Yeni teslim');
