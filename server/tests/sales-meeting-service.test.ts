@@ -409,13 +409,28 @@ describe('Sales Meeting detail reads and mutations', () => {
     expect(repository.activities).toHaveLength(0);
   });
 
-  it.each(['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
+  it.each(['IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
     'allows authorized edits in %s',
     async (status) => {
       const repository = new SalesMeetingRepository();
       const job = repository.seedMeeting({ status });
       await expect(new JobCardService(repository).patchMeetingDetails(manager, job.id, patch))
         .resolves.toMatchObject({ jobCardVersion: 3 });
+    },
+  );
+
+  it.each(['NEW', 'PLANNED'] as const)(
+    'rejects result edits before start in %s with the exact edit contract',
+    async (status) => {
+      const repository = new SalesMeetingRepository();
+      const job = repository.seedMeeting({ status });
+      await expect(new JobCardService(repository).patchMeetingDetails(manager, job.id, patch))
+        .rejects.toMatchObject({
+          code: 'JOB_NOT_EDITABLE', statusCode: 409,
+          message: 'JobCard bu durumda düzenlenemez.',
+        });
+      expect(repository.jobs[0]!.version).toBe(2);
+      expect(repository.activities).toHaveLength(0);
     },
   );
 

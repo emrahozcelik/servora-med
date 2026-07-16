@@ -1,5 +1,5 @@
 import { AppError } from '../../errors/index.js';
-import { assertCanAccessNotes } from './policy.js';
+import { assertCanAccessNotes, assertCanAddNote } from './policy.js';
 import type { JobCardRepository, PageQuery } from './repository.js';
 import type { JobCard, JobCardActor } from './types.js';
 import { boundedTrimmedString, requireActionId } from './validation.js';
@@ -26,6 +26,7 @@ export class JobCardNotesService {
       async (transaction) => {
         const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
         this.assertVisible(actor, job);
+        assertCanAddNote(actor, job);
         const created = await transaction.createNote({
           organizationId: actor.organizationId, jobCardId, authorId: actor.id, note,
         });

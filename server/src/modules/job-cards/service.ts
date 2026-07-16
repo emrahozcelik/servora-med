@@ -3,6 +3,7 @@ import { presentActivity } from './activity-presenter.js';
 import {
   assertCanCreateForAssignee,
   assertCanEdit,
+  assertCanEditMeetingResult,
   assertCanTransition,
   assertCreateAssignmentRequest,
   assertProductDeliveryJob,
@@ -259,7 +260,7 @@ export class JobCardService {
             'JobCard başka bir işlem tarafından güncellendi.',
           );
         }
-        assertCanEdit(actor, job);
+        assertCanEditMeetingResult(actor, job);
         const current = await transaction.getMeetingDetailsForUpdate(
           actor.organizationId,
           jobCardId,
