@@ -18,6 +18,8 @@ import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { jobTypeLabels } from './jobs/job-labels';
 import { jobCapabilities } from './jobs/job-capabilities';
+import { PriorityChip } from './ui/PriorityChip';
+import { StatusChip } from './ui/StatusChip';
 
 type StaffCommand = 'start' | 'submit';
 export type LifecycleCommand = 'edit' | 'plan' | 'start' | 'submit' | 'approve' | 'revise' | 'withdraw' | 'resume' | 'cancel';
@@ -108,8 +110,6 @@ export function availableLifecycleCommands(job: JobCard, role: CurrentUser['role
 }
 
 const purposeLabels = { SALE: 'Satış', SAMPLE: 'Numune', CONSIGNMENT: 'Konsinye', RETURN: 'İade', OTHER: 'Diğer' } as const;
-const statusLabels = { NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor', REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi' } as const;
-const priorityLabels = { low: 'Düşük', normal: 'Normal', high: 'Yüksek', urgent: 'Acil' } as const;
 const commandLabels: Record<LifecycleCommand, string> = {
   edit: 'Görüşmeyi düzenle',
   plan: 'Planla', start: 'İşi başlat', submit: 'Onaya gönder', approve: 'Onayla',
@@ -175,9 +175,9 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pen
     {message && <div ref={feedbackRef} className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
       role={messageIsError ? 'alert' : 'status'} tabIndex={-1}>{message}</div>}
     <dl className="detail-summary">
-      <div><dt>Durum</dt><dd>{statusLabels[job.status]}</dd></div>
+      <div><dt>Durum</dt><dd><StatusChip status={job.status} /></dd></div>
       <div><dt>Sorumlu personel</dt><dd>{job.assignee.name}</dd></div>
-      <div><dt>Öncelik</dt><dd>{priorityLabels[job.priority]}</dd></div>
+      <div><dt>Öncelik</dt><dd><PriorityChip priority={job.priority} /></dd></div>
       <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Son tarih'}</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi'}</dd></div>
       <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
       <div><dt>İlgili kişi</dt><dd>{job.contact?.name ?? 'Belirtilmedi'}</dd></div>

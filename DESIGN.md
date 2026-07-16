@@ -74,6 +74,31 @@ The implemented palette uses warm, lightly tinted neutrals and a low-chroma mine
 
 **The No-Small-ERP Rule.** Information density may increase on desktop, but body text, metadata, and controls never shrink merely to fit more columns.
 
+## Layout
+
+```yaml
+layout:
+  workspace-max: 68rem
+  board-container-min: 68rem
+  shell-sidebar-min: 64rem
+  filter-collapse-max: 56rem
+  mobile-max: 40rem
+  board-viewport-fallback-min: 90rem
+```
+
+**Workspace.** Default operational content sits in a readable column capped near `{layout.workspace-max}`. The JobCard board may use a wider usable region when the board gate is open, but density must remain scannable, not ERP-compressed.
+
+**Shell.** At `{layout.shell-sidebar-min}` and above, navigation uses a persistent sidebar. Below that threshold, navigation is mobile chrome (single top bar, drawer overflow, and bottom destinations). Layout decisions should prefer **usable content width** after chrome is accounted for, not raw viewport alone.
+
+**Responsive structure.**
+
+- **Mobile** (≤ `{layout.mobile-max}`): single column, bottom destinations, sheets for filters and create menus, list/card composition for jobs.
+- **Tablet / mid** (through `{layout.filter-collapse-max}`): multi-column filter toolbars collapse early enough to prevent mid-band clipping (approximately 721–860px was a known failure band when collapse only happened at 720px).
+- **Desktop shell** (≥ `{layout.shell-sidebar-min}`): sidebar + denser lists/tables.
+- **Wide board:** prefer container query on the board region (`inline-size` ≥ ~`{layout.board-container-min}` to ~70rem). Fallback viewport gate: ≥ `{layout.board-viewport-fallback-min}`. Five equal Kanban columns must not open at 1024px with a sidebar.
+
+**The Mobile Action Rule.** Phone layouts optimize one-hand JobCard action. Desktop layouts optimize manager oversight. Mobile is not a shrunk desktop board.
+
 ## Elevation
 
 Servora-Med is flat by default. Background tone, spacing, grouping, and clear borders establish most hierarchy. Shadows appear only when a surface truly sits above another surface, such as a menu, popover, mobile sheet, or a JobCard actively lifted by direct manipulation.
@@ -83,6 +108,75 @@ Translucency and blur are not part of the base identity. A functional sheet may 
 **The Earned Elevation Rule.** A shadow indicates a real layer or interaction state. If removing the shadow does not make the hierarchy less understandable, the shadow is forbidden.
 
 **The One-Surface Rule.** Nested cards and glass panels are prohibited. Group related content through layout before adding another container.
+
+**Surface levels (product polish):**
+
+```text
+Canvas  → Quiet Canvas (shell / page frame)
+Surface → Daylight Paper panels (filters, detail summary, calm grouping)
+Raised  → menus, popovers, mobile sheets, sticky create (earned elevation only)
+```
+
+Desktop job list rows stay flat. Do not card-wrap every row.
+
+## Shapes
+
+```yaml
+rounded:
+  control: 0.6rem
+  button: 0.6rem
+  chip: 999px
+  raised: 0.75rem
+  brand-mark: 0.55rem
+```
+
+Controls and buttons share a modest radius (`{rounded.control}` / `{rounded.button}`) so forms feel consistent. Status and priority chips use a pill (`{rounded.chip}`). Raised layers (sheet, popover) may use a slightly larger radius (`{rounded.raised}`) without becoming soft “bubble” UI.
+
+Corners stay quiet. Radius is not a brand flourish; it only keeps touch targets and grouping readable.
+
+## Components
+
+```yaml
+components:
+  button-primary:
+    backgroundColor: "oklch(47% 0.105 238deg)"
+    textColor: "oklch(98.5% 0.004 235deg)"
+    rounded: 0.6rem
+  form-control:
+    height: 2.75rem
+    rounded: 0.6rem
+    padding: 0.72rem
+  status-chip:
+    rounded: 999px
+  priority-chip:
+    rounded: 999px
+```
+
+### Button
+
+Variants: **primary**, **secondary**, **destructive**, **ghost**. Sizes: **btn-sm**, **btn-md**.  
+**Width is content by default.** Full width is explicit (`.btn-full` or form-actions scope). Primary does not mean “span the row.”  
+This slice keeps a **CSS class contract**; it does not introduce a separate React `Button` abstraction.
+
+### FormControl
+
+Text inputs, selects, and textareas share padding, border, radius, min-height, hover, focus, disabled, optional hint (`aria-describedby`), and error presentation. Bare selects (for example staff profile filters) must join this contract rather than native-unstyled outliers.
+
+### Status and priority chips
+
+Both are required for operational scanning. Soft fill + visible Turkish label (and optional non-color shape). Color never alone. No left side-stripe accents on cards or chips.
+
+### New job control
+
+One primary **Yeni iş** control. Desktop: disclosure menu without focus trap; Escape returns focus. Mobile: bottom sheet with focus containment when presented as a modal layer. Routes remain the existing create flows.
+
+### Mobile top bar
+
+A **single** sticky top bar: optional back, section title from one route-metadata source, profile or overflow. Do not stack a second header under brand chrome. Avoid a large duplicate visual title in content for the same section name.
+
+### Bottom navigation and Menü
+
+Destinations come from one navigation model shared with sidebar and drawer. Manager/Admin **Menü** is a **button** that opens the existing drawer (not a route). Overflow holds lower-frequency items (Personel, Kullanıcılar, Oturumu kapat). Closing restores focus to the Menü trigger.
 
 ## Do's and Don'ts
 

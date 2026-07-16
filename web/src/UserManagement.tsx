@@ -5,6 +5,7 @@ import {
   activateUser, changeUserRole, createUser, deactivateUser, getUser, listUsers,
   resetUserPassword, updateUser, type ManagedUser,
 } from './services/people-api';
+import { PASSWORD_LENGTH_HINT_TR } from './ui/password-policy';
 
 const roleLabel = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
 
@@ -37,7 +38,8 @@ export function UserCreateForm({ managers, onCancel, onCreated }: { managers: Ma
       <Field id="user-email" label="E-posta"><input id="user-email" name="email" type="email" required disabled={pending} /></Field>
       <Field id="user-role" label="Rol"><select id="user-role" value={role} onChange={(e) => setRole(e.target.value as ManagedUser['role'])} disabled={pending}>
         <option value="STAFF">Personel</option><option value="MANAGER">Yönetici</option><option value="ADMIN">Sistem yöneticisi</option></select></Field>
-      <Field id="temporary-password" label="Geçici parola"><input id="temporary-password" name="temporaryPassword" type="password" minLength={12} maxLength={128} required disabled={pending} /></Field>
+      <Field id="temporary-password" label="Geçici parola" hintId="temporary-password-hint" hint={PASSWORD_LENGTH_HINT_TR}>
+        <input id="temporary-password" name="temporaryPassword" type="password" minLength={12} maxLength={128} required disabled={pending} aria-describedby="temporary-password-hint" /></Field>
       {role === 'STAFF' && <><Field id="staff-title" label="Unvan"><input id="staff-title" name="title" /></Field>
         <Field id="staff-phone" label="Telefon"><input id="staff-phone" name="phone" type="tel" /></Field>
         <Field id="staff-region" label="Bölge"><input id="staff-region" name="region" /></Field>
@@ -46,7 +48,12 @@ export function UserCreateForm({ managers, onCancel, onCreated }: { managers: Ma
   </main>;
 }
 
-function Field({ id, label, children }: { id: string; label: string; children: React.ReactNode }) { return <div className="field-group"><label htmlFor={id}>{label}</label>{children}</div>; }
+function Field({ id, label, children, hint, hintId }: {
+  id: string; label: string; children: React.ReactNode; hint?: string; hintId?: string;
+}) {
+  return <div className="field-group"><label htmlFor={id}>{label}</label>{children}
+    {hint && hintId ? <p id={hintId} className="field-hint">{hint}</p> : null}</div>;
+}
 
 export function UserDetailView({ user: initial, onBack, onChanged }: { user: ManagedUser; onBack: () => void; onChanged: (user: ManagedUser) => void }) {
   const [user, setUser] = useState(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
@@ -58,7 +65,9 @@ export function UserDetailView({ user: initial, onBack, onChanged }: { user: Man
     <section className="security-section"><h2>Rol ve erişim</h2>{user.role !== 'STAFF' && <form onSubmit={(e) => { e.preventDefault(); const role = String(new FormData(e.currentTarget).get('role')) as 'ADMIN' | 'MANAGER'; void run(() => changeUserRole(user.id, { expectedVersion: user.version, role }), 'Rol güncellendi.'); }}>
       <Field id="detail-role" label="Rol"><select id="detail-role" name="role" defaultValue={user.role}><option value="ADMIN">Sistem yöneticisi</option><option value="MANAGER">Yönetici</option></select></Field><button className="primary-button">Rolü değiştir</button></form>}
       <form onSubmit={(e) => { e.preventDefault(); const temporaryPassword = String(new FormData(e.currentTarget).get('temporaryPassword') ?? ''); if (window.confirm('Parola sıfırlansın ve tüm oturumlar kapatılsın mı?')) void run(() => resetUserPassword(user.id, { expectedVersion: user.version, temporaryPassword }), 'Geçici parola kaydedildi.'); }}>
-        <Field id="reset-password" label="Geçici parola belirle"><input id="reset-password" name="temporaryPassword" type="password" minLength={12} maxLength={128} required /></Field><button className="secondary-button command-button">Parolayı sıfırla</button></form>
+        <Field id="reset-password" label="Geçici parola belirle" hintId="reset-password-hint" hint={PASSWORD_LENGTH_HINT_TR}>
+          <input id="reset-password" name="temporaryPassword" type="password" minLength={12} maxLength={128} required aria-describedby="reset-password-hint" /></Field>
+        <button className="secondary-button command-button">Parolayı sıfırla</button></form>
       <button className="secondary-button command-button" type="button" onClick={() => { if (window.confirm(user.isActive ? 'Kullanıcı pasifleştirilsin mi?' : 'Kullanıcı aktifleştirilsin mi?')) void run(() => user.isActive ? deactivateUser(user.id, user.version) : activateUser(user.id, user.version), user.isActive ? 'Kullanıcı pasifleştirildi.' : 'Kullanıcı aktifleştirildi.'); }}>{user.isActive ? 'Kullanıcıyı pasifleştir' : 'Kullanıcıyı aktifleştir'}</button>
     </section></main>;
 }
