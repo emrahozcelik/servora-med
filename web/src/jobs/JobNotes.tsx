@@ -19,12 +19,16 @@ export function JobNotes({
   add = addJobCardNote,
   createActionId = () => crypto.randomUUID(),
   onAdded = () => {},
+  canAdd = true,
+  hideWhenEmpty = false,
 }: {
   jobId: string;
   load?: typeof listJobCardNotes;
   add?: typeof addJobCardNote;
   createActionId?: () => string;
   onAdded?: () => void;
+  canAdd?: boolean;
+  hideWhenEmpty?: boolean;
 }) {
   const [offset, setOffset] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
@@ -85,10 +89,11 @@ export function JobNotes({
   }
 
   const remaining = 4000 - codePointLength(draft);
+  if (hideWhenEmpty && state.kind === 'ready' && state.page.items.length === 0) return null;
   return <section className="job-notes" aria-labelledby="job-notes-title">
     <div className="detail-section-heading"><h2 id="job-notes-title">Notlar</h2>
-      <span aria-live="polite">{remaining} karakter kaldı</span></div>
-    <form onSubmit={submit} noValidate>
+      {canAdd && <span aria-live="polite">{remaining} karakter kaldı</span>}</div>
+    {canAdd && <form onSubmit={submit} noValidate>
       <div className="field-group">
         <label htmlFor="job-note">İş notu</label>
         <textarea id="job-note" name="note" rows={4} value={draft} disabled={pending}
@@ -102,7 +107,7 @@ export function JobNotes({
       <button className="primary-button compact-button" type="submit" disabled={pending}>
         {pending ? 'Kaydediliyor…' : 'Not ekle'}
       </button>
-    </form>
+    </form>}
 
     {state.kind === 'loading' && <div aria-busy="true"><p>Notlar yükleniyor</p></div>}
     {state.kind === 'error' && <div className="workspace-message" role="alert"><p>{state.message}</p>

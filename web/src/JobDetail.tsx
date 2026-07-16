@@ -14,6 +14,7 @@ import { MeetingDetailsSection } from './jobs/MeetingDetails';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { jobTypeLabels } from './jobs/job-labels';
+import { jobCapabilities } from './jobs/job-capabilities';
 
 type StaffCommand = 'start' | 'submit';
 export type LifecycleCommand = 'plan' | 'start' | 'submit' | 'approve' | 'revise' | 'resume' | 'cancel';
@@ -180,7 +181,7 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', pending, mess
 export type LoadedJobDetail =
   | { kind: 'PRODUCT_DELIVERY'; job: JobCard & { type: 'PRODUCT_DELIVERY' }; deliveryItems: DeliveryItem[] }
   | { kind: 'GENERAL_TASK'; job: JobCard & { type: 'GENERAL_TASK' } }
-  | { kind: 'SALES_MEETING'; job: JobCard & { type: 'SALES_MEETING' }; meetingDetails: MeetingDetails };
+  | { kind: 'SALES_MEETING'; job: JobCard & { type: 'SALES_MEETING' }; meetingDetails: MeetingDetails | null };
 type DetailState = { kind: 'loading' } | { kind: 'ready'; detail: LoadedJobDetail }
   | { kind: 'error'; message: string; retryable: boolean };
 
@@ -190,13 +191,15 @@ async function loadJobDetailOnce(jobId: string): Promise<LoadedJobDetail> {
     job: { ...job, type: job.type }, deliveryItems: await listDeliveryItems(jobId) };
   if (job.type === 'GENERAL_TASK') return { kind: job.type, job: { ...job, type: job.type } };
   return { kind: job.type, job: { ...job, type: job.type },
-    meetingDetails: await getMeetingDetails(jobId) };
+    meetingDetails: ['NEW', 'PLANNED'].includes(job.status) ? null : await getMeetingDetails(jobId) };
 }
 async function loadJobDetail(jobId: string) {
   let detail = await loadJobDetailOnce(jobId);
-  if (detail.kind !== 'SALES_MEETING' || detail.job.version === detail.meetingDetails.jobCardVersion) return detail;
+  if (detail.kind !== 'SALES_MEETING' || detail.meetingDetails === null
+    || detail.job.version === detail.meetingDetails.jobCardVersion) return detail;
   detail = await loadJobDetailOnce(jobId);
-  if (detail.kind !== 'SALES_MEETING' || detail.job.version !== detail.meetingDetails.jobCardVersion) {
+  if (detail.kind !== 'SALES_MEETING' || detail.meetingDetails === null
+    || detail.job.version !== detail.meetingDetails.jobCardVersion) {
     throw new ApiError(409, 'VERSION_CONFLICT', 'İş ve görüşme bilgileri eşleşmedi. Tekrar deneyin.', true);
   }
   return detail;
@@ -250,10 +253,15 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
         : command === 'revise' ? await requestJobCardRevision(jobId, { ...input, revisionReason: reason })
         : command === 'resume' ? await resumeJobCard(jobId, input)
         : await cancelJobCard(jobId, { ...input, cancelReason: reason });
+      if (state.detail.kind === 'SALES_MEETING' && command === 'start') {
+        await refreshTruth();
+      } else {
       setState({ kind: 'ready', detail: state.detail.kind === 'SALES_MEETING'
         ? { ...state.detail, job: updated as JobCard & { type: 'SALES_MEETING' },
-          meetingDetails: { ...state.detail.meetingDetails, jobCardVersion: updated.version } }
+          meetingDetails: state.detail.meetingDetails === null ? null
+            : { ...state.detail.meetingDetails, jobCardVersion: updated.version } }
         : { ...state.detail, job: updated } as LoadedJobDetail });
+      }
       setTimelineKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) setDialog(null);
@@ -305,13 +313,28 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   if (state.kind === 'error') return <main className="job-detail"><div className="workspace-message" role="alert"><h1>İş yüklenemedi</h1><p>{state.message}</p>
     {state.retryable && <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button>}</div></main>;
   const { detail } = state;
+  const capabilities = jobCapabilities(user, detail.job);
+  const hasMeetingResult = detail.kind === 'SALES_MEETING' && detail.meetingDetails !== null
+    && Object.values({
+      meetingAt: detail.meetingDetails.meetingAt,
+      outcome: detail.meetingDetails.outcome,
+      meetingSummary: detail.meetingDetails.meetingSummary,
+      nextFollowUpAt: detail.meetingDetails.nextFollowUpAt,
+    }).some((value) => value !== null);
+  const showMeetingResult = detail.kind === 'SALES_MEETING'
+    && capabilities.canViewMeetingResult && detail.meetingDetails !== null
+    && (detail.job.status !== 'CANCELLED' || hasMeetingResult);
+  const showNotes = detail.kind !== 'SALES_MEETING' || capabilities.canViewMeetingNotes;
   return <JobDetailPanel job={detail.job} items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []} viewerRole={user.role} pending={pending}
     message={message} messageIsError={messageIsError} feedbackRef={feedbackRef} onBack={onBack}
     onCommand={(name) => command(name, document.activeElement as HTMLElement)}>
-    {detail.kind === 'SALES_MEETING' && <MeetingDetailsSection job={detail.job} details={detail.meetingDetails}
-      user={user} mutationPending={pending} submissionError={meetingSubmissionError}
+    {showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails && <MeetingDetailsSection job={detail.job} details={detail.meetingDetails}
+      user={user} canEdit={capabilities.canEditMeetingResult} mutationPending={pending} submissionError={meetingSubmissionError}
       onSave={saveMeeting} />}
-    <div className="job-detail-sections"><JobNotes jobId={jobId} onAdded={() => setTimelineKey((value) => value + 1)} /><JobTimeline jobId={jobId} refreshKey={timelineKey} /></div>
+    <div className="job-detail-sections">{showNotes && <JobNotes jobId={jobId}
+      canAdd={detail.kind !== 'SALES_MEETING' || capabilities.canAddMeetingNote}
+      hideWhenEmpty={detail.kind === 'SALES_MEETING' && detail.job.status === 'CANCELLED'}
+      onAdded={() => setTimelineKey((value) => value + 1)} />}<JobTimeline jobId={jobId} refreshKey={timelineKey} /></div>
     {dialog && <ReasonDialog kind={dialog} pending={pending} onClose={closeDialog} onConfirm={(reason) => void execute(dialog, reason)} />}
   </JobDetailPanel>;
 }

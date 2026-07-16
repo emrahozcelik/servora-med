@@ -136,6 +136,31 @@ describe('Manager review', () => {
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 
+  it.each(['NEW', 'PLANNED'] as const)(
+    'does not request or render result and notes for a %s Sales Meeting',
+    async (status) => {
+      const meeting = { ...job, type: 'SALES_MEETING' as const, status,
+        title: 'Planlanan görüşme', dueDate: '2026-07-20' };
+      let meetingReads = 0; let noteReads = 0;
+      vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+        const url = String(input);
+        if (url.endsWith('/meeting-details')) { meetingReads += 1; throw new Error('unexpected'); }
+        if (url.includes('/notes?')) { noteReads += 1; throw new Error('unexpected'); }
+        if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
+        if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+        throw new Error(`Unexpected request: ${url}`);
+      }));
+      const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+      try {
+        await act(async () => { root.render(<JobDetailScreen jobId="job-1" user={staff}
+          onBack={() => {}} onChanged={() => {}} />); await new Promise((resolve) => setTimeout(resolve, 0)); });
+        expect(meetingReads).toBe(0); expect(noteReads).toBe(0);
+        expect(host.textContent).not.toContain('Görüşme sonucu');
+        expect(host.textContent).not.toContain('Notlar');
+      } finally { await act(async () => root.unmount()); host.remove(); }
+    },
+  );
+
   it('projects submit readiness errors into the meeting form and focuses the summary', async () => {
     const meeting = { ...job, type: 'SALES_MEETING' as const, status: 'IN_PROGRESS' as const,
       title: 'Satış görüşmesi', dueDate: '2026-07-20' };

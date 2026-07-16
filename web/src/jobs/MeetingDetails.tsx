@@ -9,7 +9,6 @@ const outcomeLabels: Record<MeetingOutcome, string> = {
   POSITIVE: 'Olumlu', FOLLOW_UP_REQUIRED: 'Takip gerekli',
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
-const editableStatuses: JobCard['status'][] = ['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'];
 type MeetingFieldErrors = Partial<Record<MeetingDetailField, string>>;
 const meetingFields: MeetingDetailField[] = [
   'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
@@ -39,8 +38,9 @@ function describedBy(...ids: Array<string | false | undefined>) {
   return ids.filter(Boolean).join(' ') || undefined;
 }
 
-export function MeetingDetailsSection({ job, details, user, mutationPending, submissionError, onSave }: {
+export function MeetingDetailsSection({ job, details, user, canEdit: canEditOverride, mutationPending, submissionError, onSave }: {
   job: JobCard; details: MeetingDetails; user: CurrentUser; mutationPending: boolean;
+  canEdit?: boolean;
   submissionError?: ApiError | null;
   onSave: (input: PatchMeetingDetailsInput) => Promise<MeetingDetails>;
 }) {
@@ -55,8 +55,10 @@ export function MeetingDetailsSection({ job, details, user, mutationPending, sub
     setSummary(details.meetingSummary ?? ''); setFollowUp(localValue(details.nextFollowUpAt)); }, [details]);
   useEffect(() => { setFieldErrors(serverFieldErrors(submissionError)); }, [submissionError]);
   useEffect(() => { if (feedback || error) feedbackRef.current?.focus(); }, [feedback, error]);
-  const canEdit = editableStatuses.includes(job.status)
-    && (user.role !== 'STAFF' || user.id === job.assignedTo);
+  const canEdit = canEditOverride ?? (
+    ['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)
+    && (user.role !== 'STAFF' || user.id === job.assignedTo)
+  );
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); if (mutationPending) return; setError(''); setFeedback(''); setFieldErrors({});

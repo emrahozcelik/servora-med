@@ -121,4 +121,12 @@ describe('MeetingDetailsSection', () => {
     expect(container.querySelector('form')).toBeNull(); expect(container.querySelector('dl')).not.toBeNull();
     expect(container.textContent).toContain('Olumlu');
   });
+
+  it('obeys the canonical edit capability instead of deriving NEW as editable', async () => {
+    await act(async () => root.render(<MeetingDetailsSection job={{ ...job, status: 'NEW' }}
+      details={{ ...details, outcome: 'POSITIVE', meetingSummary: 'Önceden kayıtlı.' }} user={user}
+      canEdit={false} mutationPending={false} onSave={vi.fn()} />));
+    expect(container.querySelector('form')).toBeNull();
+    expect(container.querySelector('dl')).not.toBeNull();
+  });
 });
