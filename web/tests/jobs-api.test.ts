@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   addJobCardNote, approveJobCard, cancelJobCard, createJobCard, getJobCard,
   getJobCardBoard, getMeetingDetails, listActivity, listDeliveryItems, listJobCardNotes,
-  listJobCards, patchMeetingDetails, planJobCard,
+  listJobCards, patchJobCard, patchMeetingDetails, planJobCard,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
 } from '../src/jobs/jobs-api';
@@ -105,6 +105,32 @@ describe('JobCard workspace transport', () => {
       vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(invalidDetails)));
       await expect(getMeetingDetails('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
     }
+  });
+
+  it('sends the complete existing JobCard patch contract', async () => {
+    const input = {
+      expectedVersion: 7,
+      title: 'Yeni görüşme başlığı',
+      description: 'Yeni açıklama',
+      customerId: 'customer-2',
+      contactId: 'contact-2',
+      assignedTo: 'staff-2',
+      priority: 'high' as const,
+      dueDate: '2026-07-22',
+    };
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      ...job, ...input, version: 8,
+      customer: related('customer-2', 'Yeni Klinik'),
+      contact: related('contact-2', 'Dr. Yeni'),
+      assignee: related('staff-2', 'Yeni Personel'),
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await patchJobCard('job-1', input);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1', expect.objectContaining({
+      method: 'PATCH', body: JSON.stringify(input),
+    }));
   });
 
   it('runtime-validates all board columns and closed counts', async () => {

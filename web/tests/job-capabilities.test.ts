@@ -31,15 +31,36 @@ describe('canonical JobCard UI capabilities', () => {
     });
   });
 
-  it('offers waiting withdrawal and cancellation only to assigned Staff', () => {
+  it('offers active editing and cancellation to assigned Staff', () => {
+    for (const status of ['NEW', 'PLANNED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const) {
+      expect(jobCapabilities(staff, { ...job, status })).toMatchObject({
+        canEditJob: true, canCancel: true, requiresWithdrawalBeforeEdit: false,
+      });
+    }
     const waiting = { ...job, status: 'WAITING_APPROVAL' as JobCardStatus };
     expect(jobCapabilities(staff, waiting)).toMatchObject({
-      canWithdrawFromApproval: true, canCancel: true,
+      canEditJob: true, canWithdrawFromApproval: true, canCancel: true,
+      requiresWithdrawalBeforeEdit: true,
     });
     expect(jobCapabilities({ ...staff, id: 'staff-2' }, waiting)).toMatchObject({
-      canWithdrawFromApproval: false, canCancel: false,
+      canEditJob: false, canWithdrawFromApproval: false, canCancel: false,
     });
-    expect(jobCapabilities(manager, waiting)).toMatchObject({ canWithdrawFromApproval: false });
+  });
+
+  it('offers active editing and cancellation to management while terminals stay read-only', () => {
+    const waiting = { ...job, status: 'WAITING_APPROVAL' as JobCardStatus };
+    expect(jobCapabilities(manager, waiting)).toMatchObject({
+      canEditJob: true, canWithdrawFromApproval: true, canCancel: true,
+      requiresWithdrawalBeforeEdit: true,
+    });
+    for (const status of ['COMPLETED', 'CANCELLED'] as const) {
+      expect(jobCapabilities(staff, { ...job, status })).toMatchObject({
+        canEditJob: false, canCancel: false, requiresWithdrawalBeforeEdit: false,
+      });
+      expect(jobCapabilities(manager, { ...job, status })).toMatchObject({
+        canEditJob: false, canCancel: false, requiresWithdrawalBeforeEdit: false,
+      });
+    }
   });
 
   it('does not apply meeting sections to other JobCard types', () => {

@@ -10,22 +10,25 @@ function assignedTo(job: CapabilityJob) {
 
 export function jobCapabilities(user: CurrentUser, job: CapabilityJob) {
   const assignedStaff = user.role === 'STAFF' && user.id === assignedTo(job);
+  const authorized = user.role !== 'STAFF' || assignedStaff;
+  const active = !['COMPLETED', 'CANCELLED'].includes(job.status);
   const meetingVisible = job.type === 'SALES_MEETING'
     && !['NEW', 'PLANNED'].includes(job.status);
   const meetingEditable = job.type === 'SALES_MEETING'
     && ['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)
     && (user.role !== 'STAFF' || assignedStaff);
-  const canWithdrawFromApproval = assignedStaff && job.status === 'WAITING_APPROVAL';
-  const canCancel = user.role === 'STAFF'
-    ? assignedStaff && job.status === 'WAITING_APPROVAL'
-    : ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED']
-        .includes(job.status);
+  const canEditJob = job.type === 'SALES_MEETING' && active && authorized;
+  const requiresWithdrawalBeforeEdit = canEditJob && job.status === 'WAITING_APPROVAL';
+  const canWithdrawFromApproval = authorized && job.status === 'WAITING_APPROVAL';
+  const canCancel = active && authorized;
 
   return {
     canViewMeetingResult: meetingVisible,
     canEditMeetingResult: meetingEditable,
     canViewMeetingNotes: meetingVisible,
     canAddMeetingNote: meetingEditable,
+    canEditJob,
+    requiresWithdrawalBeforeEdit,
     canWithdrawFromApproval,
     canCancel,
   };
