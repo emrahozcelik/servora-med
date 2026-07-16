@@ -1,4 +1,5 @@
 import { AppError } from '../../errors/index.js';
+import type { Pool } from 'pg';
 import {
   normalizeProductCreateInput,
   type CreateProductInput,
@@ -129,4 +130,80 @@ export function planPilotProductMerge(
     matched.push({ source: product, existing: candidate });
   }
   return { sourceCount: source.products.length, matched, inserts };
+}
+
+export async function importPilotProducts(pool: Pool, input: {
+  organizationId: string;
+  actorUserId: string;
+  document: PilotProductDocument;
+  apply: boolean;
+}) {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    await client.query(
+      `SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`,
+      [`PILOT_PRODUCT_IMPORT:${input.organizationId}`],
+    );
+    const actor = await client.query(
+      `SELECT id FROM users
+       WHERE organization_id=$1 AND id=$2 AND is_active=TRUE
+         AND role IN ('ADMIN','MANAGER')
+       FOR SHARE`,
+      [input.organizationId, input.actorUserId],
+    );
+    if (actor.rowCount !== 1) {
+      throw new AppError(
+        'PILOT_PRODUCT_IMPORT_FORBIDDEN', 403,
+        'Import aktörü aktif bir Admin veya Manager olmalıdır.',
+      );
+    }
+    const rows = await client.query<{
+      id: string; name: string; sku: string | null; brand: string | null;
+      category: string | null; model: string | null; unit: string | null;
+      default_price: string | number | null; is_active: boolean;
+    }>(
+      `SELECT id,name,sku,brand,category,model,unit,default_price,is_active
+       FROM products WHERE organization_id=$1 FOR UPDATE`,
+      [input.organizationId],
+    );
+    const existing: ExistingPilotProduct[] = rows.rows.map((row) => ({
+      id: row.id, name: row.name, sku: row.sku, brand: row.brand,
+      category: row.category, model: row.model, unit: row.unit,
+      referencePrice: row.default_price === null ? null : Number(row.default_price),
+      isActive: row.is_active as true,
+    }));
+    const plan = planPilotProductMerge(input.document, existing);
+    if (input.apply) {
+      for (const product of plan.inserts) {
+        const created = await client.query<{ id: string }>(
+          `INSERT INTO products
+             (organization_id,name,sku,brand,category,model,unit,default_price,is_active)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9) RETURNING id`,
+          [input.organizationId, product.name, product.sku, product.brand, product.category,
+            product.model, product.unit, product.referencePrice, product.isActive],
+        );
+        await client.query(
+          `INSERT INTO audit_events
+             (organization_id,actor_user_id,subject_type,subject_id,event_type,
+              old_value,new_value,metadata)
+           VALUES ($1,$2,'PRODUCT',$3,'PRODUCT_CREATED',NULL,$4,$5)`,
+          [input.organizationId, input.actorUserId, created.rows[0]!.id,
+            { isActive: true }, { source: 'pilot-products.example.json', importVersion: 1 }],
+        );
+      }
+    }
+    await client.query('COMMIT');
+    return {
+      sourceCount: plan.sourceCount,
+      matchedCount: plan.matched.length,
+      insertedCount: plan.inserts.length,
+      dryRun: !input.apply,
+    };
+  } catch (error) {
+    await client.query('ROLLBACK');
+    throw error;
+  } finally {
+    client.release();
+  }
 }
