@@ -66,9 +66,10 @@ export function yesterdayYmd(timeZone: string, now: Date = new Date()) {
   return formatYmd(addCalendarDays(calendarDayInTimeZone(now, timeZone), -1));
 }
 
-export function formatRefreshTime(instant: Date, timeZone: string) {
+/** Clock time for "Son yenileme". Prefer org timezone when known; else browser local. */
+export function formatRefreshTime(instant: Date, timeZone?: string | null) {
   return new Intl.DateTimeFormat('tr-TR', {
-    timeZone,
+    ...(timeZone ? { timeZone } : {}),
     hour: '2-digit',
     minute: '2-digit',
     hour12: false,

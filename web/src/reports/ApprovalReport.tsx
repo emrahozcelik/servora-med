@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Link, useSearchParams } from 'react-router-dom';
 
 import { jobTypeLabels } from '../jobs/job-labels';
+import { paths } from '../paths';
 import { SegmentedDistributionBar } from './report-charts';
-import { formatWaitingDuration } from './report-range';
+import { formatRefreshTime, formatWaitingDuration } from './report-range';
 import { getApprovalReport } from './reports-api';
 import { approvalSearch, readApprovalSearch } from './report-search';
 import type { ApprovalReportResponse } from './report-types';
@@ -51,7 +52,9 @@ export function ApprovalReportView({ report }: { report: ApprovalReportResponse 
               <li key={item.id}>
                 <div>
                   <span>{jobTypeLabels[item.type]}</span>
-                  <h2>{item.title}</h2>
+                  <h2>
+                    <Link to={paths.job(item.id)}>{item.title}</Link>
+                  </h2>
                   <p>{item.assignee.name}{item.customer ? ` · ${item.customer.name}` : ''}</p>
                 </div>
                 <strong>{duration(item.waitingMinutes)}</strong>
@@ -69,23 +72,36 @@ export function ApprovalReport() {
   const [report, setReport] = useState<ApprovalReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
+  const requestSequence = useRef(0);
+
   useEffect(() => {
     if (!state.canonical) setSearch(approvalSearch(state), { replace: true });
   }, [state, setSearch]);
+
   const load = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     setError('');
     try {
-      setReport(await getApprovalReport({ limit: 50, offset: state.offset }));
+      const next = await getApprovalReport({ limit: 50, offset: state.offset });
+      if (requestId !== requestSequence.current) return;
+      setReport(next);
+      setRefreshedAt(new Date());
     } catch (reason) {
+      if (requestId !== requestSequence.current) return;
       setError(reason instanceof Error ? reason.message : 'Onay raporu yüklenemedi.');
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, [state.offset]);
+
   useEffect(() => { void load(); }, [load]);
+
+  const refreshLabel = refreshedAt ? formatRefreshTime(refreshedAt) : null;
+
   return (
-    <ReportShell title="Onay kuyruğu" current="approvals">
+    <ReportShell title="Onay kuyruğu" current="approvals" refreshLabel={refreshLabel}>
       {loading && <ReportLoadingState title="Onay raporu yükleniyor" />}
       {!loading && error && (
         <ReportErrorState title="Onay raporu yüklenemedi" message={error} onRetry={() => void load()} />

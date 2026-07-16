@@ -228,10 +228,12 @@ export function ReportsDashboard() {
   const [loading, setLoading] = useState(true);
   const [filterError, setFilterError] = useState('');
   const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
+  const [resolvedTimezone, setResolvedTimezone] = useState<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
-  const timezone = report?.range.timezone ?? 'Europe/Istanbul';
+  const requestSequence = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     setError('');
     try {
@@ -240,16 +242,19 @@ export function ReportsDashboard() {
         getDashboardReport(range),
         getApprovalReport({ limit: 1, offset: 0 }).catch(() => null),
       ]);
+      if (requestId !== requestSequence.current) return;
       setReport(nextDashboard);
       setApproval(nextApproval);
+      setResolvedTimezone(nextDashboard.range.timezone);
       setRefreshedAt(new Date());
       if (!state.from || !state.to) {
         setSearch(dashboardSearch({ ...nextDashboard.range, canonical: true }), { replace: true });
       }
     } catch (reason) {
+      if (requestId !== requestSequence.current) return;
       setError(reason instanceof Error ? reason.message : 'Rapor özeti yüklenemedi.');
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, [state.from, state.to, setSearch]);
 
@@ -278,17 +283,24 @@ export function ReportsDashboard() {
   }
 
   function applyPreset(preset: ReportDatePreset) {
-    const range = resolveDatePreset(preset, timezone);
+    if (!resolvedTimezone) return;
+    const range = resolveDatePreset(preset, resolvedTimezone);
     setFilterError('');
     setSearch(dashboardSearch({ ...range, canonical: true }));
   }
 
-  const refreshLabel = refreshedAt
-    ? formatRefreshTime(refreshedAt, timezone)
+  const refreshLabel = refreshedAt && resolvedTimezone
+    ? formatRefreshTime(refreshedAt, resolvedTimezone)
     : null;
+  const rangeContext = { from: state.from, to: state.to };
 
   return (
-    <ReportShell title="Operasyon özeti" current="summary" refreshLabel={refreshLabel}>
+    <ReportShell
+      title="Operasyon özeti"
+      current="summary"
+      refreshLabel={refreshLabel}
+      range={rangeContext}
+    >
       <ReportDateRangeForm
         formKey={`${state.from}:${state.to}`}
         from={state.from ?? ''}
@@ -297,6 +309,7 @@ export function ReportsDashboard() {
         errorRef={errorRef}
         onSubmit={submit}
         onPreset={applyPreset}
+        presetsDisabled={!resolvedTimezone}
       />
       {loading && <ReportLoadingState title="Rapor özeti yükleniyor" />}
       {!loading && error && (

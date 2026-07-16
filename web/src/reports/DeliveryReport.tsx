@@ -3,7 +3,11 @@ import { useSearchParams } from 'react-router-dom';
 
 import type { CurrentUser } from '../services/api';
 import { listStaff, type StaffProfile } from '../services/people-api';
-import { resolveDatePreset, type ReportDatePreset } from './report-range';
+import {
+  formatRefreshTime,
+  resolveDatePreset,
+  type ReportDatePreset,
+} from './report-range';
 import { getDeliveryReport } from './reports-api';
 import { deliverySearch, readDeliverySearch, validateRequestedRange } from './report-search';
 import type { DeliveryReportResponse } from './report-types';
@@ -22,12 +26,23 @@ const formatDate = (value: string) => new Intl.DateTimeFormat('tr-TR', {
   dateStyle: 'medium', timeZone: 'UTC',
 }).format(new Date(`${value}T00:00:00Z`));
 
-export function DeliveryReportView({ report }: { report: DeliveryReportResponse }) {
+export function DeliveryReportView({
+  report,
+  onResetFilters,
+}: {
+  report: DeliveryReportResponse;
+  onResetFilters?: () => void;
+}) {
   if (report.items.length === 0) {
     return (
       <ReportEmptyState
         title="Onaylı teslim yok"
         description="Seçilen dönemde onaylı teslim bulunmuyor. Tarih aralığını veya filtreleri değiştirin."
+        action={onResetFilters ? (
+          <button type="button" className="secondary-button" onClick={onResetFilters}>
+            Filtreleri sıfırla
+          </button>
+        ) : undefined}
       />
     );
   }
@@ -110,8 +125,10 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
   const [options, setOptions] = useState<StaffOptions>({ status: 'loading', items: [] });
   const [reload, setReload] = useState(0);
   const [formError, setFormError] = useState('');
+  const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
+  const [resolvedTimezone, setResolvedTimezone] = useState<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
-  const timezone = report?.range.timezone ?? 'Europe/Istanbul';
+  const requestSequence = useRef(0);
 
   useEffect(() => {
     if (!state.canonical) setSearch(deliverySearch(state), { replace: true });
@@ -129,6 +146,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
 
   const { from, to, groupBy, staffUserId, offset } = state;
   const load = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     setError('');
     try {
@@ -139,7 +157,10 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
         limit: 50,
         offset,
       });
+      if (requestId !== requestSequence.current) return;
       setReport(next);
+      setResolvedTimezone(next.range.timezone);
+      setRefreshedAt(new Date());
       if (!from || !to) {
         setSearch(deliverySearch({
           from: next.range.from,
@@ -151,9 +172,10 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
         }), { replace: true });
       }
     } catch (reason) {
+      if (requestId !== requestSequence.current) return;
       setError(reason instanceof Error ? reason.message : 'Teslim raporu yüklenemedi.');
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, [from, to, groupBy, staffUserId, offset, setSearch]);
 
@@ -199,7 +221,8 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
   }
 
   function applyPreset(preset: ReportDatePreset) {
-    const range = resolveDatePreset(preset, timezone);
+    if (!resolvedTimezone) return;
+    const range = resolveDatePreset(preset, resolvedTimezone);
     setFormError('');
     setSearch(deliverySearch({
       ...range,
@@ -210,11 +233,32 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
     }));
   }
 
+  function resetFilters() {
+    setFormError('');
+    setSearch(deliverySearch({
+      from: state.from,
+      to: state.to,
+      groupBy: 'day',
+      staffUserId: null,
+      offset: 0,
+      canonical: true,
+    }));
+  }
+
   const unavailable = state.staffUserId !== null
     && !options.items.some((item) => item.user.id === state.staffUserId);
+  const refreshLabel = refreshedAt && resolvedTimezone
+    ? formatRefreshTime(refreshedAt, resolvedTimezone)
+    : null;
+  const rangeContext = { from: state.from, to: state.to };
 
   return (
-    <ReportShell title="Teslim raporu" current="deliveries">
+    <ReportShell
+      title="Teslim raporu"
+      current="deliveries"
+      refreshLabel={refreshLabel}
+      range={rangeContext}
+    >
       <ReportDateRangeForm
         formKey={JSON.stringify([state.from, state.to, state.groupBy, state.staffUserId])}
         from={state.from ?? ''}
@@ -223,6 +267,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
         errorRef={errorRef}
         onSubmit={submit}
         onPreset={applyPreset}
+        presetsDisabled={!resolvedTimezone}
         wide
       >
         <label>
@@ -266,7 +311,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
       )}
       {!loading && !error && report && (
         <>
-          <DeliveryReportView report={report} />
+          <DeliveryReportView report={report} onResetFilters={resetFilters} />
           <div className="report-pagination">
             <button
               type="button"

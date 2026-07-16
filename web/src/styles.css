@@ -109,9 +109,17 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .report-presets { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
 .report-preset-button { min-height: 2.5rem; padding: 0.4rem 0.75rem; border: 1px solid var(--rule); border-radius: 999px; background: var(--paper); color: var(--ink); font-weight: 650; font-size: 0.875rem; cursor: pointer; }
 .report-preset-button:hover { background: var(--accent-soft); border-color: transparent; }
-.report-trend-bars, .completed-trend { display: flex; align-items: end; gap: 2px; height: 6.5rem; padding-top: 0.75rem; border-bottom: 1px solid var(--rule); }
-.report-trend-bars span, .completed-trend span { flex: 1; min-width: 2px; max-width: 1.25rem; height: max(3px, calc(var(--ratio, 0) * 100%)); max-height: 100%; background: var(--accent); border-radius: 2px 2px 0 0; }
+.report-trend-bars, .completed-trend { display: flex; align-items: end; gap: 2px; height: 6.5rem; width: 100%; max-width: 100%; padding-top: 0.75rem; border-bottom: 1px solid var(--rule); box-sizing: border-box; overflow: hidden; }
+.report-trend-bars span, .completed-trend span { flex: 1 1 0; min-width: 2px; max-width: 1.25rem; height: max(3px, calc(var(--ratio, 0) * 100%)); max-height: 100%; background: var(--accent); border-radius: 2px 2px 0 0; }
+.report-trend-bars--density-normal { gap: 2px; }
+.report-trend-bars--density-compact { gap: 1px; }
+.report-trend-bars--density-compact span { min-width: 1px; max-width: none; }
+.report-trend-bars--density-dense { gap: 0; }
+.report-trend-bars--density-dense span { min-width: 0; max-width: none; border-radius: 0; }
 .report-trend-bars span[data-zero="true"] { opacity: 0.35; background: var(--rule); }
+.report-preset-button:disabled { opacity: 0.45; cursor: not-allowed; }
+.approval-list h2 a { color: inherit; text-decoration: none; }
+.approval-list h2 a:hover { color: var(--accent-hover); text-decoration: underline; }
 .report-chart-summary { margin: 0.75rem 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
 .report-data-disclosure { margin-top: 1rem; }
 .report-data-disclosure summary { cursor: pointer; font-weight: 700; color: var(--accent-hover); min-height: 2.5rem; display: inline-flex; align-items: center; }

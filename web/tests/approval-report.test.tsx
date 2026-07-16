@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { ApprovalReportView } from '../src/reports/ApprovalReport';
@@ -17,20 +18,25 @@ const report: ApprovalReportResponse = {
 
 describe('Approval report presentation', () => {
   it('renders the whole-queue summary and canonical JobCard projection', () => {
-    const html = renderToStaticMarkup(<ApprovalReportView report={report} />);
+    const html = renderToStaticMarkup(
+      <MemoryRouter><ApprovalReportView report={report} /></MemoryRouter>,
+    );
     for (const label of ['2 saatten kısa', '2–8 saat', '8–24 saat', '24 saatten uzun']) {
       expect(html).toContain(label);
     }
     expect(html).toContain('Genel görev');
     expect(html).toContain('Klinik ziyareti');
+    expect(html).toContain('href="/jobs/job-1"');
     expect(html).toContain('25 saat');
   });
 
   it('renders an explanatory empty queue', () => {
-    const html = renderToStaticMarkup(<ApprovalReportView report={{ ...report,
-      summary: { pendingCount: 0, oldestWaitingMinutes: null, averageWaitingMinutes: null,
-        under2Hours: 0, between2And8Hours: 0, between8And24Hours: 0, over24Hours: 0 },
-      items: [], total: 0 }} />);
+    const html = renderToStaticMarkup(
+      <MemoryRouter><ApprovalReportView report={{ ...report,
+        summary: { pendingCount: 0, oldestWaitingMinutes: null, averageWaitingMinutes: null,
+          under2Hours: 0, between2And8Hours: 0, between8And24Hours: 0, over24Hours: 0 },
+        items: [], total: 0 }} /></MemoryRouter>,
+    );
     expect(html).toContain('Onay bekleyen iş bulunmuyor.');
   });
 });

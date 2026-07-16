@@ -1,8 +1,9 @@
+import type { JobCardStatusFilter } from '../jobs/jobs-api';
 import { paths } from '../paths';
 import { yesterdayYmd } from './report-range';
 
 /** Canonical İşler filters used by decision-panel attention cards. */
-export function jobsStatusHref(status: string) {
+export function jobsStatusHref(status: JobCardStatusFilter) {
   const search = new URLSearchParams();
   if (status !== 'active') search.set('status', status);
   const query = search.toString();

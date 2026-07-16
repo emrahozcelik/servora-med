@@ -158,6 +158,13 @@ const formatDate = (value: string) => new Intl.DateTimeFormat('tr-TR', {
   day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
 }).format(new Date(`${value}T00:00:00Z`));
 
+/** Density class so long ranges (up to 366 days) fit without horizontal overflow. */
+export function trendDensityClass(pointCount: number): 'density-normal' | 'density-compact' | 'density-dense' {
+  if (pointCount <= 60) return 'density-normal';
+  if (pointCount <= 120) return 'density-compact';
+  return 'density-dense';
+}
+
 /**
  * Decorative daily trend bars. Always pair with an accessible summary/table.
  * Zero / single / max edge cases: min height for zero, scale to max count.
@@ -170,8 +177,14 @@ export function TrendBars({
   className?: string;
 }) {
   const max = points.reduce((peak, point) => Math.max(peak, point.count), 0);
+  const density = trendDensityClass(points.length);
   return (
-    <div className={className} aria-hidden="true">
+    <div
+      className={`${className} ${className}--${density}`}
+      data-density={density}
+      data-point-count={points.length}
+      aria-hidden="true"
+    >
       {points.map((point) => {
         const ratio = max === 0 ? 0 : point.count / max;
         return (

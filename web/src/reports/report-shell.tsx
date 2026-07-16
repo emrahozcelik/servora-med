@@ -1,15 +1,15 @@
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { Link } from 'react-router-dom';
 
-import { paths } from '../paths';
 import type { ReportDatePreset } from './report-range';
+import { reportSectionHref, type ReportRangeContext } from './report-navigation';
 
 export type ReportNavSection = 'summary' | 'deliveries' | 'approvals';
 
-const NAV: Array<{ id: ReportNavSection; to: string; label: string }> = [
-  { id: 'summary', to: paths.reports, label: 'Özet' },
-  { id: 'deliveries', to: paths.deliveryReports, label: 'Teslimler' },
-  { id: 'approvals', to: paths.approvalReports, label: 'Onaylar' },
+const NAV: Array<{ id: ReportNavSection; label: string }> = [
+  { id: 'summary', label: 'Özet' },
+  { id: 'deliveries', label: 'Teslimler' },
+  { id: 'approvals', label: 'Onaylar' },
 ];
 
 const PRESETS: Array<{ id: ReportDatePreset; label: string }> = [
@@ -19,13 +19,19 @@ const PRESETS: Array<{ id: ReportDatePreset; label: string }> = [
   { id: 'thisMonth', label: 'Bu ay' },
 ];
 
-export function ReportNavigation({ current }: { current: ReportNavSection }) {
+export function ReportNavigation({
+  current,
+  range,
+}: {
+  current: ReportNavSection;
+  range?: ReportRangeContext | null;
+}) {
   return (
     <nav className="report-nav" aria-label="Rapor bölümleri">
       {NAV.map((item) => (
         <Link
           key={item.id}
-          to={item.to}
+          to={reportSectionHref(item.id, range)}
           aria-current={item.id === current ? 'page' : undefined}
         >
           {item.label}
@@ -96,6 +102,7 @@ export function ReportDateRangeForm({
   errorRef,
   onSubmit,
   onPreset,
+  presetsDisabled,
   wide,
   children,
 }: {
@@ -106,6 +113,8 @@ export function ReportDateRangeForm({
   errorRef: RefObject<HTMLDivElement | null>;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onPreset?: (preset: ReportDatePreset) => void;
+  /** Disable until organization timezone is known from a successful report response. */
+  presetsDisabled?: boolean;
   wide?: boolean;
   children?: ReactNode;
 }) {
@@ -118,6 +127,7 @@ export function ReportDateRangeForm({
               key={preset.id}
               type="button"
               className="report-preset-button"
+              disabled={presetsDisabled}
               onClick={() => onPreset(preset.id)}
             >
               {preset.label}
@@ -174,11 +184,13 @@ export function ReportShell({
   title,
   current,
   refreshLabel,
+  range,
   children,
 }: {
   title: string;
   current: ReportNavSection;
   refreshLabel?: string | null;
+  range?: ReportRangeContext | null;
   children: ReactNode;
 }) {
   return (
@@ -189,7 +201,7 @@ export function ReportShell({
           <h1>{title}</h1>
           {refreshLabel ? <ReportRefreshStatus label={refreshLabel} /> : null}
         </div>
-        <ReportNavigation current={current} />
+        <ReportNavigation current={current} range={range} />
       </header>
       {children}
     </main>
