@@ -2,7 +2,9 @@ import { readFileSync } from 'node:fs';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it, vi } from 'vitest';
 
-import { availableLifecycleCommands, JobDetailPanel, runStaffJobCommand } from '../src/JobDetail';
+import {
+  availableLifecycleCommands, JobDetailPanel, prepareMeetingEdit, runStaffJobCommand,
+} from '../src/JobDetail';
 import { ApiError, type DeliveryItem, type JobCard } from '../src/services/api';
 
 const job: JobCard = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2,
@@ -22,16 +24,41 @@ const generalTask: JobCard = {
 
 describe('Staff JobCard detail', () => {
   it('exposes the exact Staff and management lifecycle actions by status', () => {
-    expect(availableLifecycleCommands({ ...job, status: 'NEW' }, 'STAFF')).toEqual(['plan', 'start']);
-    expect(availableLifecycleCommands({ ...job, status: 'PLANNED' }, 'STAFF')).toEqual(['start']);
-    expect(availableLifecycleCommands({ ...job, status: 'IN_PROGRESS' }, 'STAFF')).toEqual(['submit']);
-    expect(availableLifecycleCommands({ ...job, status: 'REVISION_REQUESTED' }, 'STAFF')).toEqual(['resume']);
+    expect(availableLifecycleCommands({ ...job, type: 'SALES_MEETING', status: 'NEW' }, 'STAFF')).toEqual(['edit', 'plan', 'start', 'cancel']);
+    expect(availableLifecycleCommands({ ...job, type: 'SALES_MEETING', status: 'PLANNED' }, 'STAFF')).toEqual(['edit', 'start', 'cancel']);
+    expect(availableLifecycleCommands({ ...job, type: 'SALES_MEETING', status: 'IN_PROGRESS' }, 'STAFF')).toEqual(['edit', 'submit', 'cancel']);
+    expect(availableLifecycleCommands({ ...job, type: 'SALES_MEETING', status: 'REVISION_REQUESTED' }, 'STAFF')).toEqual(['edit', 'resume', 'cancel']);
     expect(availableLifecycleCommands({ ...job, status: 'WAITING_APPROVAL' }, 'STAFF'))
       .toEqual(['withdraw', 'cancel']);
-    expect(availableLifecycleCommands({ ...job, status: 'WAITING_APPROVAL' }, 'MANAGER')).toEqual(['approve', 'revise']);
+    expect(availableLifecycleCommands({ ...job, type: 'SALES_MEETING', status: 'WAITING_APPROVAL' }, 'STAFF'))
+      .toEqual(['edit', 'cancel']);
+    expect(availableLifecycleCommands({ ...job, type: 'SALES_MEETING', status: 'WAITING_APPROVAL' }, 'MANAGER'))
+      .toEqual(['approve', 'revise', 'edit', 'cancel']);
     expect(availableLifecycleCommands({ ...job, status: 'NEW' }, 'ADMIN')).toEqual(['plan', 'start', 'cancel']);
     expect(availableLifecycleCommands({ ...job, status: 'COMPLETED' }, 'ADMIN')).toEqual([]);
     expect(availableLifecycleCommands({ ...job, status: 'CANCELLED' }, 'ADMIN')).toEqual([]);
+  });
+
+  it('labels direct and waiting Sales Meeting editing explicitly', () => {
+    const direct = renderToStaticMarkup(<JobDetailPanel job={{ ...job, type: 'SALES_MEETING', status: 'IN_PROGRESS' }}
+      items={[]} viewerId="s1" pending={false} message="" onBack={() => {}} onCommand={() => {}} />);
+    const waiting = renderToStaticMarkup(<JobDetailPanel job={{ ...job, type: 'SALES_MEETING', status: 'WAITING_APPROVAL' }}
+      items={[]} viewerId="s1" pending={false} message="" onBack={() => {}} onCommand={() => {}} />);
+    expect(direct).toContain('Görüşmeyi düzenle');
+    expect(direct).toContain('İşi iptal et');
+    expect(waiting).toContain('Onaydan geri çek ve düzenle');
+    expect(waiting).toContain('İşi iptal et');
+  });
+
+  it('withdraws a waiting Sales Meeting before edit mode opens', async () => {
+    const waiting = { ...job, type: 'SALES_MEETING' as const, status: 'WAITING_APPROVAL' as const, version: 5 };
+    const withdraw = vi.fn().mockResolvedValue({ ...waiting, status: 'IN_PROGRESS', version: 6 });
+    await expect(prepareMeetingEdit(waiting, 'edit-action-1', withdraw)).resolves.toMatchObject({
+      status: 'IN_PROGRESS', version: 6,
+    });
+    expect(withdraw).toHaveBeenCalledWith(waiting.id, {
+      clientActionId: 'edit-action-1', expectedVersion: 5,
+    });
   });
   it('renders immutable delivery facts and the next valid command', () => {
     const html = renderToStaticMarkup(<JobDetailPanel job={job} items={[item]} pending={false} message="" onBack={() => {}} onCommand={() => {}} />);
