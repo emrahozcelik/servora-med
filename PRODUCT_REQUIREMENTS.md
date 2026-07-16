@@ -95,7 +95,7 @@ When a manager requests revision, the reason is mandatory. The JobCard returns t
 ```text
 NEW -> PLANNED -> IN_PROGRESS -> WAITING_APPROVAL -> COMPLETED
                               -> REVISION_REQUESTED -> IN_PROGRESS
-NEW | PLANNED | IN_PROGRESS | REVISION_REQUESTED -> CANCELLED
+NEW | PLANNED | IN_PROGRESS | WAITING_APPROVAL | REVISION_REQUESTED -> CANCELLED
 ```
 
 Allowed transitions are explicit backend commands. Status is never free text and cannot be changed by a generic field update.
@@ -105,10 +105,12 @@ Allowed transitions are explicit backend commands. Status is never free text and
 - Staff can never transition directly to `COMPLETED`.
 - Only manager or admin can approve a `WAITING_APPROVAL` JobCard.
 - Revision requires a non-empty reason.
-- Commercial fields are immutable for staff and manager while `WAITING_APPROVAL`.
-- Assigned Staff may explicitly withdraw their own `WAITING_APPROVAL` JobCard to
-  `IN_PROGRESS`, edit it, and submit it again; the review snapshot is never edited in place.
-- Assigned Staff may cancel only their own `WAITING_APPROVAL` JobCard with a non-empty reason.
+- Commercial fields are immutable while `WAITING_APPROVAL`; an authorized edit first uses the
+  named withdrawal command so the review snapshot is never edited in place.
+- Assigned Staff, Manager, or Admin may explicitly withdraw an authorized
+  `WAITING_APPROVAL` JobCard to `IN_PROGRESS`, edit it, and submit it again.
+- Assigned Staff may cancel their own JobCard in any active state with a non-empty reason;
+  Manager/Admin retain the same authority for organization-visible active JobCards.
 - Sales Meeting result fields and Staff notes begin only after start; `NEW` and `PLANNED`
   meetings neither expose nor accept them.
 - `COMPLETED` and `CANCELLED` JobCards are immutable in MVP.

@@ -124,16 +124,24 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 1. `/jobs/new-meeting` — planlama: başlık, müşteri, planlanan gün, sorumlu.
 2. Görüşme **Yeni** veya **Planlandı** durumundayken sonuç ve not bölümleri gösterilmez.
    **İşi başlat** komutundan sonra bu bölümler açılır.
+   Görüşmenin başlık, açıklama, müşteri, ilgili kişi, planlanan gün ve öncelik bilgileri tüm
+   aktif aşamalarda **Görüşmeyi düzenle** ile değiştirilebilir. Yönetici ayrıca sorumluyu
+   değiştirebilir.
 3. Detayda **Görüşme sonucu**:
    - Gerçekleşme zamanı
    - Sonuç (Pozitif / Takip gerekli / Karar verilmedi / İlgilenmiyor)
    - Görüşme özeti
    - Takip zamanı (isteğe bağlı)
-4. **Görüşme sonucunu kaydet**, notlarınızı ekleyin, sonra **Onaya gönder**.
+   Sonuç formu ilk açıldığında gerçekleşme zamanı güncel yerel saatle doldurulur; gerekirse
+   değiştirebilirsiniz.
+4. **Görüşme sonucunu kaydet**, notlarınızı ekleyin, sonra **Onaya gönder**. Değişmemiş bir
+   sonuç yeniden gönderilmez ve bunun yerine kaydedilecek değişiklik olmadığı açıklanır.
 5. Onay beklerken gönderilen içerik salt okunurdur. Düzeltme gerekiyorsa **Onaydan geri çek
    ve düzenle** ile işi `Devam ediyor` durumuna alın, değiştirin ve yeniden gönderin.
-6. Kendi onay bekleyen işinizi **İşi iptal et** ile ve zorunlu bir gerekçe yazarak iptal
-   edebilirsiniz. İptal terminaldir; iş yeniden açılamaz.
+6. Kendi görüşmenizi **Yeni**, **Planlandı**, **Devam ediyor**, **Onay bekliyor** veya
+   **Düzeltme istendi** aşamasında **İşi iptal et** ile ve zorunlu bir gerekçe yazarak iptal
+   edebilirsiniz. Yönetici de erişebildiği aktif işleri aynı şekilde iptal edebilir. İptal
+   terminaldir; iş yeniden açılamaz.
 
 ### 7.4 Profil
 

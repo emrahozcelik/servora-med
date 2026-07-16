@@ -115,7 +115,10 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       await expect(service.patchMeetingDetails(staff, meeting.id, {
         clientActionId: 'meeting-no-op', expectedVersion: details.jobCardVersion,
         outcome: details.outcome,
-      })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+      })).rejects.toMatchObject({
+        code: 'MEETING_DETAILS_UNCHANGED', statusCode: 400,
+        message: 'Görüşme sonucunda kaydedilecek bir değişiklik yok.',
+      });
       await expect(service.patchMeetingDetails(staff, meeting.id, {
         clientActionId: 'meeting-stale-version', expectedVersion: meeting.version,
         meetingSummary: 'Eski sürüm yazmamalı.',
@@ -275,7 +278,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
           service.approve(manager, task.id, {
             clientActionId: 'race-approve-withdraw-approve', expectedVersion: task.version,
           }),
-          service.withdrawFromApproval(staff, task.id, {
+          service.withdrawFromApproval(manager, task.id, {
             clientActionId: 'race-approve-withdraw-withdraw', expectedVersion: task.version,
           }),
         ],
@@ -316,6 +319,36 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
           }),
         ],
       );
+
+      let editCancelRace = await service.create(staff, {
+        clientActionId: 'race-edit-cancel-create', type: 'SALES_MEETING',
+        title: 'Düzenleme ve iptal yarışı', description: null, customerId, contactId,
+        assignedTo: staffId, priority: 'normal', dueDate: '2026-07-15',
+      });
+      editCancelRace = await service.start(staff, editCancelRace.id, {
+        clientActionId: 'race-edit-cancel-start', expectedVersion: editCancelRace.version,
+      });
+      const editCancelResults = await Promise.allSettled([
+        service.patchMeetingDetails(staff, editCancelRace.id, {
+          clientActionId: 'race-edit-cancel-edit', expectedVersion: editCancelRace.version,
+          meetingAt: '2026-07-15T12:00:00.000Z', outcome: 'NO_DECISION',
+        }),
+        service.cancel(staff, editCancelRace.id, {
+          clientActionId: 'race-edit-cancel-cancel', expectedVersion: editCancelRace.version,
+          cancelReason: 'Eşzamanlı iptal testi.',
+        }),
+      ]);
+      expect(editCancelResults.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
+      expect(editCancelResults.filter((result) => result.status === 'rejected')).toHaveLength(1);
+      expect(editCancelResults.find((result) => result.status === 'rejected')).toMatchObject({
+        reason: { code: 'VERSION_CONFLICT', statusCode: 409 },
+      });
+      const editCancelEvents = (await service.listActivity(
+        manager, editCancelRace.id, { limit: 50, offset: 0 },
+      )).items.map((item) => item.eventType);
+      expect(editCancelEvents.filter((eventType) => [
+        'MEETING_DETAILS_UPDATED', 'JOB_CANCELLED',
+      ].includes(eventType))).toHaveLength(1);
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

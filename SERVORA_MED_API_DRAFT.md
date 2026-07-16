@@ -558,7 +558,7 @@ Request:
 }
 ```
 
-Allowed only in `NEW`, `PLANNED`, `IN_PROGRESS`, and `REVISION_REQUESTED` according to role and assignment. Status is not accepted. `WAITING_APPROVAL`, `COMPLETED`, and `CANCELLED` reject field patches.
+Allowed only in `NEW`, `PLANNED`, `IN_PROGRESS`, and `REVISION_REQUESTED` according to role and assignment. Status is not accepted. `WAITING_APPROVAL` rejects an in-place patch; the UI first invokes the named withdrawal command and then patches the resulting `IN_PROGRESS` card. `COMPLETED` and `CANCELLED` reject field patches.
 
 When `assignedTo` changes, the successful patch appends `JOB_ASSIGNED`. Other meaningful field changes append `JOB_FIELDS_UPDATED` with bounded old/new values. A patch that changes assignment and other fields may append both canonical events in the same transaction because they represent different business facts.
 
@@ -636,8 +636,10 @@ Parent concealment occurs before the Sales Meeting type guard and version/detail
 Malformed `:jobCardId` returns `404 JOB_CARD_NOT_FOUND` before PostgreSQL; a visible
 non-meeting parent returns `409 INVALID_JOB_TYPE`. `NEW`, `PLANNED`, `WAITING_APPROVAL`,
 `COMPLETED`, and `CANCELLED` reuse exact `409 JOB_NOT_EDITABLE` with
-`JobCard bu durumda düzenlenemez.` Stale version returns `409 VERSION_CONFLICT`;
-an empty or no-op patch returns `400 VALIDATION_ERROR`. A successful transaction locks
+`JobCard bu durumda düzenlenemez.` Stale version returns `409 VERSION_CONFLICT`.
+A body without any result field returns `400 VALIDATION_ERROR`; a valid canonical no-op returns
+`400 MEETING_DETAILS_UNCHANGED` with `Görüşme sonucunda kaydedilecek bir değişiklik yok.`
+A successful transaction locks
 JobCard then detail, updates the result, increments the parent version once, and appends
 one `MEETING_DETAILS_UPDATED` event containing only ordered changed-field names.
 
@@ -676,9 +678,9 @@ There is no generic transition route.
 | POST | `/:id/submit-for-approval` | IN_PROGRESS | WAITING_APPROVAL | staff own, manager, admin |
 | POST | `/:id/approve` | WAITING_APPROVAL | COMPLETED | manager, admin |
 | POST | `/:id/request-revision` | WAITING_APPROVAL | REVISION_REQUESTED | manager, admin |
-| POST | `/:id/withdraw-from-approval` | WAITING_APPROVAL | IN_PROGRESS | assigned staff |
+| POST | `/:id/withdraw-from-approval` | WAITING_APPROVAL | IN_PROGRESS | assigned staff, manager, admin |
 | POST | `/:id/resume` | REVISION_REQUESTED | IN_PROGRESS | staff own, manager, admin |
-| POST | `/:id/cancel` | NEW, PLANNED, IN_PROGRESS, WAITING_APPROVAL, or REVISION_REQUESTED | CANCELLED | manager/admin; assigned staff only from WAITING_APPROVAL |
+| POST | `/:id/cancel` | NEW, PLANNED, IN_PROGRESS, WAITING_APPROVAL, or REVISION_REQUESTED | CANCELLED | assigned staff own, manager, admin |
 
 Base lifecycle command body:
 
