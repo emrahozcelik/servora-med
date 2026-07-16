@@ -21,7 +21,8 @@
   no password or business record was changed. Destructive cancellation and terminal-state checks
   were exercised against disposable PostgreSQL data and automated UI tests instead of Sezer's
   existing records.
-- Branch push, PR #11 update, and the resulting remote CI run remain as closeout steps.
+- Branch and PR #11 are updated; the resulting server and web CI checks are green. The PR
+  remains intentionally open and unmerged for review.
 
 ## Global Constraints
 
