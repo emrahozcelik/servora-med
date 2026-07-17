@@ -3,9 +3,11 @@ import {
 } from '../services/api';
 
 export const JOB_CARD_STATUSES = [
-  'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL',
+  'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
   'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
+/** Active statuses plus legacy PLANNED retained only for historical activity presentation. */
+export const JOB_CARD_ACTIVITY_STATUSES = [...JOB_CARD_STATUSES, 'PLANNED'] as const;
 export const JOB_CARD_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
@@ -19,7 +21,7 @@ export const JOB_CARD_STATUS_FILTERS = [
   'active', 'closed', 'all', ...JOB_CARD_STATUSES,
 ] as const;
 export const LIFECYCLE_COMMANDS = [
-  'PLAN', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
+  'ACCEPT_ASSIGNMENT', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
   'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
 ] as const;
 export type LifecycleCommand = (typeof LIFECYCLE_COMMANDS)[number];
@@ -35,6 +37,7 @@ export const SUBMISSION_REQUIREMENT_CODES = [
 ] as const;
 
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
+export type JobCardActivityStatus = (typeof JOB_CARD_ACTIVITY_STATUSES)[number];
 export type JobCardStatusFilter = (typeof JOB_CARD_STATUS_FILTERS)[number];
 export type JobCardPriority = (typeof JOB_CARD_PRIORITIES)[number];
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
@@ -55,7 +58,8 @@ export type SubmissionReadiness = {
 };
 export type JobLifecycleFacts = {
   createdAt: string;
-  plannedAt: string | null;
+  acceptedAt: string | null;
+  acceptedBy: RelatedName | null;
   startedAt: string | null;
   submittedAt: string | null;
   submittedBy: RelatedName | null;
@@ -81,8 +85,8 @@ export type JobCard = {
   id: string; organizationId: string; type: JobCardType; status: JobCardStatus;
   version: number; title: string; description: string | null; customerId: string | null;
   contactId: string | null; assignedTo: string; createdBy: string; priority: JobCardPriority;
-  dueDate: string | null; assignee: RelatedName; customer: RelatedName | null;
-  contact: RelatedName | null; workflowContext: JobWorkflowContext;
+  dueDate: string | null; scheduledAt: string | null; assignee: RelatedName;
+  customer: RelatedName | null; contact: RelatedName | null; workflowContext: JobWorkflowContext;
 };
 export type JobCardCreateInput =
   | { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
@@ -96,9 +100,10 @@ export type JobCardCreateInput =
     contactId?: string | null; priority?: JobCardPriority };
 export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
-  priority: JobCardPriority; dueDate: string | null; createdAt: string; updatedAt: string;
-  staffCompletedAt: string | null; customer: RelatedName | null; contact: RelatedName | null;
-  assignee: RelatedName; deliveryItemCount: number;
+  priority: JobCardPriority; dueDate: string | null; scheduledAt: string | null;
+  createdAt: string; updatedAt: string; staffCompletedAt: string | null;
+  customer: RelatedName | null; contact: RelatedName | null; assignee: RelatedName;
+  deliveryItemCount: number;
 };
 export type JobCardListItem = PersistedJobCardListItem & {
   allowedCommands: LifecycleCommand[];
@@ -113,7 +118,7 @@ export type JobCardNote = {
   id: string; jobCardId: string; note: string; author: RelatedName; createdAt: string;
 };
 export type JobCardActivityDetails =
-  | { kind: 'STATUS_TRANSITION'; fromStatus: JobCardStatus; toStatus: JobCardStatus; reason: string | null }
+  | { kind: 'STATUS_TRANSITION'; fromStatus: JobCardActivityStatus; toStatus: JobCardActivityStatus; reason: string | null }
   | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate'> }
   | { kind: 'DELIVERY_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; purpose: DeliveryPurpose | null; quantity: number | null }
   | { kind: 'NOTE'; noteId: string }
@@ -223,13 +228,15 @@ function parseCancelledFromStatus(value: unknown, field: string): JobCardStatus 
 }
 function parseLifecycleFacts(value: unknown): JobLifecycleFacts {
   const v = exactObject(value, 'lifecycle', [
-    'createdAt', 'plannedAt', 'startedAt', 'submittedAt', 'submittedBy', 'submissionNote',
-    'approvedAt', 'approvedBy', 'approvalNote', 'revisionRequestedAt', 'revisionRequestedBy',
-    'revisionReason', 'cancelledAt', 'cancelledBy', 'cancelReason', 'cancelledFromStatus',
+    'createdAt', 'acceptedAt', 'acceptedBy', 'startedAt', 'submittedAt', 'submittedBy',
+    'submissionNote', 'approvedAt', 'approvedBy', 'approvalNote', 'revisionRequestedAt',
+    'revisionRequestedBy', 'revisionReason', 'cancelledAt', 'cancelledBy', 'cancelReason',
+    'cancelledFromStatus',
   ]);
   return {
     createdAt: canonicalInstant(v.createdAt, 'createdAt'),
-    plannedAt: nullableCanonicalInstant(v.plannedAt, 'plannedAt'),
+    acceptedAt: nullableCanonicalInstant(v.acceptedAt, 'acceptedAt'),
+    acceptedBy: nullableRelated(v.acceptedBy, 'acceptedBy'),
     startedAt: nullableCanonicalInstant(v.startedAt, 'startedAt'),
     submittedAt: nullableCanonicalInstant(v.submittedAt, 'submittedAt'),
     submittedBy: nullableRelated(v.submittedBy, 'submittedBy'),
@@ -301,6 +308,7 @@ function parseJobCard(value: unknown): JobCard {
     customerId: nullableString(v.customerId, 'customerId'), contactId: nullableString(v.contactId, 'contactId'),
     assignedTo: string(v.assignedTo, 'assignedTo'), createdBy: string(v.createdBy, 'createdBy'),
     priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES), dueDate: nullableString(v.dueDate, 'dueDate'),
+    scheduledAt: nullableCanonicalInstant(v.scheduledAt, 'scheduledAt'),
     assignee: related(v.assignee, 'assignee'), customer: nullableRelated(v.customer, 'customer'),
     contact: nullableRelated(v.contact, 'contact'),
     workflowContext: parseWorkflowContext(v.workflowContext),
@@ -312,7 +320,9 @@ export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardL
     id: string(v.id, 'id'), type: oneOf(v.type, 'type', JOB_CARD_TYPES),
     status: oneOf(v.status, 'status', JOB_CARD_STATUSES), version: positiveCount(v.version, 'version'),
     title: string(v.title, 'title'), priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES),
-    dueDate: nullableString(v.dueDate, 'dueDate'), createdAt: string(v.createdAt, 'createdAt'),
+    dueDate: nullableString(v.dueDate, 'dueDate'),
+    scheduledAt: nullableCanonicalInstant(v.scheduledAt, 'scheduledAt'),
+    createdAt: string(v.createdAt, 'createdAt'),
     updatedAt: string(v.updatedAt, 'updatedAt'), staffCompletedAt: nullableString(v.staffCompletedAt, 'staffCompletedAt'),
     customer: nullableRelated(v.customer, 'customer'), contact: nullableRelated(v.contact, 'contact'),
     assignee: related(v.assignee, 'assignee'), deliveryItemCount: count(v.deliveryItemCount, 'deliveryItemCount'),
@@ -363,8 +373,8 @@ function parseDetails(value: unknown): JobCardActivityDetails {
     const detail = exactObject(v, 'details', ['kind', 'fromStatus', 'toStatus', 'reason']);
     return {
       kind,
-      fromStatus: oneOf(detail.fromStatus, 'fromStatus', JOB_CARD_STATUSES),
-      toStatus: oneOf(detail.toStatus, 'toStatus', JOB_CARD_STATUSES),
+      fromStatus: oneOf(detail.fromStatus, 'fromStatus', JOB_CARD_ACTIVITY_STATUSES),
+      toStatus: oneOf(detail.toStatus, 'toStatus', JOB_CARD_ACTIVITY_STATUSES),
       reason: nullableString(detail.reason, 'reason'),
     };
   }
@@ -470,7 +480,7 @@ export async function removeDeliveryItem(id: string, itemId: string, expectedVer
 
 const lifecycle = async (id: string, command: string, input: object) =>
   parseJobCard(await request(`${jobPath(id)}/${command}`, json('POST', input)));
-export const planJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'plan', input);
+export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
 export const startJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'start', input);
 export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'submit-for-approval', input);
 export const approveJobCard = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'approve', input);

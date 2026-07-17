@@ -11,7 +11,7 @@ import type {
   SubmissionRequirement,
 } from './jobs-api';
 
-export type WorkflowPhase = 'CREATED' | 'PLANNING' | 'EXECUTION' | 'REVIEW' | 'COMPLETION';
+export type WorkflowPhase = 'CREATED' | 'ACCEPTANCE' | 'EXECUTION' | 'REVIEW' | 'COMPLETION';
 export type WorkflowPhaseState = 'complete' | 'current' | 'upcoming' | 'skipped' | 'attention';
 export type ExpectedRole = 'STAFF' | 'MANAGEMENT' | null;
 
@@ -83,16 +83,18 @@ export const requirementLabels: Record<SubmissionRequirement['code'], string> = 
 };
 
 const PHASE_ORDER: WorkflowPhase[] = [
-  'CREATED', 'PLANNING', 'EXECUTION', 'REVIEW', 'COMPLETION',
+  'CREATED', 'ACCEPTANCE', 'EXECUTION', 'REVIEW', 'COMPLETION',
 ];
 
 const PHASE_LABELS: Record<WorkflowPhase, string> = {
-  CREATED: 'Oluşturuldu',
-  PLANNING: 'Planlandı',
+  CREATED: 'Atandı',
+  ACCEPTANCE: 'Kabul edildi',
   EXECUTION: 'Uygulanıyor',
   REVIEW: 'Yönetici kontrolü',
   COMPLETION: 'Tamamlandı',
 };
+
+const MISSING_ACCEPTANCE_LABEL = 'Kabul bilgisi kaydedilmemiş';
 
 const APPROVE_CONFIRMATION = {
   title: 'İşi tamamlamak üzeresiniz',
@@ -124,7 +126,7 @@ function isRevisionActive(lifecycle: JobLifecycleFacts): boolean {
 export function expectedRoleForStatus(status: JobCardStatus): ExpectedRole {
   switch (status) {
     case 'NEW':
-    case 'PLANNED':
+    case 'ACCEPTED':
     case 'IN_PROGRESS':
     case 'REVISION_REQUESTED':
       return 'STAFF';
@@ -140,8 +142,8 @@ function statusToPhase(status: JobCardStatus): WorkflowPhase | null {
   switch (status) {
     case 'NEW':
       return 'CREATED';
-    case 'PLANNED':
-      return 'PLANNING';
+    case 'ACCEPTED':
+      return 'ACCEPTANCE';
     case 'IN_PROGRESS':
     case 'REVISION_REQUESTED':
       return 'EXECUTION';
@@ -154,8 +156,8 @@ function statusToPhase(status: JobCardStatus): WorkflowPhase | null {
   }
 }
 
-function planningSkipped(lifecycle: JobLifecycleFacts): boolean {
-  return lifecycle.plannedAt === null && lifecycle.startedAt !== null;
+function acceptanceMissing(lifecycle: JobLifecycleFacts): boolean {
+  return lifecycle.acceptedAt === null && lifecycle.startedAt !== null;
 }
 
 function phaseIndex(phase: WorkflowPhase): number {
@@ -167,11 +169,11 @@ function commandCopy(
   opts: { revisionActive: boolean; user: CurrentUser },
 ): CommandCopy {
   switch (command) {
-    case 'PLAN':
+    case 'ACCEPT_ASSIGNMENT':
       return {
-        label: 'Planla',
-        consequence: 'İş planlama aşamasına alınacaktır.',
-        successMessage: 'İş planlandı.',
+        label: 'İşi kabul et',
+        consequence: 'İş “Kabul edildi” aşamasına alınacaktır.',
+        successMessage: 'İş kabul edildi.',
       };
     case 'START':
       return {
@@ -239,7 +241,7 @@ function derivePhaseItems(
   status: JobCardStatus,
   lifecycle: JobLifecycleFacts,
 ): { currentPhase: WorkflowPhase | null; phaseItems: JobWorkflowPresentation['phaseItems'] } {
-  const skippedPlanning = planningSkipped(lifecycle);
+  const missingAcceptance = acceptanceMissing(lifecycle);
 
   if (status === 'CANCELLED') {
     const sourcePhase = lifecycle.cancelledFromStatus
@@ -250,7 +252,9 @@ function derivePhaseItems(
         currentPhase: null,
         phaseItems: PHASE_ORDER.map((phase) => ({
           phase,
-          label: phase === 'PLANNING' && skippedPlanning ? 'Planlama atlandı' : PHASE_LABELS[phase],
+          label: phase === 'ACCEPTANCE' && missingAcceptance
+            ? MISSING_ACCEPTANCE_LABEL
+            : PHASE_LABELS[phase],
           state: phase === 'CREATED' ? 'complete' : 'upcoming',
         })),
       };
@@ -260,8 +264,8 @@ function derivePhaseItems(
       currentPhase: sourcePhase,
       phaseItems: PHASE_ORDER.map((phase) => {
         const index = phaseIndex(phase);
-        if (phase === 'PLANNING' && skippedPlanning && index < frozen) {
-          return { phase, label: 'Planlama atlandı', state: 'skipped' as const };
+        if (phase === 'ACCEPTANCE' && missingAcceptance && index < frozen) {
+          return { phase, label: MISSING_ACCEPTANCE_LABEL, state: 'skipped' as const };
         }
         if (index < frozen) {
           return { phase, label: PHASE_LABELS[phase], state: 'complete' as const };
@@ -282,8 +286,8 @@ function derivePhaseItems(
     currentPhase,
     phaseItems: PHASE_ORDER.map((phase) => {
       const index = phaseIndex(phase);
-      if (phase === 'PLANNING' && skippedPlanning && index < current) {
-        return { phase, label: 'Planlama atlandı', state: 'skipped' as const };
+      if (phase === 'ACCEPTANCE' && missingAcceptance && index < current) {
+        return { phase, label: MISSING_ACCEPTANCE_LABEL, state: 'skipped' as const };
       }
       if (index < current) {
         return { phase, label: PHASE_LABELS[phase], state: 'complete' as const };
@@ -319,15 +323,15 @@ function responsibilityFor(
       return {
         role,
         title: 'Şimdi sizden beklenen',
-        description: 'İşi planlayın veya doğrudan uygulamaya başlatın.',
+        description: 'Atanan işi kabul ederek sorumluluğu alın.',
         consequence: null,
         submission: null,
       };
-    case 'PLANNED':
+    case 'ACCEPTED':
       return {
         role,
         title: 'Şimdi sizden beklenen',
-        description: 'Planlanan işi uygulamak için başlatın.',
+        description: 'Kabul ettiğiniz işi uygulamak için başlatın.',
         consequence: null,
         submission: null,
       };
@@ -381,7 +385,8 @@ function responsibilityFor(
 function preferredPrimaryCommand(status: JobCardStatus): LifecycleCommand | null {
   switch (status) {
     case 'NEW':
-    case 'PLANNED':
+      return 'ACCEPT_ASSIGNMENT';
+    case 'ACCEPTED':
       return 'START';
     case 'IN_PROGRESS':
       return 'SUBMIT_FOR_APPROVAL';
@@ -536,7 +541,7 @@ export function deriveJobWorkflowPresentation(
 
 const COMPACT_ORDINAL: Record<JobCardStatus, CompactWorkflowSummary['ordinal']> = {
   NEW: 1,
-  PLANNED: 2,
+  ACCEPTED: 2,
   IN_PROGRESS: 3,
   REVISION_REQUESTED: 3,
   WAITING_APPROVAL: 4,

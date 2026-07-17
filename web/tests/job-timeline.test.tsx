@@ -124,6 +124,38 @@ describe('safe JobCard timeline', () => {
     expect(host.textContent).not.toMatch(/oldValue|metadata|clientActionId/);
   });
 
+  it('labels JOB_ACCEPTED and historical JOB_PLANNED transitions safely', async () => {
+    const activities: JobCardActivity[] = [
+      {
+        id: 'a1', jobCardId: 'job-1', eventType: 'JOB_ACCEPTED',
+        actor: { id: 's1', name: 'Ayşe Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'NEW', toStatus: 'ACCEPTED', reason: null,
+        },
+        createdAt: '2026-07-14T09:00:00.000Z',
+      },
+      {
+        id: 'a2', jobCardId: 'job-1', eventType: 'JOB_PLANNED',
+        actor: { id: 'm1', name: 'Yönetici' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'NEW', toStatus: 'PLANNED', reason: null,
+        },
+        createdAt: '2026-07-14T08:00:00.000Z',
+      },
+    ];
+    await act(async () => {
+      root.render(<JobTimeline
+        jobId="job-1"
+        load={vi.fn().mockResolvedValue(page(activities))}
+      />);
+    });
+    await act(async () => { await Promise.resolve(); });
+    expect(host.textContent).toContain('İş kabul edildi');
+    expect(host.textContent).toContain('Atandı → Kabul edildi');
+    expect(host.textContent).toContain('İş planlandı');
+    expect(host.textContent).toContain('Atandı → Planlandı');
+  });
+
   it('shares approved process language for control lifecycle events', async () => {
     const events: Array<{ eventType: JobCardActivity['eventType']; label: string }> = [
       { eventType: 'JOB_SUBMITTED_FOR_APPROVAL', label: 'Kontrole gönderildi' },

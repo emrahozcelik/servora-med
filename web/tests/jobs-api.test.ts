@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  addJobCardNote, approveJobCard, cancelJobCard, createJobCard, getJobCard,
+  acceptJobCard, addJobCardNote, approveJobCard, cancelJobCard, createJobCard, getJobCard,
   getJobCardBoard, getMeetingDetails, listActivity, listDeliveryItems, listJobCardNotes,
-  listJobCards, patchJobCard, patchMeetingDetails, planJobCard,
+  listJobCards, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
 } from '../src/jobs/jobs-api';
@@ -16,6 +16,7 @@ const related = (id: string, name: string) => ({ id, name });
 const listItem = {
   id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 7,
   title: 'Klinik teslimi', priority: 'urgent', dueDate: '2026-07-20',
+  scheduledAt: '2026-07-20T09:00:00.000Z',
   createdAt: '2026-07-10T10:00:00.000Z', updatedAt: '2026-07-13T10:00:00.000Z',
   staffCompletedAt: '2026-07-12T10:00:00.000Z', customer: related('c1', 'ABC Klinik'),
   contact: related('ct1', 'Dr. Deniz'), assignee: related('s1', 'Ayşe Personel'), deliveryItemCount: 2,
@@ -25,6 +26,7 @@ const job = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 7,
   title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: 'ct1',
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
+  scheduledAt: '2026-07-20T09:00:00.000Z',
   assignee: related('s1', 'Ayşe Personel'), customer: related('c1', 'ABC Klinik'),
   contact: related('ct1', 'Dr. Deniz'),
   workflowContext,
@@ -54,14 +56,62 @@ describe('JobCard workspace transport', () => {
 
   it.each([
     ['unknown command', { ...workflowContext, allowedCommands: ['DELETE'] }],
+    ['legacy PLAN command', { ...workflowContext, allowedCommands: ['PLAN'] }],
     ['unknown action', { ...workflowContext, allowedActions: ['EDIT_ANYTHING'] }],
     ['bad instant', { ...workflowContext, lifecycle: { ...workflowContext.lifecycle, createdAt: 'x' } }],
+    ['legacy plannedAt lifecycle field', {
+      ...workflowContext,
+      lifecycle: {
+        createdAt: '2026-07-17T08:00:00.000Z', plannedAt: null, startedAt: null,
+        submittedAt: null, submittedBy: null, submissionNote: null, approvedAt: null,
+        approvedBy: null, approvalNote: null, revisionRequestedAt: null,
+        revisionRequestedBy: null, revisionReason: null, cancelledAt: null,
+        cancelledBy: null, cancelReason: null, cancelledFromStatus: null,
+      },
+    }],
     ['bad requirement', { ...workflowContext, submissionReadiness: {
       ...workflowContext.submissionReadiness!, items: [{ code: 'UNKNOWN', state: 'met' }],
     } }],
   ])('rejects malformed %s', async (_name, candidate) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...job, workflowContext: candidate })));
     await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('rejects active PLANNED status and accepts ACCEPTED with acceptance facts', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...job, status: 'PLANNED' })));
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+
+    const accepted = {
+      ...job,
+      status: 'ACCEPTED',
+      scheduledAt: '2026-07-20T09:00:00.000Z',
+      workflowContext: {
+        ...workflowContext,
+        allowedCommands: ['START', 'CANCEL'],
+        submissionReadiness: null,
+        lifecycle: {
+          ...workflowContext.lifecycle,
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: related('s1', 'Ayşe Personel'),
+          startedAt: null,
+        },
+      },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(accepted)));
+    await expect(getJobCard('job-1')).resolves.toEqual(accepted);
+  });
+
+  it('accepts scheduledAt on list items and null scheduledAt on detail', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...listItem, scheduledAt: '2026-07-21T11:00:00.000Z' }],
+      total: 1, limit: 25, offset: 0,
+    })));
+    await expect(listJobCards()).resolves.toMatchObject({
+      items: [{ scheduledAt: '2026-07-21T11:00:00.000Z' }],
+    });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...job, scheduledAt: null })));
+    await expect(getJobCard('job-1')).resolves.toMatchObject({ scheduledAt: null });
   });
 
   it('runtime-validates the paginated list including related names and technical version', async () => {
@@ -196,14 +246,26 @@ describe('JobCard workspace transport', () => {
           kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED', toStatus: 'IN_PROGRESS', reason: null,
         },
         createdAt: '2026-07-13T10:00:00.000Z' },
+      { id: 'a0', jobCardId: 'job-1', eventType: 'JOB_PLANNED', actor: related('m1', 'Yönetici'),
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'NEW', toStatus: 'PLANNED', reason: null,
+        },
+        createdAt: '2026-07-13T09:00:00.000Z' },
+      { id: 'a3', jobCardId: 'job-1', eventType: 'JOB_ACCEPTED', actor: related('s1', 'Ayşe Personel'),
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'NEW', toStatus: 'ACCEPTED', reason: null,
+        },
+        createdAt: '2026-07-13T09:30:00.000Z' },
     ];
-    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ items: activities, total: 2, limit: 50, offset: 0 })));
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ items: activities, total: 4, limit: 50, offset: 0 })));
     const page = await listActivity('job-1');
     expect(page.items).toEqual(activities);
     expect(page.items[0]!.eventType).toBe('FUTURE_EVENT');
     expect(page.items[0]).not.toHaveProperty('oldValue');
     expect(jobActivityLabel('FUTURE_EVENT')).toBe('İş kaydında bir işlem yapıldı');
     expect(jobActivityLabel('JOB_STARTED')).toBe('İş başlatıldı');
+    expect(jobActivityLabel('JOB_PLANNED')).toBe('İş planlandı');
+    expect(jobActivityLabel('JOB_ACCEPTED')).toBe('İş kabul edildi');
   });
 
   it('requires reason on STATUS_TRANSITION and rejects additional raw fields', async () => {
@@ -300,7 +362,7 @@ describe('JobCard workspace transport', () => {
     for (let index = 0; index < 8; index += 1) fetchMock.mockResolvedValueOnce(json({ ...job, version: 8 + index }));
     vi.stubGlobal('fetch', fetchMock);
     const versioned = { clientActionId: 'action', expectedVersion: 7 };
-    await planJobCard('job-1', versioned); await startJobCard('job-1', versioned);
+    await acceptJobCard('job-1', versioned); await startJobCard('job-1', versioned);
     await submitJobCardForApproval('job-1', { ...versioned, note: 'Bitti' });
     await approveJobCard('job-1', { ...versioned, note: 'Uygun' });
     await requestJobCardRevision('job-1', { ...versioned, revisionReason: 'Düzeltin' });
@@ -308,7 +370,7 @@ describe('JobCard workspace transport', () => {
     await resumeJobCard('job-1', versioned);
     await cancelJobCard('job-1', { ...versioned, cancelReason: 'Müşteri iptal etti' });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      '/api/job-cards/job-1/plan', '/api/job-cards/job-1/start',
+      '/api/job-cards/job-1/accept', '/api/job-cards/job-1/start',
       '/api/job-cards/job-1/submit-for-approval', '/api/job-cards/job-1/approve',
       '/api/job-cards/job-1/request-revision', '/api/job-cards/job-1/withdraw-from-approval',
       '/api/job-cards/job-1/resume',

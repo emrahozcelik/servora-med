@@ -25,7 +25,7 @@ const managerUser: CurrentUser = {
 };
 
 const baseLifecycle: JobLifecycleFacts = {
-  createdAt: '2026-07-17T08:00:00.000Z', plannedAt: null,
+  createdAt: '2026-07-17T08:00:00.000Z', acceptedAt: null, acceptedBy: null,
   startedAt: null, submittedAt: null, submittedBy: null, submissionNote: null,
   approvedAt: null, approvedBy: null, approvalNote: null,
   revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
@@ -55,8 +55,8 @@ function staffContext(
   extras: Partial<JobWorkflowContext> = {},
 ): JobWorkflowContext {
   const commandsByStatus: Record<JobCard['status'], LifecycleCommand[]> = {
-    NEW: ['PLAN', 'START', 'CANCEL'],
-    PLANNED: ['START', 'CANCEL'],
+    NEW: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+    ACCEPTED: ['START', 'CANCEL'],
     IN_PROGRESS: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
     REVISION_REQUESTED: ['RESUME', 'CANCEL'],
     WAITING_APPROVAL: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
@@ -65,7 +65,7 @@ function staffContext(
   };
   const actionsByStatus: Record<JobCard['status'], JobWorkflowContext['allowedActions']> = {
     NEW: ['EDIT_JOB_FIELDS'],
-    PLANNED: ['EDIT_JOB_FIELDS'],
+    ACCEPTED: ['EDIT_JOB_FIELDS'],
     IN_PROGRESS: [
       'EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
     ],
@@ -102,6 +102,7 @@ const job: JobCard = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2,
   title: 'ABC Klinik ürün teslimi', description: null, customerId: 'c1', contactId: null,
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
+  scheduledAt: '2026-07-20T09:00:00.000Z',
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' },
   contact: null,
   workflowContext: staffContext('NEW', { createdAt: '2026-07-17T08:00:00.000Z' }, {
@@ -134,7 +135,8 @@ function inProgressMeeting(lifecycle: Partial<JobLifecycleFacts> = {}): JobCard 
     dueDate: '2026-07-20',
     workflowContext: staffContext('IN_PROGRESS', {
       startedAt: '2026-07-17T09:00:00.000Z',
-      plannedAt: null,
+      acceptedAt: null,
+      acceptedBy: null,
       ...lifecycle,
     }),
   };
@@ -150,7 +152,8 @@ function revisionRequestedJob(opts: { revisionReason: string }): JobCard {
     dueDate: '2026-07-20',
     workflowContext: staffContext('REVISION_REQUESTED', {
       startedAt: '2026-07-17T09:00:00.000Z',
-      plannedAt: '2026-07-17T08:30:00.000Z',
+      acceptedAt: '2026-07-17T08:30:00.000Z',
+      acceptedBy: { id: 's1', name: 'Ayşe Personel' },
       submittedAt: '2026-07-17T10:00:00.000Z',
       revisionRequestedAt: '2026-07-17T11:00:00.000Z',
       revisionReason: opts.revisionReason,
@@ -249,13 +252,14 @@ describe('Staff JobCard detail', () => {
     return fetch;
   }
 
-  it('renders skipped planning and staff responsibility before structured records', async () => {
-    const card = inProgressMeeting({ plannedAt: null, startedAt: '2026-07-17T09:00:00.000Z' });
+  it('renders missing acceptance and staff responsibility before structured records', async () => {
+    const card = inProgressMeeting({ acceptedAt: null, startedAt: '2026-07-17T09:00:00.000Z' });
     await renderDetail(card);
     expect(host.querySelector('h1')?.textContent).toBe(card.title);
     const steps = host.querySelector('[aria-label="İş süreci"]');
     expect(steps?.getAttribute('role') ?? steps?.tagName.toLowerCase()).toMatch(/list|ol/);
-    expect(steps?.textContent).toContain('Planlama atlandı');
+    expect(steps?.textContent).toContain('Kabul bilgisi kaydedilmemiş');
+    expect(steps?.textContent).not.toContain('Planlama atlandı');
     const current = steps?.querySelector('[aria-current="step"]');
     expect(current?.textContent).toContain('Uygulanıyor');
     expect(host.querySelector('h2')?.textContent === 'Şimdi sizden beklenen'
@@ -293,8 +297,8 @@ describe('Staff JobCard detail', () => {
     expect(buttonByName(host, 'Kontrole gönder')).toBeNull();
   });
 
-  it('does not mount hidden Sales Meeting resources in new and planned states', async () => {
-    for (const status of ['NEW', 'PLANNED'] as const) {
+  it('does not mount hidden Sales Meeting resources in new and accepted states', async () => {
+    for (const status of ['NEW', 'ACCEPTED'] as const) {
       await act(async () => root.unmount());
       host.remove();
       host = document.createElement('div');
@@ -307,7 +311,12 @@ describe('Staff JobCard detail', () => {
         status,
         title: `Planlanan görüşme ${status}`,
         dueDate: '2026-07-20',
-        workflowContext: staffContext(status),
+        workflowContext: staffContext(status, status === 'ACCEPTED'
+          ? {
+            acceptedAt: '2026-07-17T08:30:00.000Z',
+            acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+          }
+          : {}),
       };
       const fetch = await renderScreen(newMeetingJob);
       expect(host.textContent).toContain(newMeetingJob.title);
@@ -403,7 +412,7 @@ describe('Staff JobCard detail', () => {
       // Backend omits staff lifecycle commands for non-assignees; presentation never invents them.
       workflowContext: staffContext('IN_PROGRESS', {
         startedAt: '2026-07-17T09:00:00.000Z',
-        plannedAt: null,
+        acceptedAt: null,
       }, {
         allowedCommands: [],
         allowedActions: ['VIEW_MEETING_RESULT', 'VIEW_NOTES'],
@@ -412,6 +421,7 @@ describe('Staff JobCard detail', () => {
     await renderDetail(card, { ...staffUser, id: 'other-staff' });
     expect(buttonByName(host, 'Kontrole gönder')).toBeNull();
     expect(buttonByName(host, 'İşi başlat')).toBeNull();
+    expect(buttonByName(host, 'İşi kabul et')).toBeNull();
     expect(buttonByName(host, 'İşi iptal et')).toBeNull();
   });
 
@@ -489,9 +499,41 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('İmplant Seti');
     expect(html).toContain('Numune');
     expect(html).toContain('2 adet');
-    expect(html).toContain('İşi başlat');
-    expect(html).toContain('Planla');
+    expect(html).toContain('İşi kabul et');
+    expect(html).not.toContain('Planla');
     expect(html.match(/primary-button/g)?.length ?? 0).toBe(1);
+  });
+
+  it('shows start as primary after assignment acceptance', () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [] }),
+    };
+    const html = renderToStaticMarkup(<JobDetailPanel
+      job={accepted} items={[item]} user={staffUser} pending={false} message=""
+      onBack={() => {}} onCommand={() => {}} />);
+    expect(html).toContain('İşi başlat');
+    expect(html).not.toContain('İşi kabul et');
+    expect(html.match(/primary-button/g)?.length ?? 0).toBe(1);
+  });
+
+  it('does not show acceptance action for manager on NEW', () => {
+    const managerNew: JobCard = {
+      ...job,
+      workflowContext: staffContext('NEW', {}, {
+        allowedCommands: ['CANCEL'],
+        allowedActions: [],
+      }),
+    };
+    const html = renderToStaticMarkup(<JobDetailPanel
+      job={managerNew} items={[item]} user={managerUser} pending={false} message=""
+      onBack={() => {}} onCommand={() => {}} />);
+    expect(html).not.toContain('İşi kabul et');
+    expect(html).toContain('İşi iptal et');
   });
 
   it('renders quantity without a fabricated unit when the Product unit is null', () => {
@@ -739,7 +781,8 @@ describe('Staff JobCard detail', () => {
             version: card.version + 1,
             workflowContext: staffContext('IN_PROGRESS', {
               startedAt: '2026-07-17T09:00:00.000Z',
-              plannedAt: '2026-07-17T08:30:00.000Z',
+              acceptedAt: '2026-07-17T08:30:00.000Z',
+              acceptedBy: { id: 's1', name: 'Ayşe Personel' },
               submittedAt: '2026-07-17T10:00:00.000Z',
               revisionRequestedAt: '2026-07-17T11:00:00.000Z',
               revisionReason: 'Miktarı düzeltin',

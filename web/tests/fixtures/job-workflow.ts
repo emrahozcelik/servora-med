@@ -4,7 +4,9 @@ export const workflowContext: JobWorkflowContext = {
   allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
   allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
   lifecycle: {
-    createdAt: '2026-07-17T08:00:00.000Z', plannedAt: null,
+    createdAt: '2026-07-17T08:00:00.000Z',
+    acceptedAt: null,
+    acceptedBy: null,
     startedAt: '2026-07-17T09:00:00.000Z', submittedAt: null,
     submittedBy: null, submissionNote: null, approvedAt: null, approvedBy: null,
     approvalNote: null, revisionRequestedAt: null, revisionRequestedBy: null,

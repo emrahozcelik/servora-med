@@ -5,8 +5,8 @@ import {
 
 import { ApiError, type CurrentUser } from './services/api';
 import {
-  approveJobCard, cancelJobCard, getJobCard, getMeetingDetails, listDeliveryItems,
-  patchJobCard, patchMeetingDetails, planJobCard,
+  acceptJobCard, approveJobCard, cancelJobCard, getJobCard, getMeetingDetails, listDeliveryItems,
+  patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
   type DeliveryItem, type JobCard, type LifecycleCommand, type MeetingDetails,
@@ -320,8 +320,8 @@ async function executeLifecycleCommand(
   reason: string,
 ): Promise<JobCard> {
   switch (command) {
-    case 'PLAN':
-      return planJobCard(jobId, input);
+    case 'ACCEPT_ASSIGNMENT':
+      return acceptJobCard(jobId, input);
     case 'START':
       return startJobCard(jobId, input);
     case 'SUBMIT_FOR_APPROVAL':

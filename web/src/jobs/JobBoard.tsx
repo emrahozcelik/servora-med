@@ -4,7 +4,7 @@ import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
-import type { JobCardBoard, JobCardListItem, JobCardStatus } from './jobs-api';
+import type { JobCardBoard, JobCardListItem } from './jobs-api';
 import { jobStatusLabels, jobTypeLabels } from './job-labels';
 import { deriveCompactWorkflowSummary } from './job-workflow-presentation';
 import { selectStatus } from './job-search';
@@ -15,7 +15,7 @@ const columns = [
   'IN_PROGRESS',
   'WAITING_APPROVAL',
   'REVISION_REQUESTED',
-] as const satisfies readonly JobCardStatus[];
+] as const satisfies readonly (keyof JobCardBoard['columns'])[];
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('tr-TR', {

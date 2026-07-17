@@ -42,7 +42,8 @@ function formatDate(value: string) {
 function preferredPrimaryCommand(status: JobCardListItem['status']): LifecycleCommand | null {
   switch (status) {
     case 'NEW':
-    case 'PLANNED':
+      return null;
+    case 'ACCEPTED':
       return 'START';
     case 'IN_PROGRESS':
       return 'SUBMIT_FOR_APPROVAL';
