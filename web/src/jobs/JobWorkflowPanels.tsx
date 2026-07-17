@@ -39,6 +39,18 @@ export function CurrentResponsibilityPanel(props: {
           Sorumlu personel: <strong>{assigneeName}</strong>
         </p>
       )}
+      {responsibility.submission && (
+        <dl className="workflow-responsibility-submission">
+          <div>
+            <dt>Kontrole gönderen</dt>
+            <dd>{responsibility.submission.actorName ?? 'Bilgi kaydedilmemiş'}</dd>
+          </div>
+          <div>
+            <dt>Gönderim zamanı</dt>
+            <dd>{formatInstant(responsibility.submission.at)}</dd>
+          </div>
+        </dl>
+      )}
       {responsibility.consequence && (
         <p className="workflow-responsibility-consequence">{responsibility.consequence}</p>
       )}
@@ -103,6 +115,10 @@ export function CancelledJobBanner(props: {
         <div>
           <dt>İptal öncesi aşama</dt>
           <dd>{source}</dd>
+        </div>
+        <div>
+          <dt>İptal eden</dt>
+          <dd>{lifecycle.cancelledBy?.name?.trim() ? lifecycle.cancelledBy.name : 'Bilgi kaydedilmemiş'}</dd>
         </div>
         <div>
           <dt>İptal zamanı</dt>

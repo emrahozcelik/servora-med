@@ -548,6 +548,45 @@ describe('deriveJobWorkflowPresentation', () => {
   });
 });
 
+
+  it('surfaces staff waiting-state submission facts from lifecycle', () => {
+    const model = derive(jobWith({
+      status: 'WAITING_APPROVAL',
+      workflowContext: contextWith({
+        allowedCommands: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        allowedActions: ['WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_NOTES'],
+        lifecycle: {
+          ...workflowContext.lifecycle,
+          startedAt: '2026-07-17T09:00:00.000Z',
+          submittedAt: '2026-07-17T10:00:00.000Z',
+          submittedBy: { id: 's1', name: 'Ayşe Personel' },
+        },
+        submissionReadiness: { ready: true, items: [] },
+      }),
+    }), staff);
+    expect(model.responsibility.title).toBe('Yönetici kontrolünde');
+    expect(model.responsibility.submission).toEqual({
+      actorName: 'Ayşe Personel',
+      at: '2026-07-17T10:00:00.000Z',
+    });
+    const managerModel = derive(jobWith({
+      status: 'WAITING_APPROVAL',
+      workflowContext: contextWith({
+        allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        allowedActions: ['WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_NOTES'],
+        lifecycle: {
+          ...workflowContext.lifecycle,
+          startedAt: '2026-07-17T09:00:00.000Z',
+          submittedAt: '2026-07-17T10:00:00.000Z',
+          submittedBy: { id: 's1', name: 'Ayşe Personel' },
+        },
+        submissionReadiness: { ready: true, items: [] },
+      }),
+    }), manager);
+    expect(managerModel.responsibility.title).toBe('Yönetici kontrolü');
+    expect(managerModel.responsibility.submission?.actorName).toBe('Ayşe Personel');
+  });
+
 describe('deriveCompactWorkflowSummary', () => {
   it('returns ordinal, label, attention, and expected role by status', () => {
     expect(deriveCompactWorkflowSummary({

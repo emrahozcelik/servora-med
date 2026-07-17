@@ -372,16 +372,18 @@ describe('Staff JobCard detail', () => {
     await renderDetail(cancelledJob({
       cancelledFromStatus: 'IN_PROGRESS',
       cancelledAt: '2026-07-17T12:00:00.000Z',
+      cancelledBy: { id: 'm1', name: 'Mehmet Yönetici' },
       cancelReason: 'Müşteri vazgeçti',
     }));
     expect(host.textContent).toContain('İptal edildi');
     expect(host.textContent).toContain('Müşteri vazgeçti');
+    expect(host.textContent).toContain('Mehmet Yönetici');
     expect(host.textContent).toMatch(/Uygulanıyor|İncelem/);
 
     await act(async () => {
       root.render(<JobDetailPanel
         job={cancelledJob({
-          cancelledFromStatus: null, cancelledAt: null, cancelReason: null,
+          cancelledFromStatus: null, cancelledAt: null, cancelledBy: null, cancelReason: null,
         })}
         items={[item]}
         user={staffUser}
@@ -391,7 +393,8 @@ describe('Staff JobCard detail', () => {
         onCommand={() => {}}
       />);
     });
-    expect(host.textContent?.match(/Bilgi kaydedilmemiş/g)?.length ?? 0).toBeGreaterThanOrEqual(2);
+    // source, actor, time, reason — all missing → no invented history
+    expect(host.textContent?.match(/Bilgi kaydedilmemiş/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
   });
 
   it('hides Staff primary lifecycle actions when the viewer is not the assignee', async () => {
@@ -410,6 +413,38 @@ describe('Staff JobCard detail', () => {
     expect(buttonByName(host, 'Kontrole gönder')).toBeNull();
     expect(buttonByName(host, 'İşi başlat')).toBeNull();
     expect(buttonByName(host, 'İşi iptal et')).toBeNull();
+  });
+
+  it('shows staff waiting submission actor and time without inventing missing facts', async () => {
+    const waitingCtx = staffContext('WAITING_APPROVAL', {
+      startedAt: '2026-07-17T09:00:00.000Z',
+      submittedAt: '2026-07-17T10:00:00.000Z',
+      submittedBy: { id: 's1', name: 'Ayşe Personel' },
+    });
+    await renderDetail({
+      ...job,
+      type: 'SALES_MEETING',
+      status: 'WAITING_APPROVAL',
+      workflowContext: waitingCtx,
+    });
+    expect(host.textContent).toContain('Yönetici kontrolünde');
+    expect(host.textContent).toContain('Kontrole gönderen');
+    expect(host.textContent).toContain('Ayşe Personel');
+    expect(host.textContent).toContain('Gönderim zamanı');
+
+    const missingCtx = staffContext('WAITING_APPROVAL', {
+      startedAt: '2026-07-17T09:00:00.000Z',
+      submittedAt: null,
+      submittedBy: null,
+    });
+    await renderDetail({
+      ...job,
+      type: 'SALES_MEETING',
+      status: 'WAITING_APPROVAL',
+      workflowContext: missingCtx,
+    });
+    expect(host.textContent).toContain('Kontrole gönderen');
+    expect(host.textContent).toContain('Bilgi kaydedilmemiş');
   });
 
   it('labels direct and waiting Sales Meeting editing explicitly', () => {

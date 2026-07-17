@@ -44,6 +44,8 @@ export type JobWorkflowPresentation = {
     title: string;
     description: string;
     consequence: string | null;
+    /** Staff waiting-state facts from backend lifecycle; null when not applicable. */
+    submission: { actorName: string | null; at: string | null } | null;
   };
   requirements: Array<SubmissionRequirement & { label: string }>;
   recordEditAction: RecordEditPresentation | null;
@@ -301,7 +303,17 @@ function derivePhaseItems(
 function responsibilityFor(
   status: JobCardStatus,
   role: ExpectedRole,
+  user: CurrentUser,
+  lifecycle: JobLifecycleFacts,
 ): JobWorkflowPresentation['responsibility'] {
+  const submissionFacts = (): JobWorkflowPresentation['responsibility']['submission'] => {
+    if (status !== 'WAITING_APPROVAL') return null;
+    return {
+      actorName: lifecycle.submittedBy?.name?.trim() || null,
+      at: lifecycle.submittedAt,
+    };
+  };
+
   switch (status) {
     case 'NEW':
       return {
@@ -309,6 +321,7 @@ function responsibilityFor(
         title: 'Şimdi sizden beklenen',
         description: 'İşi planlayın veya doğrudan uygulamaya başlatın.',
         consequence: null,
+        submission: null,
       };
     case 'PLANNED':
       return {
@@ -316,6 +329,7 @@ function responsibilityFor(
         title: 'Şimdi sizden beklenen',
         description: 'Planlanan işi uygulamak için başlatın.',
         consequence: null,
+        submission: null,
       };
     case 'IN_PROGRESS':
       return {
@@ -323,6 +337,7 @@ function responsibilityFor(
         title: 'Şimdi sizden beklenen',
         description: 'Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.',
         consequence: null,
+        submission: null,
       };
     case 'REVISION_REQUESTED':
       return {
@@ -330,20 +345,27 @@ function responsibilityFor(
         title: 'Düzeltme gerekiyor',
         description: 'Yönetici düzeltme istedi. Düzeltmeye başlayıp kayıtları güncelleyin.',
         consequence: null,
+        submission: null,
       };
-    case 'WAITING_APPROVAL':
+    case 'WAITING_APPROVAL': {
+      const staffViewer = user.role === 'STAFF';
       return {
         role,
-        title: 'Yönetici kontrolü',
-        description: 'Yönetici kayıtları inceleyerek işi tamamlar veya düzeltme ister.',
+        title: staffViewer ? 'Yönetici kontrolünde' : 'Yönetici kontrolü',
+        description: staffViewer
+          ? 'Kayıtlar yönetici kontrolünde. Sizden şu an beklenen bir işlem yok.'
+          : 'Yönetici kayıtları inceleyerek işi tamamlar veya düzeltme ister.',
         consequence: null,
+        submission: submissionFacts(),
       };
+    }
     case 'COMPLETED':
       return {
         role: null,
         title: 'Tamamlandı',
         description: 'İş yönetici kontrolünden geçerek tamamlandı.',
         consequence: null,
+        submission: null,
       };
     case 'CANCELLED':
       return {
@@ -351,6 +373,7 @@ function responsibilityFor(
         title: 'İptal edildi',
         description: 'İş iptal edildi ve yeniden açılamaz.',
         consequence: null,
+        submission: null,
       };
   }
 }
@@ -486,7 +509,7 @@ export function deriveJobWorkflowPresentation(
   if (job.status === 'COMPLETED') terminalState = 'COMPLETED';
   if (job.status === 'CANCELLED') terminalState = 'CANCELLED';
 
-  const responsibility = responsibilityFor(job.status, expectedRole);
+  const responsibility = responsibilityFor(job.status, expectedRole, user, lifecycle);
   if (primaryTransition) {
     responsibility.consequence = primaryTransition.consequence;
   }
