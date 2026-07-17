@@ -90,13 +90,13 @@ export type JobCard = {
 };
 export type JobCardCreateInput =
   | { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
-    assignedTo: string; description?: string | null; contactId?: string | null;
+    assignedTo: string; scheduledAt: string; description?: string | null; contactId?: string | null;
     priority?: JobCardPriority; dueDate?: string | null }
   | { clientActionId: string; type: 'GENERAL_TASK'; title: string; assignedTo: string;
     description?: string | null; customerId?: string | null; contactId?: string | null;
-    priority?: JobCardPriority; dueDate?: string | null }
+    priority?: JobCardPriority; dueDate?: string | null; scheduledAt?: string | null }
   | { clientActionId: string; type: 'SALES_MEETING'; title: string; customerId: string;
-    assignedTo: string; dueDate: string; description?: string | null;
+    assignedTo: string; scheduledAt: string; dueDate: string; description?: string | null;
     contactId?: string | null; priority?: JobCardPriority };
 export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
@@ -130,7 +130,7 @@ export type JobCardActivity = {
 };
 export type DeliveryItem = {
   id: string; organizationId: string; jobCardId: string; productId: string;
-  deliveryPurpose: DeliveryPurpose; deliveredAt: string; quantity: number; unit: string | null;
+  deliveryPurpose: DeliveryPurpose; deliveredAt: string | null; quantity: number; unit: string | null;
   productNameSnapshot: string; productSkuSnapshot: string | null; productModelSnapshot: string | null;
   lotNo: string | null; serialNo: string | null; expiryDate: string | null; deliveryNote: string | null;
 };
@@ -161,7 +161,8 @@ export type JobCardListFilters = Partial<{
 }>;
 export type JobCardBoardFilters = Omit<JobCardListFilters, 'status' | 'offset'>;
 type DeliveryInput = {
-  expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose; deliveredAt: string;
+  expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
+  deliveredAt: string | null;
   quantity: number; lotNo?: string | null; serialNo?: string | null; expiryDate?: string | null;
   deliveryNote?: string | null;
 };
@@ -410,7 +411,8 @@ function parseDelivery(value: unknown): DeliveryItem {
   return { id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
     jobCardId: string(v.jobCardId, 'jobCardId'), productId: string(v.productId, 'productId'),
     deliveryPurpose: oneOf(v.deliveryPurpose, 'deliveryPurpose', DELIVERY_PURPOSES),
-    deliveredAt: string(v.deliveredAt, 'deliveredAt'), quantity: positiveFiniteNumber(v.quantity, 'quantity'),
+    deliveredAt: v.deliveredAt === null ? null : string(v.deliveredAt, 'deliveredAt'),
+    quantity: positiveFiniteNumber(v.quantity, 'quantity'),
     unit: nullableString(v.unit, 'unit'), productNameSnapshot: string(v.productNameSnapshot, 'productNameSnapshot'),
     productSkuSnapshot: nullableString(v.productSkuSnapshot, 'productSkuSnapshot'),
     productModelSnapshot: nullableString(v.productModelSnapshot, 'productModelSnapshot'),

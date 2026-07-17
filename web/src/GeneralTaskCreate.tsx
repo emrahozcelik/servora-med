@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent, type SyntheticEvent } from 'react';
 
 import { createJobCard, type JobCardPriority } from './jobs/jobs-api';
+import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
 import { ApiError, type CurrentUser } from './services/api';
 import {
   listContacts,
@@ -44,7 +45,9 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<JobCardPriority>('normal');
-  const [dueDate, setDueDate] = useState('');
+  const [scheduledLocal, setScheduledLocal] = useState(
+    () => defaultScheduledLocalValue(new Date()),
+  );
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [staffState, setStaffState] = useState<LoadState>(user.role === 'STAFF' ? 'ready' : 'loading');
@@ -137,7 +140,8 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
         assignedTo: selectedAssignee,
         description: description.trim() || null,
         priority,
-        dueDate: dueDate || null,
+        dueDate: null,
+        scheduledAt: scheduledLocal ? localDateTimeToIso(scheduledLocal) : null,
         customerId: customerId || null,
         contactId: contactId || null,
       });
@@ -200,8 +204,9 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
                   <option value="low">Düşük</option><option value="normal">Normal</option>
                   <option value="high">Yüksek</option><option value="urgent">Acil</option>
                 </select></div>
-              <div className="field-group"><label htmlFor="task-due-date">Son tarih (isteğe bağlı)</label>
-                <input id="task-due-date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} /></div>
+              <div className="field-group"><label htmlFor="task-scheduled-at">Planlanan zaman (isteğe bağlı)</label>
+                <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
+                  onChange={(event) => setScheduledLocal(event.target.value)} /></div>
             </div>
             <div className="field-group"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label>
               <select id="task-customer" value={customerId} disabled={customerState !== 'ready'}

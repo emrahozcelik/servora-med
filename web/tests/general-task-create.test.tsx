@@ -5,6 +5,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GeneralTaskCreateScreen } from '../src/GeneralTaskCreate';
+import { localDateTimeToIso } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -12,6 +13,17 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn() }));
+const scheduling = vi.hoisted(() => ({
+  defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
+  localDateTimeToIso: (value: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+    if (!match) throw new Error(value);
+    return new Date(
+      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+      Number(match[4]), Number(match[5]), 0, 0,
+    ).toISOString();
+  },
+}));
 vi.mock('../src/jobs/jobs-api', async (original) => ({
   ...await original<typeof import('../src/jobs/jobs-api')>(), ...jobs,
 }));
@@ -21,6 +33,7 @@ vi.mock('../src/services/people-api', async (original) => ({
 vi.mock('../src/services/crm-api', async (original) => ({
   ...await original<typeof import('../src/services/crm-api')>(), ...crm,
 }));
+vi.mock('../src/jobs/scheduling', () => scheduling);
 
 const manager: CurrentUser = {
   id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici', email: 'm@test.local',
@@ -62,6 +75,7 @@ describe('General Task quick create', () => {
   let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     vi.clearAllMocks();
+    scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
     crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
@@ -72,11 +86,13 @@ describe('General Task quick create', () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
-  it('keeps Staff ownership fixed and submits the exact title-only body', async () => {
+  it('keeps Staff ownership fixed and submits the prefilled planned time', async () => {
     await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
     expect(people.listStaff).not.toHaveBeenCalled();
     expect(container.textContent).toContain('Ayşe Personel');
     expect(container.querySelector('#task-assignee')).toBeNull();
+    expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
+    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('2026-07-17T14:30');
     change(container.querySelector('#task-title') as HTMLInputElement, '  Doktoru ara  ');
     change(container.querySelector('#task-description') as HTMLTextAreaElement, '  Randevu durumunu sor  ');
 
@@ -85,9 +101,35 @@ describe('General Task quick create', () => {
     expect(jobs.createJobCard).toHaveBeenCalledWith({
       clientActionId: 'action-1', type: 'GENERAL_TASK', title: 'Doktoru ara',
       assignedTo: 'staff-1', description: 'Randevu durumunu sor', priority: 'normal',
-      dueDate: null, customerId: null, contactId: null,
+      dueDate: null, scheduledAt: localDateTimeToIso('2026-07-17T14:30'),
+      customerId: null, contactId: null,
     });
     expect(onCreated).toHaveBeenCalledWith('job-task-1');
+  });
+
+  it('allows clearing the prefilled planned time and submits scheduledAt null', async () => {
+    await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    change(container.querySelector('#task-title') as HTMLInputElement, 'Takip et');
+    change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+      scheduledAt: null, dueDate: null,
+    }));
+  });
+
+  it('preserves a user-edited planned time across validation errors and staff retry', async () => {
+    people.listStaff.mockRejectedValueOnce(new Error('Bağlantı yok'))
+      .mockResolvedValueOnce([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
+    await act(async () => root.render(<GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} />));
+    await settle();
+    change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-08-10T08:30');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).not.toHaveBeenCalled();
+    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T08:30');
+    await act(async () => (container.querySelector('[data-retry-staff]') as HTMLButtonElement).click());
+    await settle();
+    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T08:30');
+    expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
   });
 
   it('uses the existing design-system border token for optional fields', () => {
@@ -135,7 +177,7 @@ describe('General Task quick create', () => {
       change(container.querySelector('#task-description') as HTMLTextAreaElement, 'Teklif yanıtını öğren');
       change(container.querySelector('#task-assignee') as HTMLSelectElement, 'staff-2');
       change(container.querySelector('#task-priority') as HTMLSelectElement, 'high');
-      change(container.querySelector('#task-due-date') as HTMLInputElement, '2026-07-20');
+      change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-20T14:00');
     });
     await act(async () => change(container.querySelector('#task-customer') as HTMLSelectElement, 'c1'));
     await settle();
@@ -145,7 +187,8 @@ describe('General Task quick create', () => {
     expect(jobs.createJobCard).toHaveBeenCalledWith({
       clientActionId: 'action-1', type: 'GENERAL_TASK', title: 'Klinik dönüşünü takip et',
       assignedTo: 'staff-2', description: 'Teklif yanıtını öğren', priority: 'high',
-      dueDate: '2026-07-20', customerId: 'c1', contactId: 'contact-1',
+      dueDate: null, scheduledAt: localDateTimeToIso('2026-07-20T14:00'),
+      customerId: 'c1', contactId: 'contact-1',
     });
     expect(onCreated).toHaveBeenCalledWith('job-task-1');
   });
@@ -165,7 +208,7 @@ describe('General Task quick create', () => {
     ));
     const disclosure = container.querySelector('details.task-optional')!;
     expect(disclosure.querySelector('summary')?.textContent).toBe('Ek bilgiler');
-    for (const label of ['Başlık', 'Açıklama (isteğe bağlı)', 'Öncelik', 'Son tarih (isteğe bağlı)',
+    for (const label of ['Başlık', 'Açıklama (isteğe bağlı)', 'Öncelik', 'Planlanan zaman (isteğe bağlı)',
       'Müşteri (isteğe bağlı)', 'İlgili kişi (isteğe bağlı)']) {
       expect(container.textContent).toContain(label);
     }
@@ -232,6 +275,7 @@ describe('General Task quick create', () => {
       .mockResolvedValueOnce({ id: 'job-task-1', version: 1 });
     await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
     change(container.querySelector('#task-title') as HTMLInputElement, 'Değeri koru');
+    change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-22T13:00');
     const form = container.querySelector('form') as HTMLFormElement;
     await act(async () => form.requestSubmit());
     expect((container.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
@@ -239,8 +283,10 @@ describe('General Task quick create', () => {
     form.requestSubmit(); expect(jobs.createJobCard).toHaveBeenCalledTimes(1);
     await act(async () => pending.reject(Object.assign(new Error('Bağlantı kesildi'), { retryable: true })));
     expect((container.querySelector('#task-title') as HTMLInputElement).value).toBe('Değeri koru');
+    expect((container.querySelector('#task-scheduled-at') as HTMLInputElement).value).toBe('2026-07-22T13:00');
     expect(document.activeElement).toBe(container.querySelector('.form-error'));
     await act(async () => form.requestSubmit());
     expect(jobs.createJobCard.mock.calls[1]![0].clientActionId).toBe('action-1');
+    expect(jobs.createJobCard.mock.calls[1]![0].scheduledAt).toBe(localDateTimeToIso('2026-07-22T13:00'));
   });
 });

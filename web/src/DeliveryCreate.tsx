@@ -8,6 +8,7 @@ import {
   type ReferenceCustomer,
 } from './services/api';
 import { ProductSelect } from './ProductSelect';
+import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
 import { getCustomer, type Contact, type CustomerDetail } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import type { Product } from './services/products-api';
@@ -21,7 +22,8 @@ export type DeliveryFormValues = {
   productId: string;
   deliveryPurpose: DeliveryPurpose;
   quantity: number;
-  deliveredAt: string;
+  /** Device-local `YYYY-MM-DDTHH:mm` planned time for the JobCard. */
+  scheduledAt: string;
   deliveryNote?: string;
 };
 
@@ -59,13 +61,14 @@ export async function createProductDelivery(
     contactId: values.contactId,
     assignedTo: user.role === 'STAFF' ? user.id : values.assignedTo,
     priority: 'normal',
+    scheduledAt: localDateTimeToIso(values.scheduledAt),
   });
   const delivery = await dependencies.addItem(job.id, {
     clientActionId: dependencies.createActionId(),
     expectedVersion: job.version,
     productId: values.productId,
     deliveryPurpose: values.deliveryPurpose,
-    deliveredAt: new Date(values.deliveredAt).toISOString(),
+    deliveredAt: null,
     quantity: values.quantity,
     deliveryNote: values.deliveryNote?.trim() || null,
   });
@@ -89,6 +92,9 @@ export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
   const [staffState, setStaffState] = useState<'loading' | 'ready' | 'error'>(user.role === 'STAFF' ? 'ready' : 'loading');
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+  const [scheduledLocal, setScheduledLocal] = useState(
+    () => defaultScheduledLocalValue(new Date()),
+  );
   const errorRef = useRef<HTMLDivElement>(null);
   const customerGate = useRef(createRequestGate());
   const activeStaffIds = useRef(new Set<string>());
@@ -135,6 +141,7 @@ export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
     try {
       if (!customer) throw new Error('Geçerli bir müşteri seçin.');
       if (!selectedProduct) throw new Error('Geçerli bir ürün seçin.');
+      if (!scheduledLocal) throw new Error('Planlanan teslim zamanını seçin.');
       const selectedAssignee = user.role === 'STAFF' ? user.id : String(data.get('assignedTo') ?? '');
       if (!selectedAssignee) throw new Error('Geçerli bir sorumlu personel seçin.');
       const result = await createProductDelivery(user, {
@@ -145,7 +152,7 @@ export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
         productId: selectedProduct.id,
         deliveryPurpose: String(data.get('deliveryPurpose') ?? '') as DeliveryPurpose,
         quantity: Number(data.get('quantity')),
-        deliveredAt: String(data.get('deliveredAt') ?? ''),
+        scheduledAt: scheduledLocal,
         deliveryNote: String(data.get('deliveryNote') ?? ''),
       });
       onCreated(result);
@@ -194,8 +201,9 @@ export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
         <div className="field-group"><label htmlFor="delivery-quantity">Miktar</label>
           <input id="delivery-quantity" name="quantity" type="number" min="0.001" step="0.001" inputMode="decimal" required disabled={pending} /></div>
       </div>
-      <div className="field-group"><label htmlFor="delivered-at">Teslim zamanı</label>
-        <input id="delivered-at" name="deliveredAt" type="datetime-local" required disabled={pending} /></div>
+      <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
+        <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={pending}
+          value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
         <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={pending} /></div>
       <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
