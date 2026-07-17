@@ -327,6 +327,26 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.transitions).toHaveLength(1);
   });
 
+  it.each([
+    ['requestRevision', 'JOB_REVISION_REQUESTED', { revisionReason: ' Miktarı düzeltin ' }, 'Miktarı düzeltin'],
+    ['cancel', 'JOB_CANCELLED', { cancelReason: ' Müşteri iptal etti ' }, 'Müşteri iptal etti'],
+  ] as const)('stores a safe reason for %s activity', async (method, event, reasonInput, reason) => {
+    const repo = new LifecycleRepository();
+    repo.job.status = method === 'cancel' ? 'IN_PROGRESS' : 'WAITING_APPROVAL';
+    await new JobCardService(repo)[method](manager, 'job-1', {
+      clientActionId: method, expectedVersion: 2, ...reasonInput,
+    } as never);
+    expect(repo.events[0]).toMatchObject({ event, metadata: { reason } });
+  });
+
+  it('does not attach reason metadata for non-revision non-cancel lifecycle events', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'PLANNED';
+    await new JobCardService(repo).start(staff, 'job-1', input('start-no-reason'));
+    expect(repo.events[0]).toMatchObject({ event: 'JOB_STARTED' });
+    expect(repo.events[0]?.metadata).toBeUndefined();
+  });
+
   it('replays a completed withdrawal without duplicate transition or activity', async () => {
     const repo = new LifecycleRepository(); repo.job.status = 'WAITING_APPROVAL'; repo.job.version = 3;
     const service = new JobCardService(repo);

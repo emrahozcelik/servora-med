@@ -642,9 +642,18 @@ export class JobCardService {
           cancelReason: definition.cancelReason,
         });
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
-        await tx.appendActivity({ organizationId: actor.organizationId, jobCardId, actorId: actor.id,
-          event: definition.event, clientActionId: input.clientActionId,
-          oldValue: { status: job.status, version: job.version }, newValue: { status: updated.status, version: updated.version } });
+        const reason = definition.revisionReason ?? definition.cancelReason;
+        const metadata = reason === null ? undefined : { reason };
+        await tx.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: definition.event,
+          clientActionId: input.clientActionId,
+          oldValue: { status: job.status, version: job.version },
+          newValue: { status: updated.status, version: updated.version },
+          metadata,
+        });
         const detail = await tx.getJobDetail(actor.organizationId, jobCardId);
         if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         return this.presentDetail(tx, actor, detail, requestTime, precomputed);

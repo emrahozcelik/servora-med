@@ -285,6 +285,7 @@ export type JobCardActivityDetails =
       kind: 'STATUS_TRANSITION';
       fromStatus: JobCardStatus;
       toStatus: JobCardStatus;
+      reason: string | null;
     }
   | {
       kind: 'FIELDS_UPDATED';
