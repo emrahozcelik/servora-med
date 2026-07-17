@@ -1,9 +1,19 @@
-import type { JobCardType } from './jobs-api';
+import type { JobCardStatus, JobCardType } from './jobs-api';
 
 export const jobTypeLabels: Record<JobCardType, string> = {
   PRODUCT_DELIVERY: 'Ürün teslimi',
   GENERAL_TASK: 'Genel görev',
   SALES_MEETING: 'Satış görüşmesi',
+};
+
+export const jobStatusLabels: Record<JobCardStatus, string> = {
+  NEW: 'Oluşturuldu',
+  PLANNED: 'Planlandı',
+  IN_PROGRESS: 'Uygulanıyor',
+  WAITING_APPROVAL: 'Yönetici kontrolünde',
+  REVISION_REQUESTED: 'Düzeltme gerekiyor',
+  COMPLETED: 'Tamamlandı',
+  CANCELLED: 'İptal edildi',
 };
 
 export const JOB_CARD_ACTIVITY_EVENTS = [

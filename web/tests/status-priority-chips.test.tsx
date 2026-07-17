@@ -8,7 +8,7 @@ describe('status and priority chips', () => {
   it('renders status with shape and Turkish label', () => {
     const html = renderToStaticMarkup(<StatusChip status="WAITING_APPROVAL" />);
     expect(html).toContain('data-status="WAITING_APPROVAL"');
-    expect(html).toContain('Onay bekliyor');
+    expect(html).toContain('Yönetici kontrolünde');
     expect(html).toContain('status-chip-shape');
     expect(html).toContain('aria-hidden="true"');
   });
