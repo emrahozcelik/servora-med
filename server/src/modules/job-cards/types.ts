@@ -1,7 +1,7 @@
 import type { UserRole } from '../auth/types.js';
 
 export const JOB_CARD_STATUSES = [
-  'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL',
+  'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
   'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
@@ -20,7 +20,7 @@ export const JOB_CARD_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export type JobCardPriority = (typeof JOB_CARD_PRIORITIES)[number];
 
 export const JOB_CARD_ACTIVITY_EVENTS = [
-  'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_STARTED',
+  'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
@@ -45,6 +45,7 @@ export type JobCard = {
   createdBy: string;
   priority: JobCardPriority;
   dueDate: string | null;
+  scheduledAt: string | null;
 };
 
 export type JobCardCreateInput =
@@ -108,7 +109,8 @@ export type RelatedIdentity = { id: string; name: string };
 
 export type JobLifecycleFacts = {
   createdAt: string;
-  plannedAt: string | null;
+  acceptedAt: string | null;
+  acceptedBy: RelatedIdentity | null;
   startedAt: string | null;
   submittedAt: string | null;
   submittedBy: RelatedIdentity | null;
@@ -223,6 +225,7 @@ export type PersistedJobCardListItem = {
   title: string;
   priority: JobCardPriority;
   dueDate: string | null;
+  scheduledAt: string | null;
   createdAt: string;
   updatedAt: string;
   staffCompletedAt: string | null;

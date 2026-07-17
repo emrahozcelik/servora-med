@@ -74,14 +74,14 @@ describe('PostgresJobCardRepository workspace list', () => {
     expect(calls[0]!.values).toEqual([
       'org-1', 'staff-1', 'staff-1', 'PRODUCT_DELIVERY', 'customer-1', 'urgent',
       '2026-07-01', '2026-07-31',
-      ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
+      ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
       String.raw`%50\%\_\\implant%`,
     ]);
     expect(calls[1]!.values).toEqual([...calls[0]!.values, 10, 20]);
   });
 
   it.each([
-    ['active', ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED']],
+    ['active', ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED']],
     ['closed', ['COMPLETED', 'CANCELLED']],
     ['NEW', ['NEW']],
   ] as const)('expands %s status exactly', async (status, expected) => {
@@ -117,7 +117,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     const createdAt = new Date('2026-07-15T08:00:00.000Z');
     const { pool, calls } = poolDouble([{
       id: 'job-general', type: 'GENERAL_TASK', status: 'NEW', version: 1,
-      title: 'Doktoru ara', priority: 'normal', due_date: null,
+      title: 'Doktoru ara', priority: 'normal', due_date: null, scheduled_at: null,
       created_at: createdAt, updated_at: createdAt, staff_completed_at: null,
       customer_id: null, customer_name: null, contact_id: null, contact_name: null,
       assignee_id: 'staff-1', assignee_name: 'Ayşe Personel', delivery_item_count: 0,
@@ -132,15 +132,17 @@ describe('PostgresJobCardRepository workspace list', () => {
     expect(calls[0]!.values).toContain('GENERAL_TASK');
     expect(result.items[0]).toMatchObject({
       id: 'job-general', type: 'GENERAL_TASK', customer: null, contact: null,
-      deliveryItemCount: 0,
+      deliveryItemCount: 0, scheduledAt: null,
     });
   });
 
   it('parameterizes a Sales Meeting filter without joining structured details', async () => {
     const createdAt = new Date('2026-07-15T08:00:00.000Z');
+    const scheduledAt = new Date('2026-07-20T10:00:00.000Z');
     const { pool, calls } = poolDouble([{
-      id: 'job-meeting', type: 'SALES_MEETING', status: 'PLANNED', version: 2,
+      id: 'job-meeting', type: 'SALES_MEETING', status: 'ACCEPTED', version: 2,
       title: 'Kontrol görüşmesi', priority: 'normal', due_date: '2026-07-20',
+      scheduled_at: scheduledAt,
       created_at: createdAt, updated_at: createdAt, staff_completed_at: null,
       customer_id: 'customer-1', customer_name: 'ABC Klinik',
       contact_id: null, contact_name: null,
@@ -153,10 +155,12 @@ describe('PostgresJobCardRepository workspace list', () => {
     );
 
     expect(calls[0]!.values).toContain('SALES_MEETING');
+    expect(calls[1]!.sql).toContain('j.scheduled_at');
     expect(calls[1]!.sql).not.toContain('job_card_meeting_details');
     expect(result.items[0]).toMatchObject({
       id: 'job-meeting', type: 'SALES_MEETING', deliveryItemCount: 0,
       customer: { id: 'customer-1', name: 'ABC Klinik' },
+      scheduledAt: scheduledAt.toISOString(),
     });
   });
 
@@ -164,6 +168,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     const createdAt = new Date('2026-07-13T08:00:00.000Z');
     const updatedAt = new Date('2026-07-13T09:00:00.000Z');
     const staffCompletedAt = new Date('2026-07-13T10:00:00.000Z');
+    const scheduledAt = new Date('2026-07-20T09:00:00.000Z');
     const { pool, calls } = poolDouble([{
       id: 'job-1',
       type: 'PRODUCT_DELIVERY',
@@ -172,6 +177,7 @@ describe('PostgresJobCardRepository workspace list', () => {
       title: 'Klinik teslimi',
       priority: 'high',
       due_date: '2026-07-20',
+      scheduled_at: scheduledAt,
       created_at: createdAt,
       updated_at: updatedAt,
       staff_completed_at: staffCompletedAt,
@@ -193,6 +199,7 @@ describe('PostgresJobCardRepository workspace list', () => {
       items: [{
         id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 3,
         title: 'Klinik teslimi', priority: 'high', dueDate: '2026-07-20',
+        scheduledAt: scheduledAt.toISOString(),
         createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
         staffCompletedAt: staffCompletedAt.toISOString(),
         customer: { id: 'customer-1', name: 'ABC Klinik' },
@@ -292,6 +299,7 @@ describe('PostgresJobCardRepository workspace list', () => {
       {
         id: 'job-delivery', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL',
         version: 3, title: 'Klinik teslimi', priority: 'high', dueDate: '2026-07-20',
+        scheduledAt: null,
         createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
         staffCompletedAt: staffCompletedAt.toISOString(),
         customer: { id: 'customer-1', name: 'ABC Klinik' },
@@ -302,6 +310,7 @@ describe('PostgresJobCardRepository workspace list', () => {
       {
         id: 'job-general', type: 'GENERAL_TASK', status: 'WAITING_APPROVAL',
         version: 1, title: 'Genel görev', priority: 'normal', dueDate: null,
+        scheduledAt: null,
         createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
         staffCompletedAt: '2026-07-14T12:01:00.000Z', customer: null, contact: null,
         assignee: { id: 'staff-2', name: 'Gelecek Personel' },

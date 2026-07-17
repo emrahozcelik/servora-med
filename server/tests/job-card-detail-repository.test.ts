@@ -13,7 +13,9 @@ const baseRow = {
 
 const lifecycleRow = {
   created_at: new Date('2026-07-17T08:00:00.000Z'),
-  planned_at: new Date('2026-07-17T08:30:00.000Z'),
+  scheduled_at: new Date('2026-07-17T08:30:00.000Z'),
+  accepted_at: new Date('2026-07-17T08:30:00.000Z'),
+  accepter_id: 'staff-1', accepter_name: 'Emrah Demir',
   started_at: new Date('2026-07-17T09:00:00.000Z'),
   staff_completed_at: new Date('2026-07-17T10:00:00.000Z'),
   staff_completion_note: 'Kontrole hazır',
@@ -30,7 +32,8 @@ const lifecycleRow = {
 
 const expectedLifecycle = {
   createdAt: '2026-07-17T08:00:00.000Z',
-  plannedAt: '2026-07-17T08:30:00.000Z',
+  acceptedAt: '2026-07-17T08:30:00.000Z',
+  acceptedBy: { id: 'staff-1', name: 'Emrah Demir' },
   startedAt: '2026-07-17T09:00:00.000Z',
   submittedAt: '2026-07-17T10:00:00.000Z',
   submittedBy: { id: 'staff-1', name: 'Emrah Demir' },
@@ -64,6 +67,7 @@ describe('Postgres JobCard detail projection', () => {
       id: 'job-1', organizationId: 'org-1', type: 'GENERAL_TASK', status: 'NEW', version: 1,
       title: 'Doktoru ara', description: null, customerId: 'customer-1', contactId: null,
       assignedTo: 'staff-1', createdBy: 'manager-1', priority: 'normal', dueDate: null,
+      scheduledAt: '2026-07-17T08:30:00.000Z',
       assignee: { id: 'staff-1', name: 'Emrah Demir' },
       customer: { id: 'customer-1', name: 'Demo Dental Klinik' },
       contact: null,
@@ -74,13 +78,17 @@ describe('Postgres JobCard detail projection', () => {
     expect(projection.text).toContain('JOIN users assignee');
     expect(projection.text).toContain('LEFT JOIN customers customer');
     expect(projection.text).toContain('LEFT JOIN contacts contact');
+    expect(projection.text).toContain('LEFT JOIN users accepter');
     expect(projection.text).toContain('LEFT JOIN users submitter');
     expect(projection.text).toContain('LEFT JOIN users approver');
     expect(projection.text).toContain('LEFT JOIN users revision_actor');
     expect(projection.text).toContain('LEFT JOIN users cancellation_actor');
+    expect(projection.text).toContain('j.scheduled_at');
+    expect(projection.text).toContain('j.accepted_at');
     expect(projection.text).toContain("event_type = 'JOB_CANCELLED'");
     expect(projection.text).toContain('a.organization_id = j.organization_id');
     expect(projection.text).toContain('WHERE j.organization_id = $1 AND j.id = $2');
+    expect(projection.text).toMatch(/accepter\.organization_id = j\.organization_id/);
     expect(projection.text).toMatch(/submitter\.organization_id = j\.organization_id/);
     expect(projection.text).toMatch(/approver\.organization_id = j\.organization_id/);
     expect(projection.text).toMatch(/revision_actor\.organization_id = j\.organization_id/);
