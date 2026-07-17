@@ -745,7 +745,189 @@ button:disabled { cursor: wait; opacity: 0.65; }
   margin-top: 1.5rem;
 }
 .detail-action p { max-width: 55ch; margin: 0; color: var(--muted); line-height: 1.55; }
-.review-buttons { display: flex; justify-content: flex-end; gap: 0.75rem; }
+.review-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; }
+.job-lifecycle-steps {
+  display: grid;
+  gap: 0.65rem;
+  margin: 0 0 1.5rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.7rem;
+  list-style: none;
+  background: var(--canvas);
+}
+.job-lifecycle-step {
+  display: grid;
+  grid-template-columns: 1.5rem minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: start;
+}
+.job-lifecycle-step-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.5rem;
+  min-height: 1.5rem;
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  font-size: 0.75rem;
+  font-weight: 700;
+  line-height: 1;
+}
+.job-lifecycle-step-current .job-lifecycle-step-icon,
+.job-lifecycle-step-attention .job-lifecycle-step-icon {
+  color: var(--paper);
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.job-lifecycle-step-complete .job-lifecycle-step-icon {
+  color: var(--accent-hover);
+  border-color: oklch(78% 0.055 238deg);
+  background: var(--accent-soft);
+}
+.job-lifecycle-step-skipped .job-lifecycle-step-icon {
+  color: var(--muted);
+}
+.job-lifecycle-step-body {
+  display: grid;
+  gap: 0.15rem;
+  min-width: 0;
+}
+.job-lifecycle-step-label {
+  font-weight: 700;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.job-lifecycle-step-state {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 650;
+}
+.job-lifecycle-step[aria-current="step"] .job-lifecycle-step-label {
+  color: var(--accent-hover);
+}
+.workflow-responsibility,
+.revision-loop,
+.cancelled-job-banner,
+.workflow-requirements {
+  margin: 0 0 1.25rem;
+  padding: 1.1rem 1.2rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.7rem;
+  background: var(--paper);
+}
+.workflow-responsibility h2,
+.revision-loop h2,
+.cancelled-job-banner h2,
+.workflow-requirements h2 {
+  margin: 0 0 0.55rem;
+  font-size: 1.05rem;
+}
+.workflow-responsibility p,
+.revision-loop p,
+.cancelled-job-banner p {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.55;
+}
+.workflow-responsibility p + p,
+.revision-loop p + p,
+.cancelled-job-banner p + p {
+  margin-top: 0.55rem;
+}
+.workflow-responsibility-assignee,
+.workflow-responsibility-consequence,
+.revision-loop-reason {
+  color: var(--ink);
+}
+.workflow-responsibility-consequence {
+  padding: 0.7rem 0.8rem;
+  border-left: 3px solid var(--accent);
+  background: var(--accent-soft);
+}
+.revision-loop {
+  border-color: oklch(78% 0.07 70deg);
+  background: oklch(97% 0.02 85deg);
+}
+.revision-loop-reason {
+  display: grid;
+  gap: 0.25rem;
+}
+.revision-loop-reason-label {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+.cancelled-job-banner {
+  border-color: oklch(78% 0.07 28deg);
+  background: var(--error-soft);
+}
+.cancelled-job-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0.9rem 0 0;
+}
+.cancelled-job-facts div { display: grid; gap: 0.25rem; }
+.cancelled-job-facts dt {
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 650;
+}
+.cancelled-job-facts dd {
+  margin: 0;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.cancelled-job-reason { grid-column: 1 / -1; }
+.workflow-requirements-list {
+  display: grid;
+  gap: 0.55rem;
+  margin: 0.85rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+.workflow-requirement {
+  display: grid;
+  grid-template-columns: 1.35rem minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+  min-height: 2.75rem;
+}
+.workflow-requirement-icon {
+  display: inline-grid;
+  place-items: center;
+  width: 1.35rem;
+  min-height: 1.35rem;
+  border-radius: 999px;
+  border: 1px solid var(--rule);
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+}
+.workflow-requirement-met .workflow-requirement-icon {
+  color: var(--accent-hover);
+  border-color: oklch(78% 0.055 238deg);
+  background: var(--accent-soft);
+}
+.workflow-requirement-missing .workflow-requirement-icon,
+.workflow-requirement-invalid .workflow-requirement-icon {
+  color: var(--error);
+  border-color: oklch(78% 0.07 28deg);
+  background: var(--error-soft);
+}
+.workflow-requirement-label {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  line-height: 1.4;
+}
+.workflow-requirement-state {
+  color: var(--muted);
+  font-size: 0.8rem;
+  font-weight: 680;
+  white-space: nowrap;
+}
 .job-detail-sections { display: grid; gap: 2.5rem; margin-top: 2.5rem; }
 .job-notes, .job-timeline { min-width: 0; padding-top: 1.5rem; border-top: 1px solid var(--rule); }
 .detail-section-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 1rem; }
@@ -949,6 +1131,10 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .delivery-lines dl div:last-child { grid-column: 1 / -1; }
   .detail-action { align-items: stretch; flex-direction: column; }
   .detail-action .primary-button { width: 100%; }
+  .job-lifecycle-steps { padding: 0.9rem; }
+  .cancelled-job-facts { grid-template-columns: 1fr; }
+  .workflow-requirement { grid-template-columns: 1.35rem minmax(0, 1fr); }
+  .workflow-requirement-state { grid-column: 2; }
   .job-timeline li, .job-note-list li > div, .job-timeline li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
   .review-buttons { align-items: stretch; flex-direction: column-reverse; }
   .review-buttons button { width: 100%; }

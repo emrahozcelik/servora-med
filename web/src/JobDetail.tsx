@@ -9,20 +9,32 @@ import {
   patchJobCard, patchMeetingDetails, planJobCard,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
-  type DeliveryItem, type JobCard, type MeetingDetails, type PatchJobCardInput,
-  type PatchMeetingDetailsInput,
+  type DeliveryItem, type JobCard, type LifecycleCommand, type MeetingDetails,
+  type PatchJobCardInput, type PatchMeetingDetailsInput,
 } from './jobs/jobs-api';
+import {
+  deriveJobWorkflowPresentation,
+  type JobWorkflowPresentation,
+  type RecordEditPresentation,
+  type TransitionPresentation,
+} from './jobs/job-workflow-presentation';
+import { JobLifecycleSteps } from './jobs/JobLifecycleSteps';
+import {
+  CancelledJobBanner,
+  CurrentResponsibilityPanel,
+  RequirementsChecklist,
+  RevisionLoopPanel,
+} from './jobs/JobWorkflowPanels';
 import { MeetingDetailsSection } from './jobs/MeetingDetails';
 import { SalesMeetingEditForm } from './jobs/SalesMeetingEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { jobTypeLabels } from './jobs/job-labels';
-import { jobCapabilities } from './jobs/job-capabilities';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
 
 type StaffCommand = 'start' | 'submit';
-export type LifecycleCommand = 'edit' | 'plan' | 'start' | 'submit' | 'approve' | 'revise' | 'withdraw' | 'resume' | 'cancel';
+type PendingInteraction = LifecycleCommand | 'WITHDRAW_AND_EDIT_JOB_FIELDS';
 type CommandDependencies = {
   start: typeof startJobCard;
   submit: typeof submitJobCardForApproval;
@@ -85,58 +97,22 @@ export async function prepareMeetingEdit(
   return withdraw(job.id, { clientActionId, expectedVersion: job.version });
 }
 
-export function availableLifecycleCommands(job: JobCard, role: CurrentUser['role']): LifecycleCommand[] {
-  if (job.status === 'COMPLETED' || job.status === 'CANCELLED') return [];
-  const meetingEdit: LifecycleCommand[] = job.type === 'SALES_MEETING' ? ['edit'] : [];
-  if (role === 'STAFF') {
-    if (job.status === 'NEW') return [...meetingEdit, 'plan', 'start', 'cancel'];
-    if (job.status === 'PLANNED') return [...meetingEdit, 'start', 'cancel'];
-    if (job.status === 'IN_PROGRESS') return [...meetingEdit, 'submit', 'cancel'];
-    if (job.status === 'REVISION_REQUESTED') return [...meetingEdit, 'resume', 'cancel'];
-    if (job.status === 'WAITING_APPROVAL') return job.type === 'SALES_MEETING'
-      ? ['edit', 'cancel'] : ['withdraw', 'cancel'];
-    return [];
-  }
-  if (job.status === 'WAITING_APPROVAL') return [
-    'approve', 'revise', ...meetingEdit, 'cancel',
-  ];
-  const commands: LifecycleCommand[] = [...meetingEdit];
-  if (job.status === 'NEW') commands.push('plan', 'start');
-  if (job.status === 'PLANNED') commands.push('start');
-  if (job.status === 'IN_PROGRESS') commands.push('submit');
-  if (job.status === 'REVISION_REQUESTED') commands.push('resume');
-  commands.push('cancel');
-  return commands;
-}
+const purposeLabels = {
+  SALE: 'Satış', SAMPLE: 'Numune', CONSIGNMENT: 'Konsinye', RETURN: 'İade', OTHER: 'Diğer',
+} as const;
 
-/** One primary lifecycle action per region; others stay secondary. */
-export function primaryLifecycleCommand(
-  commands: LifecycleCommand[],
-  job: JobCard,
-): LifecycleCommand | null {
-  const preferred: LifecycleCommand[] = [];
-  if (job.status === 'WAITING_APPROVAL') preferred.push('approve');
-  if (job.status === 'IN_PROGRESS') preferred.push('submit');
-  if (job.status === 'REVISION_REQUESTED') preferred.push('resume');
-  if (job.status === 'PLANNED') preferred.push('start');
-  if (job.status === 'NEW') preferred.push('start', 'plan');
-  if (job.status === 'WAITING_APPROVAL') preferred.push('withdraw', 'edit');
-  for (const command of preferred) {
-    if (commands.includes(command)) return command;
+function findTransition(
+  presentation: JobWorkflowPresentation,
+  command: LifecycleCommand,
+): TransitionPresentation | undefined {
+  if (presentation.primaryTransition?.command === command) {
+    return presentation.primaryTransition;
   }
-  return commands.find((command) => command !== 'cancel' && command !== 'revise') ?? null;
+  return presentation.secondaryTransitions.find((entry) => entry.command === command);
 }
-
-const purposeLabels = { SALE: 'Satış', SAMPLE: 'Numune', CONSIGNMENT: 'Konsinye', RETURN: 'İade', OTHER: 'Diğer' } as const;
-const commandLabels: Record<LifecycleCommand, string> = {
-  edit: 'Görüşmeyi düzenle',
-  plan: 'Planla', start: 'İşi başlat', submit: 'Onaya gönder', approve: 'Onayla',
-  revise: 'Düzeltme iste', resume: 'İşe devam et', cancel: 'İşi iptal et',
-  withdraw: 'Onaydan geri çek ve düzenle',
-};
 
 export function ReasonDialog({ kind, pending, onClose, onConfirm }: {
-  kind: 'revise' | 'cancel'; pending: boolean; onClose: () => void; onConfirm: (reason: string) => void;
+  kind: 'REQUEST_REVISION' | 'CANCEL'; pending: boolean; onClose: () => void; onConfirm: (reason: string) => void;
 }) {
   const titleId = useId();
   const errorId = useId();
@@ -161,7 +137,7 @@ export function ReasonDialog({ kind, pending, onClose, onConfirm }: {
     if (!normalized) { setError('Neden alanı zorunludur.'); return; }
     onConfirm(normalized);
   }
-  const revision = kind === 'revise';
+  const revision = kind === 'REQUEST_REVISION';
   return <div className="dialog-backdrop">
     <div ref={dialogRef} className="reason-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={keyDown}>
       <h2 id={titleId}>{revision ? 'Düzeltme iste' : 'İşi iptal et'}</h2>
@@ -179,15 +155,34 @@ export function ReasonDialog({ kind, pending, onClose, onConfirm }: {
   </div>;
 }
 
-export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pending, message, messageIsError = false,
-  feedbackRef, onBack, onCommand, children }: {
-  job: JobCard; items: DeliveryItem[]; pending: boolean; message: string; messageIsError?: boolean;
-  viewerRole?: CurrentUser['role']; viewerId?: string; feedbackRef?: Ref<HTMLDivElement>;
-  onBack: () => void; onCommand: (command: LifecycleCommand) => void; children?: ReactNode;
+export function JobDetailPanel({
+  job, items, user, pending, message, messageIsError = false,
+  feedbackRef, onBack, onCommand, onRecordEdit, meetingDetails = null, children,
+}: {
+  job: JobCard;
+  items: DeliveryItem[];
+  user: CurrentUser;
+  pending: boolean;
+  message: string;
+  messageIsError?: boolean;
+  feedbackRef?: Ref<HTMLDivElement>;
+  onBack: () => void;
+  onCommand: (command: LifecycleCommand) => void;
+  onRecordEdit?: (action: RecordEditPresentation['action']) => void;
+  meetingDetails?: MeetingDetails | null;
+  children?: ReactNode;
 }) {
-  const commands = viewerRole === 'STAFF' && viewerId !== undefined && viewerId !== job.assignedTo
-    ? [] : availableLifecycleCommands(job, viewerRole);
-  const primaryCommand = primaryLifecycleCommand(commands, job);
+  const presentation = deriveJobWorkflowPresentation({
+    job,
+    user,
+    workflowContext: job.workflowContext,
+    deliveryItems: job.type === 'PRODUCT_DELIVERY' ? items : [],
+    meetingDetails: job.type === 'SALES_MEETING' ? meetingDetails : null,
+  });
+  const hasTransitions = presentation.primaryTransition !== null
+    || presentation.secondaryTransitions.length > 0
+    || (job.type === 'SALES_MEETING' && presentation.recordEditAction !== null);
+
   return <main className="job-detail">
     <div className="detail-heading"><div><p className="eyebrow">{jobTypeLabels[job.type]}</p><h1>{job.title}</h1></div>
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
@@ -202,19 +197,63 @@ export function JobDetailPanel({ job, items, viewerRole = 'STAFF', viewerId, pen
       <div><dt>İlgili kişi</dt><dd>{job.contact?.name ?? 'Belirtilmedi'}</dd></div>
       <div className="detail-summary-wide"><dt>Açıklama</dt><dd>{job.description ?? 'Belirtilmedi'}</dd></div>
     </dl>
-    {job.type === 'PRODUCT_DELIVERY' && <section className="delivery-lines" aria-labelledby="delivery-lines-title"><h2 id="delivery-lines-title">Teslim bilgileri</h2>
-      <ul>{items.map((item) => <li key={item.id}><div><strong>{item.productNameSnapshot}</strong><span>{item.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span></div>
-        <dl><div><dt>Amaç</dt><dd>{purposeLabels[item.deliveryPurpose]}</dd></div><div><dt>Miktar</dt><dd>{item.quantity}{item.unit ? ` ${item.unit}` : ''}</dd></div>
-          <div><dt>Teslim zamanı</dt><dd>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(item.deliveredAt))}</dd></div></dl></li>)}</ul>
+
+    <JobLifecycleSteps phaseItems={presentation.phaseItems} currentPhase={presentation.currentPhase} />
+
+    {presentation.terminalState === 'CANCELLED' && (
+      <CancelledJobBanner lifecycle={job.workflowContext.lifecycle} />
+    )}
+    {presentation.revisionLoop && <RevisionLoopPanel loop={presentation.revisionLoop} />}
+    {presentation.terminalState !== 'CANCELLED' && (
+      <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
+    )}
+    <RequirementsChecklist requirements={presentation.requirements} />
+
+    {hasTransitions && <section className="detail-action surface-flat" aria-label="İş işlemleri">
+      {presentation.primaryTransition?.consequence && (
+        <p>{presentation.primaryTransition.consequence}</p>
+      )}
+      <div className="review-buttons">
+        {presentation.primaryTransition && (
+          <button
+            key={presentation.primaryTransition.command}
+            className="primary-button compact-button"
+            type="button"
+            disabled={pending}
+            onClick={() => onCommand(presentation.primaryTransition!.command)}
+          >
+            {pending ? 'İşleniyor…' : presentation.primaryTransition.label}
+          </button>
+        )}
+        {job.type === 'SALES_MEETING' && presentation.recordEditAction && (
+          <button
+            className="secondary-button"
+            type="button"
+            disabled={pending}
+            onClick={() => onRecordEdit?.(presentation.recordEditAction!.action)}
+          >
+            {pending ? 'İşleniyor…' : presentation.recordEditAction.label}
+          </button>
+        )}
+        {presentation.secondaryTransitions.map((transition) => (
+          <button
+            key={transition.command}
+            className="secondary-button"
+            type="button"
+            disabled={pending}
+            onClick={() => onCommand(transition.command)}
+          >
+            {pending ? 'İşleniyor…' : transition.label}
+          </button>
+        ))}
+      </div>
     </section>}
-    {commands.length > 0 && <section className="detail-action surface-flat" aria-label="İş işlemleri"><p>Yalnızca mevcut duruma uygun işlemler gösterilir.</p>
-      <div className="review-buttons">{commands.map((command) => <button key={command}
-        className={command === primaryCommand ? 'primary-button compact-button' : 'secondary-button'}
-        type="button" disabled={pending} onClick={() => onCommand(command)}>{pending ? 'İşleniyor…'
-          : command === 'edit' && job.status === 'WAITING_APPROVAL'
-            ? 'Onaydan geri çek ve düzenle' : commandLabels[command]}</button>)}</div></section>}
-    {job.status === 'WAITING_APPROVAL' && viewerRole === 'STAFF' && <div className="workspace-message" role="status"><h2>Yönetici onayı bekleniyor</h2>
-      <p>{job.type === 'PRODUCT_DELIVERY' ? 'Teslim bilgileri' : job.type === 'SALES_MEETING' ? 'Görüşme bilgileri' : 'Görev bilgileri'} inceleme tamamlanana kadar değiştirilemez.</p></div>}
+
+    {job.type === 'PRODUCT_DELIVERY' && <section className="delivery-lines" aria-labelledby="delivery-lines-title"><h2 id="delivery-lines-title">Teslim bilgileri</h2>
+      <ul>{items.map((entry) => <li key={entry.id}><div><strong>{entry.productNameSnapshot}</strong><span>{entry.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span></div>
+        <dl><div><dt>Amaç</dt><dd>{purposeLabels[entry.deliveryPurpose]}</dd></div><div><dt>Miktar</dt><dd>{entry.quantity}{entry.unit ? ` ${entry.unit}` : ''}</dd></div>
+          <div><dt>Teslim zamanı</dt><dd>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(entry.deliveredAt))}</dd></div></dl></li>)}</ul>
+    </section>}
     {children}
   </main>;
 }
@@ -228,11 +267,22 @@ type DetailState = { kind: 'loading' } | { kind: 'ready'; detail: LoadedJobDetai
 
 async function loadJobDetailOnce(jobId: string): Promise<LoadedJobDetail> {
   const job = await getJobCard(jobId);
-  if (job.type === 'PRODUCT_DELIVERY') return { kind: job.type,
-    job: { ...job, type: job.type }, deliveryItems: await listDeliveryItems(jobId) };
-  if (job.type === 'GENERAL_TASK') return { kind: job.type, job: { ...job, type: job.type } };
-  return { kind: job.type, job: { ...job, type: job.type },
-    meetingDetails: ['NEW', 'PLANNED'].includes(job.status) ? null : await getMeetingDetails(jobId) };
+  if (job.type === 'PRODUCT_DELIVERY') {
+    return {
+      kind: job.type,
+      job: { ...job, type: job.type },
+      deliveryItems: await listDeliveryItems(jobId),
+    };
+  }
+  if (job.type === 'GENERAL_TASK') {
+    return { kind: job.type, job: { ...job, type: job.type } };
+  }
+  const viewMeeting = job.workflowContext.allowedActions.includes('VIEW_MEETING_RESULT');
+  return {
+    kind: job.type,
+    job: { ...job, type: job.type },
+    meetingDetails: viewMeeting ? await getMeetingDetails(jobId) : null,
+  };
 }
 async function loadJobDetail(jobId: string) {
   let detail = await loadJobDetailOnce(jobId);
@@ -246,7 +296,42 @@ async function loadJobDetail(jobId: string) {
   return detail;
 }
 
-export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: string; user: CurrentUser; onBack: () => void; onChanged: () => void }) {
+async function executeLifecycleCommand(
+  jobId: string,
+  command: LifecycleCommand,
+  input: { clientActionId: string; expectedVersion: number },
+  reason: string,
+): Promise<JobCard> {
+  switch (command) {
+    case 'PLAN':
+      return planJobCard(jobId, input);
+    case 'START':
+      return startJobCard(jobId, input);
+    case 'SUBMIT_FOR_APPROVAL':
+      return submitJobCardForApproval(jobId, input);
+    case 'APPROVE':
+      return approveJobCard(jobId, input);
+    case 'REQUEST_REVISION':
+      return requestJobCardRevision(jobId, { ...input, revisionReason: reason });
+    case 'WITHDRAW_FROM_APPROVAL':
+      return withdrawJobCardFromApproval(jobId, input);
+    case 'RESUME':
+      return resumeJobCard(jobId, input);
+    case 'CANCEL':
+      return cancelJobCard(jobId, { ...input, cancelReason: reason });
+    default: {
+      const _exhaustive: never = command;
+      throw new Error(`Unsupported lifecycle command: ${_exhaustive}`);
+    }
+  }
+}
+
+export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
+  jobId: string;
+  user: CurrentUser;
+  onBack: () => void;
+  onChanged: () => void;
+}) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
   const [pending, setPending] = useState(false);
   const [message, setMessage] = useState('');
@@ -254,10 +339,10 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
   const [meetingSubmissionError, setMeetingSubmissionError] = useState<ApiError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [timelineKey, setTimelineKey] = useState(0);
-  const [dialog, setDialog] = useState<'revise' | 'cancel' | null>(null);
+  const [dialog, setDialog] = useState<'REQUEST_REVISION' | 'CANCEL' | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const mutationInFlight = useRef(false);
-  const actionIds = useRef<Partial<Record<LifecycleCommand, string>>>({});
+  const actionIds = useRef<Partial<Record<PendingInteraction, string>>>({});
   const feedbackRef = useRef<HTMLDivElement>(null);
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -266,7 +351,15 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
     let active = true; setState({ kind: 'loading' });
     loadJobDetail(jobId)
       .then((detail) => { if (active) setState({ kind: 'ready', detail }); })
-      .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof ApiError ? error.message : 'İş yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
+      .catch((error) => {
+        if (active) {
+          setState({
+            kind: 'error',
+            message: error instanceof ApiError ? error.message : 'İş yüklenemedi.',
+            retryable: error instanceof ApiError ? error.retryable : true,
+          });
+        }
+      });
     return () => { active = false; };
   }, [jobId, reloadKey]);
 
@@ -283,35 +376,46 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
     setState({ kind: 'ready', detail });
     setTimelineKey((value) => value + 1);
   }
+  function presentationFor(detail: LoadedJobDetail): JobWorkflowPresentation {
+    return deriveJobWorkflowPresentation({
+      job: detail.job,
+      user,
+      workflowContext: detail.job.workflowContext,
+      deliveryItems: detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : [],
+      meetingDetails: detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null,
+    });
+  }
   async function execute(command: LifecycleCommand, reason = '') {
     if (state.kind !== 'ready' || mutationInFlight.current) return;
     mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     actionIds.current[command] ??= crypto.randomUUID();
     const input = { clientActionId: actionIds.current[command]!, expectedVersion: state.detail.job.version };
+    const presentation = presentationFor(state.detail);
     try {
-      const updated = command === 'plan' ? await planJobCard(jobId, input)
-        : command === 'start' ? await startJobCard(jobId, input)
-        : command === 'submit' ? await submitJobCardForApproval(jobId, input)
-        : command === 'approve' ? await approveJobCard(jobId, input)
-        : command === 'revise' ? await requestJobCardRevision(jobId, { ...input, revisionReason: reason })
-        : command === 'withdraw' ? await withdrawJobCardFromApproval(jobId, input)
-        : command === 'resume' ? await resumeJobCard(jobId, input)
-        : await cancelJobCard(jobId, { ...input, cancelReason: reason });
-      if (state.detail.kind === 'SALES_MEETING' && command === 'start') {
+      const updated = await executeLifecycleCommand(jobId, command, input, reason);
+      if (state.detail.kind === 'SALES_MEETING' && command === 'START') {
         await refreshTruth();
       } else {
-      setState({ kind: 'ready', detail: state.detail.kind === 'SALES_MEETING'
-        ? { ...state.detail, job: updated as JobCard & { type: 'SALES_MEETING' },
-          meetingDetails: state.detail.meetingDetails === null ? null
-            : { ...state.detail.meetingDetails, jobCardVersion: updated.version } }
-        : { ...state.detail, job: updated } as LoadedJobDetail });
+        setState({
+          kind: 'ready',
+          detail: state.detail.kind === 'SALES_MEETING'
+            ? {
+              ...state.detail,
+              job: updated as JobCard & { type: 'SALES_MEETING' },
+              meetingDetails: state.detail.meetingDetails === null
+                ? null
+                : { ...state.detail.meetingDetails, jobCardVersion: updated.version },
+            }
+            : { ...state.detail, job: updated } as LoadedJobDetail,
+        });
       }
       delete actionIds.current[command];
       setTimelineKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) setDialog(null);
-      setMessage(`${commandLabels[command]} işlemi tamamlandı.`);
+      const transition = findTransition(presentation, command);
+      setMessage(transition?.successMessage ?? `${transition?.label ?? command} işlemi tamamlandı.`);
       if (completedDialogCommand) setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
@@ -339,8 +443,14 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     try {
       const meetingDetails = await patchMeetingDetails(jobId, input);
-      setState({ kind: 'ready', detail: { ...state.detail,
-        job: { ...state.detail.job, version: meetingDetails.jobCardVersion }, meetingDetails } });
+      setState({
+        kind: 'ready',
+        detail: {
+          ...state.detail,
+          job: { ...state.detail.job, version: meetingDetails.jobCardVersion },
+          meetingDetails,
+        },
+      });
       setTimelineKey((value) => value + 1); onChanged(); return meetingDetails;
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
@@ -350,37 +460,44 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
       throw caught;
     } finally { mutationInFlight.current = false; setPending(false); }
   }
-  async function beginEdit() {
+  async function beginEdit(action: RecordEditPresentation['action']) {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
       || mutationInFlight.current) return;
-    const capabilities = jobCapabilities(user, state.detail.job);
-    if (!capabilities.canEditJob) return;
-    if (!capabilities.requiresWithdrawalBeforeEdit) { setEditing(true); return; }
+    if (action === 'EDIT_JOB_FIELDS') { setEditing(true); return; }
+    // Task 9 will wrap withdraw-to-edit with an explicit confirmation dialog.
     mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false);
-    actionIds.current.edit ??= crypto.randomUUID();
+    actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS ??= crypto.randomUUID();
     try {
       const updated = await prepareMeetingEdit(
-        state.detail.job, actionIds.current.edit, withdrawJobCardFromApproval,
+        state.detail.job,
+        actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS,
+        withdrawJobCardFromApproval,
       );
-      delete actionIds.current.edit;
-      setState({ kind: 'ready', detail: {
-        ...state.detail,
-        job: updated as JobCard & { type: 'SALES_MEETING' },
-        meetingDetails: state.detail.meetingDetails === null ? null
-          : { ...state.detail.meetingDetails, jobCardVersion: updated.version },
-      } });
+      delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
+      setState({
+        kind: 'ready',
+        detail: {
+          ...state.detail,
+          job: updated as JobCard & { type: 'SALES_MEETING' },
+          meetingDetails: state.detail.meetingDetails === null
+            ? null
+            : { ...state.detail.meetingDetails, jobCardVersion: updated.version },
+        },
+      });
       setTimelineKey((value) => value + 1); setEditing(true);
-      setMessage('İş onaydan geri çekildi. Görüşme bilgilerini düzenleyebilirsiniz.');
+      setMessage('İş yönetici kontrolünden geri çekildi. Görüşme bilgilerini düzenleyebilirsiniz.');
       onChanged();
     } catch (caught) {
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT'
         || caught.code === 'INVALID_TRANSITION')) {
-        delete actionIds.current.edit;
+        delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
         try { await refreshTruth(); setMessage('İş güncellendi. En güncel durum gösteriliyor.'); }
         catch { setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); }
       } else {
-        if (!(caught instanceof ApiError) || !caught.retryable) delete actionIds.current.edit;
+        if (!(caught instanceof ApiError) || !caught.retryable) {
+          delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
+        }
         setMessage(caught instanceof ApiError ? caught.message : 'Düzenleme başlatılamadı.');
       }
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
@@ -406,18 +523,25 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
     } finally { mutationInFlight.current = false; setPending(false); }
   }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
-    if (commandName === 'edit') { void beginEdit(); return; }
-    if (commandName === 'revise' || commandName === 'cancel') {
+    if (commandName === 'REQUEST_REVISION' || commandName === 'CANCEL') {
       dialogTriggerRef.current = trigger; setDialog(commandName); return;
     }
     void execute(commandName);
   }
 
-  if (state.kind === 'loading') return <main className="job-detail" aria-busy="true"><p>İş detayları yükleniyor</p></main>;
-  if (state.kind === 'error') return <main className="job-detail"><div className="workspace-message" role="alert"><h1>İş yüklenemedi</h1><p>{state.message}</p>
-    {state.retryable && <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button>}</div></main>;
+  if (state.kind === 'loading') {
+    return <main className="job-detail" aria-busy="true"><p>İş detayları yükleniyor</p></main>;
+  }
+  if (state.kind === 'error') {
+    return <main className="job-detail"><div className="workspace-message" role="alert"><h1>İş yüklenemedi</h1><p>{state.message}</p>
+      {state.retryable && <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button>}</div></main>;
+  }
   const { detail } = state;
-  const capabilities = jobCapabilities(user, detail.job);
+  const actions = detail.job.workflowContext.allowedActions;
+  const viewMeeting = actions.includes('VIEW_MEETING_RESULT');
+  const editMeeting = actions.includes('EDIT_MEETING_RESULT');
+  const viewNotes = actions.includes('VIEW_NOTES');
+  const addNote = actions.includes('ADD_NOTE');
   const hasMeetingResult = detail.kind === 'SALES_MEETING' && detail.meetingDetails !== null
     && Object.values({
       meetingAt: detail.meetingDetails.meetingAt,
@@ -426,21 +550,43 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: { jobId: str
       nextFollowUpAt: detail.meetingDetails.nextFollowUpAt,
     }).some((value) => value !== null);
   const showMeetingResult = detail.kind === 'SALES_MEETING'
-    && capabilities.canViewMeetingResult && detail.meetingDetails !== null
+    && viewMeeting && detail.meetingDetails !== null
     && (detail.job.status !== 'CANCELLED' || hasMeetingResult);
-  const showNotes = detail.kind !== 'SALES_MEETING' || capabilities.canViewMeetingNotes;
-  return <JobDetailPanel job={detail.job} items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []} viewerRole={user.role} viewerId={user.id} pending={pending}
-    message={message} messageIsError={messageIsError} feedbackRef={feedbackRef} onBack={onBack}
-    onCommand={(name) => command(name, document.activeElement as HTMLElement)}>
+
+  return <JobDetailPanel
+    job={detail.job}
+    items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []}
+    user={user}
+    pending={pending}
+    message={message}
+    messageIsError={messageIsError}
+    feedbackRef={feedbackRef}
+    onBack={onBack}
+    meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
+    onCommand={(name) => command(name, document.activeElement as HTMLElement)}
+    onRecordEdit={(action) => { void beginEdit(action); }}
+  >
     {editing && detail.kind === 'SALES_MEETING' ? <SalesMeetingEditForm job={detail.job} user={user}
       pending={pending} onCancel={() => setEditing(false)} onSave={saveJob} />
-      : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails && <MeetingDetailsSection job={detail.job} details={detail.meetingDetails}
-      user={user} canEdit={capabilities.canEditMeetingResult} mutationPending={pending} submissionError={meetingSubmissionError}
-      onSave={saveMeeting} />}
-    <div className="job-detail-sections">{showNotes && <JobNotes jobId={jobId}
-      canAdd={detail.kind !== 'SALES_MEETING' || capabilities.canAddMeetingNote}
-      hideWhenEmpty={detail.kind === 'SALES_MEETING' && detail.job.status === 'CANCELLED'}
-      onAdded={() => setTimelineKey((value) => value + 1)} />}<JobTimeline jobId={jobId} refreshKey={timelineKey} /></div>
-    {dialog && <ReasonDialog kind={dialog} pending={pending} onClose={closeDialog} onConfirm={(reason) => void execute(dialog, reason)} />}
+      : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails && <MeetingDetailsSection
+        job={detail.job}
+        details={detail.meetingDetails}
+        user={user}
+        canEdit={editMeeting}
+        mutationPending={pending}
+        submissionError={meetingSubmissionError}
+        onSave={saveMeeting}
+      />}
+    <div className="job-detail-sections">
+      {viewNotes && <JobNotes
+        jobId={jobId}
+        canAdd={addNote}
+        hideWhenEmpty={detail.job.status === 'CANCELLED'}
+        onAdded={() => setTimelineKey((value) => value + 1)}
+      />}
+      <JobTimeline jobId={jobId} refreshKey={timelineKey} />
+    </div>
+    {dialog && <ReasonDialog kind={dialog} pending={pending} onClose={closeDialog}
+      onConfirm={(reason) => void execute(dialog, reason)} />}
   </JobDetailPanel>;
 }
