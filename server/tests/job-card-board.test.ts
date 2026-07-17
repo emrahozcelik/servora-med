@@ -21,7 +21,7 @@ const listQuery: JobCardListQuery = { ...filters, status: 'active', limit: 100, 
 const createdAt = new Date('2026-07-13T08:00:00.000Z');
 const updatedAt = new Date('2026-07-13T09:00:00.000Z');
 
-function itemRow(id: string, status: 'NEW' | 'PLANNED', updated = updatedAt) {
+function itemRow(id: string, status: 'NEW' | 'ACCEPTED', updated = updatedAt) {
   return {
     id,
     type: 'PRODUCT_DELIVERY',
@@ -45,7 +45,7 @@ function itemRow(id: string, status: 'NEW' | 'PLANNED', updated = updatedAt) {
 
 function poolDouble() {
   const calls: QueryCall[] = [];
-  const rows = [itemRow('job-new', 'NEW'), itemRow('job-planned', 'PLANNED')];
+  const rows = [itemRow('job-new', 'NEW'), itemRow('job-accepted', 'ACCEPTED')];
   return {
     calls,
     pool: {
@@ -56,7 +56,7 @@ function poolDouble() {
           return {
             rows: [
               { status: 'NEW', count: 3 },
-              { status: 'PLANNED', count: 2 },
+              { status: 'ACCEPTED', count: 2 },
               { status: 'COMPLETED', count: 4 },
               { status: 'CANCELLED', count: 5 },
             ],
@@ -92,10 +92,10 @@ describe('PostgresJobCardRepository board projection', () => {
   it('maps a Sales Meeting board item without loading meeting details', async () => {
     const { pool } = poolDouble();
     const query = vi.fn(async (sql: string) => {
-      if (/GROUP BY j\.status/.test(sql)) return { rows: [{ status: 'PLANNED', count: 1 }] };
+      if (/GROUP BY j\.status/.test(sql)) return { rows: [{ status: 'ACCEPTED', count: 1 }] };
       return {
         rows: [{
-          ...itemRow('job-meeting', 'PLANNED'),
+          ...itemRow('job-meeting', 'ACCEPTED'),
           type: 'SALES_MEETING',
           delivery_item_count: 0,
         }],
@@ -108,7 +108,7 @@ describe('PostgresJobCardRepository board projection', () => {
       { ...boardQuery, type: 'SALES_MEETING' },
     );
 
-    expect(board.columns.PLANNED.items[0]).toMatchObject({
+    expect(board.columns.ACCEPTED.items[0]).toMatchObject({
       id: 'job-meeting', type: 'SALES_MEETING', deliveryItemCount: 0,
     });
     expect(query.mock.calls.every(([sql]) => !sql.includes('job_card_meeting_details'))).toBe(true);
@@ -127,7 +127,7 @@ describe('PostgresJobCardRepository board projection', () => {
     expect(board).toEqual({
       columns: {
         NEW: { items: [list.items[0]], count: 3 },
-        PLANNED: { items: [list.items[1]], count: 2 },
+        ACCEPTED: { items: [list.items[1]], count: 2 },
         IN_PROGRESS: { items: [], count: 0 },
         WAITING_APPROVAL: { items: [], count: 0 },
         REVISION_REQUESTED: { items: [], count: 0 },
@@ -156,7 +156,7 @@ describe('PostgresJobCardRepository board projection', () => {
     expect(boardCalls[1]!.values).toEqual([
       'org-1', 'staff-1', 'PRODUCT_DELIVERY', filters.customerId, 'high',
       '2026-07-01', '2026-07-31',
-      ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
+      ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
       '%Klinik%',
       1,
     ]);
@@ -187,7 +187,7 @@ describe('JobCardService board scope', () => {
   it('short-circuits a conflicting Staff filter and preserves server-owned scope', async () => {
     const listBoard = vi.fn().mockResolvedValue({
       columns: {
-        NEW: { items: [], count: 0 }, PLANNED: { items: [], count: 0 },
+        NEW: { items: [], count: 0 }, ACCEPTED: { items: [], count: 0 },
         IN_PROGRESS: { items: [], count: 0 }, WAITING_APPROVAL: { items: [], count: 0 },
         REVISION_REQUESTED: { items: [], count: 0 },
       },
@@ -198,7 +198,7 @@ describe('JobCardService board scope', () => {
 
     await expect(service.board(staff, { ...boardQuery, assignedTo: 'staff-2' })).resolves.toEqual({
       columns: {
-        NEW: { items: [], count: 0 }, PLANNED: { items: [], count: 0 },
+        NEW: { items: [], count: 0 }, ACCEPTED: { items: [], count: 0 },
         IN_PROGRESS: { items: [], count: 0 }, WAITING_APPROVAL: { items: [], count: 0 },
         REVISION_REQUESTED: { items: [], count: 0 },
       },
@@ -238,7 +238,7 @@ describe('JobCardService board scope', () => {
     const listBoard = vi.fn().mockResolvedValue({
       columns: {
         NEW: { items: [], count: 0 },
-        PLANNED: { items: [], count: 0 },
+        ACCEPTED: { items: [], count: 0 },
         IN_PROGRESS: { items: [], count: 0 },
         WAITING_APPROVAL: { items: [waitingItem], count: 1 },
         REVISION_REQUESTED: { items: [], count: 0 },

@@ -259,7 +259,7 @@ export type JobCardBoardColumn = { items: JobCardListItem[]; count: number };
 export type JobCardBoard = {
   columns: {
     NEW: JobCardBoardColumn;
-    PLANNED: JobCardBoardColumn;
+    ACCEPTED: JobCardBoardColumn;
     IN_PROGRESS: JobCardBoardColumn;
     WAITING_APPROVAL: JobCardBoardColumn;
     REVISION_REQUESTED: JobCardBoardColumn;

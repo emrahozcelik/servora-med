@@ -109,7 +109,7 @@ export type JobCardListItem = PersistedJobCardListItem & {
   allowedCommands: LifecycleCommand[];
 };
 export type JobCardBoard = {
-  columns: Record<'NEW' | 'PLANNED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'REVISION_REQUESTED', {
+  columns: Record<'NEW' | 'ACCEPTED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'REVISION_REQUESTED', {
     items: JobCardListItem[]; count: number;
   }>;
   closedCounts: { COMPLETED: number; CANCELLED: number };
@@ -356,7 +356,7 @@ function parseBoard(value: unknown): JobCardBoard {
   const v = object(value); const columns = object(v.columns); const closed = object(v.closedCounts);
   return {
     columns: {
-      NEW: parseColumn(columns.NEW), PLANNED: parseColumn(columns.PLANNED),
+      NEW: parseColumn(columns.NEW), ACCEPTED: parseColumn(columns.ACCEPTED),
       IN_PROGRESS: parseColumn(columns.IN_PROGRESS), WAITING_APPROVAL: parseColumn(columns.WAITING_APPROVAL),
       REVISION_REQUESTED: parseColumn(columns.REVISION_REQUESTED),
     },

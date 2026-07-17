@@ -253,7 +253,7 @@ export class JobCardService {
       return {
         columns: {
           NEW: { items: [], count: 0 },
-          PLANNED: { items: [], count: 0 },
+          ACCEPTED: { items: [], count: 0 },
           IN_PROGRESS: { items: [], count: 0 },
           WAITING_APPROVAL: { items: [], count: 0 },
           REVISION_REQUESTED: { items: [], count: 0 },
@@ -275,7 +275,7 @@ export class JobCardService {
     return {
       columns: {
         NEW: presentColumn(board.columns.NEW),
-        PLANNED: presentColumn(board.columns.PLANNED),
+        ACCEPTED: presentColumn(board.columns.ACCEPTED),
         IN_PROGRESS: presentColumn(board.columns.IN_PROGRESS),
         WAITING_APPROVAL: presentColumn(board.columns.WAITING_APPROVAL),
         REVISION_REQUESTED: presentColumn(board.columns.REVISION_REQUESTED),

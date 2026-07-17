@@ -214,7 +214,7 @@ describe('JobCard workspace transport', () => {
   it('runtime-validates all board columns and closed counts', async () => {
     const board = {
       columns: {
-        NEW: { items: [listItem], count: 4 }, PLANNED: { items: [], count: 0 },
+        NEW: { items: [listItem], count: 4 }, ACCEPTED: { items: [], count: 0 },
         IN_PROGRESS: { items: [], count: 2 }, WAITING_APPROVAL: { items: [], count: 1 },
         REVISION_REQUESTED: { items: [], count: 0 },
       },

@@ -189,10 +189,11 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
           scheduledAt: '2026-07-14T10:00:00.000Z',
         }),
       ]);
-      // Board still groups ACCEPTED under a later column rename task; list remains authoritative.
       expect((await service.board(staff, {
         ...filters, type: 'SALES_MEETING', limit: 25,
-      })).columns.NEW.items).toEqual([]);
+      })).columns.ACCEPTED.items).toEqual([
+        expect.objectContaining({ id: salesMeeting.id, type: 'SALES_MEETING' }),
+      ]);
 
       salesMeeting = await service.start(staff, salesMeeting.id, {
         clientActionId: 'start-sales-meeting', expectedVersion: salesMeeting.version,

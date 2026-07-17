@@ -95,14 +95,17 @@ describe('structured JobCard list', () => {
     expect(html).not.toContain('İşlem beklenen:');
   });
 
-  it('uses backend allowed commands for the one mobile action', () => {
+  it('uses backend allowed commands for open-for-action controls without a detail disclosure', () => {
     const html = renderListJob(listJob({
       status: 'IN_PROGRESS',
       allowedCommands: ['CANCEL'],
     }), staff);
     expect(html).not.toContain('Kontrole göndermek için aç');
     expect(html).not.toContain('Onaya göndermek için aç');
-    expect(html).toContain('Tüm iş detaylarını aç');
+    expect(html).not.toContain('Tüm iş detaylarını aç');
+    expect(html).not.toContain('Özeti aç');
+    expect(html).not.toContain('Özeti kapat');
+    expect(html).toContain('href="/jobs/job-1"');
   });
 
   it('offers open-for-action controls only for allowed primary and labelled secondary commands', () => {
@@ -111,11 +114,12 @@ describe('structured JobCard list', () => {
       allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
     }), manager);
     expect(html).toContain('Yönetici kontrolünü aç');
+    expect(html).toContain('Düzeltme kararını aç');
     expect(html).not.toContain('Onaylamak için aç');
     expect(html).not.toContain('Düzeltme istemek için aç');
     expect(html).not.toContain('Kontrolden geri çek');
-    // Secondary open labels appear only after expand (asserted in workspace suite).
-    expect(html).not.toContain('Düzeltme kararını aç');
+    expect(html).not.toContain('Özeti aç');
+    expect(html).not.toContain('Tüm iş detaylarını aç');
   });
 
   it('does not fabricate delivery facts for General Task rows', () => {
@@ -362,7 +366,7 @@ describe('routed JobCard workspace', () => {
     expect(container.textContent).toContain('Liste görünümüne dön');
   });
 
-  it('expands accessible summary, keeps detail link, and emits only permitted commands with hidden version', async () => {
+  it('opens detail from the title link without a summary disclosure and emits only permitted commands', async () => {
     const command = vi.fn();
     const load = vi.fn().mockResolvedValue(page([{
       ...item,
@@ -371,20 +375,28 @@ describe('routed JobCard workspace', () => {
     }]));
     const router = createMemoryRouter([{ path: '/jobs', element: <JobWorkspace user={staff} load={load} onCommand={command} /> }], { initialEntries: ['/jobs'] });
     await act(async () => root.render(<RouterProvider router={router} />)); await act(async () => { await Promise.resolve(); });
-    const expand = container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')!;
-    expect(expand.getAttribute('aria-controls')).toBe('job-summary-job-1');
-    await act(async () => expand.click());
-    expect(expand.getAttribute('aria-expanded')).toBe('true');
-    expect(container.textContent).toContain('Son güncelleme'); expect(container.textContent).toContain('Tüm iş detaylarını aç');
+
+    const row = container.querySelector<HTMLElement>('[data-job-id="job-1"]')!;
+    const titleLink = Array.from(row.querySelectorAll<HTMLAnchorElement>('a')).find((link) => link.textContent === 'ABC Klinik teslimi')!;
+    expect(titleLink.getAttribute('href')).toBe('/jobs/job-1');
+    expect(row.querySelector('[aria-expanded]')).toBeNull();
+    expect(container.textContent).not.toContain('Özeti aç');
+    expect(container.textContent).not.toContain('Özeti kapat');
+    expect(container.textContent).not.toContain('Tüm iş detaylarını aç');
     expect(container.textContent).toContain('Kontrole göndermek için aç');
     expect(container.textContent).not.toContain('Yönetici kontrolünü aç');
     expect(container.textContent).not.toContain('Sürüm 7');
+    for (const value of ['Uygulanıyor', 'Acil öncelik', 'ABC Klinik', 'Ayşe Personel', '20 Tem 2026']) {
+      expect(row.textContent).toContain(value);
+    }
+
     await act(async () => (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Kontrole göndermek için aç') as HTMLButtonElement).click());
     expect(command).toHaveBeenCalledWith({ name: 'SUBMIT_FOR_APPROVAL', jobId: 'job-1', expectedVersion: 7 });
     expect(command.mock.results[0]?.value).toBeUndefined();
+    expect(router.state.location.pathname).toBe('/jobs');
   });
 
-  it('shows primary and labelled secondary open controls after expand for management review', async () => {
+  it('shows primary and labelled secondary open controls without expand for management review', async () => {
     const command = vi.fn();
     const load = vi.fn().mockResolvedValue(page([item]));
     const router = createMemoryRouter([{
@@ -393,29 +405,30 @@ describe('routed JobCard workspace', () => {
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await Promise.resolve(); });
     expect(container.textContent).toContain('Yönetici kontrolünü aç');
-    expect(container.textContent).not.toContain('Düzeltme kararını aç');
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')!.click());
     expect(container.textContent).toContain('Düzeltme kararını aç');
     expect(container.textContent).not.toContain('Kontrolden geri çek');
+    expect(container.textContent).not.toContain('Özeti aç');
     await act(async () => (
       Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Düzeltme kararını aç') as HTMLButtonElement
     ).click());
     expect(command).toHaveBeenCalledWith({
       name: 'REQUEST_REVISION', jobId: 'job-1', expectedVersion: 7,
     });
+    expect(router.state.location.pathname).toBe('/jobs');
   });
 
-  it('shows the canonical General Task type in the expanded row summary', async () => {
+  it('shows the canonical General Task type on the card without an expand step', async () => {
     const load = vi.fn().mockResolvedValue(page([{
       ...item, type: 'GENERAL_TASK', title: 'Klinik dönüşünü takip et', deliveryItemCount: 0,
     }]));
     await mount('/jobs', load);
     await act(async () => { await Promise.resolve(); });
-    await act(async () => container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')!.click());
 
     const row = container.querySelector<HTMLElement>('[data-job-id="job-1"]')!;
     expect(row.textContent).toContain('Genel görev');
     expect(row.textContent).not.toContain('Ürün teslimi');
     expect(row.textContent).not.toContain('ürün kalemi');
+    expect(row.querySelector('[aria-expanded]')).toBeNull();
+    expect(row.textContent).not.toContain('Özeti aç');
   });
 });

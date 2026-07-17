@@ -32,7 +32,7 @@ function item(status: JobCardListItem['status'], id: string, title = baseItem.ti
 const board: JobCardBoard = {
   columns: {
     NEW: { items: [item('NEW', 'job-new')], count: 1 },
-    PLANNED: { items: [item('PLANNED', 'job-planned')], count: 1 },
+    ACCEPTED: { items: [item('ACCEPTED', 'job-accepted')], count: 1 },
     IN_PROGRESS: { items: [item('IN_PROGRESS', 'job-progress')], count: 1 },
     WAITING_APPROVAL: { items: [item('WAITING_APPROVAL', 'job-waiting')], count: 4 },
     REVISION_REQUESTED: { items: [item('REVISION_REQUESTED', 'job-revision')], count: 1 },
@@ -77,10 +77,15 @@ describe('read-only JobCard board', () => {
     );
     const columns = Array.from(host.querySelectorAll<HTMLElement>('[data-board-column]'));
     expect(columns).toHaveLength(5);
+    expect(columns.map((column) => column.getAttribute('data-board-column'))).toEqual([
+      'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+    ]);
     expect(columns.map((column) => column.querySelector('h2')?.textContent)).toEqual([
-      'Oluşturuldu1', 'Planlandı1', 'Uygulanıyor1', 'Yönetici kontrolünde4', 'Düzeltme gerekiyor1',
+      'Atandı1', 'Kabul edildi1', 'Uygulanıyor1', 'Yönetici kontrolünde4', 'Düzeltme gerekiyor1',
     ]);
     expect(host.querySelectorAll('.job-status-shape')).toHaveLength(5);
+    expect(host.querySelector('[data-board-column="PLANNED"]')).toBeNull();
+    expect(host.textContent).not.toContain('Planlandı');
 
     const card = host.querySelector<HTMLElement>('[data-board-card="job-waiting"]')!;
     for (const value of ['ABC Klinik teslimi', 'Ürün teslimi', 'Acil öncelik', 'ABC Klinik', 'Dr. Deniz', 'Ayşe Personel', '20 Tem 2026', '2 ürün kalemi']) {
@@ -88,6 +93,7 @@ describe('read-only JobCard board', () => {
     }
     expect(card.querySelectorAll('a')).toHaveLength(1);
     expect(card.querySelector('a')?.getAttribute('href')).toBe('/jobs/job-waiting');
+    expect(card.querySelector('a button, button a, a a')).toBeNull();
 
     const closedLinks = Array.from(host.querySelectorAll<HTMLAnchorElement>('.job-board-closed a'));
     expect(closedLinks.map((link) => link.textContent)).toEqual(['Tamamlandı6', 'İptal edildi2']);

@@ -163,7 +163,7 @@ export interface JobCardRepository extends SubmissionReader {
   ): Promise<{
     columns: {
       NEW: { items: PersistedJobCardListItem[]; count: number };
-      PLANNED: { items: PersistedJobCardListItem[]; count: number };
+      ACCEPTED: { items: PersistedJobCardListItem[]; count: number };
       IN_PROGRESS: { items: PersistedJobCardListItem[]; count: number };
       WAITING_APPROVAL: { items: PersistedJobCardListItem[]; count: number };
       REVISION_REQUESTED: { items: PersistedJobCardListItem[]; count: number };
@@ -912,13 +912,13 @@ implements JobCardRepository, ApprovalQueueItemPort {
 
     const columns: {
       NEW: { items: PersistedJobCardListItem[]; count: number };
-      PLANNED: { items: PersistedJobCardListItem[]; count: number };
+      ACCEPTED: { items: PersistedJobCardListItem[]; count: number };
       IN_PROGRESS: { items: PersistedJobCardListItem[]; count: number };
       WAITING_APPROVAL: { items: PersistedJobCardListItem[]; count: number };
       REVISION_REQUESTED: { items: PersistedJobCardListItem[]; count: number };
     } = {
       NEW: { items: [], count: 0 },
-      PLANNED: { items: [], count: 0 },
+      ACCEPTED: { items: [], count: 0 },
       IN_PROGRESS: { items: [], count: 0 },
       WAITING_APPROVAL: { items: [], count: 0 },
       REVISION_REQUESTED: { items: [], count: 0 },

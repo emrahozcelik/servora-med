@@ -15,7 +15,7 @@ function serviceDouble() {
     create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
     board: vi.fn().mockResolvedValue({
       columns: {
-        NEW: { items: [], count: 0 }, PLANNED: { items: [], count: 0 },
+        NEW: { items: [], count: 0 }, ACCEPTED: { items: [], count: 0 },
         IN_PROGRESS: { items: [], count: 0 }, WAITING_APPROVAL: { items: [], count: 0 },
         REVISION_REQUESTED: { items: [], count: 0 },
       },

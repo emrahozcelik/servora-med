@@ -11,7 +11,7 @@ import { selectStatus } from './job-search';
 
 const columns = [
   'NEW',
-  'PLANNED',
+  'ACCEPTED',
   'IN_PROGRESS',
   'WAITING_APPROVAL',
   'REVISION_REQUESTED',

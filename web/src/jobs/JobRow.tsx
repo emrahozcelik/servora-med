@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { paths } from '../paths';
@@ -91,8 +90,6 @@ export function JobRow({ job, user, onCommand }: {
   user: CurrentUser;
   onCommand: (intent: JobCommandIntent) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const summaryId = `job-summary-${job.id}`;
   const summary = deriveCompactWorkflowSummary({ job, user });
   const primaryCommand = listPrimaryOpenCommand(user, job);
   const openCommands = listOpenCommands(user, job);
@@ -104,7 +101,9 @@ export function JobRow({ job, user, onCommand }: {
         <PriorityChip priority={job.priority} longLabel />
         <span className="job-row-type">{jobTypeLabels[job.type]}</span>
       </div>
-      <h2><Link to={paths.job(job.id)}>{job.title}</Link></h2>
+      <h2>
+        <Link className="job-row-title-link" to={paths.job(job.id)}>{job.title}</Link>
+      </h2>
       <dl className="job-row-relations">
         <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
         {job.contact && <div><dt>İlgili kişi</dt><dd>{job.contact.name}</dd></div>}
@@ -129,30 +128,20 @@ export function JobRow({ job, user, onCommand }: {
         </button>
       </div>
     )}
-    <button className="secondary-button job-expand" type="button" aria-expanded={expanded} aria-controls={summaryId}
-      onClick={() => setExpanded((value) => !value)}>
-      {expanded ? 'Özeti kapat' : 'Özeti aç'}
-    </button>
     <div className="job-row-commands">
-      {expanded && openCommands.map((command) => (
+      {openCommands.map((command) => (
         <button
           key={command}
-          className={isPrimaryStyle(command) ? 'primary-button' : 'secondary-button'}
+          className={[
+            isPrimaryStyle(command) ? 'primary-button' : 'secondary-button',
+            command === primaryCommand ? 'job-row-command-primary' : '',
+          ].filter(Boolean).join(' ')}
           type="button"
           onClick={() => onCommand({ name: command, jobId: job.id, expectedVersion: job.version })}
         >
           {openLabels[command]}
         </button>
       ))}
-      <Link className="secondary-button job-detail-link" to={paths.job(job.id)}>Tüm iş detaylarını aç</Link>
     </div>
-    {expanded && <div className="job-row-summary" id={summaryId}>
-      <dl>
-        <div><dt>İş türü</dt><dd>{jobTypeLabels[job.type]}</dd></div>
-        <div><dt>Oluşturma</dt><dd>{formatDate(job.createdAt)}</dd></div>
-        <div><dt>Son güncelleme</dt><dd>{formatDate(job.updatedAt)}</dd></div>
-        {job.staffCompletedAt && <div><dt>Onaya gönderim</dt><dd>{formatDate(job.staffCompletedAt)}</dd></div>}
-      </dl>
-    </div>}
   </article>;
 }
