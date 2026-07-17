@@ -6,9 +6,8 @@ import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-d
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobList, type JobListState } from '../src/jobs/JobList';
-import { permittedJobCommands } from '../src/jobs/JobRow';
 import { JobWorkspace } from '../src/jobs/JobWorkspace';
-import type { JobCardListItem, Paginated } from '../src/jobs/jobs-api';
+import type { JobCardListItem, LifecycleCommand, Paginated } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -21,15 +20,33 @@ const item: JobCardListItem = {
   createdAt: '2026-07-10T10:00:00.000Z', updatedAt: '2026-07-13T10:00:00.000Z',
   staffCompletedAt: '2026-07-12T10:00:00.000Z', customer: { id: 'customer-1', name: 'ABC Klinik' },
   contact: { id: 'contact-1', name: 'Dr. Deniz' }, assignee: { id: staff.id, name: staff.name }, deliveryItemCount: 2,
+  allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
 };
+
+function listJob(overrides: Partial<JobCardListItem> = {}): JobCardListItem {
+  return { ...item, ...overrides };
+}
 
 function page(items: JobCardListItem[], offset = 0, total = items.length): Paginated<JobCardListItem> {
   return { items, total, limit: 25, offset };
 }
 
-function renderList(state: JobListState, user = manager, hasFilters = false) {
+function renderList(
+  state: JobListState,
+  user = manager,
+  hasFilters = false,
+  onCommand: (intent: { name: LifecycleCommand; jobId: string; expectedVersion: number }) => void = () => {},
+) {
   return renderToStaticMarkup(<MemoryRouter><JobList state={state} user={user} hasFilters={hasFilters}
-    onRetry={() => {}} onOffsetChange={() => {}} onCommand={() => {}} /></MemoryRouter>);
+    onRetry={() => {}} onOffsetChange={() => {}} onCommand={onCommand} /></MemoryRouter>);
+}
+
+function renderListJob(
+  job: JobCardListItem,
+  user = manager,
+  onCommand: (intent: { name: LifecycleCommand; jobId: string; expectedVersion: number }) => void = () => {},
+) {
+  return renderList({ kind: 'ready', page: page([job]) }, user, false, onCommand);
 }
 
 describe('structured JobCard list', () => {
@@ -46,11 +63,59 @@ describe('structured JobCard list', () => {
   it('renders semantic operational rows, text-plus-shape status, and hides technical version', () => {
     const html = renderList({ kind: 'ready', page: page([item]) });
     expect(html).toContain('<ul'); expect(html).toContain('<article');
-    for (const value of ['ABC Klinik teslimi', 'Onay bekliyor', 'Acil öncelik', 'ABC Klinik', 'Dr. Deniz', 'Ayşe Personel', '20 Tem 2026', '2 ürün kalemi']) expect(html).toContain(value);
+    for (const value of ['ABC Klinik teslimi', 'Yönetici kontrolünde', 'Acil öncelik', 'ABC Klinik', 'Dr. Deniz', 'Ayşe Personel', '20 Tem 2026', '2 ürün kalemi']) expect(html).toContain(value);
     expect(html).toContain('Müşteri'); expect(html).toContain('İlgili kişi');
     expect(html).toContain('aria-hidden="true"');
     expect(html).not.toContain('Sürüm'); expect(html).not.toContain('Kayıt sürümü');
     expect(renderList({ kind: 'ready', page: page([{ ...item, contact: null }]) })).not.toContain('İlgili kişi');
+  });
+
+  it('shows the compact workflow summary for waiting approval', () => {
+    const html = renderListJob(listJob({
+      status: 'WAITING_APPROVAL',
+      allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+    }), manager);
+    expect(html).toContain('4 / 5');
+    expect(html).toContain('Yönetici kontrolünde');
+    expect(html).toContain('İşlem beklenen: Yönetici');
+    expect(html).toContain('compact-workflow');
+    expect(html).not.toContain('compact-workflow--attention');
+  });
+
+  it('marks correction attention without claiming phases are completed', () => {
+    const html = renderListJob(listJob({
+      status: 'REVISION_REQUESTED',
+      allowedCommands: ['RESUME', 'CANCEL'],
+    }), staff);
+    expect(html).toContain('3 / 5');
+    expect(html).toContain('Düzeltme gerekiyor');
+    expect(html).toContain('Yönetici notu mevcut');
+    expect(html).toContain('compact-workflow--attention');
+    expect(html).not.toContain('3 aşama tamamlandı');
+    expect(html).not.toContain('İşlem beklenen:');
+  });
+
+  it('uses backend allowed commands for the one mobile action', () => {
+    const html = renderListJob(listJob({
+      status: 'IN_PROGRESS',
+      allowedCommands: ['CANCEL'],
+    }), staff);
+    expect(html).not.toContain('Kontrole göndermek için aç');
+    expect(html).not.toContain('Onaya göndermek için aç');
+    expect(html).toContain('Tüm iş detaylarını aç');
+  });
+
+  it('offers open-for-action controls only for allowed primary and labelled secondary commands', () => {
+    const html = renderListJob(listJob({
+      status: 'WAITING_APPROVAL',
+      allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+    }), manager);
+    expect(html).toContain('Yönetici kontrolünü aç');
+    expect(html).not.toContain('Onaylamak için aç');
+    expect(html).not.toContain('Düzeltme istemek için aç');
+    expect(html).not.toContain('Kontrolden geri çek');
+    // Secondary open labels appear only after expand (asserted in workspace suite).
+    expect(html).not.toContain('Düzeltme kararını aç');
   });
 
   it('does not fabricate delivery facts for General Task rows', () => {
@@ -75,17 +140,6 @@ describe('structured JobCard list', () => {
     expect(html).toContain('26–50 / 80'); expect(html).toContain('Önceki'); expect(html).toContain('Sonraki');
   });
 
-  it('exposes only role-and-status permitted named commands', () => {
-    expect(permittedJobCommands(staff, { ...item, status: 'NEW' })).toEqual([{ name: 'start', label: 'İşi başlatmak için aç' }]);
-    expect(permittedJobCommands(staff, { ...item, status: 'IN_PROGRESS' })).toEqual([{ name: 'submit', label: 'Onaya göndermek için aç' }]);
-    expect(permittedJobCommands(staff, { ...item, status: 'REVISION_REQUESTED' })).toEqual([{ name: 'resume', label: 'Düzeltmeye devam etmek için aç' }]);
-    expect(permittedJobCommands(staff, item)).toEqual([]);
-    expect(permittedJobCommands(manager, item)).toEqual([
-      { name: 'revise', label: 'Düzeltme istemek için aç' },
-      { name: 'approve', label: 'Onaylamak için aç' },
-    ]);
-    expect(permittedJobCommands(manager, { ...item, status: 'COMPLETED' })).toEqual([]);
-  });
 });
 
 function deferred<T>() {
@@ -310,7 +364,11 @@ describe('routed JobCard workspace', () => {
 
   it('expands accessible summary, keeps detail link, and emits only permitted commands with hidden version', async () => {
     const command = vi.fn();
-    const load = vi.fn().mockResolvedValue(page([{ ...item, status: 'IN_PROGRESS' }]));
+    const load = vi.fn().mockResolvedValue(page([{
+      ...item,
+      status: 'IN_PROGRESS',
+      allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+    }]));
     const router = createMemoryRouter([{ path: '/jobs', element: <JobWorkspace user={staff} load={load} onCommand={command} /> }], { initialEntries: ['/jobs'] });
     await act(async () => root.render(<RouterProvider router={router} />)); await act(async () => { await Promise.resolve(); });
     const expand = container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')!;
@@ -318,11 +376,33 @@ describe('routed JobCard workspace', () => {
     await act(async () => expand.click());
     expect(expand.getAttribute('aria-expanded')).toBe('true');
     expect(container.textContent).toContain('Son güncelleme'); expect(container.textContent).toContain('Tüm iş detaylarını aç');
-    expect(container.textContent).toContain('Onaya göndermek için aç'); expect(container.textContent).not.toContain('Onaylamak için aç');
+    expect(container.textContent).toContain('Kontrole göndermek için aç');
+    expect(container.textContent).not.toContain('Yönetici kontrolünü aç');
     expect(container.textContent).not.toContain('Sürüm 7');
-    await act(async () => (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Onaya göndermek için aç') as HTMLButtonElement).click());
-    expect(command).toHaveBeenCalledWith({ name: 'submit', jobId: 'job-1', expectedVersion: 7 });
+    await act(async () => (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Kontrole göndermek için aç') as HTMLButtonElement).click());
+    expect(command).toHaveBeenCalledWith({ name: 'SUBMIT_FOR_APPROVAL', jobId: 'job-1', expectedVersion: 7 });
     expect(command.mock.results[0]?.value).toBeUndefined();
+  });
+
+  it('shows primary and labelled secondary open controls after expand for management review', async () => {
+    const command = vi.fn();
+    const load = vi.fn().mockResolvedValue(page([item]));
+    const router = createMemoryRouter([{
+      path: '/jobs', element: <JobWorkspace user={manager} load={load} onCommand={command} />,
+    }], { initialEntries: ['/jobs'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(container.textContent).toContain('Yönetici kontrolünü aç');
+    expect(container.textContent).not.toContain('Düzeltme kararını aç');
+    await act(async () => container.querySelector<HTMLButtonElement>('[aria-expanded="false"]')!.click());
+    expect(container.textContent).toContain('Düzeltme kararını aç');
+    expect(container.textContent).not.toContain('Kontrolden geri çek');
+    await act(async () => (
+      Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Düzeltme kararını aç') as HTMLButtonElement
+    ).click());
+    expect(command).toHaveBeenCalledWith({
+      name: 'REQUEST_REVISION', jobId: 'job-1', expectedVersion: 7,
+    });
   });
 
   it('shows the canonical General Task type in the expanded row summary', async () => {

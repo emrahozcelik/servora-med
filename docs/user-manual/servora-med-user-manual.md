@@ -66,15 +66,23 @@ Mobilde dar ekranda menü çekmecesi kullanılır; masaüstünde yan/üst naviga
 
 ## 5. İş kartı yaşam döngüsü (özet)
 
-Tipik akış:
+Tipik akış (teknik durum → detaydaki aşama dili):
 
 ```text
-Yeni → Planlandı → Devam ediyor → Onay bekliyor → Tamamlandı
-                              ↘ Düzeltme istendi → Devam ediyor
+Yeni (Oluşturuldu) → Planlandı → Uygulanıyor → Yönetici kontrolü → Tamamlandı
+                                      ↘ Düzeltme istendi → Uygulanıyor (düzeltme döngüsü)
 ```
 
-İş iptal edilebilir (yetkili kullanıcı + gerekçe).
-**Personel, işi doğrudan “Tamamlandı” yapamaz**; onaya gönderir, yönetici onaylar.
+- **Planlama atlanabilir:** **Yeni** işte doğrudan **İşi başlat** ile uygulamaya geçebilirsiniz;
+  adım çubuğunda planlama “Planlama atlandı” görünür, yanlış bir tik işareti konmaz.
+- **Personel işi doğrudan “Tamamlandı” yapamaz.** Personel **Kontrole gönder** ile yönetici
+  kontrolüne yollar; yönetici **Kontrolü tamamla ve işi kapat** ile kapatır veya
+  **Düzeltme için personele geri gönder** ile döngüyü başlatır.
+- **Kontrol kilidi:** Yönetici kontrolündeyken kayıtlar salt okunurdur. Düzenleme için önce
+  **Kontrolden geri çek ve düzenle** (personel) veya **Kontrolden çıkar ve kayıtları düzenle**
+  (yönetici, görüşme vb.) gerekir; işlem geçmişi silinmez.
+- **İptal terminaldir:** Yetkili kullanıcı + zorunlu gerekçe ile **İşi iptal et**. İptal
+  başarılı yeşil tamamlanma değildir; iş yeniden açılamaz.
 
 ### Bir düğme yoksa veya devre dışıysa
 
@@ -82,9 +90,9 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 
 | Neden | Ne anlama gelir |
 |-------|------------------|
-| **Rol yetkisi** | Bu rol o komutu hiç kullanamaz (ör. personel **Onayla** göremez). |
-| **İş kartı durumu** | Komut bu statüde geçersizdir (ör. zaten **Tamamlandı** iken **Onaya gönder** yok). |
-| **Doğrulama / eksik alan** | Zorunlu alan veya teslim kalemi eksik; komut sunucu tarafında reddedilir veya UI tamamlanmayı bekler. |
+| **Rol yetkisi** | Bu rol o komutu hiç kullanamaz (ör. personel **Kontrolü tamamla ve işi kapat** göremez). |
+| **İş kartı durumu** | Komut bu statüde geçersizdir (ör. zaten **Tamamlandı** iken **Kontrole gönder** yok). |
+| **Doğrulama / eksik alan** | Zorunlu alan veya teslim kalemi eksik; detaydaki kontrol listesi ve sunucu aynı kuralları kullanır. |
 | **Yükleniyor / istek sürüyor** | Önceki kayıt veya komut bitmeden düğme kilitli olabilir; bitmesini bekleyin veya hata mesajını okuyun. |
 
 ---
@@ -111,15 +119,20 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 4. **Sorumlu personel** personel rolünde sizsiniz (değiştirilemez).
 5. **Ürün** arayıp seçin; **Teslim amacı**, **Miktar**, **Teslim zamanı** girin.
 6. **Teslimi kaydet** — kayıt sonrası iş detayına gidersiniz.
-7. Detayda duruma göre **Planla** / **Başlat** komutlarını kullanın.
-8. Gerekli ürün kalemleri tamamsa **Onaya gönder**.
-9. Yönetici **düzeltme** isterse gerekçeyi okuyun, düzeltin, yeniden onaya gönderin.
+7. Detayda adım çubuğu ve “şimdi sizden beklenen” paneli görünür. Duruma göre **Planla**
+   veya **İşi başlat** kullanın (planlama zorunlu değildir).
+8. **Uygulanıyor** iken kontrol listesindeki zorunlu kalemler tamamsa **Kontrole gönder**.
+   Gönderim sonrası kayıtlar kilitlenir; iş **Yönetici kontrolü** aşamasına geçer.
+9. Yönetici düzeltme isterse gerekçeyi okuyun → **Düzeltmeye başla** → kayıtları düzeltin →
+   **Yeniden kontrole gönder**.
+10. Kontroldeyken kendiniz düzeltmek isterseniz **Kontrolden geri çek ve düzenle** ile işi
+    yeniden **Uygulanıyor** yapın, sonra tekrar gönderin.
 
 ### 7.2 General Task (genel görev)
 
 1. `/jobs/new-task` — **Başlık** zorunludur.
 2. İsteğe bağlı müşteri / ilgili kişi yalnızca bağlam içindir.
-3. Kaydedin; onay akışı teslimle aynıdır.
+3. Kaydedin; yaşam döngüsü ve kontrol akışı ürün teslimi ile aynıdır (**Kontrole gönder**).
 4. Ürün teslim kalemi **yoktur**.
 
 ### 7.3 Sales Meeting (satış görüşmesi)
@@ -128,8 +141,8 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 2. Görüşme **Yeni** veya **Planlandı** durumundayken sonuç ve not bölümleri gösterilmez.
    **İşi başlat** komutundan sonra bu bölümler açılır.
    Görüşmenin başlık, açıklama, müşteri, ilgili kişi, planlanan gün ve öncelik bilgileri tüm
-   aktif aşamalarda **Görüşmeyi düzenle** ile değiştirilebilir. Yönetici ayrıca sorumluyu
-   değiştirebilir.
+   aktif aşamalarda (kontrol kilidi dışında) **Görüşmeyi düzenle** ile değiştirilebilir.
+   Yönetici ayrıca sorumluyu değiştirebilir.
 3. Detayda **Görüşme sonucu**:
    - Gerçekleşme zamanı
    - Sonuç (Pozitif / Takip gerekli / Karar verilmedi / İlgilenmiyor)
@@ -137,11 +150,12 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
    - Takip zamanı (isteğe bağlı)
    Sonuç formu ilk açıldığında gerçekleşme zamanı güncel yerel saatle doldurulur; gerekirse
    değiştirebilirsiniz.
-4. **Görüşme sonucunu kaydet**, notlarınızı ekleyin, sonra **Onaya gönder**. Değişmemiş bir
-   sonuç yeniden gönderilmez ve bunun yerine kaydedilecek değişiklik olmadığı açıklanır.
-5. Onay beklerken gönderilen içerik salt okunurdur. Düzeltme gerekiyorsa **Onaydan geri çek
-   ve düzenle** ile işi `Devam ediyor` durumuna alın, değiştirin ve yeniden gönderin.
-6. Kendi görüşmenizi **Yeni**, **Planlandı**, **Devam ediyor**, **Onay bekliyor** veya
+4. **Görüşme sonucunu kaydet**, notlarınızı ekleyin, kontrol listesi tamamsa **Kontrole gönder**.
+   Değişmemiş bir sonuç yeniden gönderilmez ve bunun yerine kaydedilecek değişiklik olmadığı
+   açıklanır.
+5. Yönetici kontrolündeyken içerik salt okunurdur. Düzeltme gerekiyorsa **Kontrolden geri çek
+   ve düzenle** ile işi **Uygulanıyor** durumuna alın, değiştirin ve yeniden gönderin.
+6. Kendi görüşmenizi **Yeni**, **Planlandı**, **Uygulanıyor**, **Yönetici kontrolü** veya
    **Düzeltme istendi** aşamasında **İşi iptal et** ile ve zorunlu bir gerekçe yazarak iptal
    edebilirsiniz. Yönetici de erişebildiği aktif işleri aynı şekilde iptal edebilir. İptal
    terminaldir; iş yeniden açılamaz.
@@ -171,16 +185,24 @@ Bu bölüm, uygulamayı ilk kez kullanan bir yönetici için adım adım yazılm
 4. Telefonda / dar ekranda yalnız liste gösterilir (sıkışık pano yoktur).
 5. Bir satıra tıklayarak veya **detayı aç** ile iş kartına girin.
 
-### 8.3 Onay kuyruğu (en sık iş)
+### 8.3 Yönetici kontrol kuyruğu (en sık iş)
 
-1. **Raporlar → Onaylar** (`/reports/approvals`) veya listede **Onay bekliyor** filtresini açın.
+1. **Raporlar → Onaylar** (`/reports/approvals`) veya listede **Onay bekliyor** /
+   yönetici kontrolü filtresini açın.
 2. En eski bekleyen işi seçin.
-3. Detayda teslim kalemlerini / görüşme sonucunu / notları okuyun.
-4. Uygunsa **Onayla** — iş **Tamamlandı** olur.
-5. Eksik/hatalıysa **Düzeltme iste** ve **gerekçe** yazın — personel düzeltip yeniden gönderir.
-6. Personel işi onaydan geri çekerse kart kuyruktan çıkar; yeniden gönderildiğinde güncel
-   içerikle tekrar görünür. İptal edilen kart onaylanamaz.
-7. **Onayla** düğmesi yoksa: rolünüz Manager/Admin mi, iş gerçekten **Onay bekliyor** mu, sayfa hâlâ yükleniyor mu kontrol edin.
+3. Detayda onay özeti, teslim kalemleri / görüşme sonucu / notlar ve hazırlık özetini okuyun.
+4. Uygunsa **Kontrolü tamamla ve işi kapat** — onay diyaloğunda **İşi tamamla** ile
+   onaylayın; iş **Tamamlandı** olur ve aktif listeden çıkar.
+5. Eksik/hatalıysa **Düzeltme için personele geri gönder** ve **gerekçe** yazın; onay
+   etiketinde **Düzeltme için geri gönder** kullanın. Personel **Düzeltmeye başla** ile
+   devam eder, düzeltir ve **Yeniden kontrole gönder** ile yollar.
+6. Kayıtları siz düzenlemeniz gerekiyorsa (ör. görüşme) **Kontrolden çıkar ve kayıtları
+   düzenle** — kontrol biter, iş **Uygulanıyor** olur; bu işlem onaylamaz veya kapatmaz,
+   yeniden kontrole gönderilmesi gerekir.
+7. Personel veya yönetici işi kontrolden geri çekerse kart kuyruktan çıkar; yeniden
+   gönderildiğinde güncel içerikle tekrar görünür. İptal edilen kart onaylanamaz.
+8. **Kontrolü tamamla ve işi kapat** yoksa: rolünüz Manager/Admin mi, iş gerçekten yönetici
+   kontrolünde mi, sayfa hâlâ yükleniyor mu kontrol edin.
 
 ### 8.4 Müşteri ve ilgili kişi (CRM)
 
@@ -244,7 +266,7 @@ Canlı pilotta ilk Admin genelde operatörün `bootstrap:admin` komutu ile oluş
 | Düğme yok / soluk | Rol mü, iş durumu mu, eksik alan mı, yoksa yükleme mi? (bölüm 5 tablosu) |
 | Müşteri/ürün seçilemiyor | Kayıt pasif mi; arama terimi; ağ hatası → **Tekrar dene** |
 | “İş değişmiş” / conflict | Yenileyin; güncel haliyle tekrar deneyin |
-| Onaya gidemiyor | Zorunlu alanlar (teslim kalemi, görüşme sonucu vb.) eksik |
+| Kontrole gidemiyor | Detaydaki kontrol listesi: zorunlu alanlar (teslim kalemi, görüşme sonucu vb.) eksik veya geçersiz |
 | Uygulama açılmıyor | Operatöre iletin: saat, tarayıcı, ekran yolu — **parola/cookie/URL sızdırmayın** |
 
 ### Destek için güvenli bilgi
@@ -259,9 +281,13 @@ Paylaşılabilir: tarih/saat, rolünüz, ekran yolu (ör. `/jobs/...`), görüne
 - Ana gezinme klavye ile odaklanabilir.
 - Hata mesajları form alanlarıyla ilişkilendirilir (`aria-invalid` / açıklama).
 - Renk tek başına durum göstergesi değildir; metin etiketleri vardır.
+- Yaşam döngüsü adım çubuğu sıralı listedir; mevcut adım `aria-current="step"` ile işaretlenir.
+- Onay / geri çekme / iptal diyalogları odağı tutar; Escape (güvenliyse) ve açan kontrole dönüş desteklenir.
 
 ---
 
 ## 12. Sürüm notu
 
-Bu kılavuz Servora-Med arayüz yolları `web/src/paths.ts` ve kabuk menüsü `AppShell` ile hizalıdır. Ekran metni değişirse kılavuz da güncellenmelidir.
+Bu kılavuz Servora-Med arayüz yolları `web/src/paths.ts`, kabuk menüsü `AppShell` ve iş
+akışı etiketleri `web/src/jobs/job-workflow-presentation.ts` ile hizalıdır. Ekran metni
+değişirse kılavuz da güncellenmelidir.

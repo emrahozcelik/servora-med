@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SalesMeetingEditForm } from '../src/jobs/SalesMeetingEditForm';
 import type { JobCard } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
+import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
@@ -28,6 +29,7 @@ const job: JobCard = {
   contactId: 'contact-1', assignedTo: 'staff-1', createdBy: 'manager-1', priority: 'high',
   dueDate: '2026-07-17', assignee: { id: 'staff-1', name: 'Sezer Dener' },
   customer: { id: 'customer-1', name: 'A Klinik' }, contact: { id: 'contact-1', name: 'Dr. A' },
+  workflowContext,
 };
 const customer = (id: string, name: string) => ({
   id, organizationId: 'org-1', name, customerType: 'clinic', taxNumber: null, phone: null,
@@ -120,5 +122,46 @@ describe('SalesMeetingEditForm', () => {
     }
     await act(async () => (container.querySelector('[data-cancel-meeting-edit]') as HTMLButtonElement).click());
     expect(onCancel).toHaveBeenCalledOnce();
+  });
+});
+
+describe('Sales Meeting withdraw-to-edit confirmation copy', () => {
+  it('exposes role-specific withdraw confirmation labels from the presentation SSOT', async () => {
+    const { deriveJobWorkflowPresentation } = await import('../src/jobs/job-workflow-presentation');
+    const waiting: JobCard = {
+      ...job,
+      status: 'WAITING_APPROVAL',
+      workflowContext: {
+        ...workflowContext,
+        allowedCommands: ['CANCEL'],
+        allowedActions: ['WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'VIEW_NOTES'],
+        lifecycle: {
+          ...workflowContext.lifecycle,
+          startedAt: '2026-07-17T09:00:00.000Z',
+          submittedAt: '2026-07-17T10:00:00.000Z',
+        },
+        submissionReadiness: null,
+      },
+    };
+    const staffModel = deriveJobWorkflowPresentation({
+      job: waiting, user: staff, workflowContext: waiting.workflowContext,
+      deliveryItems: [], meetingDetails: null,
+    });
+    const managerModel = deriveJobWorkflowPresentation({
+      job: waiting, user: manager, workflowContext: waiting.workflowContext,
+      deliveryItems: [], meetingDetails: null,
+    });
+    expect(staffModel.recordEditAction).toMatchObject({
+      action: 'WITHDRAW_AND_EDIT_JOB_FIELDS',
+      label: 'Kontrolden geri çek ve düzenle',
+      confirmation: { confirmLabel: 'Geri çek ve düzenle' },
+    });
+    expect(managerModel.recordEditAction).toMatchObject({
+      action: 'WITHDRAW_AND_EDIT_JOB_FIELDS',
+      label: 'Kontrolden çıkar ve kayıtları düzenle',
+      confirmation: { confirmLabel: 'Kontrolden çıkar ve düzenle' },
+    });
+    expect(staffModel.recordEditAction?.consequence).toMatch(/Uygulanıyor/);
+    expect(managerModel.recordEditAction?.consequence).toMatch(/onaylamaz veya tamamlamaz/);
   });
 });

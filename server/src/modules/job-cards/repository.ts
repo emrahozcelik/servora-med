@@ -1,22 +1,25 @@
-import type {
-  DeliveryItem,
-  JobCard,
-  JobCardDetail,
-  JobCardActivityEvent,
-  JobCardAssignee,
-  JobCardBaseFilters,
-  JobCardBoard,
-  JobCardBoardQuery,
-  JobCardListItem,
-  JobCardListQuery,
-  JobCardPriority,
-  JobCardStatus,
-  JobCardStatusFilter,
-  LifecycleCommand,
-  Paginated,
-  JobCardNoteDto,
-  MeetingDetailsCandidate,
-  MeetingOutcome,
+import {
+  JOB_CARD_STATUSES,
+  type DeliveryItem,
+  type JobCard,
+  type JobCardActivityEvent,
+  type JobCardAssignee,
+  type JobCardBaseFilters,
+  type JobCardBoard,
+  type JobCardBoardQuery,
+  type JobCardListQuery,
+  type JobCardPriority,
+  type JobCardStatus,
+  type JobCardStatusFilter,
+  type JobLifecycleFacts,
+  type LifecycleCommand,
+  type Paginated,
+  type PersistedJobCardDetail,
+  type PersistedJobCardListItem,
+  type JobCardNoteDto,
+  type MeetingDetailsCandidate,
+  type MeetingOutcome,
+  type RelatedIdentity,
 } from './types.js';
 import type { Pool, PoolClient } from 'pg';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
@@ -95,28 +98,35 @@ export type JobCustomerReference = { id: string; status: 'prospect' | 'active' |
 export type SubmissionCustomer = JobCustomerReference & { organizationId: string };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
 
-export interface JobCardTransaction {
-  getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
-  getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
-  getJobDetail(organizationId: string, jobCardId: string): Promise<JobCardDetail | null>;
-  transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
-  appendActivity(input: ActivityInput): Promise<void>;
-  createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
-  getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
+export interface SubmissionReader {
   getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
-  getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
-  customerExists(organizationId: string, customerId: string): Promise<boolean>;
   getSubmissionCustomer(
     organizationId: string,
     customerId: string,
   ): Promise<SubmissionCustomer | null>;
-  getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
-  createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
-  createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
-  getMeetingDetailsForUpdate(
+  getSubmissionMeetingDetails(
     organizationId: string,
     jobCardId: string,
   ): Promise<MeetingDetailsCandidate | null>;
+  getSubmissionDeliveryItems(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<SubmissionDeliveryItem[]>;
+}
+
+export interface JobCardTransaction extends SubmissionReader {
+  getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
+  getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
+  getJobDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
+  transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
+  appendActivity(input: ActivityInput): Promise<void>;
+  createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
+  getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
+  getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
+  customerExists(organizationId: string, customerId: string): Promise<boolean>;
+  getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
+  createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
+  createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
   getProduct(organizationId: string, productId: string): Promise<ProductReference | null>;
@@ -125,7 +135,6 @@ export interface JobCardTransaction {
   updateDeliveryItem(itemId: string, input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
   deleteDeliveryItem(itemId: string): Promise<void>;
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
-  getSubmissionDeliveryItems(organizationId: string, jobCardId: string): Promise<SubmissionDeliveryItem[]>;
 }
 
 export type CriticalActionResult<T> =
@@ -133,7 +142,7 @@ export type CriticalActionResult<T> =
   | { kind: 'replay'; response: T }
   | { kind: 'processing' };
 
-export interface JobCardRepository {
+export interface JobCardRepository extends SubmissionReader {
   executeCriticalAction<T>(
     claim: CriticalActionClaim,
     work: (transaction: JobCardTransaction) => Promise<T>,
@@ -141,10 +150,22 @@ export interface JobCardRepository {
   listJobCards(
     scope: JobCardReadScope,
     query: JobCardListQuery,
-  ): Promise<Paginated<JobCardListItem>>;
-  listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard>;
+  ): Promise<Paginated<PersistedJobCardListItem>>;
+  listBoard(
+    scope: JobCardReadScope,
+    query: JobCardBoardQuery,
+  ): Promise<{
+    columns: {
+      NEW: { items: PersistedJobCardListItem[]; count: number };
+      PLANNED: { items: PersistedJobCardListItem[]; count: number };
+      IN_PROGRESS: { items: PersistedJobCardListItem[]; count: number };
+      WAITING_APPROVAL: { items: PersistedJobCardListItem[]; count: number };
+      REVISION_REQUESTED: { items: PersistedJobCardListItem[]; count: number };
+    };
+    closedCounts: JobCardBoard['closedCounts'];
+  }>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
-  findJobCardDetail(organizationId: string, jobCardId: string): Promise<JobCardDetail | null>;
+  findJobCardDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
   findMeetingDetails(
     organizationId: string,
     jobCardId: string,
@@ -174,6 +195,26 @@ type JobCardDetailRow = JobCardRow & {
   assignee_id: string; assignee_name: string;
   customer_id_join: string | null; customer_name: string | null;
   contact_id_join: string | null; contact_name: string | null;
+  created_at: Date;
+  planned_at: Date | null;
+  started_at: Date | null;
+  staff_completed_at: Date | null;
+  staff_completion_note: string | null;
+  submitter_id: string | null;
+  submitter_name: string | null;
+  manager_approved_at: Date | null;
+  manager_approval_note: string | null;
+  approver_id: string | null;
+  approver_name: string | null;
+  revision_requested_at: Date | null;
+  revision_reason: string | null;
+  revision_actor_id: string | null;
+  revision_actor_name: string | null;
+  cancelled_at: Date | null;
+  cancel_reason: string | null;
+  cancellation_actor_id: string | null;
+  cancellation_actor_name: string | null;
+  cancelled_from_status: string | null;
 };
 type JobCardListRow = {
   id: string;
@@ -258,9 +299,20 @@ function mapCalendarDate(value: string | Date | null) {
 const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
        j.title, j.description, j.customer_id, j.contact_id, j.assigned_to, j.created_by,
        j.priority, j.due_date,
+       j.created_at, j.planned_at, j.started_at,
+       j.staff_completed_at, j.staff_completion_note,
+       j.manager_approved_at, j.manager_approval_note,
+       j.revision_requested_at, j.revision_reason,
+       j.cancelled_at, j.cancel_reason,
        assignee.id AS assignee_id, assignee.name AS assignee_name,
        customer.id AS customer_id_join, customer.name AS customer_name,
-       contact.id AS contact_id_join, contact.name AS contact_name
+       contact.id AS contact_id_join, contact.name AS contact_name,
+       submitter.id AS submitter_id, submitter.name AS submitter_name,
+       approver.id AS approver_id, approver.name AS approver_name,
+       revision_actor.id AS revision_actor_id, revision_actor.name AS revision_actor_name,
+       cancellation_actor.id AS cancellation_actor_id,
+       cancellation_actor.name AS cancellation_actor_name,
+       cancellation.cancelled_from_status
 FROM job_cards j
 JOIN users assignee
   ON assignee.organization_id = j.organization_id AND assignee.id = j.assigned_to
@@ -268,9 +320,65 @@ LEFT JOIN customers customer
   ON customer.organization_id = j.organization_id AND customer.id = j.customer_id
 LEFT JOIN contacts contact
   ON contact.organization_id = j.organization_id AND contact.id = j.contact_id
+LEFT JOIN users submitter
+  ON submitter.organization_id = j.organization_id AND submitter.id = j.staff_completed_by
+LEFT JOIN users approver
+  ON approver.organization_id = j.organization_id AND approver.id = j.manager_approved_by
+LEFT JOIN users revision_actor
+  ON revision_actor.organization_id = j.organization_id
+  AND revision_actor.id = j.revision_requested_by
+LEFT JOIN users cancellation_actor
+  ON cancellation_actor.organization_id = j.organization_id
+  AND cancellation_actor.id = j.cancelled_by
+LEFT JOIN LATERAL (
+  SELECT a.old_value->>'status' AS cancelled_from_status
+  FROM job_card_activity_logs a
+  WHERE a.organization_id = j.organization_id
+    AND a.job_card_id = j.id
+    AND a.event_type = 'JOB_CANCELLED'
+  ORDER BY a.created_at DESC, a.id DESC
+  LIMIT 1
+) cancellation ON TRUE
 WHERE j.organization_id = $1 AND j.id = $2`;
 
-function mapJobCardDetail(row: JobCardDetailRow): JobCardDetail {
+function mapInstant(value: Date | null): string | null {
+  return value?.toISOString() ?? null;
+}
+
+function mapRelatedIdentity(id: string | null, name: string | null): RelatedIdentity | null {
+  if (id === null || name === null) return null;
+  return { id, name };
+}
+
+function mapCancelledFromStatus(value: string | null): JobCardStatus | null {
+  if (value === null) return null;
+  if (!(JOB_CARD_STATUSES as readonly string[]).includes(value)) return null;
+  if (value === 'COMPLETED' || value === 'CANCELLED') return null;
+  return value as JobCardStatus;
+}
+
+function mapLifecycleFacts(row: JobCardDetailRow): JobLifecycleFacts {
+  return {
+    createdAt: row.created_at.toISOString(),
+    plannedAt: mapInstant(row.planned_at),
+    startedAt: mapInstant(row.started_at),
+    submittedAt: mapInstant(row.staff_completed_at),
+    submittedBy: mapRelatedIdentity(row.submitter_id, row.submitter_name),
+    submissionNote: row.staff_completion_note,
+    approvedAt: mapInstant(row.manager_approved_at),
+    approvedBy: mapRelatedIdentity(row.approver_id, row.approver_name),
+    approvalNote: row.manager_approval_note,
+    revisionRequestedAt: mapInstant(row.revision_requested_at),
+    revisionRequestedBy: mapRelatedIdentity(row.revision_actor_id, row.revision_actor_name),
+    revisionReason: row.revision_reason,
+    cancelledAt: mapInstant(row.cancelled_at),
+    cancelledBy: mapRelatedIdentity(row.cancellation_actor_id, row.cancellation_actor_name),
+    cancelReason: row.cancel_reason,
+    cancelledFromStatus: mapCancelledFromStatus(row.cancelled_from_status),
+  };
+}
+
+function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
   return {
     ...mapJobCard(row),
     assignee: { id: row.assignee_id, name: row.assignee_name },
@@ -280,10 +388,11 @@ function mapJobCardDetail(row: JobCardDetailRow): JobCardDetail {
     contact: row.contact_id_join === null
       ? null
       : { id: row.contact_id_join, name: row.contact_name! },
+    lifecycle: mapLifecycleFacts(row),
   };
 }
 
-function mapJobCardListItem(row: JobCardListRow): JobCardListItem {
+function mapJobCardListItem(row: JobCardListRow): PersistedJobCardListItem {
   return {
     id: row.id,
     type: row.type,
@@ -540,7 +649,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     );
   }
 
-  async getMeetingDetailsForUpdate(organizationId: string, jobCardId: string) {
+  async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
     const result = await this.client.query<MeetingDetailsRow>(
       `SELECT job_card_id, meeting_at, outcome, meeting_summary, next_follow_up_at
          FROM job_card_meeting_details
@@ -749,7 +858,7 @@ implements JobCardRepository, ApprovalQueueItemPort {
     };
   }
 
-  async listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard> {
+  async listBoard(scope: JobCardReadScope, query: JobCardBoardQuery) {
     const countFilter = workspaceWhere(scope, query);
     const counts = await this.pool.query<{ status: JobCardStatus; count: number }>(
       `SELECT j.status, COUNT(*)::int AS count
@@ -773,7 +882,13 @@ implements JobCardRepository, ApprovalQueueItemPort {
       [...itemFilter.values, query.limit],
     );
 
-    const columns: JobCardBoard['columns'] = {
+    const columns: {
+      NEW: { items: PersistedJobCardListItem[]; count: number };
+      PLANNED: { items: PersistedJobCardListItem[]; count: number };
+      IN_PROGRESS: { items: PersistedJobCardListItem[]; count: number };
+      WAITING_APPROVAL: { items: PersistedJobCardListItem[]; count: number };
+      REVISION_REQUESTED: { items: PersistedJobCardListItem[]; count: number };
+    } = {
       NEW: { items: [], count: 0 },
       PLANNED: { items: [], count: 0 },
       IN_PROGRESS: { items: [], count: 0 },
@@ -821,6 +936,50 @@ implements JobCardRepository, ApprovalQueueItemPort {
       [organizationId, jobCardId],
     );
     return result.rows[0] ? mapMeetingDetails(result.rows[0]) : null;
+  }
+
+  async getAssignee(organizationId: string, userId: string) {
+    const result = await this.pool.query<{
+      id: string; organization_id: string; role: JobCardAssignee['role']; is_active: boolean;
+    }>(`SELECT id, organization_id, role, is_active FROM users
+        WHERE organization_id = $1 AND id = $2`, [organizationId, userId]);
+    const row = result.rows[0];
+    return row ? { id: row.id, organizationId: row.organization_id, role: row.role, isActive: row.is_active } : null;
+  }
+
+  async getSubmissionCustomer(organizationId: string, customerId: string) {
+    const result = await this.pool.query<{
+      id: string;
+      organization_id: string;
+      status: SubmissionCustomer['status'];
+    }>(
+      `SELECT id, organization_id, status
+         FROM customers
+        WHERE organization_id = $1 AND id = $2`,
+      [organizationId, customerId],
+    );
+    const row = result.rows[0];
+    return row
+      ? { id: row.id, organizationId: row.organization_id, status: row.status }
+      : null;
+  }
+
+  async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
+    const result = await this.pool.query<MeetingDetailsRow>(
+      `SELECT job_card_id, meeting_at, outcome, meeting_summary, next_follow_up_at
+         FROM job_card_meeting_details
+        WHERE organization_id = $1 AND job_card_id = $2`,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapMeetingDetails(result.rows[0]) : null;
+  }
+
+  async getSubmissionDeliveryItems(organizationId: string, jobCardId: string) {
+    const result = await this.pool.query<DeliveryRow>(
+      `SELECT ${DELIVERY_COLUMNS} FROM job_card_delivery_items
+       WHERE organization_id=$1 AND job_card_id=$2 ORDER BY sort_order, created_at, id`,
+      [organizationId, jobCardId]);
+    return result.rows.map(mapDelivery);
   }
 
   async executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>) {

@@ -121,7 +121,7 @@ class SalesMeetingRepository implements JobCardRepository {
           nextFollowUpAt: null,
         });
       },
-      getMeetingDetailsForUpdate: async (organizationId: string, jobCardId: string) => {
+      getSubmissionMeetingDetails: async (organizationId: string, jobCardId: string) => {
         this.lockOrder.push('meeting_details');
         const details = this.meetingDetails.find(
           (details) => details.organizationId === organizationId && details.jobCardId === jobCardId,
@@ -189,6 +189,14 @@ class SalesMeetingRepository implements JobCardRepository {
     );
     return details ? this.meetingCandidate(details) : null;
   }
+  async getAssignee(organizationId: string, userId: string) {
+    return this.assignees.find((item) => item.organizationId === organizationId && item.id === userId) ?? null;
+  }
+  async getSubmissionCustomer() { return null; }
+  async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
+    return this.findMeetingDetails(organizationId, jobCardId);
+  }
+  async getSubmissionDeliveryItems() { return []; }
   async executeTransaction<T>(_work: (transaction: JobCardTransaction) => Promise<T>) {
     throw new Error('unused');
   }
@@ -343,6 +351,31 @@ describe('Sales Meeting detail reads and mutations', () => {
     expect(repository.lockOrder).toEqual([]);
     expect(repository.jobs[0]!.version).toBe(2);
   });
+
+  it.each(['NEW', 'PLANNED'] as const)(
+    'rejects meeting result reads before start in %s with the exact edit contract',
+    async (status) => {
+      const repository = new SalesMeetingRepository();
+      const job = repository.seedMeeting({ status });
+      await expect(new JobCardService(repository).getMeetingDetails(staff, job.id))
+        .rejects.toMatchObject({
+          code: 'JOB_NOT_EDITABLE', statusCode: 409,
+          message: 'JobCard bu durumda düzenlenemez.',
+        });
+      expect(repository.lockOrder).toEqual([]);
+      expect(repository.jobs[0]!.version).toBe(2);
+    },
+  );
+
+  it.each(['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
+    'allows meeting result reads in review/terminal %s',
+    async (status) => {
+      const repository = new SalesMeetingRepository();
+      const job = repository.seedMeeting({ status });
+      await expect(new JobCardService(repository).getMeetingDetails(manager, job.id))
+        .resolves.toMatchObject({ jobCardId: job.id, jobCardVersion: 2 });
+    },
+  );
 
   it('conceals inaccessible parents before type guard and reports invariant failure safely', async () => {
     const inaccessible = new SalesMeetingRepository();

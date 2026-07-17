@@ -10,7 +10,7 @@ import {
 import {
   DELIVERY_PURPOSES,
   MEETING_OUTCOMES,
-  parseJobCardListItem,
+  parsePersistedJobCardListItem,
 } from '../jobs/jobs-api';
 import type {
   ApprovalItem,
@@ -215,8 +215,10 @@ export function parseStaffReport(value: unknown): StaffReportResponse {
 
 function parseApprovalItem(value: unknown): ApprovalItem {
   const row = exactObject(value, 'approvalItem', LIST_ITEM_KEYS);
-  return { ...parseJobCardListItem(row),
-    waitingMinutes: nonNegativeInteger(row.waitingMinutes, 'waitingMinutes') };
+  return {
+    ...parsePersistedJobCardListItem(row),
+    waitingMinutes: nonNegativeInteger(row.waitingMinutes, 'waitingMinutes'),
+  };
 }
 
 export function parseApprovalReport(value: unknown): ApprovalReportResponse {

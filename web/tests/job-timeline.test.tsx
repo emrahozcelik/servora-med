@@ -23,14 +23,14 @@ describe('safe JobCard timeline', () => {
     const activity: JobCardActivity = {
       id: 'a1', jobCardId: 'job-1', eventType: 'JOB_STARTED',
       actor: { id: 'staff-1', name: 'Ayşe Personel' },
-      details: { kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED', toStatus: 'IN_PROGRESS' },
+      details: { kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED', toStatus: 'IN_PROGRESS', reason: null },
       createdAt: '2026-07-14T08:00:00.000Z',
     };
     await act(async () => root.render(<JobTimeline jobId="job-1" load={vi.fn().mockResolvedValue(page([activity]))} />));
     await act(async () => { await Promise.resolve(); });
     expect(host.textContent).toContain('İş başlatıldı');
     expect(host.textContent).toContain('Ayşe Personel');
-    expect(host.textContent).toContain('Planlandı → Devam ediyor');
+    expect(host.textContent).toContain('Planlandı → Uygulanıyor');
     expect(host.textContent).not.toMatch(/JOB_STARTED|oldValue|metadata|clientActionId/);
   });
 
@@ -83,5 +83,75 @@ describe('safe JobCard timeline', () => {
 
     await act(async () => { root.render(<JobTimeline jobId="job-1" refreshKey={1} load={load} />); await Promise.resolve(); await Promise.resolve(); });
     expect(load).toHaveBeenLastCalledWith('job-1', { limit: 50, offset: 0 });
+  });
+
+  it('labels newest-first history and shows only safe lifecycle reasons', async () => {
+    const activities: JobCardActivity[] = [
+      {
+        id: 'a1', jobCardId: 'job-1', eventType: 'JOB_CANCELLED',
+        actor: { id: 'm1', name: 'Yönetici' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'CANCELLED',
+          reason: 'Müşteri teslimatı iptal etti',
+        },
+        createdAt: '2026-07-14T09:00:00.000Z',
+      },
+      {
+        id: 'a2', jobCardId: 'job-1', eventType: 'JOB_STARTED',
+        actor: { id: 's1', name: 'Ayşe Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED', toStatus: 'IN_PROGRESS',
+          reason: null,
+        },
+        createdAt: '2026-07-14T08:00:00.000Z',
+      },
+    ];
+    await act(async () => {
+      root.render(<JobTimeline
+        jobId="job-1"
+        load={vi.fn().mockResolvedValue(page(activities))}
+      />);
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(host.querySelector('.timeline-order-note')?.textContent).toBe('En yeni işlem üstte');
+    expect(host.textContent).toContain('Neden: Müşteri teslimatı iptal etti');
+    expect(host.querySelectorAll('.timeline-reason')).toHaveLength(1);
+    expect(host.textContent).toContain('Uygulanıyor → İptal edildi');
+    expect(host.textContent).toContain('Planlandı → Uygulanıyor');
+    expect(host.textContent).toContain('İş iptal edildi');
+    expect(host.textContent).toContain('İş başlatıldı');
+    expect(host.textContent).not.toMatch(/oldValue|metadata|clientActionId/);
+  });
+
+  it('shares approved process language for control lifecycle events', async () => {
+    const events: Array<{ eventType: JobCardActivity['eventType']; label: string }> = [
+      { eventType: 'JOB_SUBMITTED_FOR_APPROVAL', label: 'Kontrole gönderildi' },
+      { eventType: 'JOB_APPROVED', label: 'Kontrol tamamlandı' },
+      { eventType: 'JOB_REVISION_REQUESTED', label: 'Düzeltme için geri gönderildi' },
+      { eventType: 'JOB_APPROVAL_WITHDRAWN', label: 'Kontrolden geri çekildi' },
+    ];
+    for (const { eventType, label } of events) {
+      await act(async () => {
+        root.render(<JobTimeline
+          jobId="job-1"
+          load={vi.fn().mockResolvedValue(page([{
+            id: eventType, jobCardId: 'job-1', eventType, actor: null,
+            details: {
+              kind: 'STATUS_TRANSITION',
+              fromStatus: 'IN_PROGRESS',
+              toStatus: 'WAITING_APPROVAL',
+              reason: null,
+            },
+            createdAt: '2026-07-14T08:00:00.000Z',
+          }]))}
+        />);
+      });
+      await act(async () => { await Promise.resolve(); });
+      expect(host.textContent).toContain(label);
+      expect(host.textContent).not.toContain('Onaya gönderildi');
+      expect(host.textContent).not.toContain('Yönetici onayladı');
+      expect(host.textContent).not.toContain('Onaydan geri çekildi');
+    }
   });
 });

@@ -70,6 +70,7 @@ function statusDetails(
   eventType: LifecycleEvent,
   oldValue: unknown,
   newValue: unknown,
+  metadata: unknown,
 ): JobCardActivityDetails {
   const oldRecord = jsonRecord(oldValue);
   const newRecord = jsonRecord(newValue);
@@ -80,7 +81,17 @@ function statusDetails(
     .some(([fromStatus, toStatus]) => fromStatus === oldRecord.status && toStatus === newRecord.status)) {
     return { kind: 'NONE' };
   }
-  return { kind: 'STATUS_TRANSITION', fromStatus: oldRecord.status, toStatus: newRecord.status };
+  const metadataRecord = jsonRecord(metadata);
+  const reason = (eventType === 'JOB_REVISION_REQUESTED' || eventType === 'JOB_CANCELLED')
+    && typeof metadataRecord?.reason === 'string' && metadataRecord.reason.trim()
+    ? metadataRecord.reason.trim()
+    : null;
+  return {
+    kind: 'STATUS_TRANSITION',
+    fromStatus: oldRecord.status,
+    toStatus: newRecord.status,
+    reason,
+  };
 }
 
 function fieldDetails(eventType: ActivityRecord['eventType'], oldValue: unknown, newValue: unknown): JobCardActivityDetails {
@@ -156,7 +167,7 @@ function details(record: ActivityRecord): JobCardActivityDetails {
     case 'JOB_APPROVAL_WITHDRAWN':
     case 'JOB_RESUMED':
     case 'JOB_CANCELLED':
-      return statusDetails(record.eventType, record.oldValue, record.newValue);
+      return statusDetails(record.eventType, record.oldValue, record.newValue, record.metadata);
     case 'DELIVERY_ITEM_ADDED':
     case 'DELIVERY_ITEM_UPDATED':
     case 'DELIVERY_ITEM_REMOVED':

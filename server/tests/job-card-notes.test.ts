@@ -113,9 +113,54 @@ describe('JobCard note policy', () => {
     expect(() => assertCanAccessNotes({ ...manager, organizationId: 'org-2' }, baseJob))
       .toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
   });
+
+  it.each(['NEW', 'PLANNED'] as const)(
+    'rejects Sales Meeting note access in %s with the exact edit contract',
+    (status) => {
+      const job = { ...baseJob, type: 'SALES_MEETING' as const, status };
+      expect(() => assertCanAccessNotes(staff, job)).toThrowError(expect.objectContaining({
+        code: 'JOB_NOT_EDITABLE', statusCode: 409,
+        message: 'JobCard bu durumda düzenlenemez.',
+      }));
+    },
+  );
+
+  it.each(['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
+    'allows Sales Meeting note access in review/terminal %s',
+    (status) => {
+      const job = { ...baseJob, type: 'SALES_MEETING' as const, status };
+      expect(() => assertCanAccessNotes(staff, job)).not.toThrow();
+      expect(() => assertCanAccessNotes(manager, job)).not.toThrow();
+    },
+  );
 });
 
 describe('append-only JobCard notes service', () => {
+  it.each(['NEW', 'PLANNED'] as const)(
+    'rejects Sales Meeting note reads in %s with the exact edit contract',
+    async (status) => {
+      const repository = new NotesRepository();
+      repository.jobs.set('job-1', { ...baseJob, type: 'SALES_MEETING', status });
+      await expect(new JobCardService(repository as never).listNotes(staff, 'job-1', {
+        limit: 25, offset: 0,
+      })).rejects.toMatchObject({
+        code: 'JOB_NOT_EDITABLE', statusCode: 409,
+        message: 'JobCard bu durumda düzenlenemez.',
+      });
+    },
+  );
+
+  it.each(['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
+    'allows Sales Meeting note reads in review/terminal %s',
+    async (status) => {
+      const repository = new NotesRepository();
+      repository.jobs.set('job-1', { ...baseJob, type: 'SALES_MEETING', status });
+      await expect(new JobCardService(repository as never).listNotes(staff, 'job-1', {
+        limit: 25, offset: 0,
+      })).resolves.toMatchObject({ items: [], total: 0, limit: 25, offset: 0 });
+    },
+  );
+
   it.each(['NEW', 'PLANNED', 'WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
     'rejects Sales Meeting note creation in %s with the exact edit contract',
     async (status) => {

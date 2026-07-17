@@ -1,14 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '../services/api';
-import { isKnownJobCardActivityEvent, jobActivityLabel } from './job-labels';
+import { isKnownJobCardActivityEvent, jobActivityLabel, jobStatusLabels } from './job-labels';
 import { listActivity, type JobCardActivity, type JobCardActivityDetails, type Paginated } from './jobs-api';
 
 const PAGE_SIZE = 50;
-const statusLabels = {
-  NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor',
-  REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi',
-} as const;
 const fieldLabels = {
   title: 'Başlık', description: 'Açıklama', customer: 'Müşteri', contact: 'İlgili kişi',
   assignee: 'Sorumlu', priority: 'Öncelik', dueDate: 'Termin',
@@ -24,7 +20,9 @@ type TimelineState =
   | { kind: 'error'; message: string; retryable: boolean };
 
 function detailText(details: JobCardActivityDetails) {
-  if (details.kind === 'STATUS_TRANSITION') return `${statusLabels[details.fromStatus]} → ${statusLabels[details.toStatus]}`;
+  if (details.kind === 'STATUS_TRANSITION') {
+    return `${jobStatusLabels[details.fromStatus]} → ${jobStatusLabels[details.toStatus]}`;
+  }
   if (details.kind === 'FIELDS_UPDATED') return details.changedFields.map((field) => fieldLabels[field]).join(', ');
   if (details.kind === 'DELIVERY_ITEM') {
     const operation = { ADDED: 'Eklendi', UPDATED: 'Güncellendi', REMOVED: 'Kaldırıldı' }[details.operation];
@@ -34,6 +32,10 @@ function detailText(details: JobCardActivityDetails) {
   if (details.kind === 'MEETING_DETAILS') return details.changedFields
     .map((field) => meetingFieldLabels[field]).join(', ');
   return '';
+}
+
+function transitionReason(details: JobCardActivityDetails): string | null {
+  return details.kind === 'STATUS_TRANSITION' ? details.reason : null;
 }
 
 export function JobTimeline({ jobId, refreshKey = 0, load = listActivity }: {
@@ -75,18 +77,28 @@ export function JobTimeline({ jobId, refreshKey = 0, load = listActivity }: {
 
   return <section className="job-timeline" aria-labelledby="job-timeline-title">
     <h2 id="job-timeline-title">İşlem geçmişi</h2>
+    <p className="timeline-order-note">En yeni işlem üstte</p>
     {state.kind === 'loading' && <div aria-busy="true"><p>İşlem geçmişi yükleniyor</p></div>}
     {state.kind === 'error' && <div className="workspace-message" role="alert"><p>{state.message}</p>
       {state.retryable && <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button>}
     </div>}
     {state.kind === 'ready' && (state.page.items.length === 0
       ? <p className="detail-empty">Henüz işlem geçmişi yok.</p>
-      : <ol>{state.page.items.map((activity) => <li key={activity.id}>
-        <div><strong>{jobActivityLabel(activity.eventType)}</strong>
-          {detailText(activity.details) && <span>{detailText(activity.details)}</span>}</div>
-        <div><span>{activity.actor?.name ?? 'Sistem'}</span>
-          <time dateTime={activity.createdAt}>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(activity.createdAt))}</time></div>
-      </li>)}</ol>)}
+      : <ol>{state.page.items.map((activity) => {
+        const reason = transitionReason(activity.details);
+        const detail = detailText(activity.details);
+        return <li key={activity.id}>
+          <div>
+            <strong>{jobActivityLabel(activity.eventType)}</strong>
+            {detail && <span>{detail}</span>}
+            {reason && (
+              <p className="timeline-reason"><strong>Neden:</strong> {reason}</p>
+            )}
+          </div>
+          <div><span>{activity.actor?.name ?? 'Sistem'}</span>
+            <time dateTime={activity.createdAt}>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(activity.createdAt))}</time></div>
+        </li>;
+      })}</ol>)}
     {state.kind === 'ready' && state.page.total > state.page.limit && <nav className="job-pagination" aria-label="İşlem geçmişi sayfaları">
       <button type="button" className="secondary-button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Önceki</button>
       <span>{offset + 1}–{Math.min(offset + state.page.items.length, state.page.total)} / {state.page.total}</span>

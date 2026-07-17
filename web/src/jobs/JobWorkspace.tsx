@@ -163,7 +163,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       ? <div className="job-results" aria-busy="true" aria-live="polite"><h2 className="sr-only">İş panosu yükleniyor</h2></div>
       : boardState.kind === 'error'
         ? <div className="workspace-message" role="alert"><h2>İş panosu yüklenemedi</h2><p>{boardState.message}</p></div>
-        : <JobBoard board={boardState.board} params={params} />)
+        : <JobBoard board={boardState.board} user={user} params={params} />)
       : <JobList state={state} user={user} hasFilters={hasFilters} onRetry={() => setReload((value) => value + 1)}
       onOffsetChange={(offset) => { const next = updateJobSearch(params, {}); if (offset > 0) next.set('offset', String(offset)); setParams(next); }}
       onCommand={(intent) => onCommand?.(intent)} />}

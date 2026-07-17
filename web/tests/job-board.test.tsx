@@ -22,6 +22,7 @@ const baseItem: JobCardListItem = {
   updatedAt: '2026-07-13T10:00:00.000Z', staffCompletedAt: null,
   customer: { id: 'customer-1', name: 'ABC Klinik' }, contact: { id: 'contact-1', name: 'Dr. Deniz' },
   assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 2,
+  allowedCommands: ['PLAN', 'START', 'CANCEL'],
 };
 
 function item(status: JobCardListItem['status'], id: string, title = baseItem.title): JobCardListItem {
@@ -71,11 +72,13 @@ function installMatchMedia(initial: boolean) {
 describe('read-only JobCard board', () => {
   it('renders exactly five labelled active columns, counts, canonical cards, and closed list links', () => {
     const host = document.createElement('div');
-    host.innerHTML = renderToStaticMarkup(<MemoryRouter><JobBoard board={board} params={new URLSearchParams('q=klinik&view=board')} /></MemoryRouter>);
+    host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={board} user={manager} params={new URLSearchParams('q=klinik&view=board')} /></MemoryRouter>,
+    );
     const columns = Array.from(host.querySelectorAll<HTMLElement>('[data-board-column]'));
     expect(columns).toHaveLength(5);
     expect(columns.map((column) => column.querySelector('h2')?.textContent)).toEqual([
-      'Yeni1', 'Planlandı1', 'Devam ediyor1', 'Onay bekliyor4', 'Düzeltme istendi1',
+      'Oluşturuldu1', 'Planlandı1', 'Uygulanıyor1', 'Yönetici kontrolünde4', 'Düzeltme gerekiyor1',
     ]);
     expect(host.querySelectorAll('.job-status-shape')).toHaveLength(5);
 
@@ -95,6 +98,57 @@ describe('read-only JobCard board', () => {
     expect(host.textContent?.toLocaleLowerCase('tr-TR')).not.toMatch(/sürükle|drag|bırak/);
   });
 
+  it('shows the same compact workflow summary as list for waiting approval', () => {
+    const waiting = {
+      ...baseItem,
+      id: 'job-waiting',
+      status: 'WAITING_APPROVAL' as const,
+      allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'] as JobCardListItem['allowedCommands'],
+    };
+    const summaryBoard: JobCardBoard = {
+      ...board,
+      columns: {
+        ...board.columns,
+        WAITING_APPROVAL: { items: [waiting], count: 1 },
+      },
+    };
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={summaryBoard} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
+    );
+    const card = host.querySelector<HTMLElement>('[data-board-card="job-waiting"]')!;
+    expect(card.textContent).toContain('4 / 5');
+    expect(card.textContent).toContain('Yönetici kontrolünde');
+    expect(card.textContent).toContain('İşlem beklenen: Yönetici');
+    expect(card.querySelector('.compact-workflow')).not.toBeNull();
+  });
+
+  it('marks correction attention on board cards without claiming completed phases', () => {
+    const revision = {
+      ...baseItem,
+      id: 'job-revision',
+      status: 'REVISION_REQUESTED' as const,
+      allowedCommands: ['RESUME', 'CANCEL'] as JobCardListItem['allowedCommands'],
+    };
+    const revisionBoard: JobCardBoard = {
+      ...board,
+      columns: {
+        ...board.columns,
+        REVISION_REQUESTED: { items: [revision], count: 1 },
+      },
+    };
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={revisionBoard} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
+    );
+    const card = host.querySelector<HTMLElement>('[data-board-card="job-revision"]')!;
+    expect(card.textContent).toContain('3 / 5');
+    expect(card.textContent).toContain('Düzeltme gerekiyor');
+    expect(card.textContent).toContain('Yönetici notu mevcut');
+    expect(card.querySelector('.compact-workflow--attention')).not.toBeNull();
+    expect(card.textContent).not.toContain('3 aşama tamamlandı');
+  });
+
   it('labels General Task cards without delivery facts or empty delivery state', () => {
     const generalTask = {
       ...baseItem, id: 'task-1', type: 'GENERAL_TASK' as const,
@@ -106,7 +160,7 @@ describe('read-only JobCard board', () => {
     };
     const host = document.createElement('div');
     host.innerHTML = renderToStaticMarkup(
-      <MemoryRouter><JobBoard board={mixedBoard} params={new URLSearchParams()} /></MemoryRouter>,
+      <MemoryRouter><JobBoard board={mixedBoard} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
     );
     const card = host.querySelector<HTMLElement>('[data-board-card="task-1"]')!;
 
@@ -121,7 +175,7 @@ describe('read-only JobCard board', () => {
     const meetingBoard = { ...board, columns: { ...board.columns,
       NEW: { items: [meeting], count: 1 } } };
     const host = document.createElement('div'); host.innerHTML = renderToStaticMarkup(
-      <MemoryRouter><JobBoard board={meetingBoard} params={new URLSearchParams()} /></MemoryRouter>);
+      <MemoryRouter><JobBoard board={meetingBoard} user={manager} params={new URLSearchParams()} /></MemoryRouter>);
     const card = host.querySelector('[data-board-card="meeting-1"]')!;
     expect(card.textContent).toContain('Satış görüşmesi'); expect(card.textContent).toContain('Planlanan görüşme günü');
     expect(card.textContent).not.toContain('ürün kalemi');

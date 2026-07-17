@@ -86,9 +86,10 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         `SELECT COUNT(*)::text AS count FROM job_card_meeting_details WHERE job_card_id = $1`,
         [meeting.id],
       )).rows[0]!.count).toBe('1');
-      await expect(service.getMeetingDetails(staff, meeting.id)).resolves.toMatchObject({
-        meetingAt: null, outcome: null, meetingSummary: null, nextFollowUpAt: null,
-        jobCardVersion: 1,
+      // NEW/PLANNED: meeting result is not readable until execution starts (exact edit contract).
+      await expect(service.getMeetingDetails(staff, meeting.id)).rejects.toMatchObject({
+        code: 'JOB_NOT_EDITABLE', statusCode: 409,
+        message: 'JobCard bu durumda düzenlenemez.',
       });
       await expect(service.detail(otherStaff, meeting.id))
         .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });

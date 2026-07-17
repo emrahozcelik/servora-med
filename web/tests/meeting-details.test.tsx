@@ -6,12 +6,14 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { meetingLocalValue, MeetingDetailsSection } from '../src/jobs/MeetingDetails';
 import type { JobCard, MeetingDetails } from '../src/jobs/jobs-api';
 import { ApiError, type CurrentUser } from '../src/services/api';
+import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const user: CurrentUser = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'a@x', role: 'STAFF', mustChangePassword: false, isActive: true, version: 1 };
 const job = { id: 'job-1', organizationId: 'org-1', type: 'SALES_MEETING', status: 'IN_PROGRESS', version: 3,
   title: 'Görüşme', description: null, customerId: 'c1', contactId: null, assignedTo: 'staff-1', createdBy: 'staff-1',
-  priority: 'normal', dueDate: '2026-07-15', assignee: { id: 'staff-1', name: 'Ayşe' }, customer: { id: 'c1', name: 'Klinik' }, contact: null } satisfies JobCard;
+  priority: 'normal', dueDate: '2026-07-15', assignee: { id: 'staff-1', name: 'Ayşe' }, customer: { id: 'c1', name: 'Klinik' },
+  contact: null, workflowContext } satisfies JobCard;
 const details: MeetingDetails = { jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null, nextFollowUpAt: null, jobCardVersion: 3 };
 function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype

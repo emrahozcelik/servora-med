@@ -1,14 +1,23 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  assertAllowedJobAction,
   assertCreateAssignmentRequest,
   assertCanCreateForAssignee,
   assertCanEdit,
   assertCanTransition,
   assertDeliveryReadyForSubmission,
   assertSalesMeetingJob,
+  getAllowedJobActions,
+  getAllowedLifecycleCommands,
 } from '../src/modules/job-cards/policy.js';
-import type { DeliveryItem, JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
+import {
+  JOB_CARD_STATUSES,
+  JOB_WORKFLOW_ACTIONS,
+  type DeliveryItem,
+  type JobCard,
+  type JobCardActor,
+} from '../src/modules/job-cards/types.js';
 
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
@@ -57,6 +66,52 @@ describe('JobCard policy', () => {
     for (const type of ['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const) {
       expect(() => assertSalesMeetingJob({ ...job, type }))
         .toThrowError(expect.objectContaining({ code: 'INVALID_JOB_TYPE', statusCode: 409 }));
+    }
+  });
+
+  it('returns actor-scoped lifecycle commands without narrowing management intervention', () => {
+    const waiting = { ...job, status: 'WAITING_APPROVAL' as const };
+    expect(getAllowedLifecycleCommands(staff, waiting)).toEqual([
+      'WITHDRAW_FROM_APPROVAL', 'CANCEL',
+    ]);
+    expect(getAllowedLifecycleCommands(manager, waiting)).toEqual([
+      'APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL',
+    ]);
+    expect(getAllowedLifecycleCommands(admin, waiting)).toEqual([
+      'APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL',
+    ]);
+    expect(getAllowedLifecycleCommands({ ...staff, id: 'staff-2' }, waiting)).toEqual([]);
+    expect(getAllowedLifecycleCommands(admin, { ...job, status: 'COMPLETED' })).toEqual([]);
+  });
+
+  it('returns neutral actions without treating waiting edits as direct mutation', () => {
+    const meeting = { ...job, type: 'SALES_MEETING' as const };
+    expect(getAllowedJobActions(staff, { ...meeting, status: 'IN_PROGRESS' })).toEqual([
+      'EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'EDIT_MEETING_RESULT',
+      'VIEW_NOTES', 'ADD_NOTE',
+    ]);
+    expect(getAllowedJobActions(manager, { ...meeting, status: 'WAITING_APPROVAL' })).toEqual([
+      'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'VIEW_NOTES',
+    ]);
+    expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' })).toEqual([
+      'EDIT_JOB_FIELDS',
+    ]);
+    expect(getAllowedJobActions(staff, { ...meeting, status: 'CANCELLED' })).toEqual([
+      'VIEW_MEETING_RESULT', 'VIEW_NOTES',
+    ]);
+  });
+
+  it('keeps action projection and write/read guards in parity', () => {
+    const meeting = { ...job, type: 'SALES_MEETING' as const };
+    for (const status of JOB_CARD_STATUSES) {
+      const candidate = { ...meeting, status };
+      for (const action of JOB_WORKFLOW_ACTIONS.filter((value) =>
+        value !== 'WITHDRAW_AND_EDIT_JOB_FIELDS')) {
+        const allowed = getAllowedJobActions(staff, candidate).includes(action);
+        if (allowed) expect(() => assertAllowedJobAction(staff, candidate, action)).not.toThrow();
+        else expect(() => assertAllowedJobAction(staff, candidate, action))
+          .toThrowError(expect.objectContaining({ code: 'JOB_NOT_EDITABLE' }));
+      }
     }
   });
 

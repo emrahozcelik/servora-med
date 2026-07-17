@@ -64,8 +64,66 @@ describe('safe JobCard activity presenter', () => {
       oldValue: { status: fromStatus, version: 1, note: 'never expose' },
       newValue: { status: toStatus, version: 2, cancelReason: 'never expose' },
     }));
-    expect(result.details).toEqual({ kind: 'STATUS_TRANSITION', fromStatus, toStatus });
+    expect(result.details).toEqual({
+      kind: 'STATUS_TRANSITION', fromStatus, toStatus, reason: null,
+    });
     expect(JSON.stringify(result)).not.toContain('never expose');
+  });
+
+  it('allowlists reasons only for revision and cancellation events', () => {
+    const revision = presentActivity(baseRecord('JOB_REVISION_REQUESTED', {
+      oldValue: { status: 'WAITING_APPROVAL' },
+      newValue: { status: 'REVISION_REQUESTED' },
+      metadata: { reason: 'Miktarı düzeltin', secret: 'hidden' },
+    }));
+    expect(revision.details).toEqual({
+      kind: 'STATUS_TRANSITION', fromStatus: 'WAITING_APPROVAL',
+      toStatus: 'REVISION_REQUESTED', reason: 'Miktarı düzeltin',
+    });
+    expect(JSON.stringify(revision)).not.toMatch(/hidden|secret|metadata/);
+
+    expect(presentActivity(baseRecord('JOB_CANCELLED', {
+      oldValue: { status: 'IN_PROGRESS' },
+      newValue: { status: 'CANCELLED' },
+      metadata: { reason: '  Müşteri iptal etti  ', secret: 'hidden' },
+    })).details).toEqual({
+      kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS',
+      toStatus: 'CANCELLED', reason: 'Müşteri iptal etti',
+    });
+    expect(presentActivity(baseRecord('JOB_STARTED', {
+      oldValue: { status: 'PLANNED' }, newValue: { status: 'IN_PROGRESS' },
+      metadata: { reason: 'must not leak' },
+    })).details).toEqual({
+      kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED',
+      toStatus: 'IN_PROGRESS', reason: null,
+    });
+  });
+
+  it.each([
+    42,
+    '   ',
+    { text: 'nope' },
+  ])('returns null reason for malformed revision/cancel metadata %j', (reason) => {
+    expect(presentActivity(baseRecord('JOB_REVISION_REQUESTED', {
+      oldValue: { status: 'WAITING_APPROVAL' },
+      newValue: { status: 'REVISION_REQUESTED' },
+      metadata: { reason },
+    })).details).toEqual({
+      kind: 'STATUS_TRANSITION',
+      fromStatus: 'WAITING_APPROVAL',
+      toStatus: 'REVISION_REQUESTED',
+      reason: null,
+    });
+    expect(presentActivity(baseRecord('JOB_CANCELLED', {
+      oldValue: { status: 'IN_PROGRESS' },
+      newValue: { status: 'CANCELLED' },
+      metadata: { reason },
+    })).details).toEqual({
+      kind: 'STATUS_TRANSITION',
+      fromStatus: 'IN_PROGRESS',
+      toStatus: 'CANCELLED',
+      reason: null,
+    });
   });
 
   it.each([
@@ -196,6 +254,13 @@ describe('JobCard activity service scope', () => {
     const findJobCardDetail = vi.fn().mockResolvedValue({
       ...ownJob, assignee: { id: 'staff-1', name: 'Staff One' },
       customer: { id: 'customer-1', name: 'Demo Klinik' }, contact: null,
+      lifecycle: {
+        createdAt: '2026-07-13T10:00:00.000Z',
+        plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+        submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
+        revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
+        cancelledAt: null, cancelledBy: null, cancelReason: null, cancelledFromStatus: null,
+      },
     });
     const listActivity = vi.fn().mockResolvedValue({
       items: [baseRecord('JOB_CREATED')], total: 1, limit: 5, offset: 2,

@@ -18,6 +18,21 @@ export const MEETING_DETAIL_FIELDS = [
 export const JOB_CARD_STATUS_FILTERS = [
   'active', 'closed', 'all', ...JOB_CARD_STATUSES,
 ] as const;
+export const LIFECYCLE_COMMANDS = [
+  'PLAN', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
+  'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
+] as const;
+export type LifecycleCommand = (typeof LIFECYCLE_COMMANDS)[number];
+export const JOB_WORKFLOW_ACTIONS = [
+  'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
+  'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
+] as const;
+export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
+export const SUBMISSION_REQUIREMENT_CODES = [
+  'CUSTOMER_ELIGIBLE', 'ASSIGNEE_ELIGIBLE', 'DELIVERY_ITEM_PRESENT',
+  'DELIVERY_ITEMS_VALID', 'TASK_TITLE_VALID', 'MEETING_TIME_VALID',
+  'MEETING_OUTCOME_VALID', 'MEETING_SUMMARY_PRESENT', 'FOLLOW_UP_TIME_VALID',
+] as const;
 
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
 export type JobCardStatusFilter = (typeof JOB_CARD_STATUS_FILTERS)[number];
@@ -28,12 +43,46 @@ export type MeetingOutcome = (typeof MEETING_OUTCOMES)[number];
 export type MeetingDetailField = (typeof MEETING_DETAIL_FIELDS)[number];
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
 export type RelatedName = { id: string; name: string };
+export type SubmissionRequirement = {
+  code: (typeof SUBMISSION_REQUIREMENT_CODES)[number];
+  state: 'met' | 'missing' | 'invalid';
+  field?: string;
+};
+export type SubmissionReadiness = {
+  evaluatedAt: string;
+  ready: boolean;
+  items: SubmissionRequirement[];
+};
+export type JobLifecycleFacts = {
+  createdAt: string;
+  plannedAt: string | null;
+  startedAt: string | null;
+  submittedAt: string | null;
+  submittedBy: RelatedName | null;
+  submissionNote: string | null;
+  approvedAt: string | null;
+  approvedBy: RelatedName | null;
+  approvalNote: string | null;
+  revisionRequestedAt: string | null;
+  revisionRequestedBy: RelatedName | null;
+  revisionReason: string | null;
+  cancelledAt: string | null;
+  cancelledBy: RelatedName | null;
+  cancelReason: string | null;
+  cancelledFromStatus: JobCardStatus | null;
+};
+export type JobWorkflowContext = {
+  allowedCommands: LifecycleCommand[];
+  allowedActions: JobWorkflowAction[];
+  lifecycle: JobLifecycleFacts;
+  submissionReadiness: SubmissionReadiness | null;
+};
 export type JobCard = {
   id: string; organizationId: string; type: JobCardType; status: JobCardStatus;
   version: number; title: string; description: string | null; customerId: string | null;
   contactId: string | null; assignedTo: string; createdBy: string; priority: JobCardPriority;
   dueDate: string | null; assignee: RelatedName; customer: RelatedName | null;
-  contact: RelatedName | null;
+  contact: RelatedName | null; workflowContext: JobWorkflowContext;
 };
 export type JobCardCreateInput =
   | { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
@@ -45,11 +94,14 @@ export type JobCardCreateInput =
   | { clientActionId: string; type: 'SALES_MEETING'; title: string; customerId: string;
     assignedTo: string; dueDate: string; description?: string | null;
     contactId?: string | null; priority?: JobCardPriority };
-export type JobCardListItem = {
+export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; createdAt: string; updatedAt: string;
   staffCompletedAt: string | null; customer: RelatedName | null; contact: RelatedName | null;
   assignee: RelatedName; deliveryItemCount: number;
+};
+export type JobCardListItem = PersistedJobCardListItem & {
+  allowedCommands: LifecycleCommand[];
 };
 export type JobCardBoard = {
   columns: Record<'NEW' | 'PLANNED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'REVISION_REQUESTED', {
@@ -61,7 +113,7 @@ export type JobCardNote = {
   id: string; jobCardId: string; note: string; author: RelatedName; createdAt: string;
 };
 export type JobCardActivityDetails =
-  | { kind: 'STATUS_TRANSITION'; fromStatus: JobCardStatus; toStatus: JobCardStatus }
+  | { kind: 'STATUS_TRANSITION'; fromStatus: JobCardStatus; toStatus: JobCardStatus; reason: string | null }
   | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate'> }
   | { kind: 'DELIVERY_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; purpose: DeliveryPurpose | null; quantity: number | null }
   | { kind: 'NOTE'; noteId: string }
@@ -159,6 +211,86 @@ function canonicalInstant(value: unknown, field: string) {
 function nullableCanonicalInstant(value: unknown, field: string) {
   return value === null ? null : canonicalInstant(value, field);
 }
+function uniqueValues<T extends string>(values: T[], field: string) {
+  if (new Set(values).size !== values.length) invalid(field);
+  return values;
+}
+function parseCancelledFromStatus(value: unknown, field: string): JobCardStatus | null {
+  if (value === null) return null;
+  const status = oneOf(value, field, JOB_CARD_STATUSES);
+  if (status === 'COMPLETED' || status === 'CANCELLED') invalid(field);
+  return status;
+}
+function parseLifecycleFacts(value: unknown): JobLifecycleFacts {
+  const v = exactObject(value, 'lifecycle', [
+    'createdAt', 'plannedAt', 'startedAt', 'submittedAt', 'submittedBy', 'submissionNote',
+    'approvedAt', 'approvedBy', 'approvalNote', 'revisionRequestedAt', 'revisionRequestedBy',
+    'revisionReason', 'cancelledAt', 'cancelledBy', 'cancelReason', 'cancelledFromStatus',
+  ]);
+  return {
+    createdAt: canonicalInstant(v.createdAt, 'createdAt'),
+    plannedAt: nullableCanonicalInstant(v.plannedAt, 'plannedAt'),
+    startedAt: nullableCanonicalInstant(v.startedAt, 'startedAt'),
+    submittedAt: nullableCanonicalInstant(v.submittedAt, 'submittedAt'),
+    submittedBy: nullableRelated(v.submittedBy, 'submittedBy'),
+    submissionNote: nullableString(v.submissionNote, 'submissionNote'),
+    approvedAt: nullableCanonicalInstant(v.approvedAt, 'approvedAt'),
+    approvedBy: nullableRelated(v.approvedBy, 'approvedBy'),
+    approvalNote: nullableString(v.approvalNote, 'approvalNote'),
+    revisionRequestedAt: nullableCanonicalInstant(v.revisionRequestedAt, 'revisionRequestedAt'),
+    revisionRequestedBy: nullableRelated(v.revisionRequestedBy, 'revisionRequestedBy'),
+    revisionReason: nullableString(v.revisionReason, 'revisionReason'),
+    cancelledAt: nullableCanonicalInstant(v.cancelledAt, 'cancelledAt'),
+    cancelledBy: nullableRelated(v.cancelledBy, 'cancelledBy'),
+    cancelReason: nullableString(v.cancelReason, 'cancelReason'),
+    cancelledFromStatus: parseCancelledFromStatus(v.cancelledFromStatus, 'cancelledFromStatus'),
+  };
+}
+function parseRequirement(value: unknown): SubmissionRequirement {
+  const v = object(value);
+  const keys = Object.keys(v);
+  if (keys.some((key) => !['code', 'state', 'field'].includes(key))) invalid('items');
+  const requirement: SubmissionRequirement = {
+    code: oneOf(v.code, 'code', SUBMISSION_REQUIREMENT_CODES),
+    state: oneOf(v.state, 'state', ['met', 'missing', 'invalid'] as const),
+  };
+  if ('field' in v) requirement.field = string(v.field, 'field');
+  return requirement;
+}
+function parseReadiness(value: unknown): SubmissionReadiness {
+  const v = exactObject(value, 'submissionReadiness', ['evaluatedAt', 'ready', 'items']);
+  if (typeof v.ready !== 'boolean') invalid('ready');
+  const items = array(v.items, 'items').map(parseRequirement);
+  uniqueValues(items.map((item) => item.code), 'items');
+  return {
+    evaluatedAt: canonicalInstant(v.evaluatedAt, 'evaluatedAt'),
+    ready: v.ready,
+    items,
+  };
+}
+function parseWorkflowContext(value: unknown): JobWorkflowContext {
+  const v = exactObject(value, 'workflowContext', [
+    'allowedCommands', 'allowedActions', 'lifecycle', 'submissionReadiness',
+  ]);
+  const allowedCommands = uniqueValues(
+    array(v.allowedCommands, 'allowedCommands').map((entry) =>
+      oneOf(entry, 'allowedCommands', LIFECYCLE_COMMANDS)),
+    'allowedCommands',
+  );
+  const allowedActions = uniqueValues(
+    array(v.allowedActions, 'allowedActions').map((entry) =>
+      oneOf(entry, 'allowedActions', JOB_WORKFLOW_ACTIONS)),
+    'allowedActions',
+  );
+  return {
+    allowedCommands,
+    allowedActions,
+    lifecycle: parseLifecycleFacts(v.lifecycle),
+    submissionReadiness: v.submissionReadiness === null
+      ? null
+      : parseReadiness(v.submissionReadiness),
+  };
+}
 function parseJobCard(value: unknown): JobCard {
   const v = object(value);
   return {
@@ -171,9 +303,10 @@ function parseJobCard(value: unknown): JobCard {
     priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES), dueDate: nullableString(v.dueDate, 'dueDate'),
     assignee: related(v.assignee, 'assignee'), customer: nullableRelated(v.customer, 'customer'),
     contact: nullableRelated(v.contact, 'contact'),
+    workflowContext: parseWorkflowContext(v.workflowContext),
   };
 }
-export function parseJobCardListItem(value: unknown): JobCardListItem {
+export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
   const v = object(value);
   return {
     id: string(v.id, 'id'), type: oneOf(v.type, 'type', JOB_CARD_TYPES),
@@ -183,6 +316,17 @@ export function parseJobCardListItem(value: unknown): JobCardListItem {
     updatedAt: string(v.updatedAt, 'updatedAt'), staffCompletedAt: nullableString(v.staffCompletedAt, 'staffCompletedAt'),
     customer: nullableRelated(v.customer, 'customer'), contact: nullableRelated(v.contact, 'contact'),
     assignee: related(v.assignee, 'assignee'), deliveryItemCount: count(v.deliveryItemCount, 'deliveryItemCount'),
+  };
+}
+export function parseJobCardListItem(value: unknown): JobCardListItem {
+  const v = object(value);
+  return {
+    ...parsePersistedJobCardListItem(value),
+    allowedCommands: uniqueValues(
+      array(v.allowedCommands, 'allowedCommands').map((entry) =>
+        oneOf(entry, 'allowedCommands', LIFECYCLE_COMMANDS)),
+      'allowedCommands',
+    ),
   };
 }
 function parsePage<T>(value: unknown, parser: (entry: unknown) => T): Paginated<T> {
@@ -215,9 +359,15 @@ function parseNote(value: unknown): JobCardNote {
 function parseDetails(value: unknown): JobCardActivityDetails {
   const v = object(value); const kind = string(v.kind, 'details.kind');
   if (kind === 'NONE') return { kind };
-  if (kind === 'STATUS_TRANSITION') return { kind,
-    fromStatus: oneOf(v.fromStatus, 'fromStatus', JOB_CARD_STATUSES),
-    toStatus: oneOf(v.toStatus, 'toStatus', JOB_CARD_STATUSES) };
+  if (kind === 'STATUS_TRANSITION') {
+    const detail = exactObject(v, 'details', ['kind', 'fromStatus', 'toStatus', 'reason']);
+    return {
+      kind,
+      fromStatus: oneOf(detail.fromStatus, 'fromStatus', JOB_CARD_STATUSES),
+      toStatus: oneOf(detail.toStatus, 'toStatus', JOB_CARD_STATUSES),
+      reason: nullableString(detail.reason, 'reason'),
+    };
+  }
   if (kind === 'FIELDS_UPDATED') return { kind, changedFields: array(v.changedFields, 'changedFields').map((field) =>
     oneOf(field, 'changedFields', ['title', 'description', 'customer', 'contact', 'assignee', 'priority', 'dueDate'] as const)) };
   if (kind === 'DELIVERY_ITEM') return { kind,

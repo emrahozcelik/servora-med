@@ -266,6 +266,20 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         clientActionId: 'cancel', expectedVersion: revised.version, cancelReason: 'Yeni randevu kartı açılacak',
       });
       expect(revised.status).toBe('CANCELLED');
+      const cancelledDetail = await repository.findJobCardDetail(organizationId, cancelledJobId);
+      expect(cancelledDetail?.lifecycle).toMatchObject({
+        startedAt: firstStartedAt.toISOString(),
+        submittedAt: expect.any(String),
+        submittedBy: { id: staffId, name: 'Ayşe Personel' },
+        revisionRequestedAt: expect.any(String),
+        revisionRequestedBy: { id: managerId, name: 'Yönetici' },
+        revisionReason: 'Miktarı doğrulayın',
+        cancelledAt: expect.any(String),
+        cancelledBy: { id: managerId, name: 'Yönetici' },
+        cancelReason: 'Yeni randevu kartı açılacak',
+        cancelledFromStatus: 'IN_PROGRESS',
+      });
+      await expect(repository.findJobCardDetail(randomUUID(), cancelledJobId)).resolves.toBeNull();
 
       const completedVersion = completed.version;
       const [noteOne, noteTwo] = await Promise.all([

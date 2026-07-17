@@ -52,6 +52,35 @@ class CrudMemoryRepository implements JobCardRepository {
       assignee: { id: job.assignedTo, name: job.assignedTo === 'staff-2' ? 'Staff Two' : 'Staff One' },
       customer: job.customerId ? { id: job.customerId, name: `Customer ${job.customerId}` } : null,
       contact: job.contactId ? { id: job.contactId, name: `Contact ${job.contactId}` } : null,
+      lifecycle: {
+        createdAt: '2026-07-13T10:00:00.000Z',
+        plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+        submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
+        revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
+        cancelledAt: null, cancelledBy: null, cancelReason: null, cancelledFromStatus: null,
+      },
+    };
+  }
+
+  private listItem(job: JobCard) {
+    return {
+      id: job.id,
+      type: job.type,
+      status: job.status,
+      version: job.version,
+      title: job.title,
+      priority: job.priority,
+      dueDate: job.dueDate,
+      createdAt: '2026-07-13T10:00:00.000Z',
+      updatedAt: '2026-07-13T10:00:00.000Z',
+      staffCompletedAt: null,
+      customer: job.customerId ? { id: job.customerId, name: `Customer ${job.customerId}` } : null,
+      contact: job.contactId ? { id: job.contactId, name: `Contact ${job.contactId}` } : null,
+      assignee: {
+        id: job.assignedTo,
+        name: job.assignedTo === 'staff-2' ? 'Staff Two' : 'Staff One',
+      },
+      deliveryItemCount: 0,
     };
   }
 
@@ -102,11 +131,22 @@ class CrudMemoryRepository implements JobCardRepository {
 
   async listJobCards(scope: JobCardReadScope, query: JobCardListQuery) {
     this.listCalls.push({ scope, query });
-    const items = this.jobs.filter((job) => job.organizationId === scope.organizationId
-      && (!scope.assignedTo || job.assignedTo === scope.assignedTo)
-      && (!query.assignedTo || job.assignedTo === query.assignedTo));
-    return { items, total: items.length, limit: query.limit, offset: query.offset } as never;
+    const items = this.jobs
+      .filter((job) => job.organizationId === scope.organizationId
+        && (!scope.assignedTo || job.assignedTo === scope.assignedTo)
+        && (!query.assignedTo || job.assignedTo === query.assignedTo))
+      .map((job) => this.listItem(job));
+    return { items, total: items.length, limit: query.limit, offset: query.offset };
   }
+  async getAssignee(org: string, id: string) {
+    return this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null;
+  }
+  async getSubmissionCustomer(org: string, id: string) {
+    const customer = this.customers.find((item) => item.organizationId === org && item.id === id);
+    return customer ? { id: customer.id, organizationId: customer.organizationId, status: customer.status } : null;
+  }
+  async getSubmissionMeetingDetails() { return null; }
+  async getSubmissionDeliveryItems() { return []; }
   async findJobCard(organizationId: string, id: string) {
     return this.jobs.find((job) => job.organizationId === organizationId && job.id === id) ?? null;
   }

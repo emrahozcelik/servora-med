@@ -130,4 +130,12 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.job-filter-disclosure \{[^}]*min-width: 0;[^}]*max-width: 100%;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-filter-secondary \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
   });
+
+  it('keeps manager approval review and workflow dialogs reflowable with reachable targets', () => {
+    expect(css).toMatch(/\.approval-review \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/\.approval-review h2 \{[^}]*overflow-wrap: anywhere;/);
+    expect(css).toMatch(/\.workflow-dialog \{[^}]*width: min\(100%, 34rem\);[^}]*max-height: calc\(100dvh - 2rem\);[^}]*overflow: auto;/);
+    expect(css).toMatch(/\.workflow-dialog \.review-buttons button, \.reason-dialog \.review-buttons button \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.approval-review-summary \{[^}]*grid-template-columns: 1fr;/);
+  });
 });

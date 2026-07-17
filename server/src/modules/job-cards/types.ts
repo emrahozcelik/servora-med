@@ -105,10 +105,42 @@ export type PatchMeetingDetailsInput = {
 };
 
 export type RelatedIdentity = { id: string; name: string };
-export type JobCardDetail = JobCard & {
+
+export type JobLifecycleFacts = {
+  createdAt: string;
+  plannedAt: string | null;
+  startedAt: string | null;
+  submittedAt: string | null;
+  submittedBy: RelatedIdentity | null;
+  submissionNote: string | null;
+  approvedAt: string | null;
+  approvedBy: RelatedIdentity | null;
+  approvalNote: string | null;
+  revisionRequestedAt: string | null;
+  revisionRequestedBy: RelatedIdentity | null;
+  revisionReason: string | null;
+  cancelledAt: string | null;
+  cancelledBy: RelatedIdentity | null;
+  cancelReason: string | null;
+  cancelledFromStatus: JobCardStatus | null;
+};
+
+export type PersistedJobCardDetail = JobCard & {
   assignee: RelatedIdentity;
   customer: RelatedIdentity | null;
   contact: RelatedIdentity | null;
+  lifecycle: JobLifecycleFacts;
+};
+
+export type JobWorkflowContext = {
+  allowedCommands: LifecycleCommand[];
+  allowedActions: JobWorkflowAction[];
+  lifecycle: JobLifecycleFacts;
+  submissionReadiness: SubmissionReadiness | null;
+};
+
+export type JobCardDetail = Omit<PersistedJobCardDetail, 'lifecycle'> & {
+  workflowContext: JobWorkflowContext;
 };
 
 export type DeliveryItem = {
@@ -139,6 +171,34 @@ export type LifecycleCommand =
   | 'RESUME'
   | 'CANCEL';
 
+export type JobPermissionSubject = Pick<
+  JobCard,
+  'organizationId' | 'type' | 'status' | 'assignedTo'
+>;
+
+export const JOB_WORKFLOW_ACTIONS = [
+  'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
+  'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
+] as const;
+export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
+
+export const SUBMISSION_REQUIREMENT_CODES = [
+  'CUSTOMER_ELIGIBLE', 'ASSIGNEE_ELIGIBLE', 'DELIVERY_ITEM_PRESENT',
+  'DELIVERY_ITEMS_VALID', 'TASK_TITLE_VALID', 'MEETING_TIME_VALID',
+  'MEETING_OUTCOME_VALID', 'MEETING_SUMMARY_PRESENT', 'FOLLOW_UP_TIME_VALID',
+] as const;
+export type SubmissionRequirementCode = (typeof SUBMISSION_REQUIREMENT_CODES)[number];
+export type SubmissionRequirement = {
+  code: SubmissionRequirementCode;
+  state: 'met' | 'missing' | 'invalid';
+  field?: string;
+};
+export type SubmissionReadiness = {
+  evaluatedAt: string;
+  ready: boolean;
+  items: SubmissionRequirement[];
+};
+
 export type JobCardStatusFilter = JobCardStatus | 'active' | 'closed' | 'all';
 
 export type JobCardBaseFilters = {
@@ -155,7 +215,7 @@ export type JobCardWorkspaceFilters = JobCardBaseFilters & { status: JobCardStat
 export type JobCardListQuery = JobCardWorkspaceFilters & { limit: number; offset: number };
 export type JobCardBoardQuery = JobCardBaseFilters & { limit: number };
 
-export type JobCardListItem = {
+export type PersistedJobCardListItem = {
   id: string;
   type: JobCardType;
   status: JobCardStatus;
@@ -166,10 +226,14 @@ export type JobCardListItem = {
   createdAt: string;
   updatedAt: string;
   staffCompletedAt: string | null;
-  customer: { id: string; name: string } | null;
-  contact: { id: string; name: string } | null;
-  assignee: { id: string; name: string };
+  customer: RelatedIdentity | null;
+  contact: RelatedIdentity | null;
+  assignee: RelatedIdentity;
   deliveryItemCount: number;
+};
+
+export type JobCardListItem = PersistedJobCardListItem & {
+  allowedCommands: LifecycleCommand[];
 };
 
 export type Paginated<T> = {
@@ -221,6 +285,7 @@ export type JobCardActivityDetails =
       kind: 'STATUS_TRANSITION';
       fromStatus: JobCardStatus;
       toStatus: JobCardStatus;
+      reason: string | null;
     }
   | {
       kind: 'FIELDS_UPDATED';

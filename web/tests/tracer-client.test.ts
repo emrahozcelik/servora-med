@@ -6,22 +6,51 @@ import {
   requestJobCardRevision, startJobCard, submitJobCardForApproval,
 } from '../src/jobs/jobs-api';
 import { ApiError, listReferenceCustomers } from '../src/services/api';
+import { workflowContext } from './fixtures/job-workflow';
 
 afterEach(() => vi.unstubAllGlobals());
 
-const job = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
+const emptyLifecycle = {
+  createdAt: '2026-07-11T10:00:00.000Z', plannedAt: null, startedAt: null,
+  submittedAt: null, submittedBy: null, submissionNote: null, approvedAt: null,
+  approvedBy: null, approvalNote: null, revisionRequestedAt: null,
+  revisionRequestedBy: null, revisionReason: null, cancelledAt: null,
+  cancelledBy: null, cancelReason: null, cancelledFromStatus: null,
+};
+
+const job = {
+  id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
   version: 1, title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1',
   contactId: 'contact-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
   assignee: { id: 'staff-1', name: 'Ayşe Personel' },
   customer: { id: 'customer-1', name: 'Klinik' },
-  contact: { id: 'contact-1', name: 'Dr. Deniz' } };
+  contact: { id: 'contact-1', name: 'Dr. Deniz' },
+  workflowContext: {
+    allowedCommands: ['PLAN', 'START', 'CANCEL'],
+    allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+    lifecycle: emptyLifecycle,
+    submissionReadiness: null,
+  },
+};
 const jobListItem = {
   id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 1, title: 'Teslim',
   priority: 'normal', dueDate: null, createdAt: '2026-07-11T10:00:00.000Z',
   updatedAt: '2026-07-11T10:00:00.000Z', staffCompletedAt: null,
   customer: { id: 'customer-1', name: 'Klinik' }, contact: { id: 'contact-1', name: 'Dr. Deniz' },
   assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 1,
+  allowedCommands: ['PLAN', 'START', 'CANCEL'],
 };
+
+function jobWith(
+  status: string,
+  version: number,
+  context: typeof job.workflowContext = {
+    ...workflowContext,
+    allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+  },
+) {
+  return { ...job, status, version, workflowContext: context };
+}
 
 function json(body: unknown, status = 200) {
   return new Response(JSON.stringify(body), { status, headers: { 'content-type': 'application/json' } });
@@ -59,10 +88,49 @@ describe('tracer API client', () => {
       .mockResolvedValueOnce(json({ item, jobCardVersion: 2 }, 201))
       .mockResolvedValueOnce(json({ item: { ...item, quantity: 3 }, jobCardVersion: 3 }))
       .mockResolvedValueOnce(json({ id: 'i1', jobCardVersion: 4 }))
-      .mockResolvedValueOnce(json({ ...job, status: 'IN_PROGRESS', version: 3 }))
-      .mockResolvedValueOnce(json({ ...job, status: 'WAITING_APPROVAL', version: 4 }))
-      .mockResolvedValueOnce(json({ ...job, status: 'COMPLETED', version: 5 }))
-      .mockResolvedValueOnce(json({ ...job, status: 'REVISION_REQUESTED', version: 5 }))
+      .mockResolvedValueOnce(json(jobWith('IN_PROGRESS', 3)))
+      .mockResolvedValueOnce(json(jobWith('WAITING_APPROVAL', 4, {
+        allowedCommands: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES', 'ADD_NOTE'],
+        lifecycle: {
+          ...emptyLifecycle,
+          startedAt: '2026-07-11T10:05:00.000Z',
+          submittedAt: '2026-07-11T10:10:00.000Z',
+          submittedBy: { id: 'staff-1', name: 'Ayşe Personel' },
+        },
+        submissionReadiness: {
+          evaluatedAt: '2026-07-11T10:10:00.000Z', ready: true, items: [],
+        },
+      })))
+      .mockResolvedValueOnce(json(jobWith('COMPLETED', 5, {
+        allowedCommands: [],
+        allowedActions: ['VIEW_NOTES', 'ADD_NOTE'],
+        lifecycle: {
+          ...emptyLifecycle,
+          startedAt: '2026-07-11T10:05:00.000Z',
+          submittedAt: '2026-07-11T10:10:00.000Z',
+          submittedBy: { id: 'staff-1', name: 'Ayşe Personel' },
+          approvedAt: '2026-07-11T10:20:00.000Z',
+          approvedBy: { id: 'mgr-1', name: 'Yönetici' },
+        },
+        submissionReadiness: null,
+      })))
+      .mockResolvedValueOnce(json(jobWith('REVISION_REQUESTED', 5, {
+        allowedCommands: ['RESUME', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        lifecycle: {
+          ...emptyLifecycle,
+          startedAt: '2026-07-11T10:05:00.000Z',
+          submittedAt: '2026-07-11T10:10:00.000Z',
+          submittedBy: { id: 'staff-1', name: 'Ayşe Personel' },
+          revisionRequestedAt: '2026-07-11T10:25:00.000Z',
+          revisionRequestedBy: { id: 'mgr-1', name: 'Yönetici' },
+          revisionReason: 'Düzeltin',
+        },
+        submissionReadiness: {
+          evaluatedAt: '2026-07-11T10:25:00.000Z', ready: true, items: [],
+        },
+      })))
       .mockResolvedValueOnce(json({ items: [{ id: 'e1', jobCardId: 'job-1', eventType: 'JOB_CREATED',
         actor: { id: 's1', name: 'Ayşe Personel' }, details: { kind: 'NONE' }, createdAt: '2026-07-11T10:00:00Z' }],
         total: 1, limit: 50, offset: 0 }));

@@ -1,7 +1,7 @@
 # Servora-Med MVP Slices
 
-> Date: 2026-07-16
-> Status: Living implementation order; repository scope verified through Slice 12
+> Date: 2026-07-17
+> Status: Living implementation order; repository scope verified through Slice 12 plus Job Lifecycle Clarity
 > Responsibility: Delivery sequence, dependencies, acceptance criteria, and verification SSOT
 
 ## 1. Delivery Rules
@@ -561,6 +561,47 @@ Slice 12 repository closeout was merged by
 completed successfully. This evidence verifies repository
 artifacts and automated contracts only; it does not claim that a real hostname, reboot,
 offsite target, or host restore rehearsal has been completed.
+
+## 15b. Job Lifecycle Clarity (detail-first vertical slice)
+
+**Goal:** Make the existing JobCard state machine understandable on detail, list, and board
+without changing commands, terminal rules, or migrations.
+
+**Depends on:** Slices 02–10 (shared lifecycle, meeting, notes/timeline workspace)
+
+### Deliverables (implemented and tested)
+
+- Backend actor-scoped `allowedCommands` / `allowedActions` projection
+- Structured submission readiness from the same evaluator as `SUBMIT_FOR_APPROVAL`
+- Detail `workflowContext` with lifecycle facts and `cancelledFromStatus`
+- Safe future revision/cancel reason metadata in activity presentation
+- Frontend presentation SSOT for phases, responsibility, requirements, and transitions
+- Detail stepper, responsibility panel, readiness checklist, management approval panel
+- Compact list/board ordinal phase summaries
+- Consequence-led Turkish control labels (for example Kontrole gönder,
+  Kontrolü tamamla ve işi kapat, Düzeltme için personele geri gönder)
+
+### Explicitly not claimed as complete elsewhere
+
+- No native mobile app, toast library, or new UI framework
+- No migration and no new npm dependency for this slice
+- No mandatory drag-and-drop Kanban transitions
+- No synthetic historical activity events for missing past reasons
+- Interactive full keyboard/focus role-matrix against a live pilot DB is a verification
+  gate, not an additional product feature
+
+### Acceptance
+
+- [x] Canonical eight lifecycle commands, roles, idempotency, and terminal states unchanged
+- [x] Manager/Admin `WITHDRAW_FROM_APPROVAL` remains intentional and tested
+- [x] Frontend never invents allowed commands or readiness
+- [x] Detail uses full stepper; list/board use compact summary only
+- [x] Automated server and web suites cover policy, readiness, presentation, and UI composition
+- [ ] Full interactive keyboard/focus/zoom role matrix against live app+DB when available
+- [ ] Remote CI when the branch is published or publication is authorized
+
+This is a tested detail-first vertical slice on top of the pilot JobCard engine, not a new
+MVP slice number and not a claim that unimplemented operator-only gates are done.
 
 ## 16. Slice 13: WebSocket Only if Polling Is Insufficient
 

@@ -1,6 +1,6 @@
 import type {
   DeliveryPurpose,
-  JobCardListItem,
+  PersistedJobCardListItem,
   MeetingOutcome,
 } from '../job-cards/types.js';
 
@@ -101,7 +101,7 @@ export type DeliveryReportResponse =
       offset: number;
     };
 
-export type ApprovalItem = JobCardListItem & { waitingMinutes: number };
+export type ApprovalItem = PersistedJobCardListItem & { waitingMinutes: number };
 
 export type ApprovalSummary = {
   pendingCount: number;
