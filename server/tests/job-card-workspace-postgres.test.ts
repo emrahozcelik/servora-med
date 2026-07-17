@@ -248,29 +248,46 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       const staffBoard = await service.board(staff, { ...filters, limit: 25 });
       expect(staffBoard.columns.NEW.items.map((item) => item.id)).not.toContain(hiddenJobId);
 
-      async function addItem(jobCardId: string, action: string) {
+      async function addPlannedItem(jobCardId: string, action: string, expectedVersion: number) {
         return service.addDeliveryItem(staff, jobCardId, {
-          clientActionId: action, expectedVersion: 1, productId, deliveryPurpose: 'SALE',
-          deliveredAt: '2026-07-14T08:00:00.000Z', quantity: 2,
+          clientActionId: action, expectedVersion, productId, deliveryPurpose: 'SALE',
+          deliveredAt: null, quantity: 2,
         });
       }
-      await addItem(completedJobId, 'delivery-complete');
+      async function recordActualDelivery(
+        jobCardId: string, itemId: string, action: string, expectedVersion: number,
+      ) {
+        return service.patchDeliveryItem(staff, jobCardId, itemId, {
+          expectedVersion, deliveredAt: '2026-07-14T08:00:00.000Z',
+        });
+      }
+      // Planned line may be created before start; actual deliveredAt only after START.
+      const completedPlanned = await addPlannedItem(completedJobId, 'delivery-complete', 1);
       let completed = await service.acceptAssignment(staff, completedJobId, {
-        clientActionId: 'accept', expectedVersion: 2,
+        clientActionId: 'accept', expectedVersion: completedPlanned.jobCardVersion,
       });
       completed = await service.start(staff, completedJobId, { clientActionId: 'start', expectedVersion: completed.version });
-      completed = await service.submitForApproval(staff, completedJobId, { clientActionId: 'submit', expectedVersion: completed.version });
+      const completedActual = await recordActualDelivery(
+        completedJobId, completedPlanned.item.id, 'delivery-complete-actual', completed.version,
+      );
+      completed = await service.submitForApproval(staff, completedJobId, {
+        clientActionId: 'submit', expectedVersion: completedActual.jobCardVersion,
+      });
       completed = await service.approve(manager, completedJobId, { clientActionId: 'approve', expectedVersion: completed.version });
-      expect(completed).toMatchObject({ status: 'COMPLETED', version: 6 });
-      await expect(service.approve(manager, completedJobId, { clientActionId: 'approve', expectedVersion: 5 })).resolves.toEqual(completed);
+      expect(completed).toMatchObject({ status: 'COMPLETED', version: 7 });
+      await expect(service.approve(manager, completedJobId, { clientActionId: 'approve', expectedVersion: 6 })).resolves.toEqual(completed);
 
-      await addItem(cancelledJobId, 'delivery-revision');
+      const revisedPlanned = await addPlannedItem(cancelledJobId, 'delivery-revision', 1);
       let revised = await service.acceptAssignment(staff, cancelledJobId, {
-        clientActionId: 'accept-revision', expectedVersion: 2,
+        clientActionId: 'accept-revision', expectedVersion: revisedPlanned.jobCardVersion,
       });
       revised = await service.start(staff, cancelledJobId, {
         clientActionId: 'start-revision', expectedVersion: revised.version,
       });
+      const revisedActual = await recordActualDelivery(
+        cancelledJobId, revisedPlanned.item.id, 'delivery-revision-actual', revised.version,
+      );
+      revised = { ...revised, version: revisedActual.jobCardVersion };
       const firstStartedAt = (await pool.query<{ started_at: Date }>('SELECT started_at FROM job_cards WHERE id=$1', [cancelledJobId])).rows[0]!.started_at;
       revised = await service.submitForApproval(staff, cancelledJobId, { clientActionId: 'submit-revision', expectedVersion: revised.version });
       revised = await service.requestRevision(manager, cancelledJobId, {

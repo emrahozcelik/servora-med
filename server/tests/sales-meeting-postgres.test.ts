@@ -208,15 +208,18 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         description: null, customerId, contactId, assignedTo: staffId,
         priority: 'normal', dueDate: null, scheduledAt: SCHEDULED_AT,
       });
-      const deliveryMutation = await service.addDeliveryItem(staff, delivery.id, {
+      const deliveryPlanned = await service.addDeliveryItem(staff, delivery.id, {
         clientActionId: 'delivery-item', expectedVersion: delivery.version, productId,
-        deliveryPurpose: 'SAMPLE', deliveredAt: '2026-07-15T08:00:00.000Z', quantity: 2,
+        deliveryPurpose: 'SAMPLE', deliveredAt: null, quantity: 2,
       });
       delivery = await service.start(staff, delivery.id, {
-        clientActionId: 'delivery-start', expectedVersion: deliveryMutation.jobCardVersion,
+        clientActionId: 'delivery-start', expectedVersion: deliveryPlanned.jobCardVersion,
+      });
+      const deliveryActual = await service.patchDeliveryItem(staff, delivery.id, deliveryPlanned.item.id, {
+        expectedVersion: delivery.version, deliveredAt: '2026-07-15T08:00:00.000Z',
       });
       delivery = await service.submitForApproval(staff, delivery.id, {
-        clientActionId: 'delivery-submit', expectedVersion: delivery.version,
+        clientActionId: 'delivery-submit', expectedVersion: deliveryActual.jobCardVersion,
       });
       delivery = await service.approve(manager, delivery.id, {
         clientActionId: 'delivery-approve', expectedVersion: delivery.version,
