@@ -93,17 +93,13 @@ describe('CRM detail screen concurrency', () => {
     expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Güncel Klinik');
   });
 
-  it('keeps unsaved Customer fields across a lifecycle-only version change', async () => {
-    const current = customer('customer-1', 'Demo Klinik', 1);
-    crm.getCustomer.mockResolvedValue(current); crm.deactivateCustomer.mockResolvedValue({ ...current, status: 'inactive', version: 2 });
-    vi.spyOn(window, 'confirm').mockReturnValue(true);
+  it('does not render customer lifecycle commands on the detail screen', async () => {
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik', 1));
     const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-1'] });
     await act(async () => root.render(<RouterProvider router={router} />)); await settle();
-    const name = container.querySelector('#detail-customer-name') as HTMLInputElement; name.value = 'Kaydedilmemiş ad';
-    const lifecycle = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Müşteriyi pasifleştir')!;
-    await act(async () => lifecycle.click()); await settle();
-    expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Kaydedilmemiş ad');
-    expect(container.textContent).toContain('Müşteri pasifleştirildi.');
+    expect(container.textContent).not.toContain('Müşteriyi pasifleştir');
+    expect(container.textContent).not.toContain('Müşteriyi aktifleştir');
+    expect(container.textContent).not.toContain('Müşteri durumu');
   });
 
   it('returns focus to the Contact create trigger after a successful inline create', async () => {

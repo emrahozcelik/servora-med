@@ -36,7 +36,7 @@ export function customerFiltersFromParams(params: URLSearchParams): CustomerFilt
   const offsetValue = params.get('offset'); const offset = offsetValue === null ? NaN : Number(offsetValue);
   return {
     ...(params.get('q') ? { q: params.get('q')! } : {}),
-    ...(status === 'prospect' || status === 'active' || status === 'inactive' ? { status } : {}),
+    ...(status === 'prospect' || status === 'active' ? { status } : {}),
     ...(customerType === 'clinic' || customerType === 'hospital' || customerType === 'dealer' || customerType === 'company' || customerType === 'other'
       ? { customerType } : {}),
     ...(params.get('city') ? { city: params.get('city')! } : {}),
@@ -143,7 +143,7 @@ function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
           onChange={(event) => (narrow
             ? setDraft({ ...draft, status: event.target.value })
             : onChange('status', event.target.value))}>
-          <option value="">Aktif ve aday</option><option value="active">Yalnız aktif</option><option value="prospect">Yalnız aday</option><option value="inactive">Pasif</option>
+          <option value="">Aktif ve aday</option><option value="active">Yalnız aktif</option><option value="prospect">Yalnız aday</option>
         </select>
       </label>
       <label className="field-group" htmlFor={`${prefix}-type`}>Müşteri türü

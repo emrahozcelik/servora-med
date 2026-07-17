@@ -39,7 +39,7 @@ describe('Product detail', () => {
 
   async function render(load = vi.fn().mockResolvedValue(product), user: CurrentUser = manager, overrides = {}) {
     const props = {
-      productId: product.id, user, load, update: vi.fn(), activate: vi.fn(), deactivate: vi.fn(), ...overrides,
+      productId: product.id, user, load, update: vi.fn(), ...overrides,
     };
     await act(async () => root.render(<ProductDetailScreen {...props} />));
     return props;
@@ -71,19 +71,23 @@ describe('Product detail', () => {
     for (const label of ['SKU', 'Marka', 'Kategori', 'Model', 'Birim', 'Referans fiyat']) {
       expect(container.textContent).toContain(label);
     }
-    expect(container.querySelectorAll('dd')).toHaveLength(9);
+    expect(container.querySelectorAll('dd')).toHaveLength(8);
     expect(Array.from(container.querySelectorAll('dd')).filter((node) => node.textContent === 'Belirtilmedi')).toHaveLength(6);
     expect(container.textContent).not.toContain('adet');
     expect(container.textContent).not.toContain('₺');
+    expect(container.textContent).not.toContain('Durum');
   });
 
-  it('keeps Staff read-only while Manager can enter edit mode', async () => {
+  it('keeps Staff read-only while Manager can enter edit mode without lifecycle actions', async () => {
     await render(undefined, staff);
     expect(container.querySelector('input')).toBeNull();
     expect(container.textContent).not.toContain('Ürünü düzenle');
     expect(container.textContent).not.toContain('Pasifleştir');
+    expect(container.textContent).not.toContain('Etkinleştir');
 
     await render(undefined, manager);
+    expect(container.textContent).not.toContain('Pasifleştir');
+    expect(container.textContent).not.toContain('Etkinleştir');
     const edit = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Ürünü düzenle')!;
     await act(async () => edit.click());
     expect(container.querySelector<HTMLInputElement>('[name="name"]')?.value).toBe(product.name);
@@ -170,146 +174,10 @@ describe('Product detail', () => {
     expect(document.activeElement).toBe(name);
   });
 
-  it('names the product and explains deactivation consequences before requiring explicit confirmation', async () => {
-    const deactivate = vi.fn().mockResolvedValue({ ...product, isActive: false, version: 4 });
-    await render(undefined, manager, { deactivate });
-    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;
-    trigger.focus(); await act(async () => trigger.click());
-    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
-    expect(dialog.getAttribute('aria-modal')).toBe('true');
-    expect(dialog.textContent).toContain(product.name);
-    expect(dialog.textContent).toContain('yeni seçimlerde kullanılamaz');
-    expect(dialog.textContent).toContain('geçmiş kayıtlar değişmeden kalır');
-    expect(deactivate).not.toHaveBeenCalled();
-    expect((document.activeElement as HTMLButtonElement).textContent).toBe('Vazgeç');
-    await act(async () => Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!.click());
-    expect(deactivate).toHaveBeenCalledWith(product.id, 3);
-    expect(container.textContent).toContain('Ürün pasifleştirildi');
-  });
-
-  it('moves focus to the replacement lifecycle action after a successful status change', async () => {
-    const deactivate = vi.fn().mockResolvedValue({ ...product, isActive: false, version: 4 });
-    await render(undefined, manager, { deactivate });
-    const trigger = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Pasifleştir')!;
-    trigger.focus();
-    await act(async () => trigger.click());
-    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
-    await act(async () => Array.from(dialog.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Pasifleştir')!.click());
-
-    const replacement = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Etkinleştir')!;
-    expect(document.activeElement).toBe(replacement);
-
-    const activeAgain = { ...product, isActive: true, version: 6 };
-    const activate = vi.fn().mockResolvedValue(activeAgain);
-    await render(vi.fn().mockResolvedValue({ ...product, isActive: false, version: 5 }), manager, { activate });
-    const activateTrigger = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Etkinleştir')!;
-    activateTrigger.focus();
-    await act(async () => activateTrigger.click());
-    const activeReplacement = Array.from(container.querySelectorAll('button'))
-      .find((button) => button.textContent === 'Pasifleştir')!;
-    expect(document.activeElement).toBe(activeReplacement);
-  });
-
-  it('traps dialog focus, closes on Escape, and restores trigger focus', async () => {
+  it('does not render activate or deactivate lifecycle controls', async () => {
     await render();
-    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;
-    trigger.focus(); await act(async () => trigger.click());
-    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
-    const buttons = Array.from(dialog.querySelectorAll('button'));
-    buttons[buttons.length - 1].focus();
-    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
-    expect(document.activeElement).toBe(buttons[0]);
-    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })));
-    expect(document.activeElement).toBe(buttons[buttons.length - 1]);
-    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-    expect(container.querySelector('[role="dialog"]')).toBeNull(); expect(document.activeElement).toBe(trigger);
-  });
-
-  it('redirects real external focus while open and removes the guard after close', async () => {
-    await render();
-    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;
-    trigger.focus(); await act(async () => trigger.click());
-    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
-    const outside = document.createElement('button'); document.body.append(outside);
-    await act(async () => outside.focus());
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
-    expect(document.activeElement).toBe(trigger);
-    await act(async () => outside.focus());
-    expect(document.activeElement).toBe(outside);
-    outside.remove();
-  });
-
-  it('keeps focus inside the dialog while deactivation is pending', async () => {
-    const request = deferred<Product>();
-    await render(undefined, manager, { deactivate: vi.fn().mockReturnValue(request.promise) });
-    const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;
-    await act(async () => trigger.click());
-    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
-    const confirm = Array.from(dialog.querySelectorAll('button')).find((button) => button.textContent === 'Pasifleştir')!;
-    confirm.focus(); await act(async () => confirm.click());
-    expect(container.querySelector('[role="dialog"]')).toBe(dialog);
-    const outside = document.createElement('button'); document.body.append(outside);
-    await act(async () => outside.focus());
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    outside.remove();
-    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })));
-    expect(dialog.contains(document.activeElement)).toBe(true);
-    await act(async () => request.resolve({ ...product, isActive: false, version: 4 }));
-  });
-
-  it('offers explicit recovery for lifecycle conflict without auto-refetching', async () => {
-    const inactive = { ...product, isActive: false, version: 5 };
-    const current = { ...inactive, isActive: true, version: 8 };
-    const load = vi.fn().mockResolvedValueOnce(inactive).mockResolvedValueOnce(current);
-    const activate = vi.fn().mockRejectedValue(new ApiError(409, 'VERSION_CONFLICT', 'Unsafe server copy.', false, { currentVersion: 8 }));
-    await render(load, manager, { activate });
-    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Etkinleştir')!.click());
-    expect(load).toHaveBeenCalledTimes(1);
-    expect(container.textContent).toContain('Pasif'); expect(container.textContent).toContain('Sürüm 5');
-    expect(container.querySelectorAll('[role="alert"]')).toHaveLength(1);
-    expect(container.textContent).toContain('Güncel sürüm: 8');
-    expect(container.textContent).not.toContain('Unsafe server copy.');
-    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Güncel değerleri yükle')!.click());
-    expect(load).toHaveBeenCalledTimes(2);
-    expect(container.textContent).toContain('Aktif'); expect(container.textContent).toContain('Sürüm 8');
-  });
-
-  it('keeps lifecycle snapshot and recovery available when explicit reload fails', async () => {
-    const inactive = { ...product, isActive: false, version: 5 };
-    const load = vi.fn().mockResolvedValueOnce(inactive)
-      .mockRejectedValueOnce(new ApiError(503, 'SERVICE_UNAVAILABLE', 'Güncel ürün yüklenemedi.', true));
-    const activate = vi.fn().mockRejectedValue(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.', false, { currentVersion: 8 }));
-    await render(load, manager, { activate });
-    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Etkinleştir')!.click());
-    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Güncel değerleri yükle')!.click());
-    expect(container.textContent).toContain('Pasif'); expect(container.textContent).toContain('Sürüm 5');
-    expect(container.textContent).toContain('Güncel ürün yüklenemedi.');
-    expect(Array.from(container.querySelectorAll('button')).some((button) => button.textContent === 'Güncel değerleri yükle')).toBe(true);
-  });
-
-  it('activates directly, waits for backend success, and preserves truth on lifecycle failure', async () => {
-    const inactive = { ...product, isActive: false, version: 5 };
-    const request = deferred<Product>(); const activate = vi.fn().mockReturnValue(request.promise);
-    await render(vi.fn().mockResolvedValue(inactive), manager, { activate });
-    const button = Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'Etkinleştir')!;
-    await act(async () => button.click());
-    expect(activate).toHaveBeenCalledWith(product.id, 5); expect(button.disabled).toBe(true);
-    expect(container.textContent).not.toContain('Ürün etkinleştirildi');
-    await act(async () => request.resolve({ ...inactive, isActive: true, version: 6 }));
-    expect(container.textContent).toContain('Ürün etkinleştirildi'); expect(container.textContent).toContain('Sürüm 6');
-
-    const failedDeactivate = vi.fn().mockRejectedValue(new ApiError(503, 'SERVICE_UNAVAILABLE', 'İşlem tamamlanamadı.', true));
-    await render(undefined, manager, { deactivate: failedDeactivate });
-    await act(async () => Array.from(container.querySelectorAll('button')).find((item) => item.textContent === 'Pasifleştir')!.click());
-    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
-    await act(async () => Array.from(dialog.querySelectorAll('button')).find((item) => item.textContent === 'Pasifleştir')!.click());
-    expect(container.textContent).toContain('İşlem tamamlanamadı.');
-    expect(container.textContent).not.toContain('Ürün pasifleştirildi');
-    expect(container.textContent).toContain('Aktif');
+    expect(container.textContent).not.toContain('Pasifleştir');
+    expect(container.textContent).not.toContain('Etkinleştir');
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
   });
 });

@@ -1,25 +1,37 @@
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent, type RefObject } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 
 import { paths } from './paths';
 import { ApiError } from './services/api';
 import {
-  activateContact, createContact, deactivateContact, getContact, getCustomer, makePrimaryContact,
+  createContact, getContact, getCustomer, makePrimaryContact,
   updateContact, type Contact, type ContactFields,
 } from './services/crm-api';
 import { createRequestGate } from './services/request-gate';
+import { isInteractiveTarget } from './ui/clickable-card';
 
 export type ContactListState =
   | { kind: 'loading' }
   | { kind: 'ready'; contacts: Contact[] }
   | { kind: 'error'; message: string; retryable: boolean };
 
-export function ContactListView({ state, canManage, createButtonRef, onRetry, onCreate }: {
+function openCardIfEmpty(
+  event: MouseEvent<HTMLElement>,
+  open: ((customerId: string, contactId: string) => void) | undefined,
+  customerId: string,
+  contactId: string,
+) {
+  if (!open || isInteractiveTarget(event.target)) return;
+  open(customerId, contactId);
+}
+
+export function ContactListView({ state, canManage, createButtonRef, onRetry, onCreate, onOpenContact }: {
   state: ContactListState;
   canManage: boolean;
   createButtonRef?: RefObject<HTMLButtonElement | null>;
   onRetry: () => void;
   onCreate: () => void;
+  onOpenContact?: (customerId: string, contactId: string) => void;
 }) {
   return <section className="contact-section" aria-labelledby="contacts-title">
     <div className="section-heading"><h2 id="contacts-title">İlgili kişiler</h2>
@@ -29,9 +41,14 @@ export function ContactListView({ state, canManage, createButtonRef, onRetry, on
       {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}</div>}
     {state.kind === 'ready' && state.contacts.length === 0 && <div className="workspace-message"><h3>Henüz ilgili kişi yok</h3><p>Doktor, satın alma sorumlusu veya sekreter bilgileri burada görünür.</p></div>}
     {state.kind === 'ready' && state.contacts.length > 0 && <ul className="contact-list">{state.contacts.map((contact) => <li key={contact.id}>
-      <div><div className="contact-signals"><span>{contact.isActive ? 'Aktif' : 'Pasif'}</span>{contact.isPrimary && <span className="status" aria-label="Birincil kişi">Birincil kişi</span>}</div>
-        <h3>{canManage ? <Link to={paths.contact(contact.customerId, contact.id)}>{contact.name}</Link> : contact.name}</h3><p>{contact.title ?? 'Görev belirtilmedi'}</p></div>
-      {canManage && <Link className="secondary-button contact-open" to={paths.contact(contact.customerId, contact.id)} aria-label={`${contact.name} ilgili kişisini aç`}>Kaydı aç</Link>}
+      <article className="contact-row contact-list-card" data-contact-id={contact.id}
+        onClick={(event) => openCardIfEmpty(event, onOpenContact, contact.customerId, contact.id)}>
+        <div className="contact-identity">
+          <div className="contact-signals">{contact.isPrimary && <span className="status" aria-label="Birincil kişi">Birincil kişi</span>}</div>
+          <h3><Link className="contact-title-link" to={paths.contact(contact.customerId, contact.id)}>{contact.name}</Link></h3>
+          <p>{contact.title ?? 'Görev belirtilmedi'}</p>
+        </div>
+      </article>
     </li>)}</ul>}
   </section>;
 }
@@ -43,15 +60,7 @@ export function contactFieldsFromFormData(data: FormData, expectedVersion: numbe
     phone: nullable(data, 'phone'), email: nullable(data, 'email') };
 }
 
-export function confirmContactLifecycle(contact: Contact, action: 'activate' | 'deactivate', confirm: (message: string) => boolean = window.confirm) {
-  const message = action === 'deactivate'
-    ? `${contact.name} pasifleştirilsin mi? Pasif ilgili kişi yeni iş kartlarında seçilemez.`
-    : `${contact.name} yeniden aktifleştirilsin mi? Kayıt yeni iş kartlarında seçilebilir olur.`;
-  return confirm(message);
-}
-
 export function contactMutationErrorMessage(error: unknown) {
-  if (error instanceof ApiError && error.code === 'CONTACT_HAS_ACTIVE_JOB_CARDS') return 'İlgili kişi açık iş kartlarında kullanıldığı için pasifleştirilemez. Önce bu işleri tamamlayın veya iptal edin.';
   if (error instanceof ApiError && error.code === 'VERSION_CONFLICT') return 'Kayıt başka bir kullanıcı tarafından güncellendi; formdaki değişiklikleriniz korunuyor. Devam etmek için güncel değerleri yükleyin.';
   return error instanceof Error ? error.message : 'İşlem tamamlanamadı. Tekrar deneyin.';
 }
@@ -70,20 +79,19 @@ export function ContactCreateForm({ pending, error, onCancel, onSubmit }: {
   </section>;
 }
 
-export function ContactDetailView({ contact, customerName, pending, error, notice, conflict = false, formRevision = 0, canManage = true, errorRef, commandsRef, onBack, onSave, onLifecycle, onMakePrimary, onReloadCurrent }: {
+export function ContactDetailView({ contact, customerName, pending, error, notice, conflict = false, formRevision = 0, canManage = true, errorRef, commandsRef, onBack, onSave, onMakePrimary, onReloadCurrent }: {
   contact: Contact; customerName: string; pending: boolean; error: string; notice: string;
   conflict?: boolean; formRevision?: number;
   canManage?: boolean;
   errorRef?: RefObject<HTMLDivElement | null>;
   commandsRef?: RefObject<HTMLElement | null>;
   onBack: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void;
-  onLifecycle: (action: 'activate' | 'deactivate', trigger: HTMLButtonElement) => void;
   onMakePrimary: (trigger: HTMLButtonElement) => void;
   onReloadCurrent?: () => void;
 }) {
   return <main className="customer-detail"><button className="back-link" type="button" onClick={onBack}>{customerName} kaydına dön</button>
     <div className="detail-heading"><div><p className="eyebrow">İlgili kişi</p><h1>{contact.name}</h1></div>
-      <div className="record-status"><span>{contact.isActive ? 'Aktif' : 'Pasif'}</span>{contact.isPrimary && <span className="status" aria-label="Birincil kişi">Birincil kişi</span>}</div></div>
+      <div className="record-status">{contact.isPrimary && <span className="status" aria-label="Birincil kişi">Birincil kişi</span>}</div></div>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
@@ -96,11 +104,11 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
         : <dl className="record-facts"><div><dt>Ad soyad</dt><dd>{contact.name}</dd></div><div><dt>Görev veya unvan</dt><dd>{contact.title ?? 'Belirtilmedi'}</dd></div>
           <div><dt>Telefon</dt><dd>{contact.phone ?? 'Belirtilmedi'}</dd></div><div><dt>E-posta</dt><dd>{contact.email ?? 'Belirtilmedi'}</dd></div></dl>}
     </section>
-    {canManage && <section className="record-section record-commands" ref={commandsRef} tabIndex={-1} aria-labelledby="contact-commands-title"><h2 id="contact-commands-title">Durum ve varsayılan kişi</h2>
-      <p>Bu komutlar iş kartlarında seçilebilirliği ve müşterinin varsayılan ilgili kişisini değiştirir.</p>
-      <div>{contact.isActive && !contact.isPrimary && <button className="secondary-button" type="button" disabled={pending || conflict} onClick={(event) => onMakePrimary(event.currentTarget)}>Birincil kişi yap</button>}
-        <button className="secondary-button" type="button" disabled={pending || conflict} onClick={(event) => onLifecycle(contact.isActive ? 'deactivate' : 'activate', event.currentTarget)}>
-          {contact.isActive ? 'İlgili kişiyi pasifleştir' : 'İlgili kişiyi aktifleştir'}</button></div>
+    {canManage && contact.isActive && <section className="record-section record-commands" ref={commandsRef} tabIndex={-1} aria-labelledby="contact-commands-title"><h2 id="contact-commands-title">Birincil kişi</h2>
+      {contact.isPrimary
+        ? <p>Bu kayıt müşterinin varsayılan ilgili kişisidir.</p>
+        : <><p>Bu komut müşterinin varsayılan ilgili kişisini değiştirir.</p>
+          <div><button className="secondary-button" type="button" disabled={pending || conflict} onClick={(event) => onMakePrimary(event.currentTarget)}>Birincil kişi yap</button></div></>}
     </section>}
   </main>;
 }
@@ -137,19 +145,6 @@ export function ContactDetailScreen({ customerId, contactId, canManage }: { cust
       setError(contactMutationErrorMessage(caught));
     } finally { if (requestGate.current.isCurrent(generation)) setPending(false); }
   }
-  async function lifecycle(action: 'activate' | 'deactivate', trigger: HTMLButtonElement) {
-    if (conflict || !confirmContactLifecycle(contact!, action)) { trigger.focus(); return; }
-    const generation = requestGate.current.current(); setPending(true); setError(''); setNotice('');
-    try {
-      const updated = action === 'activate' ? await activateContact(customerId, contactId, contact!.version) : await deactivateContact(customerId, contactId, contact!.version);
-      if (!requestGate.current.isCurrent(generation)) return;
-      setContact(updated); setNotice(action === 'activate' ? 'İlgili kişi aktifleştirildi.' : 'İlgili kişi pasifleştirildi.');
-    } catch (caught) {
-      if (!requestGate.current.isCurrent(generation)) return;
-      if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') setConflict(true);
-      setError(contactMutationErrorMessage(caught));
-    } finally { if (requestGate.current.isCurrent(generation)) { setPending(false); trigger.focus(); } }
-  }
   async function makePrimary(trigger: HTMLButtonElement) {
     if (conflict) return;
     const generation = requestGate.current.current(); let completed = false; setPending(true); setError(''); setNotice('');
@@ -169,7 +164,7 @@ export function ContactDetailScreen({ customerId, contactId, canManage }: { cust
     }
   }
   return <ContactDetailView contact={contact} customerName={customerName} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} canManage={canManage} errorRef={errorRef} commandsRef={commandsRef}
-    onBack={() => navigate(paths.customer(customerId))} onSave={(event) => void save(event)} onLifecycle={(action, trigger) => void lifecycle(action, trigger)} onMakePrimary={(trigger) => void makePrimary(trigger)}
+    onBack={() => navigate(paths.customer(customerId))} onSave={(event) => void save(event)} onMakePrimary={(trigger) => void makePrimary(trigger)}
     onReloadCurrent={() => void load()} />;
 }
 

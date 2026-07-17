@@ -78,17 +78,18 @@ describe('Customer list and creation', () => {
     expect(managerHtml).toContain('Sil');
   });
 
-  it('restores all URL filters and defaults status to active', () => {
+  it('restores supported URL filters and ignores inactive status', () => {
     expect(customerFiltersFromParams(new URLSearchParams())).toEqual({});
     expect(customerFiltersFromParams(new URLSearchParams(
-      'q=Ay%C5%9Fe&status=inactive&customerType=clinic&city=Ankara&assignedStaffUserId=staff-1&unassigned=true',
-    ))).toEqual({ q: 'Ayşe', status: 'inactive', customerType: 'clinic', city: 'Ankara', assignedStaffUserId: 'staff-1', unassigned: true });
+      'q=Ay%C5%9Fe&status=active&customerType=clinic&city=Ankara&assignedStaffUserId=staff-1&unassigned=true',
+    ))).toEqual({ q: 'Ayşe', status: 'active', customerType: 'clinic', city: 'Ankara', assignedStaffUserId: 'staff-1', unassigned: true });
+    expect(customerFiltersFromParams(new URLSearchParams('status=inactive'))).toEqual({});
   });
 
   it('maps copied/default URL state to the exact backend filter contract', () => {
     expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams()), '')).toEqual({ q: undefined, status: undefined });
-    expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams('status=inactive&q=Eski')), 'Eski'))
-      .toMatchObject({ status: 'inactive', q: 'Eski' });
+    expect(customerRequestFilters(customerFiltersFromParams(new URLSearchParams('status=active&q=Eski')), 'Eski'))
+      .toMatchObject({ status: 'active', q: 'Eski' });
   });
 
   it('debounces text search and rejects stale similar-name generations', () => {
@@ -104,6 +105,8 @@ describe('Customer list and creation', () => {
       hasFilters={false} onRetry={() => {}} onCreate={() => {}} filters={{ status: 'active' }} staff={[profile]} onFilterChange={() => {}} />);
     expect(filters).toContain('<label for="customer-search">Müşteri ara</label>');
     for (const label of ['Durum', 'Müşteri türü', 'Şehir', 'Sorumlu personel', 'Atanmamış müşteriler']) expect(filters).toContain(label);
+    expect(filters).toContain('Aktif ve aday');
+    expect(filters).not.toContain('>Pasif</option>');
     expect(filters).not.toContain('<option value="all">');
 
     const form = renderToStaticMarkup(<MemoryRouter><CustomerCreateForm staff={[profile]} pending similarCustomers={[customer]}

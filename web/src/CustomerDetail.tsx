@@ -5,7 +5,7 @@ import { addContact, ContactCreateForm, ContactListView } from './ContactManagem
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
-  activateCustomer, deactivateCustomer, getCustomer, updateCustomer,
+  getCustomer, updateCustomer,
   type Customer, type CustomerDetail, type CustomerJobSummary, type CustomerType,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
@@ -27,15 +27,7 @@ export function customerFieldsFromFormData(data: FormData, expectedVersion: numb
     district: nullable(data, 'district'), address: nullable(data, 'address'), assignedStaffUserId: nullable(data, 'assignedStaffUserId') };
 }
 
-export function confirmCustomerLifecycle(customer: CustomerDetail, action: 'activate' | 'deactivate', confirm: (message: string) => boolean = window.confirm) {
-  const message = action === 'deactivate'
-    ? `${customer.name} pasifleştirilsin mi? Açık işler varsa işlem engellenir; pasif kayıtta yeni iş ve ilgili kişi işlemleri yapılamaz.`
-    : `${customer.name} yeniden aktifleştirilsin mi? Mevcut ilgili kişiler otomatik olarak aktifleştirilmez.`;
-  return confirm(message);
-}
-
 export function customerMutationErrorMessage(error: unknown) {
-  if (error instanceof ApiError && error.code === 'CUSTOMER_HAS_ACTIVE_JOB_CARDS') return 'Müşterinin açık işleri bulunduğu için kayıt pasifleştirilemez. Önce bu işleri tamamlayın veya iptal edin.';
   if (error instanceof ApiError && error.code === 'VERSION_CONFLICT') return 'Müşteri başka bir kullanıcı tarafından güncellendi; formdaki değişiklikleriniz korunuyor. Devam etmek için güncel değerleri yükleyin.';
   return error instanceof Error ? error.message : 'İşlem tamamlanamadı. Tekrar deneyin.';
 }
@@ -79,12 +71,13 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave }: { custo
     <button className="primary-button compact-button" disabled={pending || blocked}>Bilgileri kaydet</button></form>;
 }
 
-export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, errorRef, createContactButtonRef, onBack, onSave, onLifecycle, onCreateContact, onReloadCurrent }: {
+export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, errorRef, createContactButtonRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent }: {
   customer: CustomerDetail; user: CurrentUser; staff: StaffProfile[]; pending: boolean; error: string; notice: string;
   conflict?: boolean; formRevision?: number;
   errorRef?: RefObject<HTMLDivElement | null>;
   createContactButtonRef?: RefObject<HTMLButtonElement | null>;
-  onBack: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onLifecycle: (action: 'activate' | 'deactivate', trigger?: HTMLButtonElement) => void; onCreateContact: () => void;
+  onBack: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onCreateContact: () => void;
+  onOpenContact?: (customerId: string, contactId: string) => void;
   onReloadCurrent?: () => void;
 }) {
   const canManage = user.role !== 'STAFF';
@@ -95,10 +88,8 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
     <section className="record-section" aria-labelledby="general-title"><div className="section-heading"><h2 id="general-title">Genel bilgiler</h2><span>Sürüm {customer.version}</span></div>
       {canManage ? <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} /> : <CustomerFacts customer={customer} />}</section>
-    {canManage && <section className="record-section record-commands" aria-labelledby="customer-status-title"><h2 id="customer-status-title">Müşteri durumu</h2><p>Durum değişikliği iş ve ilgili kişi oluşturma kurallarını etkiler.</p>
-      <button className="secondary-button" type="button" disabled={pending || conflict} onClick={(event) => onLifecycle(customer.status === 'inactive' ? 'activate' : 'deactivate', event.currentTarget)}>
-        {customer.status === 'inactive' ? 'Müşteriyi aktifleştir' : 'Müşteriyi pasifleştir'}</button></section>}
-    <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage} createButtonRef={createContactButtonRef} onRetry={() => {}} onCreate={onCreateContact} />
+    <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage} createButtonRef={createContactButtonRef}
+      onRetry={() => {}} onCreate={onCreateContact} onOpenContact={onOpenContact} />
     <div className="job-summary-grid"><JobSummaries title="Açık işler" jobs={customer.openJobs} /><JobSummaries title="Tamamlanan işler" jobs={customer.completedJobs} /></div>
   </main>;
 }
@@ -136,19 +127,6 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       setError(customerMutationErrorMessage(caught));
     } finally { if (requestGate.current.isCurrent(generation)) setPending(false); }
   }
-  async function lifecycle(action: 'activate' | 'deactivate', trigger?: HTMLButtonElement) {
-    if (conflict || !confirmCustomerLifecycle(customer!, action)) { trigger?.focus(); return; }
-    const generation = requestGate.current.current(); setPending(true); setError(''); setNotice('');
-    try {
-      const updated = action === 'activate' ? await activateCustomer(customerId, customer!.version) : await deactivateCustomer(customerId, customer!.version);
-      if (!requestGate.current.isCurrent(generation)) return;
-      setCustomer(mergeCustomerDetailUpdate(customer!, updated, staff)); setNotice(action === 'activate' ? 'Müşteri aktifleştirildi.' : 'Müşteri pasifleştirildi.');
-    } catch (caught) {
-      if (!requestGate.current.isCurrent(generation)) return;
-      if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') setConflict(true);
-      setError(customerMutationErrorMessage(caught));
-    } finally { if (requestGate.current.isCurrent(generation)) { setPending(false); trigger?.focus(); } }
-  }
   async function createContactRecord(event: FormEvent<HTMLFormElement>) { event.preventDefault(); setPending(true); setContactError('');
     const generation = requestGate.current.current(); setNotice('');
     try {
@@ -160,7 +138,8 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
     } finally { if (requestGate.current.isCurrent(generation)) setPending(false); }
   }
   return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} errorRef={errorRef} createContactButtonRef={createContactButtonRef}
-    onBack={() => navigate(paths.customers)} onSave={(event) => void save(event)} onLifecycle={(action, trigger) => void lifecycle(action, trigger)} onCreateContact={() => setCreatingContact(true)}
+    onBack={() => navigate(paths.customers)} onSave={(event) => void save(event)} onCreateContact={() => setCreatingContact(true)}
+    onOpenContact={(customerIdValue, contactIdValue) => navigate(paths.contact(customerIdValue, contactIdValue))}
     onReloadCurrent={() => void load()} />
     {creatingContact && <div className="customer-detail"><ContactCreateForm pending={pending} error={contactError} onCancel={() => { setCreatingContact(false); window.setTimeout(() => createContactButtonRef.current?.focus(), 0); }} onSubmit={(event) => void createContactRecord(event)} /></div>}</>;
 }
