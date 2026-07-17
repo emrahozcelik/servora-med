@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SalesMeetingEditForm } from '../src/jobs/SalesMeetingEditForm';
 import type { JobCard } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
+import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
@@ -28,6 +29,7 @@ const job: JobCard = {
   contactId: 'contact-1', assignedTo: 'staff-1', createdBy: 'manager-1', priority: 'high',
   dueDate: '2026-07-17', assignee: { id: 'staff-1', name: 'Sezer Dener' },
   customer: { id: 'customer-1', name: 'A Klinik' }, contact: { id: 'contact-1', name: 'Dr. A' },
+  workflowContext,
 };
 const customer = (id: string, name: string) => ({
   id, organizationId: 'org-1', name, customerType: 'clinic', taxNumber: null, phone: null,

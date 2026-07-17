@@ -21,6 +21,7 @@ const item: JobCardListItem = {
   createdAt: '2026-07-10T10:00:00.000Z', updatedAt: '2026-07-13T10:00:00.000Z',
   staffCompletedAt: '2026-07-12T10:00:00.000Z', customer: { id: 'customer-1', name: 'ABC Klinik' },
   contact: { id: 'contact-1', name: 'Dr. Deniz' }, assignee: { id: staff.id, name: staff.name }, deliveryItemCount: 2,
+  allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'CANCEL'],
 };
 
 function page(items: JobCardListItem[], offset = 0, total = items.length): Paginated<JobCardListItem> {

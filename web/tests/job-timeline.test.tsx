@@ -23,7 +23,7 @@ describe('safe JobCard timeline', () => {
     const activity: JobCardActivity = {
       id: 'a1', jobCardId: 'job-1', eventType: 'JOB_STARTED',
       actor: { id: 'staff-1', name: 'Ayşe Personel' },
-      details: { kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED', toStatus: 'IN_PROGRESS' },
+      details: { kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED', toStatus: 'IN_PROGRESS', reason: null },
       createdAt: '2026-07-14T08:00:00.000Z',
     };
     await act(async () => root.render(<JobTimeline jobId="job-1" load={vi.fn().mockResolvedValue(page([activity]))} />));

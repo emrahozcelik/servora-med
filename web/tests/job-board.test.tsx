@@ -22,6 +22,7 @@ const baseItem: JobCardListItem = {
   updatedAt: '2026-07-13T10:00:00.000Z', staffCompletedAt: null,
   customer: { id: 'customer-1', name: 'ABC Klinik' }, contact: { id: 'contact-1', name: 'Dr. Deniz' },
   assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 2,
+  allowedCommands: ['PLAN', 'START', 'CANCEL'],
 };
 
 function item(status: JobCardListItem['status'], id: string, title = baseItem.title): JobCardListItem {

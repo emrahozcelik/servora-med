@@ -6,10 +6,12 @@ import {
   availableLifecycleCommands, JobDetailPanel, prepareMeetingEdit, primaryLifecycleCommand, runStaffJobCommand,
 } from '../src/JobDetail';
 import { ApiError, type DeliveryItem, type JobCard } from '../src/services/api';
+import { workflowContext } from './fixtures/job-workflow';
 
 const job: JobCard = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2,
   title: 'ABC Klinik ürün teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
-  assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' }, contact: null };
+  assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' }, contact: null,
+  workflowContext };
 const item: DeliveryItem = { id: 'i1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'p1', deliveryPurpose: 'SAMPLE',
   deliveredAt: '2026-07-11T10:00:00.000Z', quantity: 2, unit: 'adet', productNameSnapshot: 'İmplant Seti',
   productSkuSnapshot: 'S1', productModelSnapshot: null, lotNo: null, serialNo: null, expiryDate: null, deliveryNote: null };

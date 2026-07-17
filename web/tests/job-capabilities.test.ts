@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import { jobCapabilities } from '../src/jobs/job-capabilities';
 import type { JobCard, JobCardStatus } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
+import { workflowContext } from './fixtures/job-workflow';
 
 const staff: CurrentUser = {
   id: 'staff-1', organizationId: 'org-1', name: 'Staff', email: 'staff@test.local',
@@ -14,7 +15,7 @@ const job: JobCard = {
   title: 'Görüşme', description: null, customerId: 'customer-1', contactId: null,
   assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: '2026-07-20',
   assignee: { id: 'staff-1', name: 'Staff' }, customer: { id: 'customer-1', name: 'Klinik' },
-  contact: null,
+  contact: null, workflowContext,
 };
 
 describe('canonical JobCard UI capabilities', () => {

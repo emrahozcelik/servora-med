@@ -8,6 +8,7 @@ import {
   withdrawJobCardFromApproval,
 } from '../src/jobs/jobs-api';
 import { jobActivityLabel } from '../src/jobs/job-labels';
+import { workflowContext } from './fixtures/job-workflow';
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -18,6 +19,7 @@ const listItem = {
   createdAt: '2026-07-10T10:00:00.000Z', updatedAt: '2026-07-13T10:00:00.000Z',
   staffCompletedAt: '2026-07-12T10:00:00.000Z', customer: related('c1', 'ABC Klinik'),
   contact: related('ct1', 'Dr. Deniz'), assignee: related('s1', 'Ayşe Personel'), deliveryItemCount: 2,
+  allowedCommands: ['APPROVE', 'CANCEL'],
 };
 const job = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 7,
@@ -25,6 +27,7 @@ const job = {
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
   assignee: related('s1', 'Ayşe Personel'), customer: related('c1', 'ABC Klinik'),
   contact: related('ct1', 'Dr. Deniz'),
+  workflowContext,
 };
 const note = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
@@ -36,6 +39,31 @@ function json(body: unknown, status = 200) {
 }
 
 describe('JobCard workspace transport', () => {
+  it('strictly parses workflow context and actor-scoped list commands', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(json({ ...job, workflowContext }))
+      .mockResolvedValueOnce(json({
+        items: [{ ...listItem, allowedCommands: ['APPROVE', 'CANCEL'] }],
+        total: 1, limit: 25, offset: 0,
+      })));
+    await expect(getJobCard('job-1')).resolves.toMatchObject({ workflowContext });
+    await expect(listJobCards()).resolves.toMatchObject({
+      items: [{ allowedCommands: ['APPROVE', 'CANCEL'] }],
+    });
+  });
+
+  it.each([
+    ['unknown command', { ...workflowContext, allowedCommands: ['DELETE'] }],
+    ['unknown action', { ...workflowContext, allowedActions: ['EDIT_ANYTHING'] }],
+    ['bad instant', { ...workflowContext, lifecycle: { ...workflowContext.lifecycle, createdAt: 'x' } }],
+    ['bad requirement', { ...workflowContext, submissionReadiness: {
+      ...workflowContext.submissionReadiness!, items: [{ code: 'UNKNOWN', state: 'met' }],
+    } }],
+  ])('rejects malformed %s', async (_name, candidate) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...job, workflowContext: candidate })));
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it('runtime-validates the paginated list including related names and technical version', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({ items: [listItem], total: 9, limit: 25, offset: 0 }));
     vi.stubGlobal('fetch', fetchMock);
@@ -164,7 +192,9 @@ describe('JobCard workspace transport', () => {
       { id: 'a2', jobCardId: 'job-1', eventType: 'FUTURE_EVENT', actor: null,
         details: { kind: 'NONE' }, createdAt: '2026-07-13T11:00:00.000Z' },
       { id: 'a1', jobCardId: 'job-1', eventType: 'JOB_STARTED', actor: related('s1', 'Ayşe Personel'),
-        details: { kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED', toStatus: 'IN_PROGRESS' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED', toStatus: 'IN_PROGRESS', reason: null,
+        },
         createdAt: '2026-07-13T10:00:00.000Z' },
     ];
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ items: activities, total: 2, limit: 50, offset: 0 })));
@@ -174,6 +204,40 @@ describe('JobCard workspace transport', () => {
     expect(page.items[0]).not.toHaveProperty('oldValue');
     expect(jobActivityLabel('FUTURE_EVENT')).toBe('İş kaydında bir işlem yapıldı');
     expect(jobActivityLabel('JOB_STARTED')).toBe('İş başlatıldı');
+  });
+
+  it('requires reason on STATUS_TRANSITION and rejects additional raw fields', async () => {
+    const withReason = {
+      id: 'a1', jobCardId: 'job-1', eventType: 'JOB_CANCELLED', actor: related('m1', 'Yönetici'),
+      details: {
+        kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'CANCELLED',
+        reason: 'Müşteri iptal etti',
+      },
+      createdAt: '2026-07-13T10:00:00.000Z',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [withReason], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({ items: [withReason] });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{
+        ...withReason,
+        details: { kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'CANCELLED' },
+      }], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{
+        ...withReason,
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'IN_PROGRESS', toStatus: 'CANCELLED',
+          reason: 'Müşteri iptal etti', secret: true,
+        },
+      }], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
   it('rejects raw activity JSONB fields rather than exposing them', async () => {
@@ -259,7 +323,7 @@ describe('JobCard workspace transport', () => {
     ['list relationship', { items: [{ ...listItem, customer: { id: 'c1' } }], total: 1, limit: 25, offset: 0 }, () => listJobCards()],
     ['board count', { columns: { NEW: { items: [], count: -1 } }, closedCounts: { COMPLETED: 0, CANCELLED: 0 } }, () => getJobCardBoard()],
     ['note author', { items: [{ ...note, author: null }], total: 1, limit: 25, offset: 0 }, () => listJobCardNotes('job-1')],
-    ['activity details', { items: [{ id: 'a1', jobCardId: 'job-1', eventType: 'JOB_STARTED', actor: null, details: { kind: 'STATUS_TRANSITION', fromStatus: 'BAD', toStatus: 'IN_PROGRESS' }, createdAt: 'x' }], total: 1, limit: 50, offset: 0 }, () => listActivity('job-1')],
+    ['activity details', { items: [{ id: 'a1', jobCardId: 'job-1', eventType: 'JOB_STARTED', actor: null, details: { kind: 'STATUS_TRANSITION', fromStatus: 'BAD', toStatus: 'IN_PROGRESS', reason: null }, createdAt: 'x' }], total: 1, limit: 50, offset: 0 }, () => listActivity('job-1')],
     ['detail assignee', { ...job, assignee: null }, () => getJobCard('job-1')],
     ['detail customer', { ...job, customer: { id: 'c1' } }, () => getJobCard('job-1')],
     ['detail contact', { ...job, contact: { name: 'Dr. Deniz' } }, () => getJobCard('job-1')],
