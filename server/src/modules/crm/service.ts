@@ -148,6 +148,43 @@ export class CrmService {
     return this.changeCustomerStatus(actor, customerId, expectedVersion, 'inactive');
   }
 
+  async deleteCustomer(actor: CrmActor, customerId: string) {
+    requireWriter(actor);
+    try {
+      await this.repository.execute(async (tx) => {
+        const current = await this.requireCustomer(tx, actor, customerId);
+        if (await tx.customerHasAnyJobs(actor.organizationId, customerId)) {
+          throw new AppError(
+            'CUSTOMER_HAS_OPERATION_HISTORY',
+            409,
+            'Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.',
+          );
+        }
+        await tx.deleteContactsForCustomer(actor.organizationId, customerId);
+        const deleted = await tx.deleteCustomer(actor.organizationId, customerId);
+        if (!deleted) throw customerNotFound();
+        await tx.appendAudit(audit(
+          actor,
+          'CUSTOMER',
+          customerId,
+          'CUSTOMER_DELETED',
+          { name: current.name, status: current.status, customerType: current.customerType },
+          null,
+        ));
+      });
+    } catch (error) {
+      const value = error as { code?: string };
+      if (value.code === '23503') {
+        throw new AppError(
+          'CUSTOMER_HAS_OPERATION_HISTORY',
+          409,
+          'Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.',
+        );
+      }
+      throw error;
+    }
+  }
+
   private async changeCustomerStatus(actor: CrmActor, customerId: string, expectedVersion: number, next: 'active' | 'inactive') {
     return this.repository.execute(async (tx) => {
       const current = await this.requireCustomer(tx, actor, customerId);

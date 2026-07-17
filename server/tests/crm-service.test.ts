@@ -22,22 +22,26 @@ function contact(overrides: Partial<Contact> = {}): Contact {
 }
 
 function fixture(options: {
-  currentCustomer?: Customer;
+  currentCustomer?: Customer | null;
   currentContact?: Contact;
   activeContacts?: Contact[];
   customerHasJobs?: boolean;
+  customerHasAnyJobs?: boolean;
   contactHasJobs?: boolean;
   uniqueTaxFailure?: boolean;
   uniqueConstraint?: string;
+  fkViolationOnDelete?: boolean;
 } = {}) {
   const audits: unknown[] = [];
   const calls: string[] = [];
-  let currentCustomer = options.currentCustomer ?? customer();
+  let currentCustomer = options.currentCustomer === undefined ? customer() : options.currentCustomer;
   let currentContact = options.currentContact ?? contact();
   const tx = {
     lockUser: async (_org: string, id: string) => id === 'staff-1'
       ? { id, organizationId: 'org-1', role: 'STAFF', isActive: true } : null,
-    lockCustomer: async (organizationId: string) => currentCustomer.organizationId === organizationId ? currentCustomer : null,
+    lockCustomer: async (organizationId: string) => (
+      currentCustomer?.organizationId === organizationId ? currentCustomer : null
+    ),
     createCustomer: async (input: Record<string, unknown>) => {
       if (options.uniqueTaxFailure || options.uniqueConstraint) throw Object.assign(new Error('unique'), {
         code: '23505', constraint: options.uniqueConstraint ?? 'customers_organization_tax_number_unique',
@@ -45,9 +49,19 @@ function fixture(options: {
       currentCustomer = customer({ ...input, id: 'customer-created' } as Partial<Customer>);
       return currentCustomer;
     },
-    updateCustomer: async (input: Record<string, unknown>) => customer({ ...currentCustomer, ...input, version: currentCustomer.version + 1 } as Partial<Customer>),
-    setCustomerStatus: async (input: { status: Customer['status'] }) => customer({ ...currentCustomer, status: input.status, version: currentCustomer.version + 1 }),
+    updateCustomer: async (input: Record<string, unknown>) => customer({ ...currentCustomer!, ...input, version: currentCustomer!.version + 1 } as Partial<Customer>),
+    setCustomerStatus: async (input: { status: Customer['status'] }) => customer({ ...currentCustomer!, status: input.status, version: currentCustomer!.version + 1 }),
     customerHasActiveJobs: async () => options.customerHasJobs ?? false,
+    customerHasAnyJobs: async () => options.customerHasAnyJobs ?? false,
+    deleteContactsForCustomer: async () => { calls.push('delete-contacts'); },
+    deleteCustomer: async () => {
+      calls.push('delete-customer');
+      if (options.fkViolationOnDelete) {
+        throw Object.assign(new Error('fk'), { code: '23503' });
+      }
+      currentCustomer = null;
+      return true;
+    },
     lockContact: async () => currentContact,
     lockActiveContacts: async () => options.activeContacts ?? [currentContact],
     lockContactsForPrimary: async () => options.activeContacts ?? [currentContact],
@@ -95,6 +109,7 @@ describe('CRM service policy', () => {
       () => service.updateCustomer(staff, 'customer-1', updateCustomerInput),
       () => service.activateCustomer(staff, 'customer-1', 1),
       () => service.deactivateCustomer(staff, 'customer-1', 1),
+      () => service.deleteCustomer(staff, 'customer-1'),
       () => service.createContact(staff, 'customer-1', createContactInput),
       () => service.updateContact(staff, 'customer-1', 'contact-1', updateContactInput),
       () => service.activateContact(staff, 'customer-1', 'contact-1', 1),
@@ -203,5 +218,41 @@ describe('CRM service policy', () => {
       phone: null, email: null, city: null, district: null, address: null,
       assignedStaffUserId: null,
     })).rejects.toMatchObject({ code: '23505', constraint: 'another_unique_constraint' });
+  });
+
+  it('deletes a Customer without operation history after removing Contacts and auditing', async () => {
+    const { service, calls, audits } = fixture({ currentCustomer: customer({ status: 'active' }) });
+    await expect(service.deleteCustomer(manager, 'customer-1')).resolves.toBeUndefined();
+    expect(calls).toEqual(['delete-contacts', 'delete-customer']);
+    expect(audits).toEqual([{
+      organizationId: 'org-1', actorUserId: 'manager-1', subjectType: 'CUSTOMER',
+      subjectId: 'customer-1', eventType: 'CUSTOMER_DELETED',
+      oldValue: { name: 'Demo Klinik', status: 'active', customerType: 'clinic' },
+      newValue: null, metadata: {},
+    }]);
+  });
+
+  it('blocks Customer delete when any JobCards reference the Customer', async () => {
+    const { service, calls, audits } = fixture({ customerHasAnyJobs: true });
+    await expect(service.deleteCustomer(manager, 'customer-1')).rejects.toMatchObject({
+      code: 'CUSTOMER_HAS_OPERATION_HISTORY', statusCode: 409,
+      message: 'Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.',
+    });
+    expect(calls).toEqual([]);
+    expect(audits).toEqual([]);
+  });
+
+  it('maps FK violations on Customer delete to the operation-history conflict', async () => {
+    const { service } = fixture({ fkViolationOnDelete: true });
+    await expect(service.deleteCustomer(manager, 'customer-1')).rejects.toMatchObject({
+      code: 'CUSTOMER_HAS_OPERATION_HISTORY', statusCode: 409,
+    });
+  });
+
+  it('conceals a missing Customer on delete', async () => {
+    const { service } = fixture({ currentCustomer: null });
+    await expect(service.deleteCustomer(manager, 'missing')).rejects.toMatchObject({
+      code: 'CUSTOMER_NOT_FOUND', statusCode: 404,
+    });
   });
 });

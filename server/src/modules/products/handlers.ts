@@ -162,5 +162,9 @@ export function createProductHandlers(service: ProductService) {
         actor(request), productId(request), expectedVersion(value.expectedVersion),
       );
     },
+    deleteProduct: async (request: FastifyRequest, reply: FastifyReply) => {
+      await service.deleteProduct(actor(request), productId(request));
+      return reply.code(204).send();
+    },
   };
 }
