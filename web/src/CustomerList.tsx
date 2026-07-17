@@ -1,14 +1,17 @@
-import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'react';
+import {
+  useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type RefObject,
+} from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
-  createCustomer, listCustomers, type CreateCustomerInput, type CustomerFilters,
+  createCustomer, deleteCustomer, listCustomers, type CreateCustomerInput, type CustomerFilters,
   type CustomerStatus, type CustomerSummary, type CustomerType,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
+import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
 
 export { createRequestGate } from './services/request-gate';
@@ -224,7 +227,70 @@ function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
   </form></div>;
 }
 
-export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters }: {
+function CustomerDeleteDialog({ customer, pending, onCancel, onConfirm, trigger }: {
+  customer: CustomerSummary;
+  pending: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+  trigger: RefObject<HTMLButtonElement | null>;
+}) {
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => { cancelRef.current?.focus(); }, []);
+  useEffect(() => {
+    function keepFocusInside(event: FocusEvent) {
+      if (dialogRef.current?.contains(event.target as Node)) return;
+      (cancelRef.current ?? dialogRef.current)?.focus();
+    }
+    document.addEventListener('focusin', keepFocusInside);
+    return () => {
+      document.removeEventListener('focusin', keepFocusInside);
+      trigger.current?.focus();
+    };
+  }, [trigger]);
+
+  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
+    if (event.key === 'Escape' && !pending) { event.preventDefault(); onCancel(); return; }
+    if (event.key !== 'Tab') return;
+    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
+    if (focusable.length === 0) { event.preventDefault(); dialogRef.current?.focus(); return; }
+    const first = focusable[0]!; const last = focusable[focusable.length - 1]!;
+    if (focusable.length === 1) { event.preventDefault(); first.focus(); }
+    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
+    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
+    else if (!dialogRef.current?.contains(document.activeElement)) {
+      event.preventDefault();
+      (event.shiftKey ? last : first).focus();
+    }
+  }
+
+  return <div className="product-dialog-backdrop">
+    <div className="product-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-delete-title"
+      tabIndex={-1} aria-describedby="customer-delete-description" ref={dialogRef} onKeyDown={handleKeyDown}>
+      <h2 id="customer-delete-title">{customer.name} müşterisini sil</h2>
+      <p id="customer-delete-description">Bu işlem geri alınamaz. Müşteri ve ilgili kişiler kalıcı olarak silinir.</p>
+      <div className="product-dialog-actions">
+        <button className="secondary-button" type="button" ref={cancelRef}
+          onClick={() => { if (!pending) onCancel(); }} aria-disabled={pending}>Vazgeç</button>
+        <button className="destructive-button" type="button" onClick={onConfirm} disabled={pending}>
+          {pending ? 'Siliniyor…' : 'Sil'}
+        </button>
+      </div>
+    </div>
+  </div>;
+}
+
+function openCardIfEmpty(
+  event: MouseEvent<HTMLElement>,
+  open: ((id: string) => void) | undefined,
+  id: string,
+) {
+  if (!open || isInteractiveTarget(event.target)) return;
+  open(id);
+}
+
+export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters, onOpenCustomer, onRequestDelete, feedback = '', actionError = '' }: {
   state: CustomerListState;
   user: CurrentUser;
   hasFilters: boolean;
@@ -234,24 +300,40 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   staff?: StaffProfile[];
   onFilterChange?: (name: string, value: string | boolean) => void;
   onApplyFilters?: (next: CustomerDraft) => void;
+  onOpenCustomer?: (customerId: string) => void;
+  onRequestDelete?: (customer: CustomerSummary, trigger: HTMLButtonElement) => void;
+  feedback?: string;
+  actionError?: string;
 }) {
+  const canManage = user.role !== 'STAFF';
+
   return <main className="workspace customer-workspace">
     <div className="workspace-heading"><div><p className="eyebrow">CRM</p><h1>Müşteriler</h1></div>
-      {user.role !== 'STAFF' && <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>}
+      {canManage && <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>}
     </div>
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
+    <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
+    {actionError && <div className="workspace-message" role="alert"><p>{actionError}</p></div>}
     {state.kind === 'loading' && <section className="customer-loading" aria-busy="true" aria-live="polite"><h2>Müşteriler yükleniyor</h2><span /><span /><span /></section>}
     {state.kind === 'error' && <div className="workspace-message" role="alert"><h2>Müşteriler yüklenemedi</h2><p>{state.message}</p>
       {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}</div>}
     {state.kind === 'ready' && state.customers.length === 0 && <div className="workspace-message"><h2>{hasFilters ? 'Filtrelere uygun müşteri bulunamadı' : 'Henüz müşteri kaydı yok'}</h2>
       <p>{hasFilters ? 'Filtreleri değiştirerek yeniden deneyin.' : 'İlk müşteri kaydı eklendiğinde burada görünecek.'}</p></div>}
     {state.kind === 'ready' && state.customers.length > 0 && <ul className="customer-list">{state.customers.map((customer) => <li key={customer.id}>
-      <article className="customer-row">
+      <article className="customer-row customer-list-card" data-customer-id={customer.id}
+        onClick={(event) => openCardIfEmpty(event, onOpenCustomer, customer.id)}>
         <div className="customer-identity"><div className="customer-signals"><span className="status">{customerStatusLabels[customer.status]}</span><span>{customerTypeLabels[customer.customerType]}</span></div>
-          <h2><Link to={paths.customer(customer.id)}>{customer.name}</Link></h2><p>{[customer.city, customer.district].filter(Boolean).join(', ') || 'Konum belirtilmedi'}</p></div>
+          <h2><Link className="customer-title-link" to={paths.customer(customer.id)}>{customer.name}</Link></h2>
+          <p>{[customer.city, customer.district].filter(Boolean).join(', ') || 'Konum belirtilmedi'}</p></div>
         <dl className="customer-facts"><div><dt>Sorumlu personel</dt><dd>{customer.assignedStaffName ?? 'Atanmadı'}</dd></div>
           <div><dt>Birincil kişi</dt><dd>{customer.primaryContact?.name ?? 'Belirlenmedi'}</dd></div></dl>
-        <Link className="secondary-button customer-open" to={paths.customer(customer.id)} aria-label={`${customer.name} müşterisini aç`}>Kaydı aç</Link>
+        {canManage && <div className="customer-row-commands">
+          <Link className="secondary-button" to={paths.customer(customer.id)}
+            aria-label={`${customer.name} müşterisini düzenle`}>Düzenle</Link>
+          <button className="destructive-button" type="button"
+            aria-label={`${customer.name} müşterisini sil`}
+            onClick={(event) => onRequestDelete?.(customer, event.currentTarget)}>Sil</button>
+        </div>}
       </article></li>)}</ul>}
   </main>;
 }
@@ -333,7 +415,10 @@ export function customerInputFromFormData(data: FormData): CreateCustomerInput {
   };
 }
 
-export function CustomerListScreen({ user }: { user: CurrentUser }) {
+export function CustomerListScreen({ user, remove = deleteCustomer }: {
+  user: CurrentUser;
+  remove?: typeof deleteCustomer;
+}) {
   const navigate = useNavigate();
   const [params, setParams] = useSearchParams();
   const filters = customerFiltersFromParams(params);
@@ -341,6 +426,12 @@ export function CustomerListScreen({ user }: { user: CurrentUser }) {
   const [state, setState] = useState<CustomerListState>({ kind: 'loading' });
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [reloadKey, setReloadKey] = useState(0);
+  const [deleteTarget, setDeleteTarget] = useState<CustomerSummary | null>(null);
+  const [deletePending, setDeletePending] = useState(false);
+  const [feedback, setFeedback] = useState('');
+  const [actionError, setActionError] = useState('');
+  const deleteTriggerRef = useRef<HTMLButtonElement | null>(null);
+
   useEffect(() => scheduleCustomerSearch(() => setDebouncedQuery(filters.q ?? '')), [filters.q]);
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
@@ -366,10 +457,40 @@ export function CustomerListScreen({ user }: { user: CurrentUser }) {
     else if (draft.assignedStaffUserId) next.set('assignedStaffUserId', draft.assignedStaffUserId);
     setParams(next);
   }
+  function requestDelete(customer: CustomerSummary, trigger: HTMLButtonElement) {
+    if (deletePending) return;
+    deleteTriggerRef.current = trigger;
+    setActionError('');
+    setDeleteTarget(customer);
+  }
+  async function confirmDelete() {
+    if (!deleteTarget || deletePending) return;
+    setDeletePending(true);
+    setActionError('');
+    try {
+      await remove(deleteTarget.id);
+      const name = deleteTarget.name;
+      setDeleteTarget(null);
+      setFeedback(`${name} silindi.`);
+      setReloadKey((value) => value + 1);
+    } catch (error) {
+      setActionError(error instanceof Error ? error.message : 'Müşteri silinemedi.');
+      setDeleteTarget(null);
+    } finally {
+      setDeletePending(false);
+    }
+  }
   const hasFilters = Boolean(filters.q || filters.customerType || filters.city || filters.assignedStaffUserId || filters.unassigned || filters.status);
-  return <CustomerListView state={state} user={user} hasFilters={hasFilters} filters={filters} staff={staff}
-    onFilterChange={changeFilter} onApplyFilters={applyManyFilters}
-    onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)} />;
+  return <>
+    <CustomerListView state={state} user={user} hasFilters={hasFilters} filters={filters} staff={staff}
+      onFilterChange={changeFilter} onApplyFilters={applyManyFilters}
+      onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)}
+      onOpenCustomer={(customerId) => navigate(paths.customer(customerId))}
+      onRequestDelete={requestDelete} feedback={feedback} actionError={actionError} />
+    {deleteTarget && <CustomerDeleteDialog customer={deleteTarget} pending={deletePending}
+      trigger={deleteTriggerRef} onCancel={() => { if (!deletePending) setDeleteTarget(null); }}
+      onConfirm={() => { void confirmDelete(); }} />}
+  </>;
 }
 
 export function CustomerCreateScreen({ user }: { user: CurrentUser }) {

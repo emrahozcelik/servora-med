@@ -56,11 +56,22 @@ describe('Customer list and creation', () => {
     expect(html).toContain('Birincil kişi');
     expect(html).toContain('Dr. Ayşe Yılmaz');
     expect(html).toContain('/customers/customer-1');
+    expect(html).toContain('customer-list-card');
+    expect(html).toContain('customer-title-link');
+    expect(html).not.toContain('Kaydı aç');
   });
 
-  it('keeps Staff read-only while Manager can create', () => {
+  it('keeps Staff read-only while Manager can create, edit, and delete', () => {
     expect(list({ kind: 'ready', customers: [] }, staffUser)).not.toContain('Yeni müşteri');
     expect(list({ kind: 'ready', customers: [] }, manager)).toContain('Yeni müşteri');
+    const staffHtml = list({ kind: 'ready', customers: [customer] }, staffUser);
+    expect(staffHtml).not.toContain('müşterisini düzenle');
+    expect(staffHtml).not.toContain('müşterisini sil');
+    const managerHtml = list({ kind: 'ready', customers: [customer] }, manager);
+    expect(managerHtml).toContain('aria-label="Demo Dental Klinik müşterisini düzenle"');
+    expect(managerHtml).toContain('aria-label="Demo Dental Klinik müşterisini sil"');
+    expect(managerHtml).toContain('Düzenle');
+    expect(managerHtml).toContain('Sil');
   });
 
   it('restores all URL filters and defaults status to active', () => {

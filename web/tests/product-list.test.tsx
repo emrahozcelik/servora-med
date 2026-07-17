@@ -12,7 +12,7 @@ import {
   updateProductSearchParams,
   type ProductListState,
 } from '../src/ProductList';
-import type { CurrentUser } from '../src/services/api';
+import { ApiError, type CurrentUser } from '../src/services/api';
 import type { Product } from '../src/services/products-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -56,12 +56,23 @@ describe('Product list', () => {
     expect(html).toContain('SKU'); expect(html).toContain('IMP-01');
     expect(html).toContain('Birim'); expect(html).toContain('set');
     expect(html).toContain('/products/product-1');
+    expect(html).toContain('product-list-card');
+    expect(html).toContain('product-title-link');
+    expect(html).not.toContain('Ürünü aç');
   });
 
-  it('keeps Staff read-only while Manager can create', () => {
+  it('keeps Staff read-only while Manager can create, edit, and delete', () => {
     const ready = { kind: 'ready', page: { items: [], total: 0, limit: 25, offset: 0 } } as const;
     expect(render(ready, staff)).not.toContain('Yeni ürün');
     expect(render(ready, manager)).toContain('Yeni ürün');
+    const staffHtml = render({ kind: 'ready', page: { items: [product], total: 1, limit: 25, offset: 0 } }, staff);
+    expect(staffHtml).not.toContain('ürününü düzenle');
+    expect(staffHtml).not.toContain('ürününü sil');
+    const managerHtml = render({ kind: 'ready', page: { items: [product], total: 1, limit: 25, offset: 0 } }, manager);
+    expect(managerHtml).toContain('aria-label="Dental İmplant Seti ürününü düzenle"');
+    expect(managerHtml).toContain('aria-label="Dental İmplant Seti ürününü sil"');
+    expect(managerHtml).toContain('Düzenle');
+    expect(managerHtml).toContain('Sil');
   });
 
   it('restores q/status/offset from the URL and resets offset when a filter changes', () => {
@@ -145,5 +156,59 @@ describe('routed Product list screen', () => {
     expect(retry).toBeTruthy(); await act(async () => retry.click()); await act(async () => { await Promise.resolve(); });
     expect(load).toHaveBeenCalledTimes(2); expect(container.textContent).toContain('Henüz ürün kaydı yok');
     expect(container.textContent).not.toContain('Filtrelere uygun ürün bulunamadı');
+  });
+
+  it('confirms Product delete without optimistic removal', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const load = vi.fn()
+      .mockResolvedValueOnce(page([product]))
+      .mockResolvedValueOnce(page([]));
+    const router = createMemoryRouter([{
+      path: '/products',
+      element: <ProductListScreen user={manager} load={load} remove={remove} />,
+    }], { initialEntries: ['/products'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === 'Dental İmplant Seti ürününü sil') as HTMLButtonElement;
+    await act(async () => deleteButton.click());
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Dental İmplant Seti ürününü sil');
+    expect(container.textContent).toContain('Dental İmplant Seti');
+    expect(remove).not.toHaveBeenCalled();
+
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    await act(async () => { await Promise.resolve(); });
+    expect(remove).toHaveBeenCalledWith('product-1');
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Dental İmplant Seti silindi.');
+    expect(container.textContent).toContain('Henüz ürün kaydı yok');
+  });
+
+  it('keeps the Product row when delete is blocked by operation history', async () => {
+    const remove = vi.fn().mockRejectedValue(new ApiError(
+      409, 'PRODUCT_HAS_OPERATION_HISTORY',
+      'Bu ürün geçmiş teslimat veya satış kayıtlarında kullanıldığı için silinemez.',
+    ));
+    const load = vi.fn().mockResolvedValue(page([product]));
+    const router = createMemoryRouter([{
+      path: '/products',
+      element: <ProductListScreen user={manager} load={load} remove={remove} />,
+    }], { initialEntries: ['/products'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === 'Dental İmplant Seti ürününü sil') as HTMLButtonElement;
+    await act(async () => deleteButton.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('[role="alert"]')?.textContent)
+      .toContain('Bu ürün geçmiş teslimat veya satış kayıtlarında kullanıldığı için silinemez.');
+    expect(container.textContent).toContain('Dental İmplant Seti');
+    expect(remove).toHaveBeenCalledWith('product-1');
   });
 });
