@@ -162,5 +162,14 @@ export function createProductHandlers(service: ProductService) {
         actor(request), productId(request), expectedVersion(value.expectedVersion),
       );
     },
+    deleteProduct: async (request: FastifyRequest, reply: FastifyReply) => {
+      const value = body(request, ['expectedVersion']);
+      await service.deleteProduct(
+        actor(request),
+        productId(request),
+        expectedVersion(value.expectedVersion),
+      );
+      return reply.code(204).send();
+    },
   };
 }

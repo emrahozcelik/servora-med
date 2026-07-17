@@ -143,6 +143,15 @@ export function createCrmHandlers(service: CrmService) {
       const value = body(request, ['expectedVersion']);
       return service.deactivateCustomer(actor(request), params(request).customerId, version(value.expectedVersion));
     },
+    deleteCustomer: async (request: FastifyRequest, reply: FastifyReply) => {
+      const value = body(request, ['expectedVersion']);
+      await service.deleteCustomer(
+        actor(request),
+        params(request).customerId,
+        version(value.expectedVersion),
+      );
+      return reply.code(204).send();
+    },
     listContacts: (request: FastifyRequest) => {
       const value = query(request, ['q', 'status', 'limit', 'offset']);
       const status = optionalQueryString(value.status, 'status') ?? 'active';

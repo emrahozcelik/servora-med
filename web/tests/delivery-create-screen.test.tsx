@@ -12,7 +12,11 @@ import type { StaffProfile } from '../src/services/people-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const api = vi.hoisted(() => ({ createJobCard: vi.fn(), addDeliveryItem: vi.fn() }));
+const api = vi.hoisted(() => ({
+  createJobCard: vi.fn(),
+  addDeliveryItem: vi.fn(),
+  listReferenceCustomers: vi.fn(),
+}));
 const crm = vi.hoisted(() => ({ getCustomer: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const productsApi = vi.hoisted(() => ({ listProducts: vi.fn() }));
@@ -72,6 +76,7 @@ describe('Delivery create CRM defaults', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
+    api.listReferenceCustomers.mockResolvedValue(customers);
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
     productsApi.listProducts.mockResolvedValue({ items: [product], total: 1, limit: 25, offset: 0 });
     api.createJobCard.mockResolvedValue({ id: 'job-1', version: 1 }); api.addDeliveryItem.mockResolvedValue({ jobCardVersion: 2 });
@@ -81,7 +86,8 @@ describe('Delivery create CRM defaults', () => {
 
   it('loads active Contacts, suggests primary and responsible Staff, and submits management overrides', async () => {
     crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-1'));
-    await act(async () => root.render(<DeliveryCreateView user={manager} customers={customers} onCancel={() => {}} onCreated={() => {}} />)); await settle();
+    await act(async () => root.render(<DeliveryCreateView user={manager} onCancel={() => {}} onCreated={() => {}} />)); await settle();
+    expect(api.listReferenceCustomers).toHaveBeenCalled();
     expect(productsApi.listProducts).toHaveBeenCalledWith({ status: 'active', q: '', limit: 25, offset: 0 });
     const customer = container.querySelector('#delivery-customer') as HTMLSelectElement;
     expect(Array.from(customer.options).map((option) => option.text)).not.toContain('Pasif Klinik');
@@ -105,7 +111,7 @@ describe('Delivery create CRM defaults', () => {
   it('pre-fills planned delivery time once and preserves a user edit across reference reloads', async () => {
     const pendingCustomer = deferred<CustomerDetail>();
     crm.getCustomer.mockReturnValue(pendingCustomer.promise);
-    await act(async () => root.render(<DeliveryCreateView user={manager} customers={customers} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(<DeliveryCreateView user={manager} onCancel={() => {}} onCreated={() => {}} />));
     await settle();
     expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
     const scheduled = container.querySelector('#delivery-scheduled-at') as HTMLInputElement;
@@ -121,7 +127,7 @@ describe('Delivery create CRM defaults', () => {
 
   it('sends scheduledAt on the JobCard and null deliveredAt on the planned item', async () => {
     crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-1'));
-    await act(async () => root.render(<DeliveryCreateView user={staffUser} customers={customers} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
     await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
@@ -140,7 +146,7 @@ describe('Delivery create CRM defaults', () => {
   it('clears incompatible Contact immediately and ignores a late Customer response', async () => {
     const first = deferred<CustomerDetail>(); const second = deferred<CustomerDetail>();
     crm.getCustomer.mockImplementation((id: string) => id === 'customer-a' ? first.promise : second.promise);
-    await act(async () => root.render(<DeliveryCreateView user={manager} customers={customers} onCancel={() => {}} onCreated={() => {}} />)); await settle();
+    await act(async () => root.render(<DeliveryCreateView user={manager} onCancel={() => {}} onCreated={() => {}} />)); await settle();
     const customer = container.querySelector('#delivery-customer') as HTMLSelectElement;
     await act(async () => change(customer, 'customer-a'));
     await act(async () => change(customer, 'customer-b'));
@@ -153,7 +159,7 @@ describe('Delivery create CRM defaults', () => {
 
   it('does not overwrite a management assignee changed while Customer defaults are loading', async () => {
     const pendingCustomer = deferred<CustomerDetail>(); crm.getCustomer.mockReturnValue(pendingCustomer.promise);
-    await act(async () => root.render(<DeliveryCreateView user={manager} customers={customers} onCancel={() => {}} onCreated={() => {}} />)); await settle();
+    await act(async () => root.render(<DeliveryCreateView user={manager} onCancel={() => {}} onCreated={() => {}} />)); await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     const assignee = container.querySelector('#delivery-assignee') as HTMLSelectElement;
     await act(async () => change(assignee, 'staff-2'));
@@ -163,7 +169,7 @@ describe('Delivery create CRM defaults', () => {
 
   it('does not expose an assignee selector for Staff and always submits the signed-in user', async () => {
     crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-2'));
-    await act(async () => root.render(<DeliveryCreateView user={staffUser} customers={customers} onCancel={() => {}} onCreated={() => {}} />)); await settle();
+    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />)); await settle();
     expect(container.querySelector('#delivery-assignee')).toBeNull();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a')); await settle();
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
@@ -175,7 +181,7 @@ describe('Delivery create CRM defaults', () => {
   it('preserves the planned time after a submit error and retry', async () => {
     crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-1'));
     api.createJobCard.mockRejectedValueOnce(new Error('Sunucu hatası'));
-    await act(async () => root.render(<DeliveryCreateView user={staffUser} customers={customers} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
     await settle();
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-09-01T16:00'));
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));

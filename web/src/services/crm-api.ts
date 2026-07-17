@@ -152,6 +152,9 @@ export const activateCustomer = async (id: string, expectedVersion: number) =>
   parseCustomer(await request(`${customerPath(id)}/activate`, json('POST', { expectedVersion })));
 export const deactivateCustomer = async (id: string, expectedVersion: number) =>
   parseCustomer(await request(`${customerPath(id)}/deactivate`, json('POST', { expectedVersion })));
+export const deleteCustomer = async (id: string, expectedVersion: number) => {
+  await request(customerPath(id), json('DELETE', { expectedVersion }));
+};
 
 export const listContacts = async (customerId: string, filters: ContactFilters = {}) => parsePage(
   await request(`${contactPath(customerId)}${query(filters)}`), parseContact,

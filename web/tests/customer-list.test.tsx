@@ -1,9 +1,13 @@
+/** @vitest-environment jsdom */
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { createMemoryRouter, MemoryRouter, RouterProvider } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   CustomerCreateForm,
+  CustomerListScreen,
   CustomerListView,
   createRequestGate,
   createCustomerWithRecovery,
@@ -56,11 +60,22 @@ describe('Customer list and creation', () => {
     expect(html).toContain('Birincil kişi');
     expect(html).toContain('Dr. Ayşe Yılmaz');
     expect(html).toContain('/customers/customer-1');
+    expect(html).toContain('customer-list-card');
+    expect(html).toContain('customer-title-link');
+    expect(html).not.toContain('Kaydı aç');
   });
 
-  it('keeps Staff read-only while Manager can create', () => {
+  it('keeps Staff read-only while Manager can create, edit, and delete', () => {
     expect(list({ kind: 'ready', customers: [] }, staffUser)).not.toContain('Yeni müşteri');
     expect(list({ kind: 'ready', customers: [] }, manager)).toContain('Yeni müşteri');
+    const staffHtml = list({ kind: 'ready', customers: [customer] }, staffUser);
+    expect(staffHtml).not.toContain('müşterisini düzenle');
+    expect(staffHtml).not.toContain('müşterisini sil');
+    const managerHtml = list({ kind: 'ready', customers: [customer] }, manager);
+    expect(managerHtml).toContain('aria-label="Demo Dental Klinik müşterisini düzenle"');
+    expect(managerHtml).toContain('aria-label="Demo Dental Klinik müşterisini sil"');
+    expect(managerHtml).toContain('Düzenle');
+    expect(managerHtml).toContain('Sil');
   });
 
   it('restores all URL filters and defaults status to active', () => {
@@ -122,5 +137,126 @@ describe('Customer list and creation', () => {
     await expect(createCustomerWithRecovery(customerInputFromFormData(data), { create, refetch }))
       .resolves.toEqual({ customer: null, resultUnknown: true, matches: [] });
     expect(refetch).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+
+describe('routed Customer list delete flow', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  });
+
+  async function mount(remove: ReturnType<typeof vi.fn>, loadImpl: ReturnType<typeof vi.fn>) {
+    const people = await import('../src/services/people-api');
+    vi.spyOn(people, 'listStaff').mockResolvedValue([]);
+    const router = createMemoryRouter([{
+      path: '/customers',
+      element: <CustomerListScreen user={manager} load={loadImpl as never} remove={remove as never} />,
+    }], { initialEntries: ['/customers'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    return router;
+  }
+
+  it('confirms Customer delete without optimistic removal', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const load = vi.fn()
+      .mockResolvedValueOnce({ items: [customer], total: 1, limit: 50, offset: 0 })
+      .mockResolvedValueOnce({ items: [], total: 0, limit: 50, offset: 0 });
+    await mount(remove, load);
+
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === 'Demo Dental Klinik müşterisini sil') as HTMLButtonElement;
+    expect(deleteButton).toBeTruthy();
+    await act(async () => deleteButton.click());
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Demo Dental Klinik müşterisini sil');
+    expect(remove).not.toHaveBeenCalled();
+
+    await act(async () => {
+      container.querySelector('[role="dialog"]')!.dispatchEvent(
+        new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
+      );
+    });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(remove).not.toHaveBeenCalled();
+
+    await act(async () => deleteButton.click());
+    const cancel = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Vazgeç') as HTMLButtonElement;
+    await act(async () => cancel.click());
+    expect(remove).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Demo Dental Klinik');
+
+    await act(async () => deleteButton.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    await act(async () => { await Promise.resolve(); });
+    expect(remove).toHaveBeenCalledWith('customer-1', 1);
+    expect(container.querySelector('[role="status"]')?.textContent).toContain('Demo Dental Klinik silindi.');
+  });
+
+  it('keeps the Customer row when delete is blocked by operation history', async () => {
+    const remove = vi.fn().mockRejectedValue(new ApiError(
+      409, 'CUSTOMER_HAS_OPERATION_HISTORY',
+      'Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.',
+    ));
+    const load = vi.fn().mockResolvedValue({ items: [customer], total: 1, limit: 50, offset: 0 });
+    await mount(remove, load);
+
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === 'Demo Dental Klinik müşterisini sil') as HTMLButtonElement;
+    await act(async () => deleteButton.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('[role="alert"]')?.textContent)
+      .toContain('Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.');
+    expect(container.textContent).toContain('Demo Dental Klinik');
+    expect(remove).toHaveBeenCalledWith('customer-1', 1);
+  });
+
+  it('blocks a second delete while pending and restores focus to the Sil trigger after cancel', async () => {
+    let resolveDelete!: () => void;
+    const remove = vi.fn().mockImplementation(() => new Promise<void>((resolve) => { resolveDelete = resolve; }));
+    const load = vi.fn()
+      .mockResolvedValueOnce({ items: [customer], total: 1, limit: 50, offset: 0 })
+      .mockResolvedValueOnce({ items: [], total: 0, limit: 50, offset: 0 });
+    await mount(remove, load);
+
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === 'Demo Dental Klinik müşterisini sil') as HTMLButtonElement;
+    await act(async () => deleteButton.click());
+    const cancel = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Vazgeç') as HTMLButtonElement;
+    await act(async () => cancel.click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(deleteButton);
+
+    await act(async () => deleteButton.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('[role="dialog"]')?.textContent).toContain('Siliniyor');
+    await act(async () => confirm.click());
+    expect(remove).toHaveBeenCalledTimes(1);
+    await act(async () => { resolveDelete(); await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(remove).toHaveBeenCalledTimes(1);
+    expect(load).toHaveBeenCalledTimes(2);
   });
 });

@@ -202,6 +202,42 @@ export class ProductService {
     return this.changeActive(actor, productId, expectedVersion, false);
   }
 
+  async deleteProduct(actor: ProductActor, productId: string, expectedVersion: number) {
+    requireWriter(actor);
+    try {
+      await this.repository.execute(async (tx) => {
+        const current = await this.requireProduct(tx, actor, productId);
+        if (current.version !== expectedVersion) throw versionConflict(current.version);
+        if (await tx.productHasDeliveryItems(actor.organizationId, productId)) {
+          throw new AppError(
+            'PRODUCT_HAS_OPERATION_HISTORY',
+            409,
+            'Bu ürün geçmiş teslimat veya satış kayıtlarında kullanıldığı için silinemez.',
+          );
+        }
+        const deleted = await tx.deleteProduct(actor.organizationId, productId);
+        if (!deleted) throw productNotFound();
+        await tx.appendAudit(audit(
+          actor,
+          productId,
+          'PRODUCT_DELETED',
+          { name: current.name, isActive: current.isActive },
+          null,
+        ));
+      });
+    } catch (error) {
+      const value = error as { code?: string };
+      if (value.code === '23503') {
+        throw new AppError(
+          'PRODUCT_HAS_OPERATION_HISTORY',
+          409,
+          'Bu ürün geçmiş teslimat veya satış kayıtlarında kullanıldığı için silinemez.',
+        );
+      }
+      throw error;
+    }
+  }
+
   private changeActive(
     actor: ProductActor,
     productId: string,

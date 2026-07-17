@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   addDeliveryItem,
   createJobCard,
+  listReferenceCustomers,
   type CurrentUser,
   type DeliveryPurpose,
   type ReferenceCustomer,
@@ -75,14 +76,15 @@ export async function createProductDelivery(
   return { jobCardId: job.id, version: delivery.jobCardVersion };
 }
 
-export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
+export function DeliveryCreateView({ user, onCancel, onCreated }: {
   user: CurrentUser;
-  customers: ReferenceCustomer[];
   onCancel: () => void;
   onCreated: (result: { jobCardId: string; version: number }) => void;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [customers, setCustomers] = useState<ReferenceCustomer[]>([]);
+  const [customerState, setCustomerState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [customerId, setCustomerId] = useState('');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactId, setContactId] = useState('');
@@ -101,6 +103,17 @@ export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  async function loadCustomers() {
+    setCustomerState('loading');
+    try {
+      setCustomers(await listReferenceCustomers());
+      setCustomerState('ready');
+    } catch {
+      setCustomers([]);
+      setCustomerState('error');
+    }
+  }
+  useEffect(() => { void loadCustomers(); }, []);
   useEffect(() => {
     if (user.role === 'STAFF') return;
     let active = true; setStaffState('loading');
@@ -163,18 +176,21 @@ export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
   }
 
   const availableCustomers = customers.filter((customer) => customer.status !== 'inactive');
-  const unavailable = availableCustomers.length === 0;
-  const referencesPending = contactState === 'loading' || staffState === 'loading';
-  const submitDisabled = pending || unavailable || !selectedProduct || referencesPending || (user.role !== 'STAFF' && !assignedTo);
+  const unavailable = customerState === 'ready' && availableCustomers.length === 0;
+  const referencesPending = customerState === 'loading' || contactState === 'loading' || staffState === 'loading';
+  const submitDisabled = pending || unavailable || customerState !== 'ready' || !selectedProduct || referencesPending || (user.role !== 'STAFF' && !assignedTo);
   return <main className="delivery-create">
     <div className="delivery-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div>
       <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
     <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. İlgili kişi ve teslim notu isteğe bağlıdır.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
+    {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
+    {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
+      <button data-retry-customers className="inline-action" type="button" onClick={() => void loadCustomers()}>Tekrar dene</button></p>}
     {unavailable && <div className="form-error" role="status">Teslim oluşturmak için aktif müşteri kaydı gereklidir.</div>}
     <form className="delivery-form" onSubmit={submit}>
       <div className="field-group"><label htmlFor="delivery-customer">Müşteri</label>
-        <select id="delivery-customer" name="customerId" required disabled={pending || unavailable} value={customerId} onChange={(event) => void changeCustomer(event.target.value)}>
+        <select id="delivery-customer" name="customerId" required disabled={pending || unavailable || customerState !== 'ready'} value={customerId} onChange={(event) => void changeCustomer(event.target.value)}>
           <option value="" disabled>Seçin</option>{availableCustomers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></div>
       <div className="field-group"><label htmlFor="delivery-contact">İlgili kişi</label>

@@ -18,13 +18,12 @@ import { ReportsDashboard } from './reports/ReportsDashboard';
 import { DeliveryReport } from './reports/DeliveryReport';
 import { ApprovalReport } from './reports/ApprovalReport';
 import { paths } from './paths';
-import type { CurrentUser, ReferenceCustomer } from './services/api';
+import type { CurrentUser } from './services/api';
 
 export { paths } from './paths';
 
 type AppRouterProps = {
   user: CurrentUser;
-  customers: ReferenceCustomer[];
   notice: string;
   onClearNotice: () => void;
   onDeliveryCreated: () => void;
@@ -89,7 +88,7 @@ function ProductRoute({ user }: Pick<AppRouterProps, 'user'>) {
   return <ProductDetailScreen key={productId} productId={productId} user={user} />;
 }
 
-export function AppRouter({ user, customers, notice, onClearNotice, onDeliveryCreated }: AppRouterProps) {
+export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated }: AppRouterProps) {
   const navigate = useNavigate();
   return <>
     <Routes>
@@ -100,7 +99,7 @@ export function AppRouter({ user, customers, notice, onClearNotice, onDeliveryCr
         onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}
         onCreateMeeting={() => { onClearNotice(); navigate(paths.newMeeting); }}
         onCommand={(intent) => navigate(paths.job(intent.jobId))} />} />
-      <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} customers={customers} onCancel={() => navigate(paths.jobs)}
+      <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} onCancel={() => navigate(paths.jobs)}
         onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />} />
       <Route path={paths.newTask} element={<GeneralTaskCreateScreen user={user}
         onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />} />

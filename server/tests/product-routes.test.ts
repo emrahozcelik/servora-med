@@ -106,6 +106,14 @@ class MemoryProductRepository implements ProductRepository, ProductTransaction {
     this.products.set(updated.id, updated);
     return updated;
   }
+  hasDeliveryItems = false;
+  async productHasDeliveryItems() { return this.hasDeliveryItems; }
+  async deleteProduct(organizationId: string, productId: string) {
+    const current = await this.getProduct(organizationId, productId);
+    if (!current) return false;
+    this.products.delete(productId);
+    return true;
+  }
   async appendAudit(input: AppendProductAuditInput) { this.audits.push(input); }
 }
 
@@ -148,13 +156,12 @@ describe('Product HTTP routes', () => {
       ['PATCH', `/api/products/${PRODUCT_ID}`, { expectedVersion: 1, name: 'Yeni Set' }],
       ['POST', `/api/products/${PRODUCT_ID}/activate`, { expectedVersion: 1 }],
       ['POST', `/api/products/${PRODUCT_ID}/deactivate`, { expectedVersion: 1 }],
+      ['DELETE', `/api/products/${PRODUCT_ID}`, { expectedVersion: 1 }],
     ] as const;
     for (const [method, url, payload] of routes) {
       const response = await app.inject({ method, url, payload, headers: { cookie } });
       expect(response.statusCode, `${method} ${url}`).not.toBe(404);
     }
-    expect((await app.inject({ method: 'DELETE', url: `/api/products/${PRODUCT_ID}`,
-      headers: { cookie } })).statusCode).toBe(404);
 
     const routeApp = Fastify({ logger: false });
     await routeApp.register(productRoutes, {
@@ -164,11 +171,35 @@ describe('Product HTTP routes', () => {
     apps.push(routeApp);
     expect(routeApp.printRoutes({ commonPrefix: false })).toBe([
       '└── /api/products (GET, HEAD, POST)',
-      '    └── /:productId (GET, HEAD, PATCH)',
+      '    └── /:productId (GET, HEAD, PATCH, DELETE)',
       '        ├── /activate (POST)',
       '        └── /deactivate (POST)',
       '',
     ].join('\n'));
+  });
+
+  it('deletes a Product with 204 and blocks delivery-history conflicts', async () => {
+    const { app, productRepository, cookie } = await createApp();
+    const deleted = await app.inject({
+      method: 'DELETE', url: `/api/products/${PRODUCT_ID}`, headers: { cookie },
+      payload: { expectedVersion: 1 },
+    });
+    expect(deleted.statusCode).toBe(204);
+    expect(productRepository.products.has(PRODUCT_ID)).toBe(false);
+    expect(productRepository.audits.at(-1)).toMatchObject({ eventType: 'PRODUCT_DELETED' });
+
+    const recreate = await createApp();
+    recreate.productRepository.hasDeliveryItems = true;
+    const blocked = await recreate.app.inject({
+      method: 'DELETE', url: `/api/products/${PRODUCT_ID}`, headers: { cookie: recreate.cookie },
+      payload: { expectedVersion: 1 },
+    });
+    expect(blocked.statusCode).toBe(409);
+    expect(blocked.json()).toMatchObject({
+      code: 'PRODUCT_HAS_OPERATION_HISTORY',
+      error: 'Bu ürün geçmiş teslimat veya satış kayıtlarında kullanıldığı için silinemez.',
+    });
+    expect(recreate.productRepository.products.has(PRODUCT_ID)).toBe(true);
   });
 
   it('creates with optional catalog fields omitted or null and propagates the actor', async () => {

@@ -16,4 +16,5 @@ export const productRoutes: FastifyPluginAsync<ProductRoutesOptions> = async (ap
   app.patch('/products/:productId', auth, handlers.updateProduct);
   app.post('/products/:productId/activate', auth, handlers.activateProduct);
   app.post('/products/:productId/deactivate', auth, handlers.deactivateProduct);
+  app.delete('/products/:productId', auth, handlers.deleteProduct);
 };

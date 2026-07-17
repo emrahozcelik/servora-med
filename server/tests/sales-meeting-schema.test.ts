@@ -141,14 +141,14 @@ async function expectConstraintViolation(
 }
 
 describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
-  it('runs clean 001-009, preserves exact vocabularies and does not reapply', async () => {
+  it('runs clean 001-010, preserves exact vocabularies and does not reapply', async () => {
     await withIsolatedDatabase(async (pool, store) => {
       const firstRun = await runMigrations({
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(9);
-      expect(firstRun.appliedVersions.at(-1)).toBe('009_job_acceptance_and_scheduling');
+      expect(firstRun.appliedVersions).toHaveLength(10);
+      expect(firstRun.appliedVersions.at(-1)).toBe('010_entity_delete_audit');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -168,7 +168,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
     });
   });
 
-  it('upgrades an applied 001-006 database with migrations 007 through 009', async () => {
+  it('upgrades an applied 001-006 database with migrations 007 through 010', async () => {
     await withIsolatedDatabase(async (pool, store) => {
       const legacyDirectory = await createMigrationSubset(MIGRATIONS_001_TO_006);
       const baseline = await runMigrations({ migrationsDirectory: legacyDirectory, store });
@@ -183,6 +183,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '007_sales_meeting',
           '008_meeting_approval_withdrawal',
           '009_job_acceptance_and_scheduling',
+          '010_entity_delete_audit',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();

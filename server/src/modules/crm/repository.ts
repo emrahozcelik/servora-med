@@ -41,6 +41,9 @@ export interface CrmTransaction {
   updateCustomer(input: UpdateCustomerRecord): Promise<Customer | null>;
   setCustomerStatus(input: SetCustomerStatusRecord): Promise<Customer | null>;
   customerHasActiveJobs(organizationId: string, customerId: string): Promise<boolean>;
+  customerHasAnyJobs(organizationId: string, customerId: string): Promise<boolean>;
+  deleteContactsForCustomer(organizationId: string, customerId: string): Promise<void>;
+  deleteCustomer(organizationId: string, customerId: string): Promise<boolean>;
   lockContact(organizationId: string, customerId: string, contactId: string): Promise<Contact | null>;
   lockActiveContacts(organizationId: string, customerId: string): Promise<Contact[]>;
   lockContactsForPrimary(organizationId: string, customerId: string, targetContactId: string): Promise<Contact[]>;
@@ -126,6 +129,29 @@ class PostgresCrmTransaction implements CrmTransaction {
     const result = await this.client.query(
       `SELECT 1 FROM job_cards WHERE organization_id=$1 AND customer_id=$2
        AND status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED') LIMIT 1`,
+      [organizationId, customerId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async customerHasAnyJobs(organizationId: string, customerId: string) {
+    const result = await this.client.query(
+      `SELECT 1 FROM job_cards WHERE organization_id=$1 AND customer_id=$2 LIMIT 1`,
+      [organizationId, customerId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteContactsForCustomer(organizationId: string, customerId: string) {
+    await this.client.query(
+      `DELETE FROM contacts WHERE organization_id=$1 AND customer_id=$2`,
+      [organizationId, customerId],
+    );
+  }
+
+  async deleteCustomer(organizationId: string, customerId: string) {
+    const result = await this.client.query(
+      `DELETE FROM customers WHERE organization_id=$1 AND id=$2`,
       [organizationId, customerId],
     );
     return (result.rowCount ?? 0) > 0;

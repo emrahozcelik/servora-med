@@ -2,7 +2,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { ApiError } from '../src/services/api';
 import {
-  activateProduct, createProduct, deactivateProduct, getProduct, listProducts, updateProduct,
+  activateProduct, createProduct, deactivateProduct, deleteProduct, getProduct, listProducts,
+  updateProduct,
 } from '../src/services/products-api';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -111,10 +112,12 @@ describe('Product API client', () => {
     await updateProduct('product/1', patch);
     await activateProduct('product/1', 4);
     await deactivateProduct('product/1', 5);
+    await deleteProduct('product/1', 3);
     expect(fetchMock.mock.calls.map(([url, init]) => [url, init.method, init.body])).toEqual([
       ['/api/products/product%2F1', 'PATCH', JSON.stringify(patch)],
       ['/api/products/product%2F1/activate', 'POST', JSON.stringify({ expectedVersion: 4 })],
       ['/api/products/product%2F1/deactivate', 'POST', JSON.stringify({ expectedVersion: 5 })],
+      ['/api/products/product%2F1', 'DELETE', JSON.stringify({ expectedVersion: 3 })],
     ]);
   });
 

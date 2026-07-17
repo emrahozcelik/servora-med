@@ -28,6 +28,8 @@ export interface ProductTransaction {
   createProduct(input: CreateProductRecord): Promise<Product>;
   updateProduct(input: UpdateProductRecord): Promise<Product | null>;
   setProductActive(input: SetProductActiveRecord): Promise<Product | null>;
+  productHasDeliveryItems(organizationId: string, productId: string): Promise<boolean>;
+  deleteProduct(organizationId: string, productId: string): Promise<boolean>;
   appendAudit(input: AppendProductAuditInput): Promise<void>;
 }
 
@@ -82,6 +84,23 @@ class PostgresProductTransaction implements ProductTransaction {
       [input.organizationId, input.productId, input.expectedVersion, input.isActive],
     );
     return result.rows[0] ? mapProduct(result.rows[0]) : null;
+  }
+
+  async productHasDeliveryItems(organizationId: string, productId: string) {
+    const result = await this.client.query(
+      `SELECT 1 FROM job_card_delivery_items
+       WHERE organization_id=$1 AND product_id=$2 LIMIT 1`,
+      [organizationId, productId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async deleteProduct(organizationId: string, productId: string) {
+    const result = await this.client.query(
+      `DELETE FROM products WHERE organization_id=$1 AND id=$2`,
+      [organizationId, productId],
+    );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async appendAudit(input: AppendProductAuditInput) {
