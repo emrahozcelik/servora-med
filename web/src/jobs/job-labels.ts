@@ -32,9 +32,9 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   JOB_ASSIGNED: 'Atanan personel değiştirildi',
   JOB_PLANNED: 'İş planlandı',
   JOB_STARTED: 'İş başlatıldı',
-  JOB_SUBMITTED_FOR_APPROVAL: 'Onaya gönderildi',
-  JOB_APPROVED: 'Yönetici onayladı',
-  JOB_REVISION_REQUESTED: 'Düzeltme istendi',
+  JOB_SUBMITTED_FOR_APPROVAL: 'Kontrole gönderildi',
+  JOB_APPROVED: 'Kontrol tamamlandı',
+  JOB_REVISION_REQUESTED: 'Düzeltme için geri gönderildi',
   JOB_RESUMED: 'İş yeniden başlatıldı',
   JOB_CANCELLED: 'İş iptal edildi',
   JOB_FIELDS_UPDATED: 'İş bilgileri güncellendi',
@@ -43,7 +43,7 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   DELIVERY_ITEM_REMOVED: 'Teslim ürünü kaldırıldı',
   NOTE_ADDED: 'Operasyon notu eklendi',
   MEETING_DETAILS_UPDATED: 'Görüşme sonucu güncellendi',
-  JOB_APPROVAL_WITHDRAWN: 'Onaydan geri çekildi',
+  JOB_APPROVAL_WITHDRAWN: 'Kontrolden geri çekildi',
 };
 
 export function isKnownJobCardActivityEvent(value: string): value is KnownJobCardActivityEvent {

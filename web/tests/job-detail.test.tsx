@@ -549,4 +549,228 @@ describe('Staff JobCard detail', () => {
     expect(source).not.toContain('primaryLifecycleCommand');
     expect(source).toContain('deriveJobWorkflowPresentation');
   });
+
+  it('uses presentation successMessage only — no generic command label concatenation', () => {
+    const source = readFileSync(`${process.cwd()}/src/JobDetail.tsx`, 'utf8');
+    expect(source).toContain('transition.successMessage');
+    expect(source).not.toContain('işlemi tamamlandı');
+    expect(source).not.toMatch(/\$\{transition\?\.label/);
+  });
+
+  it.each([
+    {
+      command: 'SUBMIT_FOR_APPROVAL' as const,
+      expected: 'İş yönetici kontrolüne gönderildi. Kontrol tamamlanana veya iş geri çekilene kadar kayıtlar düzenlenemez.',
+      setup: () => {
+        const card = {
+          ...job,
+          status: 'IN_PROGRESS' as const,
+          version: 3,
+          workflowContext: staffContext('IN_PROGRESS', {
+            startedAt: '2026-07-17T09:00:00.000Z',
+          }, {
+            allowedActions: [],
+            submissionReadiness: {
+              evaluatedAt: '2026-07-17T12:00:00.000Z', ready: true,
+              items: [{ code: 'DELIVERY_ITEM_PRESENT' as const, state: 'met' as const }],
+            },
+          }),
+        };
+        return {
+          card,
+          user: staffUser,
+          trigger: 'Kontrole gönder',
+          endpoint: '/submit-for-approval',
+          next: {
+            ...card,
+            status: 'WAITING_APPROVAL' as const,
+            version: 4,
+            workflowContext: staffContext('WAITING_APPROVAL', {
+              startedAt: '2026-07-17T09:00:00.000Z',
+              submittedAt: '2026-07-17T12:00:00.000Z',
+            }, { allowedActions: [] }),
+          },
+          needsDialog: false as const,
+        };
+      },
+    },
+    {
+      command: 'APPROVE' as const,
+      expected: 'İş tamamlandı ve aktif işlerden çıkarıldı.',
+      setup: () => {
+        const card = {
+          ...job,
+          status: 'WAITING_APPROVAL' as const,
+          version: 4,
+          workflowContext: contextWith({
+            allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'CANCEL'],
+            allowedActions: ['VIEW_NOTES'],
+            lifecycle: {
+              ...baseLifecycle,
+              startedAt: '2026-07-17T09:00:00.000Z',
+              submittedAt: '2026-07-17T10:00:00.000Z',
+              submittedBy: { id: 's1', name: 'Ayşe Personel' },
+            },
+            submissionReadiness: null,
+          }),
+        };
+        return {
+          card,
+          user: managerUser,
+          trigger: 'Kontrolü tamamla ve işi kapat',
+          confirm: 'İşi tamamla',
+          endpoint: '/approve',
+          next: {
+            ...card,
+            status: 'COMPLETED' as const,
+            version: 5,
+            workflowContext: contextWith({
+              allowedCommands: [],
+              allowedActions: ['VIEW_NOTES'],
+              lifecycle: {
+                ...baseLifecycle,
+                startedAt: '2026-07-17T09:00:00.000Z',
+                submittedAt: '2026-07-17T10:00:00.000Z',
+                approvedAt: '2026-07-17T11:00:00.000Z',
+              },
+              submissionReadiness: null,
+            }),
+          },
+          needsDialog: true as const,
+        };
+      },
+    },
+    {
+      command: 'REQUEST_REVISION' as const,
+      expected: 'İş düzeltme için personele geri gönderildi.',
+      setup: () => {
+        const card = {
+          ...job,
+          status: 'WAITING_APPROVAL' as const,
+          version: 4,
+          workflowContext: contextWith({
+            allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'CANCEL'],
+            allowedActions: ['VIEW_NOTES'],
+            lifecycle: {
+              ...baseLifecycle,
+              startedAt: '2026-07-17T09:00:00.000Z',
+              submittedAt: '2026-07-17T10:00:00.000Z',
+              submittedBy: { id: 's1', name: 'Ayşe Personel' },
+            },
+            submissionReadiness: null,
+          }),
+        };
+        return {
+          card,
+          user: managerUser,
+          trigger: 'Düzeltme için personele geri gönder',
+          confirm: 'Düzeltme için geri gönder',
+          reason: 'Miktarı düzeltin',
+          endpoint: '/request-revision',
+          next: {
+            ...card,
+            status: 'REVISION_REQUESTED' as const,
+            version: 5,
+            workflowContext: contextWith({
+              allowedCommands: [],
+              allowedActions: ['VIEW_NOTES'],
+              lifecycle: {
+                ...baseLifecycle,
+                startedAt: '2026-07-17T09:00:00.000Z',
+                submittedAt: '2026-07-17T10:00:00.000Z',
+                revisionRequestedAt: '2026-07-17T11:00:00.000Z',
+                revisionReason: 'Miktarı düzeltin',
+              },
+              submissionReadiness: null,
+            }),
+          },
+          needsDialog: true as const,
+        };
+      },
+    },
+    {
+      command: 'RESUME' as const,
+      expected: 'İş yeniden düzenlemeye açıldı. Tamamladığınızda tekrar kontrole gönderin.',
+      setup: () => {
+        const card = revisionRequestedJob({ revisionReason: 'Miktarı düzeltin' });
+        return {
+          card,
+          user: staffUser,
+          trigger: 'Düzeltmeye başla',
+          endpoint: '/resume',
+          next: {
+            ...card,
+            status: 'IN_PROGRESS' as const,
+            version: card.version + 1,
+            workflowContext: staffContext('IN_PROGRESS', {
+              startedAt: '2026-07-17T09:00:00.000Z',
+              plannedAt: '2026-07-17T08:30:00.000Z',
+              submittedAt: '2026-07-17T10:00:00.000Z',
+              revisionRequestedAt: '2026-07-17T11:00:00.000Z',
+              revisionReason: 'Miktarı düzeltin',
+            }),
+          },
+          needsDialog: false as const,
+        };
+      },
+    },
+  ])('uses presentation success copy for $command', async ({ expected, setup }) => {
+    const scenario = setup();
+    const flush = async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) {
+        return Response.json({ items: scenario.card.type === 'PRODUCT_DELIVERY' ? [item] : [] });
+      }
+      if (url.endsWith('/meeting-details')) {
+        return Response.json({ ...meetingDetails, jobCardVersion: scenario.card.version });
+      }
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith(scenario.endpoint) && init?.method === 'POST') {
+        return Response.json(scenario.next);
+      }
+      if (url.endsWith(`/api/job-cards/${scenario.card.id}`)) {
+        return Response.json(scenario.card);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    await act(async () => {
+      root.render(<JobDetailScreen
+        jobId={scenario.card.id}
+        user={scenario.user}
+        onBack={() => {}}
+        onChanged={() => {}}
+      />);
+      await flush();
+    });
+
+    const trigger = buttonByName(host, scenario.trigger)!;
+    expect(trigger).not.toBeNull();
+    await act(async () => { trigger.click(); await flush(); });
+
+    if (scenario.needsDialog) {
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      expect(dialog).not.toBeNull();
+      if ('reason' in scenario && scenario.reason) {
+        const textarea = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
+        await act(async () => {
+          Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+            ?.set?.call(textarea, scenario.reason);
+          textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        });
+      }
+      await act(async () => {
+        buttonByName(dialog, scenario.confirm!)!.click();
+        await flush();
+      });
+    }
+
+    const feedback = host.querySelector<HTMLElement>('[role="status"]');
+    expect(feedback?.textContent).toBe(expected);
+  });
 });

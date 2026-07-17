@@ -933,6 +933,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .detail-section-heading { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .detail-section-heading > * { min-width: 0; }
 .job-notes h2, .job-timeline h2 { margin: 0 0 1rem; font-size: 1.125rem; overflow-wrap: anywhere; }
+.job-timeline h2 { margin-bottom: 0.35rem; }
+.timeline-order-note { margin: 0 0 1rem; color: var(--muted); font-size: 0.8rem; }
 .detail-section-heading span, .detail-empty { color: var(--muted); font-size: 0.8rem; }
 .detail-section-heading span { overflow-wrap: anywhere; }
 .job-notes form { max-width: 38rem; }
@@ -942,6 +944,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-note-list li > div, .job-timeline li, .job-timeline li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .job-timeline li > div { min-width: 0; }
 .job-timeline strong, .job-timeline span { min-width: 0; overflow-wrap: anywhere; }
+.timeline-reason { margin: 0.15rem 0 0; color: var(--ink); font-size: 0.875rem; line-height: 1.4; overflow-wrap: anywhere; }
+.timeline-reason strong { font-weight: 650; }
 .job-note-list time, .job-timeline time, .job-timeline li > div:last-child { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .job-timeline li > div:first-child { display: grid; justify-content: start; gap: 0.25rem; }
 .job-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }

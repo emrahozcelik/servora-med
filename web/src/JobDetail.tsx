@@ -432,7 +432,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) setDialog(null);
       const transition = findTransition(presentation, command);
-      setMessage(transition?.successMessage ?? `${transition?.label ?? command} işlemi tamamlandı.`);
+      if (transition) setMessage(transition.successMessage);
       if (completedDialogCommand) setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
