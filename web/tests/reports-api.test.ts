@@ -26,6 +26,7 @@ const counters = {
 const listItem = {
   id: 'job-1', type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', version: 7,
   title: 'Klinik ziyareti', priority: 'urgent', dueDate: '2026-07-20',
+  scheduledAt: '2026-07-20T09:00:00.000Z',
   createdAt: '2026-07-10T10:00:00.000Z', updatedAt: '2026-07-13T10:00:00.000Z',
   staffCompletedAt: '2026-07-12T10:00:00.000Z', customer: null, contact: null,
   assignee: { id: STAFF_ID, name: 'Emrah Demir' }, deliveryItemCount: 0,

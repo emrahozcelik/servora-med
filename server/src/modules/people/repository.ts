@@ -208,7 +208,7 @@ class PostgresPeopleTransaction implements PeopleTransaction {
   async hasActiveJobCards(userId: string) {
     const result = await this.client.query(
       `SELECT 1 FROM job_cards WHERE assigned_to = $1
-       AND status IN ('NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED') LIMIT 1`,
+       AND status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED') LIMIT 1`,
       [userId],
     );
     return (result.rowCount ?? 0) > 0;

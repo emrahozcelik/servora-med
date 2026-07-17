@@ -44,7 +44,7 @@ const waitingContext = contextWith(
 const job: JobCard = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 4,
   title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1',
-  priority: 'normal', dueDate: null,
+  priority: 'normal', dueDate: null, scheduledAt: null,
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'Klinik' }, contact: null,
   workflowContext: waitingContext,
 };
@@ -516,21 +516,24 @@ describe('Manager review', () => {
     const initialTask: JobCard = {
       ...job,
       type: 'GENERAL_TASK',
-      status: 'NEW',
+      status: 'ACCEPTED',
       title: 'Klinik dönüşünü takip et',
       description: 'Sonucu karta yaz.',
       priority: 'high',
       dueDate: '2026-07-20',
       contactId: 'contact-1',
       contact: { id: 'contact-1', name: 'Dr. Ayşe' },
-      workflowContext: contextWith(['PLAN', 'START', 'CANCEL'], ['VIEW_NOTES']),
+      workflowContext: contextWith(['START', 'CANCEL'], ['VIEW_NOTES'], {
+        acceptedAt: '2026-07-17T09:00:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
     };
     const refreshedTask = {
       ...initialTask,
-      status: 'PLANNED' as const,
       version: 5,
       workflowContext: contextWith(['START', 'CANCEL'], ['VIEW_NOTES'], {
-        plannedAt: '2026-07-17T09:00:00.000Z',
+        acceptedAt: '2026-07-17T09:00:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
       }),
     };
     let detailReads = 0;
@@ -616,8 +619,8 @@ describe('Manager review', () => {
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 
-  it.each(['NEW', 'PLANNED'] as const)(
-    'does not request or render result and notes for a %s Sales Meeting',
+  it.each(['NEW', 'ACCEPTED'] as const)(
+    'does not request or render meeting result for a %s Sales Meeting',
     async (status) => {
       const meeting: JobCard = {
         ...job,
@@ -625,17 +628,23 @@ describe('Manager review', () => {
         status,
         title: 'Planlanan görüşme',
         dueDate: '2026-07-20',
+        scheduledAt: '2026-07-20T10:00:00.000Z',
         workflowContext: contextWith(
-          status === 'NEW' ? ['PLAN', 'START', 'CANCEL'] : ['START', 'CANCEL'],
-          ['EDIT_JOB_FIELDS'],
-          status === 'PLANNED' ? { plannedAt: '2026-07-17T08:30:00.000Z' } : {},
+          status === 'NEW' ? ['ACCEPT_ASSIGNMENT', 'CANCEL'] : ['START', 'CANCEL'],
+          ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+          status === 'ACCEPTED'
+            ? {
+              acceptedAt: '2026-07-17T08:30:00.000Z',
+              acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+            }
+            : {},
         ),
       };
-      let meetingReads = 0; let noteReads = 0;
+      let meetingReads = 0;
       vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
         const url = String(input);
         if (url.endsWith('/meeting-details')) { meetingReads += 1; throw new Error('unexpected'); }
-        if (url.includes('/notes?')) { noteReads += 1; throw new Error('unexpected'); }
+        if (url.includes('/notes?')) return Response.json(page);
         if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
         if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
         throw new Error(`Unexpected request: ${url}`);
@@ -647,9 +656,9 @@ describe('Manager review', () => {
             onBack={() => {}} onChanged={() => {}} />);
           await flush();
         });
-        expect(meetingReads).toBe(0); expect(noteReads).toBe(0);
+        expect(meetingReads).toBe(0);
         expect(host.textContent).not.toContain('Görüşme sonucu');
-        expect(Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Notlar')).toBe(false);
+        expect(Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Notlar')).toBe(true);
       } finally { await act(async () => root.unmount()); host.remove(); }
     },
   );
@@ -776,7 +785,7 @@ describe('Manager review', () => {
       {
         ...job,
         status: 'NEW' as const,
-        workflowContext: contextWith(['PLAN', 'START', 'CANCEL'], []),
+        workflowContext: contextWith(['ACCEPT_ASSIGNMENT', 'CANCEL'], []),
       },
       'İşi iptal et',
       'İşi iptal et',

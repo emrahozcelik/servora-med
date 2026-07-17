@@ -220,7 +220,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
               onChange={(event) => setDraftStatus(event.target.value as JobCardStatusFilter)}>
               <option value="active">Aktif</option><option value="WAITING_APPROVAL">Onay bekliyor</option>
               <option value="REVISION_REQUESTED">Düzeltme istendi</option><option value="closed">Kapalı</option><option value="all">Tümü</option>
-              <option value="NEW">Yeni</option><option value="PLANNED">Planlandı</option><option value="IN_PROGRESS">Devam ediyor</option>
+              <option value="NEW">Yeni</option><option value="ACCEPTED">Kabul edildi</option><option value="IN_PROGRESS">Devam ediyor</option>
               <option value="COMPLETED">Tamamlandı</option><option value="CANCELLED">İptal edildi</option>
             </select></div>
           {advancedFields}
@@ -242,7 +242,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
         <select id="job-status" value={filters.status ?? 'active'} onChange={(event) => onChange('status', event.target.value as JobCardStatusFilter)}>
           <option value="active">Aktif</option><option value="WAITING_APPROVAL">Onay bekliyor</option>
           <option value="REVISION_REQUESTED">Düzeltme istendi</option><option value="closed">Kapalı</option><option value="all">Tümü</option>
-          <option value="NEW">Yeni</option><option value="PLANNED">Planlandı</option><option value="IN_PROGRESS">Devam ediyor</option>
+          <option value="NEW">Yeni</option><option value="ACCEPTED">Kabul edildi</option><option value="IN_PROGRESS">Devam ediyor</option>
           <option value="COMPLETED">Tamamlandı</option><option value="CANCELLED">İptal edildi</option>
         </select></div>
       <button className="secondary-button job-search-submit" type="submit">Ara</button>

@@ -98,7 +98,7 @@ class NotesRepository {
 
 describe('JobCard note policy', () => {
   it.each([
-    'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL',
+    'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
     'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
   ] as const)('allows notes in %s for own Staff and same-organization Manager/Admin', (status) => {
     const job = { ...baseJob, status };
@@ -164,10 +164,10 @@ describe('append-only JobCard notes service', () => {
   );
 
   it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const)(
-    'keeps %s note creation unchanged in PLANNED',
+    'keeps %s note creation unchanged in ACCEPTED',
     async (type) => {
       const repository = new NotesRepository();
-      repository.jobs.set('job-1', { ...baseJob, type, status: 'PLANNED' });
+      repository.jobs.set('job-1', { ...baseJob, type, status: 'ACCEPTED' });
       await expect(new JobCardService(repository as never).addNote(staff, 'job-1', {
         clientActionId: `other-note-${type}`, note: 'Operasyon notu',
       })).resolves.toMatchObject({ note: 'Operasyon notu' });

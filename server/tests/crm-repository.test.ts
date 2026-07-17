@@ -86,7 +86,7 @@ describe('CRM persistence', () => {
     expect(summaryCalls).toHaveLength(2);
     expect(summaryCalls.every((call) => /assigned_to = \$\d+/.test(call.text))).toBe(true);
     expect(summaryCalls.every((call) => /LIMIT 5/.test(call.text))).toBe(true);
-    expect(summaryCalls[0]!.text).toMatch(/status IN \('NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'\)/);
+    expect(summaryCalls[0]!.text).toMatch(/status IN \('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'\)/);
     expect(summaryCalls[1]!.text).toMatch(/status = 'COMPLETED'/);
     expect(summaryCalls[1]!.text).toMatch(/manager_approved_at DESC NULLS LAST, id DESC/);
   });

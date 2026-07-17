@@ -18,11 +18,12 @@ const manager: CurrentUser = {
 };
 const baseItem: JobCardListItem = {
   id: 'job-new', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2, title: 'ABC Klinik teslimi',
-  priority: 'urgent', dueDate: '2026-07-20', createdAt: '2026-07-10T10:00:00.000Z',
+  priority: 'urgent', dueDate: '2026-07-20', scheduledAt: null,
+  createdAt: '2026-07-10T10:00:00.000Z',
   updatedAt: '2026-07-13T10:00:00.000Z', staffCompletedAt: null,
   customer: { id: 'customer-1', name: 'ABC Klinik' }, contact: { id: 'contact-1', name: 'Dr. Deniz' },
   assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 2,
-  allowedCommands: ['PLAN', 'START', 'CANCEL'],
+  allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
 };
 
 function item(status: JobCardListItem['status'], id: string, title = baseItem.title): JobCardListItem {

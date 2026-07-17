@@ -59,13 +59,13 @@ describe('JobCard workspace list query', () => {
   });
 
   it.each([
-    'active', 'closed', 'all', 'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL',
+    'active', 'closed', 'all', 'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
     'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
   ])('accepts exact status %s', (status) => {
     expect(parseJobCardListQuery({ status }).status).toBe(status);
   });
 
-  it.each(['new', 'ACTIVE', 'GENERAL_TASK', '', 'unknown'])('rejects unsupported status %s', (status) => {
+  it.each(['new', 'ACTIVE', 'GENERAL_TASK', '', 'unknown', 'PLANNED'])('rejects unsupported status %s', (status) => {
     expect(() => parseJobCardListQuery({ status })).toThrowError(validationError);
   });
 
@@ -234,14 +234,14 @@ describe('shared JobCard validation', () => {
 describe('canonical JobCard types', () => {
   it('retains the exact activity vocabulary and lifecycle commands', () => {
     expect(JOB_CARD_ACTIVITY_EVENTS).toEqual([
-      'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_STARTED',
+      'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
       'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
       'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
       'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
       'MEETING_DETAILS_UPDATED', 'JOB_APPROVAL_WITHDRAWN',
     ]);
     const commands: LifecycleCommand[] = [
-      'PLAN', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
+      'ACCEPT_ASSIGNMENT', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
       'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
     ];
     expect(commands).toHaveLength(8);
