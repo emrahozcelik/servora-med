@@ -9,7 +9,7 @@ import { ContactDetailScreen } from './ContactManagement';
 import { JobDetailScreen } from './JobDetail';
 import { JobWorkspace } from './jobs/JobWorkspace';
 import { StaffProfilesScreen } from './StaffProfiles';
-import { UserManagementScreen } from './UserManagement';
+import { UserCreateScreen, UserDetailScreen, UserListScreen } from './UserManagement';
 import { ProductCreateScreen } from './ProductForm';
 import { ProductDetailScreen } from './ProductDetail';
 import { ProductListScreen } from './ProductList';
@@ -106,8 +106,9 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated }: Ap
       <Route path={paths.newMeeting} element={<SalesMeetingCreateScreen user={user}
         onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />} />
       <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
-      <Route path={paths.users} element={user.role === 'ADMIN'
-        ? <UserManagementScreen onBack={() => navigate(paths.jobs)} /> : <ForbiddenView />} />
+      <Route path={paths.users} element={user.role === 'ADMIN' ? <UserListScreen /> : <ForbiddenView />} />
+      <Route path={paths.newUser} element={user.role === 'ADMIN' ? <UserCreateScreen /> : <ForbiddenView />} />
+      <Route path="/users/:userId" element={user.role === 'ADMIN' ? <UserDetailScreen /> : <ForbiddenView />} />
       <Route path={paths.staff} element={<StaffRoute user={user} />} />
       <Route path="/staff/:staffUserId" element={<StaffRoute user={user} />} />
       <Route path="/staff/:staffUserId/reports" element={<StaffReportRoute user={user} />} />

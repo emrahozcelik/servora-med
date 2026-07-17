@@ -1,8 +1,11 @@
-import { useEffect, useState, type FormEvent } from 'react';
+import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
+import { Link } from 'react-router-dom';
 
+import { paths } from './paths';
 import type { CurrentUser } from './services/api';
 import { getOwnStaffProfile, getStaffProfile, listStaff, listUsers, updateStaffProfile, type ManagedUser, type StaffProfile } from './services/people-api';
 import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
+import { isInteractiveTarget } from './ui/clickable-card';
 
 const counterLabels = { open: 'Açık işler', waitingApproval: 'Onay bekliyor', revisionRequested: 'Düzeltme istendi', completedThisMonth: 'Bu ay tamamlandı', overdue: 'Geciken' } as const;
 
@@ -16,18 +19,32 @@ export function OwnStaffProfileView({ profile, onBack }: { profile: StaffProfile
   </main>;
 }
 
-export function StaffDirectoryView({ profiles, status, canFilterInactive, onStatusChange, onOpen, onBack }: {
-  profiles: StaffProfile[]; status: 'active' | 'inactive' | 'all'; canFilterInactive: boolean;
-  onStatusChange: (status: 'active' | 'inactive' | 'all') => void; onOpen: (id: string) => void; onBack: () => void;
+function openCardIfEmpty(
+  event: MouseEvent<HTMLElement>,
+  open: ((id: string) => void) | undefined,
+  id: string,
+) {
+  if (!open || isInteractiveTarget(event.target)) return;
+  open(id);
+}
+
+export function StaffDirectoryView({ profiles, onOpen, onBack }: {
+  profiles: StaffProfile[];
+  onOpen: (id: string) => void;
+  onBack: () => void;
 }) {
-  return <main className="workspace"><button className="back-link" onClick={onBack}>İşlere dön</button><div className="workspace-heading"><div><p className="eyebrow">Ekip</p><h1>Personel</h1></div>
-    {canFilterInactive && <label className="field-group compact-filter">Durum
-      <select className="form-control" value={status} onChange={(e) => onStatusChange(e.target.value as typeof status)}>
-        <option value="active">Aktif</option><option value="inactive">Pasif</option><option value="all">Tümü</option>
-      </select></label>}</div>
-    {profiles.length === 0 ? <div className="workspace-message"><h2>Personel bulunamadı</h2><p>Seçilen durumda personel profili yok.</p></div>
-      : <ul className="people-list">{profiles.map((profile) => <li key={profile.id}><article className="people-row"><div><h2>{profile.user.name}</h2><p>{profile.title || 'Unvan belirtilmedi'} · {profile.managerName || 'Yönetici atanmadı'}</p></div>
-        <button className="secondary-button" onClick={() => onOpen(profile.user.id)}>Profili aç</button></article></li>)}</ul>}
+  return <main className="workspace"><button className="back-link" onClick={onBack}>İşlere dön</button>
+    <div className="workspace-heading"><div><p className="eyebrow">Ekip</p><h1>Personel</h1></div></div>
+    {profiles.length === 0 ? <div className="workspace-message"><h2>Personel bulunamadı</h2><p>Aktif personel profili yok.</p></div>
+      : <ul className="people-list">{profiles.map((profile) => <li key={profile.id}>
+        <article className="people-row people-list-card" data-staff-id={profile.user.id}
+          onClick={(event) => openCardIfEmpty(event, onOpen, profile.user.id)}>
+          <div className="people-identity">
+            <h2><Link className="people-title-link" to={paths.staffProfile(profile.user.id)}>{profile.user.name}</Link></h2>
+            <p>{profile.title || 'Unvan belirtilmedi'} · {profile.managerName || 'Yönetici atanmadı'}</p>
+          </div>
+        </article>
+      </li>)}</ul>}
   </main>;
 }
 
@@ -67,17 +84,17 @@ export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenPr
   onOpenReport?: (staffUserId: string) => void;
 }) {
   const [profiles, setProfiles] = useState<StaffProfile[]>([]); const [own, setOwn] = useState<StaffProfile | null>(null); const [selected, setSelected] = useState<StaffProfile | null>(null);
-  const [managers, setManagers] = useState<ManagedUser[]>([]); const [status, setStatus] = useState<'active' | 'inactive' | 'all'>('active'); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+  const [managers, setManagers] = useState<ManagedUser[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
   useEffect(() => { setLoading(true); setError('');
     if (user.role === 'STAFF') getOwnStaffProfile().then(setOwn).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')).finally(() => setLoading(false));
-    else Promise.all([listStaff(status), user.role === 'ADMIN' ? listUsers() : Promise.resolve([{ ...user, lastLoginAt: null, createdAt: '', updatedAt: '' } as ManagedUser]),
+    else Promise.all([listStaff('active'), user.role === 'ADMIN' ? listUsers() : Promise.resolve([{ ...user, lastLoginAt: null, createdAt: '', updatedAt: '' } as ManagedUser]),
       initialStaffUserId ? getStaffProfile(initialStaffUserId) : Promise.resolve(null)])
       .then(([items, allUsers, initialProfile]) => { setProfiles(items); setManagers(allUsers.filter((item) => item.role === 'MANAGER' && item.isActive)); setSelected(initialProfile); }).catch((e) => setError(e instanceof Error ? e.message : 'Personel yüklenemedi.')).finally(() => setLoading(false));
-  }, [user, status, initialStaffUserId]);
+  }, [user, initialStaffUserId]);
   if (loading) return <main className="workspace" aria-busy="true"><h1>{initialStaffUserId ? 'Personel profili yükleniyor' : 'Personel bilgileri yükleniyor'}</h1></main>;
   if (error) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Personel bilgileri yüklenemedi</h1><p>{error}</p></div></main>;
   if (user.role === 'STAFF' && own) return <OwnStaffProfileView profile={own} onBack={onBack} />;
   if (selected) return <StaffProfileEditRoute profile={selected} managers={managers} onBack={() => { setSelected(null); onProfileBack?.(); }} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} onOpenReport={onOpenReport ? () => onOpenReport(selected.user.id) : undefined} />;
-  return <StaffDirectoryView profiles={profiles} status={status} canFilterInactive={user.role === 'ADMIN'} onStatusChange={setStatus} onBack={onBack}
+  return <StaffDirectoryView profiles={profiles} onBack={onBack}
     onOpen={(id) => { if (onOpenProfile) onOpenProfile(id); else void getStaffProfile(id).then(setSelected).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')); }} />;
 }

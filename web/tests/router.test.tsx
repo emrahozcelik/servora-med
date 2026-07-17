@@ -32,15 +32,17 @@ describe('application routes', () => {
     ['/jobs/new-meeting', 'Satış görüşmesi planla', manager],
     ['/jobs/job-1', 'İş detayları yükleniyor', staff],
     ['/users', 'Kullanıcılar', admin],
+    ['/users/new', 'Kullanıcı formu yükleniyor', admin],
+    ['/users/staff-1', 'Kullanıcı yükleniyor', admin],
     ['/staff', 'Personel', manager],
     ['/staff/staff-1', 'Personel profili', manager],
     ['/staff/staff-1/reports', 'Operasyon raporu yükleniyor', manager],
-    ['/customers?status=inactive', 'Müşteriler', manager],
+    ['/customers?status=active', 'Müşteriler', manager],
     ['/customers/new', 'Yeni müşteri', manager],
     ['/customers/customer-1', 'Müşteri detayı', manager],
     ['/customers/customer-1/contacts/contact-1', 'İlgili kişi', manager],
     ['/products', 'Ürünler', staff],
-    ['/products?status=inactive&q=eski&offset=25', 'Ürünler', manager],
+    ['/products?q=eski&offset=25', 'Ürünler', manager],
     ['/products/new', 'Yeni ürün', manager],
     ['/products/product-1', 'Ürün detayı yükleniyor', staff],
   ] as const)('renders %s at a stable URL', (path, expected, user) => {
@@ -83,6 +85,8 @@ describe('application routes', () => {
     expect(paths.products).toBe('/products');
     expect(paths.newProduct).toBe('/products/new');
     expect(paths.product('product/1')).toBe('/products/product%2F1');
+    expect(paths.newUser).toBe('/users/new');
+    expect(paths.user('user/1')).toBe('/users/user%2F1');
   });
 
   it('shows Product navigation to every role', () => {

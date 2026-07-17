@@ -1,8 +1,8 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
-import { ContactCreateForm, ContactDetailView, ContactListView, confirmContactLifecycle, contactFieldsFromFormData,
+import { ContactCreateForm, ContactDetailView, ContactListView, contactFieldsFromFormData,
   contactMutationErrorMessage } from '../src/ContactManagement';
 import { ApiError } from '../src/services/api';
 import type { Contact } from '../src/services/crm-api';
@@ -12,7 +12,7 @@ const primary: Contact = { id: 'contact-1', organizationId: 'org-1', customerId:
 const secondary: Contact = { ...primary, id: 'contact-2', name: 'Selin Ak', title: 'Sekreter', isPrimary: false, version: 1 };
 
 describe('Contact management', () => {
-  it('renders loading, empty, retryable error, and structured ready states', () => {
+  it('renders loading, empty, retryable error, and structured ready states without open/status chrome', () => {
     expect(renderToStaticMarkup(<ContactListView state={{ kind: 'loading' }} canManage={false} onRetry={() => {}} onCreate={() => {}} />)).toContain('aria-busy="true"');
     expect(renderToStaticMarkup(<ContactListView state={{ kind: 'ready', contacts: [] }} canManage onRetry={() => {}} onCreate={() => {}} />)).toContain('Henüz ilgili kişi yok');
     const error = renderToStaticMarkup(<ContactListView state={{ kind: 'error', message: 'Yüklenemedi.', retryable: true }} canManage onRetry={() => {}} onCreate={() => {}} />);
@@ -20,14 +20,21 @@ describe('Contact management', () => {
     const ready = renderToStaticMarkup(<MemoryRouter><ContactListView state={{ kind: 'ready', contacts: [primary, secondary] }} canManage
       onRetry={() => {}} onCreate={() => {}} /></MemoryRouter>);
     expect(ready).toContain('Dr. Ayşe'); expect(ready).toContain('Birincil kişi'); expect(ready).toContain('Selin Ak');
+    expect(ready).toContain('contact-title-link');
+    expect(ready).toContain('contact-list-card');
+    expect(ready).not.toContain('Kaydı aç');
+    expect(ready).not.toContain('Aktif');
+    expect(ready).not.toContain('Pasif');
     expect(ready).not.toContain('customer-notes');
   });
 
-  it('separates editable fields from explicit primary and lifecycle commands', () => {
+  it('separates editable fields from primary command without lifecycle actions', () => {
     const html = renderToStaticMarkup(<ContactDetailView contact={secondary} customerName="Demo Klinik" pending={false}
-      error="" notice="" onBack={() => {}} onSave={() => {}} onLifecycle={() => {}} onMakePrimary={() => {}} />);
+      error="" notice="" onBack={() => {}} onSave={() => {}} onMakePrimary={() => {}} />);
     expect(html).toContain('İlgili kişi bilgileri'); expect(html).toContain('Bilgileri kaydet');
-    expect(html).toContain('Birincil kişi yap'); expect(html).toContain('İlgili kişiyi pasifleştir');
+    expect(html).toContain('Birincil kişi yap');
+    expect(html).not.toContain('İlgili kişiyi pasifleştir');
+    expect(html).not.toContain('İlgili kişiyi aktifleştir');
     expect(html).not.toMatch(/name="isPrimary"/); expect(html).not.toMatch(/name="isActive"/);
   });
 
@@ -36,17 +43,13 @@ describe('Contact management', () => {
     expect(contactFieldsFromFormData(data, 3)).toEqual({ expectedVersion: 3, name: 'Selin Ak', title: 'Satın Alma', phone: null, email: null });
   });
 
-  it('names the Contact in confirmations and maps active-job/version conflicts', () => {
-    const confirm = vi.fn().mockReturnValue(true);
-    expect(confirmContactLifecycle(secondary, 'deactivate', confirm)).toBe(true);
-    expect(confirm.mock.calls[0]![0]).toContain('Selin Ak'); expect(confirm.mock.calls[0]![0]).toContain('iş kartlarında seçilemez');
-    expect(contactMutationErrorMessage(new ApiError(409, 'CONTACT_HAS_ACTIVE_JOB_CARDS', 'Açık iş var.'))).toContain('açık iş kartlarında');
+  it('maps version conflicts to actionable copy', () => {
     expect(contactMutationErrorMessage(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.'))).toContain('formdaki değişiklikleriniz korunuyor');
   });
 
   it('blocks stale resubmission behind reload and keeps a permanent focus target for make-primary', () => {
     const html = renderToStaticMarkup(<ContactDetailView contact={secondary} customerName="Demo Klinik" pending={false}
-      error="Kayıt güncellendi." notice="" conflict onBack={() => {}} onSave={() => {}} onLifecycle={() => {}}
+      error="Kayıt güncellendi." notice="" conflict onBack={() => {}} onSave={() => {}}
       onMakePrimary={() => {}} onReloadCurrent={() => {}} />);
     expect(html).toContain('value="Selin Ak"'); expect(html).toContain('Güncel değerleri yükle');
     expect(html).toMatch(/class="record-section record-commands"[^>]*tabindex="-1"/);

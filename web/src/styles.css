@@ -120,7 +120,19 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .people-list { padding: 0; border-top: 1px solid var(--rule); list-style: none; }
 .people-list > li { border-bottom: 1px solid var(--rule); }
 .people-row { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0.25rem; }
-.people-row h2 { margin: 0.45rem 0 0; font-size: 1rem; }.people-row p { margin: 0.2rem 0 0; color: var(--muted); }
+.people-row.people-list-card { position: relative; }
+.people-identity { min-width: 0; }
+.people-row h2 { margin: 0.45rem 0 0; font-size: 1rem; }
+.people-row h2 a,
+.people-title-link { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: 0.2rem; }
+.people-title-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
+.people-row p { margin: 0.2rem 0 0; color: var(--muted); }
+.people-actions { position: relative; z-index: 1; }
 .people-actions { display: flex; align-items: center; gap: 1rem; }.command-button { width: 100%; margin-top: 1rem; }
 .back-link { margin: 1rem; min-height: 2.75rem; border: 0; color: var(--accent); background: transparent; font-weight: 700; }
 .profile-facts, .counter-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin: 1.5rem 0; }
@@ -1118,12 +1130,21 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .record-commands > p { max-width: 65ch; color: var(--muted); line-height: 1.55; }
 .record-commands > div { display: flex; flex-wrap: wrap; gap: 0.75rem; }
 .contact-list, .job-summaries ul { padding: 0; margin: 1rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
-.contact-list > li { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding: 1rem 0.25rem; border-bottom: 1px solid var(--rule); }
+.contact-list > li { border-bottom: 1px solid var(--rule); }
+.contact-row.contact-list-card { position: relative; display: block; padding: 1rem 0.25rem; }
+.contact-identity { min-width: 0; }
 .contact-list h3 { margin: 0.45rem 0 0; font-size: 1rem; }
-.contact-list h3 a, .job-summaries a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: 0.2rem; }
+.contact-list h3 a,
+.contact-title-link,
+.job-summaries a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: 0.2rem; }
+.contact-title-link::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+}
 .contact-list p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.85rem; }
-.contact-signals { display: flex; align-items: center; gap: 0.55rem; color: var(--muted); font-size: 0.75rem; }
-.contact-open { display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; text-decoration: none; }
+.contact-signals { display: flex; align-items: center; gap: 0.55rem; color: var(--muted); font-size: 0.75rem; min-height: 0.75rem; }
 .contact-loading { min-height: 4rem; margin-top: 1rem; padding-block: 1.2rem; color: var(--muted); background: var(--canvas); }
 .inline-record-form { margin-top: 1.5rem; padding-block: 1.5rem; border-block: 1px solid var(--rule); }
 .inline-record-form > h2 { margin: 0; font-size: 1.125rem; }
@@ -1138,7 +1159,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .product-workspace { margin-top: 2rem; }
 .product-create { width: min(100% - 2rem, 48rem); margin: clamp(2rem, 6vh, 4rem) auto; }
 .product-create-link { display: inline-flex; align-items: center; justify-content: center; min-height: 2.75rem; text-decoration: none; }
-.product-filters { display: grid; grid-template-columns: minmax(14rem, 1.5fr) minmax(10rem, 0.5fr); gap: 1rem; align-items: end; margin-bottom: 2rem; padding-block: 1rem 1.25rem; border-block: 1px solid var(--rule); }
+.product-filters { display: grid; grid-template-columns: minmax(14rem, 1fr); gap: 1rem; align-items: end; margin-bottom: 2rem; padding-block: 1rem 1.25rem; border-block: 1px solid var(--rule); }
 .product-filters .field-group { margin: 0; }
 .product-loading { display: grid; gap: 0.7rem; margin-top: 2rem; }
 .product-loading span { min-height: 4.75rem; border-block: 1px solid var(--rule); background: var(--canvas); }

@@ -1,9 +1,9 @@
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 
 import {
-  CustomerDetailView, customerFieldsFromFormData, confirmCustomerLifecycle,
+  CustomerDetailView, customerFieldsFromFormData,
   customerMutationErrorMessage, mergeCustomerDetailUpdate,
 } from '../src/CustomerDetail';
 import { ApiError, type CurrentUser } from '../src/services/api';
@@ -25,7 +25,7 @@ const customer: CustomerDetail = {
 
 function render(user: CurrentUser) {
   return renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={user} staff={[]}
-    pending={false} error="" notice="" onBack={() => {}} onSave={() => {}} onLifecycle={() => {}}
+    pending={false} error="" notice="" onBack={() => {}} onSave={() => {}}
     onCreateContact={() => {}} /></MemoryRouter>);
 }
 
@@ -38,11 +38,14 @@ describe('Customer detail', () => {
     expect(html).not.toContain('Tümünü gör');
     expect(html).not.toContain('customer-notes');
     expect(html).not.toContain('Audit');
+    expect(html).not.toContain('Müşteri durumu');
+    expect(html).not.toContain('Müşteriyi pasifleştir');
   });
 
-  it('keeps Staff read-only while management receives separate field and lifecycle controls', () => {
+  it('keeps Staff read-only while management can edit without lifecycle controls', () => {
     const staffHtml = render(staff); expect(staffHtml).not.toContain('Bilgileri kaydet'); expect(staffHtml).not.toContain('Müşteriyi pasifleştir');
-    const managerHtml = render(manager); expect(managerHtml).toContain('Bilgileri kaydet'); expect(managerHtml).toContain('Müşteriyi pasifleştir');
+    const managerHtml = render(manager); expect(managerHtml).toContain('Bilgileri kaydet');
+    expect(managerHtml).not.toContain('Müşteriyi pasifleştir'); expect(managerHtml).not.toContain('Müşteriyi aktifleştir');
     expect(managerHtml).not.toMatch(/name="status"/); expect(managerHtml).not.toMatch(/name="version"/);
   });
 
@@ -53,12 +56,7 @@ describe('Customer detail', () => {
       taxNumber: 'AB 123', phone: null, email: null, city: null, district: null, address: null, assignedStaffUserId: 'staff-2' });
   });
 
-  it('uses record-specific lifecycle confirmation and actionable conflict copy', () => {
-    const confirm = vi.fn().mockReturnValue(true);
-    expect(confirmCustomerLifecycle(customer, 'deactivate', confirm)).toBe(true);
-    expect(confirm.mock.calls[0]![0]).toContain('Demo Dental Klinik');
-    expect(confirm.mock.calls[0]![0]).toContain('yeni iş ve ilgili kişi işlemleri');
-    expect(customerMutationErrorMessage(new ApiError(409, 'CUSTOMER_HAS_ACTIVE_JOB_CARDS', 'Açık işler var.'))).toContain('açık işleri');
+  it('maps version conflicts to actionable copy', () => {
     expect(customerMutationErrorMessage(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.', false, { currentVersion: 5 }))).toContain('güncellendi');
   });
 
@@ -73,7 +71,7 @@ describe('Customer detail', () => {
   it('keeps stale form values blocked behind an explicit current-values action', () => {
     const html = renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={manager} staff={[]}
       pending={false} error="Kayıt güncellendi." notice="" conflict onBack={() => {}} onSave={() => {}}
-      onLifecycle={() => {}} onCreateContact={() => {}} onReloadCurrent={() => {}} /></MemoryRouter>);
+      onCreateContact={() => {}} onReloadCurrent={() => {}} /></MemoryRouter>);
     expect(html).toContain('value="Demo Dental Klinik"');
     expect(html).toContain('Güncel değerleri yükle');
   });

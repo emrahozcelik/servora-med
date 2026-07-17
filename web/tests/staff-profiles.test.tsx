@@ -1,4 +1,5 @@
 import { renderToStaticMarkup } from 'react-dom/server';
+import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { OwnStaffProfileView, StaffDirectoryView, StaffProfileEditRoute, StaffProfileEditView } from '../src/StaffProfiles';
@@ -15,9 +16,16 @@ describe('Staff profile views', () => {
     for (const label of ['Açık işler', 'Onay bekliyor', 'Düzeltme istendi', 'Bu ay tamamlandı', 'Geciken']) expect(html).toContain(label);
     expect(html).not.toContain('Profili düzenle');
   });
-  it('renders a structured active Staff directory without internal notes', () => {
-    const html = renderToStaticMarkup(<StaffDirectoryView profiles={[profile]} status="active" canFilterInactive={false} onStatusChange={() => {}} onOpen={() => {}} onBack={() => {}} />);
-    expect(html).toContain('Personel'); expect(html).toContain('Ayşe'); expect(html).toContain('Murat'); expect(html).not.toContain('notes');
+  it('renders a structured active Staff directory without internal notes or open/status controls', () => {
+    const html = renderToStaticMarkup(<MemoryRouter><StaffDirectoryView profiles={[profile]} onOpen={() => {}} onBack={() => {}} /></MemoryRouter>);
+    expect(html).toContain('Personel'); expect(html).toContain('Ayşe'); expect(html).toContain('Murat');
+    expect(html).toContain('/staff/staff-1');
+    expect(html).toContain('people-title-link');
+    expect(html).toContain('people-list-card');
+    expect(html).not.toContain('Profili aç');
+    expect(html).not.toContain('Durum');
+    expect(html).not.toContain('Pasif');
+    expect(html).not.toContain('notes');
   });
   it('limits profile editing to approved fields', () => {
     const html = renderToStaticMarkup(<StaffProfileEditView profile={profile} managers={[]} onBack={() => {}} onChanged={() => {}} />);

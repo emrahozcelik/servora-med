@@ -12,45 +12,39 @@ import { isInteractiveTarget } from './ui/clickable-card';
 
 const PAGE_SIZE = 25;
 
-export type ProductFilterValues = Pick<ProductFilters, 'q' | 'status' | 'offset'>;
+export type ProductFilterValues = Pick<ProductFilters, 'q' | 'offset'>;
 export type ProductListState =
   | { kind: 'loading' }
   | { kind: 'ready'; page: Paginated<Product> }
   | { kind: 'error'; code: string; message: string; retryable: boolean };
 
 export function productFiltersFromParams(params: URLSearchParams): ProductFilterValues {
-  const status = params.get('status');
   const offsetValue = params.get('offset');
   const offset = offsetValue === null ? NaN : Number(offsetValue);
   return {
     ...(params.get('q') ? { q: params.get('q')! } : {}),
-    ...(status === 'active' || status === 'inactive' || status === 'all' ? { status } : {}),
     ...(Number.isInteger(offset) && offset >= 0 ? { offset } : {}),
   };
 }
 
 export function updateProductSearchParams(
   current: URLSearchParams,
-  name: 'q' | 'status' | 'offset',
+  name: 'q' | 'offset',
   value: string | number,
 ) {
   const next = new URLSearchParams(current);
   if (value === '') next.delete(name); else next.set(name, String(value));
-  if (name === 'q' || name === 'status') next.delete('offset');
+  if (name === 'q') next.delete('offset');
   return next;
 }
 
 function ProductFiltersView({ filters, onChange }: {
   filters: ProductFilterValues;
-  onChange: (name: 'q' | 'status', value: string) => void;
+  onChange: (name: 'q', value: string) => void;
 }) {
   return <form className="product-filters" role="search" onSubmit={(event) => event.preventDefault()}>
     <div className="field-group"><label htmlFor="product-search">Ürün ara</label>
       <input id="product-search" type="search" value={filters.q ?? ''} onChange={(event) => onChange('q', event.target.value)} /></div>
-    <div className="field-group"><label htmlFor="product-status">Durum</label>
-      <select id="product-status" value={filters.status ?? 'active'} onChange={(event) => onChange('status', event.target.value)}>
-        <option value="active">Aktif</option><option value="inactive">Pasif</option><option value="all">Tümü</option>
-      </select></div>
   </form>;
 }
 
@@ -122,7 +116,7 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   user: CurrentUser;
   filters?: ProductFilterValues;
   hasFilters: boolean;
-  onFilterChange: (name: 'q' | 'status', value: string) => void;
+  onFilterChange: (name: 'q', value: string) => void;
   onRetry: () => void;
   onOffsetChange?: (offset: number) => void;
   onOpenProduct?: (productId: string) => void;
@@ -164,11 +158,11 @@ function ProductResults({ page, canManage, hasFilters, onOffsetChange, onOpenPro
   const last = Math.min(page.offset + page.limit, page.total);
   return <div className="product-results">
     {page.items.length === 0 ? <div className="workspace-message"><h2>{hasFilters ? 'Filtrelere uygun ürün bulunamadı' : 'Henüz ürün kaydı yok'}</h2>
-      <p>{hasFilters ? 'Arama metnini veya durum filtresini değiştirin.' : 'Ürünler eklendiğinde katalog burada görünecek.'}</p></div>
+      <p>{hasFilters ? 'Arama metnini değiştirin.' : 'Ürünler eklendiğinde katalog burada görünecek.'}</p></div>
       : <ul className="product-list">{page.items.map((product) => <li key={product.id}>
         <article className="product-row product-list-card" data-product-id={product.id}
           onClick={(event) => openCardIfEmpty(event, onOpenProduct, product.id)}>
-          <div className="product-identity"><div className="product-signals"><span>{product.isActive ? 'Aktif' : 'Pasif'}</span><span>{product.category ?? 'Kategori belirtilmedi'}</span></div>
+          <div className="product-identity"><div className="product-signals"><span>{product.category ?? 'Kategori belirtilmedi'}</span></div>
             <h2><Link className="product-title-link" to={paths.product(product.id)}>{product.name}</Link></h2>
             <p>{product.brand ?? 'Marka belirtilmedi'}{product.model ? ` · ${product.model}` : ''}</p></div>
           <dl className="product-facts"><div><dt>SKU</dt><dd>{product.sku ?? 'Belirtilmedi'}</dd></div><div><dt>Birim</dt><dd>{product.unit ?? 'Belirtilmedi'}</dd></div></dl>
@@ -208,7 +202,7 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
   useEffect(() => {
     let active = true;
     setState({ kind: 'loading' });
-    load({ ...filters, limit: PAGE_SIZE }).then((page) => {
+    load({ ...filters, status: 'active', limit: PAGE_SIZE }).then((page) => {
         if (!active) return;
         if (page.total > 0 && page.items.length === 0 && page.offset >= page.total) {
           const validOffset = Math.floor((page.total - 1) / page.limit) * page.limit;
@@ -252,7 +246,7 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
     }
   }
 
-  const hasFilters = Boolean(filters.q || filters.status === 'inactive');
+  const hasFilters = Boolean(filters.q);
   return <>
     <ProductListView state={state} user={user} filters={filters} hasFilters={hasFilters}
       onFilterChange={(name, value) => setParams(updateProductSearchParams(params, name, value))}

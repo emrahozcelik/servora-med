@@ -1,22 +1,38 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 
-import { ApiError } from './services/api';
+import { paths } from './paths';
 import {
-  activateUser, changeUserRole, createUser, deactivateUser, getUser, listUsers,
+  changeUserRole, createUser, getUser, listUsers,
   resetUserPassword, updateUser, type ManagedUser,
 } from './services/people-api';
 import { PASSWORD_LENGTH_HINT_TR } from './ui/password-policy';
+import { isInteractiveTarget } from './ui/clickable-card';
 
 const roleLabel = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
+
+function openCardIfEmpty(
+  event: MouseEvent<HTMLElement>,
+  open: ((id: string) => void) | undefined,
+  id: string,
+) {
+  if (!open || isInteractiveTarget(event.target)) return;
+  open(id);
+}
 
 export function UserListView({ users, onCreate, onOpen }: { users: ManagedUser[]; onCreate: () => void; onOpen: (id: string) => void }) {
   return <main className="workspace"><div className="workspace-heading"><div><p className="eyebrow">Yönetim</p><h1>Kullanıcılar</h1></div>
     <button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button></div>
     {users.length === 0 ? <div className="workspace-message"><h2>Henüz kullanıcı yok</h2><p>İlk kullanıcıyı oluşturarak başlayın.</p></div>
-      : <ul className="people-list">{users.map((user) => <li key={user.id}><article className="people-row">
-        <div><span className="status">{user.isActive ? 'Aktif' : 'Pasif'}</span><h2>{user.name}</h2><p>{user.email}</p></div>
-        <div className="people-actions"><span>{roleLabel[user.role]}</span><button className="secondary-button" type="button" onClick={() => onOpen(user.id)}>Ayrıntıyı aç</button></div>
-      </article></li>)}</ul>}
+      : <ul className="people-list">{users.map((user) => <li key={user.id}>
+        <article className="people-row people-list-card" data-user-id={user.id}
+          onClick={(event) => openCardIfEmpty(event, onOpen, user.id)}>
+          <div className="people-identity">
+            <h2><Link className="people-title-link" to={paths.user(user.id)}>{user.name}</Link></h2>
+            <p>{user.email} · {roleLabel[user.role]}</p>
+          </div>
+        </article>
+      </li>)}</ul>}
   </main>;
 }
 
@@ -68,18 +84,62 @@ export function UserDetailView({ user: initial, onBack, onChanged }: { user: Man
         <Field id="reset-password" label="Geçici parola belirle" hintId="reset-password-hint" hint={PASSWORD_LENGTH_HINT_TR}>
           <input id="reset-password" name="temporaryPassword" type="password" minLength={12} maxLength={128} required aria-describedby="reset-password-hint" /></Field>
         <button className="secondary-button command-button">Parolayı sıfırla</button></form>
-      <button className="secondary-button command-button" type="button" onClick={() => { if (window.confirm(user.isActive ? 'Kullanıcı pasifleştirilsin mi?' : 'Kullanıcı aktifleştirilsin mi?')) void run(() => user.isActive ? deactivateUser(user.id, user.version) : activateUser(user.id, user.version), user.isActive ? 'Kullanıcı pasifleştirildi.' : 'Kullanıcı aktifleştirildi.'); }}>{user.isActive ? 'Kullanıcıyı pasifleştir' : 'Kullanıcıyı aktifleştir'}</button>
     </section></main>;
 }
 
-export function UserManagementScreen({ onBack }: { onBack: () => void }) {
-  const [users, setUsers] = useState<ManagedUser[]>([]); const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [screen, setScreen] = useState<'list' | 'create' | 'detail'>('list'); const [selected, setSelected] = useState<ManagedUser | null>(null);
+export function UserListScreen() {
+  const navigate = useNavigate();
+  const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const load = () => { setState('loading'); listUsers().then((value) => { setUsers(value); setState('ready'); }).catch(() => setState('error')); };
   useEffect(load, []);
   if (state === 'loading') return <main className="workspace" aria-busy="true"><h1>Kullanıcılar yükleniyor</h1></main>;
   if (state === 'error') return <main className="workspace"><div role="alert" className="workspace-message"><h1>Kullanıcılar yüklenemedi</h1><button className="secondary-button" onClick={load}>Tekrar dene</button></div></main>;
-  if (screen === 'create') return <UserCreateForm managers={users.filter((u) => u.role === 'MANAGER' && u.isActive)} onCancel={() => setScreen('list')} onCreated={(created) => { setUsers((all) => [...all, created]); setScreen('list'); }} />;
-  if (screen === 'detail' && selected) return <UserDetailView user={selected} onBack={() => setScreen('list')} onChanged={(next) => setUsers((all) => all.map((u) => u.id === next.id ? next : u))} />;
-  return <><button className="back-link" type="button" onClick={onBack}>İşlere dön</button><UserListView users={users} onCreate={() => setScreen('create')} onOpen={(id) => { void getUser(id).then((found) => { setSelected(found); setScreen('detail'); }); }} /></>;
+  return <>
+    <button className="back-link" type="button" onClick={() => navigate(paths.jobs)}>İşlere dön</button>
+    <UserListView users={users} onCreate={() => navigate(paths.newUser)}
+      onOpen={(id) => navigate(paths.user(id))} />
+  </>;
+}
+
+export function UserCreateScreen() {
+  const navigate = useNavigate();
+  const [managers, setManagers] = useState<ManagedUser[]>([]);
+  const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
+  useEffect(() => {
+    listUsers().then((value) => { setManagers(value.filter((u) => u.role === 'MANAGER' && u.isActive)); setState('ready'); })
+      .catch(() => setState('error'));
+  }, []);
+  if (state === 'loading') return <main className="workspace" aria-busy="true"><h1>Kullanıcı formu yükleniyor</h1></main>;
+  if (state === 'error') return <main className="workspace"><div role="alert" className="workspace-message"><h1>Kullanıcı formu yüklenemedi</h1>
+    <button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button></div></main>;
+  return <UserCreateForm managers={managers} onCancel={() => navigate(paths.users)}
+    onCreated={(created) => navigate(paths.user(created.id))} />;
+}
+
+export function UserDetailScreen() {
+  const { userId } = useParams();
+  const navigate = useNavigate();
+  const [user, setUser] = useState<ManagedUser | null>(null);
+  const [error, setError] = useState('');
+  const [loading, setLoading] = useState(true);
+  useEffect(() => {
+    if (!userId) return;
+    setLoading(true); setError('');
+    getUser(userId).then(setUser).catch((caught) => setError(caught instanceof Error ? caught.message : 'Kullanıcı yüklenemedi.'))
+      .finally(() => setLoading(false));
+  }, [userId]);
+  if (!userId) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Kullanıcı bulunamadı</h1></div></main>;
+  if (loading) return <main className="workspace" aria-busy="true"><h1>Kullanıcı yükleniyor</h1></main>;
+  if (!user) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Kullanıcı yüklenemedi</h1><p>{error}</p>
+    <button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button></div></main>;
+  return <UserDetailView user={user} onBack={() => navigate(paths.users)} onChanged={setUser} />;
+}
+
+/** @deprecated Prefer routed screens; kept for existing imports. */
+export function UserManagementScreen({ onBack }: { onBack: () => void }) {
+  const navigate = useNavigate();
+  useEffect(() => { navigate(paths.users, { replace: true }); }, [navigate]);
+  return <main className="workspace"><button className="back-link" type="button" onClick={onBack}>İşlere dön</button>
+    <p>Kullanıcı listesine yönlendiriliyorsunuz…</p></main>;
 }

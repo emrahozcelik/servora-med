@@ -6,6 +6,8 @@ export const paths = {
   newTask: '/jobs/new-task',
   newMeeting: '/jobs/new-meeting',
   users: '/users',
+  newUser: '/users/new',
+  user: (id: string) => `/users/${encoded(id)}`,
   staff: '/staff',
   reports: '/reports',
   deliveryReports: '/reports/deliveries',

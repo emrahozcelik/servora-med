@@ -90,6 +90,8 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
   if (/^\/products\/[^/]+/.test(pathname)) return 'Ürün';
   if (pathname.startsWith('/products')) return 'Ürünler';
   if (pathname.startsWith('/reports')) return 'Raporlar';
+  if (pathname.startsWith('/users/new')) return 'Yeni kullanıcı';
+  if (/^\/users\/[^/]+/.test(pathname)) return 'Kullanıcı';
   if (pathname.startsWith('/users')) return 'Kullanıcılar';
   if (/^\/staff\/[^/]+\/reports/.test(pathname)) return 'Personel raporu';
   if (/^\/staff\/[^/]+/.test(pathname)) return role === 'STAFF' ? 'Profilim' : 'Personel profili';
@@ -109,6 +111,8 @@ export function resolveShellBackTo(pathname: string): string | null {
   if (/^\/customers\/[^/]+/.test(pathname)) return paths.customers;
 
   if (pathname === paths.newProduct || /^\/products\/[^/]+/.test(pathname)) return paths.products;
+
+  if (pathname === paths.newUser || /^\/users\/[^/]+/.test(pathname)) return paths.users;
 
   const staffReportMatch = pathname.match(/^\/staff\/([^/]+)\/reports/);
   if (staffReportMatch) return paths.staffProfile(staffReportMatch[1]!);

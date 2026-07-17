@@ -41,8 +41,8 @@ describe('Product list', () => {
     expect(forbidden).toContain('Bu alana erişim yetkiniz yok'); expect(forbidden).not.toContain('Tekrar dene');
   });
 
-  it('treats status all without a query as the initial catalog state', () => {
-    const filters = productFiltersFromParams(new URLSearchParams('status=all'));
+  it('treats empty catalog without a query as the initial catalog state', () => {
+    const filters = productFiltersFromParams(new URLSearchParams());
     const html = renderToStaticMarkup(<MemoryRouter><ProductListView state={{ kind: 'ready', page: { items: [], total: 0, limit: 25, offset: 0 } }}
       user={manager} filters={filters} hasFilters={false} onFilterChange={() => {}} onRetry={() => {}} /></MemoryRouter>);
     expect(html).toContain('Henüz ürün kaydı yok');
@@ -52,13 +52,16 @@ describe('Product list', () => {
   it('uses semantic structured rows with visible operational labels', () => {
     const html = render({ kind: 'ready', page: { items: [product], total: 1, limit: 25, offset: 0 } });
     expect(html).toContain('<ul'); expect(html).toContain('<article');
-    expect(html).toContain('Dental İmplant Seti'); expect(html).toContain('Aktif');
+    expect(html).toContain('Dental İmplant Seti'); expect(html).toContain('İmplant');
     expect(html).toContain('SKU'); expect(html).toContain('IMP-01');
     expect(html).toContain('Birim'); expect(html).toContain('set');
     expect(html).toContain('/products/product-1');
     expect(html).toContain('product-list-card');
     expect(html).toContain('product-title-link');
     expect(html).not.toContain('Ürünü aç');
+    expect(html).not.toContain('Aktif');
+    expect(html).not.toContain('Pasif');
+    expect(html).not.toContain('product-status');
   });
 
   it('keeps Staff read-only while Manager can create, edit, and delete', () => {
@@ -75,13 +78,11 @@ describe('Product list', () => {
     expect(managerHtml).toContain('Sil');
   });
 
-  it('restores q/status/offset from the URL and resets offset when a filter changes', () => {
+  it('restores q/offset from the URL and resets offset when search changes', () => {
     expect(productFiltersFromParams(new URLSearchParams('q=implant&status=inactive&offset=50')))
-      .toEqual({ q: 'implant', status: 'inactive', offset: 50 });
-    expect(updateProductSearchParams(new URLSearchParams('q=implant&status=inactive&offset=50'), 'q', 'vida').toString())
-      .toBe('q=vida&status=inactive');
-    expect(updateProductSearchParams(new URLSearchParams('q=implant&status=inactive&offset=50'), 'status', 'all').toString())
-      .toBe('q=implant&status=all');
+      .toEqual({ q: 'implant', offset: 50 });
+    expect(updateProductSearchParams(new URLSearchParams('q=implant&offset=50'), 'q', 'vida').toString())
+      .toBe('q=vida');
   });
 
   it('shows explicit previous and next controls from page metadata', () => {
@@ -135,22 +136,22 @@ describe('routed Product list screen', () => {
     expect(container.textContent).toContain('İmplant'); expect(container.textContent).not.toContain('Eski sonuç');
   });
 
-  it('resets offset for q/status changes and writes pagination to the URL', async () => {
-    const load = vi.fn().mockImplementation(async (filters: { offset?: number }) => page([product], filters.offset ?? 0, 80));
-    const router = await mount('/products?q=implant&status=inactive&offset=25', load); await act(async () => { await Promise.resolve(); });
+  it('resets offset for search changes and writes pagination to the URL', async () => {
+    const load = vi.fn().mockImplementation(async (filters: { offset?: number; status?: string }) => {
+      expect(filters.status).toBe('active');
+      return page([product], filters.offset ?? 0, 80);
+    });
+    const router = await mount('/products?q=implant&offset=25', load); await act(async () => { await Promise.resolve(); });
     const search = container.querySelector('#product-search') as HTMLInputElement;
     await act(async () => change(search, 'vida')); await act(async () => { await Promise.resolve(); });
-    expect(router.state.location.search).toBe('?q=vida&status=inactive');
-    const status = container.querySelector('#product-status') as HTMLSelectElement;
-    await act(async () => change(status, 'all')); await act(async () => { await Promise.resolve(); });
-    expect(router.state.location.search).toBe('?q=vida&status=all');
+    expect(router.state.location.search).toBe('?q=vida');
     await act(async () => (Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Sonraki') as HTMLButtonElement).click());
-    expect(router.state.location.search).toBe('?q=vida&status=all&offset=25');
+    expect(router.state.location.search).toBe('?q=vida&offset=25');
   });
 
-  it('retries a routed request and classifies status all empty response as initial-empty', async () => {
+  it('retries a routed request and classifies empty response as initial-empty', async () => {
     const request = deferred<ReturnType<typeof page>>(); const load = vi.fn().mockReturnValueOnce(request.promise).mockResolvedValueOnce(page([]));
-    await mount('/products?status=all', load);
+    await mount('/products', load);
     await act(async () => request.reject(new Error('Bağlantı kurulamadı.')));
     const retry = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Tekrar dene') as HTMLButtonElement;
     expect(retry).toBeTruthy(); await act(async () => retry.click()); await act(async () => { await Promise.resolve(); });
