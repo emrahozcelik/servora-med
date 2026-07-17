@@ -11,6 +11,7 @@ import {
   deriveCompactWorkflowSummary,
   expectedRoleForStatus,
 } from './job-workflow-presentation';
+import { cardScheduleFact } from './scheduling';
 
 export type JobCommandIntent = {
   name: LifecycleCommand;
@@ -33,10 +34,6 @@ const OPEN_COMMAND_ORDER = [
   'APPROVE',
   'REQUEST_REVISION',
 ] as const satisfies readonly LifecycleCommand[];
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(value));
-}
 
 function preferredPrimaryCommand(status: JobCardListItem['status']): LifecycleCommand | null {
   switch (status) {
@@ -93,6 +90,7 @@ export function JobRow({ job, user, onCommand }: {
   const summary = deriveCompactWorkflowSummary({ job, user });
   const primaryCommand = listPrimaryOpenCommand(user, job);
   const openCommands = listOpenCommands(user, job);
+  const schedule = cardScheduleFact(job);
 
   return <article className="structured-job-row job-list-card" data-job-id={job.id}>
     <div className="job-row-primary">
@@ -112,7 +110,9 @@ export function JobRow({ job, user, onCommand }: {
     </div>
     <dl className="job-row-facts">
       <div><dt>Sorumlu</dt><dd>{job.assignee.name}</dd></div>
-      <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Termin'}</dt><dd>{job.dueDate ? formatDate(job.dueDate) : 'Belirtilmedi'}</dd></div>
+      <div><dt>{schedule.label}</dt><dd>{schedule.dateTime
+        ? <time dateTime={schedule.dateTime}>{schedule.text}</time>
+        : schedule.text}</dd></div>
       {job.type === 'PRODUCT_DELIVERY' && <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>}
     </dl>
     {primaryCommand && (

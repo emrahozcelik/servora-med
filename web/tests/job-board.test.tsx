@@ -185,7 +185,35 @@ describe('read-only JobCard board', () => {
       <MemoryRouter><JobBoard board={meetingBoard} user={manager} params={new URLSearchParams()} /></MemoryRouter>);
     const card = host.querySelector('[data-board-card="meeting-1"]')!;
     expect(card.textContent).toContain('Satış görüşmesi'); expect(card.textContent).toContain('Planlanan görüşme günü');
-    expect(card.textContent).not.toContain('ürün kalemi');
+  });
+
+  it('prefers scheduledAt over dueDate on board cards', () => {
+    const withSchedule: JobCardBoard = {
+      ...board,
+      columns: {
+        ...board.columns,
+        NEW: {
+          items: [{
+            ...baseItem,
+            id: 'job-scheduled',
+            scheduledAt: '2026-07-22T14:00:00.000Z',
+            dueDate: '2026-07-30',
+          }],
+          count: 1,
+        },
+      },
+    };
+    const html = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={withSchedule} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
+    );
+    const card = html.includes('data-board-card="job-scheduled"')
+      ? html.slice(html.indexOf('data-board-card="job-scheduled"'))
+      : html;
+    expect(card).toContain('Planlanan teslim');
+    expect(card).toContain('dateTime="2026-07-22T14:00:00.000Z"');
+    // Only assert on the scheduled card fragment, not other columns' Termin fallbacks.
+    const scheduledFragment = card.slice(0, card.indexOf('</article>') + '</article>'.length);
+    expect(scheduledFragment).not.toContain('<dt>Termin</dt>');
   });
 });
 

@@ -6,7 +6,7 @@ import {
 import { ApiError, type CurrentUser } from './services/api';
 import {
   acceptJobCard, approveJobCard, cancelJobCard, getJobCard, getMeetingDetails, listDeliveryItems,
-  patchJobCard, patchMeetingDetails,
+  patchDeliveryItem, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
   type DeliveryItem, type JobCard, type LifecycleCommand, type MeetingDetails,
@@ -132,6 +132,87 @@ function findTransition(
 
 function isManagementUser(user: CurrentUser): boolean {
   return user.role === 'MANAGER' || user.role === 'ADMIN';
+}
+
+function formatDeliveredAt(value: string | null): string {
+  if (!value) return 'Henüz kaydedilmedi';
+  return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
+    .format(new Date(value));
+}
+
+function DeliveryItemActualTimeForm({
+  item,
+  pending,
+  onSave,
+}: {
+  item: DeliveryItem;
+  pending: boolean;
+  onSave: (itemId: string, deliveredAt: string) => Promise<void>;
+}) {
+  const [localValue, setLocalValue] = useState(() => (
+    item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : ''
+  ));
+  const [fieldError, setFieldError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const canonicalKey = `${item.id}:${item.deliveredAt ?? ''}`;
+  const lastKey = useRef(canonicalKey);
+
+  useEffect(() => {
+    if (lastKey.current === canonicalKey) return;
+    lastKey.current = canonicalKey;
+    setLocalValue(item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : '');
+    setFieldError('');
+    setSubmitError('');
+  }, [canonicalKey, item.deliveredAt]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending) return;
+    setSubmitError('');
+    if (!localValue.trim()) {
+      setFieldError('Gerçekleşen teslim zamanını seçin.');
+      return;
+    }
+    setFieldError('');
+    try {
+      await onSave(item.id, localDateTimeToIso(localValue));
+    } catch (caught) {
+      setSubmitError(
+        caught instanceof Error ? caught.message : 'Gerçekleşen teslim zamanı kaydedilemedi.',
+      );
+    }
+  }
+
+  const fieldId = `delivery-actual-at-${item.id}`;
+  return (
+    <form className="delivery-actual-time-form" onSubmit={submit} noValidate>
+      <div className="field-group">
+        <label htmlFor={fieldId}>Gerçekleşen teslim zamanı</label>
+        <input
+          id={fieldId}
+          name="deliveredAt"
+          type="datetime-local"
+          value={localValue}
+          required
+          disabled={pending}
+          aria-invalid={fieldError ? true : undefined}
+          aria-describedby={fieldError ? `${fieldId}-error` : undefined}
+          onChange={(event) => {
+            setLocalValue(event.target.value);
+            setFieldError('');
+            setSubmitError('');
+          }}
+        />
+        {fieldError && <span id={`${fieldId}-error`} className="field-error">{fieldError}</span>}
+      </div>
+      {submitError && <p className="field-error" role="alert">{submitError}</p>}
+      <div className="review-buttons">
+        <button className="secondary-button" type="submit" disabled={pending}>
+          {pending ? 'Kaydediliyor…' : 'Gerçekleşen teslim zamanını kaydet'}
+        </button>
+      </div>
+    </form>
+  );
 }
 
 function JobScheduleEditForm({
@@ -294,8 +375,8 @@ function ActionGroup(props: {
 
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
-  feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, meetingDetails = null,
-  records, children,
+  feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
+  meetingDetails = null, records, children,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -308,6 +389,7 @@ export function JobDetailPanel({
   onCommand: (command: LifecycleCommand) => void;
   onRecordEdit?: (action: RecordEditPresentation['action']) => void;
   onSaveSchedule?: (scheduledAt: string | null) => Promise<void> | void;
+  onSaveDeliveredAt?: (itemId: string, deliveredAt: string) => Promise<void>;
   meetingDetails?: MeetingDetails | null;
   records?: ReactNode;
   children?: ReactNode;
@@ -320,6 +402,9 @@ export function JobDetailPanel({
     meetingDetails: job.type === 'SALES_MEETING' ? meetingDetails : null,
   });
   const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
+  const canEditDelivery = job.type === 'PRODUCT_DELIVERY'
+    && job.workflowContext.allowedActions.includes('EDIT_JOB_FIELDS')
+    && onSaveDeliveredAt !== undefined;
   const scheduleLabel = presentation.scheduleEdit?.label
     ?? (job.type === 'SALES_MEETING'
       ? 'Planlanan görüşme zamanı'
@@ -375,13 +460,38 @@ export function JobDetailPanel({
       />
     )}
 
-    {job.type === 'PRODUCT_DELIVERY' && <section className="delivery-lines" aria-labelledby="delivery-lines-title"><h2 id="delivery-lines-title">Teslim bilgileri</h2>
-      <ul>{items.map((entry) => <li key={entry.id}><div><strong>{entry.productNameSnapshot}</strong><span>{entry.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span></div>
-        <dl><div><dt>Amaç</dt><dd>{purposeLabels[entry.deliveryPurpose]}</dd></div><div><dt>Miktar</dt><dd>{entry.quantity}{entry.unit ? ` ${entry.unit}` : ''}</dd></div>
-          <div><dt>Teslim zamanı</dt><dd>{entry.deliveredAt
-            ? new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(entry.deliveredAt))
-            : 'Henüz kaydedilmedi'}</dd></div></dl></li>)}</ul>
-    </section>}
+    {job.type === 'PRODUCT_DELIVERY' && (
+      <section className="delivery-lines" aria-labelledby="delivery-lines-title">
+        <h2 id="delivery-lines-title">Teslim bilgileri</h2>
+        <ul>
+          {items.map((entry) => (
+            <li key={entry.id}>
+              <div>
+                <strong>{entry.productNameSnapshot}</strong>
+                <span>{entry.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span>
+              </div>
+              <dl>
+                <div><dt>Amaç</dt><dd>{purposeLabels[entry.deliveryPurpose]}</dd></div>
+                <div><dt>Miktar</dt><dd>{entry.quantity}{entry.unit ? ` ${entry.unit}` : ''}</dd></div>
+                {!canEditDelivery && (
+                  <div>
+                    <dt>Gerçekleşen teslim zamanı</dt>
+                    <dd>{formatDeliveredAt(entry.deliveredAt)}</dd>
+                  </div>
+                )}
+              </dl>
+              {canEditDelivery && onSaveDeliveredAt && (
+                <DeliveryItemActualTimeForm
+                  item={entry}
+                  pending={pending}
+                  onSave={onSaveDeliveredAt}
+                />
+              )}
+            </li>
+          ))}
+        </ul>
+      </section>
+    )}
 
     {records}
 
@@ -707,6 +817,46 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       setPending(false);
     }
   }
+  async function saveDeliveredAt(itemId: string, deliveredAt: string) {
+    if (state.kind !== 'ready' || state.detail.kind !== 'PRODUCT_DELIVERY'
+      || mutationInFlight.current) {
+      throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
+    }
+    mutationInFlight.current = true;
+    setPending(true); setMessage(''); setMessageIsError(false);
+    try {
+      await patchDeliveryItem(jobId, itemId, {
+        expectedVersion: state.detail.job.version,
+        deliveredAt,
+      });
+      await refreshTruth();
+      setTimelineKey((value) => value + 1);
+      setMessage('Gerçekleşen teslim zamanı kaydedildi.');
+      setFeedbackFocusRequest((value) => value + 1);
+      onChanged();
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
+        await refreshTruth();
+        setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+        setMessageIsError(true);
+        setFeedbackFocusRequest((value) => value + 1);
+        throw new ApiError(
+          409,
+          'VERSION_CONFLICT',
+          'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.',
+        );
+      }
+      setMessage(caught instanceof ApiError ? caught.message : 'Gerçekleşen teslim zamanı kaydedilemedi.');
+      setMessageIsError(true);
+      setFeedbackFocusRequest((value) => value + 1);
+      throw caught instanceof Error
+        ? caught
+        : new Error('Gerçekleşen teslim zamanı kaydedilemedi.');
+    } finally {
+      mutationInFlight.current = false;
+      setPending(false);
+    }
+  }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
     if (state.kind !== 'ready') return;
     const presentation = presentationFor(state.detail);
@@ -805,6 +955,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       openRecordEditDialog(action, document.activeElement as HTMLElement);
     }}
     onSaveSchedule={saveSchedule}
+    onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
     records={recordContent}
   >
     <div className="job-detail-sections">

@@ -436,6 +436,51 @@ describe('deriveJobWorkflowPresentation', () => {
     });
   });
 
+  it('offers schedule edit only in NEW and ACCEPTED when EDIT_JOB_FIELDS is allowed', () => {
+    const actions = ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'] as const;
+    const newModel = derive(jobWith({
+      status: 'NEW',
+      workflowContext: contextWith({
+        allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+        allowedActions: [...actions],
+      }),
+    }));
+    expect(newModel.scheduleEdit).toEqual({
+      label: 'Planlanan teslim zamanı',
+      optional: false,
+    });
+
+    const acceptedModel = derive(jobWith({
+      status: 'ACCEPTED',
+      workflowContext: contextWith({
+        allowedCommands: ['START', 'CANCEL'],
+        allowedActions: [...actions],
+      }),
+    }));
+    expect(acceptedModel.scheduleEdit).toEqual({
+      label: 'Planlanan teslim zamanı',
+      optional: false,
+    });
+
+    const inProgressModel = derive(jobWith({
+      status: 'IN_PROGRESS',
+      workflowContext: contextWith({
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: [...actions],
+      }),
+    }));
+    expect(inProgressModel.scheduleEdit).toBeNull();
+
+    const revisionModel = derive(jobWith({
+      status: 'REVISION_REQUESTED',
+      workflowContext: contextWith({
+        allowedCommands: ['RESUME', 'CANCEL'],
+        allowedActions: [...actions],
+      }),
+    }));
+    expect(revisionModel.scheduleEdit).toBeNull();
+  });
+
   it('labels every submission requirement code from the SSOT', () => {
     const items: SubmissionRequirement[] = (Object.keys(requirementLabels) as Array<
       SubmissionRequirement['code']

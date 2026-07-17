@@ -76,3 +76,57 @@ export function localDateTimeToIso(value: string): string {
   }
   return local.toISOString();
 }
+
+export type CardScheduleFact = {
+  label: string;
+  text: string;
+  dateTime: string | null;
+};
+
+function formatCardDate(value: string): string {
+  return new Intl.DateTimeFormat('tr-TR', {
+    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
+  }).format(new Date(value));
+}
+
+function formatCardDateTime(value: string): string {
+  return new Intl.DateTimeFormat('tr-TR', {
+    day: 'numeric', month: 'short', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  }).format(new Date(value));
+}
+
+/**
+ * List/board schedule presentation: prefer scheduledAt, fall back to dueDate.
+ * Labels stay scheduling facts — never lifecycle status language.
+ */
+export function cardScheduleFact(job: {
+  type: 'PRODUCT_DELIVERY' | 'SALES_MEETING' | 'GENERAL_TASK';
+  scheduledAt: string | null;
+  dueDate: string | null;
+}): CardScheduleFact {
+  if (job.scheduledAt) {
+    const label = job.type === 'SALES_MEETING'
+      ? 'Planlanan görüşme'
+      : job.type === 'PRODUCT_DELIVERY'
+        ? 'Planlanan teslim'
+        : 'Planlanan zaman';
+    return {
+      label,
+      text: formatCardDateTime(job.scheduledAt),
+      dateTime: job.scheduledAt,
+    };
+  }
+  if (job.type === 'SALES_MEETING') {
+    return {
+      label: 'Planlanan görüşme günü',
+      text: job.dueDate ? formatCardDate(job.dueDate) : 'Belirtilmedi',
+      dateTime: job.dueDate,
+    };
+  }
+  return {
+    label: 'Termin',
+    text: job.dueDate ? formatCardDate(job.dueDate) : 'Belirtilmedi',
+    dateTime: job.dueDate,
+  };
+}

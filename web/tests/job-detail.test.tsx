@@ -357,6 +357,24 @@ describe('Staff JobCard detail', () => {
     }
   });
 
+  it('hides schedule edit after START even when EDIT_JOB_FIELDS remains allowed', async () => {
+    const card: JobCard = {
+      ...job,
+      type: 'PRODUCT_DELIVERY',
+      status: 'IN_PROGRESS',
+      assignedTo: staffUser.id,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: null,
+      }),
+    };
+    await renderScreen(card);
+    expect(host.querySelector('#job-scheduled-at')).toBeNull();
+    expect(host.textContent).not.toContain('Planlanan zamanı düzenle');
+  });
+
   it('hides notes and schedule edit when backend allowedActions omit them', async () => {
     const card: JobCard = {
       ...job,
@@ -547,8 +565,39 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('2 adet');
     expect(html).toContain('İşi kabul et');
     expect(html).toContain('Planlanan teslim zamanı');
+    expect(html).toContain('Gerçekleşen teslim zamanı');
     expect(html).not.toMatch(/>Planla</);
     expect(html.match(/primary-button/g)?.length ?? 0).toBe(1);
+  });
+
+  it('exposes actual delivery time editor when EDIT_JOB_FIELDS is allowed', () => {
+    const inProgress: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: null,
+      }),
+    };
+    const plannedItem = { ...item, deliveredAt: null };
+    const html = renderToStaticMarkup(<JobDetailPanel
+      job={inProgress}
+      items={[plannedItem]}
+      user={staffUser}
+      pending={false}
+      message=""
+      onBack={() => {}}
+      onCommand={() => {}}
+      onSaveDeliveredAt={async () => {}}
+    />);
+    expect(html).toContain('Planlanan teslim zamanı');
+    expect(html).toContain('Gerçekleşen teslim zamanı');
+    expect(html).toContain(`id="delivery-actual-at-${plannedItem.id}"`);
+    expect(html).toContain('Gerçekleşen teslim zamanını kaydet');
+    expect(html).not.toContain('Henüz kaydedilmedi');
   });
 
   it('shows start as primary after assignment acceptance', () => {
@@ -609,6 +658,117 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('Notlar ve zaman çizelgesi');
     expect(html).not.toContain('Teslim bilgileri');
     expect(html).not.toContain('Ürün teslimi');
+  });
+
+  it('patches deliveredAt and refreshes submission readiness for Product Delivery', async () => {
+    const missingReadiness = {
+      evaluatedAt: '2026-07-17T12:00:00.000Z',
+      ready: false,
+      items: [
+        { code: 'DELIVERY_ITEM_PRESENT' as const, state: 'met' as const },
+        { code: 'DELIVERY_ITEMS_VALID' as const, state: 'invalid' as const },
+        { code: 'CUSTOMER_ELIGIBLE' as const, state: 'met' as const },
+      ],
+    };
+    const metReadiness = {
+      evaluatedAt: '2026-07-17T12:05:00.000Z',
+      ready: true,
+      items: [
+        { code: 'DELIVERY_ITEM_PRESENT' as const, state: 'met' as const },
+        { code: 'DELIVERY_ITEMS_VALID' as const, state: 'met' as const },
+        { code: 'CUSTOMER_ELIGIBLE' as const, state: 'met' as const },
+      ],
+    };
+    const plannedItem = { ...item, deliveredAt: null };
+    const savedItem = { ...item, deliveredAt: '2026-07-17T14:00:00.000Z' };
+    const initialCard: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      version: 3,
+      assignedTo: staffUser.id,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: missingReadiness,
+      }),
+    };
+    const refreshedCard: JobCard = {
+      ...initialCard,
+      version: 4,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: metReadiness,
+      }),
+    };
+    let currentCard = initialCard;
+    let currentItems = [plannedItem];
+    const patchBodies: unknown[] = [];
+    const flush = async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const change = (element: HTMLInputElement, value: string) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        ?.set?.call(element, value);
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/delivery-items/') && init?.method === 'PATCH') {
+        patchBodies.push(JSON.parse(String(init.body)));
+        currentItems = [savedItem];
+        currentCard = refreshedCard;
+        return Response.json({ item: savedItem, jobCardVersion: 4 });
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: currentItems });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(currentCard);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    await act(async () => {
+      root.render(<JobDetailScreen
+        jobId={initialCard.id}
+        user={staffUser}
+        onBack={() => {}}
+        onChanged={() => {}}
+      />);
+      await flush();
+    });
+
+    const actualInput = host.querySelector(`#delivery-actual-at-${plannedItem.id}`) as HTMLInputElement;
+    expect(actualInput).not.toBeNull();
+    expect(host.textContent).toContain('Gerçekleşen teslim zamanı');
+    const requirementLabel = 'Ürün, amaç, miktar ve teslim zamanı';
+    const invalidItem = Array.from(host.querySelectorAll('.workflow-requirement'))
+      .find((el) => el.querySelector('.workflow-requirement-label')?.textContent
+        === requirementLabel);
+    expect(invalidItem?.querySelector('.workflow-requirement-state')?.textContent)
+      .toMatch(/Geçersiz|Eksik/);
+
+    await act(async () => {
+      change(actualInput, '2026-07-17T17:00');
+    });
+    await act(async () => {
+      (host.querySelector('form.delivery-actual-time-form') as HTMLFormElement).requestSubmit();
+      await flush();
+      await flush();
+    });
+
+    expect(patchBodies).toHaveLength(1);
+    expect(patchBodies[0]).toMatchObject({
+      expectedVersion: 3,
+      deliveredAt: expect.stringMatching(/Z$|[+-]\d{2}:\d{2}$/),
+    });
+    expect(host.textContent).toContain('Gerçekleşen teslim zamanı kaydedildi.');
+    const metItem = Array.from(host.querySelectorAll('.workflow-requirement'))
+      .find((el) => el.querySelector('.workflow-requirement-label')?.textContent
+        === requirementLabel);
+    expect(metItem?.querySelector('.workflow-requirement-state')?.textContent).toBe('Tamam');
   });
 
   it('refreshes backend submission readiness after meeting result save', async () => {

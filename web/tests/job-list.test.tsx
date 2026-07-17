@@ -17,6 +17,7 @@ const manager: CurrentUser = { ...staff, id: '22222222-2222-4222-8222-2222222222
 const item: JobCardListItem = {
   id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 7,
   title: 'ABC Klinik teslimi', priority: 'urgent', dueDate: '2026-07-20',
+  scheduledAt: null,
   createdAt: '2026-07-10T10:00:00.000Z', updatedAt: '2026-07-13T10:00:00.000Z',
   staffCompletedAt: '2026-07-12T10:00:00.000Z', customer: { id: 'customer-1', name: 'ABC Klinik' },
   contact: { id: 'contact-1', name: 'Dr. Deniz' }, assignee: { id: staff.id, name: staff.name }, deliveryItemCount: 2,
@@ -137,6 +138,17 @@ describe('structured JobCard list', () => {
     }]) });
     expect(html).toContain('Satış görüşmesi'); expect(html).toContain('Planlanan görüşme günü');
     expect(html).not.toContain('ürün kalemi');
+  });
+
+  it('prefers scheduledAt over dueDate on list cards', () => {
+    const html = renderList({ kind: 'ready', page: page([{
+      ...item,
+      scheduledAt: '2026-07-21T09:30:00.000Z',
+      dueDate: '2026-07-25',
+    }]) });
+    expect(html).toContain('Planlanan teslim');
+    expect(html).toContain('dateTime="2026-07-21T09:30:00.000Z"');
+    expect(html).not.toContain('<dt>Termin</dt>');
   });
 
   it('renders the server page range and explicit previous/next actions', () => {

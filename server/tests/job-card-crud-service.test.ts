@@ -609,6 +609,64 @@ describe('JobCardService create and reads', () => {
     });
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });
+
+  it('rejects clearing required scheduledAt for Product Delivery and Sales Meeting', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = serviceOf(repository);
+    const delivery = await service.create(staff, {
+      ...createInput, clientActionId: 'pd-clear-schedule',
+    });
+    await expect(service.patch(staff, delivery.id, {
+      expectedVersion: 1, scheduledAt: null,
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      statusCode: 400,
+      message: 'Planlanan zaman bu iş türü için zorunludur.',
+    });
+    expect(repository.jobs[0]).toMatchObject({
+      scheduledAt: SCHEDULED_AT, version: 1,
+    });
+
+    const meeting = await service.create(manager, {
+      clientActionId: 'sm-clear-schedule',
+      type: 'SALES_MEETING',
+      title: 'Görüşme',
+      description: null,
+      customerId: 'customer-1',
+      contactId: null,
+      assignedTo: 'staff-1',
+      priority: 'normal',
+      dueDate: '2026-07-20',
+      scheduledAt: SCHEDULED_AT,
+    });
+    await expect(service.patch(staff, meeting.id, {
+      expectedVersion: 1, scheduledAt: null,
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      statusCode: 400,
+      message: 'Planlanan zaman bu iş türü için zorunludur.',
+    });
+    expect(repository.jobs[1]).toMatchObject({
+      type: 'SALES_MEETING', scheduledAt: SCHEDULED_AT, version: 1,
+    });
+    expect(repository.activities).toEqual(['JOB_CREATED', 'JOB_CREATED']);
+  });
+
+  it('allows clearing optional scheduledAt for General Task', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = serviceOf(repository);
+    const created = await service.create(staff, {
+      ...generalTaskInput,
+      clientActionId: 'gt-clear-schedule',
+      scheduledAt: SCHEDULED_AT,
+    });
+    const cleared = await service.patch(staff, created.id, {
+      expectedVersion: 1, scheduledAt: null,
+    });
+    expect(cleared).toMatchObject({
+      type: 'GENERAL_TASK', scheduledAt: null, version: 2,
+    });
+  });
 });
 
 describe('Postgres JobCard versioned patch regression', () => {

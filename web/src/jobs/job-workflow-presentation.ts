@@ -436,7 +436,10 @@ function deriveScheduleEdit(
   job: JobCard,
   workflowContext: JobWorkflowContext,
 ): ScheduleEditPresentation | null {
+  // Backend rejects schedule mutations after START (JOB_NOT_EDITABLE).
+  // Only offer the form while assignment-stage statuses can still accept them.
   if (!workflowContext.allowedActions.includes('EDIT_JOB_FIELDS')) return null;
+  if (job.status !== 'NEW' && job.status !== 'ACCEPTED') return null;
   return {
     label: scheduleFieldLabel(job.type),
     optional: job.type === 'GENERAL_TASK',

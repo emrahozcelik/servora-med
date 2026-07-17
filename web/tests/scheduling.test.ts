@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  cardScheduleFact,
   defaultScheduledLocalValue,
   localDateTimeToIso,
 } from '../src/jobs/scheduling';
@@ -66,5 +67,48 @@ describe('localDateTimeToIso', () => {
     expect(again.getDate()).toBe(15);
     expect(again.getHours()).toBe(9);
     expect(again.getMinutes()).toBe(0);
+  });
+});
+
+describe('cardScheduleFact', () => {
+  it('prefers scheduledAt over dueDate with type-specific labels', () => {
+    const delivery = cardScheduleFact({
+      type: 'PRODUCT_DELIVERY',
+      scheduledAt: '2026-07-20T09:00:00.000Z',
+      dueDate: '2026-07-25',
+    });
+    expect(delivery.label).toBe('Planlanan teslim');
+    expect(delivery.dateTime).toBe('2026-07-20T09:00:00.000Z');
+    expect(delivery.text.length).toBeGreaterThan(0);
+
+    const meeting = cardScheduleFact({
+      type: 'SALES_MEETING',
+      scheduledAt: '2026-07-21T11:30:00.000Z',
+      dueDate: '2026-07-21',
+    });
+    expect(meeting.label).toBe('Planlanan görüşme');
+    expect(meeting.dateTime).toBe('2026-07-21T11:30:00.000Z');
+  });
+
+  it('falls back to dueDate when scheduledAt is null', () => {
+    expect(cardScheduleFact({
+      type: 'PRODUCT_DELIVERY', scheduledAt: null, dueDate: '2026-07-20',
+    })).toMatchObject({
+      label: 'Termin',
+      dateTime: '2026-07-20',
+    });
+    expect(cardScheduleFact({
+      type: 'SALES_MEETING', scheduledAt: null, dueDate: '2026-07-20',
+    })).toMatchObject({
+      label: 'Planlanan görüşme günü',
+      dateTime: '2026-07-20',
+    });
+    expect(cardScheduleFact({
+      type: 'GENERAL_TASK', scheduledAt: null, dueDate: null,
+    })).toEqual({
+      label: 'Termin',
+      text: 'Belirtilmedi',
+      dateTime: null,
+    });
   });
 });

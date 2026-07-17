@@ -441,6 +441,15 @@ export class JobCardService {
       }
       assertCanEdit(actor, job);
 
+      if (fields.scheduledAt === null
+        && (job.type === 'PRODUCT_DELIVERY' || job.type === 'SALES_MEETING')) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          400,
+          'Planlanan zaman bu iş türü için zorunludur.',
+        );
+      }
+
       const scheduleChanged = fields.scheduledAt !== undefined
         && fields.scheduledAt !== job.scheduledAt;
       const assigneeChanged = fields.assignedTo !== undefined
