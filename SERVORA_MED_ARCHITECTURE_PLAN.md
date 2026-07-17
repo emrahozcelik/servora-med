@@ -157,7 +157,7 @@ accounting, and configurable record types are outside MVP.
 ```text
 NEW -> PLANNED -> IN_PROGRESS -> WAITING_APPROVAL -> COMPLETED
                               -> REVISION_REQUESTED -> IN_PROGRESS
-NEW | PLANNED | IN_PROGRESS | REVISION_REQUESTED -> CANCELLED
+NEW | PLANNED | IN_PROGRESS | WAITING_APPROVAL | REVISION_REQUESTED -> CANCELLED
 ```
 
 Transitions use named backend commands. A generic status patch or generic transition endpoint is not supported.
@@ -171,6 +171,7 @@ Required invariants:
 - Staff and management cannot edit commercial fields in place during `WAITING_APPROVAL`.
 - `WAITING_APPROVAL` is an immutable review snapshot. Assigned Staff or authorized management
   uses the named `withdraw-from-approval` command to return it to `IN_PROGRESS` before correction.
+  Manager/Admin withdrawal is intentional and shares the same named command as Staff.
 - Assigned Staff cancellation covers their own JobCard in every active state and requires a
   reason; Manager/Admin use the same active-state policy for organization-visible work.
 - Sales Meeting result and note write capability begins at `IN_PROGRESS` and is restored in
@@ -178,6 +179,41 @@ Required invariants:
 - Manager review decisions remain approve or request-revision; operational correction and
   cancellation use the separate named withdrawal/cancel commands and remain audited.
 - `COMPLETED` and `CANCELLED` are immutable in MVP.
+
+### 7.2.1 JobCard workflow context and presentation adapter
+
+Detail responses include a backend-owned `workflowContext` (`JobWorkflowContext`) that
+projects only facts and capabilities for the authenticated actor:
+
+- `allowedCommands`: lifecycle commands from one pure helper used by both enforcement and
+  response composition (`getAllowedLifecycleCommands`)
+- `allowedActions`: non-lifecycle actions such as field edit, withdraw-and-edit, meeting
+  result view/edit, and notes (`getAllowedJobActions`)
+- `lifecycle`: persisted timestamps, safe actor identities, latest revision/cancel reasons,
+  optional submission/approval notes, and `cancelledFromStatus` derived from the latest
+  valid `JOB_CANCELLED` activity old status (no migration)
+- `submissionReadiness`: structured requirement items from the same evaluator used by
+  `SUBMIT_FOR_APPROVAL`, or `null` outside execution/review statuses
+
+List and board items receive only actor-scoped `allowedCommands` computed from already-loaded
+JobCard rows. They do not load full readiness or lifecycle payloads and must not add per-row
+queries.
+
+`SubmissionReader` is the repository/query port that supplies type-specific facts for the
+shared submission evaluator (delivery items, meeting details, assignee/customer eligibility).
+Service-layer submit and readiness composition both call that evaluator; React never reimplements
+it.
+
+Safe activity presentation may expose `reason` only for future
+`JOB_REVISION_REQUESTED` and `JOB_CANCELLED` events when metadata contains a non-empty
+string. Historical rows without reason metadata return `reason: null`. Raw metadata, client
+action IDs, and internal identifiers stay hidden.
+
+The frontend presentation adapter (`deriveJobWorkflowPresentation` and related pure helpers)
+is the single source of Turkish phase labels, responsibility copy, requirement labels,
+transition consequences, confirmations, success messages, and compact list/board summaries.
+UI components consume that adapter and the backend `workflowContext`; they never invent
+allowed commands or readiness.
 
 ### 7.3 Product delivery
 

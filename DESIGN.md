@@ -185,6 +185,38 @@ A **single** sticky top bar: optional back, section title from one route-metadat
 
 Destinations come from one navigation model shared with sidebar and drawer. Manager/Admin **Menü** is a **button** that opens the existing drawer (not a route). Overflow holds lower-frequency items (Personel, Kullanıcılar, Oturumu kapat). Closing restores focus to the Menü trigger.
 
+### Job lifecycle guidance (detail-first)
+
+These surfaces use existing design tokens, surface levels, button variants, and chip rules.
+They do not introduce a second visual system or a new dependency.
+
+- **Lifecycle stepper** (`.job-lifecycle-steps`): ordered list of presentation phases
+  (`Oluşturuldu` → `Planlandı` → `Uygulanıyor` → `Yönetici kontrolü` → `Tamamlandı`).
+  Current step uses `aria-current="step"`. Complete, current, skipped (`Planlama atlandı`),
+  attention (revision loop), and upcoming states use text/icon semantics plus restrained
+  color—never color alone. Mobile: vertical. Desktop: five-column when space permits;
+  fall back to compact vertical without horizontal page scroll.
+- **Responsibility panel**: calm Surface grouping that states who should act next and what
+  consequence follows the primary command. Management intervention outside review stays
+  secondary even when allowed.
+- **Requirements checklist**: backend requirement codes mapped to Turkish labels; met /
+  missing / invalid states remain scannable for Staff during execution and correction.
+- **Approval review panel**: Manager/Admin summary of submission facts and readiness before
+  decision controls. Primary decision is **Kontrolü tamamla ve işi kapat** (confirmation
+  required); secondary is **Düzeltme için personele geri gönder** with mandatory reason.
+- **Workflow dialogs**: confirmation for completion and withdraw-to-edit; reason capture for
+  revision and cancel. Contain focus, support Escape when safe, restore focus to the opener,
+  disable controls while pending, announce status/errors via live regions.
+- **Terminal banner**: cancellation is not a green completion. Banner shows actor, time,
+  reason, and frozen source phase; completed state uses Confirmed Green only for true
+  success.
+- **Compact workflow summary** (list/board): ordinal phase string such as
+  `3 / 5 · Uygulanıyor` with optional attention flag. Secondary to the technical status
+  chip; never replaces board column status labels.
+- **Accessibility / responsive**: ≥ 44×44 CSS px targets, visible focus, 200% text and 400%
+  reflow without clipped meaning or horizontal task scroll, `prefers-reduced-motion`
+  disables optional workflow motion, one primary action per responsibility region on mobile.
+
 ## Do's and Don'ts
 
 ### Do:

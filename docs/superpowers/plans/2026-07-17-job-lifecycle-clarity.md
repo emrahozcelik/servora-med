@@ -74,7 +74,7 @@
 - Consumed by: Task 4 backend response composition and all existing edit/note/meeting guards.
 - Preserves: exact `FORBIDDEN`, `INVALID_TRANSITION`, `REVISION_REASON_REQUIRED`, and `CANCEL_REASON_REQUIRED` behavior.
 
-- [ ] **Step 1: Write failing permission-matrix tests**
+- [x] **Step 1: Write failing permission-matrix tests**
 
 Add imports for the two helpers and the following cases to `job-card-policy.test.ts`:
 
@@ -126,7 +126,7 @@ it('keeps action projection and write/read guards in parity', () => {
 });
 ```
 
-- [ ] **Step 2: Run the focused test and verify RED**
+- [x] **Step 2: Run the focused test and verify RED**
 
 Run:
 
@@ -137,7 +137,7 @@ cd server && npm test -- --run tests/job-card-policy.test.ts
 Expected: FAIL because `getAllowedLifecycleCommands`, `getAllowedJobActions`, and
 `JobWorkflowAction` do not exist.
 
-- [ ] **Step 3: Add the neutral action type and pure helpers**
+- [x] **Step 3: Add the neutral action type and pure helpers**
 
 Add to `types.ts`:
 
@@ -248,7 +248,7 @@ if (!getAllowedLifecycleCommands(actor, job).includes(command)) invalidTransitio
 
 Keep the existing mandatory-reason checks immediately after this block.
 
-- [ ] **Step 4: Run policy tests and backend build**
+- [x] **Step 4: Run policy tests and backend build**
 
 Run:
 
@@ -258,7 +258,7 @@ cd server && npm test -- --run tests/job-card-policy.test.ts tests/job-card-note
 
 Expected: PASS; the current Staff/Manager/Admin matrix and exact error tests remain green.
 
-- [ ] **Step 5: Commit the permission SSOT**
+- [x] **Step 5: Commit the permission SSOT**
 
 ```bash
 git add server/src/modules/job-cards/types.ts server/src/modules/job-cards/policy.ts server/src/modules/job-cards/service.ts server/tests/job-card-policy.test.ts server/tests/job-card-notes.test.ts server/tests/sales-meeting-service.test.ts
@@ -283,7 +283,7 @@ git commit -m "refactor: centralize job workflow permissions"
 - Consumed by: Task 4 detail workflow context and existing submit lifecycle.
 - Preserves: existing public submission error codes/messages and Sales Meeting field errors.
 
-- [ ] **Step 1: Write failing readiness and validation-parity tests**
+- [x] **Step 1: Write failing readiness and validation-parity tests**
 
 Create `job-card-submission-readiness.test.ts` with a reader double and the following core
 matrix. Use the existing canonical `JobCard`, assignee, delivery item, customer, and meeting
@@ -343,7 +343,7 @@ it('evaluates meeting time against the single supplied instant', async () => {
 });
 ```
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 ```bash
 cd server && npm test -- --run tests/job-card-submission-readiness.test.ts tests/job-card-lifecycle-service.test.ts
@@ -351,7 +351,7 @@ cd server && npm test -- --run tests/job-card-submission-readiness.test.ts tests
 
 Expected: FAIL because the structured evaluator and types do not exist.
 
-- [ ] **Step 3: Add public requirement types and the shared reader port**
+- [x] **Step 3: Add public requirement types and the shared reader port**
 
 Add to `types.ts`:
 
@@ -399,7 +399,7 @@ retaining `FOR UPDATE`. Implement the same method on `PostgresJobCardRepository`
 `FOR UPDATE`; implement repository `getAssignee`, `getSubmissionCustomer`, and
 `getSubmissionDeliveryItems` with organization-scoped read queries and the existing mappers.
 
-- [ ] **Step 4: Replace throw-only policies with one evaluation object**
+- [x] **Step 4: Replace throw-only policies with one evaluation object**
 
 Use this internal result and public entry points in `submission-policy.ts`:
 
@@ -546,7 +546,7 @@ exist, construct the exact current `MEETING_NOT_READY.details.fieldErrors` messa
 existing field order. `readiness()` sets `ready` to
 `items.every(item => item.state === 'met')` and `evaluatedAt` to `Date#toISOString()`.
 
-- [ ] **Step 5: Use the evaluator once in submit and run regression tests**
+- [x] **Step 5: Use the evaluator once in submit and run regression tests**
 
 Keep `runLifecycle` calling `validateSubmission(tx, actor, job, requestTime)` only for
 `SUBMIT_FOR_APPROVAL`; retain its returned evaluation for Task 4 rather than re-reading the
@@ -561,7 +561,7 @@ cd server && npm test -- --run tests/job-card-submission-readiness.test.ts tests
 Expected: PASS; PostgreSQL acceptance is skipped only when its existing environment gate is
 unset, while all unit submission matrices pass.
 
-- [ ] **Step 6: Commit structured readiness**
+- [x] **Step 6: Commit structured readiness**
 
 ```bash
 git add server/src/modules/job-cards/types.ts server/src/modules/job-cards/repository.ts server/src/modules/job-cards/submission-policy.ts server/src/modules/job-cards/service.ts server/tests/job-card-submission-readiness.test.ts server/tests/job-card-lifecycle-service.test.ts
@@ -583,7 +583,7 @@ git commit -m "feat: expose structured job submission readiness"
 - Consumed by: Task 4 workflow-context presenter.
 - Reads: existing `job_cards` lifecycle columns and latest valid `JOB_CANCELLED.old_value.status`.
 
-- [ ] **Step 1: Extend repository tests with all lifecycle facts**
+- [x] **Step 1: Extend repository tests with all lifecycle facts**
 
 Expand the row fixture and expected projection:
 
@@ -624,7 +624,7 @@ expect(result.lifecycle).toEqual({
 Add a cancellation row case asserting a valid `WAITING_APPROVAL` source and a malformed
 activity source mapping to `null` without leaking raw JSON.
 
-- [ ] **Step 2: Run repository tests and verify RED**
+- [x] **Step 2: Run repository tests and verify RED**
 
 ```bash
 cd server && npm test -- --run tests/job-card-detail-repository.test.ts
@@ -632,7 +632,7 @@ cd server && npm test -- --run tests/job-card-detail-repository.test.ts
 
 Expected: FAIL because lifecycle columns and `lifecycle` are absent.
 
-- [ ] **Step 3: Define persisted lifecycle types and extend the query**
+- [x] **Step 3: Define persisted lifecycle types and extend the query**
 
 Add to `types.ts`:
 
@@ -683,7 +683,7 @@ Map dates with `toISOString()`, identities only when both safe columns are prese
 accept `cancelled_from_status` only when it is a member of `JOB_CARD_STATUSES` and is not a
 terminal status.
 
-- [ ] **Step 4: Verify organization scope and PostgreSQL behavior**
+- [x] **Step 4: Verify organization scope and PostgreSQL behavior**
 
 ```bash
 cd server && npm test -- --run tests/job-card-detail-repository.test.ts tests/job-card-workspace-postgres.test.ts && npm run build
@@ -692,7 +692,7 @@ cd server && npm test -- --run tests/job-card-detail-repository.test.ts tests/jo
 Expected: PASS; the query remains `WHERE j.organization_id = $1 AND j.id = $2`, actor joins
 include organization equality, and malformed/cross-organization facts do not surface.
 
-- [ ] **Step 5: Commit lifecycle facts**
+- [x] **Step 5: Commit lifecycle facts**
 
 ```bash
 git add server/src/modules/job-cards/types.ts server/src/modules/job-cards/repository.ts server/tests/job-card-detail-repository.test.ts server/tests/job-card-workspace-postgres.test.ts
@@ -718,7 +718,7 @@ git commit -m "feat: project job lifecycle facts"
   `JobCardListItem.allowedCommands`.
 - Returned by: create, detail, patch, and every successful lifecycle command.
 
-- [ ] **Step 1: Write failing service contract tests**
+- [x] **Step 1: Write failing service contract tests**
 
 Add one detail matrix and one list/board assertion:
 
@@ -766,7 +766,7 @@ it('adds allowed commands to list and board items from the authenticated actor',
 
 Also assert that another Staff assignment still returns `404` before readiness queries.
 
-- [ ] **Step 2: Run focused tests and verify RED**
+- [x] **Step 2: Run focused tests and verify RED**
 
 ```bash
 cd server && npm test -- --run tests/job-card-crud-service.test.ts tests/job-card-lifecycle-service.test.ts tests/job-card-board.test.ts
@@ -774,7 +774,7 @@ cd server && npm test -- --run tests/job-card-crud-service.test.ts tests/job-car
 
 Expected: FAIL because public responses do not contain workflow context or allowed commands.
 
-- [ ] **Step 3: Define the public context and list projection**
+- [x] **Step 3: Define the public context and list projection**
 
 Add to `types.ts`:
 
@@ -815,7 +815,7 @@ export type JobCardListItem = PersistedJobCardListItem & {
 Repository list/board interfaces return persisted list items; service public types return
 items enriched with `allowedCommands`.
 
-- [ ] **Step 4: Add one workflow-context composer and use it for every detail response**
+- [x] **Step 4: Add one workflow-context composer and use it for every detail response**
 
 Add a private service method with an optional precomputed submit evaluation:
 
@@ -866,7 +866,7 @@ private presentListItem(actor: JobCardActor, item: PersistedJobCardListItem): Jo
 
 Map every list page and active board column through this method; leave closed counts intact.
 
-- [ ] **Step 5: Run the backend contract suite**
+- [x] **Step 5: Run the backend contract suite**
 
 ```bash
 cd server && npm test -- --run tests/job-card-crud-service.test.ts tests/job-card-lifecycle-service.test.ts tests/job-card-board.test.ts tests/job-card-workspace-repository.test.ts && npm run build
@@ -875,7 +875,7 @@ cd server && npm test -- --run tests/job-card-crud-service.test.ts tests/job-car
 Expected: PASS; canonical mutation responses contain context, list/board do not perform
 additional queries, and all scope tests remain green.
 
-- [ ] **Step 6: Commit backend workflow responses**
+- [x] **Step 6: Commit backend workflow responses**
 
 ```bash
 git add server/src/modules/job-cards/types.ts server/src/modules/job-cards/repository.ts server/src/modules/job-cards/service.ts server/tests/job-card-crud-service.test.ts server/tests/job-card-lifecycle-service.test.ts server/tests/job-card-board.test.ts server/tests/job-card-workspace-repository.test.ts
@@ -898,7 +898,7 @@ git commit -m "feat: return actor scoped workflow context"
 - Consumed by: Tasks 6 and 10 web parser/timeline.
 - Security boundary: only event-specific valid `metadata.reason` is public.
 
-- [ ] **Step 1: Write failing persistence and presenter tests**
+- [x] **Step 1: Write failing persistence and presenter tests**
 
 ```ts
 it.each([
@@ -934,7 +934,7 @@ it('allowlists reasons only for revision and cancellation events', () => {
 
 Include malformed reason cases (`42`, whitespace, object) and assert `reason: null`.
 
-- [ ] **Step 2: Run activity tests and verify RED**
+- [x] **Step 2: Run activity tests and verify RED**
 
 ```bash
 cd server && npm test -- --run tests/job-card-lifecycle-service.test.ts tests/job-card-activity.test.ts
@@ -943,7 +943,7 @@ cd server && npm test -- --run tests/job-card-lifecycle-service.test.ts tests/jo
 Expected: FAIL because lifecycle activity metadata is absent and status details have no
 `reason` field.
 
-- [ ] **Step 3: Persist only normalized future reasons**
+- [x] **Step 3: Persist only normalized future reasons**
 
 In `runLifecycle`, compute metadata immediately before `appendActivity`:
 
@@ -964,7 +964,7 @@ await tx.appendActivity({
 
 All other lifecycle events keep `metadata` undefined.
 
-- [ ] **Step 4: Extend the safe DTO and event-specific presenter**
+- [x] **Step 4: Extend the safe DTO and event-specific presenter**
 
 Change the status detail union to require `reason: string | null`. Update
 `statusDetails(eventType, oldValue, newValue, metadata)`:
@@ -986,7 +986,7 @@ return {
 Pass `record.metadata` only through the lifecycle branch. Keep all raw metadata omitted from
 the public DTO.
 
-- [ ] **Step 5: Run focused tests and build**
+- [x] **Step 5: Run focused tests and build**
 
 ```bash
 cd server && npm test -- --run tests/job-card-lifecycle-service.test.ts tests/job-card-activity.test.ts && npm run build
@@ -995,7 +995,7 @@ cd server && npm test -- --run tests/job-card-lifecycle-service.test.ts tests/jo
 Expected: PASS, including historical rows with `reason: null` and secret non-lifecycle
 metadata not appearing in serialized output.
 
-- [ ] **Step 6: Commit safe activity reasons**
+- [x] **Step 6: Commit safe activity reasons**
 
 ```bash
 git add server/src/modules/job-cards/types.ts server/src/modules/job-cards/service.ts server/src/modules/job-cards/activity-presenter.ts server/tests/job-card-lifecycle-service.test.ts server/tests/job-card-activity.test.ts
@@ -1024,7 +1024,7 @@ git commit -m "feat: present safe lifecycle reasons"
   `SubmissionRequirement`, and reason-aware activity types/parsers.
 - Consumed by: all remaining frontend tasks.
 
-- [ ] **Step 1: Add failing runtime-parser tests**
+- [x] **Step 1: Add failing runtime-parser tests**
 
 Create a canonical fixture:
 
@@ -1079,7 +1079,7 @@ it.each([
 Add activity cases requiring `reason` for every `STATUS_TRANSITION` and rejecting additional
 raw fields.
 
-- [ ] **Step 2: Run web API tests and verify RED**
+- [x] **Step 2: Run web API tests and verify RED**
 
 ```bash
 cd web && npm test -- --run tests/jobs-api.test.ts
@@ -1087,7 +1087,7 @@ cd web && npm test -- --run tests/jobs-api.test.ts
 
 Expected: FAIL because new fields/types/parsers are absent.
 
-- [ ] **Step 3: Define exact enums and public types**
+- [x] **Step 3: Define exact enums and public types**
 
 Add canonical arrays and derived types:
 
@@ -1152,7 +1152,7 @@ export type JobWorkflowContext = {
 Add required `workflowContext: JobWorkflowContext` to `JobCard` and required
 `allowedCommands: LifecycleCommand[]` to `JobCardListItem`.
 
-- [ ] **Step 4: Add strict parsers and migrate fixtures**
+- [x] **Step 4: Add strict parsers and migrate fixtures**
 
 Implement `parseLifecycleFacts`, `parseRequirement`, `parseReadiness`, and
 `parseWorkflowContext` with `exactObject`. Parse commands/actions with `oneOf`; parse all
@@ -1185,7 +1185,7 @@ return {
 Import the fixture into affected tests and spread `workflowContext`/`allowedCommands` into
 their JobCard fixtures. Do not make the production fields optional to avoid test edits.
 
-- [ ] **Step 5: Run transport tests and web build**
+- [x] **Step 5: Run transport tests and web build**
 
 ```bash
 cd web && npm test -- --run tests/jobs-api.test.ts tests/job-detail.test.tsx tests/job-capabilities.test.ts tests/manager-review.test.tsx tests/meeting-details.test.tsx tests/sales-meeting-edit.test.tsx tests/job-list.test.tsx tests/job-board.test.tsx && npm run build
@@ -1194,7 +1194,7 @@ cd web && npm test -- --run tests/jobs-api.test.ts tests/job-detail.test.tsx tes
 Expected: PASS; malformed successful responses fail closed and all typed fixtures use the
 required contract.
 
-- [ ] **Step 6: Commit frontend transport**
+- [x] **Step 6: Commit frontend transport**
 
 ```bash
 git add web/src/jobs/jobs-api.ts web/tests/fixtures/job-workflow.ts web/tests/jobs-api.test.ts web/tests/job-detail.test.tsx web/tests/job-capabilities.test.ts web/tests/manager-review.test.tsx web/tests/meeting-details.test.tsx web/tests/sales-meeting-edit.test.tsx web/tests/job-list.test.tsx web/tests/job-board.test.tsx
@@ -1220,7 +1220,7 @@ git commit -m "feat: parse job workflow context"
   viewer identity.
 - Prohibited: inferring a command or write permission not present in the backend response.
 
-- [ ] **Step 1: Write failing pure presentation tests**
+- [x] **Step 1: Write failing pure presentation tests**
 
 Create table-driven tests using `web/tests/fixtures/job-workflow.ts`:
 
@@ -1310,7 +1310,7 @@ it('keeps management interventions secondary outside the management review phase
 Also cover `NEW`, `PLANNED`, `COMPLETED`, `CANCELLED`, assigned/unassigned Staff, all
 requirement codes/states, terminal banners, and compact ordinal/attention/expected-role values.
 
-- [ ] **Step 2: Run the pure tests and verify RED**
+- [x] **Step 2: Run the pure tests and verify RED**
 
 ```bash
 cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/status-priority-chips.test.tsx
@@ -1318,7 +1318,7 @@ cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/status
 
 Expected: FAIL because the adapter and shared status labels do not exist.
 
-- [ ] **Step 3: Define the pure presentation model**
+- [x] **Step 3: Define the pure presentation model**
 
 Create `job-workflow-presentation.ts` with these local presentation-only types:
 
@@ -1485,7 +1485,7 @@ export const jobStatusLabels: Record<JobCardStatus, string> = {
 Make `StatusChip`, timeline status rendering, and the adapter consume this map rather than
 declaring local copies.
 
-- [ ] **Step 4: Run presentation tests and build**
+- [x] **Step 4: Run presentation tests and build**
 
 ```bash
 cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/status-priority-chips.test.tsx && npm run build
@@ -1493,7 +1493,7 @@ cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/status
 
 Expected: PASS; no React component decides permission or readiness.
 
-- [ ] **Step 5: Commit the frontend presentation SSOT**
+- [x] **Step 5: Commit the frontend presentation SSOT**
 
 ```bash
 git add web/src/jobs/job-workflow-presentation.ts web/src/jobs/job-labels.ts web/src/ui/StatusChip.tsx web/tests/job-workflow-presentation.test.ts web/tests/status-priority-chips.test.tsx
@@ -1522,7 +1522,7 @@ git commit -m "feat: derive job workflow presentation"
 - Preserves: no Sales Meeting result/notes mount or request in `NEW`/`PLANNED`; read-only notes
   in review/completed; cancelled notes section only when records exist.
 
-- [ ] **Step 1: Write failing detail composition tests**
+- [x] **Step 1: Write failing detail composition tests**
 
 Add component tests that assert the information hierarchy and API behavior:
 
@@ -1562,7 +1562,7 @@ Add separate cases for `WAITING_APPROVAL`/`COMPLETED` read-only notes, `CANCELLE
 notes suppression, terminal cancellation copy including source phase/time/reason, and the
 absence of Staff primary actions for an unassigned job.
 
-- [ ] **Step 2: Run the focused component tests and verify RED**
+- [x] **Step 2: Run the focused component tests and verify RED**
 
 ```bash
 cd web && npm test -- --run tests/job-detail.test.tsx tests/meeting-details.test.tsx tests/job-notes.test.tsx
@@ -1571,7 +1571,7 @@ cd web && npm test -- --run tests/job-detail.test.tsx tests/meeting-details.test
 Expected: FAIL because the detail is still a generic command list and local capabilities
 derive permissions.
 
-- [ ] **Step 3: Build semantic step and panel components**
+- [x] **Step 3: Build semantic step and panel components**
 
 `JobLifecycleSteps` renders one `<ol aria-label="İş süreci">`; each `<li>` includes the phase
 label plus the textual state (`Tamamlandı`, `Şu an`, `Sırada`, `Atlandı`, or `Dikkat gerekiyor`).
@@ -1600,7 +1600,7 @@ Checklist state text is `Tamam`, `Eksik`, or `Geçersiz` alongside the icon. The
 banner uses `cancelledFromStatus`, `cancelledAt`, and `cancelReason`; when a historical fact is
 null it says `Bilgi kaydedilmemiş` and never invents an event.
 
-- [ ] **Step 4: Replace local capability and command derivation in detail**
+- [x] **Step 4: Replace local capability and command derivation in detail**
 
 Delete `availableLifecycleCommands`, `primaryLifecycleCommand`, `commandLabels`, and all
 `jobCapabilities` use. Change the UI command state and dispatch to backend command names:
@@ -1641,14 +1641,14 @@ present. `JobNotes` mounts only when `viewNotes` is present and receives `canAdd
 the existing cancelled empty suppression. Remove the deleted capabilities test; its backend-
 owned contract is now covered by `jobs-api`, presentation, and detail integration tests.
 
-- [ ] **Step 5: Add the initial responsive component styles**
+- [x] **Step 5: Add the initial responsive component styles**
 
 Use existing spacing, color, radius, and focus tokens. Add `.job-lifecycle-steps`,
 `.workflow-responsibility`, `.workflow-requirements`, `.revision-loop`, and
 `.cancelled-job-banner`; keep 44px minimum interactive targets and visible focus. At narrow
 widths use a vertical step list; the full desktop and 400% reflow gate is completed in Task 11.
 
-- [ ] **Step 6: Run detail regressions and build**
+- [x] **Step 6: Run detail regressions and build**
 
 ```bash
 cd web && npm test -- --run tests/job-detail.test.tsx tests/meeting-details.test.tsx tests/job-notes.test.tsx tests/sales-meeting-edit.test.tsx && npm run build
@@ -1657,7 +1657,7 @@ cd web && npm test -- --run tests/job-detail.test.tsx tests/meeting-details.test
 Expected: PASS; hidden components make no API request, backend actions gate writes, and current
 optimistic-concurrency behavior remains green.
 
-- [ ] **Step 7: Commit staff lifecycle clarity**
+- [x] **Step 7: Commit staff lifecycle clarity**
 
 ```bash
 git add web/src/JobDetail.tsx web/src/jobs/JobLifecycleSteps.tsx web/src/jobs/JobWorkflowPanels.tsx web/src/styles.css web/tests/job-detail.test.tsx web/tests/meeting-details.test.tsx web/tests/job-notes.test.tsx web/tests/sales-meeting-edit.test.tsx
@@ -1685,7 +1685,7 @@ git commit -m "feat: explain staff job lifecycle"
   edit.
 - Confirmation is required for approve, revision, withdraw/edit, and cancel only.
 
-- [ ] **Step 1: Write failing management decision tests**
+- [x] **Step 1: Write failing management decision tests**
 
 ```ts
 it('explains completion and requires explicit confirmation', async () => {
@@ -1732,7 +1732,7 @@ it.each([
 Cover Escape, Tab/Shift+Tab containment, initial focus, disabled pending controls, and opener
 focus restoration for every dialog kind.
 
-- [ ] **Step 2: Run management tests and verify RED**
+- [x] **Step 2: Run management tests and verify RED**
 
 ```bash
 cd web && npm test -- --run tests/manager-review.test.tsx tests/sales-meeting-edit.test.tsx tests/accessibility-contract.test.ts
@@ -1741,7 +1741,7 @@ cd web && npm test -- --run tests/manager-review.test.tsx tests/sales-meeting-ed
 Expected: FAIL because current manager actions use ambiguous labels and approve has no
 confirmation.
 
-- [ ] **Step 3: Build the approval review panel**
+- [x] **Step 3: Build the approval review panel**
 
 `JobApprovalReviewPanel` accepts the JobCard, readiness presentations, and lifecycle facts. It
 renders submitter/time only from `submittedBy`/`submittedAt`, a type-aware review summary from
@@ -1752,7 +1752,7 @@ Show it only when status is `WAITING_APPROVAL` and the expected viewer role is m
 Place structured delivery/meeting/task records before its decision action group so the manager
 reviews facts before acting.
 
-- [ ] **Step 4: Centralize accessible workflow dialogs**
+- [x] **Step 4: Centralize accessible workflow dialogs**
 
 `JobWorkflowDialog` supports these exact variants:
 
@@ -1772,7 +1772,7 @@ the work moves to `Uygulanıyor`, is not approved/completed, and must be resubmi
 Reuse the current focus trap and opener restoration behavior, then remove `ReasonDialog` from
 `JobDetail.tsx`.
 
-- [ ] **Step 5: Wire management transitions and exact feedback**
+- [x] **Step 5: Wire management transitions and exact feedback**
 
 Only render withdraw-to-edit when the adapter's `recordEditAction` is backed by
 `allowedActions.includes('WITHDRAW_AND_EDIT_JOB_FIELDS')`. For assigned Staff and management,
@@ -1787,7 +1787,7 @@ Değişikliklerden sonra işi tekrar kontrole göndermeniz gerekir.
 Approve/revision/cancel use `TransitionPresentation.successMessage`. Conflict recovery still
 reloads backend truth and restores an accessible error/status focus target.
 
-- [ ] **Step 6: Run management and full detail tests**
+- [x] **Step 6: Run management and full detail tests**
 
 ```bash
 cd web && npm test -- --run tests/manager-review.test.tsx tests/sales-meeting-edit.test.tsx tests/job-detail.test.tsx tests/accessibility-contract.test.ts && npm run build
@@ -1796,7 +1796,7 @@ cd web && npm test -- --run tests/manager-review.test.tsx tests/sales-meeting-ed
 Expected: PASS; management review owns the primary action only in `WAITING_APPROVAL`, every
 consequential decision is confirmed, and no backend permission changed.
 
-- [ ] **Step 7: Commit manager approval clarity**
+- [x] **Step 7: Commit manager approval clarity**
 
 ```bash
 git add web/src/JobDetail.tsx web/src/jobs/JobApprovalReviewPanel.tsx web/src/jobs/JobWorkflowDialog.tsx web/src/styles.css web/tests/manager-review.test.tsx web/tests/sales-meeting-edit.test.tsx web/tests/job-detail.test.tsx web/tests/accessibility-contract.test.ts
@@ -1820,7 +1820,7 @@ git commit -m "feat: clarify manager approval decisions"
 - Preserves: newest-first ordering and current `limit=50` pagination.
 - Prohibited: rendering raw metadata, field values, client action IDs, or inferred old reasons.
 
-- [ ] **Step 1: Write failing timeline and feedback tests**
+- [x] **Step 1: Write failing timeline and feedback tests**
 
 ```ts
 it('labels newest-first history and shows only safe lifecycle reasons', async () => {
@@ -1850,7 +1850,7 @@ it.each([
 });
 ```
 
-- [ ] **Step 2: Run timeline/detail tests and verify RED**
+- [x] **Step 2: Run timeline/detail tests and verify RED**
 
 ```bash
 cd web && npm test -- --run tests/job-timeline.test.tsx tests/job-detail.test.tsx
@@ -1859,7 +1859,7 @@ cd web && npm test -- --run tests/job-timeline.test.tsx tests/job-detail.test.ts
 Expected: FAIL because timeline omits reasons/newest-first context and detail still contains
 generic success construction.
 
-- [ ] **Step 3: Render safe reason and shared labels**
+- [x] **Step 3: Render safe reason and shared labels**
 
 Use `jobStatusLabels` for transition text. Add `<p className="timeline-order-note">En yeni
 işlem üstte</p>` directly under the timeline heading. For status details render a reason only
@@ -1873,14 +1873,14 @@ Update activity labels to `Kontrole gönderildi`, `Kontrol tamamlandı`, `Düzel
 gönderildi`, and `Kontrolden geri çekildi` so timeline, status chips, and actions share the
 approved process language.
 
-- [ ] **Step 4: Remove generic success messages**
+- [x] **Step 4: Remove generic success messages**
 
 After a successful named command, look up the already-derived transition presentation and set
 its `successMessage`; do not concatenate button labels. Normal record saves keep their specific
 existing messages. Continue using the current `role="status"` surface rather than adding a
 toast dependency.
 
-- [ ] **Step 5: Run timeline regressions and build**
+- [x] **Step 5: Run timeline regressions and build**
 
 ```bash
 cd web && npm test -- --run tests/job-timeline.test.tsx tests/job-detail.test.tsx tests/manager-review.test.tsx && npm run build
@@ -1889,7 +1889,7 @@ cd web && npm test -- --run tests/job-timeline.test.tsx tests/job-detail.test.ts
 Expected: PASS; old events show no fabricated reason and pagination still reloads offset zero on
 refresh.
 
-- [ ] **Step 6: Commit timeline and outcome language**
+- [x] **Step 6: Commit timeline and outcome language**
 
 ```bash
 git add web/src/jobs/JobTimeline.tsx web/src/jobs/job-labels.ts web/src/JobDetail.tsx web/src/styles.css web/tests/job-timeline.test.tsx web/tests/job-detail.test.tsx
@@ -1920,7 +1920,7 @@ git commit -m "feat: show lifecycle reasons and outcomes"
 - Preserves: current list/board selection, filters, pagination, closed counts, and user-approved
   view mode; no forced list switch or pagination reset is introduced.
 
-- [ ] **Step 1: Write failing compact-summary tests**
+- [x] **Step 1: Write failing compact-summary tests**
 
 ```ts
 it('shows the same compact workflow summary in list and board', async () => {
@@ -1953,7 +1953,7 @@ it('uses backend allowed commands for the one mobile action', async () => {
 Extend CSS contract tests for 44px targets, vertical mobile steps, horizontal-or-compact desktop
 steps, 200% text, 400% reflow at 320 CSS px, and `prefers-reduced-motion: reduce`.
 
-- [ ] **Step 2: Run list/board/responsive tests and verify RED**
+- [x] **Step 2: Run list/board/responsive tests and verify RED**
 
 ```bash
 cd web && npm test -- --run tests/job-list.test.tsx tests/job-board.test.tsx tests/responsive-layout-contract.test.ts tests/ui-button-contract.test.ts
@@ -1961,7 +1961,7 @@ cd web && npm test -- --run tests/job-list.test.tsx tests/job-board.test.tsx tes
 
 Expected: FAIL because list/board have local lifecycle labels and no shared summary.
 
-- [ ] **Step 3: Add the shared compact component**
+- [x] **Step 3: Add the shared compact component**
 
 `CompactWorkflowSummary` accepts `{ summary, assigneeName }` and renders:
 
@@ -1980,7 +1980,7 @@ Expected: FAIL because list/board have local lifecycle labels and no shared summ
 For correction, replace the secondary line with `Yönetici notu mevcut`; do not include the
 reason itself on list/board.
 
-- [ ] **Step 4: Remove list/board permission duplication**
+- [x] **Step 4: Remove list/board permission duplication**
 
 Delete `permittedJobCommands`. Change `JobCommandIntent.name` to `LifecycleCommand` and derive
 the one mobile open-for-action control from `presentation.primaryTransition` only. In the
@@ -2009,7 +2009,7 @@ Preserve `JobWorkspace` search params exactly; this task
 must not add a new `forceMobileList` call, reset `offset`, or change the selected `view`.
 The existing responsive-breakpoint behavior remains unchanged and covered by workspace tests.
 
-- [ ] **Step 5: Complete responsive and motion styles**
+- [x] **Step 5: Complete responsive and motion styles**
 
 At mobile widths keep lifecycle steps vertical and one primary action full-width. At desktop,
 use a five-column step layout when it fits and fall back to compact vertical without horizontal
@@ -2017,7 +2017,7 @@ page scroll. Use logical properties, `minmax(0, 1fr)`, overflow wrapping, and ex
 All actionable controls are at least `2.75rem` high. Under reduced motion, disable workflow
 transition/scroll animations. Do not add decorative motion.
 
-- [ ] **Step 6: Run UI regressions and responsive smoke**
+- [x] **Step 6: Run UI regressions and responsive smoke**
 
 ```bash
 cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/job-list.test.tsx tests/job-board.test.tsx tests/workspace-view.test.tsx tests/responsive-layout-contract.test.ts tests/ui-button-contract.test.ts && npm run build && npm run smoke:responsive
@@ -2026,7 +2026,7 @@ cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/job-li
 Expected: PASS at the script's phone/tablet/desktop viewports with no horizontal overflow,
 preserved search state, and no second mobile primary action.
 
-- [ ] **Step 7: Commit compact summaries and reflow**
+- [x] **Step 7: Commit compact summaries and reflow**
 
 ```bash
 git add web/src/jobs/CompactWorkflowSummary.tsx web/src/jobs/JobRow.tsx web/src/jobs/JobList.tsx web/src/jobs/JobBoard.tsx web/src/jobs/JobWorkspace.tsx web/src/AppRouter.tsx web/src/styles.css web/tests/job-list.test.tsx web/tests/job-board.test.tsx web/tests/responsive-layout-contract.test.ts web/tests/ui-button-contract.test.ts
@@ -2053,7 +2053,7 @@ git commit -m "feat: add compact workflow summaries"
 - Verifies: unit/integration/PostgreSQL contracts, builds, audits, responsive behavior,
   keyboard/focus behavior, text reflow, and whitespace integrity.
 
-- [ ] **Step 1: Update durable product and architecture documents**
+- [x] **Step 1: Update durable product and architecture documents**
 
 Make the following exact documentation changes:
 
@@ -2072,7 +2072,7 @@ Make the following exact documentation changes:
   explain skipped planning, correction loop, review lock, withdraw-to-edit consequence,
   completion, and cancellation.
 
-- [ ] **Step 2: Run the complete server verification**
+- [x] **Step 2: Run the complete server verification**
 
 ```bash
 cd server && npm test -- --run && npm run build && npm audit
@@ -2090,7 +2090,7 @@ cd server && TEST_DATABASE_URL="${TEST_DATABASE_URL:?set TEST_DATABASE_URL}" npm
 Expected: PASS. If the variable is unavailable, report this gate as not run; do not claim
 PostgreSQL acceptance from skipped tests.
 
-- [ ] **Step 3: Run the complete web verification**
+- [x] **Step 3: Run the complete web verification**
 
 ```bash
 cd web && npm test -- --run && npm run build && npm audit && npm run smoke:responsive
@@ -2118,7 +2118,7 @@ pending disablement, and status/error announcement. Check mobile, desktop, 200% 
 reflow with no clipped meaning or horizontal page scroll. Verify list/board view and pagination
 are preserved instead of reset.
 
-- [ ] **Step 5: Check migration/event compatibility and repository integrity**
+- [x] **Step 5: Check migration/event compatibility and repository integrity**
 
 No migration is expected. Confirm `server/src/db/migrations/007_sales_meeting.sql` and
 `008_meeting_approval_withdrawal.sql` are unchanged. The existing
@@ -2142,7 +2142,7 @@ work, run the repository's existing CI checks and record their URLs/results. Do 
 branch solely to satisfy this gate. When publication is outside the authorized scope, record
 remote CI as not run and rely only on the local evidence above.
 
-- [ ] **Step 7: Update checklist evidence and commit documentation**
+- [x] **Step 7: Update checklist evidence and commit documentation**
 
 Check each completed task/step in this plan only after its command/evidence succeeds. Record any
 unavailable PostgreSQL/manual gate under a dated `Verification Notes` subsection rather than
@@ -2170,3 +2170,42 @@ git commit -m "docs: document job workflow guidance"
 - Accessibility, responsive behavior, preserved view/pagination, and no new dependency: Tasks 8,
   9, 11, and 12.
 - Durable documentation and complete verification evidence: Task 12.
+
+---
+
+## Verification Notes (2026-07-17)
+
+### Local automated gates (Task 12)
+
+| Gate | Result |
+| --- | --- |
+| `cd server && npm test -- --run` | PASS — 868 passed, 27 skipped (PostgreSQL-gated), 65 files passed / 10 skipped |
+| `cd server && npm run build` | PASS |
+| `cd server && npm audit` | PASS — 0 vulnerabilities |
+| `TEST_DATABASE_URL` PostgreSQL suites | **not run** — `TEST_DATABASE_URL` unset in this environment |
+| `cd web && npm test -- --run` | PASS — 462 passed, 54 files |
+| `cd web && npm run build` | PASS |
+| `cd web && npm audit` | PASS — 0 vulnerabilities |
+| `cd web && npm run smoke:responsive` | PASS — phone/tablet/desktop, 200% font, 400% reflow, no horizontal overflow |
+| `git diff --exit-code origin/main -- server/src/db/migrations` | PASS — no migration diff |
+| Activity enum presence (007 + 008) | PASS — 15 historical values + `JOB_APPROVAL_WITHDRAWN` in 008 |
+| `git diff --check` | PASS on committed trees after docs trailing-whitespace fix |
+
+### Unavailable gates (honest)
+
+- **Interactive keyboard/focus/zoom role matrix (Task 12 Step 4):** not run. No local app process was started against a populated test database in this session; automated Vitest/component coverage and responsive smoke are the available evidence only.
+- **Remote CI (Task 12 Step 6):** not run. Branch publication/push/PR was not authorized.
+- **Disposable PostgreSQL suites** (`sales-meeting-schema`, `job-card-workspace-postgres`, `sales-meeting-postgres`, and other `TEST_DATABASE_URL` files): not run here. Ordinary suites still pass with those files skipped.
+
+### Verification repair during Task 12
+
+Full web suite initially failed 3 tests because fixtures/parser still assumed pre-`workflowContext` list/detail shapes:
+
+- `web/tests/tracer-client.test.ts` — mock JobCard responses updated with `workflowContext` / list `allowedCommands`.
+- `web/src/reports/report-types.ts` + `reports-api.ts` + `jobs-api.ts` — approval queue rows correctly use `PersistedJobCardListItem` (no actor-scoped `allowedCommands`), matching backend `ApprovalItem`.
+
+After that repair, full web verification passed.
+
+### Implementation Tasks 1–11
+
+Marked complete based on existing commits on `feature/job-lifecycle-clarity` (`961bc7d` … `12a31e8`) and stated review approval. PostgreSQL-specific steps that only run under `TEST_DATABASE_URL` remain covered by the Task 12 note above when that variable is unavailable.

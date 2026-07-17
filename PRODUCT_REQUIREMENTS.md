@@ -1,7 +1,7 @@
 # Servora-Med Product Requirements
 
-> Date: 2026-07-10  
-> Status: Approved Phase 0 product requirements  
+> Date: 2026-07-17
+> Status: Approved Phase 0 product requirements; Job lifecycle visibility updated
 > Responsibility: Product scope and business behavior SSOT
 
 Technical architecture belongs to `SERVORA_MED_ARCHITECTURE_PLAN.md`; data design belongs to `SERVORA_MED_SCHEMA_DRAFT.md`; API behavior belongs to `SERVORA_MED_API_DRAFT.md`; delivery order belongs to `SERVORA_MED_MVP_SLICES.md`; durable decisions belong to `DECISIONS.md`.
@@ -109,12 +109,58 @@ Allowed transitions are explicit backend commands. Status is never free text and
   named withdrawal command so the review snapshot is never edited in place.
 - Assigned Staff, Manager, or Admin may explicitly withdraw an authorized
   `WAITING_APPROVAL` JobCard to `IN_PROGRESS`, edit it, and submit it again.
+  Manager/Admin withdrawal is intentional management intervention, not a policy gap.
 - Assigned Staff may cancel their own JobCard in any active state with a non-empty reason;
   Manager/Admin retain the same authority for organization-visible active JobCards.
 - Sales Meeting result fields and Staff notes begin only after start; `NEW` and `PLANNED`
   meetings neither expose nor accept them.
 - `COMPLETED` and `CANCELLED` JobCards are immutable in MVP.
 - Admin override and lifecycle reversal are outside MVP.
+
+### Lifecycle visibility and responsibility
+
+The product must make the current JobCard phase, expected actor, and transition consequence
+visible without inventing a second state machine in the UI.
+
+Required visibility:
+
+- Current presentation phase derived from technical status (`CREATED`, `PLANNING`,
+  `EXECUTION`, `REVIEW`, `COMPLETION`), with planning marked skipped when `NEW` went
+  directly to `IN_PROGRESS`.
+- Current responsibility: which role is expected to act next (assigned Staff versus
+  Manager/Admin), separate from the full set of allowed intervention permissions.
+- Consequence-led commands: every primary lifecycle control states what happens next
+  (review lock, return to execution, terminal completion, or terminal cancellation).
+- Structured submission readiness from the same backend evaluator used by
+  `SUBMIT_FOR_APPROVAL`, returned as stable requirement codes rather than free-text guesses.
+- Latest revision reason when the JobCard is in the correction loop
+  (`REVISION_REQUESTED` → resume → correct → resubmit).
+- Cancellation as a terminal alternative outcome with actor, time, reason, and source phase,
+  never presented as successful green completion.
+
+Presentation rules:
+
+- Detail shows the full ordered stepper, responsibility panel, readiness checklist or
+  management review summary, and consequence-led primary/secondary commands.
+- List and board show only a compact ordinal phase summary (for example `3 / 5 · Uygulanıyor`)
+  plus shared status vocabulary; they do not reimplement permission or readiness policy.
+- Frontend owns Turkish labels and layout only. Backend owns allowed commands, allowed
+  actions, lifecycle facts, and readiness. The UI must not offer a command the backend did
+  not allow and must not recompute whether a JobCard is ready to submit.
+
+### Detail, list, and board acceptance criteria
+
+- Staff can complete `NEW → START → IN_PROGRESS → SUBMIT → WAITING_APPROVAL` from detail
+  with consequence-led controls and visible readiness.
+- Assigned Staff can withdraw from review, correct records, and resubmit; Manager/Admin may
+  also withdraw as intentional intervention before editing.
+- Manager can request revision with a mandatory reason or complete review and close the job.
+- Cancelled and completed JobCards remain immutable; cancellation freezes the phase derived
+  from the cancelled source status and shows a terminal banner.
+- Unassigned Staff receive no lifecycle commands and no scoped detail access for another
+  user's JobCard.
+- List/board view mode and pagination are preserved across open/close of detail; compact
+  summaries stay secondary to the technical status label.
 
 ## Product Delivery Requirements
 

@@ -16,6 +16,7 @@ Bu dosya ürün ve mimari için kabul edilmiş, uzun ömürlü kararları kayded
 - Slice 10 Structured Sales Meeting design: `docs/superpowers/specs/2026-07-15-sales-meeting-design.md`
 - Slice 11 production deployment design: `docs/superpowers/specs/2026-07-15-production-deployment-design.md`
 - Slice 12 local pilot cutover design: `docs/superpowers/specs/2026-07-15-local-pilot-cutover-design.md`
+- Job lifecycle clarity design: `docs/superpowers/specs/2026-07-17-job-lifecycle-clarity-design.md`
 - Agent discipline: `AGENTS.md`
 - Historical inputs: `docs/archive/inputs/`
 
@@ -529,6 +530,54 @@ Playwright acceptance flow.
 - Approve, revision, withdrawal, and cancellation races serialize through the existing
   versioned row lock and critical-action transaction.
 - Product Delivery and General Task note behavior is unchanged.
+
+## JOB-005: Job lifecycle clarity uses backend workflow facts and frontend presentation SSOT
+
+- **Date:** 2026-07-17
+- **Status:** Accepted
+- **Scope:** JobCard workflow read model, presentation adapter, approval UX language
+- **Supersedes in part:** JOB-004 item that implied only assigned Staff may withdraw; the
+  2026-07-16 meeting-lifecycle design sentence that excluded Manager/Admin withdrawal
+
+### Context
+
+The JobCard state machine, named commands, and immutable `WAITING_APPROVAL` snapshot already
+existed. Detail UI still presented short command buttons without phase, responsibility, or
+consequence guidance, and React risked reimplementing permission and readiness rules.
+
+### Decision
+
+1. **Manager/Admin withdrawal is intentional.** Assigned Staff, Manager, and Admin may
+   execute `WITHDRAW_FROM_APPROVAL` from `WAITING_APPROVAL`. Another Staff user remains
+   forbidden. Management editing of a waiting Sales Meeting first withdraws, then opens
+   edit after the canonical `IN_PROGRESS` response.
+2. **Submission readiness is backend-owned.** One structured evaluator powers both
+   `submissionReadiness` on detail and `SUBMIT_FOR_APPROVAL` validation. Frontend maps
+   stable requirement codes to Turkish labels and must not recompute `ready`.
+3. **Turkish copy and layout are frontend-owned.** One pure presentation adapter owns phase
+   labels, responsibility copy, transition labels/consequences/confirmations, success
+   messages, and compact list/board summaries. Backend responses stay label-free.
+4. **No migration and no new dependency.** Lifecycle facts reuse existing columns and
+   activity; future revision/cancel reasons use existing activity `metadata`. Historical
+   rows without reason metadata return `reason: null`.
+5. **Permission and expected responsibility remain separate.** Management intervention on
+   Staff-owned phases may stay secondary even when the backend allows it.
+
+### Consequences
+
+- Detail responses include actor-scoped `workflowContext`; list/board receive only
+  actor-scoped `allowedCommands`.
+- User-facing controls use consequence-led labels such as `Kontrole gönder`,
+  `Kontrolü tamamla ve işi kapat`, and `Düzeltme için personele geri gönder` rather than
+  ambiguous `Onaya gönder` / `Onayla` alone.
+- Automated gates cover policy matrices, readiness parity, presentation matrices, and UI
+  composition. Live keyboard/focus role acceptance and remote CI remain explicit evidence
+  gates when environment access allows.
+
+### References
+
+- Design: `docs/superpowers/specs/2026-07-17-job-lifecycle-clarity-design.md`
+- Plan: `docs/superpowers/plans/2026-07-17-job-lifecycle-clarity.md`
 
 ## OPS-001: Initial pilot topology is macOS + Cloudflare Tunnel
 
