@@ -561,8 +561,21 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-expand { white-space: nowrap; }
 .job-row-summary { grid-column: 1 / -1; padding-top: 1rem; border-top: 1px solid var(--rule); }
 .job-row-summary dl { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 1rem; margin: 0; }
-.job-row-commands { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; margin-top: 1.25rem; }
+.job-row-commands {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.75rem;
+  min-width: 0;
+}
 .job-row-commands .primary-button { margin-top: 0; }
+.job-row-commands .job-detail-link {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  text-decoration: none;
+}
 .job-detail-link { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .job-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1.5rem; }
 .job-pagination span { color: var(--muted); font-variant-numeric: tabular-nums; }
@@ -748,6 +761,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .review-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; }
 .job-lifecycle-steps {
   display: grid;
+  grid-template-columns: minmax(0, 1fr);
   gap: 0.65rem;
   margin: 0 0 1.5rem;
   padding: 1rem 1.1rem;
@@ -755,12 +769,53 @@ button:disabled { cursor: wait; opacity: 0.65; }
   border-radius: 0.7rem;
   list-style: none;
   background: var(--canvas);
+  min-width: 0;
+  max-width: 100%;
 }
 .job-lifecycle-step {
   display: grid;
   grid-template-columns: 1.5rem minmax(0, 1fr);
   gap: 0.7rem;
   align-items: start;
+  min-width: 0;
+}
+.compact-workflow {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 0;
+  margin-block-start: 0.55rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+.compact-workflow p {
+  margin: 0;
+  color: var(--ink);
+  font-weight: 700;
+}
+.compact-workflow strong {
+  font-variant-numeric: tabular-nums;
+}
+.compact-workflow--attention {
+  padding: 0.45rem 0.55rem;
+  border: 1px solid oklch(78% 0.06 55deg);
+  border-radius: 0.5rem;
+  background: oklch(97% 0.02 85deg);
+  color: oklch(40% 0.08 50deg);
+}
+.compact-workflow--attention p {
+  color: oklch(34% 0.08 45deg);
+}
+.job-row-mobile-primary .primary-button,
+.job-row-mobile-primary .secondary-button {
+  min-height: 2.75rem;
+}
+.job-row-commands .primary-button,
+.job-row-commands .secondary-button,
+.job-row-commands .job-detail-link {
+  min-height: 2.75rem;
 }
 .job-lifecycle-step-icon {
   display: inline-grid;
@@ -1141,6 +1196,50 @@ button:disabled { cursor: wait; opacity: 0.65; }
   }
 }
 
+@media (max-width: 63.99rem) {
+  .job-lifecycle-steps {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .job-lifecycle-step {
+    grid-template-columns: 1.5rem minmax(0, 1fr);
+  }
+}
+
+@media (min-width: 64rem) {
+  .job-lifecycle-steps {
+    grid-template-columns: repeat(5, minmax(0, 1fr));
+    gap: 0.75rem;
+    align-items: start;
+  }
+  .job-lifecycle-step {
+    grid-template-columns: minmax(0, 1fr);
+    justify-items: start;
+  }
+}
+
+@media (max-width: 20rem) {
+  .job-lifecycle-steps,
+  .compact-workflow,
+  .structured-job-row,
+  .job-row-commands,
+  .job-board-card {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
+  }
+  .job-lifecycle-steps {
+    grid-template-columns: minmax(0, 1fr);
+    padding: 0.75rem;
+  }
+  .job-row-commands {
+    flex-direction: column;
+    align-items: stretch;
+  }
+  .job-row-commands > * {
+    width: 100%;
+  }
+}
+
 @media (max-width: 720px) {
   .login-layout { display: block; }
   .login-introduction { min-height: auto; padding: 1rem; border-right: 0; border-bottom: 1px solid var(--rule); }
@@ -1173,7 +1272,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .delivery-lines dl div:last-child { grid-column: 1 / -1; }
   .detail-action { align-items: stretch; flex-direction: column; }
   .detail-action .primary-button { width: 100%; }
-  .job-lifecycle-steps { padding: 0.9rem; }
+  .job-lifecycle-steps { padding: 0.9rem; grid-template-columns: minmax(0, 1fr); }
   .cancelled-job-facts { grid-template-columns: 1fr; }
   .workflow-requirement { grid-template-columns: 1.35rem minmax(0, 1fr); }
   .workflow-requirement-state { grid-column: 2; }
@@ -1247,6 +1346,13 @@ button:disabled { cursor: wait; opacity: 0.65; }
 
 @media (prefers-reduced-motion: reduce) {
   .completed-trend span { transition: none; }
+  .job-lifecycle-steps,
+  .job-lifecycle-step,
+  .compact-workflow {
+    scroll-behavior: auto;
+    transition: none;
+    animation: none;
+  }
   *, *::before, *::after {
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;

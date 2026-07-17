@@ -24,4 +24,11 @@ describe('button CSS contract', () => {
     expect(css).toContain('.surface-flat');
     expect(css).not.toMatch(/\.surface[^{]*\{[^}]*border-left:\s*[2-9]px/s);
   });
+
+  it('keeps list/board open-for-action controls at least 44 CSS px tall', () => {
+    expect(css).toMatch(/\.job-row-mobile-primary\s+(?:\.primary-button|\.secondary-button)[^,{]*[,{][^}]*min-height:\s*2\.75rem/s);
+    expect(css).toMatch(/\.job-row-commands\s+(?:\.primary-button|\.secondary-button|\.job-detail-link)[^,{]*[,{][^}]*min-height:\s*2\.75rem/s);
+    expect(css).toMatch(/\.job-row-mobile-primary\s*\{[^}]*display:\s*none/s);
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*56rem\s*\)[\s\S]*\.job-row-mobile-primary\s*\{[^}]*display:\s*block/s);
+  });
 });
