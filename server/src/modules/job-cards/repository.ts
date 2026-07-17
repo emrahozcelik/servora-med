@@ -247,7 +247,7 @@ type JobCardListRow = {
 };
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
-  delivery_purpose: DeliveryItem['deliveryPurpose']; delivered_at: Date; quantity: string;
+  delivery_purpose: DeliveryItem['deliveryPurpose']; delivered_at: Date | null; quantity: string;
   unit: string | null; product_name_snapshot: string; product_sku_snapshot: string | null;
   product_model_snapshot: string | null; lot_no: string | null; serial_no: string | null;
   expiry_date: string | null; delivery_note: string | null;

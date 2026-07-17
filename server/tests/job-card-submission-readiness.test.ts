@@ -126,4 +126,35 @@ describe('structured submission readiness', () => {
       code: 'MEETING_TIME_VALID', state: 'invalid', field: 'meetingAt',
     });
   });
+
+  it('reports DELIVERY_ITEMS_VALID invalid when a planned item has null deliveredAt', async () => {
+    const evaluation = await evaluateSubmission(reader({
+      items: [{ ...defaultItems[0]!, deliveredAt: null }],
+    }), staff, deliveryJob, now);
+
+    expect(evaluation.readiness.ready).toBe(false);
+    expect(evaluation.readiness.items).toContainEqual({
+      code: 'DELIVERY_ITEM_PRESENT', state: 'met', field: 'deliveryItems',
+    });
+    expect(evaluation.readiness.items).toContainEqual({
+      code: 'DELIVERY_ITEMS_VALID', state: 'invalid', field: 'deliveryItems',
+    });
+    expect(() => assertSubmissionReady(evaluation)).toThrowError(expect.objectContaining({
+      code: 'DELIVERY_NOT_READY',
+    }));
+  });
+
+  it('reports DELIVERY_ITEMS_VALID met only after every item has a real deliveredAt', async () => {
+    const evaluation = await evaluateSubmission(reader({
+      items: [{
+        ...defaultItems[0]!,
+        deliveredAt: new Date('2026-07-14T08:00:00.000Z'),
+      }],
+    }), staff, deliveryJob, now);
+
+    expect(evaluation.readiness.ready).toBe(true);
+    expect(evaluation.readiness.items).toContainEqual({
+      code: 'DELIVERY_ITEMS_VALID', state: 'met', field: 'deliveryItems',
+    });
+  });
 });

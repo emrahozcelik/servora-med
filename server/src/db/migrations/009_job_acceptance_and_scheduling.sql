@@ -34,3 +34,8 @@ ALTER TABLE job_card_activity_logs
     'DELIVERY_ITEM_ADDED', 'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED',
     'NOTE_ADDED', 'MEETING_DETAILS_UPDATED', 'JOB_APPROVAL_WITHDRAWN'
   ));
+
+-- Actual delivery time is recorded during execution; planned work uses job_cards.scheduled_at.
+-- Do not backfill delivered_at from scheduled_at.
+ALTER TABLE job_card_delivery_items
+  ALTER COLUMN delivered_at DROP NOT NULL;

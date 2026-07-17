@@ -66,7 +66,7 @@ type PatchInput = {
 };
 type DeliveryInput = {
   expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
-  deliveredAt: string; quantity: number; lotNo?: string | null; serialNo?: string | null;
+  deliveredAt: string | null; quantity: number; lotNo?: string | null; serialNo?: string | null;
   expiryDate?: string | null; deliveryNote?: string | null;
 };
 type AddDeliveryInput = DeliveryInput & { clientActionId: string };
@@ -84,10 +84,22 @@ type LifecycleDefinition = {
   cancelReason: string | null;
 };
 
+function parseDeliveredAt(value: string | null): Date | null {
+  if (value === null) return null;
+  if (typeof value !== 'string') {
+    throw new AppError('VALIDATION_ERROR', 400, 'Teslim ürünü bilgileri geçersiz.');
+  }
+  const deliveredAt = new Date(value);
+  if (Number.isNaN(deliveredAt.getTime())) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Teslim ürünü bilgileri geçersiz.');
+  }
+  return deliveredAt;
+}
+
 function deliveryRecord(organizationId: string, jobCardId: string, input: DeliveryInput, product: ProductReference): Omit<DeliveryItemRecord, 'id'> {
-  const deliveredAt = new Date(input.deliveredAt);
-  if (!DELIVERY_PURPOSES.includes(input.deliveryPurpose) || !Number.isFinite(input.quantity) || input.quantity <= 0 ||
-    Number.isNaN(deliveredAt.getTime()) || !input.productId) {
+  const deliveredAt = parseDeliveredAt(input.deliveredAt);
+  if (!DELIVERY_PURPOSES.includes(input.deliveryPurpose) || !Number.isFinite(input.quantity) || input.quantity <= 0
+    || !input.productId) {
     throw new AppError('VALIDATION_ERROR', 400, 'Teslim ürünü bilgileri geçersiz.');
   }
   return { organizationId, jobCardId, productId: product.id, deliveryPurpose: input.deliveryPurpose,
@@ -536,7 +548,10 @@ export class JobCardService {
       if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
       const merged: DeliveryInput = { expectedVersion: input.expectedVersion, productId: input.productId ?? current.productId,
         deliveryPurpose: input.deliveryPurpose ?? current.deliveryPurpose,
-        deliveredAt: input.deliveredAt ?? current.deliveredAt.toISOString(), quantity: input.quantity ?? current.quantity,
+        deliveredAt: input.deliveredAt !== undefined
+          ? input.deliveredAt
+          : current.deliveredAt === null ? null : current.deliveredAt.toISOString(),
+        quantity: input.quantity ?? current.quantity,
         lotNo: input.lotNo === undefined ? current.lotNo : input.lotNo, serialNo: input.serialNo === undefined ? current.serialNo : input.serialNo,
         expiryDate: input.expiryDate === undefined ? current.expiryDate : input.expiryDate,
         deliveryNote: input.deliveryNote === undefined ? current.deliveryNote : input.deliveryNote };

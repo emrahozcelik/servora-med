@@ -246,4 +246,82 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
       )).resolves.toMatchObject({ rowCount: 1 });
     });
   });
+
+  it('makes delivered_at nullable without backfilling from scheduled_at', async () => {
+    await withIsolatedDatabase(async (pool, store) => {
+      const upgrade = await runMigrations({
+        migrationsDirectory: MIGRATIONS_DIRECTORY,
+        store,
+      });
+      expect(upgrade.appliedVersions).toContain('009_job_acceptance_and_scheduling');
+
+      const nullable = await pool.query<{ is_nullable: string }>(
+        `SELECT is_nullable
+           FROM information_schema.columns
+          WHERE table_schema = current_schema()
+            AND table_name = 'job_card_delivery_items'
+            AND column_name = 'delivered_at'`,
+      );
+      expect(nullable.rows).toEqual([{ is_nullable: 'YES' }]);
+
+      const { organizationId, staffUserId } = await createOrganizationAndStaff(
+        pool,
+        'Delivery Time Split',
+      );
+      const customer = await pool.query<{ id: string }>(
+        `INSERT INTO customers (organization_id, name, customer_type)
+         VALUES ($1, 'Planned Clinic', 'clinic') RETURNING id`,
+        [organizationId],
+      );
+      const product = await pool.query<{ id: string }>(
+        `INSERT INTO products (organization_id, name, unit)
+         VALUES ($1, 'Implant Kit', 'adet') RETURNING id`,
+        [organizationId],
+      );
+      const scheduledAt = new Date('2026-07-20T10:00:00.000Z');
+      const startedAt = new Date('2026-07-21T08:00:00.000Z');
+      const job = await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (
+           organization_id, type, status, title, customer_id, assigned_to, created_by,
+           scheduled_at, started_at
+         ) VALUES (
+           $1, 'PRODUCT_DELIVERY', 'IN_PROGRESS', 'Planned delivery line', $2, $3, $3, $4, $5
+         ) RETURNING id`,
+        [organizationId, customer.rows[0]!.id, staffUserId, scheduledAt, startedAt],
+      );
+
+      const plannedItem = await pool.query<{
+        delivered_at: Date | null;
+      }>(
+        `INSERT INTO job_card_delivery_items (
+           organization_id, job_card_id, product_id, delivery_purpose,
+           delivered_at, quantity, unit, product_name_snapshot
+         ) VALUES ($1, $2, $3, 'SALE', NULL, 1, 'adet', 'Implant Kit')
+         RETURNING delivered_at`,
+        [organizationId, job.rows[0]!.id, product.rows[0]!.id],
+      );
+      expect(plannedItem.rows[0]!.delivered_at).toBeNull();
+
+      const jobRow = await pool.query<{ scheduled_at: Date | null }>(
+        'SELECT scheduled_at FROM job_cards WHERE id = $1',
+        [job.rows[0]!.id],
+      );
+      expect(jobRow.rows[0]!.scheduled_at?.toISOString()).toBe(scheduledAt.toISOString());
+
+      const actualDeliveredAt = new Date('2026-07-21T14:30:00.000Z');
+      const actualItem = await pool.query<{ delivered_at: Date | null }>(
+        `UPDATE job_card_delivery_items
+            SET delivered_at = $2
+          WHERE organization_id = $1 AND job_card_id = $3
+          RETURNING delivered_at`,
+        [organizationId, actualDeliveredAt, job.rows[0]!.id],
+      );
+      expect(actualItem.rows[0]!.delivered_at?.toISOString()).toBe(
+        actualDeliveredAt.toISOString(),
+      );
+      expect(actualItem.rows[0]!.delivered_at?.toISOString()).not.toBe(
+        scheduledAt.toISOString(),
+      );
+    });
+  });
 });

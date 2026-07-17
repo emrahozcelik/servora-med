@@ -155,7 +155,7 @@ export type DeliveryItem = {
   jobCardId?: string;
   productId: string;
   deliveryPurpose: DeliveryPurpose;
-  deliveredAt: Date;
+  deliveredAt: Date | null;
   quantity: number;
   unit?: string | null;
   productNameSnapshot?: string;

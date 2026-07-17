@@ -220,4 +220,46 @@ describe('delivery item mutations', () => {
       .rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
     expect(repo.events).toHaveLength(1);
   });
+
+  it('creates a planned delivery line with deliveredAt null and never copies scheduledAt', async () => {
+    const repo = new DeliveryRepository();
+    repo.job = {
+      ...repo.job,
+      status: 'ACCEPTED',
+      scheduledAt: '2026-07-20T10:00:00.000Z',
+    };
+
+    const result = await new JobCardService(repo).addDeliveryItem(staff, 'job-1', {
+      ...create,
+      deliveredAt: null,
+    });
+
+    expect(result.item.deliveredAt).toBeNull();
+    expect(result.item.deliveredAt).not.toEqual(new Date(repo.job.scheduledAt!));
+    expect(repo.items[0]!.deliveredAt).toBeNull();
+  });
+
+  it('records actual deliveredAt during IN_PROGRESS without inventing it from scheduledAt', async () => {
+    const repo = new DeliveryRepository();
+    repo.job = {
+      ...repo.job,
+      status: 'IN_PROGRESS',
+      scheduledAt: '2026-07-20T10:00:00.000Z',
+    };
+    const service = new JobCardService(repo);
+    const actualDeliveredAt = '2026-07-21T14:30:00.000Z';
+
+    const added = await service.addDeliveryItem(staff, 'job-1', {
+      ...create,
+      deliveredAt: null,
+    });
+    const patched = await service.patchDeliveryItem(staff, 'job-1', added.item.id!, {
+      expectedVersion: 2,
+      deliveredAt: actualDeliveredAt,
+    });
+
+    expect(added.item.deliveredAt).toBeNull();
+    expect(patched.item.deliveredAt).toEqual(new Date(actualDeliveredAt));
+    expect(patched.item.deliveredAt).not.toEqual(new Date(repo.job.scheduledAt!));
+  });
 });
