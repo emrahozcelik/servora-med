@@ -139,6 +139,17 @@ export type LifecycleCommand =
   | 'RESUME'
   | 'CANCEL';
 
+export type JobPermissionSubject = Pick<
+  JobCard,
+  'organizationId' | 'type' | 'status' | 'assignedTo'
+>;
+
+export const JOB_WORKFLOW_ACTIONS = [
+  'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
+  'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
+] as const;
+export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
+
 export type JobCardStatusFilter = JobCardStatus | 'active' | 'closed' | 'all';
 
 export type JobCardBaseFilters = {

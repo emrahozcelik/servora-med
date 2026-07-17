@@ -5,6 +5,7 @@ import {
   assertCanEdit,
   assertCanEditMeetingResult,
   assertCanTransition,
+  assertCanViewMeetingResult,
   assertCreateAssignmentRequest,
   assertProductDeliveryJob,
   assertSalesMeetingJob,
@@ -223,6 +224,7 @@ export class JobCardService {
       throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
     }
     assertSalesMeetingJob(job);
+    assertCanViewMeetingResult(actor, job);
     const details = await this.repository.findMeetingDetails(actor.organizationId, jobCardId);
     if (!details) invariantViolation();
     return meetingDetailsResponse(jobCardId, job.version, details);

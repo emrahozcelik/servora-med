@@ -344,6 +344,31 @@ describe('Sales Meeting detail reads and mutations', () => {
     expect(repository.jobs[0]!.version).toBe(2);
   });
 
+  it.each(['NEW', 'PLANNED'] as const)(
+    'rejects meeting result reads before start in %s with the exact edit contract',
+    async (status) => {
+      const repository = new SalesMeetingRepository();
+      const job = repository.seedMeeting({ status });
+      await expect(new JobCardService(repository).getMeetingDetails(staff, job.id))
+        .rejects.toMatchObject({
+          code: 'JOB_NOT_EDITABLE', statusCode: 409,
+          message: 'JobCard bu durumda düzenlenemez.',
+        });
+      expect(repository.lockOrder).toEqual([]);
+      expect(repository.jobs[0]!.version).toBe(2);
+    },
+  );
+
+  it.each(['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
+    'allows meeting result reads in review/terminal %s',
+    async (status) => {
+      const repository = new SalesMeetingRepository();
+      const job = repository.seedMeeting({ status });
+      await expect(new JobCardService(repository).getMeetingDetails(manager, job.id))
+        .resolves.toMatchObject({ jobCardId: job.id, jobCardVersion: 2 });
+    },
+  );
+
   it('conceals inaccessible parents before type guard and reports invariant failure safely', async () => {
     const inaccessible = new SalesMeetingRepository();
     const inaccessibleJob = inaccessible.seedMeeting({ assignedTo: 'staff-2', type: 'GENERAL_TASK' });
