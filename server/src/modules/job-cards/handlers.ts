@@ -44,7 +44,10 @@ function page(raw: unknown, defaultLimit: number) {
   return { limit: integer('limit', defaultLimit, 1, 100), offset: integer('offset', 0, 0) };
 }
 
-const PATCH_FIELDS = ['expectedVersion', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
+const PATCH_FIELDS = [
+  'expectedVersion', 'title', 'description', 'customerId', 'contactId',
+  'assignedTo', 'priority', 'dueDate', 'scheduledAt',
+];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
 const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;

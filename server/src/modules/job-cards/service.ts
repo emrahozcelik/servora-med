@@ -44,7 +44,13 @@ import {
   type MeetingDetailsCandidate,
   type PatchMeetingDetailsInput,
 } from './types.js';
-import { optionalLifecycleNote, requireActionId, requireLifecycleReason, validation } from './validation.js';
+import {
+  isoInstant,
+  optionalLifecycleNote,
+  requireActionId,
+  requireLifecycleReason,
+  validation,
+} from './validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 import {
   evaluateSubmission,
@@ -55,7 +61,8 @@ import { validateMeetingDetailsCandidate } from './meeting-details-input.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
-  customerId?: string; contactId?: string | null; assignedTo?: string; priority?: JobCardPriority; dueDate?: string | null;
+  customerId?: string; contactId?: string | null; assignedTo?: string; priority?: JobCardPriority;
+  dueDate?: string | null; scheduledAt?: string | null;
 };
 type DeliveryInput = {
   expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
@@ -153,7 +160,12 @@ export class JobCardService {
       !input.assignedTo || !JOB_CARD_PRIORITIES.includes(priority)) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard oluşturma bilgileri geçersiz.');
     }
+    if ((input.type === 'PRODUCT_DELIVERY' || input.type === 'SALES_MEETING')
+      && !input.scheduledAt) {
+      throw new AppError('VALIDATION_ERROR', 400, 'JobCard oluşturma bilgileri geçersiz.');
+    }
     assertCreateAssignmentRequest(actor, input.assignedTo);
+    const requestTime = this.now();
     const result = await this.repository.executeCriticalAction(
       {
         organizationId: actor.organizationId, userId: actor.id,
@@ -164,12 +176,18 @@ export class JobCardService {
         if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
         assertCanCreateForAssignee(actor, assignee);
         await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId);
+        const selfAccepted = actor.role === 'STAFF' && actor.id === input.assignedTo;
         const job = await transaction.createJobCard({
-          organizationId: actor.organizationId, type: input.type, title,
+          organizationId: actor.organizationId, type: input.type,
+          status: selfAccepted ? 'ACCEPTED' : 'NEW',
+          title,
           description: input.description?.trim() || null, customerId: input.customerId,
           contactId: input.contactId,
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
           dueDate: input.dueDate,
+          scheduledAt: input.scheduledAt,
+          acceptedAt: selfAccepted ? requestTime : null,
+          acceptedBy: selfAccepted ? actor.id : null,
         });
         if (input.type === 'SALES_MEETING') {
           await transaction.createMeetingDetails({
@@ -177,14 +195,22 @@ export class JobCardService {
             jobCardId: job.id,
           });
         }
+        const createdValue: Record<string, unknown> = {
+          status: job.status, assignedTo: job.assignedTo, version: job.version,
+        };
+        if (selfAccepted) {
+          createdValue.acceptedAt = requestTime.toISOString();
+          createdValue.acceptedBy = actor.id;
+        }
+        if (job.scheduledAt !== null) createdValue.scheduledAt = job.scheduledAt;
         await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
           event: 'JOB_CREATED', clientActionId: input.clientActionId,
-          newValue: { status: job.status, assignedTo: job.assignedTo, version: job.version },
+          newValue: createdValue,
         });
         const detail = await transaction.getJobDetail(actor.organizationId, job.id);
         if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-        return this.presentDetail(transaction, actor, detail, this.now());
+        return this.presentDetail(transaction, actor, detail, requestTime);
       },
     );
     if (result.kind === 'processing') {
@@ -363,13 +389,19 @@ export class JobCardService {
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
       throw new AppError('VALIDATION_ERROR', 400, 'expectedVersion pozitif bir tam sayı olmalıdır.');
     }
-    const fields = Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'expectedVersion')) as Omit<PatchInput, 'expectedVersion'>;
+    const fields = Object.fromEntries(Object.entries(input).filter(([key]) => key !== 'expectedVersion')) as Omit<PatchInput, 'expectedVersion'> & {
+      status?: JobCardStatus;
+      clearAcceptance?: boolean;
+    };
     if (Object.keys(fields).length === 0 || (fields.title !== undefined && !fields.title.trim()) ||
       (fields.priority !== undefined && !JOB_CARD_PRIORITIES.includes(fields.priority))) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
     }
     if (fields.title !== undefined) fields.title = fields.title.trim();
     if (fields.description !== undefined) fields.description = fields.description?.trim() || null;
+    if (fields.scheduledAt !== undefined && fields.scheduledAt !== null) {
+      fields.scheduledAt = isoInstant(fields.scheduledAt, 'scheduledAt');
+    }
 
     return this.repository.executeTransaction(async (transaction) => {
       const snapshot = await transaction.getJob(actor.organizationId, jobCardId);
@@ -396,6 +428,21 @@ export class JobCardService {
         throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       }
       assertCanEdit(actor, job);
+
+      const scheduleChanged = fields.scheduledAt !== undefined
+        && fields.scheduledAt !== job.scheduledAt;
+      const assigneeChanged = fields.assignedTo !== undefined
+        && fields.assignedTo !== job.assignedTo;
+      if ((scheduleChanged || assigneeChanged)
+        && job.status !== 'NEW' && job.status !== 'ACCEPTED') {
+        throw new AppError('JOB_NOT_EDITABLE', 409, 'JobCard bu durumda düzenlenemez.');
+      }
+      const management = actor.role === 'MANAGER' || actor.role === 'ADMIN';
+      if (management && job.status === 'ACCEPTED' && (scheduleChanged || assigneeChanged)) {
+        fields.status = 'NEW';
+        fields.clearAcceptance = true;
+      }
+
       const updated = await transaction.updateFieldsWithVersion({
         organizationId: actor.organizationId, jobCardId, expectedVersion: input.expectedVersion, fields,
       });
@@ -407,7 +454,9 @@ export class JobCardService {
           oldValue: { assignedTo: job.assignedTo }, newValue: { assignedTo: updated.assignedTo },
         });
       }
-      const nonAssignmentFields = Object.keys(fields).filter((key) => key !== 'assignedTo');
+      const nonAssignmentFields = Object.keys(fields).filter(
+        (key) => key !== 'assignedTo' && key !== 'clearAcceptance',
+      );
       if (nonAssignmentFields.length > 0) {
         await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId, actorId: actor.id,

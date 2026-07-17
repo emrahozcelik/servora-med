@@ -28,7 +28,8 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       for (const migration of [
         '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
         '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
-        '007_sales_meeting.sql',
+        '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
+        '009_job_acceptance_and_scheduling.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await pool.query(await readFile(path, 'utf8'));
@@ -89,13 +90,19 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         clientActionId: 'create-general-task', type: 'GENERAL_TASK',
         title: 'Klinik dönüşünü takip et', description: null,
         customerId: null, contactId: null, assignedTo: staffId,
-        priority: 'normal', dueDate: null,
+        priority: 'normal', dueDate: null, scheduledAt: null,
       });
       expect(generalTask).toMatchObject({
-        type: 'GENERAL_TASK', status: 'NEW', version: 1,
+        type: 'GENERAL_TASK', status: 'ACCEPTED', version: 1,
         title: 'Klinik dönüşünü takip et', description: null,
-        customer: null, contact: null,
+        customer: null, contact: null, scheduledAt: null,
         assignee: { id: staffId, name: 'Ayşe Personel' },
+        workflowContext: {
+          lifecycle: {
+            acceptedAt: '2026-07-14T09:00:00.000Z',
+            acceptedBy: { id: staffId, name: 'Ayşe Personel' },
+          },
+        },
       });
 
       const generalTaskList = await service.list(staff, {
@@ -166,9 +173,11 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         title: 'Kontrol görüşmesi', description: null,
         customerId, contactId: null, assignedTo: staffId,
         priority: 'normal', dueDate: '2026-07-14',
+        scheduledAt: '2026-07-14T10:00:00.000Z',
       });
       expect(salesMeeting).toMatchObject({
-        type: 'SALES_MEETING', status: 'NEW', version: 1,
+        type: 'SALES_MEETING', status: 'ACCEPTED', version: 1,
+        scheduledAt: '2026-07-14T10:00:00.000Z',
         customer: { id: customerId, name: 'ABC Klinik' },
         assignee: { id: staffId, name: 'Ayşe Personel' },
       });
@@ -177,13 +186,13 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       })).items).toEqual([
         expect.objectContaining({
           id: salesMeeting.id, type: 'SALES_MEETING', deliveryItemCount: 0,
+          scheduledAt: '2026-07-14T10:00:00.000Z',
         }),
       ]);
+      // Board still groups ACCEPTED under a later column rename task; list remains authoritative.
       expect((await service.board(staff, {
         ...filters, type: 'SALES_MEETING', limit: 25,
-      })).columns.NEW.items).toEqual([
-        expect.objectContaining({ id: salesMeeting.id, type: 'SALES_MEETING' }),
-      ]);
+      })).columns.NEW.items).toEqual([]);
 
       salesMeeting = await service.start(staff, salesMeeting.id, {
         clientActionId: 'start-sales-meeting', expectedVersion: salesMeeting.version,
@@ -245,7 +254,9 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         });
       }
       await addItem(completedJobId, 'delivery-complete');
-      let completed = await service.plan(staff, completedJobId, { clientActionId: 'plan', expectedVersion: 2 });
+      let completed = await service.acceptAssignment(staff, completedJobId, {
+        clientActionId: 'accept', expectedVersion: 2,
+      });
       completed = await service.start(staff, completedJobId, { clientActionId: 'start', expectedVersion: completed.version });
       completed = await service.submitForApproval(staff, completedJobId, { clientActionId: 'submit', expectedVersion: completed.version });
       completed = await service.approve(manager, completedJobId, { clientActionId: 'approve', expectedVersion: completed.version });
@@ -253,7 +264,12 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       await expect(service.approve(manager, completedJobId, { clientActionId: 'approve', expectedVersion: 5 })).resolves.toEqual(completed);
 
       await addItem(cancelledJobId, 'delivery-revision');
-      let revised = await service.start(staff, cancelledJobId, { clientActionId: 'start-revision', expectedVersion: 2 });
+      let revised = await service.acceptAssignment(staff, cancelledJobId, {
+        clientActionId: 'accept-revision', expectedVersion: 2,
+      });
+      revised = await service.start(staff, cancelledJobId, {
+        clientActionId: 'start-revision', expectedVersion: revised.version,
+      });
       const firstStartedAt = (await pool.query<{ started_at: Date }>('SELECT started_at FROM job_cards WHERE id=$1', [cancelledJobId])).rows[0]!.started_at;
       revised = await service.submitForApproval(staff, cancelledJobId, { clientActionId: 'submit-revision', expectedVersion: revised.version });
       revised = await service.requestRevision(manager, cancelledJobId, {
@@ -296,7 +312,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       expect(closedBoard.closedCounts).toEqual({ COMPLETED: 3, CANCELLED: 1 });
       const activity = await service.listActivity(manager, completedJobId, { limit: 50, offset: 0 });
       expect(activity.items.map((item) => item.eventType)).toEqual(expect.arrayContaining([
-        'DELIVERY_ITEM_ADDED', 'JOB_PLANNED', 'JOB_STARTED', 'JOB_SUBMITTED_FOR_APPROVAL',
+        'DELIVERY_ITEM_ADDED', 'JOB_ACCEPTED', 'JOB_STARTED', 'JOB_SUBMITTED_FOR_APPROVAL',
         'JOB_APPROVED', 'NOTE_ADDED',
       ]));
       expect(activity.items.filter((item) => item.eventType === 'JOB_APPROVED')).toHaveLength(1);

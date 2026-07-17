@@ -53,28 +53,32 @@ export type JobCardCreateInput =
     clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string;
     description?: string | null; customerId: string; contactId?: string | null;
     assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
+    scheduledAt: string;
   }
   | {
     clientActionId: string; type: 'GENERAL_TASK'; title: string;
     description?: string | null; customerId?: string | null; contactId?: string | null;
     assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
+    scheduledAt?: string | null;
   }
   | {
     clientActionId: string; type: 'SALES_MEETING'; title: string;
     description?: string | null; customerId: string; contactId?: string | null;
     assignedTo: string; priority?: JobCardPriority; dueDate: string;
+    scheduledAt: string;
   };
 
 type NormalizedCommonCreateInput = {
   clientActionId: string; title: string; description: string | null; contactId: string | null;
   assignedTo: string; priority: JobCardPriority; dueDate: string | null;
+  scheduledAt: string | null;
 };
 
 export type NormalizedJobCardCreateInput =
-  | NormalizedCommonCreateInput & { type: 'PRODUCT_DELIVERY'; customerId: string }
+  | NormalizedCommonCreateInput & { type: 'PRODUCT_DELIVERY'; customerId: string; scheduledAt: string }
   | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null }
   | NormalizedCommonCreateInput & {
-      type: 'SALES_MEETING'; customerId: string; dueDate: string;
+      type: 'SALES_MEETING'; customerId: string; dueDate: string; scheduledAt: string;
     };
 
 export type MeetingDetails = {

@@ -61,9 +61,11 @@ export type CreateNoteRecord = {
 };
 
 export type CreateJobCardRecord = {
-  organizationId: string; type: JobCard['type']; title: string; description: string | null;
+  organizationId: string; type: JobCard['type']; status: JobCard['status'];
+  title: string; description: string | null;
   customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string;
-  priority: JobCardPriority; dueDate: string | null;
+  priority: JobCardPriority; dueDate: string | null; scheduledAt: string | null;
+  acceptedAt: Date | null; acceptedBy: string | null;
 };
 export type MeetingDetailsRecord = MeetingDetailsCandidate & {
   organizationId: string;
@@ -72,8 +74,12 @@ export type MeetingDetailsRecord = MeetingDetailsCandidate & {
 
 export type JobCardReadScope = { organizationId: string; assignedTo: string | null };
 export type UpdateJobCardFields = Partial<Pick<
-  JobCard, 'title' | 'description' | 'customerId' | 'contactId' | 'assignedTo' | 'priority' | 'dueDate'
->>;
+  JobCard,
+  'title' | 'description' | 'customerId' | 'contactId' | 'assignedTo' | 'priority' | 'dueDate'
+  | 'scheduledAt' | 'status'
+>> & {
+  clearAcceptance?: boolean;
+};
 export type UpdateJobCardInput = {
   organizationId: string; jobCardId: string; expectedVersion: number; fields: UpdateJobCardFields;
 };
@@ -642,12 +648,14 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   async createJobCard(input: CreateJobCardRecord) {
     const result = await this.client.query<JobCardRow>(
       `INSERT INTO job_cards
-         (organization_id, type, title, description, customer_id, contact_id, assigned_to, created_by, priority, due_date)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+         (organization_id, type, status, title, description, customer_id, contact_id,
+          assigned_to, created_by, priority, due_date, scheduled_at, accepted_at, accepted_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
                  assigned_to, created_by, priority, due_date, scheduled_at`,
-      [input.organizationId, input.type, input.title, input.description, input.customerId,
-        input.contactId, input.assignedTo, input.createdBy, input.priority, input.dueDate],
+      [input.organizationId, input.type, input.status, input.title, input.description,
+        input.customerId, input.contactId, input.assignedTo, input.createdBy, input.priority,
+        input.dueDate, input.scheduledAt, input.acceptedAt, input.acceptedBy],
     );
     return mapJobCard(result.rows[0]!);
   }
@@ -683,15 +691,24 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   }
 
   async updateFieldsWithVersion(input: UpdateJobCardInput) {
-    const columns: Record<keyof UpdateJobCardFields, string> = {
+    const columns: Record<string, string> = {
       title: 'title', description: 'description', customerId: 'customer_id', contactId: 'contact_id',
       assignedTo: 'assigned_to', priority: 'priority', dueDate: 'due_date',
+      scheduledAt: 'scheduled_at', status: 'status',
     };
     const values: unknown[] = [input.organizationId, input.jobCardId, input.expectedVersion];
-    const assignments = Object.entries(input.fields).map(([key, value]) => {
+    const assignments: string[] = [];
+    for (const [key, value] of Object.entries(input.fields)) {
+      if (key === 'clearAcceptance') continue;
+      const column = columns[key];
+      if (!column) continue;
       values.push(value);
-      return `${columns[key as keyof UpdateJobCardFields]} = $${values.length}`;
-    });
+      assignments.push(`${column} = $${values.length}`);
+    }
+    if (input.fields.clearAcceptance) {
+      assignments.push('accepted_at = NULL', 'accepted_by = NULL');
+    }
+    if (assignments.length === 0) return null;
     const result = await this.client.query<JobCardRow>(
       `UPDATE job_cards SET ${assignments.join(', ')}, version = version + 1, updated_at = NOW()
        WHERE organization_id = $1 AND id = $2 AND version = $3

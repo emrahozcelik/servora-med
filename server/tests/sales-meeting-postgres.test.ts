@@ -18,11 +18,14 @@ async function applyMigrations(pool: Pool) {
     '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
     '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
     '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
+    '009_job_acceptance_and_scheduling.sql',
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(path, 'utf8'));
   }
 }
+
+const SCHEDULED_AT = '2026-07-15T10:30:00.000Z';
 
 describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
   it('preserves transactions, concurrency, lifecycle, report scope, and safe audit output', async () => {
@@ -77,16 +80,18 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         clientActionId: 'meeting-create', type: 'SALES_MEETING' as const,
         title: 'İmplant değerlendirme görüşmesi', description: null,
         customerId, contactId, assignedTo: staffId, priority: 'normal' as const,
-        dueDate: '2026-07-15',
+        dueDate: '2026-07-15', scheduledAt: SCHEDULED_AT,
       };
       let meeting = await service.create(staff, createInput);
-      expect(meeting.dueDate).toBe('2026-07-15');
+      expect(meeting).toMatchObject({
+        dueDate: '2026-07-15', scheduledAt: SCHEDULED_AT, status: 'ACCEPTED',
+      });
       await expect(service.create(staff, createInput)).resolves.toEqual(meeting);
       expect((await pool.query<{ count: string }>(
         `SELECT COUNT(*)::text AS count FROM job_card_meeting_details WHERE job_card_id = $1`,
         [meeting.id],
       )).rows[0]!.count).toBe('1');
-      // NEW/PLANNED: meeting result is not readable until execution starts (exact edit contract).
+      // NEW/ACCEPTED: meeting result is not readable until execution starts (exact edit contract).
       await expect(service.getMeetingDetails(staff, meeting.id)).rejects.toMatchObject({
         code: 'JOB_NOT_EDITABLE', statusCode: 409,
         message: 'JobCard bu durumda düzenlenemez.',
@@ -186,7 +191,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       let generalTask = await service.create(staff, {
         clientActionId: 'general-create', type: 'GENERAL_TASK', title: 'Görüşme sonrası görev',
         description: null, customerId: null, contactId: null, assignedTo: staffId,
-        priority: 'normal', dueDate: null,
+        priority: 'normal', dueDate: null, scheduledAt: null,
       });
       generalTask = await service.start(staff, generalTask.id, {
         clientActionId: 'general-start', expectedVersion: generalTask.version,
@@ -201,7 +206,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       let delivery = await service.create(staff, {
         clientActionId: 'delivery-create', type: 'PRODUCT_DELIVERY', title: 'Numune teslimi',
         description: null, customerId, contactId, assignedTo: staffId,
-        priority: 'normal', dueDate: null,
+        priority: 'normal', dueDate: null, scheduledAt: SCHEDULED_AT,
       });
       const deliveryMutation = await service.addDeliveryItem(staff, delivery.id, {
         clientActionId: 'delivery-item', expectedVersion: delivery.version, productId,
@@ -246,7 +251,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         let task = await service.create(staff, {
           clientActionId: `race-${suffix}-create`, type: 'GENERAL_TASK' as const,
           title: `Lifecycle race ${suffix}`, description: null, customerId: null,
-          contactId: null, assignedTo: staffId, priority: 'normal' as const, dueDate: null,
+          contactId: null, assignedTo: staffId, priority: 'normal' as const,
+          dueDate: null, scheduledAt: null,
         });
         task = await service.start(staff, task.id, {
           clientActionId: `race-${suffix}-start`, expectedVersion: task.version,
@@ -325,6 +331,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         clientActionId: 'race-edit-cancel-create', type: 'SALES_MEETING',
         title: 'Düzenleme ve iptal yarışı', description: null, customerId, contactId,
         assignedTo: staffId, priority: 'normal', dueDate: '2026-07-15',
+        scheduledAt: SCHEDULED_AT,
       });
       editCancelRace = await service.start(staff, editCancelRace.id, {
         clientActionId: 'race-edit-cancel-start', expectedVersion: editCancelRace.version,

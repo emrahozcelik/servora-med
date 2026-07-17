@@ -5,10 +5,11 @@ import { parseJobCardCreateInput } from '../src/modules/job-cards/create-input.j
 const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 const CUSTOMER_ID = '22222222-2222-4222-8222-222222222222';
 const CONTACT_ID = '33333333-3333-4333-8333-333333333333';
+const SCHEDULED_AT = '2026-07-20T10:30:00.000Z';
 const validationError = expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 });
 
 describe('JobCard create input', () => {
-  it('normalizes the exact General Task body', () => {
+  it('normalizes the exact General Task body with optional scheduledAt', () => {
     expect(parseJobCardCreateInput({
       clientActionId: '  task-create-1  ',
       type: 'GENERAL_TASK',
@@ -24,10 +25,21 @@ describe('JobCard create input', () => {
       assignedTo: STAFF_ID,
       priority: 'normal',
       dueDate: null,
+      scheduledAt: null,
     });
   });
 
-  it('normalizes the exact Product Delivery body without changing its requirements', () => {
+  it('normalizes General Task scheduledAt null when explicitly cleared', () => {
+    expect(parseJobCardCreateInput({
+      clientActionId: 'task-create-clear-schedule',
+      type: 'GENERAL_TASK',
+      title: 'Doktoru ara',
+      assignedTo: STAFF_ID,
+      scheduledAt: null,
+    })).toMatchObject({ scheduledAt: null });
+  });
+
+  it('normalizes the exact Product Delivery body with required scheduledAt', () => {
     expect(parseJobCardCreateInput({
       clientActionId: 'delivery-create-1',
       type: 'PRODUCT_DELIVERY',
@@ -38,6 +50,7 @@ describe('JobCard create input', () => {
       assignedTo: STAFF_ID,
       priority: 'high',
       dueDate: '2026-07-20',
+      scheduledAt: '2026-07-20T13:30:00+03:00',
     })).toEqual({
       clientActionId: 'delivery-create-1',
       type: 'PRODUCT_DELIVERY',
@@ -48,10 +61,11 @@ describe('JobCard create input', () => {
       assignedTo: STAFF_ID,
       priority: 'high',
       dueDate: '2026-07-20',
+      scheduledAt: '2026-07-20T10:30:00.000Z',
     });
   });
 
-  it('normalizes the exact Sales Meeting body and accepts a past planned day', () => {
+  it('normalizes the exact Sales Meeting body with required scheduledAt', () => {
     expect(parseJobCardCreateInput({
       clientActionId: '  meeting-create-1  ',
       type: 'SALES_MEETING',
@@ -59,6 +73,7 @@ describe('JobCard create input', () => {
       customerId: CUSTOMER_ID,
       assignedTo: STAFF_ID,
       dueDate: '2025-12-01',
+      scheduledAt: SCHEDULED_AT,
     })).toEqual({
       clientActionId: 'meeting-create-1',
       type: 'SALES_MEETING',
@@ -69,6 +84,7 @@ describe('JobCard create input', () => {
       assignedTo: STAFF_ID,
       priority: 'normal',
       dueDate: '2025-12-01',
+      scheduledAt: SCHEDULED_AT,
     });
   });
 
@@ -107,16 +123,34 @@ describe('JobCard create input', () => {
     })).toThrowError(validationError);
   });
 
-  it('requires Product Delivery customerId', () => {
+  it.each([
+    '2026-07-20T10:30:00',
+    '2026-07-20 10:30:00Z',
+    '2026-07-20T10:30:00.000',
+    'not-an-instant',
+  ])('rejects scheduledAt without Z or explicit offset: %s', (scheduledAt) => {
     expect(() => parseJobCardCreateInput({
-      clientActionId: 'a1', type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: STAFF_ID,
+      clientActionId: 'a1', type: 'GENERAL_TASK', title: 'Görev', assignedTo: STAFF_ID,
+      scheduledAt,
     })).toThrowError(validationError);
   });
 
-  it.each(['customerId', 'dueDate'])('requires Sales Meeting %s', (field) => {
+  it('requires Product Delivery customerId and scheduledAt', () => {
+    expect(() => parseJobCardCreateInput({
+      clientActionId: 'a1', type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: STAFF_ID,
+      scheduledAt: SCHEDULED_AT,
+    })).toThrowError(validationError);
+    expect(() => parseJobCardCreateInput({
+      clientActionId: 'a1', type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: STAFF_ID,
+      customerId: CUSTOMER_ID,
+    })).toThrowError(validationError);
+  });
+
+  it.each(['customerId', 'dueDate', 'scheduledAt'])('requires Sales Meeting %s', (field) => {
     const input: Record<string, unknown> = {
       clientActionId: 'a1', type: 'SALES_MEETING', title: 'Görüşme',
       customerId: CUSTOMER_ID, assignedTo: STAFF_ID, dueDate: '2026-07-15',
+      scheduledAt: SCHEDULED_AT,
     };
     delete input[field];
     expect(() => parseJobCardCreateInput(input)).toThrowError(validationError);
@@ -127,6 +161,7 @@ describe('JobCard create input', () => {
       expect(() => parseJobCardCreateInput({
         clientActionId: 'a1', type: 'SALES_MEETING', title: 'Görüşme',
         customerId: CUSTOMER_ID, assignedTo: STAFF_ID, dueDate: '2026-07-15',
+        scheduledAt: SCHEDULED_AT,
         [field]: 'unexpected',
       })).toThrowError(validationError);
     });

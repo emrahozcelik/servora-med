@@ -46,7 +46,10 @@ class CrudMemoryRepository implements JobCardRepository {
   failActivity = false;
   listCalls: Array<{ scope: JobCardReadScope; query: JobCardListQuery }> = [];
 
+  acceptance = new Map<string, { acceptedAt: string; acceptedBy: string }>();
+
   private detail(job: JobCard) {
+    const acceptance = this.acceptance.get(job.id);
     return {
       ...job,
       assignee: { id: job.assignedTo, name: job.assignedTo === 'staff-2' ? 'Staff Two' : 'Staff One' },
@@ -54,7 +57,14 @@ class CrudMemoryRepository implements JobCardRepository {
       contact: job.contactId ? { id: job.contactId, name: `Contact ${job.contactId}` } : null,
       lifecycle: {
         createdAt: '2026-07-13T10:00:00.000Z',
-        plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+        acceptedAt: acceptance?.acceptedAt ?? null,
+        acceptedBy: acceptance
+          ? {
+            id: acceptance.acceptedBy,
+            name: acceptance.acceptedBy === 'staff-2' ? 'Staff Two' : 'Staff One',
+          }
+          : null,
+        startedAt: null, submittedAt: null, submittedBy: null,
         submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
         revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
         cancelledAt: null, cancelledBy: null, cancelReason: null, cancelledFromStatus: null,
@@ -71,6 +81,7 @@ class CrudMemoryRepository implements JobCardRepository {
       title: job.title,
       priority: job.priority,
       dueDate: job.dueDate,
+      scheduledAt: job.scheduledAt,
       createdAt: '2026-07-13T10:00:00.000Z',
       updatedAt: '2026-07-13T10:00:00.000Z',
       staffCompletedAt: null,
@@ -90,6 +101,7 @@ class CrudMemoryRepository implements JobCardRepository {
     if (this.processing.has(key)) return { kind: 'processing' as const };
     this.processing.add(key);
     const jobsBefore = this.jobs.map((job) => ({ ...job }));
+    const acceptanceBefore = new Map(this.acceptance);
     const activityCount = this.activities.length;
     const tx: JobCardTransaction = {
       getJob: async () => null,
@@ -108,8 +120,30 @@ class CrudMemoryRepository implements JobCardRepository {
       getCustomerForUpdate: async (org, id) => this.customers.find((item) => item.organizationId === org && item.id === id) ?? null,
       getContactForUpdate: async (org, id) => this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
       createJobCard: async (input: CreateJobCardRecord) => {
-        const job: JobCard = { id: `job-${this.jobs.length + 1}`, status: 'NEW', version: 1, ...input };
-        this.jobs.push(job); return job;
+        const job: JobCard = {
+          id: `job-${this.jobs.length + 1}`,
+          version: 1,
+          organizationId: input.organizationId,
+          type: input.type,
+          status: input.status,
+          title: input.title,
+          description: input.description,
+          customerId: input.customerId,
+          contactId: input.contactId,
+          assignedTo: input.assignedTo,
+          createdBy: input.createdBy,
+          priority: input.priority,
+          dueDate: input.dueDate,
+          scheduledAt: input.scheduledAt,
+        };
+        this.jobs.push(job);
+        if (input.acceptedAt && input.acceptedBy) {
+          this.acceptance.set(job.id, {
+            acceptedAt: input.acceptedAt.toISOString(),
+            acceptedBy: input.acceptedBy,
+          });
+        }
+        return job;
       },
       createMeetingDetails: async () => {},
       appendActivity: async (input) => {
@@ -122,6 +156,7 @@ class CrudMemoryRepository implements JobCardRepository {
       return { kind: 'completed' as const, response };
     } catch (error) {
       this.jobs = jobsBefore;
+      this.acceptance = acceptanceBefore;
       this.activities.splice(activityCount);
       throw error;
     } finally {
@@ -174,7 +209,13 @@ class CrudMemoryRepository implements JobCardRepository {
       updateFieldsWithVersion: async (input) => {
         const index = this.jobs.findIndex((job) => job.organizationId === input.organizationId && job.id === input.jobCardId && job.version === input.expectedVersion);
         if (index < 0) return null;
-        this.jobs[index] = { ...this.jobs[index]!, ...input.fields, version: this.jobs[index]!.version + 1 };
+        const { clearAcceptance, ...fields } = input.fields;
+        this.jobs[index] = {
+          ...this.jobs[index]!,
+          ...fields,
+          version: this.jobs[index]!.version + 1,
+        };
+        if (clearAcceptance) this.acceptance.delete(input.jobCardId);
         return this.jobs[index]!;
       },
       appendActivity: async (input) => { this.activities.push(input.event); },
@@ -186,33 +227,47 @@ class CrudMemoryRepository implements JobCardRepository {
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
 const admin: JobCardActor = { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' };
+const now = new Date('2026-07-13T10:00:00.000Z');
+const SCHEDULED_AT = '2026-07-20T10:30:00.000Z';
 const createInput: NormalizedJobCardCreateInput = {
   clientActionId: 'create-1', type: 'PRODUCT_DELIVERY' as const, title: ' ABC Klinik teslimi ',
   description: null, customerId: 'customer-1', contactId: null,
   assignedTo: 'staff-1', priority: 'normal' as const, dueDate: null,
+  scheduledAt: SCHEDULED_AT,
 };
 const generalTaskInput: NormalizedJobCardCreateInput = {
   clientActionId: 'task-create-1', type: 'GENERAL_TASK' as const, title: ' Doktoru ara ',
   description: null, customerId: null, contactId: null, assignedTo: 'staff-1',
-  priority: 'normal' as const, dueDate: null,
+  priority: 'normal' as const, dueDate: null, scheduledAt: null,
 };
+
+function serviceOf(repository: CrudMemoryRepository) {
+  return new JobCardService(repository, () => now);
+}
 
 describe('JobCardService create and reads', () => {
   it('creates a title-only General Task with nullable context and one JOB_CREATED event', async () => {
     const repository = new CrudMemoryRepository();
-    const result = await new JobCardService(repository).create(staff, generalTaskInput);
+    const result = await serviceOf(repository).create(staff, generalTaskInput);
 
     expect(result).toMatchObject({
-      type: 'GENERAL_TASK', status: 'NEW', version: 1, title: 'Doktoru ara',
+      type: 'GENERAL_TASK', status: 'ACCEPTED', version: 1, title: 'Doktoru ara',
       customerId: null, contactId: null, assignedTo: 'staff-1', priority: 'normal',
+      scheduledAt: null,
       assignee: { id: 'staff-1', name: 'Staff One' }, customer: null, contact: null,
+      workflowContext: {
+        lifecycle: {
+          acceptedAt: now.toISOString(),
+          acceptedBy: { id: 'staff-1', name: 'Staff One' },
+        },
+      },
     });
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });
 
   it('persists optional matching Customer and Contact context on a General Task', async () => {
     const repository = new CrudMemoryRepository();
-    const result = await new JobCardService(repository).create(staff, {
+    const result = await serviceOf(repository).create(staff, {
       ...generalTaskInput, clientActionId: 'task-with-context',
       customerId: 'customer-1', contactId: 'contact-1',
     });
@@ -228,14 +283,14 @@ describe('JobCardService create and reads', () => {
   it('applies the shared assignment boundary to General Task before lookup', async () => {
     const repository = new CrudMemoryRepository();
 
-    await expect(new JobCardService(repository).create(staff, {
+    await expect(serviceOf(repository).create(staff, {
       ...generalTaskInput, assignedTo: 'staff-2',
     })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
     expect(repository.assigneeLookupCount).toBe(0);
   });
 
   it('applies canonical optional Customer and Contact errors to General Task', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
 
     await expect(service.create(staff, {
       ...generalTaskInput, clientActionId: 'task-contact-without-customer', contactId: 'contact-1',
@@ -254,7 +309,7 @@ describe('JobCardService create and reads', () => {
   });
 
   it('replays General Task creation without another record or activity', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     const first = await service.create(staff, generalTaskInput);
 
     await expect(service.create(staff, generalTaskInput)).resolves.toEqual(first);
@@ -266,14 +321,14 @@ describe('JobCardService create and reads', () => {
     const repository = new CrudMemoryRepository();
     repository.processing.add('org-1:staff-1:task-create-1:JOB_CREATE');
 
-    await expect(new JobCardService(repository).create(staff, generalTaskInput))
+    await expect(serviceOf(repository).create(staff, generalTaskInput))
       .rejects.toMatchObject({ code: 'ACTION_IN_PROGRESS', statusCode: 409 });
     expect(repository.jobs).toHaveLength(0);
     expect(repository.activities).toHaveLength(0);
   });
 
   it('allows only one concurrent General Task create claim to complete', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
 
     const results = await Promise.allSettled([
       service.create(staff, generalTaskInput),
@@ -292,35 +347,56 @@ describe('JobCardService create and reads', () => {
   it('rolls back General Task creation when JOB_CREATED append fails', async () => {
     const repository = new CrudMemoryRepository(); repository.failActivity = true;
 
-    await expect(new JobCardService(repository).create(staff, generalTaskInput))
+    await expect(serviceOf(repository).create(staff, generalTaskInput))
       .rejects.toThrow('activity failed');
     expect(repository.jobs).toHaveLength(0);
     expect(repository.activities).toHaveLength(0);
   });
 
-  it('creates a staff self-assigned delivery with one JOB_CREATED event', async () => {
+  it('creates a staff self-assigned delivery as ACCEPTED with one JOB_CREATED event', async () => {
     const repository = new CrudMemoryRepository();
-    const result = await new JobCardService(repository).create(staff, createInput);
-    expect(result).toMatchObject({ title: 'ABC Klinik teslimi', assignedTo: 'staff-1', status: 'NEW', version: 1 });
+    const result = await serviceOf(repository).create(staff, createInput);
+    expect(result).toMatchObject({
+      title: 'ABC Klinik teslimi', assignedTo: 'staff-1', status: 'ACCEPTED', version: 1,
+      scheduledAt: SCHEDULED_AT,
+      workflowContext: {
+        lifecycle: {
+          acceptedAt: now.toISOString(),
+          acceptedBy: { id: 'staff-1', name: 'Staff One' },
+        },
+      },
+    });
+    expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+
+  it('creates management-assigned work as NEW without acceptance facts', async () => {
+    const repository = new CrudMemoryRepository();
+    const result = await serviceOf(repository).create(manager, {
+      ...createInput, clientActionId: 'manager-create-1', assignedTo: 'staff-1',
+    });
+    expect(result).toMatchObject({
+      status: 'NEW', version: 1, assignedTo: 'staff-1', scheduledAt: SCHEDULED_AT,
+      workflowContext: { lifecycle: { acceptedAt: null, acceptedBy: null } },
+    });
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });
 
   it('replays duplicate create without another JobCard or event', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     const first = await service.create(staff, createInput);
     expect(await service.create(staff, createInput)).toEqual(first);
     expect(repository.jobs).toHaveLength(1); expect(repository.activities).toHaveLength(1);
   });
 
   it('rejects staff assignment to another user and cross-org references', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     await expect(service.create(staff, { ...createInput, assignedTo: 'staff-2' })).rejects.toMatchObject({ code: 'FORBIDDEN' });
     expect(repository.assigneeLookupCount).toBe(0);
     await expect(service.create(staff, { ...createInput, customerId: 'missing' })).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND' });
   });
 
   it('uses the canonical assignee errors after manager assignment lookup', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     repository.assignees.push(
       { id: 'staff-inactive', organizationId: 'org-1', role: 'STAFF', isActive: false },
       { id: 'manager-assignee', organizationId: 'org-1', role: 'MANAGER', isActive: true },
@@ -344,12 +420,12 @@ describe('JobCardService create and reads', () => {
 
   it('allows a manager to assign an active same-organization staff user', async () => {
     const repository = new CrudMemoryRepository();
-    await expect(new JobCardService(repository).create(manager, { ...createInput, assignedTo: 'staff-2' }))
+    await expect(serviceOf(repository).create(manager, { ...createInput, assignedTo: 'staff-2' }))
       .resolves.toMatchObject({ assignedTo: 'staff-2' });
   });
 
   it('persists a valid Contact and rejects a Contact from another Customer', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     const created = await service.create(staff, { ...createInput, contactId: 'contact-1' });
     expect(created.contactId).toBe('contact-1');
 
@@ -359,7 +435,7 @@ describe('JobCardService create and reads', () => {
   });
 
   it('rejects inactive and cross-organization references', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     await expect(service.create(staff, {
       ...createInput, clientActionId: 'inactive-customer', customerId: 'customer-inactive',
     })).rejects.toMatchObject({ code: 'CUSTOMER_INACTIVE' });
@@ -372,7 +448,7 @@ describe('JobCardService create and reads', () => {
   });
 
   it('patches a compatible Contact and clears it when Customer changes without one', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     const created = await service.create(staff, createInput);
     const withContact = await service.patch(staff, created.id, {
       expectedVersion: 1, contactId: 'contact-1',
@@ -386,7 +462,7 @@ describe('JobCardService create and reads', () => {
   });
 
   it('scopes staff list and detail to their own assignments', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     await service.create(staff, createInput);
     await service.create(manager, { ...createInput, clientActionId: 'create-2', assignedTo: 'staff-2' });
     expect((await service.list(staff, listQuery)).items).toHaveLength(1);
@@ -399,7 +475,7 @@ describe('JobCardService create and reads', () => {
   });
 
   it('keeps Staff scope authoritative and short-circuits a conflicting assignee filter', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
 
     await expect(service.list(staff, { ...listQuery, assignedTo: 'staff-2', limit: 1, offset: 7 }))
       .resolves.toEqual({ items: [], total: 0, limit: 1, offset: 7 });
@@ -425,7 +501,7 @@ describe('JobCardService create and reads', () => {
   });
 
   it('patches editable fields with version increment and canonical activity', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     const created = await service.create(staff, createInput);
     const updated = await service.patch(staff, created.id, { expectedVersion: 1, title: 'Güncel teslim', priority: 'high' });
     expect(updated).toMatchObject({ title: 'Güncel teslim', priority: 'high', version: 2 });
@@ -437,13 +513,100 @@ describe('JobCardService create and reads', () => {
   });
 
   it('rejects stale and review-state patches without an update event', async () => {
-    const repository = new CrudMemoryRepository(); const service = new JobCardService(repository);
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
     const created = await service.create(staff, createInput);
     await expect(service.patch(staff, created.id, { expectedVersion: 9, title: 'Stale' }))
       .rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
     repository.jobs[0]!.status = 'WAITING_APPROVAL';
     await expect(service.patch(manager, created.id, { expectedVersion: 1, title: 'Sessiz düzeltme' }))
       .rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE' });
+    expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+
+  it('lets assigned staff edit scheduledAt in NEW and ACCEPTED without clearing acceptance', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = serviceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput, clientActionId: 'schedule-new', assignedTo: 'staff-1',
+    });
+    expect(created.status).toBe('NEW');
+
+    const inNew = await service.patch(staff, created.id, {
+      expectedVersion: 1, scheduledAt: '2026-07-21T09:00:00.000Z',
+    });
+    expect(inNew).toMatchObject({
+      status: 'NEW', version: 2, scheduledAt: '2026-07-21T09:00:00.000Z',
+      workflowContext: { lifecycle: { acceptedAt: null, acceptedBy: null } },
+    });
+
+    repository.jobs[0]!.status = 'ACCEPTED';
+    repository.acceptance.set(created.id, {
+      acceptedAt: now.toISOString(), acceptedBy: 'staff-1',
+    });
+    const inAccepted = await service.patch(staff, created.id, {
+      expectedVersion: 2, scheduledAt: '2026-07-22T11:15:00.000Z',
+    });
+    expect(inAccepted).toMatchObject({
+      status: 'ACCEPTED', version: 3, scheduledAt: '2026-07-22T11:15:00.000Z',
+      workflowContext: {
+        lifecycle: {
+          acceptedAt: now.toISOString(),
+          acceptedBy: { id: 'staff-1', name: 'Staff One' },
+        },
+      },
+    });
+  });
+
+  it('invalidates acceptance when management changes schedule or assignee on ACCEPTED work', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = serviceOf(repository);
+    const created = await service.create(staff, createInput);
+    expect(created.status).toBe('ACCEPTED');
+
+    const rescheduled = await service.patch(manager, created.id, {
+      expectedVersion: 1, scheduledAt: '2026-07-25T08:00:00.000Z',
+    });
+    expect(rescheduled).toMatchObject({
+      status: 'NEW', version: 2, scheduledAt: '2026-07-25T08:00:00.000Z',
+      workflowContext: { lifecycle: { acceptedAt: null, acceptedBy: null } },
+    });
+    expect(repository.acceptance.has(created.id)).toBe(false);
+
+    repository.jobs[0]!.status = 'ACCEPTED';
+    repository.acceptance.set(created.id, {
+      acceptedAt: now.toISOString(), acceptedBy: 'staff-1',
+    });
+    const reassigned = await service.patch(manager, created.id, {
+      expectedVersion: 2, assignedTo: 'staff-2',
+    });
+    expect(reassigned).toMatchObject({
+      status: 'NEW', version: 3, assignedTo: 'staff-2',
+      workflowContext: { lifecycle: { acceptedAt: null, acceptedBy: null } },
+    });
+    expect(repository.acceptance.has(created.id)).toBe(false);
+    expect(repository.activities).toEqual([
+      'JOB_CREATED', 'JOB_FIELDS_UPDATED', 'JOB_ASSIGNED', 'JOB_FIELDS_UPDATED',
+    ]);
+  });
+
+  it('rejects schedule and reassignment changes after START with JOB_NOT_EDITABLE', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = serviceOf(repository);
+    const created = await service.create(staff, createInput);
+    repository.jobs[0]!.status = 'IN_PROGRESS';
+
+    await expect(service.patch(staff, created.id, {
+      expectedVersion: 1, scheduledAt: '2026-07-30T10:00:00.000Z',
+    })).rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE', statusCode: 409 });
+    await expect(service.patch(manager, created.id, {
+      expectedVersion: 1, assignedTo: 'staff-2',
+    })).rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE', statusCode: 409 });
+    await expect(service.patch(manager, created.id, {
+      expectedVersion: 1, scheduledAt: '2026-07-30T10:00:00.000Z',
+    })).rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE', statusCode: 409 });
+    expect(repository.jobs[0]).toMatchObject({
+      status: 'IN_PROGRESS', version: 1, scheduledAt: SCHEDULED_AT, assignedTo: 'staff-1',
+    });
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });
 });
