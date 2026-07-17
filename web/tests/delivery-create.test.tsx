@@ -10,7 +10,7 @@ const user: CurrentUser = { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe
 const customers: ReferenceCustomer[] = [{ id: 'c1', name: 'ABC Klinik', customerType: 'clinic', status: 'active' }];
 describe('Product Delivery creation', () => {
   it('renders explicit accessible fields and 5 canonical purposes', () => {
-    const html = renderToStaticMarkup(<DeliveryCreateView user={user} customers={customers} onCancel={() => {}} onCreated={() => {}} />);
+    const html = renderToStaticMarkup(<DeliveryCreateView user={user} onCancel={() => {}} onCreated={() => {}} />);
     for (const label of ['Müşteri', 'İlgili kişi', 'Ürün', 'Teslim amacı', 'Miktar', 'Planlanan teslim zamanı']) expect(html).toContain(`>${label}</label>`);
     for (const purpose of ['Satış', 'Numune', 'Konsinye', 'İade', 'Diğer']) expect(html).toContain(`>${purpose}</option>`);
     expect(html).toContain('min="0.001"');

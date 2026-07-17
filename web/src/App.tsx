@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { AppRouter } from './AppRouter';
 import { AppShell, BrandMark } from './AppShell';
 import { PasswordChangeScreen } from './PasswordChange';
-import { getCurrentUser, listReferenceCustomers, login, logout, type CurrentUser, type ReferenceCustomer } from './services/api';
+import { getCurrentUser, login, logout, type CurrentUser } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
 
@@ -84,14 +84,7 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
 function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut: () => void }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
-  const [customers, setCustomers] = useState<ReferenceCustomer[]>([]);
   const [notice, setNotice] = useState('');
-  useEffect(() => {
-    let active = true;
-    listReferenceCustomers().then((nextCustomers) => { if (active) setCustomers(nextCustomers); })
-      .catch(() => { if (active) setCustomers([]); });
-    return () => { active = false; };
-  }, []);
   async function signOut() {
     setPending(true); setError('');
     try { await logout(); onSignedOut(); }
@@ -99,7 +92,7 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   }
   return (
     <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
-      <AppRouter user={user} customers={customers}
+      <AppRouter user={user}
         notice={notice} onClearNotice={() => setNotice('')}
         onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')} />
       {error && <div className="shell-error form-error" role="alert">{error}</div>}
