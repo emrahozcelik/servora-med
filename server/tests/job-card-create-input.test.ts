@@ -65,7 +65,7 @@ describe('JobCard create input', () => {
     });
   });
 
-  it('normalizes the exact Sales Meeting body with required scheduledAt', () => {
+  it('normalizes Sales Meeting with required scheduledAt and ignores dueDate', () => {
     expect(parseJobCardCreateInput({
       clientActionId: '  meeting-create-1  ',
       type: 'SALES_MEETING',
@@ -83,9 +83,17 @@ describe('JobCard create input', () => {
       contactId: null,
       assignedTo: STAFF_ID,
       priority: 'normal',
-      dueDate: '2025-12-01',
+      dueDate: null,
       scheduledAt: SCHEDULED_AT,
     });
+    expect(parseJobCardCreateInput({
+      clientActionId: 'meeting-create-2',
+      type: 'SALES_MEETING',
+      title: 'Kontrol görüşmesi',
+      customerId: CUSTOMER_ID,
+      assignedTo: STAFF_ID,
+      scheduledAt: SCHEDULED_AT,
+    })).toMatchObject({ dueDate: null, scheduledAt: SCHEDULED_AT });
   });
 
   it.each([
@@ -146,10 +154,10 @@ describe('JobCard create input', () => {
     })).toThrowError(validationError);
   });
 
-  it.each(['customerId', 'dueDate', 'scheduledAt'])('requires Sales Meeting %s', (field) => {
+  it.each(['customerId', 'scheduledAt'])('requires Sales Meeting %s', (field) => {
     const input: Record<string, unknown> = {
       clientActionId: 'a1', type: 'SALES_MEETING', title: 'Görüşme',
-      customerId: CUSTOMER_ID, assignedTo: STAFF_ID, dueDate: '2026-07-15',
+      customerId: CUSTOMER_ID, assignedTo: STAFF_ID,
       scheduledAt: SCHEDULED_AT,
     };
     delete input[field];

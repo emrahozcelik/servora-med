@@ -90,11 +90,12 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
     };
   }
   if (input.type === 'SALES_MEETING') {
+    // Active planning SSOT is scheduledAt only; dueDate is not written on create.
     return {
       ...common,
       type: input.type,
       customerId: uuidString(input.customerId, 'customerId'),
-      dueDate: isoDate(input.dueDate, 'dueDate'),
+      dueDate: null,
       scheduledAt: requiredScheduledAt(input.scheduledAt),
     };
   }

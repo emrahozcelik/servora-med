@@ -570,7 +570,7 @@ describe('Staff JobCard detail', () => {
     expect(html.match(/primary-button/g)?.length ?? 0).toBe(1);
   });
 
-  it('exposes actual delivery time editor when EDIT_JOB_FIELDS is allowed', () => {
+  it('exposes actual delivery time editor when EDIT_DELIVERY_ACTUAL_TIME is allowed', () => {
     const inProgress: JobCard = {
       ...job,
       status: 'IN_PROGRESS',
@@ -578,7 +578,7 @@ describe('Staff JobCard detail', () => {
       workflowContext: staffContext('IN_PROGRESS', {
         startedAt: '2026-07-17T09:00:00.000Z',
       }, {
-        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
         submissionReadiness: null,
       }),
     };
@@ -598,6 +598,34 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain(`id="delivery-actual-at-${plannedItem.id}"`);
     expect(html).toContain('Gerçekleşen teslim zamanını kaydet');
     expect(html).not.toContain('Henüz kaydedilmedi');
+  });
+
+  it('hides actual delivery editor without EDIT_DELIVERY_ACTUAL_TIME even with EDIT_JOB_FIELDS', () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: 2,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: null,
+      }),
+    };
+    const plannedItem = { ...item, deliveredAt: null };
+    const html = renderToStaticMarkup(<JobDetailPanel
+      job={accepted}
+      items={[plannedItem]}
+      user={staffUser}
+      pending={false}
+      message=""
+      onBack={() => {}}
+      onCommand={() => {}}
+      onSaveDeliveredAt={async () => {}}
+    />);
+    expect(html).toContain('Henüz kaydedilmedi');
+    expect(html).not.toContain(`id="delivery-actual-at-${plannedItem.id}"`);
   });
 
   it('shows start as primary after assignment acceptance', () => {
@@ -689,7 +717,7 @@ describe('Staff JobCard detail', () => {
       workflowContext: staffContext('IN_PROGRESS', {
         startedAt: '2026-07-17T09:00:00.000Z',
       }, {
-        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
         submissionReadiness: missingReadiness,
       }),
     };
@@ -699,7 +727,7 @@ describe('Staff JobCard detail', () => {
       workflowContext: staffContext('IN_PROGRESS', {
         startedAt: '2026-07-17T09:00:00.000Z',
       }, {
-        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
         submissionReadiness: metReadiness,
       }),
     };

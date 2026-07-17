@@ -128,7 +128,25 @@ describe('JobCard policy', () => {
     }
   });
 
-  it('keeps action projection and write/read guards in parity', () => {
+  it('exposes EDIT_DELIVERY_ACTUAL_TIME only in execution stages for Product Delivery', () => {
+  const delivery = { ...job, type: 'PRODUCT_DELIVERY' as const };
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'NEW' }))
+    .not.toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'ACCEPTED' }))
+    .not.toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'IN_PROGRESS' }))
+    .toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'REVISION_REQUESTED' }))
+    .toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'WAITING_APPROVAL' }))
+    .not.toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(() => assertAllowedJobAction(staff, { ...delivery, status: 'NEW' }, 'EDIT_DELIVERY_ACTUAL_TIME'))
+    .toThrowError(expect.objectContaining({ code: 'JOB_NOT_EDITABLE' }));
+  expect(() => assertAllowedJobAction(staff, { ...delivery, status: 'IN_PROGRESS' }, 'EDIT_DELIVERY_ACTUAL_TIME'))
+    .not.toThrow();
+});
+
+it('keeps action projection and write/read guards in parity', () => {
     const meeting = { ...job, type: 'SALES_MEETING' as const };
     for (const status of JOB_CARD_STATUSES) {
       const candidate = { ...meeting, status };

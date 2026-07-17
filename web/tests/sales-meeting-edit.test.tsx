@@ -76,7 +76,7 @@ describe('SalesMeetingEditForm', () => {
     await settle();
     expect((container.querySelector('#meeting-edit-title') as HTMLInputElement).value).toBe(job.title);
     expect((container.querySelector('#meeting-edit-description') as HTMLTextAreaElement).value).toBe(job.description);
-    expect((container.querySelector('#meeting-edit-due-date') as HTMLInputElement).value).toBe(job.dueDate);
+    expect(container.querySelector('#meeting-edit-due-date')).toBeNull();
     expect((container.querySelector('#meeting-edit-customer') as HTMLSelectElement).value).toBe(job.customerId);
     expect((container.querySelector('#meeting-edit-contact') as HTMLSelectElement).value).toBe(job.contactId);
     expect(container.querySelector('#meeting-edit-assignee')).toBeNull();
@@ -97,29 +97,28 @@ describe('SalesMeetingEditForm', () => {
     change(container.querySelector('#meeting-edit-contact')!, 'contact-2');
     change(container.querySelector('#meeting-edit-assignee')!, 'staff-2');
     change(container.querySelector('#meeting-edit-priority')!, 'urgent');
-    change(container.querySelector('#meeting-edit-due-date')!, '2026-07-22');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(onSave).toHaveBeenCalledWith({
       expectedVersion: 5, title: 'Güncel başlık', description: 'Güncel açıklama',
       customerId: 'customer-2', contactId: 'contact-2', assignedTo: 'staff-2',
-      priority: 'urgent', dueDate: '2026-07-22',
+      priority: 'urgent',
     });
   });
 
-  it('requires title, customer, day, and manager assignee and supports cancel', async () => {
+  it('requires title, customer, and manager assignee and supports cancel', async () => {
     const onSave = vi.fn(); const onCancel = vi.fn();
     await act(async () => root.render(<SalesMeetingEditForm job={{ ...job, assignedTo: '' }} user={manager}
       pending={false} onCancel={onCancel} onSave={onSave} />));
     await settle();
     change(container.querySelector('#meeting-edit-title')!, ' ');
     change(container.querySelector('#meeting-edit-customer')!, '');
-    change(container.querySelector('#meeting-edit-due-date')!, '');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(onSave).not.toHaveBeenCalled();
     expect(container.querySelector('[role="alert"]')).not.toBeNull();
-    for (const id of ['meeting-edit-title', 'meeting-edit-customer', 'meeting-edit-due-date', 'meeting-edit-assignee']) {
+    for (const id of ['meeting-edit-title', 'meeting-edit-customer', 'meeting-edit-assignee']) {
       expect(container.querySelector(`#${id}`)?.getAttribute('aria-invalid')).toBe('true');
     }
+    expect(container.querySelector('#meeting-edit-due-date')).toBeNull();
     await act(async () => (container.querySelector('[data-cancel-meeting-edit]') as HTMLButtonElement).click());
     expect(onCancel).toHaveBeenCalledOnce();
   });

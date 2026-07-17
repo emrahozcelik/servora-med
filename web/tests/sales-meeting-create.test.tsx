@@ -81,7 +81,7 @@ describe('Sales Meeting planning flow', () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
-  it('keeps Staff ownership fixed and submits scheduledAt instead of date-only dueDate', async () => {
+  it('keeps Staff ownership fixed and submits scheduledAt without dueDate', async () => {
     await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
     await settle();
     expect(people.listStaff).not.toHaveBeenCalled();
@@ -96,7 +96,6 @@ describe('Sales Meeting planning flow', () => {
       clientActionId: 'action-1', type: 'SALES_MEETING',
       title: 'İmplant değerlendirme görüşmesi', customerId: 'c1', assignedTo: 'staff-1',
       scheduledAt: localDateTimeToIso('2026-07-01T10:00'),
-      dueDate: '2026-07-01',
       description: null, contactId: null, priority: 'normal',
     });
     expect(onCreated).toHaveBeenCalledWith('meeting-1');
@@ -174,8 +173,7 @@ describe('Sales Meeting planning flow', () => {
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
       contactId: null,
       scheduledAt: localDateTimeToIso('2025-01-01T09:00'),
-      dueDate: '2025-01-01',
-    }));
+          }));
   });
 
   it('locks double submit and reuses the action ID after a retryable error', async () => {

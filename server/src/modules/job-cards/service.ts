@@ -2,7 +2,7 @@ import { AppError } from '../../errors/index.js';
 import { presentActivity } from './activity-presenter.js';
 import {
   assertCanCreateForAssignee,
-  assertCanEdit,
+  assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
   assertCanViewMeetingResult,
@@ -523,6 +523,10 @@ export class JobCardService {
         assertProductDeliveryJob(job);
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         assertCanEdit(actor, job);
+        const plannedDeliveredAt = parseDeliveredAt(input.deliveredAt);
+        if (plannedDeliveredAt !== null) {
+          assertCanEditDeliveryActualTime(actor, job);
+        }
         const product = await tx.getProduct(actor.organizationId, input.productId);
         if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
         const item = await tx.createDeliveryItem(deliveryRecord(actor.organizationId, jobCardId, input, product));
@@ -530,7 +534,11 @@ export class JobCardService {
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         await tx.appendActivity({ organizationId: actor.organizationId, jobCardId, actorId: actor.id,
           event: 'DELIVERY_ITEM_ADDED', clientActionId: input.clientActionId,
-          newValue: { itemId: item.id, productId: item.productId, deliveryPurpose: item.deliveryPurpose, quantity: item.quantity } });
+          newValue: {
+            itemId: item.id, productId: item.productId, deliveryPurpose: item.deliveryPurpose,
+            quantity: item.quantity,
+            deliveredAt: item.deliveredAt === null ? null : item.deliveredAt.toISOString(),
+          } });
         return { item, jobCardVersion: updated.version };
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
@@ -550,6 +558,15 @@ export class JobCardService {
       assertCanEdit(actor, job);
       const current = await tx.getDeliveryItemForUpdate(actor.organizationId, jobCardId, itemId);
       if (!current) throw new AppError('DELIVERY_ITEM_NOT_FOUND', 404, 'Teslim ürünü bulunamadı.');
+      if (input.deliveredAt !== undefined) {
+        const nextDeliveredAt = parseDeliveredAt(input.deliveredAt);
+        const previousIso = current.deliveredAt === null ? null : current.deliveredAt.toISOString();
+        const nextIso = nextDeliveredAt === null ? null : nextDeliveredAt.toISOString();
+        if (nextIso !== previousIso) {
+          // Actual delivery time is execution-stage only (backend capability gate).
+          assertCanEditDeliveryActualTime(actor, job);
+        }
+      }
       const product = input.productId && input.productId !== current.productId
         ? await tx.getProduct(actor.organizationId, input.productId) : {
           id: current.productId, organizationId: current.organizationId, name: current.productNameSnapshot,
@@ -568,8 +585,15 @@ export class JobCardService {
       const updated = await tx.bumpVersion(actor.organizationId, jobCardId, input.expectedVersion);
       if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       await tx.appendActivity({ organizationId: actor.organizationId, jobCardId, actorId: actor.id,
-        event: 'DELIVERY_ITEM_UPDATED', oldValue: { itemId, quantity: current.quantity, deliveryPurpose: current.deliveryPurpose },
-        newValue: { itemId, quantity: item.quantity, deliveryPurpose: item.deliveryPurpose } });
+        event: 'DELIVERY_ITEM_UPDATED',
+        oldValue: {
+          itemId, quantity: current.quantity, deliveryPurpose: current.deliveryPurpose,
+          deliveredAt: current.deliveredAt === null ? null : current.deliveredAt.toISOString(),
+        },
+        newValue: {
+          itemId, quantity: item.quantity, deliveryPurpose: item.deliveryPurpose,
+          deliveredAt: item.deliveredAt === null ? null : item.deliveredAt.toISOString(),
+        } });
       return { item, jobCardVersion: updated.version };
     });
   }

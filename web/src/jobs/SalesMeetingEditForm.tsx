@@ -7,7 +7,7 @@ import { createRequestGate } from '../services/request-gate';
 import type { JobCard, JobCardPriority, PatchJobCardInput } from './jobs-api';
 
 type LoadState = 'loading' | 'ready' | 'error';
-type FieldErrors = Partial<Record<'title' | 'customerId' | 'dueDate' | 'assignedTo', string>>;
+type FieldErrors = Partial<Record<'title' | 'customerId' | 'assignedTo', string>>;
 
 async function loadAllCustomers() {
   const result: CustomerSummary[] = []; let offset = 0;
@@ -35,7 +35,6 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
 }) {
   const [title, setTitle] = useState(job.title);
   const [description, setDescription] = useState(job.description ?? '');
-  const [dueDate, setDueDate] = useState(job.dueDate ?? '');
   const [priority, setPriority] = useState<JobCardPriority>(job.priority);
   const [customerId, setCustomerId] = useState(job.customerId ?? '');
   const [contactId, setContactId] = useState(job.contactId ?? '');
@@ -97,7 +96,6 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
       nextErrors.title = 'Başlık 1 ile 255 karakter arasında olmalıdır.';
     }
     if (!customerId) nextErrors.customerId = 'Aktif bir müşteri seçin.';
-    if (!dueDate) nextErrors.dueDate = 'Planlanan görüşme gününü seçin.';
     if (user.role !== 'STAFF' && !assignedTo) nextErrors.assignedTo = 'Aktif bir sorumlu personel seçin.';
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
@@ -108,7 +106,7 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
       expectedVersion: job.version, title: normalizedTitle,
       description: description.trim() || null, customerId, contactId: contactId || null,
       assignedTo: user.role === 'STAFF' ? job.assignedTo : assignedTo,
-      priority, dueDate,
+      priority,
     });
   }
 
@@ -130,19 +128,13 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
       <div className="field-group"><label htmlFor="meeting-edit-description">Açıklama (isteğe bağlı)</label>
         <textarea id="meeting-edit-description" rows={4} value={description}
           onChange={(event) => setDescription(event.target.value)} /></div>
-      <div className="task-field-pair"><div className="field-group"><label htmlFor="meeting-edit-customer">Müşteri</label>
+      <div className="field-group"><label htmlFor="meeting-edit-customer">Müşteri</label>
         <select id="meeting-edit-customer" value={customerId} disabled={customerState !== 'ready'}
           aria-invalid={fieldErrors.customerId ? true : undefined}
           aria-describedby={fieldErrors.customerId ? 'meeting-edit-customer-error' : undefined}
           onChange={(event) => changeCustomer(event.target.value)}>
           <option value="">Seçin</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
         {fieldErrors.customerId && <span id="meeting-edit-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
-        <div className="field-group"><label htmlFor="meeting-edit-due-date">Planlanan görüşme günü</label>
-          <input id="meeting-edit-due-date" type="date" value={dueDate}
-            aria-invalid={fieldErrors.dueDate ? true : undefined}
-            aria-describedby={fieldErrors.dueDate ? 'meeting-edit-due-date-error' : undefined}
-            onChange={(event) => setDueDate(event.target.value)} />
-          {fieldErrors.dueDate && <span id="meeting-edit-due-date-error" className="field-error">{fieldErrors.dueDate}</span>}</div></div>
       <div className="field-group"><label htmlFor="meeting-edit-contact">İlgili kişi (isteğe bağlı)</label>
         <select id="meeting-edit-contact" value={contactId} disabled={!customerId || contactState !== 'ready'}
           onChange={(event) => setContactId(event.target.value)}>

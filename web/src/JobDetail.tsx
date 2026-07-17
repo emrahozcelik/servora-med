@@ -403,7 +403,7 @@ export function JobDetailPanel({
   });
   const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
   const canEditDelivery = job.type === 'PRODUCT_DELIVERY'
-    && job.workflowContext.allowedActions.includes('EDIT_JOB_FIELDS')
+    && job.workflowContext.allowedActions.includes('EDIT_DELIVERY_ACTUAL_TIME')
     && onSaveDeliveredAt !== undefined;
   const scheduleLabel = presentation.scheduleEdit?.label
     ?? (job.type === 'SALES_MEETING'

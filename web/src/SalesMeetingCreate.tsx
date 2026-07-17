@@ -98,7 +98,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
         clientActionId: actionIdRef.current, type: 'SALES_MEETING', title: trimmedTitle,
         customerId, assignedTo: selectedAssignee,
         scheduledAt: localDateTimeToIso(scheduledLocal),
-        dueDate: scheduledLocal.slice(0, 10),
         description: description.trim() || null, contactId: contactId || null, priority,
       });
       onCreated(job.id);

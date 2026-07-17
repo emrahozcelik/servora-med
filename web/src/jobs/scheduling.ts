@@ -96,16 +96,39 @@ function formatCardDateTime(value: string): string {
   }).format(new Date(value));
 }
 
+function sameLocalCalendarDay(a: Date, b: Date): boolean {
+  return a.getFullYear() === b.getFullYear()
+    && a.getMonth() === b.getMonth()
+    && a.getDate() === b.getDate();
+}
+
+function formatLocalTime(value: string): string {
+  return new Intl.DateTimeFormat('tr-TR', {
+    hour: '2-digit',
+    minute: '2-digit',
+  }).format(new Date(value));
+}
+
 /**
  * List/board schedule presentation: prefer scheduledAt, fall back to dueDate.
+ * Same local calendar day → "Bugün HH:mm" for delivery/task (not sales meeting).
  * Labels stay scheduling facts — never lifecycle status language.
  */
 export function cardScheduleFact(job: {
   type: 'PRODUCT_DELIVERY' | 'SALES_MEETING' | 'GENERAL_TASK';
   scheduledAt: string | null;
   dueDate: string | null;
-}): CardScheduleFact {
+}, now: Date = new Date()): CardScheduleFact {
   if (job.scheduledAt) {
+    const scheduled = new Date(job.scheduledAt);
+    if (job.type !== 'SALES_MEETING' && !Number.isNaN(scheduled.getTime())
+      && sameLocalCalendarDay(scheduled, now)) {
+      return {
+        label: 'Bugün',
+        text: formatLocalTime(job.scheduledAt),
+        dateTime: job.scheduledAt,
+      };
+    }
     const label = job.type === 'SALES_MEETING'
       ? 'Planlanan görüşme'
       : job.type === 'PRODUCT_DELIVERY'
@@ -117,6 +140,7 @@ export function cardScheduleFact(job: {
       dateTime: job.scheduledAt,
     };
   }
+  // Historical fallback only — new SM/PD writes use scheduledAt.
   if (job.type === 'SALES_MEETING') {
     return {
       label: 'Planlanan görüşme günü',

@@ -27,7 +27,7 @@ export const LIFECYCLE_COMMANDS = [
 export type LifecycleCommand = (typeof LIFECYCLE_COMMANDS)[number];
 export const JOB_WORKFLOW_ACTIONS = [
   'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
-  'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
+  'EDIT_MEETING_RESULT', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE',
 ] as const;
 export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
 export const SUBMISSION_REQUIREMENT_CODES = [
@@ -96,7 +96,7 @@ export type JobCardCreateInput =
     description?: string | null; customerId?: string | null; contactId?: string | null;
     priority?: JobCardPriority; dueDate?: string | null; scheduledAt?: string | null }
   | { clientActionId: string; type: 'SALES_MEETING'; title: string; customerId: string;
-    assignedTo: string; scheduledAt: string; dueDate: string; description?: string | null;
+    assignedTo: string; scheduledAt: string; dueDate?: string | null; description?: string | null;
     contactId?: string | null; priority?: JobCardPriority };
 export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;

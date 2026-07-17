@@ -58,6 +58,13 @@ export function getAllowedJobActions(
   if (!terminal && job.status !== 'WAITING_APPROVAL') actions.push('EDIT_JOB_FIELDS');
   if (job.type !== 'SALES_MEETING') {
     actions.push('VIEW_NOTES', 'ADD_NOTE');
+    if (
+      job.type === 'PRODUCT_DELIVERY'
+      && !terminal
+      && ['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)
+    ) {
+      actions.push('EDIT_DELIVERY_ACTUAL_TIME');
+    }
     return actions;
   }
   if (job.status === 'WAITING_APPROVAL'
@@ -121,6 +128,8 @@ export const assertCanEdit = (actor: JobCardActor, job: JobCard) =>
   assertAllowedJobAction(actor, job, 'EDIT_JOB_FIELDS');
 export const assertCanEditMeetingResult = (actor: JobCardActor, job: JobCard) =>
   assertAllowedJobAction(actor, job, 'EDIT_MEETING_RESULT');
+export const assertCanEditDeliveryActualTime = (actor: JobCardActor, job: JobCard) =>
+  assertAllowedJobAction(actor, job, 'EDIT_DELIVERY_ACTUAL_TIME');
 export const assertCanViewMeetingResult = (actor: JobCardActor, job: JobCard) =>
   assertAllowedJobAction(actor, job, 'VIEW_MEETING_RESULT');
 export const assertCanAccessNotes = (actor: JobCardActor, job: JobCard) =>

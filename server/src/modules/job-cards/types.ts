@@ -64,7 +64,7 @@ export type JobCardCreateInput =
   | {
     clientActionId: string; type: 'SALES_MEETING'; title: string;
     description?: string | null; customerId: string; contactId?: string | null;
-    assignedTo: string; priority?: JobCardPriority; dueDate: string;
+    assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
     scheduledAt: string;
   };
 
@@ -78,7 +78,7 @@ export type NormalizedJobCardCreateInput =
   | NormalizedCommonCreateInput & { type: 'PRODUCT_DELIVERY'; customerId: string; scheduledAt: string }
   | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null }
   | NormalizedCommonCreateInput & {
-      type: 'SALES_MEETING'; customerId: string; dueDate: string; scheduledAt: string;
+      type: 'SALES_MEETING'; customerId: string; scheduledAt: string;
     };
 
 export type MeetingDetails = {
@@ -187,7 +187,7 @@ export type JobPermissionSubject = Pick<
 
 export const JOB_WORKFLOW_ACTIONS = [
   'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
-  'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
+  'EDIT_MEETING_RESULT', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE',
 ] as const;
 export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
 

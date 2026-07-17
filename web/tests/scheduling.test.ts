@@ -90,6 +90,35 @@ describe('cardScheduleFact', () => {
     expect(meeting.dateTime).toBe('2026-07-21T11:30:00.000Z');
   });
 
+  it('labels same-day delivery and task as Bugün HH:mm with injectable now', () => {
+    const now = localDate('2026-07-17T12:00');
+    // Construct an ISO that lands on local 2026-07-17 14:30
+    const todayIso = localDateTimeToIso('2026-07-17T14:30');
+    const delivery = cardScheduleFact({
+      type: 'PRODUCT_DELIVERY',
+      scheduledAt: todayIso,
+      dueDate: null,
+    }, now);
+    expect(delivery.label).toBe('Bugün');
+    expect(delivery.dateTime).toBe(todayIso);
+    expect(delivery.text).toMatch(/\d{2}:\d{2}/);
+
+    const task = cardScheduleFact({
+      type: 'GENERAL_TASK',
+      scheduledAt: todayIso,
+      dueDate: null,
+    }, now);
+    expect(task.label).toBe('Bugün');
+
+    // Sales Meeting keeps Planlanan görüşme even on the same calendar day.
+    const meeting = cardScheduleFact({
+      type: 'SALES_MEETING',
+      scheduledAt: todayIso,
+      dueDate: null,
+    }, now);
+    expect(meeting.label).toBe('Planlanan görüşme');
+  });
+
   it('falls back to dueDate when scheduledAt is null', () => {
     expect(cardScheduleFact({
       type: 'PRODUCT_DELIVERY', scheduledAt: null, dueDate: '2026-07-20',

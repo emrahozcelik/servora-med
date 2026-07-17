@@ -25,6 +25,10 @@ ALTER TABLE job_cards
   ADD CONSTRAINT job_cards_accepted_status_timestamp_check
   CHECK (status <> 'ACCEPTED' OR (accepted_at IS NOT NULL AND accepted_by IS NOT NULL));
 
+ALTER TABLE job_cards
+  ADD CONSTRAINT job_cards_accepted_pair_check
+  CHECK ((accepted_at IS NULL) = (accepted_by IS NULL));
+
 ALTER TABLE job_card_activity_logs
   DROP CONSTRAINT job_card_activity_logs_event_type_check,
   ADD CONSTRAINT job_card_activity_logs_event_type_check CHECK (event_type IN (
