@@ -196,6 +196,13 @@ describe('JobCard activity service scope', () => {
     const findJobCardDetail = vi.fn().mockResolvedValue({
       ...ownJob, assignee: { id: 'staff-1', name: 'Staff One' },
       customer: { id: 'customer-1', name: 'Demo Klinik' }, contact: null,
+      lifecycle: {
+        createdAt: '2026-07-13T10:00:00.000Z',
+        plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+        submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
+        revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
+        cancelledAt: null, cancelledBy: null, cancelReason: null, cancelledFromStatus: null,
+      },
     });
     const listActivity = vi.fn().mockResolvedValue({
       items: [baseRecord('JOB_CREATED')], total: 1, limit: 5, offset: 2,

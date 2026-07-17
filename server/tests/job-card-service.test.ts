@@ -37,6 +37,14 @@ class MemoryJobCardRepository implements JobCardRepository {
               assignee: { id: this.job.assignedTo, name: 'Staff One' },
               customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
               contact: null,
+              lifecycle: {
+                createdAt: '2026-07-13T10:00:00.000Z',
+                plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+                submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
+                revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
+                cancelledAt: null, cancelledBy: null, cancelReason: null,
+                cancelledFromStatus: null,
+              },
             }
           : null,
       transitionWithVersion: async (input) => {
@@ -49,6 +57,14 @@ class MemoryJobCardRepository implements JobCardRepository {
         if (this.failActivity) throw new Error('activity failed');
         this.activities.push({ event: input.event, jobCardId: input.jobCardId, actorId: input.actorId, clientActionId: input.clientActionId });
       },
+      getAssignee: async () => ({
+        id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
+      }),
+      getSubmissionCustomer: async () => ({
+        id: 'customer-1', organizationId: 'org-1', status: 'active' as const,
+      }),
+      getSubmissionMeetingDetails: async () => null,
+      getSubmissionDeliveryItems: async () => [],
     };
     try {
       const response = await work(tx);

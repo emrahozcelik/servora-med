@@ -7,7 +7,6 @@ import {
   type JobCardBaseFilters,
   type JobCardBoard,
   type JobCardBoardQuery,
-  type JobCardListItem,
   type JobCardListQuery,
   type JobCardPriority,
   type JobCardStatus,
@@ -16,6 +15,7 @@ import {
   type LifecycleCommand,
   type Paginated,
   type PersistedJobCardDetail,
+  type PersistedJobCardListItem,
   type JobCardNoteDto,
   type MeetingDetailsCandidate,
   type MeetingOutcome,
@@ -150,8 +150,20 @@ export interface JobCardRepository extends SubmissionReader {
   listJobCards(
     scope: JobCardReadScope,
     query: JobCardListQuery,
-  ): Promise<Paginated<JobCardListItem>>;
-  listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard>;
+  ): Promise<Paginated<PersistedJobCardListItem>>;
+  listBoard(
+    scope: JobCardReadScope,
+    query: JobCardBoardQuery,
+  ): Promise<{
+    columns: {
+      NEW: { items: PersistedJobCardListItem[]; count: number };
+      PLANNED: { items: PersistedJobCardListItem[]; count: number };
+      IN_PROGRESS: { items: PersistedJobCardListItem[]; count: number };
+      WAITING_APPROVAL: { items: PersistedJobCardListItem[]; count: number };
+      REVISION_REQUESTED: { items: PersistedJobCardListItem[]; count: number };
+    };
+    closedCounts: JobCardBoard['closedCounts'];
+  }>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   findJobCardDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
   findMeetingDetails(
@@ -380,7 +392,7 @@ function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
   };
 }
 
-function mapJobCardListItem(row: JobCardListRow): JobCardListItem {
+function mapJobCardListItem(row: JobCardListRow): PersistedJobCardListItem {
   return {
     id: row.id,
     type: row.type,
@@ -846,7 +858,7 @@ implements JobCardRepository, ApprovalQueueItemPort {
     };
   }
 
-  async listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard> {
+  async listBoard(scope: JobCardReadScope, query: JobCardBoardQuery) {
     const countFilter = workspaceWhere(scope, query);
     const counts = await this.pool.query<{ status: JobCardStatus; count: number }>(
       `SELECT j.status, COUNT(*)::int AS count
@@ -870,7 +882,13 @@ implements JobCardRepository, ApprovalQueueItemPort {
       [...itemFilter.values, query.limit],
     );
 
-    const columns: JobCardBoard['columns'] = {
+    const columns: {
+      NEW: { items: PersistedJobCardListItem[]; count: number };
+      PLANNED: { items: PersistedJobCardListItem[]; count: number };
+      IN_PROGRESS: { items: PersistedJobCardListItem[]; count: number };
+      WAITING_APPROVAL: { items: PersistedJobCardListItem[]; count: number };
+      REVISION_REQUESTED: { items: PersistedJobCardListItem[]; count: number };
+    } = {
       NEW: { items: [], count: 0 },
       PLANNED: { items: [], count: 0 },
       IN_PROGRESS: { items: [], count: 0 },

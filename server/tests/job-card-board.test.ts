@@ -212,4 +212,47 @@ describe('JobCardService board scope', () => {
       expect.objectContaining({ limit: 1 }),
     );
   });
+
+  it('adds allowed commands to list and board items from the authenticated actor', async () => {
+    const time = new Date('2026-07-13T12:00:00.000Z');
+    const manager = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' as const };
+    const waitingItem = {
+      id: 'job-waiting',
+      type: 'PRODUCT_DELIVERY' as const,
+      status: 'WAITING_APPROVAL' as const,
+      version: 3,
+      title: 'Onay bekleyen teslim',
+      priority: 'high' as const,
+      dueDate: '2026-07-20',
+      createdAt: time.toISOString(),
+      updatedAt: time.toISOString(),
+      staffCompletedAt: time.toISOString(),
+      customer: { id: 'customer-1', name: 'ABC Klinik' },
+      contact: null,
+      assignee: { id: 'staff-1', name: 'Ayşe Personel' },
+      deliveryItemCount: 1,
+    };
+    const listJobCards = vi.fn().mockResolvedValue({
+      items: [waitingItem], total: 1, limit: 25, offset: 0,
+    });
+    const listBoard = vi.fn().mockResolvedValue({
+      columns: {
+        NEW: { items: [], count: 0 },
+        PLANNED: { items: [], count: 0 },
+        IN_PROGRESS: { items: [], count: 0 },
+        WAITING_APPROVAL: { items: [waitingItem], count: 1 },
+        REVISION_REQUESTED: { items: [], count: 0 },
+      },
+      closedCounts: { COMPLETED: 0, CANCELLED: 0 },
+    });
+    const service = new JobCardService({ listJobCards, listBoard } as never, () => time);
+    const list = await service.list(manager, listQuery);
+    const board = await service.board(manager, boardQuery);
+    expect(list.items[0]?.allowedCommands).toEqual([
+      'APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL',
+    ]);
+    expect(board.columns.WAITING_APPROVAL.items[0]?.allowedCommands).toEqual([
+      'APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL',
+    ]);
+  });
 });

@@ -9,8 +9,17 @@ import {
   assertCreateAssignmentRequest,
   assertProductDeliveryJob,
   assertSalesMeetingJob,
+  getAllowedJobActions,
+  getAllowedLifecycleCommands,
 } from './policy.js';
-import type { DeliveryItemRecord, JobCardRepository, JobCardTransaction, PageQuery, ProductReference } from './repository.js';
+import type {
+  DeliveryItemRecord,
+  JobCardRepository,
+  JobCardTransaction,
+  PageQuery,
+  ProductReference,
+  SubmissionReader,
+} from './repository.js';
 import {
   DELIVERY_PURPOSES,
   JOB_CARD_PRIORITIES,
@@ -20,11 +29,16 @@ import {
   type JobCardBoard,
   type JobCardBoardQuery,
   type JobCardActivityEvent,
+  type JobCardDetail,
+  type JobCardListItem,
   type JobCardListQuery,
+  type JobCardStatus,
+  type JobPermissionSubject,
+  type LifecycleCommand,
   type NormalizedJobCardCreateInput,
   type JobCardPriority,
-  type JobCardStatus,
-  type LifecycleCommand,
+  type PersistedJobCardDetail,
+  type PersistedJobCardListItem,
   MEETING_DETAIL_FIELDS,
   type MeetingDetails,
   type MeetingDetailsCandidate,
@@ -32,7 +46,11 @@ import {
 } from './types.js';
 import { optionalLifecycleNote, requireActionId, requireLifecycleReason, validation } from './validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
-import { validateSubmission } from './submission-policy.js';
+import {
+  evaluateSubmission,
+  validateSubmission,
+  type SubmissionEvaluation,
+} from './submission-policy.js';
 import { validateMeetingDetailsCandidate } from './meeting-details-input.js';
 
 type PatchInput = {
@@ -166,7 +184,7 @@ export class JobCardService {
         });
         const detail = await transaction.getJobDetail(actor.organizationId, job.id);
         if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-        return detail;
+        return this.presentDetail(transaction, actor, detail, this.now());
       },
     );
     if (result.kind === 'processing') {
@@ -179,13 +197,17 @@ export class JobCardService {
     if (actor.role === 'STAFF' && query.assignedTo !== null && query.assignedTo !== actor.id) {
       return { items: [], total: 0, limit: query.limit, offset: query.offset };
     }
-    return this.repository.listJobCards(
+    const page = await this.repository.listJobCards(
       {
         organizationId: actor.organizationId,
         assignedTo: actor.role === 'STAFF' ? actor.id : null,
       },
       query,
     );
+    return {
+      ...page,
+      items: page.items.map((item) => this.presentListItem(actor, item)),
+    };
   }
 
   async board(actor: JobCardActor, query: JobCardBoardQuery): Promise<JobCardBoard> {
@@ -201,13 +223,27 @@ export class JobCardService {
         closedCounts: { COMPLETED: 0, CANCELLED: 0 },
       };
     }
-    return this.repository.listBoard(
+    const board = await this.repository.listBoard(
       {
         organizationId: actor.organizationId,
         assignedTo: actor.role === 'STAFF' ? actor.id : null,
       },
       query,
     );
+    const presentColumn = (column: { items: PersistedJobCardListItem[]; count: number }) => ({
+      count: column.count,
+      items: column.items.map((item) => this.presentListItem(actor, item)),
+    });
+    return {
+      columns: {
+        NEW: presentColumn(board.columns.NEW),
+        PLANNED: presentColumn(board.columns.PLANNED),
+        IN_PROGRESS: presentColumn(board.columns.IN_PROGRESS),
+        WAITING_APPROVAL: presentColumn(board.columns.WAITING_APPROVAL),
+        REVISION_REQUESTED: presentColumn(board.columns.REVISION_REQUESTED),
+      },
+      closedCounts: board.closedCounts,
+    };
   }
 
   async detail(actor: JobCardActor, jobCardId: string) {
@@ -215,7 +251,7 @@ export class JobCardService {
     if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
       throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
     }
-    return job;
+    return this.presentDetail(this.repository, actor, job, this.now());
   }
 
   async getMeetingDetails(actor: JobCardActor, jobCardId: string) {
@@ -382,7 +418,7 @@ export class JobCardService {
       }
       const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
       if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-      return detail;
+      return this.presentDetail(transaction, actor, detail, this.now());
     });
   }
 
@@ -594,8 +630,9 @@ export class JobCardService {
           actor, job, definition.command,
           definition.revisionReason ?? definition.cancelReason ?? undefined,
         );
+        let precomputed: SubmissionEvaluation | undefined;
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
-          await validateSubmission(tx, actor, job, requestTime);
+          precomputed = await validateSubmission(tx, actor, job, requestTime);
         }
         const occurredAt = requestTime;
         const updated = await tx.transitionWithVersion({
@@ -610,10 +647,45 @@ export class JobCardService {
           oldValue: { status: job.status, version: job.version }, newValue: { status: updated.status, version: updated.version } });
         const detail = await tx.getJobDetail(actor.organizationId, jobCardId);
         if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-        return detail;
+        return this.presentDetail(tx, actor, detail, requestTime, precomputed);
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     return result.response;
+  }
+
+  private async presentDetail(
+    reader: SubmissionReader,
+    actor: JobCardActor,
+    persisted: PersistedJobCardDetail,
+    evaluatedAt: Date,
+    precomputed?: SubmissionEvaluation,
+  ): Promise<JobCardDetail> {
+    const { lifecycle, ...job } = persisted;
+    const readinessStatuses: JobCardStatus[] = [
+      'IN_PROGRESS', 'REVISION_REQUESTED', 'WAITING_APPROVAL',
+    ];
+    const evaluation = readinessStatuses.includes(job.status)
+      ? precomputed ?? await evaluateSubmission(reader, actor, job, evaluatedAt)
+      : null;
+    return {
+      ...job,
+      workflowContext: {
+        allowedCommands: getAllowedLifecycleCommands(actor, job),
+        allowedActions: getAllowedJobActions(actor, job),
+        lifecycle,
+        submissionReadiness: evaluation?.readiness ?? null,
+      },
+    };
+  }
+
+  private presentListItem(actor: JobCardActor, item: PersistedJobCardListItem): JobCardListItem {
+    const subject: JobPermissionSubject = {
+      organizationId: actor.organizationId,
+      type: item.type,
+      status: item.status,
+      assignedTo: item.assignee.id,
+    };
+    return { ...item, allowedCommands: getAllowedLifecycleCommands(actor, subject) };
   }
 
 }

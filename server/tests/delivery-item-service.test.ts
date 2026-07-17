@@ -56,8 +56,25 @@ class DeliveryRepository implements JobCardRepository {
       assignee: { id: job.assignedTo, name: 'Staff One' },
       customer: job.customerId ? { id: job.customerId, name: 'Demo Klinik' } : null,
       contact: null,
+      lifecycle: {
+        createdAt: '2026-07-13T10:00:00.000Z',
+        plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+        submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
+        revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
+        cancelledAt: null, cancelledBy: null, cancelReason: null, cancelledFromStatus: null,
+      },
     } : null;
   }
+  async getAssignee() {
+    return { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true };
+  }
+  async getSubmissionCustomer() {
+    return this.job.customerId
+      ? { id: this.job.customerId, organizationId: 'org-1', status: 'active' as const }
+      : null;
+  }
+  async getSubmissionMeetingDetails() { return null; }
+  async getSubmissionDeliveryItems() { return this.items; }
   async listDeliveryItems() { this.listDeliveryItemCalls += 1; return this.items; }
 }
 

@@ -132,10 +132,15 @@ export type PersistedJobCardDetail = JobCard & {
   lifecycle: JobLifecycleFacts;
 };
 
-export type JobCardDetail = JobCard & {
-  assignee: RelatedIdentity;
-  customer: RelatedIdentity | null;
-  contact: RelatedIdentity | null;
+export type JobWorkflowContext = {
+  allowedCommands: LifecycleCommand[];
+  allowedActions: JobWorkflowAction[];
+  lifecycle: JobLifecycleFacts;
+  submissionReadiness: SubmissionReadiness | null;
+};
+
+export type JobCardDetail = Omit<PersistedJobCardDetail, 'lifecycle'> & {
+  workflowContext: JobWorkflowContext;
 };
 
 export type DeliveryItem = {
@@ -210,7 +215,7 @@ export type JobCardWorkspaceFilters = JobCardBaseFilters & { status: JobCardStat
 export type JobCardListQuery = JobCardWorkspaceFilters & { limit: number; offset: number };
 export type JobCardBoardQuery = JobCardBaseFilters & { limit: number };
 
-export type JobCardListItem = {
+export type PersistedJobCardListItem = {
   id: string;
   type: JobCardType;
   status: JobCardStatus;
@@ -221,10 +226,14 @@ export type JobCardListItem = {
   createdAt: string;
   updatedAt: string;
   staffCompletedAt: string | null;
-  customer: { id: string; name: string } | null;
-  contact: { id: string; name: string } | null;
-  assignee: { id: string; name: string };
+  customer: RelatedIdentity | null;
+  contact: RelatedIdentity | null;
+  assignee: RelatedIdentity;
   deliveryItemCount: number;
+};
+
+export type JobCardListItem = PersistedJobCardListItem & {
+  allowedCommands: LifecycleCommand[];
 };
 
 export type Paginated<T> = {

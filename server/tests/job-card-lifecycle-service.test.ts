@@ -54,18 +54,41 @@ class LifecycleRepository implements JobCardRepository {
   startedAt: Date | null = null;
   revision = { at: null as Date | null, by: null as string | null, reason: null as string | null };
   cancellation = { at: null as Date | null, by: null as string | null, reason: null as string | null };
+  lifecycle = {
+    createdAt: '2026-07-13T10:00:00.000Z',
+    plannedAt: '2026-07-13T10:30:00.000Z',
+    startedAt: '2026-07-13T11:00:00.000Z',
+    submittedAt: null,
+    submittedBy: null,
+    submissionNote: null,
+    approvedAt: null,
+    approvedBy: null,
+    approvalNote: null,
+    revisionRequestedAt: null,
+    revisionRequestedBy: null,
+    revisionReason: null,
+    cancelledAt: null,
+    cancelledBy: null,
+    cancelReason: null,
+    cancelledFromStatus: null,
+  };
+
+  get persistedDetail() {
+    return {
+      ...this.job,
+      assignee: { id: this.job.assignedTo, name: 'Staff One' },
+      customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
+      contact: null,
+      lifecycle: this.lifecycle,
+    };
+  }
 
   private tx(): JobCardTransaction {
     return {
       getJobForUpdate: async (org, id) =>
         org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
       getJobDetail: async (org, id) => org === this.job.organizationId && id === this.job.id
-        ? {
-            ...this.job,
-            assignee: { id: this.job.assignedTo, name: 'Staff One' },
-            customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
-            contact: null,
-          }
+        ? this.persistedDetail
         : null,
       transitionWithVersion: async (input) => {
         this.transitions.push(input);
@@ -129,16 +152,24 @@ class LifecycleRepository implements JobCardRepository {
   async listBoard() { throw new Error('unused'); }
   async findJobCard() { return this.job; }
   async findJobCardDetail() {
-    return {
-      ...this.job, assignee: { id: this.job.assignedTo, name: 'Staff One' },
-      customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
-      contact: null,
-    };
+    return this.persistedDetail;
   }
-  async getAssignee() { return this.assignee; }
-  async getSubmissionCustomer() { return this.submissionCustomer; }
-  async getSubmissionMeetingDetails() { return this.meetingDetails; }
-  async getSubmissionDeliveryItems() { return this.items; }
+  async getAssignee() {
+    this.submissionReads.push('assignee');
+    return this.assignee;
+  }
+  async getSubmissionCustomer() {
+    this.submissionReads.push('customer');
+    return this.submissionCustomer;
+  }
+  async getSubmissionMeetingDetails() {
+    this.submissionReads.push('meeting_details');
+    return this.meetingDetails;
+  }
+  async getSubmissionDeliveryItems() {
+    this.submissionReads.push('delivery_items');
+    return this.items;
+  }
   async listDeliveryItems() { return this.items; }
   async listActivity() { return this.events as never; }
   async listReferenceCustomers() { return []; }
@@ -173,6 +204,14 @@ function twoJobRepository() {
                 assignee: { id: job.assignedTo, name: 'Staff One' },
                 customer: job.customerId ? { id: job.customerId, name: 'Demo Klinik' } : null,
                 contact: null,
+                lifecycle: {
+                  createdAt: '2026-07-13T10:00:00.000Z',
+                  plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+                  submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
+                  revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
+                  cancelledAt: null, cancelledBy: null, cancelReason: null,
+                  cancelledFromStatus: null,
+                },
               }
             : null;
         },
@@ -184,6 +223,14 @@ function twoJobRepository() {
           return { ...updated };
         },
         appendActivity: async (input: ActivityInput) => { events.push(input); },
+        getAssignee: async () => ({
+          id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
+        }),
+        getSubmissionCustomer: async () => ({
+          id: 'customer-1', organizationId: 'org-1', status: 'active' as const,
+        }),
+        getSubmissionMeetingDetails: async () => null,
+        getSubmissionDeliveryItems: async () => [],
       } as JobCardTransaction;
       const response = await work(tx);
       completed.set(key, response);
@@ -213,6 +260,45 @@ function salesMeetingRepository() {
 }
 
 describe('JobCard lifecycle commands', () => {
+  it('returns one actor-scoped workflow context from persisted truth', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'IN_PROGRESS';
+    const result = await new JobCardService(repo, () => time).detail(staff, 'job-1');
+    expect(result.workflowContext).toEqual({
+      allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+      allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      lifecycle: repo.persistedDetail.lifecycle,
+      submissionReadiness: {
+        evaluatedAt: time.toISOString(),
+        ready: true,
+        items: [
+          { code: 'CUSTOMER_ELIGIBLE', state: 'met', field: 'customerId' },
+          { code: 'ASSIGNEE_ELIGIBLE', state: 'met', field: 'assignedTo' },
+          { code: 'DELIVERY_ITEM_PRESENT', state: 'met', field: 'deliveryItems' },
+          { code: 'DELIVERY_ITEMS_VALID', state: 'met', field: 'deliveryItems' },
+        ],
+      },
+    });
+  });
+
+  it('returns null readiness outside execution, correction, and review', async () => {
+    const repo = new LifecycleRepository();
+    for (const status of ['NEW', 'PLANNED', 'COMPLETED', 'CANCELLED'] as const) {
+      repo.job.status = status;
+      const result = await new JobCardService(repo, () => time).detail(manager, 'job-1');
+      expect(result.workflowContext.submissionReadiness).toBeNull();
+    }
+  });
+
+  it('returns 404 for another Staff assignment before readiness queries', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.assignedTo = 'staff-2';
+    repo.job.status = 'IN_PROGRESS';
+    await expect(new JobCardService(repo, () => time).detail(staff, 'job-1'))
+      .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+    expect(repo.submissionReads).toEqual([]);
+  });
+
   it.each([
     ['plan', 'NEW', 'PLANNED', 'JOB_PLANNED', 'JOB_PLAN'],
     ['start', 'PLANNED', 'IN_PROGRESS', 'JOB_STARTED', 'JOB_START'],
