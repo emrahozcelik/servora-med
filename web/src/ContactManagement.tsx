@@ -42,12 +42,10 @@ export function ContactListView({ state, canManage, createButtonRef, onRetry, on
     {state.kind === 'ready' && state.contacts.length === 0 && <div className="workspace-message"><h3>Henüz ilgili kişi yok</h3><p>Doktor, satın alma sorumlusu veya sekreter bilgileri burada görünür.</p></div>}
     {state.kind === 'ready' && state.contacts.length > 0 && <ul className="contact-list">{state.contacts.map((contact) => <li key={contact.id}>
       <article className="contact-row contact-list-card" data-contact-id={contact.id}
-        onClick={(event) => openCardIfEmpty(event, canManage ? onOpenContact : undefined, contact.customerId, contact.id)}>
+        onClick={(event) => openCardIfEmpty(event, onOpenContact, contact.customerId, contact.id)}>
         <div className="contact-identity">
           <div className="contact-signals">{contact.isPrimary && <span className="status" aria-label="Birincil kişi">Birincil kişi</span>}</div>
-          <h3>{canManage
-            ? <Link className="contact-title-link" to={paths.contact(contact.customerId, contact.id)}>{contact.name}</Link>
-            : contact.name}</h3>
+          <h3><Link className="contact-title-link" to={paths.contact(contact.customerId, contact.id)}>{contact.name}</Link></h3>
           <p>{contact.title ?? 'Görev belirtilmedi'}</p>
         </div>
       </article>
@@ -106,7 +104,7 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
         : <dl className="record-facts"><div><dt>Ad soyad</dt><dd>{contact.name}</dd></div><div><dt>Görev veya unvan</dt><dd>{contact.title ?? 'Belirtilmedi'}</dd></div>
           <div><dt>Telefon</dt><dd>{contact.phone ?? 'Belirtilmedi'}</dd></div><div><dt>E-posta</dt><dd>{contact.email ?? 'Belirtilmedi'}</dd></div></dl>}
     </section>
-    {canManage && <section className="record-section record-commands" ref={commandsRef} tabIndex={-1} aria-labelledby="contact-commands-title"><h2 id="contact-commands-title">Birincil kişi</h2>
+    {canManage && contact.isActive && <section className="record-section record-commands" ref={commandsRef} tabIndex={-1} aria-labelledby="contact-commands-title"><h2 id="contact-commands-title">Birincil kişi</h2>
       {contact.isPrimary
         ? <p>Bu kayıt müşterinin varsayılan ilgili kişisidir.</p>
         : <><p>Bu komut müşterinin varsayılan ilgili kişisini değiştirir.</p>

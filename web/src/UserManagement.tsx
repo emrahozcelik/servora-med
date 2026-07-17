@@ -125,9 +125,17 @@ export function UserDetailScreen() {
   const [loading, setLoading] = useState(true);
   useEffect(() => {
     if (!userId) return;
-    setLoading(true); setError('');
-    getUser(userId).then(setUser).catch((caught) => setError(caught instanceof Error ? caught.message : 'Kullanıcı yüklenemedi.'))
-      .finally(() => setLoading(false));
+    let active = true;
+    setUser(null);
+    setLoading(true);
+    setError('');
+    getUser(userId)
+      .then((next) => { if (active) setUser(next); })
+      .catch((caught) => {
+        if (active) setError(caught instanceof Error ? caught.message : 'Kullanıcı yüklenemedi.');
+      })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
   }, [userId]);
   if (!userId) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Kullanıcı bulunamadı</h1></div></main>;
   if (loading) return <main className="workspace" aria-busy="true"><h1>Kullanıcı yükleniyor</h1></main>;

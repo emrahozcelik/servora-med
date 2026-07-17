@@ -1,9 +1,14 @@
+/** @vitest-environment jsdom */
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { OwnStaffProfileView, StaffDirectoryView, StaffProfileEditRoute, StaffProfileEditView } from '../src/StaffProfiles';
 import type { StaffProfile } from '../src/services/people-api';
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const profile: StaffProfile = { id: 'profile-1', user: { id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'staff@example.com', role: 'STAFF',
   mustChangePassword: false, isActive: true, version: 2, lastLoginAt: null, createdAt: '2026-07-12', updatedAt: '2026-07-12' },
@@ -45,5 +50,40 @@ describe('Staff profile views', () => {
     });
     expect(first.key).toBe('staff-1');
     expect(second.key).toBe('staff-2');
+  });
+});
+
+describe('Staff directory card interaction', () => {
+  let container: HTMLDivElement;
+  let root: Root;
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('opens the profile from empty card area and keeps a single keyboard target on the title link', async () => {
+    const onOpen = vi.fn();
+    await act(async () => root.render(
+      <MemoryRouter>
+        <StaffDirectoryView profiles={[profile]} onOpen={onOpen} onBack={() => {}} />
+      </MemoryRouter>,
+    ));
+    const card = container.querySelector('.people-list-card') as HTMLElement;
+    const title = container.querySelector('.people-title-link') as HTMLAnchorElement;
+    expect(title.getAttribute('href')).toBe('/staff/staff-1');
+    expect(card.getAttribute('tabindex')).toBeNull();
+    expect(card.getAttribute('role')).toBeNull();
+
+    await act(async () => card.click());
+    expect(onOpen).toHaveBeenCalledWith('staff-1');
+
+    onOpen.mockClear();
+    await act(async () => title.click());
+    expect(onOpen).not.toHaveBeenCalled();
   });
 });
