@@ -1,22 +1,25 @@
-import type {
-  DeliveryItem,
-  JobCard,
-  JobCardDetail,
-  JobCardActivityEvent,
-  JobCardAssignee,
-  JobCardBaseFilters,
-  JobCardBoard,
-  JobCardBoardQuery,
-  JobCardListItem,
-  JobCardListQuery,
-  JobCardPriority,
-  JobCardStatus,
-  JobCardStatusFilter,
-  LifecycleCommand,
-  Paginated,
-  JobCardNoteDto,
-  MeetingDetailsCandidate,
-  MeetingOutcome,
+import {
+  JOB_CARD_STATUSES,
+  type DeliveryItem,
+  type JobCard,
+  type JobCardActivityEvent,
+  type JobCardAssignee,
+  type JobCardBaseFilters,
+  type JobCardBoard,
+  type JobCardBoardQuery,
+  type JobCardListItem,
+  type JobCardListQuery,
+  type JobCardPriority,
+  type JobCardStatus,
+  type JobCardStatusFilter,
+  type JobLifecycleFacts,
+  type LifecycleCommand,
+  type Paginated,
+  type PersistedJobCardDetail,
+  type JobCardNoteDto,
+  type MeetingDetailsCandidate,
+  type MeetingOutcome,
+  type RelatedIdentity,
 } from './types.js';
 import type { Pool, PoolClient } from 'pg';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
@@ -114,7 +117,7 @@ export interface SubmissionReader {
 export interface JobCardTransaction extends SubmissionReader {
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
-  getJobDetail(organizationId: string, jobCardId: string): Promise<JobCardDetail | null>;
+  getJobDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
   appendActivity(input: ActivityInput): Promise<void>;
   createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
@@ -150,7 +153,7 @@ export interface JobCardRepository extends SubmissionReader {
   ): Promise<Paginated<JobCardListItem>>;
   listBoard(scope: JobCardReadScope, query: JobCardBoardQuery): Promise<JobCardBoard>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
-  findJobCardDetail(organizationId: string, jobCardId: string): Promise<JobCardDetail | null>;
+  findJobCardDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
   findMeetingDetails(
     organizationId: string,
     jobCardId: string,
@@ -180,6 +183,26 @@ type JobCardDetailRow = JobCardRow & {
   assignee_id: string; assignee_name: string;
   customer_id_join: string | null; customer_name: string | null;
   contact_id_join: string | null; contact_name: string | null;
+  created_at: Date;
+  planned_at: Date | null;
+  started_at: Date | null;
+  staff_completed_at: Date | null;
+  staff_completion_note: string | null;
+  submitter_id: string | null;
+  submitter_name: string | null;
+  manager_approved_at: Date | null;
+  manager_approval_note: string | null;
+  approver_id: string | null;
+  approver_name: string | null;
+  revision_requested_at: Date | null;
+  revision_reason: string | null;
+  revision_actor_id: string | null;
+  revision_actor_name: string | null;
+  cancelled_at: Date | null;
+  cancel_reason: string | null;
+  cancellation_actor_id: string | null;
+  cancellation_actor_name: string | null;
+  cancelled_from_status: string | null;
 };
 type JobCardListRow = {
   id: string;
@@ -264,9 +287,20 @@ function mapCalendarDate(value: string | Date | null) {
 const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
        j.title, j.description, j.customer_id, j.contact_id, j.assigned_to, j.created_by,
        j.priority, j.due_date,
+       j.created_at, j.planned_at, j.started_at,
+       j.staff_completed_at, j.staff_completion_note,
+       j.manager_approved_at, j.manager_approval_note,
+       j.revision_requested_at, j.revision_reason,
+       j.cancelled_at, j.cancel_reason,
        assignee.id AS assignee_id, assignee.name AS assignee_name,
        customer.id AS customer_id_join, customer.name AS customer_name,
-       contact.id AS contact_id_join, contact.name AS contact_name
+       contact.id AS contact_id_join, contact.name AS contact_name,
+       submitter.id AS submitter_id, submitter.name AS submitter_name,
+       approver.id AS approver_id, approver.name AS approver_name,
+       revision_actor.id AS revision_actor_id, revision_actor.name AS revision_actor_name,
+       cancellation_actor.id AS cancellation_actor_id,
+       cancellation_actor.name AS cancellation_actor_name,
+       cancellation.cancelled_from_status
 FROM job_cards j
 JOIN users assignee
   ON assignee.organization_id = j.organization_id AND assignee.id = j.assigned_to
@@ -274,9 +308,65 @@ LEFT JOIN customers customer
   ON customer.organization_id = j.organization_id AND customer.id = j.customer_id
 LEFT JOIN contacts contact
   ON contact.organization_id = j.organization_id AND contact.id = j.contact_id
+LEFT JOIN users submitter
+  ON submitter.organization_id = j.organization_id AND submitter.id = j.staff_completed_by
+LEFT JOIN users approver
+  ON approver.organization_id = j.organization_id AND approver.id = j.manager_approved_by
+LEFT JOIN users revision_actor
+  ON revision_actor.organization_id = j.organization_id
+  AND revision_actor.id = j.revision_requested_by
+LEFT JOIN users cancellation_actor
+  ON cancellation_actor.organization_id = j.organization_id
+  AND cancellation_actor.id = j.cancelled_by
+LEFT JOIN LATERAL (
+  SELECT a.old_value->>'status' AS cancelled_from_status
+  FROM job_card_activity_logs a
+  WHERE a.organization_id = j.organization_id
+    AND a.job_card_id = j.id
+    AND a.event_type = 'JOB_CANCELLED'
+  ORDER BY a.created_at DESC, a.id DESC
+  LIMIT 1
+) cancellation ON TRUE
 WHERE j.organization_id = $1 AND j.id = $2`;
 
-function mapJobCardDetail(row: JobCardDetailRow): JobCardDetail {
+function mapInstant(value: Date | null): string | null {
+  return value?.toISOString() ?? null;
+}
+
+function mapRelatedIdentity(id: string | null, name: string | null): RelatedIdentity | null {
+  if (id === null || name === null) return null;
+  return { id, name };
+}
+
+function mapCancelledFromStatus(value: string | null): JobCardStatus | null {
+  if (value === null) return null;
+  if (!(JOB_CARD_STATUSES as readonly string[]).includes(value)) return null;
+  if (value === 'COMPLETED' || value === 'CANCELLED') return null;
+  return value as JobCardStatus;
+}
+
+function mapLifecycleFacts(row: JobCardDetailRow): JobLifecycleFacts {
+  return {
+    createdAt: row.created_at.toISOString(),
+    plannedAt: mapInstant(row.planned_at),
+    startedAt: mapInstant(row.started_at),
+    submittedAt: mapInstant(row.staff_completed_at),
+    submittedBy: mapRelatedIdentity(row.submitter_id, row.submitter_name),
+    submissionNote: row.staff_completion_note,
+    approvedAt: mapInstant(row.manager_approved_at),
+    approvedBy: mapRelatedIdentity(row.approver_id, row.approver_name),
+    approvalNote: row.manager_approval_note,
+    revisionRequestedAt: mapInstant(row.revision_requested_at),
+    revisionRequestedBy: mapRelatedIdentity(row.revision_actor_id, row.revision_actor_name),
+    revisionReason: row.revision_reason,
+    cancelledAt: mapInstant(row.cancelled_at),
+    cancelledBy: mapRelatedIdentity(row.cancellation_actor_id, row.cancellation_actor_name),
+    cancelReason: row.cancel_reason,
+    cancelledFromStatus: mapCancelledFromStatus(row.cancelled_from_status),
+  };
+}
+
+function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
   return {
     ...mapJobCard(row),
     assignee: { id: row.assignee_id, name: row.assignee_name },
@@ -286,6 +376,7 @@ function mapJobCardDetail(row: JobCardDetailRow): JobCardDetail {
     contact: row.contact_id_join === null
       ? null
       : { id: row.contact_id_join, name: row.contact_name! },
+    lifecycle: mapLifecycleFacts(row),
   };
 }
 

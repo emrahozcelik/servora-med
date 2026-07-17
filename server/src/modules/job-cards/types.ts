@@ -105,6 +105,33 @@ export type PatchMeetingDetailsInput = {
 };
 
 export type RelatedIdentity = { id: string; name: string };
+
+export type JobLifecycleFacts = {
+  createdAt: string;
+  plannedAt: string | null;
+  startedAt: string | null;
+  submittedAt: string | null;
+  submittedBy: RelatedIdentity | null;
+  submissionNote: string | null;
+  approvedAt: string | null;
+  approvedBy: RelatedIdentity | null;
+  approvalNote: string | null;
+  revisionRequestedAt: string | null;
+  revisionRequestedBy: RelatedIdentity | null;
+  revisionReason: string | null;
+  cancelledAt: string | null;
+  cancelledBy: RelatedIdentity | null;
+  cancelReason: string | null;
+  cancelledFromStatus: JobCardStatus | null;
+};
+
+export type PersistedJobCardDetail = JobCard & {
+  assignee: RelatedIdentity;
+  customer: RelatedIdentity | null;
+  contact: RelatedIdentity | null;
+  lifecycle: JobLifecycleFacts;
+};
+
 export type JobCardDetail = JobCard & {
   assignee: RelatedIdentity;
   customer: RelatedIdentity | null;
