@@ -69,12 +69,17 @@ Mobilde dar ekranda menü çekmecesi kullanılır; masaüstünde yan/üst naviga
 Tipik akış (teknik durum → detaydaki aşama dili):
 
 ```text
-Yeni (Oluşturuldu) → Planlandı → Uygulanıyor → Yönetici kontrolü → Tamamlandı
-                                      ↘ Düzeltme istendi → Uygulanıyor (düzeltme döngüsü)
+Atandı → Kabul edildi → Uygulanıyor → Yönetici kontrolü → Tamamlandı
+                              ↘ Düzeltme istendi → Uygulanıyor (düzeltme döngüsü)
 ```
 
-- **Planlama atlanabilir:** **Yeni** işte doğrudan **İşi başlat** ile uygulamaya geçebilirsiniz;
-  adım çubuğunda planlama “Planlama atlandı” görünür, yanlış bir tik işareti konmaz.
+- **Kabul zorunludur:** Yönetici/yönetim tarafından size atanan iş **Atandı** durumundadır.
+  Yalnız **atanmış personel** işi **Kabul et** ile **Kabul edildi** yapabilir; yöneticiler
+  personel adına kabul edemez. Kendi oluşturduğunuz (kendinize atadığınız) işler doğrudan
+  **Kabul edildi** başlar.
+- **Başlatma kabulden sonra:** **İşi başlat** yalnızca **Kabul edildi** durumundan
+  kullanılabilir. Planlanan zaman (`Planlanan teslim/görüşme zamanı`) durum değildir;
+  ayrı bir planlama alanı olarak görünür.
 - **Personel işi doğrudan “Tamamlandı” yapamaz.** Personel **Kontrole gönder** ile yönetici
   kontrolüne yollar; yönetici **Kontrolü tamamla ve işi kapat** ile kapatır veya
   **Düzeltme için personele geri gönder** ile döngüyü başlatır.
@@ -117,32 +122,41 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 2. Yeni teslim oluşturmayı seçin (`/jobs/new-delivery`).
 3. **Müşteri** seçin; ardından **İlgili kişi** listesi dolar.
 4. **Sorumlu personel** personel rolünde sizsiniz (değiştirilemez).
-5. **Ürün** arayıp seçin; **Teslim amacı**, **Miktar**, **Teslim zamanı** girin.
-6. **Teslimi kaydet** — kayıt sonrası iş detayına gidersiniz.
-7. Detayda adım çubuğu ve “şimdi sizden beklenen” paneli görünür. Duruma göre **Planla**
-   veya **İşi başlat** kullanın (planlama zorunlu değildir).
-8. **Uygulanıyor** iken kontrol listesindeki zorunlu kalemler tamamsa **Kontrole gönder**.
-   Gönderim sonrası kayıtlar kilitlenir; iş **Yönetici kontrolü** aşamasına geçer.
-9. Yönetici düzeltme isterse gerekçeyi okuyun → **Düzeltmeye başla** → kayıtları düzeltin →
-   **Yeniden kontrole gönder**.
-10. Kontroldeyken kendiniz düzeltmek isterseniz **Kontrolden geri çek ve düzenle** ile işi
+5. **Planlanan teslim zamanı** formu varsayılan bir değerle gelir; gerekirse değiştirin.
+6. **Ürün** arayıp seçin; **Teslim amacı**, **Miktar** girin. **Gerçekleşen teslim zamanı**
+   sahada/uygulama sırasında kaydedilir; planlanan zamandan kopyalanmaz.
+7. **Teslimi kaydet** — kayıt sonrası iş detayına gidersiniz (kendi işiniz **Kabul edildi**
+   başlar).
+8. Detayda adım çubuğu ve “şimdi sizden beklenen” paneli görünür. Atanan işlerde önce
+   **Kabul et**, sonra **İşi başlat** kullanın. Gerekirse planlanan zamanı düzenleyin veya
+   atama aşamasında **Notlar** ile iletişim kurun.
+9. **Uygulanıyor** iken her kalemde gerçekleşen teslim zamanı ve diğer zorunlu kalemler
+   tamamsa **Kontrole gönder**. Gönderim sonrası kayıtlar kilitlenir; iş **Yönetici
+   kontrolü** aşamasına geçer.
+10. Yönetici düzeltme isterse gerekçeyi okuyun → **Düzeltmeye başla** → kayıtları düzeltin →
+    **Yeniden kontrole gönder**.
+11. Kontroldeyken kendiniz düzeltmek isterseniz **Kontrolden geri çek ve düzenle** ile işi
     yeniden **Uygulanıyor** yapın, sonra tekrar gönderin.
 
 ### 7.2 General Task (genel görev)
 
 1. `/jobs/new-task` — **Başlık** zorunludur.
-2. İsteğe bağlı müşteri / ilgili kişi yalnızca bağlam içindir.
-3. Kaydedin; yaşam döngüsü ve kontrol akışı ürün teslimi ile aynıdır (**Kontrole gönder**).
+2. İsteğe bağlı müşteri / ilgili kişi ve isteğe bağlı **Planlanan zaman** yalnızca bağlam içindir.
+3. Kaydedin; yaşam döngüsü ve kontrol akışı ürün teslimi ile aynıdır (**Kabul et** →
+   **İşi başlat** → **Kontrole gönder**).
 4. Ürün teslim kalemi **yoktur**.
 
 ### 7.3 Sales Meeting (satış görüşmesi)
 
-1. `/jobs/new-meeting` — planlama: başlık, müşteri, planlanan gün, sorumlu.
-2. Görüşme **Yeni** veya **Planlandı** durumundayken sonuç ve not bölümleri gösterilmez.
-   **İşi başlat** komutundan sonra bu bölümler açılır.
-   Görüşmenin başlık, açıklama, müşteri, ilgili kişi, planlanan gün ve öncelik bilgileri tüm
-   aktif aşamalarda (kontrol kilidi dışında) **Görüşmeyi düzenle** ile değiştirilebilir.
-   Yönetici ayrıca sorumluyu değiştirebilir.
+1. `/jobs/new-meeting` — planlama: başlık, müşteri, **planlanan görüşme zamanı**, planlanan
+   gün, sorumlu.
+2. Görüşme **Atandı** veya **Kabul edildi** durumundayken **görüşme sonucu** bölümü
+   gösterilmez. **Notlar** bu aşamada açıktır (saat çakışması, müşteri teyidi vb.).
+   **İşi başlat** komutundan sonra sonuç bölümü açılır.
+   Görüşmenin başlık, açıklama, müşteri, ilgili kişi, planlanan zaman/gün ve öncelik
+   bilgileri uygun aşamalarda (kontrol kilidi dışında) düzenlenebilir. Yönetici ayrıca
+   sorumluyu değiştirebilir; kabul edilmiş bir işte yönetici plan/atama değiştirirse iş
+   yeniden **Atandı** olur ve personelin kabulü temizlenir.
 3. Detayda **Görüşme sonucu**:
    - Gerçekleşme zamanı
    - Sonuç (Pozitif / Takip gerekli / Karar verilmedi / İlgilenmiyor)
@@ -151,11 +165,11 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
    Sonuç formu ilk açıldığında gerçekleşme zamanı güncel yerel saatle doldurulur; gerekirse
    değiştirebilirsiniz.
 4. **Görüşme sonucunu kaydet**, notlarınızı ekleyin, kontrol listesi tamamsa **Kontrole gönder**.
-   Değişmemiş bir sonuç yeniden gönderilmez ve bunun yerine kaydedilecek değişiklik olmadığı
-   açıklanır.
+   Sonuç kaydından sonra kontrol listesi sunucudan yenilenir. Değişmemiş bir sonuç yeniden
+   gönderilmez ve bunun yerine kaydedilecek değişiklik olmadığı açıklanır.
 5. Yönetici kontrolündeyken içerik salt okunurdur. Düzeltme gerekiyorsa **Kontrolden geri çek
    ve düzenle** ile işi **Uygulanıyor** durumuna alın, değiştirin ve yeniden gönderin.
-6. Kendi görüşmenizi **Yeni**, **Planlandı**, **Uygulanıyor**, **Yönetici kontrolü** veya
+6. Kendi görüşmenizi **Atandı**, **Kabul edildi**, **Uygulanıyor**, **Yönetici kontrolü** veya
    **Düzeltme istendi** aşamasında **İşi iptal et** ile ve zorunlu bir gerekçe yazarak iptal
    edebilirsiniz. Yönetici de erişebildiği aktif işleri aynı şekilde iptal edebilir. İptal
    terminaldir; iş yeniden açılamaz.
@@ -183,7 +197,8 @@ Bu bölüm, uygulamayı ilk kez kullanan bir yönetici için adım adım yazılm
 2. Üstteki durum sekmeleri ve arama ile süzün.
 3. Masaüstünde sütunlu **Kanban** görünümü salt okunurdur; kartı sürükleyerek durum değiştirmezsiniz — durum **detay komutları** ile değişir.
 4. Telefonda / dar ekranda yalnız liste gösterilir (sıkışık pano yoktur).
-5. Bir satıra tıklayarak veya **detayı aç** ile iş kartına girin.
+5. Kartın başlığına veya kart alanına tıklayarak doğrudan iş detayına girin (özet
+   aç/kapat adımı yoktur). Durum komutları kart üzerindeki ayrı düğmelerdir.
 
 ### 8.3 Yönetici kontrol kuyruğu (en sık iş)
 

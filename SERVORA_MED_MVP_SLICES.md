@@ -603,6 +603,41 @@ without changing commands, terminal rules, or migrations.
 This is a tested detail-first vertical slice on top of the pilot JobCard engine, not a new
 MVP slice number and not a claim that unimplemented operator-only gates are done.
 
+## 15c. Job Acceptance and Scheduling (lifecycle correction)
+
+**Goal:** Replace ambiguous `PLANNED` planning with Staff assignment acceptance, introduce
+canonical `scheduledAt`, separate planned and actual times, enable assignment-stage notes,
+simplify list-card navigation, and refresh submission readiness after meeting saves.
+
+**Depends on:** Slices 02–10 and 15b (shared lifecycle, meeting, notes/timeline, workflow
+context)
+
+### Deliverables (implemented and tested)
+
+- Migration `009_job_acceptance_and_scheduling.sql`: `ACCEPTED`, `accepted_at` /
+  `accepted_by` / `scheduled_at`, `JOB_ACCEPTED`, nullable delivery `delivered_at`,
+  legacy `PLANNED -> NEW`
+- `POST /api/job-cards/:id/accept` (`ACCEPT_ASSIGNMENT`); no public `/plan`
+- Create defaults and editable `scheduledAt`; planned vs actual delivery/meeting times
+- Acceptance invalidation on management reassignment or schedule change
+- Assignment-stage notes for Sales Meeting in `NEW` / `ACCEPTED`
+- Direct list/board card navigation to Job detail
+- Canonical Job detail refresh after meeting result save
+
+### Acceptance
+
+- [x] Only assigned Staff can accept; Manager/Admin cannot accept on behalf of Staff
+- [x] `START` requires `ACCEPTED`; self-assigned Staff creates begin accepted
+- [x] Active filters/board/status labels do not expose `PLANNED`
+- [x] Planned time is independent of actual meeting/delivery time
+- [x] Delivery create defaults `scheduledAt` without fabricating `deliveredAt`
+- [x] Applied migrations 001–008 remain immutable
+- [ ] Full interactive keyboard/focus role matrix against live app+DB when available
+- [ ] Remote CI when the branch is published or publication is authorized
+
+This is a tested lifecycle correction on top of the pilot JobCard engine, not a new MVP
+slice number. Decision: `DECISIONS.md` JOB-006.
+
 ## 16. Slice 13: WebSocket Only if Polling Is Insufficient
 
 **Goal:** Add realtime only after pilot evidence shows polling or manual refresh is inadequate.

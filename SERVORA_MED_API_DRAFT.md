@@ -274,7 +274,7 @@ Staff profile responses include backend-derived counters:
 }
 ```
 
-- `open`: assigned JobCards in `NEW`, `PLANNED`, or `IN_PROGRESS`
+- `open`: assigned JobCards in `NEW`, `ACCEPTED`, or `IN_PROGRESS`
 - `waitingApproval`: assigned JobCards in `WAITING_APPROVAL`
 - `revisionRequested`: assigned JobCards in `REVISION_REQUESTED`
 - `completedThisMonth`: assigned JobCards approved into `COMPLETED` during the current organization-local calendar month
@@ -471,9 +471,10 @@ offset
 unknown values, and unknown query keys return `400 VALIDATION_ERROR`.
 
 The list response is canonical and paginated. Board cards reuse the same item shape,
-group only `NEW`, `PLANNED`, `IN_PROGRESS`, `WAITING_APPROVAL`, and
+group only `NEW`, `ACCEPTED`, `IN_PROGRESS`, `WAITING_APPROVAL`, and
 `REVISION_REQUESTED`, and expose `COMPLETED`/`CANCELLED` as counts. Mobile clients use
-the list route and do not request the board projection.
+the list route and do not request the board projection. Status filter values follow active
+statuses plus `active` / `closed` / `all`; `PLANNED` is rejected as an unknown filter.
 
 ### POST `/api/job-cards`
 
@@ -490,6 +491,7 @@ type ProductDeliveryCreateInput = {
   assignedTo: string
   priority?: 'low' | 'normal' | 'high' | 'urgent'
   dueDate?: string | null
+  scheduledAt: string
 }
 
 type GeneralTaskCreateInput = {
@@ -502,6 +504,7 @@ type GeneralTaskCreateInput = {
   contactId?: string | null
   priority?: 'low' | 'normal' | 'high' | 'urgent'
   dueDate?: string | null
+  scheduledAt?: string | null
 }
 
 type SalesMeetingCreateInput = {
@@ -514,6 +517,7 @@ type SalesMeetingCreateInput = {
   assignedTo: string
   priority?: 'low' | 'normal' | 'high' | 'urgent'
   dueDate: string
+  scheduledAt: string
 }
 
 type JobCardCreateInput =
@@ -522,10 +526,24 @@ type JobCardCreateInput =
   | SalesMeetingCreateInput
 ```
 
-Unknown fields and delivery-item fields are rejected. Product Delivery still requires a
-Customer; General Task permits nullable Customer and Contact context; Sales Meeting
-requires an active Customer and an organization-local planned calendar day in `dueDate`.
+Unknown fields and delivery-item fields are rejected. Product Delivery requires a Customer
+and a non-null `scheduledAt` (planned delivery instant). General Task permits nullable
+Customer/Contact context and optional `scheduledAt`. Sales Meeting requires an active
+Customer, organization-local planned calendar day in `dueDate`, and non-null
+`scheduledAt` (planned meeting instant). Instants require an explicit offset or `Z`.
 A non-null Contact requires an active same-organization Customer and must belong to it.
+
+Create status:
+
+| Actor and assignee | Initial status |
+| --- | --- |
+| Staff self-assigned | `ACCEPTED` with `acceptedAt` / `acceptedBy` set to the actor |
+| Manager/Admin assigned to Staff | `NEW` without acceptance facts |
+
+Web create forms pre-fill `scheduledAt` with a local default of now + 60 minutes rounded
+up to the next 30-minute boundary. The default is applied only on initial form state;
+retries and validation errors must not overwrite a user-edited value. Create never
+populates delivery-item `deliveredAt` from that planned default.
 
 Create and patch assignee resolution is shared by all three variants:
 
@@ -554,13 +572,31 @@ Request:
   "expectedVersion": 3,
   "title": "ABC Klinik ürün ve numune teslimi",
   "priority": "urgent",
-  "dueDate": "2026-07-16"
+  "dueDate": "2026-07-16",
+  "scheduledAt": "2026-07-16T14:30:00+03:00"
 }
 ```
 
-Allowed only in `NEW`, `PLANNED`, `IN_PROGRESS`, and `REVISION_REQUESTED` according to role and assignment. Status is not accepted. `WAITING_APPROVAL` rejects an in-place patch; the UI first invokes the named withdrawal command and then patches the resulting `IN_PROGRESS` card. `COMPLETED` and `CANCELLED` reject field patches.
+Allowed only in `NEW`, `ACCEPTED`, `IN_PROGRESS`, and `REVISION_REQUESTED` according to
+role and assignment. Status is not accepted as a free field. `WAITING_APPROVAL` rejects an
+in-place patch; the UI first invokes the named withdrawal command and then patches the
+resulting `IN_PROGRESS` card. `COMPLETED` and `CANCELLED` reject field patches.
 
-When `assignedTo` changes, the successful patch appends `JOB_ASSIGNED`. Other meaningful field changes append `JOB_FIELDS_UPDATED` with bounded old/new values. A patch that changes assignment and other fields may append both canonical events in the same transaction because they represent different business facts.
+`assignedTo` and `scheduledAt` may change only while status is `NEW` or `ACCEPTED`. After
+`START`, both are rejected with `409 JOB_NOT_EDITABLE`.
+
+Acceptance invalidation (same transaction as the field update):
+
+- Management reassignment of an `ACCEPTED` job returns status to `NEW` and clears
+  `acceptedAt` / `acceptedBy`.
+- Management schedule change of an `ACCEPTED` job does the same.
+- Staff schedule edit does not clear their own acceptance.
+- Reassignment of a `NEW` job keeps status `NEW`.
+
+When `assignedTo` changes, the successful patch appends `JOB_ASSIGNED`. Other meaningful
+field changes append `JOB_FIELDS_UPDATED` with bounded old/new values. A patch that changes
+assignment and other fields may append both canonical events in the same transaction
+because they represent different business facts.
 
 ## 11. Delivery Items
 
@@ -595,7 +631,9 @@ Rules:
 - Product belongs to the authenticated organization and is active at creation.
 - Quantity is greater than zero.
 - Purpose is one canonical delivery purpose.
-- Delivered time is present and valid.
+- Delivered time (`deliveredAt`) is the actual delivery instant. It may be null while the
+  job is still being planned or prepared; submission requires every item to have a valid
+  actual time. Never copy `job.scheduledAt` into `deliveredAt`.
 - Product name, SKU, model, and unit snapshots come from the catalog.
 - Price and financial fields are rejected as unknown input.
 
@@ -634,7 +672,7 @@ code points. A follow-up, when present, must be strictly later than `meetingAt`.
 
 Parent concealment occurs before the Sales Meeting type guard and version/detail work.
 Malformed `:jobCardId` returns `404 JOB_CARD_NOT_FOUND` before PostgreSQL; a visible
-non-meeting parent returns `409 INVALID_JOB_TYPE`. `NEW`, `PLANNED`, `WAITING_APPROVAL`,
+non-meeting parent returns `409 INVALID_JOB_TYPE`. `NEW`, `ACCEPTED`, `WAITING_APPROVAL`,
 `COMPLETED`, and `CANCELLED` reuse exact `409 JOB_NOT_EDITABLE` with
 `JobCard bu durumda düzenlenemez.` Stale version returns `409 VERSION_CONFLICT`.
 A body without any result field returns `400 VALIDATION_ERROR`; a valid canonical no-op returns
@@ -661,26 +699,27 @@ Note request:
 ```
 
 Product Delivery and General Task retain note creation across lifecycle states. Sales
-Meeting note creation is limited to `IN_PROGRESS` and `REVISION_REQUESTED`; `NEW`,
-`PLANNED`, review, and terminal states return exact `409 JOB_NOT_EDITABLE`. Note reads remain
-available for persisted read-only history. Successful addition atomically appends `NOTE_ADDED`.
+Meeting note creation is allowed in `NEW`, `ACCEPTED`, `IN_PROGRESS`, and
+`REVISION_REQUESTED` so assigned Staff can communicate before start; review and terminal
+states return exact `409 JOB_NOT_EDITABLE`. Note reads remain available for persisted
+read-only history. Successful addition atomically appends `NOTE_ADDED`.
 Notes are append-only through the application contract; no public or repository
 update/delete operation exists.
 
 ## 14. Named JobCard Commands
 
-There is no generic transition route.
+There is no generic transition route. There is no public `/plan` route.
 
 | Method | Path | From | To | Roles |
 | --- | --- | --- | --- | --- |
-| POST | `/:id/plan` | NEW | PLANNED | staff own, manager, admin |
-| POST | `/:id/start` | NEW or PLANNED | IN_PROGRESS | staff own, manager, admin |
+| POST | `/:id/accept` | NEW | ACCEPTED | assigned staff only |
+| POST | `/:id/start` | ACCEPTED | IN_PROGRESS | staff own, manager, admin |
 | POST | `/:id/submit-for-approval` | IN_PROGRESS | WAITING_APPROVAL | staff own, manager, admin |
 | POST | `/:id/approve` | WAITING_APPROVAL | COMPLETED | manager, admin |
 | POST | `/:id/request-revision` | WAITING_APPROVAL | REVISION_REQUESTED | manager, admin |
 | POST | `/:id/withdraw-from-approval` | WAITING_APPROVAL | IN_PROGRESS | assigned staff, manager, admin |
 | POST | `/:id/resume` | REVISION_REQUESTED | IN_PROGRESS | staff own, manager, admin |
-| POST | `/:id/cancel` | NEW, PLANNED, IN_PROGRESS, WAITING_APPROVAL, or REVISION_REQUESTED | CANCELLED | assigned staff own, manager, admin |
+| POST | `/:id/cancel` | NEW, ACCEPTED, IN_PROGRESS, WAITING_APPROVAL, or REVISION_REQUESTED | CANCELLED | assigned staff own, manager, admin |
 
 Base lifecycle command body:
 
@@ -735,7 +774,13 @@ While `WAITING_APPROVAL`:
 - Manager and admin can approve or request revision.
 - Notes follow the documented note policy.
 
-Approval appends `JOB_APPROVED`. Revision appends `JOB_REVISION_REQUESTED`. Resume appends `JOB_RESUMED`. Cancel appends `JOB_CANCELLED`. Plan and start append `JOB_PLANNED` and `JOB_STARTED`.
+Approval appends `JOB_APPROVED`. Revision appends `JOB_REVISION_REQUESTED`. Resume appends
+`JOB_RESUMED`. Cancel appends `JOB_CANCELLED`. Accept appends `JOB_ACCEPTED` and records
+`accepted_at` / `accepted_by`. Start appends `JOB_STARTED`. Historical `JOB_PLANNED` rows
+remain readable on the activity timeline; new code does not write them.
+
+Accept body uses the base lifecycle command shape (`clientActionId`, `expectedVersion`,
+optional note). Manager/Admin calling `/accept` receive `403 FORBIDDEN`.
 
 ## 15. Board Read Projection
 
@@ -745,7 +790,7 @@ Approval appends `JOB_APPROVED`. Revision appends `JOB_REVISION_REQUESTED`. Resu
 {
   "columns": {
     "NEW": { "items": [], "count": 0 },
-    "PLANNED": { "items": [], "count": 0 },
+    "ACCEPTED": { "items": [], "count": 0 },
     "IN_PROGRESS": { "items": [], "count": 0 },
     "WAITING_APPROVAL": { "items": [], "count": 0 },
     "REVISION_REQUESTED": { "items": [], "count": 0 }
