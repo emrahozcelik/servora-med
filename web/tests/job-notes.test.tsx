@@ -122,6 +122,12 @@ describe('JobCard operational notes', () => {
     expect(add).not.toHaveBeenCalled();
   });
 
+  it('renders the assignment-stage composer when canAdd is enabled by allowedActions', async () => {
+    await renderNotes({ canAdd: true });
+    expect(host.querySelector('.job-notes form')).not.toBeNull();
+    expect(host.querySelector('label[for="job-note"]')?.textContent).toContain('İş notu');
+  });
+
   it('renders nothing for an empty cancelled-note projection', async () => {
     const load = vi.fn().mockResolvedValue(emptyPage);
     await renderNotes({ load, canAdd: false, hideWhenEmpty: true });

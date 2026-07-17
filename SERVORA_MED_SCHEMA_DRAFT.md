@@ -49,8 +49,11 @@ Quote and collection types are outside MVP.
 ### job_card_status
 
 ```text
-NEW | PLANNED | IN_PROGRESS | WAITING_APPROVAL | REVISION_REQUESTED | COMPLETED | CANCELLED
+NEW | ACCEPTED | IN_PROGRESS | WAITING_APPROVAL | REVISION_REQUESTED | COMPLETED | CANCELLED
 ```
+
+`PLANNED` is not an active status after migration 009. Legacy rows were remapped
+`PLANNED -> NEW`. Historical `JOB_PLANNED` activity events remain readable.
 
 ### job_card_priority
 
@@ -70,6 +73,7 @@ SALE | SAMPLE | CONSIGNMENT | RETURN | OTHER
 JOB_CREATED
 JOB_ASSIGNED
 JOB_PLANNED
+JOB_ACCEPTED
 JOB_STARTED
 JOB_SUBMITTED_FOR_APPROVAL
 JOB_APPROVED
@@ -81,6 +85,8 @@ DELIVERY_ITEM_ADDED
 DELIVERY_ITEM_UPDATED
 DELIVERY_ITEM_REMOVED
 NOTE_ADDED
+MEETING_DETAILS_UPDATED
+JOB_APPROVAL_WITHDRAWN
 ```
 
 ### idempotency_status
@@ -300,7 +306,10 @@ version INTEGER NOT NULL DEFAULT 1 CHECK (version > 0)
 | created_by | UUID NOT NULL | FK to users |
 | priority | VARCHAR(20) NOT NULL | default `normal` |
 | due_date | DATE NULL | |
-| planned_at | TIMESTAMPTZ NULL | |
+| planned_at | TIMESTAMPTZ NULL | legacy only; not written by new code |
+| scheduled_at | TIMESTAMPTZ NULL | canonical planned work instant |
+| accepted_at | TIMESTAMPTZ NULL | set on `ACCEPT_ASSIGNMENT` or self-create |
+| accepted_by | UUID NULL | org-scoped FK to users; cleared on acceptance invalidation |
 | started_at | TIMESTAMPTZ NULL | |
 | staff_completed_at | TIMESTAMPTZ NULL | approval-submission time |
 | staff_completed_by | UUID NULL | FK to users |
@@ -330,6 +339,7 @@ Indexes:
 Persisted integrity:
 
 - `version > 0`
+- `ACCEPTED` requires both `accepted_at` and `accepted_by`
 - `COMPLETED` requires manager approval identity and time
 - `WAITING_APPROVAL` requires staff submission identity and time
 - `REVISION_REQUESTED` requires a non-empty revision reason
@@ -348,7 +358,7 @@ Only `PRODUCT_DELIVERY` JobCards can own delivery items.
 | job_card_id | UUID NOT NULL | FK to job_cards; delete restricted |
 | product_id | UUID NOT NULL | FK to products |
 | delivery_purpose | VARCHAR(20) NOT NULL | `delivery_purpose` check |
-| delivered_at | TIMESTAMPTZ NOT NULL | actual delivery time |
+| delivered_at | TIMESTAMPTZ NULL | actual delivery time; nullable before submission |
 | quantity | NUMERIC(12,3) NOT NULL | check greater than zero |
 | unit | VARCHAR(30) NULL | optional product snapshot; no invented default |
 | product_name_snapshot | VARCHAR(255) NOT NULL | |
@@ -540,9 +550,11 @@ Applied slice-aligned migrations:
 | `006_jobcard_workspace.sql` | application-contract append-only JobCard notes, workspace indexes, planned/started timestamp guards |
 | `007_sales_meeting.sql` | Sales Meeting type/event vocabularies, one-to-one structured results, constraints and report index |
 | `008_meeting_approval_withdrawal.sql` | additive `JOB_APPROVAL_WITHDRAWN` activity constraint value |
+| `009_job_acceptance_and_scheduling.sql` | `ACCEPTED` status, `accepted_at`/`accepted_by`/`scheduled_at`, `JOB_ACCEPTED`, nullable delivery `delivered_at`, legacy `PLANNED -> NEW` |
 
-Applied migrations 001–008 are immutable. Reports and General Task required no schema
-migration.
+Applied migrations 001–008 are immutable. Migration 009 is additive for acceptance and
+scheduling. Reports and General Task required no dedicated schema migration beyond the
+shared JobCard engine.
 
 ## 9. Explicit Omissions
 

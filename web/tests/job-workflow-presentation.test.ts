@@ -73,77 +73,83 @@ function jobAt(status: JobCardStatus, lifecycle: JobLifecycleFacts) {
 }
 
 describe('deriveJobWorkflowPresentation', () => {
-  it('marks planning skipped only when execution exists without a planned timestamp', () => {
+  it('marks acceptance missing only when execution exists without an accepted timestamp', () => {
     const model = derive(jobWith({
       status: 'IN_PROGRESS',
       workflowContext: contextWith({
         lifecycle: {
           ...workflowContext.lifecycle,
-          plannedAt: null,
+          acceptedAt: null,
+          acceptedBy: null,
           startedAt: '2026-07-17T09:00:00.000Z',
         },
       }),
     }));
     expect(model.phaseItems.map(({ label, state }) => [label, state])).toEqual([
-      ['Oluşturuldu', 'complete'], ['Planlama atlandı', 'skipped'],
+      ['Atandı', 'complete'], ['Kabul bilgisi kaydedilmemiş', 'skipped'],
       ['Uygulanıyor', 'current'], ['Yönetici kontrolü', 'upcoming'],
       ['Tamamlandı', 'upcoming'],
     ]);
     expect(model.currentPhase).toBe('EXECUTION');
+    expect(model.phaseItems.map(({ label }) => label).join(' ')).not.toContain('Planlama atlandı');
   });
 
-  it('shows planning complete when a planned timestamp exists', () => {
+  it('shows acceptance complete when an accepted timestamp exists', () => {
     const model = derive(jobWith({
       status: 'IN_PROGRESS',
       workflowContext: contextWith({
         lifecycle: {
           ...workflowContext.lifecycle,
-          plannedAt: '2026-07-17T08:30:00.000Z',
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: { id: 's1', name: 'Ayşe Personel' },
           startedAt: '2026-07-17T09:00:00.000Z',
         },
       }),
     }));
     expect(model.phaseItems.map(({ phase, label, state }) => [phase, label, state])).toEqual([
-      ['CREATED', 'Oluşturuldu', 'complete'],
-      ['PLANNING', 'Planlandı', 'complete'],
+      ['CREATED', 'Atandı', 'complete'],
+      ['ACCEPTANCE', 'Kabul edildi', 'complete'],
       ['EXECUTION', 'Uygulanıyor', 'current'],
       ['REVIEW', 'Yönetici kontrolü', 'upcoming'],
       ['COMPLETION', 'Tamamlandı', 'upcoming'],
     ]);
   });
 
-  it('maps NEW and PLANNED to the correct current phases', () => {
+  it('maps NEW and ACCEPTED to the correct current phases', () => {
     const created = derive(jobWith({
       status: 'NEW',
       workflowContext: contextWith({
-        allowedCommands: ['PLAN', 'START', 'CANCEL'],
+        allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
         lifecycle: {
           ...workflowContext.lifecycle,
-          plannedAt: null, startedAt: null,
+          acceptedAt: null, acceptedBy: null, startedAt: null,
         },
         submissionReadiness: null,
       }),
     }));
     expect(created.currentPhase).toBe('CREATED');
-    expect(created.phaseItems.map(({ state }) => state)).toEqual([
-      'current', 'upcoming', 'upcoming', 'upcoming', 'upcoming',
+    expect(created.phaseItems.map(({ label, state }) => [label, state])).toEqual([
+      ['Atandı', 'current'], ['Kabul edildi', 'upcoming'],
+      ['Uygulanıyor', 'upcoming'], ['Yönetici kontrolü', 'upcoming'],
+      ['Tamamlandı', 'upcoming'],
     ]);
     expect(created.terminalState).toBeNull();
 
-    const planned = derive(jobWith({
-      status: 'PLANNED',
+    const accepted = derive(jobWith({
+      status: 'ACCEPTED',
       workflowContext: contextWith({
         allowedCommands: ['START', 'CANCEL'],
         lifecycle: {
           ...workflowContext.lifecycle,
-          plannedAt: '2026-07-17T08:30:00.000Z',
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: { id: 's1', name: 'Ayşe Personel' },
           startedAt: null,
         },
         submissionReadiness: null,
       }),
     }));
-    expect(planned.currentPhase).toBe('PLANNING');
-    expect(planned.phaseItems.map(({ state }) => state)).toEqual([
+    expect(accepted.currentPhase).toBe('ACCEPTANCE');
+    expect(accepted.phaseItems.map(({ state }) => state)).toEqual([
       'complete', 'current', 'upcoming', 'upcoming', 'upcoming',
     ]);
   });
@@ -173,7 +179,8 @@ describe('deriveJobWorkflowPresentation', () => {
         allowedCommands: ['RESUME', 'CANCEL'],
         lifecycle: {
           ...workflowContext.lifecycle,
-          plannedAt: null,
+          acceptedAt: null,
+          acceptedBy: null,
           startedAt: '2026-07-17T09:00:00.000Z',
           submittedAt: '2026-07-17T10:00:00.000Z',
           revisionRequestedAt: '2026-07-17T10:30:00.000Z',
@@ -235,15 +242,41 @@ describe('deriveJobWorkflowPresentation', () => {
     const newJob = jobWith({
       status: 'NEW', assignedTo: 's1',
       workflowContext: contextWith({
-        allowedCommands: ['PLAN', 'START', 'CANCEL'],
+        allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
         allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
-        lifecycle: { ...workflowContext.lifecycle, plannedAt: null, startedAt: null },
+        lifecycle: {
+          ...workflowContext.lifecycle, acceptedAt: null, acceptedBy: null, startedAt: null,
+        },
         submissionReadiness: null,
       }),
     });
-    expect(derive(newJob, staff).primaryTransition?.command).toBe('START');
+    expect(derive(newJob, staff).primaryTransition).toMatchObject({
+      command: 'ACCEPT_ASSIGNMENT',
+      label: 'İşi kabul et',
+    });
     expect(derive(newJob, staff).secondaryTransitions.map((t) => t.command))
-      .toEqual(['PLAN', 'CANCEL']);
+      .toEqual(['CANCEL']);
+
+    const acceptedJob = jobWith({
+      status: 'ACCEPTED', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['START', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        lifecycle: {
+          ...workflowContext.lifecycle,
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+          startedAt: null,
+        },
+        submissionReadiness: null,
+      }),
+    });
+    expect(derive(acceptedJob, staff).primaryTransition).toMatchObject({
+      command: 'START',
+      label: 'İşi başlat',
+    });
+    expect(derive(acceptedJob, staff).secondaryTransitions.map((t) => t.command))
+      .toEqual(['CANCEL']);
 
     const inProgress = jobWith({
       status: 'IN_PROGRESS', assignedTo: 's1',
@@ -273,6 +306,24 @@ describe('deriveJobWorkflowPresentation', () => {
       command: 'RESUME',
       label: 'Düzeltmeye başla',
     });
+  });
+
+  it('does not fabricate acceptance for management viewing NEW', () => {
+    const managerNewJob = jobWith({
+      status: 'NEW', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['CANCEL'],
+        allowedActions: ['VIEW_NOTES'],
+        lifecycle: {
+          ...workflowContext.lifecycle, acceptedAt: null, acceptedBy: null, startedAt: null,
+        },
+        submissionReadiness: null,
+      }),
+    });
+    const model = derive(managerNewJob, manager);
+    expect(model.primaryTransition).toBeNull();
+    expect(model.secondaryTransitions.map((t) => t.command)).toEqual(['CANCEL']);
+    expect(model.secondaryTransitions.some((t) => t.command === 'ACCEPT_ASSIGNMENT')).toBe(false);
   });
 
   it('does not give unassigned Staff a primary transition', () => {
@@ -385,6 +436,51 @@ describe('deriveJobWorkflowPresentation', () => {
     });
   });
 
+  it('offers schedule edit only in NEW and ACCEPTED when EDIT_JOB_FIELDS is allowed', () => {
+    const actions = ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'] as const;
+    const newModel = derive(jobWith({
+      status: 'NEW',
+      workflowContext: contextWith({
+        allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+        allowedActions: [...actions],
+      }),
+    }));
+    expect(newModel.scheduleEdit).toEqual({
+      label: 'Planlanan teslim zamanı',
+      optional: false,
+    });
+
+    const acceptedModel = derive(jobWith({
+      status: 'ACCEPTED',
+      workflowContext: contextWith({
+        allowedCommands: ['START', 'CANCEL'],
+        allowedActions: [...actions],
+      }),
+    }));
+    expect(acceptedModel.scheduleEdit).toEqual({
+      label: 'Planlanan teslim zamanı',
+      optional: false,
+    });
+
+    const inProgressModel = derive(jobWith({
+      status: 'IN_PROGRESS',
+      workflowContext: contextWith({
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: [...actions],
+      }),
+    }));
+    expect(inProgressModel.scheduleEdit).toBeNull();
+
+    const revisionModel = derive(jobWith({
+      status: 'REVISION_REQUESTED',
+      workflowContext: contextWith({
+        allowedCommands: ['RESUME', 'CANCEL'],
+        allowedActions: [...actions],
+      }),
+    }));
+    expect(revisionModel.scheduleEdit).toBeNull();
+  });
+
   it('labels every submission requirement code from the SSOT', () => {
     const items: SubmissionRequirement[] = (Object.keys(requirementLabels) as Array<
       SubmissionRequirement['code']
@@ -425,7 +521,9 @@ describe('deriveJobWorkflowPresentation', () => {
       status: 'NEW',
       workflowContext: contextWith({
         submissionReadiness: null,
-        lifecycle: { ...workflowContext.lifecycle, plannedAt: null, startedAt: null },
+        lifecycle: {
+          ...workflowContext.lifecycle, acceptedAt: null, acceptedBy: null, startedAt: null,
+        },
       }),
     }));
     expect(model.requirements).toEqual([]);
@@ -448,13 +546,15 @@ describe('deriveJobWorkflowPresentation', () => {
     const model = derive(jobWith({
       status: 'NEW', assignedTo: 's1',
       workflowContext: contextWith({
-        allowedCommands: ['CANCEL', 'PLAN', 'START'] as LifecycleCommand[],
+        allowedCommands: ['CANCEL', 'ACCEPT_ASSIGNMENT'] as LifecycleCommand[],
         submissionReadiness: null,
-        lifecycle: { ...workflowContext.lifecycle, plannedAt: null, startedAt: null },
+        lifecycle: {
+          ...workflowContext.lifecycle, acceptedAt: null, acceptedBy: null, startedAt: null,
+        },
       }),
     }), staff);
-    expect(model.primaryTransition?.command).toBe('START');
-    expect(model.secondaryTransitions.map((t) => t.command)).toEqual(['PLAN', 'CANCEL']);
+    expect(model.primaryTransition?.command).toBe('ACCEPT_ASSIGNMENT');
+    expect(model.secondaryTransitions.map((t) => t.command)).toEqual(['CANCEL']);
   });
 
   it('exposes completed terminal presentation with full phase progress', () => {
@@ -465,7 +565,8 @@ describe('deriveJobWorkflowPresentation', () => {
         allowedActions: ['VIEW_NOTES'],
         lifecycle: {
           ...workflowContext.lifecycle,
-          plannedAt: '2026-07-17T08:30:00.000Z',
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: { id: 's1', name: 'Ayşe Personel' },
           startedAt: '2026-07-17T09:00:00.000Z',
           submittedAt: '2026-07-17T10:00:00.000Z',
           approvedAt: '2026-07-17T11:00:00.000Z',
@@ -491,7 +592,8 @@ describe('deriveJobWorkflowPresentation', () => {
         allowedActions: [],
         lifecycle: {
           ...workflowContext.lifecycle,
-          plannedAt: null,
+          acceptedAt: null,
+          acceptedBy: null,
           startedAt: '2026-07-17T09:00:00.000Z',
           cancelledAt: '2026-07-17T12:00:00.000Z',
           cancelReason: 'Müşteri erteledi',
@@ -503,8 +605,8 @@ describe('deriveJobWorkflowPresentation', () => {
     expect(model.terminalState).toBe('CANCELLED');
     expect(model.currentPhase).toBe('EXECUTION');
     expect(model.phaseItems.map(({ label, state }) => [label, state])).toEqual([
-      ['Oluşturuldu', 'complete'],
-      ['Planlama atlandı', 'skipped'],
+      ['Atandı', 'complete'],
+      ['Kabul bilgisi kaydedilmemiş', 'skipped'],
       ['Uygulanıyor', 'attention'],
       ['Yönetici kontrolü', 'upcoming'],
       ['Tamamlandı', 'upcoming'],
@@ -519,7 +621,8 @@ describe('deriveJobWorkflowPresentation', () => {
         allowedActions: [],
         lifecycle: {
           ...workflowContext.lifecycle,
-          plannedAt: null,
+          acceptedAt: null,
+          acceptedBy: null,
           startedAt: null,
           cancelledAt: '2026-07-17T12:00:00.000Z',
           cancelReason: 'İptal',
@@ -536,8 +639,9 @@ describe('deriveJobWorkflowPresentation', () => {
   });
 
   it('shares job status labels for chip and presentation consumers', () => {
-    expect(jobStatusLabels).toEqual({
-      NEW: 'Oluşturuldu',
+    expect(jobStatusLabels).toMatchObject({
+      NEW: 'Atandı',
+      ACCEPTED: 'Kabul edildi',
       PLANNED: 'Planlandı',
       IN_PROGRESS: 'Uygulanıyor',
       WAITING_APPROVAL: 'Yönetici kontrolünde',
@@ -592,12 +696,12 @@ describe('deriveCompactWorkflowSummary', () => {
     expect(deriveCompactWorkflowSummary({
       job: { status: 'NEW' }, user: staff,
     })).toEqual({
-      ordinal: 1, total: 5, label: 'Oluşturuldu', attention: false, expectedRole: 'STAFF',
+      ordinal: 1, total: 5, label: 'Atandı', attention: false, expectedRole: 'STAFF',
     });
     expect(deriveCompactWorkflowSummary({
-      job: { status: 'PLANNED' }, user: staff,
+      job: { status: 'ACCEPTED' }, user: staff,
     })).toEqual({
-      ordinal: 2, total: 5, label: 'Planlandı', attention: false, expectedRole: 'STAFF',
+      ordinal: 2, total: 5, label: 'Kabul edildi', attention: false, expectedRole: 'STAFF',
     });
     expect(deriveCompactWorkflowSummary({
       job: { status: 'IN_PROGRESS' }, user: staff,

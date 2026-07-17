@@ -44,7 +44,10 @@ function page(raw: unknown, defaultLimit: number) {
   return { limit: integer('limit', defaultLimit, 1, 100), offset: integer('offset', 0, 0) };
 }
 
-const PATCH_FIELDS = ['expectedVersion', 'title', 'description', 'customerId', 'contactId', 'assignedTo', 'priority', 'dueDate'];
+const PATCH_FIELDS = [
+  'expectedVersion', 'title', 'description', 'customerId', 'contactId',
+  'assignedTo', 'priority', 'dueDate', 'scheduledAt',
+];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
 const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
@@ -76,8 +79,8 @@ export function createJobCardHandlers(service: JobCardService) {
       service.patchDeliveryItem(actor(request), request.params.id, request.params.itemId!, body(request, DELIVERY_FIELDS.filter((field) => field !== 'clientActionId')) as never),
     removeDeliveryItem: async (request: FastifyRequest<{ Params: Params }>) =>
       service.removeDeliveryItem(actor(request), request.params.id, request.params.itemId!, body(request, ['expectedVersion']) as never),
-    plan: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.plan(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
+    accept: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.acceptAssignment(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     start: async (request: FastifyRequest<{ Params: Params }>) =>
       service.start(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     submit: async (request: FastifyRequest<{ Params: Params }>) =>

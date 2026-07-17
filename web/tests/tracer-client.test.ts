@@ -11,7 +11,7 @@ import { workflowContext } from './fixtures/job-workflow';
 afterEach(() => vi.unstubAllGlobals());
 
 const emptyLifecycle = {
-  createdAt: '2026-07-11T10:00:00.000Z', plannedAt: null, startedAt: null,
+  createdAt: '2026-07-11T10:00:00.000Z', acceptedAt: null, acceptedBy: null, startedAt: null,
   submittedAt: null, submittedBy: null, submissionNote: null, approvedAt: null,
   approvedBy: null, approvalNote: null, revisionRequestedAt: null,
   revisionRequestedBy: null, revisionReason: null, cancelledAt: null,
@@ -22,11 +22,12 @@ const job = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
   version: 1, title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1',
   contactId: 'contact-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
+  scheduledAt: null,
   assignee: { id: 'staff-1', name: 'Ayşe Personel' },
   customer: { id: 'customer-1', name: 'Klinik' },
   contact: { id: 'contact-1', name: 'Dr. Deniz' },
   workflowContext: {
-    allowedCommands: ['PLAN', 'START', 'CANCEL'],
+    allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
     allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
     lifecycle: emptyLifecycle,
     submissionReadiness: null,
@@ -34,11 +35,12 @@ const job = {
 };
 const jobListItem = {
   id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 1, title: 'Teslim',
-  priority: 'normal', dueDate: null, createdAt: '2026-07-11T10:00:00.000Z',
+  priority: 'normal', dueDate: null, scheduledAt: null,
+  createdAt: '2026-07-11T10:00:00.000Z',
   updatedAt: '2026-07-11T10:00:00.000Z', staffCompletedAt: null,
   customer: { id: 'customer-1', name: 'Klinik' }, contact: { id: 'contact-1', name: 'Dr. Deniz' },
   assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 1,
-  allowedCommands: ['PLAN', 'START', 'CANCEL'],
+  allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
 };
 
 function jobWith(

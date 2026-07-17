@@ -148,23 +148,35 @@ the JobCard or delivery facts.
 
 Sales Meeting uses the same lifecycle engine, notes, activity, idempotency, visibility,
 and `job_cards.version` concurrency source as the other types. Its result is stored in a
-one-to-one structured detail row; `dueDate` is the planned organization-local day and
-`meetingAt` is the actual instant. Quote follow-up, collection follow-up, warehouse,
-accounting, and configurable record types are outside MVP.
+one-to-one structured detail row; `scheduledAt` is the planned instant, `dueDate` remains
+the organization-local calendar day, and `meetingAt` is the actual instant. Quote
+follow-up, collection follow-up, warehouse, accounting, and configurable record types are
+outside MVP.
 
 ### 7.2 State machine
 
 ```text
-NEW -> PLANNED -> IN_PROGRESS -> WAITING_APPROVAL -> COMPLETED
-                              -> REVISION_REQUESTED -> IN_PROGRESS
-NEW | PLANNED | IN_PROGRESS | WAITING_APPROVAL | REVISION_REQUESTED -> CANCELLED
+NEW --ACCEPT_ASSIGNMENT-------------> ACCEPTED
+ACCEPTED --START--------------------> IN_PROGRESS
+IN_PROGRESS --SUBMIT_FOR_APPROVAL---> WAITING_APPROVAL
+WAITING_APPROVAL --APPROVE----------> COMPLETED
+WAITING_APPROVAL --REQUEST_REVISION-> REVISION_REQUESTED
+WAITING_APPROVAL --WITHDRAW_FROM_APPROVAL-> IN_PROGRESS
+REVISION_REQUESTED --RESUME---------> IN_PROGRESS
+active state --CANCEL---------------> CANCELLED
 ```
 
 Transitions use named backend commands. A generic status patch or generic transition endpoint is not supported.
 
+`PLANNED` is retained only as legacy activity history after migration 009; it is not an
+active status or public command.
+
 Required invariants:
 
 - Staff cannot approve.
+- Only the assigned Staff member may execute `ACCEPT_ASSIGNMENT`; Manager/Admin do not
+  accept on behalf of Staff. Self-assigned Staff creates begin as `ACCEPTED`.
+- `START` is allowed only from `ACCEPTED`.
 - Approval starts only from `WAITING_APPROVAL`.
 - Revision requires a reason.
 - Type-specific submit requirements are validated before state changes.
@@ -174,8 +186,10 @@ Required invariants:
   Manager/Admin withdrawal is intentional and shares the same named command as Staff.
 - Assigned Staff cancellation covers their own JobCard in every active state and requires a
   reason; Manager/Admin use the same active-state policy for organization-visible work.
-- Sales Meeting result and note write capability begins at `IN_PROGRESS` and is restored in
-  `REVISION_REQUESTED`; planned meetings do not request or render those subresources.
+- Sales Meeting result write capability begins at `IN_PROGRESS` and is restored in
+  `REVISION_REQUESTED`. Assignment-stage notes are allowed in `NEW` and `ACCEPTED`.
+- `scheduledAt` is the planned work instant; actual meeting/delivery times are separate.
+  Management schedule or assignee changes while `ACCEPTED` invalidate acceptance.
 - Manager review decisions remain approve or request-revision; operational correction and
   cancellation use the separate named withdrawal/cancel commands and remain audited.
 - `COMPLETED` and `CANCELLED` are immutable in MVP.

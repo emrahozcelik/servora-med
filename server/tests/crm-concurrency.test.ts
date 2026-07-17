@@ -77,6 +77,7 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
           clientActionId: `customer-race-${randomUUID()}`, type: 'PRODUCT_DELIVERY',
           title: 'Customer race', description: null, customerId, contactId: null,
           assignedTo: staffId, priority: 'normal', dueDate: null,
+          scheduledAt: '2026-07-16T11:30:00.000Z',
         }),
         crm.deactivateCustomer(manager, customerId, 1),
       ]);
@@ -90,7 +91,7 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
            SELECT 1 FROM customers c JOIN job_cards j
              ON j.organization_id=c.organization_id AND j.customer_id=c.id
            WHERE c.id=$1 AND c.status='inactive'
-             AND j.status IN ('NEW','PLANNED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
+             AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
          ) AS invalid`, [customerId],
       );
       expect(customerInvariant.rows[0]!.invalid).toBe(false);
@@ -108,6 +109,7 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
           clientActionId: `contact-race-${randomUUID()}`, type: 'PRODUCT_DELIVERY',
           title: 'Contact race', description: null, customerId, contactId,
           assignedTo: staffId, priority: 'normal', dueDate: null,
+          scheduledAt: '2026-07-16T11:30:00.000Z',
         }),
         crm.deactivateContact(manager, customerId, contactId, 1),
       ]);
@@ -121,7 +123,7 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
            SELECT 1 FROM contacts contact JOIN job_cards j
              ON j.organization_id=contact.organization_id AND j.contact_id=contact.id
            WHERE contact.id=$1 AND contact.is_active=FALSE
-             AND j.status IN ('NEW','PLANNED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
+             AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
          ) AS invalid`, [contactId],
       );
       expect(contactInvariant.rows[0]!.invalid).toBe(false);

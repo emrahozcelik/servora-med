@@ -4,24 +4,19 @@ import { paths } from '../paths';
 import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
-import type { JobCardBoard, JobCardListItem, JobCardStatus } from './jobs-api';
+import type { JobCardBoard, JobCardListItem } from './jobs-api';
 import { jobStatusLabels, jobTypeLabels } from './job-labels';
 import { deriveCompactWorkflowSummary } from './job-workflow-presentation';
 import { selectStatus } from './job-search';
+import { cardScheduleFact } from './scheduling';
 
 const columns = [
   'NEW',
-  'PLANNED',
+  'ACCEPTED',
   'IN_PROGRESS',
   'WAITING_APPROVAL',
   'REVISION_REQUESTED',
-] as const satisfies readonly JobCardStatus[];
-
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('tr-TR', {
-    day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC',
-  }).format(new Date(value));
-}
+] as const satisfies readonly (keyof JobCardBoard['columns'])[];
 
 function statusHref(params: URLSearchParams, status: 'COMPLETED' | 'CANCELLED') {
   return `?${selectStatus(params, status).toString()}`;
@@ -29,6 +24,7 @@ function statusHref(params: URLSearchParams, status: 'COMPLETED' | 'CANCELLED') 
 
 function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
   const summary = deriveCompactWorkflowSummary({ job, user });
+  const schedule = cardScheduleFact(job);
   return <article className="job-board-card" data-board-card={job.id}>
     <Link to={paths.job(job.id)}>
       <strong>{job.title}</strong>
@@ -38,7 +34,9 @@ function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
         <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
         {job.contact && <div><dt>İlgili kişi</dt><dd>{job.contact.name}</dd></div>}
         <div><dt>Sorumlu</dt><dd>{job.assignee.name}</dd></div>
-        <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Termin'}</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{formatDate(job.dueDate)}</time> : 'Belirtilmedi'}</dd></div>
+        <div><dt>{schedule.label}</dt><dd>{schedule.dateTime
+          ? <time dateTime={schedule.dateTime}>{schedule.text}</time>
+          : schedule.text}</dd></div>
         {job.type === 'PRODUCT_DELIVERY' && <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>}
       </dl>
     </Link>

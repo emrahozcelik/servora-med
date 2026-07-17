@@ -1,13 +1,14 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { createJobCard, type JobCardPriority } from './jobs/jobs-api';
+import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
 import { ApiError, type CurrentUser } from './services/api';
 import { listContacts, listCustomers, type Contact, type CustomerSummary } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 
 type LoadState = 'loading' | 'ready' | 'error';
-type FieldErrors = { title?: string; customerId?: string; dueDate?: string; assignedTo?: string };
+type FieldErrors = { title?: string; customerId?: string; scheduledAt?: string; assignedTo?: string };
 
 async function loadAllCustomers() {
   const result: CustomerSummary[] = []; let offset = 0;
@@ -33,7 +34,10 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
   user: CurrentUser; onCancel: () => void; onCreated: (jobCardId: string) => void;
 }) {
   const [title, setTitle] = useState(''); const [description, setDescription] = useState('');
-  const [priority, setPriority] = useState<JobCardPriority>('normal'); const [dueDate, setDueDate] = useState('');
+  const [priority, setPriority] = useState<JobCardPriority>('normal');
+  const [scheduledLocal, setScheduledLocal] = useState(
+    () => defaultScheduledLocalValue(new Date()),
+  );
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [customerState, setCustomerState] = useState<LoadState>('loading'); const [customerId, setCustomerId] = useState('');
   const [contacts, setContacts] = useState<Contact[]>([]); const [contactId, setContactId] = useState('');
@@ -84,7 +88,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
     const nextErrors: FieldErrors = {};
     if (!trimmedTitle || Array.from(trimmedTitle).length > 255) nextErrors.title = 'Başlık 1 ile 255 karakter arasında olmalıdır.';
     if (!customerId) nextErrors.customerId = 'Aktif bir müşteri seçin.';
-    if (!dueDate) nextErrors.dueDate = 'Planlanan görüşme gününü seçin.';
+    if (!scheduledLocal) nextErrors.scheduledAt = 'Planlanan görüşme zamanını seçin.';
     if (!selectedAssignee) nextErrors.assignedTo = 'Aktif bir sorumlu personel seçin.';
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) { setError('Görüşmeyi planlamadan önce işaretli alanları düzeltin.'); return; }
@@ -92,7 +96,8 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
     try {
       const job = await createJobCard({
         clientActionId: actionIdRef.current, type: 'SALES_MEETING', title: trimmedTitle,
-        customerId, assignedTo: selectedAssignee, dueDate,
+        customerId, assignedTo: selectedAssignee,
+        scheduledAt: localDateTimeToIso(scheduledLocal),
         description: description.trim() || null, contactId: contactId || null, priority,
       });
       onCreated(job.id);
@@ -108,7 +113,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
   return <main className="task-create meeting-create">
     <div className="delivery-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Satış görüşmesi planla</h1></div>
       <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
-    <p className="form-intro">Planlanan günü ve görüşmenin sorumlusunu belirleyin. Görüşme sonucu daha sonra kaydedilir.</p>
+    <p className="form-intro">Planlanan zamanı ve görüşmenin sorumlusunu belirleyin. Görüşme sonucu daha sonra kaydedilir.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
     {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
@@ -127,11 +132,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
             onChange={(event) => changeCustomer(event.target.value)}>
             <option value="">Seçin</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
           {fieldErrors.customerId && <span id="meeting-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
-        <div className="field-group"><label htmlFor="meeting-due-date">Planlanan görüşme günü</label>
-          <input id="meeting-due-date" type="date" required value={dueDate} aria-invalid={fieldErrors.dueDate ? true : undefined}
-            aria-describedby={fieldErrors.dueDate ? 'meeting-due-date-error' : undefined}
-            onChange={(event) => setDueDate(event.target.value)} />
-          {fieldErrors.dueDate && <span id="meeting-due-date-error" className="field-error">{fieldErrors.dueDate}</span>}</div>
+        <div className="field-group"><label htmlFor="meeting-scheduled-at">Planlanan görüşme zamanı</label>
+          <input id="meeting-scheduled-at" type="datetime-local" required value={scheduledLocal}
+            aria-invalid={fieldErrors.scheduledAt ? true : undefined}
+            aria-describedby={fieldErrors.scheduledAt ? 'meeting-scheduled-at-error' : undefined}
+            onChange={(event) => setScheduledLocal(event.target.value)} />
+          {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
       </div>
       {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
         : <div className="field-group"><label htmlFor="meeting-assignee">Sorumlu personel</label>

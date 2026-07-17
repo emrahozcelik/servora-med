@@ -13,7 +13,11 @@ import { createRequestGate } from './services/request-gate';
 
 const typeLabels: Record<CustomerType, string> = { clinic: 'Klinik', hospital: 'Hastane', dealer: 'Bayi', company: 'Firma', other: 'Diğer' };
 const statusLabels = { prospect: 'Aday', active: 'Aktif', inactive: 'Pasif' } as const;
-const jobStatusLabels = { NEW: 'Yeni', PLANNED: 'Planlandı', IN_PROGRESS: 'Devam ediyor', WAITING_APPROVAL: 'Onay bekliyor', REVISION_REQUESTED: 'Düzeltme istendi', COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi' } as const;
+const jobStatusLabels = {
+  NEW: 'Atandı', ACCEPTED: 'Kabul edildi', IN_PROGRESS: 'Uygulanıyor',
+  WAITING_APPROVAL: 'Yönetici kontrolünde', REVISION_REQUESTED: 'Düzeltme istendi',
+  COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi',
+} as const;
 
 function nullable(data: FormData, name: string) { return String(data.get(name) ?? '').trim() || null; }
 

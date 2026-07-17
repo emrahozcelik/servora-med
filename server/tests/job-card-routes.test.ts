@@ -15,7 +15,7 @@ function serviceDouble() {
     create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
     board: vi.fn().mockResolvedValue({
       columns: {
-        NEW: { items: [], count: 0 }, PLANNED: { items: [], count: 0 },
+        NEW: { items: [], count: 0 }, ACCEPTED: { items: [], count: 0 },
         IN_PROGRESS: { items: [], count: 0 }, WAITING_APPROVAL: { items: [], count: 0 },
         REVISION_REQUESTED: { items: [], count: 0 },
       },
@@ -34,7 +34,7 @@ function serviceDouble() {
     listDeliveryItems: vi.fn().mockResolvedValue([]), addDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 2 }),
     patchDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 3 }),
     removeDeliveryItem: vi.fn().mockResolvedValue({ id: 'item-1', jobCardVersion: 4 }),
-    plan: vi.fn().mockResolvedValue({ ...result, status: 'PLANNED' }),
+    acceptAssignment: vi.fn().mockResolvedValue({ ...result, status: 'ACCEPTED' }),
     start: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     submitForApproval: vi.fn().mockResolvedValue({ ...result, status: 'WAITING_APPROVAL' }),
     approve: vi.fn().mockResolvedValue({ ...result, status: 'COMPLETED' }),
@@ -77,6 +77,7 @@ describe('JobCard routes', () => {
       customerId: '22222222-2222-4222-8222-222222222222',
       contactId: '33333333-3333-4333-8333-333333333333',
       assignedTo: '11111111-1111-4111-8111-111111111111',
+      scheduledAt: '2026-07-16T14:30:00+03:00',
     };
     expect((await app.inject({ method: 'POST', url: '/api/job-cards', payload: body })).statusCode).toBe(201);
     await app.inject({ method: 'GET', url: '/api/job-cards' });
@@ -84,6 +85,7 @@ describe('JobCard routes', () => {
     await app.inject({ method: 'PATCH', url: '/api/job-cards/job-1', payload: { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' } });
     expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), {
       ...body, description: null, priority: 'normal', dueDate: null,
+      scheduledAt: '2026-07-16T11:30:00.000Z',
     });
     expect(service.list).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'staff-1' }),
@@ -105,7 +107,7 @@ describe('JobCard routes', () => {
     expect(response.statusCode).toBe(201);
     expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), {
       ...body, description: null, customerId: null, contactId: null,
-      priority: 'normal', dueDate: null,
+      priority: 'normal', dueDate: null, scheduledAt: null,
     });
   });
 
@@ -275,7 +277,7 @@ describe('JobCard routes', () => {
   });
 
   it.each([
-    ['plan', 'plan', { clientActionId: 'a0', expectedVersion: 1 }],
+    ['accept', 'acceptAssignment', { clientActionId: 'a0', expectedVersion: 1 }],
     ['start', 'start', { clientActionId: 'a1', expectedVersion: 1 }],
     ['submit-for-approval', 'submitForApproval', { clientActionId: 'a2', expectedVersion: 2, note: 'Bitti' }],
     ['approve', 'approve', { clientActionId: 'a3', expectedVersion: 3, note: 'Uygun' }],
@@ -290,7 +292,7 @@ describe('JobCard routes', () => {
   });
 
   it.each([
-    ['plan', { clientActionId: 'x1', expectedVersion: 1, note: 'forbidden' }],
+    ['accept', { clientActionId: 'x1', expectedVersion: 1, note: 'forbidden' }],
     ['start', { clientActionId: 'x2', expectedVersion: 1, revisionReason: 'forbidden' }],
     ['resume', { clientActionId: 'x3', expectedVersion: 1, cancelReason: 'forbidden' }],
     ['submit-for-approval', { clientActionId: 'x4', expectedVersion: 1, cancelReason: 'forbidden' }],

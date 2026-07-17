@@ -18,7 +18,7 @@ const ALLOWED_KEYS = [
   'dueBefore', 'dueAfter', 'view', 'offset',
 ] as const;
 const STATUSES = [
-  'active', 'closed', 'all', 'NEW', 'PLANNED', 'IN_PROGRESS',
+  'active', 'closed', 'all', 'NEW', 'ACCEPTED', 'IN_PROGRESS',
   'WAITING_APPROVAL', 'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;

@@ -128,7 +128,7 @@ SELECT requested.staff_user_id,
   to_char(organization_range.to_date, 'YYYY-MM-DD') AS to_date,
   organization_range.timezone,
   COUNT(jc.id) FILTER (
-    WHERE jc.status IN ('NEW', 'PLANNED', 'IN_PROGRESS')
+    WHERE jc.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS')
   )::int AS open_job_cards,
   COUNT(jc.id) FILTER (
     WHERE jc.status = 'WAITING_APPROVAL'
@@ -137,10 +137,17 @@ SELECT requested.staff_user_id,
     WHERE jc.status = 'REVISION_REQUESTED'
   )::int AS revision_requested,
   COUNT(jc.id) FILTER (
-    WHERE jc.due_date <
-      ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
-      AND jc.status IN (
-        'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
+    WHERE jc.status IN (
+        'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
+      )
+      AND (
+        (jc.scheduled_at IS NOT NULL AND jc.scheduled_at < $4::timestamptz)
+        OR (
+          jc.scheduled_at IS NULL
+          AND jc.due_date IS NOT NULL
+          AND jc.due_date <
+            ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
+        )
       )
   )::int AS overdue_job_cards,
   COUNT(jc.id) FILTER (
@@ -168,14 +175,21 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
   SELECT
     COUNT(jc.id) FILTER (
       WHERE jc.status IN (
-        'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
+        'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
       )
     )::int AS active_job_cards,
     COUNT(jc.id) FILTER (
-      WHERE jc.due_date <
-        ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
-        AND jc.status IN (
-          'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
+      WHERE jc.status IN (
+          'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
+        )
+        AND (
+          (jc.scheduled_at IS NOT NULL AND jc.scheduled_at < $4::timestamptz)
+          OR (
+            jc.scheduled_at IS NULL
+            AND jc.due_date IS NOT NULL
+            AND jc.due_date <
+              ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
+          )
         )
     )::int AS overdue_job_cards,
     COUNT(jc.id) FILTER (

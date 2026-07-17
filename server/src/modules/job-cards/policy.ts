@@ -37,8 +37,10 @@ export function getAllowedLifecycleCommands(
 ): LifecycleCommand[] {
   if (!actorCanReachJob(actor, job)
     || job.status === 'COMPLETED' || job.status === 'CANCELLED') return [];
-  if (job.status === 'NEW') return ['PLAN', 'START', 'CANCEL'];
-  if (job.status === 'PLANNED') return ['START', 'CANCEL'];
+  if (job.status === 'NEW') {
+    return actor.role === 'STAFF' ? ['ACCEPT_ASSIGNMENT', 'CANCEL'] : ['CANCEL'];
+  }
+  if (job.status === 'ACCEPTED') return ['START', 'CANCEL'];
   if (job.status === 'IN_PROGRESS') return ['SUBMIT_FOR_APPROVAL', 'CANCEL'];
   if (job.status === 'REVISION_REQUESTED') return ['RESUME', 'CANCEL'];
   return actor.role === 'STAFF'
@@ -56,20 +58,29 @@ export function getAllowedJobActions(
   if (!terminal && job.status !== 'WAITING_APPROVAL') actions.push('EDIT_JOB_FIELDS');
   if (job.type !== 'SALES_MEETING') {
     actions.push('VIEW_NOTES', 'ADD_NOTE');
+    if (
+      job.type === 'PRODUCT_DELIVERY'
+      && !terminal
+      && ['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)
+    ) {
+      actions.push('EDIT_DELIVERY_ACTUAL_TIME');
+    }
     return actions;
   }
   if (job.status === 'WAITING_APPROVAL'
     && getAllowedLifecycleCommands(actor, job).includes('WITHDRAW_FROM_APPROVAL')) {
     actions.push('WITHDRAW_AND_EDIT_JOB_FIELDS');
   }
-  if (!['NEW', 'PLANNED'].includes(job.status)) {
+  if (!['NEW', 'ACCEPTED'].includes(job.status)) {
     actions.push('VIEW_MEETING_RESULT');
   }
   if (['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) {
     actions.push('EDIT_MEETING_RESULT');
   }
-  if (!['NEW', 'PLANNED'].includes(job.status)) actions.push('VIEW_NOTES');
-  if (['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) actions.push('ADD_NOTE');
+  actions.push('VIEW_NOTES');
+  if (['NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) {
+    actions.push('ADD_NOTE');
+  }
   return actions;
 }
 
@@ -117,6 +128,8 @@ export const assertCanEdit = (actor: JobCardActor, job: JobCard) =>
   assertAllowedJobAction(actor, job, 'EDIT_JOB_FIELDS');
 export const assertCanEditMeetingResult = (actor: JobCardActor, job: JobCard) =>
   assertAllowedJobAction(actor, job, 'EDIT_MEETING_RESULT');
+export const assertCanEditDeliveryActualTime = (actor: JobCardActor, job: JobCard) =>
+  assertAllowedJobAction(actor, job, 'EDIT_DELIVERY_ACTUAL_TIME');
 export const assertCanViewMeetingResult = (actor: JobCardActor, job: JobCard) =>
   assertAllowedJobAction(actor, job, 'VIEW_MEETING_RESULT');
 export const assertCanAccessNotes = (actor: JobCardActor, job: JobCard) =>
@@ -134,6 +147,7 @@ export function assertCanTransition(
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
   if (job.status === 'COMPLETED' || job.status === 'CANCELLED') invalidTransition();
   if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION'].includes(command)) forbidden();
+  if (command === 'ACCEPT_ASSIGNMENT' && actor.role !== 'STAFF') forbidden();
   if (!getAllowedLifecycleCommands(actor, job).includes(command)) invalidTransition();
   if (command === 'REQUEST_REVISION' && !reason?.trim()) {
     throw new AppError('REVISION_REASON_REQUIRED', 400, 'Düzeltme nedeni zorunludur.');

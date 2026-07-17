@@ -97,9 +97,15 @@ describe('shared accessibility CSS contract', () => {
   });
 
   it('reflows the structured JobCard list without small targets or horizontal page overflow', () => {
-    expect(css).toMatch(/\.job-quick-views a, \.job-filter-disclosure summary, \.job-expand, \.job-detail-link \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.job-quick-views a, \.job-filter-disclosure summary \{[^}]*min-height: 2\.75rem;/);
+    expect(css).not.toMatch(/\.job-expand\s*\{/);
+    expect(css).not.toMatch(/\.job-detail-link\s*\{/);
     expect(css).toMatch(/\.structured-job-row \{[^}]*min-width: 0;/);
-    expect(css).toMatch(/\.job-row-facts dt, \.job-row-summary dt \{[^}]*font-size: 0\.875rem;/);
+    expect(css).toMatch(/\.structured-job-row\.job-list-card \{[^}]*position:\s*relative;/);
+    expect(css).toMatch(/\.job-row-title-link::after \{[^}]*position:\s*absolute;[^}]*inset:\s*0;/);
+    expect(css).toMatch(/\.job-row-commands \{[^}]*position:\s*relative;[^}]*z-index:\s*[1-9]/);
+    expect(css).toMatch(/\.job-row-mobile-primary \{[^}]*position:\s*relative;[^}]*z-index:\s*[1-9]/);
+    expect(css).toMatch(/\.job-row-facts dt \{[^}]*font-size: 0\.875rem;/);
     expect(css).toMatch(/@media \(max-width: 80rem\)[\s\S]*\.structured-job-row \{[^}]*grid-template-columns: minmax\(0, 1fr\) auto;/);
     expect(css).toMatch(/@media \(max-width: 80rem\)[\s\S]*\.job-row-facts \{[^}]*grid-column: 1 \/ -1;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.structured-job-row \{[^}]*grid-template-columns: 1fr;/);

@@ -25,7 +25,7 @@ const managerUser: CurrentUser = {
 };
 
 const baseLifecycle: JobLifecycleFacts = {
-  createdAt: '2026-07-17T08:00:00.000Z', plannedAt: null,
+  createdAt: '2026-07-17T08:00:00.000Z', acceptedAt: null, acceptedBy: null,
   startedAt: null, submittedAt: null, submittedBy: null, submissionNote: null,
   approvedAt: null, approvedBy: null, approvalNote: null,
   revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
@@ -55,8 +55,8 @@ function staffContext(
   extras: Partial<JobWorkflowContext> = {},
 ): JobWorkflowContext {
   const commandsByStatus: Record<JobCard['status'], LifecycleCommand[]> = {
-    NEW: ['PLAN', 'START', 'CANCEL'],
-    PLANNED: ['START', 'CANCEL'],
+    NEW: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+    ACCEPTED: ['START', 'CANCEL'],
     IN_PROGRESS: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
     REVISION_REQUESTED: ['RESUME', 'CANCEL'],
     WAITING_APPROVAL: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
@@ -64,8 +64,8 @@ function staffContext(
     CANCELLED: [],
   };
   const actionsByStatus: Record<JobCard['status'], JobWorkflowContext['allowedActions']> = {
-    NEW: ['EDIT_JOB_FIELDS'],
-    PLANNED: ['EDIT_JOB_FIELDS'],
+    NEW: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+    ACCEPTED: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
     IN_PROGRESS: [
       'EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
     ],
@@ -102,6 +102,7 @@ const job: JobCard = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2,
   title: 'ABC Klinik ürün teslimi', description: null, customerId: 'c1', contactId: null,
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
+  scheduledAt: '2026-07-20T09:00:00.000Z',
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' },
   contact: null,
   workflowContext: staffContext('NEW', { createdAt: '2026-07-17T08:00:00.000Z' }, {
@@ -134,7 +135,8 @@ function inProgressMeeting(lifecycle: Partial<JobLifecycleFacts> = {}): JobCard 
     dueDate: '2026-07-20',
     workflowContext: staffContext('IN_PROGRESS', {
       startedAt: '2026-07-17T09:00:00.000Z',
-      plannedAt: null,
+      acceptedAt: null,
+      acceptedBy: null,
       ...lifecycle,
     }),
   };
@@ -150,7 +152,8 @@ function revisionRequestedJob(opts: { revisionReason: string }): JobCard {
     dueDate: '2026-07-20',
     workflowContext: staffContext('REVISION_REQUESTED', {
       startedAt: '2026-07-17T09:00:00.000Z',
-      plannedAt: '2026-07-17T08:30:00.000Z',
+      acceptedAt: '2026-07-17T08:30:00.000Z',
+      acceptedBy: { id: 's1', name: 'Ayşe Personel' },
       submittedAt: '2026-07-17T10:00:00.000Z',
       revisionRequestedAt: '2026-07-17T11:00:00.000Z',
       revisionReason: opts.revisionReason,
@@ -249,13 +252,14 @@ describe('Staff JobCard detail', () => {
     return fetch;
   }
 
-  it('renders skipped planning and staff responsibility before structured records', async () => {
-    const card = inProgressMeeting({ plannedAt: null, startedAt: '2026-07-17T09:00:00.000Z' });
+  it('renders missing acceptance and staff responsibility before structured records', async () => {
+    const card = inProgressMeeting({ acceptedAt: null, startedAt: '2026-07-17T09:00:00.000Z' });
     await renderDetail(card);
     expect(host.querySelector('h1')?.textContent).toBe(card.title);
     const steps = host.querySelector('[aria-label="İş süreci"]');
     expect(steps?.getAttribute('role') ?? steps?.tagName.toLowerCase()).toMatch(/list|ol/);
-    expect(steps?.textContent).toContain('Planlama atlandı');
+    expect(steps?.textContent).toContain('Kabul bilgisi kaydedilmemiş');
+    expect(steps?.textContent).not.toContain('Planlama atlandı');
     const current = steps?.querySelector('[aria-current="step"]');
     expect(current?.textContent).toContain('Uygulanıyor');
     expect(host.querySelector('h2')?.textContent === 'Şimdi sizden beklenen'
@@ -293,8 +297,8 @@ describe('Staff JobCard detail', () => {
     expect(buttonByName(host, 'Kontrole gönder')).toBeNull();
   });
 
-  it('does not mount hidden Sales Meeting resources in new and planned states', async () => {
-    for (const status of ['NEW', 'PLANNED'] as const) {
+  it('does not mount meeting result resources in new and accepted states', async () => {
+    for (const status of ['NEW', 'ACCEPTED'] as const) {
       await act(async () => root.unmount());
       host.remove();
       host = document.createElement('div');
@@ -307,15 +311,84 @@ describe('Staff JobCard detail', () => {
         status,
         title: `Planlanan görüşme ${status}`,
         dueDate: '2026-07-20',
-        workflowContext: staffContext(status),
+        workflowContext: staffContext(status, status === 'ACCEPTED'
+          ? {
+            acceptedAt: '2026-07-17T08:30:00.000Z',
+            acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+          }
+          : {}),
       };
       const fetch = await renderScreen(newMeetingJob);
       expect(host.textContent).toContain(newMeetingJob.title);
       expect(fetch.mock.calls.some(([url]) => String(url).includes('/meeting-details'))).toBe(false);
-      expect(fetch.mock.calls.some(([url]) => String(url).includes('/notes'))).toBe(false);
       expect(host.textContent).not.toContain('Görüşme sonucu');
-      expect(Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Notlar')).toBe(false);
     }
+  });
+
+  it('shows assignment-stage notes and schedule edit for assigned Staff in NEW and ACCEPTED', async () => {
+    for (const status of ['NEW', 'ACCEPTED'] as const) {
+      await act(async () => root.unmount());
+      host.remove();
+      host = document.createElement('div');
+      document.body.append(host);
+      root = createRoot(host);
+
+      const card: JobCard = {
+        ...job,
+        type: 'SALES_MEETING',
+        status,
+        title: `Atama aşaması ${status}`,
+        dueDate: '2026-07-20',
+        scheduledAt: '2026-07-20T09:00:00.000Z',
+        assignedTo: staffUser.id,
+        workflowContext: staffContext(status, status === 'ACCEPTED'
+          ? {
+            acceptedAt: '2026-07-17T08:30:00.000Z',
+            acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+          }
+          : {}),
+      };
+      await renderScreen(card);
+      expect(Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Notlar')).toBe(true);
+      expect(host.querySelector('.job-notes form')).not.toBeNull();
+      expect(host.querySelector('#job-scheduled-at')).not.toBeNull();
+      expect(host.querySelector('label[for="job-scheduled-at"]')?.textContent)
+        .toContain('Planlanan görüşme zamanı');
+    }
+  });
+
+  it('hides schedule edit after START even when EDIT_JOB_FIELDS remains allowed', async () => {
+    const card: JobCard = {
+      ...job,
+      type: 'PRODUCT_DELIVERY',
+      status: 'IN_PROGRESS',
+      assignedTo: staffUser.id,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: null,
+      }),
+    };
+    await renderScreen(card);
+    expect(host.querySelector('#job-scheduled-at')).toBeNull();
+    expect(host.textContent).not.toContain('Planlanan zamanı düzenle');
+  });
+
+  it('hides notes and schedule edit when backend allowedActions omit them', async () => {
+    const card: JobCard = {
+      ...job,
+      type: 'SALES_MEETING',
+      status: 'NEW',
+      title: 'Başka personele kapalı iş',
+      dueDate: '2026-07-20',
+      assignedTo: 'other-staff',
+      workflowContext: staffContext('NEW', {}, { allowedActions: [], allowedCommands: [] }),
+    };
+    const fetch = await renderScreen(card, { ...staffUser, id: 'other-staff-viewer' });
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/notes'))).toBe(false);
+    expect(host.querySelector('.job-notes')).toBeNull();
+    expect(host.querySelector('#job-scheduled-at')).toBeNull();
   });
 
   it('shows read-only notes affordance for waiting and completed review states', async () => {
@@ -403,7 +476,7 @@ describe('Staff JobCard detail', () => {
       // Backend omits staff lifecycle commands for non-assignees; presentation never invents them.
       workflowContext: staffContext('IN_PROGRESS', {
         startedAt: '2026-07-17T09:00:00.000Z',
-        plannedAt: null,
+        acceptedAt: null,
       }, {
         allowedCommands: [],
         allowedActions: ['VIEW_MEETING_RESULT', 'VIEW_NOTES'],
@@ -412,6 +485,7 @@ describe('Staff JobCard detail', () => {
     await renderDetail(card, { ...staffUser, id: 'other-staff' });
     expect(buttonByName(host, 'Kontrole gönder')).toBeNull();
     expect(buttonByName(host, 'İşi başlat')).toBeNull();
+    expect(buttonByName(host, 'İşi kabul et')).toBeNull();
     expect(buttonByName(host, 'İşi iptal et')).toBeNull();
   });
 
@@ -489,9 +563,101 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('İmplant Seti');
     expect(html).toContain('Numune');
     expect(html).toContain('2 adet');
-    expect(html).toContain('İşi başlat');
-    expect(html).toContain('Planla');
+    expect(html).toContain('İşi kabul et');
+    expect(html).toContain('Planlanan teslim zamanı');
+    expect(html).toContain('Gerçekleşen teslim zamanı');
+    expect(html).not.toMatch(/>Planla</);
     expect(html.match(/primary-button/g)?.length ?? 0).toBe(1);
+  });
+
+  it('exposes actual delivery time editor when EDIT_DELIVERY_ACTUAL_TIME is allowed', () => {
+    const inProgress: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      version: 3,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: null,
+      }),
+    };
+    const plannedItem = { ...item, deliveredAt: null };
+    const html = renderToStaticMarkup(<JobDetailPanel
+      job={inProgress}
+      items={[plannedItem]}
+      user={staffUser}
+      pending={false}
+      message=""
+      onBack={() => {}}
+      onCommand={() => {}}
+      onSaveDeliveredAt={async () => {}}
+    />);
+    expect(html).toContain('Planlanan teslim zamanı');
+    expect(html).toContain('Gerçekleşen teslim zamanı');
+    expect(html).toContain(`id="delivery-actual-at-${plannedItem.id}"`);
+    expect(html).toContain('Gerçekleşen teslim zamanını kaydet');
+    expect(html).not.toContain('Henüz kaydedilmedi');
+  });
+
+  it('hides actual delivery editor without EDIT_DELIVERY_ACTUAL_TIME even with EDIT_JOB_FIELDS', () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: 2,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: null,
+      }),
+    };
+    const plannedItem = { ...item, deliveredAt: null };
+    const html = renderToStaticMarkup(<JobDetailPanel
+      job={accepted}
+      items={[plannedItem]}
+      user={staffUser}
+      pending={false}
+      message=""
+      onBack={() => {}}
+      onCommand={() => {}}
+      onSaveDeliveredAt={async () => {}}
+    />);
+    expect(html).toContain('Henüz kaydedilmedi');
+    expect(html).not.toContain(`id="delivery-actual-at-${plannedItem.id}"`);
+  });
+
+  it('shows start as primary after assignment acceptance', () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [] }),
+    };
+    const html = renderToStaticMarkup(<JobDetailPanel
+      job={accepted} items={[item]} user={staffUser} pending={false} message=""
+      onBack={() => {}} onCommand={() => {}} />);
+    expect(html).toContain('İşi başlat');
+    expect(html).not.toContain('İşi kabul et');
+    expect(html.match(/primary-button/g)?.length ?? 0).toBe(1);
+  });
+
+  it('does not show acceptance action for manager on NEW', () => {
+    const managerNew: JobCard = {
+      ...job,
+      workflowContext: staffContext('NEW', {}, {
+        allowedCommands: ['CANCEL'],
+        allowedActions: [],
+      }),
+    };
+    const html = renderToStaticMarkup(<JobDetailPanel
+      job={managerNew} items={[item]} user={managerUser} pending={false} message=""
+      onBack={() => {}} onCommand={() => {}} />);
+    expect(html).not.toContain('İşi kabul et');
+    expect(html).toContain('İşi iptal et');
   });
 
   it('renders quantity without a fabricated unit when the Product unit is null', () => {
@@ -520,6 +686,243 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('Notlar ve zaman çizelgesi');
     expect(html).not.toContain('Teslim bilgileri');
     expect(html).not.toContain('Ürün teslimi');
+  });
+
+  it('patches deliveredAt and refreshes submission readiness for Product Delivery', async () => {
+    const missingReadiness = {
+      evaluatedAt: '2026-07-17T12:00:00.000Z',
+      ready: false,
+      items: [
+        { code: 'DELIVERY_ITEM_PRESENT' as const, state: 'met' as const },
+        { code: 'DELIVERY_ITEMS_VALID' as const, state: 'invalid' as const },
+        { code: 'CUSTOMER_ELIGIBLE' as const, state: 'met' as const },
+      ],
+    };
+    const metReadiness = {
+      evaluatedAt: '2026-07-17T12:05:00.000Z',
+      ready: true,
+      items: [
+        { code: 'DELIVERY_ITEM_PRESENT' as const, state: 'met' as const },
+        { code: 'DELIVERY_ITEMS_VALID' as const, state: 'met' as const },
+        { code: 'CUSTOMER_ELIGIBLE' as const, state: 'met' as const },
+      ],
+    };
+    const plannedItem = { ...item, deliveredAt: null };
+    const savedItem = { ...item, deliveredAt: '2026-07-17T14:00:00.000Z' };
+    const initialCard: JobCard = {
+      ...job,
+      status: 'IN_PROGRESS',
+      version: 3,
+      assignedTo: staffUser.id,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: missingReadiness,
+      }),
+    };
+    const refreshedCard: JobCard = {
+      ...initialCard,
+      version: 4,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
+        submissionReadiness: metReadiness,
+      }),
+    };
+    let currentCard = initialCard;
+    let currentItems = [plannedItem];
+    const patchBodies: unknown[] = [];
+    const flush = async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const change = (element: HTMLInputElement, value: string) => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        ?.set?.call(element, value);
+      element.dispatchEvent(new Event('input', { bubbles: true }));
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/delivery-items/') && init?.method === 'PATCH') {
+        patchBodies.push(JSON.parse(String(init.body)));
+        currentItems = [savedItem];
+        currentCard = refreshedCard;
+        return Response.json({ item: savedItem, jobCardVersion: 4 });
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: currentItems });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(currentCard);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    await act(async () => {
+      root.render(<JobDetailScreen
+        jobId={initialCard.id}
+        user={staffUser}
+        onBack={() => {}}
+        onChanged={() => {}}
+      />);
+      await flush();
+    });
+
+    const actualInput = host.querySelector(`#delivery-actual-at-${plannedItem.id}`) as HTMLInputElement;
+    expect(actualInput).not.toBeNull();
+    expect(host.textContent).toContain('Gerçekleşen teslim zamanı');
+    const requirementLabel = 'Ürün, amaç, miktar ve teslim zamanı';
+    const invalidItem = Array.from(host.querySelectorAll('.workflow-requirement'))
+      .find((el) => el.querySelector('.workflow-requirement-label')?.textContent
+        === requirementLabel);
+    expect(invalidItem?.querySelector('.workflow-requirement-state')?.textContent)
+      .toMatch(/Geçersiz|Eksik/);
+
+    await act(async () => {
+      change(actualInput, '2026-07-17T17:00');
+    });
+    await act(async () => {
+      (host.querySelector('form.delivery-actual-time-form') as HTMLFormElement).requestSubmit();
+      await flush();
+      await flush();
+    });
+
+    expect(patchBodies).toHaveLength(1);
+    expect(patchBodies[0]).toMatchObject({
+      expectedVersion: 3,
+      deliveredAt: expect.stringMatching(/Z$|[+-]\d{2}:\d{2}$/),
+    });
+    expect(host.textContent).toContain('Gerçekleşen teslim zamanı kaydedildi.');
+    const metItem = Array.from(host.querySelectorAll('.workflow-requirement'))
+      .find((el) => el.querySelector('.workflow-requirement-label')?.textContent
+        === requirementLabel);
+    expect(metItem?.querySelector('.workflow-requirement-state')?.textContent).toBe('Tamam');
+  });
+
+  it('refreshes backend submission readiness after meeting result save', async () => {
+    const missingReadiness = {
+      evaluatedAt: '2026-07-17T12:00:00.000Z',
+      ready: false,
+      items: [
+        { code: 'MEETING_TIME_VALID' as const, state: 'missing' as const },
+        { code: 'MEETING_OUTCOME_VALID' as const, state: 'missing' as const },
+        { code: 'MEETING_SUMMARY_PRESENT' as const, state: 'missing' as const },
+      ],
+    };
+    const metReadiness = {
+      evaluatedAt: '2026-07-17T12:05:00.000Z',
+      ready: true,
+      items: [
+        { code: 'MEETING_TIME_VALID' as const, state: 'met' as const },
+        { code: 'MEETING_OUTCOME_VALID' as const, state: 'met' as const },
+        { code: 'MEETING_SUMMARY_PRESENT' as const, state: 'met' as const },
+      ],
+    };
+    const emptyMeeting: MeetingDetails = {
+      jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
+      nextFollowUpAt: null, jobCardVersion: 3,
+    };
+    const savedMeeting: MeetingDetails = {
+      jobCardId: 'job-1', meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'POSITIVE',
+      meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, jobCardVersion: 4,
+    };
+    const initialCard: JobCard = {
+      ...inProgressMeeting(),
+      version: 3,
+      assignedTo: staffUser.id,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { submissionReadiness: missingReadiness }),
+    };
+    const refreshedCard: JobCard = {
+      ...initialCard,
+      version: 4,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { submissionReadiness: metReadiness }),
+    };
+    let currentCard = initialCard;
+    let currentMeeting = emptyMeeting;
+    const flush = async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const change = (
+      element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+      value: string,
+    ) => {
+      const prototype = element instanceof HTMLSelectElement
+        ? HTMLSelectElement.prototype
+        : element instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
+      element.dispatchEvent(new Event(
+        element instanceof HTMLSelectElement ? 'change' : 'input',
+        { bubbles: true },
+      ));
+    };
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      configurable: true,
+      value: vi.fn(() => 'meeting-save-1'),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details') && init?.method === 'PATCH') {
+        currentMeeting = savedMeeting;
+        currentCard = refreshedCard;
+        return Response.json(savedMeeting);
+      }
+      if (url.endsWith('/meeting-details')) return Response.json(currentMeeting);
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(currentCard);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    await act(async () => {
+      root.render(<JobDetailScreen
+        jobId={initialCard.id}
+        user={staffUser}
+        onBack={() => {}}
+        onChanged={() => {}}
+      />);
+      await flush();
+    });
+
+    for (const label of [
+      'Gerçekleşen görüşme zamanı',
+      'Görüşme sonucu',
+      'Görüşme özeti',
+    ]) {
+      const item = Array.from(host.querySelectorAll('.workflow-requirement'))
+        .find((el) => el.querySelector('.workflow-requirement-label')?.textContent === label);
+      expect(item?.querySelector('.workflow-requirement-state')?.textContent).toBe('Eksik');
+    }
+    expect(buttonByName(host, 'Kontrole gönder')).not.toBeNull();
+
+    await act(async () => {
+      change(host.querySelector('#meeting-actual-at') as HTMLInputElement, '2026-07-16T13:00');
+      change(host.querySelector('#meeting-outcome') as HTMLSelectElement, 'POSITIVE');
+      change(host.querySelector('#meeting-summary') as HTMLTextAreaElement, 'Olumlu görüşme');
+    });
+    await act(async () => {
+      (host.querySelector('form.meeting-result-form') as HTMLFormElement).requestSubmit();
+      await flush();
+      await flush();
+    });
+
+    expect(host.textContent).toContain('Görüşme sonucu kaydedildi.');
+    for (const label of [
+      'Gerçekleşen görüşme zamanı',
+      'Görüşme sonucu',
+      'Görüşme özeti',
+    ]) {
+      const item = Array.from(host.querySelectorAll('.workflow-requirement'))
+        .find((el) => el.querySelector('.workflow-requirement-label')?.textContent === label);
+      expect(item?.querySelector('.workflow-requirement-state')?.textContent).toBe('Tamam');
+    }
+    expect(buttonByName(host, 'Kontrole gönder')).not.toBeNull();
   });
 
   it('uses exactly one structured subresource for each canonical type', () => {
@@ -739,7 +1142,8 @@ describe('Staff JobCard detail', () => {
             version: card.version + 1,
             workflowContext: staffContext('IN_PROGRESS', {
               startedAt: '2026-07-17T09:00:00.000Z',
-              plannedAt: '2026-07-17T08:30:00.000Z',
+              acceptedAt: '2026-07-17T08:30:00.000Z',
+              acceptedBy: { id: 's1', name: 'Ayşe Personel' },
               submittedAt: '2026-07-17T10:00:00.000Z',
               revisionRequestedAt: '2026-07-17T11:00:00.000Z',
               revisionReason: 'Miktarı düzeltin',

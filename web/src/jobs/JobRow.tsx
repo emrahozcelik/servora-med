@@ -1,4 +1,3 @@
-import { useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { paths } from '../paths';
@@ -12,6 +11,7 @@ import {
   deriveCompactWorkflowSummary,
   expectedRoleForStatus,
 } from './job-workflow-presentation';
+import { cardScheduleFact } from './scheduling';
 
 export type JobCommandIntent = {
   name: LifecycleCommand;
@@ -35,14 +35,11 @@ const OPEN_COMMAND_ORDER = [
   'REQUEST_REVISION',
 ] as const satisfies readonly LifecycleCommand[];
 
-function formatDate(value: string) {
-  return new Intl.DateTimeFormat('tr-TR', { day: 'numeric', month: 'short', year: 'numeric', timeZone: 'UTC' }).format(new Date(value));
-}
-
 function preferredPrimaryCommand(status: JobCardListItem['status']): LifecycleCommand | null {
   switch (status) {
     case 'NEW':
-    case 'PLANNED':
+      return null;
+    case 'ACCEPTED':
       return 'START';
     case 'IN_PROGRESS':
       return 'SUBMIT_FOR_APPROVAL';
@@ -90,11 +87,10 @@ export function JobRow({ job, user, onCommand }: {
   user: CurrentUser;
   onCommand: (intent: JobCommandIntent) => void;
 }) {
-  const [expanded, setExpanded] = useState(false);
-  const summaryId = `job-summary-${job.id}`;
   const summary = deriveCompactWorkflowSummary({ job, user });
   const primaryCommand = listPrimaryOpenCommand(user, job);
   const openCommands = listOpenCommands(user, job);
+  const schedule = cardScheduleFact(job);
 
   return <article className="structured-job-row job-list-card" data-job-id={job.id}>
     <div className="job-row-primary">
@@ -103,7 +99,9 @@ export function JobRow({ job, user, onCommand }: {
         <PriorityChip priority={job.priority} longLabel />
         <span className="job-row-type">{jobTypeLabels[job.type]}</span>
       </div>
-      <h2><Link to={paths.job(job.id)}>{job.title}</Link></h2>
+      <h2>
+        <Link className="job-row-title-link" to={paths.job(job.id)}>{job.title}</Link>
+      </h2>
       <dl className="job-row-relations">
         <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
         {job.contact && <div><dt>İlgili kişi</dt><dd>{job.contact.name}</dd></div>}
@@ -112,7 +110,9 @@ export function JobRow({ job, user, onCommand }: {
     </div>
     <dl className="job-row-facts">
       <div><dt>Sorumlu</dt><dd>{job.assignee.name}</dd></div>
-      <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Termin'}</dt><dd>{job.dueDate ? formatDate(job.dueDate) : 'Belirtilmedi'}</dd></div>
+      <div><dt>{schedule.label}</dt><dd>{schedule.dateTime
+        ? <time dateTime={schedule.dateTime}>{schedule.text}</time>
+        : schedule.text}</dd></div>
       {job.type === 'PRODUCT_DELIVERY' && <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>}
     </dl>
     {primaryCommand && (
@@ -128,30 +128,20 @@ export function JobRow({ job, user, onCommand }: {
         </button>
       </div>
     )}
-    <button className="secondary-button job-expand" type="button" aria-expanded={expanded} aria-controls={summaryId}
-      onClick={() => setExpanded((value) => !value)}>
-      {expanded ? 'Özeti kapat' : 'Özeti aç'}
-    </button>
     <div className="job-row-commands">
-      {expanded && openCommands.map((command) => (
+      {openCommands.map((command) => (
         <button
           key={command}
-          className={isPrimaryStyle(command) ? 'primary-button' : 'secondary-button'}
+          className={[
+            isPrimaryStyle(command) ? 'primary-button' : 'secondary-button',
+            command === primaryCommand ? 'job-row-command-primary' : '',
+          ].filter(Boolean).join(' ')}
           type="button"
           onClick={() => onCommand({ name: command, jobId: job.id, expectedVersion: job.version })}
         >
           {openLabels[command]}
         </button>
       ))}
-      <Link className="secondary-button job-detail-link" to={paths.job(job.id)}>Tüm iş detaylarını aç</Link>
     </div>
-    {expanded && <div className="job-row-summary" id={summaryId}>
-      <dl>
-        <div><dt>İş türü</dt><dd>{jobTypeLabels[job.type]}</dd></div>
-        <div><dt>Oluşturma</dt><dd>{formatDate(job.createdAt)}</dd></div>
-        <div><dt>Son güncelleme</dt><dd>{formatDate(job.updatedAt)}</dd></div>
-        {job.staffCompletedAt && <div><dt>Onaya gönderim</dt><dd>{formatDate(job.staffCompletedAt)}</dd></div>}
-      </dl>
-    </div>}
   </article>;
 }

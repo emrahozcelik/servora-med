@@ -12,8 +12,10 @@ type Activity = { event: JobCardActivityEvent; jobCardId: string; actorId: strin
 
 class MemoryJobCardRepository implements JobCardRepository {
   job: JobCard = {
-    id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
-    version: 1, title: 'Klinik teslimi', customerId: 'customer-1', assignedTo: 'staff-1',
+    id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'ACCEPTED',
+    version: 1, title: 'Klinik teslimi', customerId: 'customer-1', contactId: null,
+    assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
+    description: null, scheduledAt: '2026-07-16T11:30:00.000Z',
   };
   activities: Activity[] = [];
   completed = new Map<string, unknown>();
@@ -39,7 +41,9 @@ class MemoryJobCardRepository implements JobCardRepository {
               contact: null,
               lifecycle: {
                 createdAt: '2026-07-13T10:00:00.000Z',
-                plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+                acceptedAt: '2026-07-13T10:05:00.000Z',
+                acceptedBy: { id: 'staff-1', name: 'Staff One' },
+                startedAt: null, submittedAt: null, submittedBy: null,
                 submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
                 revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
                 cancelledAt: null, cancelledBy: null, cancelReason: null,
@@ -111,14 +115,14 @@ describe('JobCardService critical command foundation', () => {
     const repository = new MemoryJobCardRepository();
     await expect(new JobCardService(repository).start(staff, 'job-1', { ...input, expectedVersion: 9 }))
       .rejects.toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
-    expect(repository.job).toMatchObject({ status: 'NEW', version: 1 });
+    expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
     expect(repository.activities).toHaveLength(0);
   });
 
   it('rolls back the mutation if activity append fails', async () => {
     const repository = new MemoryJobCardRepository(); repository.failActivity = true;
     await expect(new JobCardService(repository).start(staff, 'job-1', input)).rejects.toThrow('activity failed');
-    expect(repository.job).toMatchObject({ status: 'NEW', version: 1 });
+    expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
     expect(repository.activities).toHaveLength(0);
   });
 

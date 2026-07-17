@@ -7,6 +7,7 @@ import {
 import {
   boundedTrimmedString,
   isoDate,
+  isoInstant,
   requireActionId,
   uuidString,
   validation,
@@ -14,7 +15,7 @@ import {
 
 const COMMON_CREATE_FIELDS = [
   'clientActionId', 'type', 'title', 'description', 'customerId', 'contactId',
-  'assignedTo', 'priority', 'dueDate',
+  'assignedTo', 'priority', 'dueDate', 'scheduledAt',
 ] as const;
 
 const CREATE_FIELDS_BY_TYPE = {
@@ -59,6 +60,16 @@ function dueDate(value: unknown) {
   return value === undefined || value === null ? null : isoDate(value, 'dueDate');
 }
 
+function optionalScheduledAt(value: unknown) {
+  if (value === undefined || value === null) return null;
+  return isoInstant(value, 'scheduledAt');
+}
+
+function requiredScheduledAt(value: unknown) {
+  if (value === undefined || value === null) throw validation('scheduledAt');
+  return isoInstant(value, 'scheduledAt');
+}
+
 export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreateInput {
   const input = exactRecord(value);
   const common = {
@@ -71,17 +82,29 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
     dueDate: dueDate(input.dueDate),
   };
   if (input.type === 'PRODUCT_DELIVERY') {
-    return { ...common, type: input.type, customerId: uuidString(input.customerId, 'customerId') };
-  }
-  if (input.type === 'SALES_MEETING') {
     return {
       ...common,
       type: input.type,
       customerId: uuidString(input.customerId, 'customerId'),
-      dueDate: isoDate(input.dueDate, 'dueDate'),
+      scheduledAt: requiredScheduledAt(input.scheduledAt),
     };
   }
-  return { ...common, type: input.type, customerId: optionalUuid(input.customerId, 'customerId') };
+  if (input.type === 'SALES_MEETING') {
+    // Active planning SSOT is scheduledAt only; dueDate is not written on create.
+    return {
+      ...common,
+      type: input.type,
+      customerId: uuidString(input.customerId, 'customerId'),
+      dueDate: null,
+      scheduledAt: requiredScheduledAt(input.scheduledAt),
+    };
+  }
+  return {
+    ...common,
+    type: input.type,
+    customerId: optionalUuid(input.customerId, 'customerId'),
+    scheduledAt: optionalScheduledAt(input.scheduledAt),
+  };
 }
 
 export type { JobCardCreateInput };

@@ -18,11 +18,12 @@ const manager: CurrentUser = {
 };
 const baseItem: JobCardListItem = {
   id: 'job-new', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2, title: 'ABC Klinik teslimi',
-  priority: 'urgent', dueDate: '2026-07-20', createdAt: '2026-07-10T10:00:00.000Z',
+  priority: 'urgent', dueDate: '2026-07-20', scheduledAt: null,
+  createdAt: '2026-07-10T10:00:00.000Z',
   updatedAt: '2026-07-13T10:00:00.000Z', staffCompletedAt: null,
   customer: { id: 'customer-1', name: 'ABC Klinik' }, contact: { id: 'contact-1', name: 'Dr. Deniz' },
   assignee: { id: 'staff-1', name: 'Ayşe Personel' }, deliveryItemCount: 2,
-  allowedCommands: ['PLAN', 'START', 'CANCEL'],
+  allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
 };
 
 function item(status: JobCardListItem['status'], id: string, title = baseItem.title): JobCardListItem {
@@ -32,7 +33,7 @@ function item(status: JobCardListItem['status'], id: string, title = baseItem.ti
 const board: JobCardBoard = {
   columns: {
     NEW: { items: [item('NEW', 'job-new')], count: 1 },
-    PLANNED: { items: [item('PLANNED', 'job-planned')], count: 1 },
+    ACCEPTED: { items: [item('ACCEPTED', 'job-accepted')], count: 1 },
     IN_PROGRESS: { items: [item('IN_PROGRESS', 'job-progress')], count: 1 },
     WAITING_APPROVAL: { items: [item('WAITING_APPROVAL', 'job-waiting')], count: 4 },
     REVISION_REQUESTED: { items: [item('REVISION_REQUESTED', 'job-revision')], count: 1 },
@@ -77,10 +78,15 @@ describe('read-only JobCard board', () => {
     );
     const columns = Array.from(host.querySelectorAll<HTMLElement>('[data-board-column]'));
     expect(columns).toHaveLength(5);
+    expect(columns.map((column) => column.getAttribute('data-board-column'))).toEqual([
+      'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+    ]);
     expect(columns.map((column) => column.querySelector('h2')?.textContent)).toEqual([
-      'Oluşturuldu1', 'Planlandı1', 'Uygulanıyor1', 'Yönetici kontrolünde4', 'Düzeltme gerekiyor1',
+      'Atandı1', 'Kabul edildi1', 'Uygulanıyor1', 'Yönetici kontrolünde4', 'Düzeltme gerekiyor1',
     ]);
     expect(host.querySelectorAll('.job-status-shape')).toHaveLength(5);
+    expect(host.querySelector('[data-board-column="PLANNED"]')).toBeNull();
+    expect(host.textContent).not.toContain('Planlandı');
 
     const card = host.querySelector<HTMLElement>('[data-board-card="job-waiting"]')!;
     for (const value of ['ABC Klinik teslimi', 'Ürün teslimi', 'Acil öncelik', 'ABC Klinik', 'Dr. Deniz', 'Ayşe Personel', '20 Tem 2026', '2 ürün kalemi']) {
@@ -88,6 +94,7 @@ describe('read-only JobCard board', () => {
     }
     expect(card.querySelectorAll('a')).toHaveLength(1);
     expect(card.querySelector('a')?.getAttribute('href')).toBe('/jobs/job-waiting');
+    expect(card.querySelector('a button, button a, a a')).toBeNull();
 
     const closedLinks = Array.from(host.querySelectorAll<HTMLAnchorElement>('.job-board-closed a'));
     expect(closedLinks.map((link) => link.textContent)).toEqual(['Tamamlandı6', 'İptal edildi2']);
@@ -178,7 +185,35 @@ describe('read-only JobCard board', () => {
       <MemoryRouter><JobBoard board={meetingBoard} user={manager} params={new URLSearchParams()} /></MemoryRouter>);
     const card = host.querySelector('[data-board-card="meeting-1"]')!;
     expect(card.textContent).toContain('Satış görüşmesi'); expect(card.textContent).toContain('Planlanan görüşme günü');
-    expect(card.textContent).not.toContain('ürün kalemi');
+  });
+
+  it('prefers scheduledAt over dueDate on board cards', () => {
+    const withSchedule: JobCardBoard = {
+      ...board,
+      columns: {
+        ...board.columns,
+        NEW: {
+          items: [{
+            ...baseItem,
+            id: 'job-scheduled',
+            scheduledAt: '2026-07-22T14:00:00.000Z',
+            dueDate: '2026-07-30',
+          }],
+          count: 1,
+        },
+      },
+    };
+    const html = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={withSchedule} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
+    );
+    const card = html.includes('data-board-card="job-scheduled"')
+      ? html.slice(html.indexOf('data-board-card="job-scheduled"'))
+      : html;
+    expect(card).toContain('Planlanan teslim');
+    expect(card).toContain('dateTime="2026-07-22T14:00:00.000Z"');
+    // Only assert on the scheduled card fragment, not other columns' Termin fallbacks.
+    const scheduledFragment = card.slice(0, card.indexOf('</article>') + '</article>'.length);
+    expect(scheduledFragment).not.toContain('<dt>Termin</dt>');
   });
 });
 

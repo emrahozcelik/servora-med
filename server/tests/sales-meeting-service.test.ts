@@ -246,6 +246,7 @@ const input: NormalizedJobCardCreateInput = {
   assignedTo: 'staff-1',
   priority: 'normal',
   dueDate: '2026-07-20',
+  scheduledAt: '2026-07-20T10:00:00.000Z',
 };
 
 describe('Sales Meeting create transaction', () => {
@@ -352,7 +353,7 @@ describe('Sales Meeting detail reads and mutations', () => {
     expect(repository.jobs[0]!.version).toBe(2);
   });
 
-  it.each(['NEW', 'PLANNED'] as const)(
+  it.each(['NEW', 'ACCEPTED'] as const)(
     'rejects meeting result reads before start in %s with the exact edit contract',
     async (status) => {
       const repository = new SalesMeetingRepository();
@@ -455,7 +456,7 @@ describe('Sales Meeting detail reads and mutations', () => {
     },
   );
 
-  it.each(['NEW', 'PLANNED'] as const)(
+  it.each(['NEW', 'ACCEPTED'] as const)(
     'rejects result edits before start in %s with the exact edit contract',
     async (status) => {
       const repository = new SalesMeetingRepository();

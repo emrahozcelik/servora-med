@@ -22,6 +22,7 @@ class LifecycleRepository implements JobCardRepository {
     id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'IN_PROGRESS',
     version: 2, title: 'Teslim', description: null, customerId: 'customer-1', contactId: null,
     assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
+    scheduledAt: null,
   };
   assignee = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true };
   customerExistsValue = true;
@@ -50,13 +51,15 @@ class LifecycleRepository implements JobCardRepository {
   claims: CriticalActionClaim[] = [];
   failTransition = false;
   failActivity = false;
-  plannedAt: Date | null = null;
+  acceptedAt: Date | null = null;
+  acceptedBy: string | null = null;
   startedAt: Date | null = null;
   revision = { at: null as Date | null, by: null as string | null, reason: null as string | null };
   cancellation = { at: null as Date | null, by: null as string | null, reason: null as string | null };
   lifecycle = {
     createdAt: '2026-07-13T10:00:00.000Z',
-    plannedAt: '2026-07-13T10:30:00.000Z',
+    acceptedAt: null as string | null,
+    acceptedBy: null as { id: string; name: string } | null,
     startedAt: '2026-07-13T11:00:00.000Z',
     submittedAt: null,
     submittedBy: null,
@@ -94,7 +97,15 @@ class LifecycleRepository implements JobCardRepository {
         this.transitions.push(input);
         if (this.failTransition || input.expectedVersion !== this.job.version) return null;
         this.job = { ...this.job, status: input.status, version: this.job.version + 1 };
-        if (input.command === 'PLAN') this.plannedAt = input.occurredAt;
+        if (input.command === 'ACCEPT_ASSIGNMENT') {
+          this.acceptedAt = input.occurredAt;
+          this.acceptedBy = input.actorId ?? null;
+          this.lifecycle = {
+            ...this.lifecycle,
+            acceptedAt: input.occurredAt.toISOString(),
+            acceptedBy: input.actorId ? { id: input.actorId, name: 'Staff One' } : null,
+          };
+        }
         if (input.command === 'START') this.startedAt ??= input.occurredAt;
         if (input.command === 'REQUEST_REVISION') {
           this.revision = { at: input.occurredAt, by: input.actorId ?? null, reason: input.revisionReason ?? null };
@@ -132,7 +143,8 @@ class LifecycleRepository implements JobCardRepository {
     if (this.processing.has(key)) return { kind: 'processing' as const };
     const before = {
       job: { ...this.job }, events: [...this.events], transitions: [...this.transitions],
-      plannedAt: this.plannedAt, startedAt: this.startedAt,
+      acceptedAt: this.acceptedAt, acceptedBy: this.acceptedBy, startedAt: this.startedAt,
+      lifecycle: { ...this.lifecycle },
       revision: { ...this.revision }, cancellation: { ...this.cancellation },
     };
     try {
@@ -141,7 +153,8 @@ class LifecycleRepository implements JobCardRepository {
       return { kind: 'completed' as const, response };
     } catch (error) {
       this.job = before.job; this.events = before.events; this.transitions = before.transitions;
-      this.plannedAt = before.plannedAt; this.startedAt = before.startedAt;
+      this.acceptedAt = before.acceptedAt; this.acceptedBy = before.acceptedBy;
+      this.startedAt = before.startedAt; this.lifecycle = before.lifecycle;
       this.revision = before.revision; this.cancellation = before.cancellation;
       throw error;
     }
@@ -180,6 +193,7 @@ function twoJobRepository() {
     id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
     version: 1, title: 'Teslim', description: null, customerId: 'customer-1', contactId: null,
     assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
+    scheduledAt: null,
   };
   const jobs = new Map([
     ['job-1', { ...base }],
@@ -206,7 +220,9 @@ function twoJobRepository() {
                 contact: null,
                 lifecycle: {
                   createdAt: '2026-07-13T10:00:00.000Z',
-                  plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+                  acceptedAt: job.status === 'ACCEPTED' ? time.toISOString() : null,
+                  acceptedBy: job.status === 'ACCEPTED' ? { id: 'staff-1', name: 'Staff One' } : null,
+                  startedAt: null, submittedAt: null, submittedBy: null,
                   submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
                   revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
                   cancelledAt: null, cancelledBy: null, cancelReason: null,
@@ -266,7 +282,9 @@ describe('JobCard lifecycle commands', () => {
     const result = await new JobCardService(repo, () => time).detail(staff, 'job-1');
     expect(result.workflowContext).toEqual({
       allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
-      allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      allowedActions: [
+        'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE', 'EDIT_DELIVERY_ACTUAL_TIME',
+      ],
       lifecycle: repo.persistedDetail.lifecycle,
       submissionReadiness: {
         evaluatedAt: time.toISOString(),
@@ -283,7 +301,7 @@ describe('JobCard lifecycle commands', () => {
 
   it('returns null readiness outside execution, correction, and review', async () => {
     const repo = new LifecycleRepository();
-    for (const status of ['NEW', 'PLANNED', 'COMPLETED', 'CANCELLED'] as const) {
+    for (const status of ['NEW', 'ACCEPTED', 'COMPLETED', 'CANCELLED'] as const) {
       repo.job.status = status;
       const result = await new JobCardService(repo, () => time).detail(manager, 'job-1');
       expect(result.workflowContext.submissionReadiness).toBeNull();
@@ -300,8 +318,8 @@ describe('JobCard lifecycle commands', () => {
   });
 
   it.each([
-    ['plan', 'NEW', 'PLANNED', 'JOB_PLANNED', 'JOB_PLAN'],
-    ['start', 'PLANNED', 'IN_PROGRESS', 'JOB_STARTED', 'JOB_START'],
+    ['acceptAssignment', 'NEW', 'ACCEPTED', 'JOB_ACCEPTED', 'JOB_ACCEPT_ASSIGNMENT'],
+    ['start', 'ACCEPTED', 'IN_PROGRESS', 'JOB_STARTED', 'JOB_START'],
     ['submitForApproval', 'IN_PROGRESS', 'WAITING_APPROVAL', 'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_SUBMIT_FOR_APPROVAL'],
     ['approve', 'WAITING_APPROVAL', 'COMPLETED', 'JOB_APPROVED', 'JOB_APPROVE'],
     ['requestRevision', 'WAITING_APPROVAL', 'REVISION_REQUESTED', 'JOB_REVISION_REQUESTED', 'JOB_REQUEST_REVISION'],
@@ -327,6 +345,78 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.transitions).toHaveLength(1);
   });
 
+  it('accepts an assignment as NEW -> ACCEPTED with accepted facts and JOB_ACCEPTED', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'NEW';
+    repo.job.version = 1;
+    const service = new JobCardService(repo, () => time);
+
+    const result = await service.acceptAssignment(staff, 'job-1', input('accept-1', 1));
+
+    expect(result).toMatchObject({
+      status: 'ACCEPTED',
+      version: 2,
+      workflowContext: {
+        lifecycle: {
+          acceptedAt: time.toISOString(),
+          acceptedBy: { id: 'staff-1', name: 'Staff One' },
+        },
+      },
+    });
+    expect(repo.acceptedAt).toEqual(time);
+    expect(repo.acceptedBy).toBe('staff-1');
+    expect(repo.transitions).toEqual([expect.objectContaining({
+      command: 'ACCEPT_ASSIGNMENT', status: 'ACCEPTED', actorId: 'staff-1',
+    })]);
+    expect(repo.events).toEqual([expect.objectContaining({
+      event: 'JOB_ACCEPTED',
+      clientActionId: 'accept-1',
+      oldValue: { status: 'NEW', version: 1 },
+      newValue: { status: 'ACCEPTED', version: 2 },
+    })]);
+  });
+
+  it.each([manager, { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' as const }])(
+    'forbids management acceptance by %s without mutation',
+    async (actor) => {
+      const repo = new LifecycleRepository();
+      repo.job.status = 'NEW';
+      repo.job.version = 1;
+      await expect(new JobCardService(repo, () => time).acceptAssignment(actor, 'job-1', input('mgr-accept', 1)))
+        .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+      expect(repo.transitions).toHaveLength(0);
+      expect(repo.events).toHaveLength(0);
+      expect(repo.job).toMatchObject({ status: 'NEW', version: 1 });
+    },
+  );
+
+  it('rejects stale acceptance with VERSION_CONFLICT without mutation', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'NEW';
+    repo.job.version = 2;
+    await expect(new JobCardService(repo, () => time).acceptAssignment(staff, 'job-1', input('stale-accept', 1)))
+      .rejects.toMatchObject({ code: 'VERSION_CONFLICT', statusCode: 409 });
+    expect(repo.transitions).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
+  });
+
+  it('replays a completed acceptance without duplicate transition or activity', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'NEW';
+    repo.job.version = 1;
+    const service = new JobCardService(repo, () => time);
+    const command = input('accept-replay', 1);
+
+    const first = await service.acceptAssignment(staff, 'job-1', command);
+    const replay = await service.acceptAssignment(staff, 'job-1', command);
+
+    expect(replay).toEqual(first);
+    expect(repo.transitions).toHaveLength(1);
+    expect(repo.events).toHaveLength(1);
+    expect(repo.events[0]).toMatchObject({ event: 'JOB_ACCEPTED' });
+    expect(repo.claims[0]?.operationKey).toBe('JOB_ACCEPT_ASSIGNMENT:job-1');
+  });
+
   it.each([
     ['requestRevision', 'JOB_REVISION_REQUESTED', { revisionReason: ' Miktarı düzeltin ' }, 'Miktarı düzeltin'],
     ['cancel', 'JOB_CANCELLED', { cancelReason: ' Müşteri iptal etti ' }, 'Müşteri iptal etti'],
@@ -341,7 +431,7 @@ describe('JobCard lifecycle commands', () => {
 
   it('does not attach reason metadata for non-revision non-cancel lifecycle events', async () => {
     const repo = new LifecycleRepository();
-    repo.job.status = 'PLANNED';
+    repo.job.status = 'ACCEPTED';
     await new JobCardService(repo).start(staff, 'job-1', input('start-no-reason'));
     expect(repo.events[0]).toMatchObject({ event: 'JOB_STARTED' });
     expect(repo.events[0]?.metadata).toBeUndefined();
@@ -393,8 +483,8 @@ describe('JobCard lifecycle commands', () => {
   });
 
   it.each([
-    ['plan', 'NEW', 'PLANNED', 'JOB_PLANNED'],
-    ['start', 'PLANNED', 'IN_PROGRESS', 'JOB_STARTED'],
+    ['acceptAssignment', 'NEW', 'ACCEPTED', 'JOB_ACCEPTED'],
+    ['start', 'ACCEPTED', 'IN_PROGRESS', 'JOB_STARTED'],
     ['submitForApproval', 'IN_PROGRESS', 'WAITING_APPROVAL', 'JOB_SUBMITTED_FOR_APPROVAL'],
     ['approve', 'WAITING_APPROVAL', 'COMPLETED', 'JOB_APPROVED'],
     ['requestRevision', 'WAITING_APPROVAL', 'REVISION_REQUESTED', 'JOB_REVISION_REQUESTED'],
@@ -427,13 +517,14 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.transitions).toHaveLength(1);
   });
 
-  it('sets plannedAt and preserves the first startedAt across start and resume', async () => {
+  it('sets accepted facts and preserves the first startedAt across start and resume', async () => {
     const repo = new LifecycleRepository(); const service = new JobCardService(repo, () => time);
     repo.job.status = 'NEW';
-    await service.plan(staff, 'job-1', input('plan'));
-    expect(repo.plannedAt).toEqual(time);
+    await service.acceptAssignment(staff, 'job-1', input('accept'));
+    expect(repo.acceptedAt).toEqual(time);
+    expect(repo.acceptedBy).toBe('staff-1');
 
-    repo.job.status = 'PLANNED'; repo.job.version = 3;
+    repo.job.status = 'ACCEPTED'; repo.job.version = 3;
     await service.start(staff, 'job-1', input('start', 3));
     expect(repo.startedAt).toEqual(time);
     const firstStartedAt = repo.startedAt;
@@ -474,7 +565,7 @@ describe('JobCard lifecycle commands', () => {
   });
 
   it('allows assigned Staff to cancel throughout the active lifecycle', async () => {
-    for (const status of ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'] as const) {
+    for (const status of ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'] as const) {
       const repo = new LifecycleRepository(); repo.job.status = status;
       const result = await new JobCardService(repo, () => time).cancel(staff, 'job-1', {
         clientActionId: `staff-cancel-${status}`, expectedVersion: repo.job.version,
@@ -490,17 +581,17 @@ describe('JobCard lifecycle commands', () => {
 
   it.each([1, 255] as const)('accepts a %i-code-point action ID', async (length) => {
     const repo = new LifecycleRepository(); repo.job.status = 'NEW';
-    await expect(new JobCardService(repo).plan(staff, 'job-1', input('😀'.repeat(length))))
-      .resolves.toMatchObject({ status: 'PLANNED' });
+    await expect(new JobCardService(repo).acceptAssignment(staff, 'job-1', input('😀'.repeat(length))))
+      .resolves.toMatchObject({ status: 'ACCEPTED' });
     expect(repo.claims[0]!.clientActionId).toBe('😀'.repeat(length));
   });
 
   it('rejects invalid action IDs, versions, and lifecycle text before claiming an action', async () => {
     const cases: Array<() => Promise<unknown>> = [];
     for (const clientActionId of ['', '😀'.repeat(256)]) {
-      cases.push(() => new JobCardService(new LifecycleRepository()).plan(staff, 'job-1', input(clientActionId)));
+      cases.push(() => new JobCardService(new LifecycleRepository()).acceptAssignment(staff, 'job-1', input(clientActionId)));
     }
-    cases.push(() => new JobCardService(new LifecycleRepository()).plan(staff, 'job-1', input('bad-version', 0)));
+    cases.push(() => new JobCardService(new LifecycleRepository()).acceptAssignment(staff, 'job-1', input('bad-version', 0)));
     cases.push(() => new JobCardService(new LifecycleRepository()).submitForApproval(staff, 'job-1', {
       ...input('long-note'), note: '😀'.repeat(2_001),
     }));
@@ -558,19 +649,19 @@ describe('JobCard lifecycle commands', () => {
   it('isolates same-command action replay by target JobCard', async () => {
     const { repository, jobs, events } = twoJobRepository();
     const service = new JobCardService(repository);
-    const command = { clientActionId: 'shared-plan-action', expectedVersion: 1 };
+    const command = { clientActionId: 'shared-accept-action', expectedVersion: 1 };
 
-    const first = await service.plan(staff, 'job-1', command);
-    const second = await service.plan(staff, 'job-2', command);
+    const first = await service.acceptAssignment(staff, 'job-1', command);
+    const second = await service.acceptAssignment(staff, 'job-2', command);
 
-    expect(first).toMatchObject({ id: 'job-1', status: 'PLANNED', version: 2 });
-    expect(second).toMatchObject({ id: 'job-2', status: 'PLANNED', version: 2 });
+    expect(first).toMatchObject({ id: 'job-1', status: 'ACCEPTED', version: 2 });
+    expect(second).toMatchObject({ id: 'job-2', status: 'ACCEPTED', version: 2 });
     expect(second.id).not.toBe(first.id);
-    expect(jobs.get('job-2')).toMatchObject({ status: 'PLANNED', version: 2 });
+    expect(jobs.get('job-2')).toMatchObject({ status: 'ACCEPTED', version: 2 });
     expect(events.map((event) => event.jobCardId)).toEqual(['job-1', 'job-2']);
 
-    await expect(service.plan(staff, 'job-1', command)).resolves.toEqual(first);
-    await expect(service.plan(staff, 'job-2', command)).resolves.toEqual(second);
+    await expect(service.acceptAssignment(staff, 'job-1', command)).resolves.toEqual(first);
+    await expect(service.acceptAssignment(staff, 'job-2', command)).resolves.toEqual(second);
     expect(events).toHaveLength(2);
   });
 
@@ -805,7 +896,9 @@ describe('Postgres lifecycle transition persistence', () => {
     }));
 
     const update = calls.find((call) => call.text.includes('UPDATE job_cards'))!;
-    expect(update.text).toContain("planned_at = CASE WHEN $4 = 'PLANNED' THEN $5 ELSE planned_at END");
+    expect(update.text).toContain("accepted_at = CASE WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $5 ELSE accepted_at END");
+    expect(update.text).toContain("accepted_by = CASE WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $6 ELSE accepted_by END");
+    expect(update.text).not.toContain("planned_at = CASE WHEN $4 = 'PLANNED'");
     expect(update.text).toContain("started_at = CASE WHEN $10 = 'START' THEN COALESCE(started_at, $5) ELSE started_at END");
     expect(update.text).toContain("revision_requested_at = CASE WHEN $10 = 'REQUEST_REVISION'");
     expect(update.text).toContain("cancelled_at = CASE WHEN $10 = 'CANCEL'");

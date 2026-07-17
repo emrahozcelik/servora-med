@@ -47,14 +47,19 @@ class MemoryMigrationStore implements MigrationStore {
 }
 
 describe('runMigrations', () => {
-  it('ships the complete ordered migration set through approval withdrawal', async () => {
+  it('ships the complete ordered migration set through job acceptance', async () => {
     const migrationsDirectory = fileURLToPath(
       new URL('../src/db/migrations', import.meta.url),
     );
 
     const files = await readdir(migrationsDirectory);
+    const migrations = files
+      .filter((file) => file.endsWith('.sql'))
+      .sort()
+      .map((name) => ({ name }));
+    const expectedSchemaVersion = migrations.length;
 
-    expect(files.filter((file) => file.endsWith('.sql')).sort()).toEqual([
+    expect(migrations.map((migration) => migration.name)).toEqual([
       '001_auth_foundation.sql',
       '002_delivery_tracer.sql',
       '003_people.sql',
@@ -63,7 +68,10 @@ describe('runMigrations', () => {
       '006_jobcard_workspace.sql',
       '007_sales_meeting.sql',
       '008_meeting_approval_withdrawal.sql',
+      '009_job_acceptance_and_scheduling.sql',
     ]);
+    expect(migrations.at(-1)?.name).toBe('009_job_acceptance_and_scheduling.sql');
+    expect(expectedSchemaVersion).toBe(9);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

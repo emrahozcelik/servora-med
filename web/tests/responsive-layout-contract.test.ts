@@ -45,6 +45,11 @@ describe('responsive layout CSS contracts (PR A)', () => {
     expect(css).toMatch(/\.compact-workflow\s*\{[^}]*overflow-wrap:\s*anywhere/s);
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.job-lifecycle-steps/);
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.compact-workflow/);
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.structured-job-row/);
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.job-row-facts/);
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.job-row-commands/);
+    expect(css).not.toMatch(/\.job-row-summary\s*\{/);
+    expect(css).not.toMatch(/\.job-expand\s*\{/);
   });
 
   it('disables workflow transition and scroll animations under reduced motion', () => {

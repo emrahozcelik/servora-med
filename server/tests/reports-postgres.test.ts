@@ -24,6 +24,8 @@ const MIGRATIONS = [
   '005_product_catalog.sql',
   '006_jobcard_workspace.sql',
   '007_sales_meeting.sql',
+  '008_meeting_approval_withdrawal.sql',
+  '009_job_acceptance_and_scheduling.sql',
 ] as const;
 
 type ReportFixture = {
@@ -71,7 +73,7 @@ function toSafeUser(row: {
   };
 }
 
-async function applyMigrations001Through007(pool: Pool) {
+async function applyMigrations001Through009(pool: Pool) {
   for (const migration of MIGRATIONS) {
     const path = fileURLToPath(
       new URL(`../src/db/migrations/${migration}`, import.meta.url),
@@ -163,6 +165,9 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     assignedTo: string;
     createdBy: string;
     plannedAt?: Date | null;
+    scheduledAt?: Date | null;
+    acceptedAt?: Date | null;
+    acceptedBy?: string | null;
     startedAt?: Date | null;
     staffCompletedAt?: Date | null;
     staffCompletedBy?: string | null;
@@ -182,7 +187,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
       `INSERT INTO job_cards (
          organization_id, type, status, title,
          assigned_to, created_by,
-         planned_at, started_at,
+         planned_at, scheduled_at, accepted_at, accepted_by, started_at,
          staff_completed_at, staff_completed_by,
          manager_approved_at, manager_approved_by,
          revision_requested_at, revision_requested_by, revision_reason,
@@ -191,12 +196,12 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
        ) VALUES (
          $1, $2, $3, $4,
          $5, $6,
-         $7, $8,
-         $9, $10,
-         $11, $12,
-         $13, $14, $15,
+         $7, $8, $9, $10, $11,
+         $12, $13,
+         $14, $15,
          $16, $17, $18,
-         $19
+         $19, $20, $21,
+         $22
        ) RETURNING id`,
       [
         input.organizationId,
@@ -206,6 +211,9 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
         input.assignedTo,
         input.createdBy,
         input.plannedAt ?? null,
+        input.scheduledAt ?? null,
+        input.acceptedAt ?? null,
+        input.acceptedBy ?? null,
         input.startedAt ?? null,
         input.staffCompletedAt ?? null,
         input.staffCompletedBy ?? null,
@@ -275,11 +283,13 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
   await insertJob({
     organizationId: organizationOne,
     type: 'GENERAL_TASK',
-    status: 'PLANNED',
-    title: 'Planned visit',
+    status: 'ACCEPTED',
+    title: 'Accepted visit',
     assignedTo: activeStaff.id,
     createdBy: manager.id,
-    plannedAt: new Date('2026-07-10T08:00:00.000Z'),
+    scheduledAt: new Date('2026-07-10T08:00:00.000Z'),
+    acceptedAt: new Date('2026-07-10T07:00:00.000Z'),
+    acceptedBy: activeStaff.id,
   });
   const unapprovedJobId = await insertJob({
     organizationId: organizationOne,
@@ -353,7 +363,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     staffCompletedBy: activeStaff.id,
   });
 
-  // NEW + PLANNED + IN_PROGRESS + REVISION + 7 aged waiting + 1 future = 12 active
+  // NEW + ACCEPTED + IN_PROGRESS + REVISION + 7 aged waiting + 1 future = 12 active
   const activeAllTypes = 12;
 
   // --- DST transition deliveries (Europe/Berlin spring 2026) ---
@@ -727,7 +737,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   // GENERAL_TASK revision + open pipeline contribute to Staff counters
   expect(staffReport.counters.revisionRequested).toBe(1);
   expect(staffReport.counters.waitingApproval).toBe(8);
-  expect(staffReport.counters.openJobCards).toBe(3); // NEW + PLANNED + IN_PROGRESS
+  expect(staffReport.counters.openJobCards).toBe(3); // NEW + ACCEPTED + IN_PROGRESS
 
   const inactiveReport = await service.getStaffReport(
     fixture.manager,
@@ -935,7 +945,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
 }
 
 describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
-  it('derives trusted reports from migrations 001 through 007', async () => {
+  it('derives trusted reports from migrations 001 through 009', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `reports_${randomUUID().replaceAll('-', '')}`;
     let pool: Pool | null = null;
@@ -945,7 +955,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
         connectionString: databaseUrl,
         options: `-c search_path=${schema},public`,
       });
-      await applyMigrations001Through007(pool);
+      await applyMigrations001Through009(pool);
       const fixture = await seedReportFixture(pool);
       await verifyReports(pool, fixture);
     } finally {

@@ -17,6 +17,7 @@ Bu dosya ürün ve mimari için kabul edilmiş, uzun ömürlü kararları kayded
 - Slice 11 production deployment design: `docs/superpowers/specs/2026-07-15-production-deployment-design.md`
 - Slice 12 local pilot cutover design: `docs/superpowers/specs/2026-07-15-local-pilot-cutover-design.md`
 - Job lifecycle clarity design: `docs/superpowers/specs/2026-07-17-job-lifecycle-clarity-design.md`
+- Job acceptance and scheduling design: `docs/superpowers/specs/2026-07-17-job-acceptance-scheduling-design.md`
 - Agent discipline: `AGENTS.md`
 - Historical inputs: `docs/archive/inputs/`
 
@@ -227,7 +228,7 @@ All related JobCard, customer, contact, product, delivery-item, and assigned-use
 ## DOM-003: Canonical JobCard activity vocabulary
 
 - **Date:** 2026-07-10
-- **Status:** Accepted
+- **Status:** Accepted; vocabulary extended by JOB-006 with `JOB_ACCEPTED`
 - **Scope:** JobCard activity timeline
 
 ### Context
@@ -242,6 +243,7 @@ Canonical events are:
 JOB_CREATED
 JOB_ASSIGNED
 JOB_PLANNED
+JOB_ACCEPTED
 JOB_STARTED
 JOB_SUBMITTED_FOR_APPROVAL
 JOB_APPROVED
@@ -450,7 +452,7 @@ minutes to the first bucket.
 ## DOM-007: Structured Sales Meeting uses two-stage planning and actual-result reporting
 
 - **Date:** 2026-07-15
-- **Status:** Accepted and verified
+- **Status:** Accepted and verified; planned-time field superseded in part by JOB-006
 - **Scope:** Slice 10 Structured Sales Meeting
 
 ### Context
@@ -463,10 +465,15 @@ outcomes and follow-up intent unreliable.
 ### Decision
 
 `SALES_MEETING` is the third canonical JobCard type and uses two stages. Create records a
-required `dueDate`, meaning the planned organization-local calendar day, and atomically
-creates one nullable one-to-one detail row. After the meeting, the assignee records
-`meetingAt`, meaning the actual instant, one canonical outcome, and a normalized summary.
-No `scheduledAt` is introduced.
+required planned calendar day and atomically creates one nullable one-to-one detail row.
+After the meeting, the assignee records `meetingAt`, meaning the actual instant, one
+canonical outcome, and a normalized summary.
+
+**Historical note:** Slice 10 originally used `dueDate` as the planned organization-local
+day and explicitly rejected a separate `scheduledAt`. JOB-006 introduces canonical
+`scheduledAt` as the planned instant; Sales Meeting create now requires both
+`scheduledAt` (planned instant) and `dueDate` (organization-local calendar day derived or
+supplied for list/deadline presentation).
 
 The closed outcome vocabulary and Turkish labels are:
 
@@ -578,6 +585,75 @@ consequence guidance, and React risked reimplementing permission and readiness r
 
 - Design: `docs/superpowers/specs/2026-07-17-job-lifecycle-clarity-design.md`
 - Plan: `docs/superpowers/plans/2026-07-17-job-lifecycle-clarity.md`
+
+## JOB-006: Staff assignment acceptance and planned/actual scheduling separation
+
+- **Date:** 2026-07-17
+- **Status:** Accepted
+- **Scope:** JobCard lifecycle statuses, acceptance authority, scheduling facts, delivery
+  planned vs actual times, assignment-stage notes, list-card navigation
+- **Supersedes in part:**
+  - Active state machine rows that listed `PLANNED` / `PLAN` as an operational status and
+    command (PRODUCT_REQUIREMENTS, architecture, API, schema drafts; AGENTS.md historical
+    status list remains product-goal language until this decision is applied in code)
+  - DOM-007 sentence “No `scheduledAt` is introduced”
+  - JOB-005 presentation that treated optional planning as a skippable `PLANNING` phase
+    with direct `NEW -> IN_PROGRESS`
+  - Note policies that forbade Sales Meeting notes before `START`
+
+### Context
+
+`PLANNED` did not prove that the assigned Staff member accepted the work: Managers and
+Admins could execute `PLAN`, Staff could start from `NEW` without planning, and planned
+instants were mixed with actual delivery/meeting times. Assignment-stage communication
+was blocked for meetings before start, and list cards required an expand-summary step.
+
+### Decision
+
+1. **Acceptance replaces planning as a lifecycle state.** Active statuses are
+   `NEW | ACCEPTED | IN_PROGRESS | WAITING_APPROVAL | REVISION_REQUESTED | COMPLETED |
+   CANCELLED`. Canonical command `ACCEPT_ASSIGNMENT` moves `NEW -> ACCEPTED` and appends
+   `JOB_ACCEPTED`. Only the currently assigned Staff member may accept. Manager/Admin may
+   assign or reassign but never accept on behalf of Staff. Staff-created self-assigned
+   jobs are created as `ACCEPTED`.
+2. **Start requires acceptance.** `START` is allowed only from `ACCEPTED`. Direct
+   `NEW -> IN_PROGRESS` is removed. Historical jobs already past `ACCEPTED` may lack
+   acceptance facts; the UI presents absence as “not recorded,” never fabricated.
+3. **Migration 009 maps legacy `PLANNED -> NEW`.** Historical `planned_at` and
+   `JOB_PLANNED` activity remain readable legacy history. New application code does not
+   write `plannedAt` or execute `PLAN`. Active filters, board columns, and status labels
+   must not expose `PLANNED`.
+4. **`scheduledAt` is the canonical planned instant.** Product Delivery and Sales Meeting
+   require it on create (web defaults via one pure local-time helper); General Task is
+   optional. `meetingAt` and delivery-item `deliveredAt` remain actual times and must not
+   be backfilled from the planned default. Pre-submission delivery lines may omit
+   `deliveredAt`; submission still requires a valid actual time on every item.
+5. **Acceptance invalidation.** Management may change `assignedTo` or `scheduledAt` only
+   while status is `NEW` or `ACCEPTED`. Reassigning `ACCEPTED` or management changing the
+   schedule after acceptance returns the job to `NEW` and clears `acceptedAt` /
+   `acceptedBy`. Staff schedule edits do not clear their own acceptance. After `START`,
+   schedule and assignee are immutable for normal patch.
+6. **Assignment-stage notes.** Assigned Staff (and management with reach) may
+   `VIEW_NOTES` / `ADD_NOTE` in `NEW` and `ACCEPTED` for all types, including Sales
+   Meeting. Meeting result fields remain blocked until `IN_PROGRESS`.
+7. **List interaction.** Job list/board cards open detail directly; expand-summary
+   disclosure is removed. Commands remain separate controls above the stretched title link.
+8. **Readiness refresh.** After a successful Sales Meeting result save, the client reloads
+   canonical Job detail so `submissionReadiness` and version facts stay backend-owned.
+
+### Consequences
+
+- Board columns and staff open counters use `ACCEPTED` instead of `PLANNED`.
+- API surface: `POST /api/job-cards/:id/accept`; no public `/plan` route.
+- Applied migrations 001–008 remain immutable; only migration 009 introduces the new
+  columns and status constraint.
+- Frontend presentation uses phases without a skippable “Planlama atlandı” planning step;
+  scheduling appears as independent planned-time copy or badge, never as a status.
+
+### References
+
+- Design: `docs/superpowers/specs/2026-07-17-job-acceptance-scheduling-design.md`
+- Plan: `docs/superpowers/plans/2026-07-17-job-acceptance-scheduling-plan.md`
 
 ## OPS-001: Initial pilot topology is macOS + Cloudflare Tunnel
 

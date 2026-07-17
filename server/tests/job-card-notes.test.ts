@@ -98,7 +98,7 @@ class NotesRepository {
 
 describe('JobCard note policy', () => {
   it.each([
-    'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL',
+    'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
     'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
   ] as const)('allows notes in %s for own Staff and same-organization Manager/Admin', (status) => {
     const job = { ...baseJob, status };
@@ -114,19 +114,8 @@ describe('JobCard note policy', () => {
       .toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
   });
 
-  it.each(['NEW', 'PLANNED'] as const)(
-    'rejects Sales Meeting note access in %s with the exact edit contract',
-    (status) => {
-      const job = { ...baseJob, type: 'SALES_MEETING' as const, status };
-      expect(() => assertCanAccessNotes(staff, job)).toThrowError(expect.objectContaining({
-        code: 'JOB_NOT_EDITABLE', statusCode: 409,
-        message: 'JobCard bu durumda düzenlenemez.',
-      }));
-    },
-  );
-
-  it.each(['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
-    'allows Sales Meeting note access in review/terminal %s',
+  it.each(['NEW', 'ACCEPTED', 'WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
+    'allows Sales Meeting note access in assignment/review/terminal %s',
     (status) => {
       const job = { ...baseJob, type: 'SALES_MEETING' as const, status };
       expect(() => assertCanAccessNotes(staff, job)).not.toThrow();
@@ -136,22 +125,8 @@ describe('JobCard note policy', () => {
 });
 
 describe('append-only JobCard notes service', () => {
-  it.each(['NEW', 'PLANNED'] as const)(
-    'rejects Sales Meeting note reads in %s with the exact edit contract',
-    async (status) => {
-      const repository = new NotesRepository();
-      repository.jobs.set('job-1', { ...baseJob, type: 'SALES_MEETING', status });
-      await expect(new JobCardService(repository as never).listNotes(staff, 'job-1', {
-        limit: 25, offset: 0,
-      })).rejects.toMatchObject({
-        code: 'JOB_NOT_EDITABLE', statusCode: 409,
-        message: 'JobCard bu durumda düzenlenemez.',
-      });
-    },
-  );
-
-  it.each(['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
-    'allows Sales Meeting note reads in review/terminal %s',
+  it.each(['NEW', 'ACCEPTED', 'WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
+    'allows Sales Meeting note reads in assignment/review/terminal %s',
     async (status) => {
       const repository = new NotesRepository();
       repository.jobs.set('job-1', { ...baseJob, type: 'SALES_MEETING', status });
@@ -161,7 +136,7 @@ describe('append-only JobCard notes service', () => {
     },
   );
 
-  it.each(['NEW', 'PLANNED', 'WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
+  it.each(['WAITING_APPROVAL', 'COMPLETED', 'CANCELLED'] as const)(
     'rejects Sales Meeting note creation in %s with the exact edit contract',
     async (status) => {
       const repository = new NotesRepository();
@@ -177,7 +152,7 @@ describe('append-only JobCard notes service', () => {
     },
   );
 
-  it.each(['IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
+  it.each(['NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
     'allows Sales Meeting note creation in %s',
     async (status) => {
       const repository = new NotesRepository();
@@ -189,10 +164,10 @@ describe('append-only JobCard notes service', () => {
   );
 
   it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const)(
-    'keeps %s note creation unchanged in PLANNED',
+    'keeps %s note creation unchanged in ACCEPTED',
     async (type) => {
       const repository = new NotesRepository();
-      repository.jobs.set('job-1', { ...baseJob, type, status: 'PLANNED' });
+      repository.jobs.set('job-1', { ...baseJob, type, status: 'ACCEPTED' });
       await expect(new JobCardService(repository as never).addNote(staff, 'job-1', {
         clientActionId: `other-note-${type}`, note: 'Operasyon notu',
       })).resolves.toMatchObject({ note: 'Operasyon notu' });
@@ -337,6 +312,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
       for (const migration of [
         '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
         '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
+        '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
+        '009_job_acceptance_and_scheduling.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await scopedPool.query(await readFile(path, 'utf8'));

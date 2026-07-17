@@ -8,10 +8,13 @@ import type { JobCard, JobCardActor } from '../src/modules/job-cards/types.js';
 
 class DeliveryRepository implements JobCardRepository {
   job: JobCard = { id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'IN_PROGRESS', version: 1,
-    title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null };
+    title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1', createdBy: 'staff-1',
+    priority: 'normal', dueDate: null, scheduledAt: '2026-07-20T10:00:00.000Z' };
   product: ProductReference = { id: 'product-1', organizationId: 'org-1', name: 'İmplant Seti', sku: 'IMP-1', model: 'M1', unit: 'adet', isActive: true };
   replacementProduct: ProductReference = { id: 'product-2', organizationId: 'org-1', name: 'Greft Seti', sku: 'GRF-2', model: 'G2', unit: 'kutu', isActive: true };
-  items: DeliveryItemRecord[] = []; events: string[] = []; completed = new Map<string, unknown>();
+  items: DeliveryItemRecord[] = []; events: string[] = [];
+  activity: Array<{ event: string; oldValue?: unknown; newValue?: unknown }> = [];
+  completed = new Map<string, unknown>();
   getProductCalls: string[] = [];
   getItemCalls = 0;
   bumpVersionCalls = 0;
@@ -19,7 +22,11 @@ class DeliveryRepository implements JobCardRepository {
 
   private tx(): JobCardTransaction { return {
     getJobForUpdate: async (org, id) => org === this.job.organizationId && id === this.job.id ? { ...this.job } : null,
-    transitionWithVersion: async () => null, appendActivity: async (i) => { this.events.push(i.event); },
+    transitionWithVersion: async () => null,
+    appendActivity: async (i) => {
+      this.events.push(i.event);
+      this.activity.push({ event: i.event, oldValue: i.oldValue, newValue: i.newValue });
+    },
     getAssignee: async () => null, customerExists: async () => false, createJobCard: async () => { throw new Error('unused'); },
     updateFieldsWithVersion: async () => null,
     getProduct: async (org, id) => {
@@ -58,7 +65,7 @@ class DeliveryRepository implements JobCardRepository {
       contact: null,
       lifecycle: {
         createdAt: '2026-07-13T10:00:00.000Z',
-        plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+        acceptedAt: null, acceptedBy: null, startedAt: null, submittedAt: null, submittedBy: null,
         submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
         revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
         cancelledAt: null, cancelledBy: null, cancelReason: null, cancelledFromStatus: null,
@@ -220,4 +227,72 @@ describe('delivery item mutations', () => {
       .rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
     expect(repo.events).toHaveLength(1);
   });
+
+  it('creates a planned delivery line with deliveredAt null and never copies scheduledAt', async () => {
+    const repo = new DeliveryRepository();
+    repo.job = {
+      ...repo.job,
+      status: 'ACCEPTED',
+      scheduledAt: '2026-07-20T10:00:00.000Z',
+    };
+
+    const result = await new JobCardService(repo).addDeliveryItem(staff, 'job-1', {
+      ...create,
+      deliveredAt: null,
+    });
+
+    expect(result.item.deliveredAt).toBeNull();
+    expect(result.item.deliveredAt).not.toEqual(new Date(repo.job.scheduledAt!));
+    expect(repo.items[0]!.deliveredAt).toBeNull();
+  });
+
+  it('records actual deliveredAt during IN_PROGRESS without inventing it from scheduledAt', async () => {
+    const repo = new DeliveryRepository();
+    repo.job = {
+      ...repo.job,
+      status: 'IN_PROGRESS',
+      scheduledAt: '2026-07-20T10:00:00.000Z',
+    };
+    const service = new JobCardService(repo);
+    const actualDeliveredAt = '2026-07-21T14:30:00.000Z';
+
+    const added = await service.addDeliveryItem(staff, 'job-1', {
+      ...create,
+      deliveredAt: null,
+    });
+    const patched = await service.patchDeliveryItem(staff, 'job-1', added.item.id!, {
+      expectedVersion: 2,
+      deliveredAt: actualDeliveredAt,
+    });
+
+    expect(added.item.deliveredAt).toBeNull();
+    expect(patched.item.deliveredAt).toEqual(new Date(actualDeliveredAt));
+    expect(patched.item.deliveredAt).not.toEqual(new Date(repo.job.scheduledAt!));
+  });
 });
+
+  it('rejects non-null deliveredAt before execution (NEW/ACCEPTED)', async () => {
+    for (const status of ['NEW', 'ACCEPTED'] as const) {
+      const repo = new DeliveryRepository();
+      repo.job = { ...repo.job, status, scheduledAt: '2026-07-20T10:00:00.000Z' };
+      await expect(new JobCardService(repo).addDeliveryItem(staff, 'job-1', {
+        ...create,
+        deliveredAt: '2026-07-21T14:30:00.000Z',
+      })).rejects.toMatchObject({ code: 'JOB_NOT_EDITABLE', statusCode: 409 });
+      expect(repo.items).toHaveLength(0);
+    }
+  });
+
+  it('includes deliveredAt in DELIVERY_ITEM_UPDATED activity payload', async () => {
+    const repo = new DeliveryRepository();
+    repo.job = { ...repo.job, status: 'IN_PROGRESS', scheduledAt: '2026-07-20T10:00:00.000Z' };
+    const service = new JobCardService(repo);
+    const added = await service.addDeliveryItem(staff, 'job-1', { ...create, deliveredAt: null });
+    await service.patchDeliveryItem(staff, 'job-1', added.item.id!, {
+      expectedVersion: 2,
+      deliveredAt: '2026-07-21T14:30:00.000Z',
+    });
+    const updated = repo.activity.find((event) => event.event === 'DELIVERY_ITEM_UPDATED');
+    expect(updated?.oldValue).toMatchObject({ deliveredAt: null });
+    expect(updated?.newValue).toMatchObject({ deliveredAt: '2026-07-21T14:30:00.000Z' });
+  });

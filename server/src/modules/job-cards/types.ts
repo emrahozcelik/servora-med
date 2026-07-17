@@ -1,7 +1,7 @@
 import type { UserRole } from '../auth/types.js';
 
 export const JOB_CARD_STATUSES = [
-  'NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL',
+  'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
   'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
@@ -20,7 +20,7 @@ export const JOB_CARD_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export type JobCardPriority = (typeof JOB_CARD_PRIORITIES)[number];
 
 export const JOB_CARD_ACTIVITY_EVENTS = [
-  'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_STARTED',
+  'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
@@ -45,6 +45,7 @@ export type JobCard = {
   createdBy: string;
   priority: JobCardPriority;
   dueDate: string | null;
+  scheduledAt: string | null;
 };
 
 export type JobCardCreateInput =
@@ -52,28 +53,32 @@ export type JobCardCreateInput =
     clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string;
     description?: string | null; customerId: string; contactId?: string | null;
     assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
+    scheduledAt: string;
   }
   | {
     clientActionId: string; type: 'GENERAL_TASK'; title: string;
     description?: string | null; customerId?: string | null; contactId?: string | null;
     assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
+    scheduledAt?: string | null;
   }
   | {
     clientActionId: string; type: 'SALES_MEETING'; title: string;
     description?: string | null; customerId: string; contactId?: string | null;
-    assignedTo: string; priority?: JobCardPriority; dueDate: string;
+    assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
+    scheduledAt: string;
   };
 
 type NormalizedCommonCreateInput = {
   clientActionId: string; title: string; description: string | null; contactId: string | null;
   assignedTo: string; priority: JobCardPriority; dueDate: string | null;
+  scheduledAt: string | null;
 };
 
 export type NormalizedJobCardCreateInput =
-  | NormalizedCommonCreateInput & { type: 'PRODUCT_DELIVERY'; customerId: string }
+  | NormalizedCommonCreateInput & { type: 'PRODUCT_DELIVERY'; customerId: string; scheduledAt: string }
   | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null }
   | NormalizedCommonCreateInput & {
-      type: 'SALES_MEETING'; customerId: string; dueDate: string;
+      type: 'SALES_MEETING'; customerId: string; scheduledAt: string;
     };
 
 export type MeetingDetails = {
@@ -108,7 +113,8 @@ export type RelatedIdentity = { id: string; name: string };
 
 export type JobLifecycleFacts = {
   createdAt: string;
-  plannedAt: string | null;
+  acceptedAt: string | null;
+  acceptedBy: RelatedIdentity | null;
   startedAt: string | null;
   submittedAt: string | null;
   submittedBy: RelatedIdentity | null;
@@ -149,7 +155,7 @@ export type DeliveryItem = {
   jobCardId?: string;
   productId: string;
   deliveryPurpose: DeliveryPurpose;
-  deliveredAt: Date;
+  deliveredAt: Date | null;
   quantity: number;
   unit?: string | null;
   productNameSnapshot?: string;
@@ -162,7 +168,7 @@ export type DeliveryItem = {
 };
 
 export type LifecycleCommand =
-  | 'PLAN'
+  | 'ACCEPT_ASSIGNMENT'
   | 'START'
   | 'SUBMIT_FOR_APPROVAL'
   | 'APPROVE'
@@ -171,6 +177,9 @@ export type LifecycleCommand =
   | 'RESUME'
   | 'CANCEL';
 
+/** Active statuses plus legacy PLANNED retained only for historical activity presentation. */
+export type JobCardActivityStatus = JobCardStatus | 'PLANNED';
+
 export type JobPermissionSubject = Pick<
   JobCard,
   'organizationId' | 'type' | 'status' | 'assignedTo'
@@ -178,7 +187,7 @@ export type JobPermissionSubject = Pick<
 
 export const JOB_WORKFLOW_ACTIONS = [
   'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
-  'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
+  'EDIT_MEETING_RESULT', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE',
 ] as const;
 export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
 
@@ -223,6 +232,7 @@ export type PersistedJobCardListItem = {
   title: string;
   priority: JobCardPriority;
   dueDate: string | null;
+  scheduledAt: string | null;
   createdAt: string;
   updatedAt: string;
   staffCompletedAt: string | null;
@@ -249,7 +259,7 @@ export type JobCardBoardColumn = { items: JobCardListItem[]; count: number };
 export type JobCardBoard = {
   columns: {
     NEW: JobCardBoardColumn;
-    PLANNED: JobCardBoardColumn;
+    ACCEPTED: JobCardBoardColumn;
     IN_PROGRESS: JobCardBoardColumn;
     WAITING_APPROVAL: JobCardBoardColumn;
     REVISION_REQUESTED: JobCardBoardColumn;
@@ -283,8 +293,8 @@ export type ActivityRecord = {
 export type JobCardActivityDetails =
   | {
       kind: 'STATUS_TRANSITION';
-      fromStatus: JobCardStatus;
-      toStatus: JobCardStatus;
+      fromStatus: JobCardActivityStatus;
+      toStatus: JobCardActivityStatus;
       reason: string | null;
     }
   | {

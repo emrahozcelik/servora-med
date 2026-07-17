@@ -125,7 +125,7 @@ class PostgresCrmTransaction implements CrmTransaction {
   async customerHasActiveJobs(organizationId: string, customerId: string) {
     const result = await this.client.query(
       `SELECT 1 FROM job_cards WHERE organization_id=$1 AND customer_id=$2
-       AND status IN ('NEW','PLANNED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED') LIMIT 1`,
+       AND status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED') LIMIT 1`,
       [organizationId, customerId],
     );
     return (result.rowCount ?? 0) > 0;
@@ -212,7 +212,7 @@ class PostgresCrmTransaction implements CrmTransaction {
   async contactHasActiveJobs(organizationId: string, contactId: string) {
     const result = await this.client.query(
       `SELECT 1 FROM job_cards WHERE organization_id=$1 AND contact_id=$2
-       AND status IN ('NEW','PLANNED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED') LIMIT 1`,
+       AND status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED') LIMIT 1`,
       [organizationId, contactId],
     );
     return (result.rowCount ?? 0) > 0;
@@ -314,7 +314,7 @@ export class PostgresCrmRepository implements CrmRepository {
     const openJobs = await this.pool.query<JobSummaryRow>(
       `SELECT id, title, status, assigned_to, due_date, created_at, updated_at, manager_approved_at
        FROM job_cards WHERE organization_id=$1 AND customer_id=$2${staffScope}
-       AND status IN ('NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
+       AND status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
        ORDER BY updated_at DESC, id DESC LIMIT 5`, jobValues,
     );
     const completedJobs = await this.pool.query<JobSummaryRow>(

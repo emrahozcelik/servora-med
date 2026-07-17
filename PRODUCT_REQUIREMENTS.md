@@ -1,7 +1,7 @@
 # Servora-Med Product Requirements
 
 > Date: 2026-07-17
-> Status: Approved Phase 0 product requirements; Job lifecycle visibility updated
+> Status: Approved Phase 0 product requirements; Job acceptance and scheduling applied
 > Responsibility: Product scope and business behavior SSOT
 
 Technical architecture belongs to `SERVORA_MED_ARCHITECTURE_PLAN.md`; data design belongs to `SERVORA_MED_SCHEMA_DRAFT.md`; API behavior belongs to `SERVORA_MED_API_DRAFT.md`; delivery order belongs to `SERVORA_MED_MVP_SLICES.md`; durable decisions belong to `DECISIONS.md`.
@@ -93,16 +93,29 @@ When a manager requests revision, the reason is mandatory. The JobCard returns t
 ### Lifecycle
 
 ```text
-NEW -> PLANNED -> IN_PROGRESS -> WAITING_APPROVAL -> COMPLETED
-                              -> REVISION_REQUESTED -> IN_PROGRESS
-NEW | PLANNED | IN_PROGRESS | WAITING_APPROVAL | REVISION_REQUESTED -> CANCELLED
+NEW --ACCEPT_ASSIGNMENT-------------> ACCEPTED
+ACCEPTED --START--------------------> IN_PROGRESS
+IN_PROGRESS --SUBMIT_FOR_APPROVAL---> WAITING_APPROVAL
+WAITING_APPROVAL --APPROVE----------> COMPLETED
+WAITING_APPROVAL --REQUEST_REVISION-> REVISION_REQUESTED
+WAITING_APPROVAL --WITHDRAW_FROM_APPROVAL-> IN_PROGRESS
+REVISION_REQUESTED --RESUME---------> IN_PROGRESS
+active state --CANCEL---------------> CANCELLED
 ```
 
 Allowed transitions are explicit backend commands. Status is never free text and cannot be changed by a generic field update.
 
+`PLANNED` is not an active lifecycle status. Historical rows and `JOB_PLANNED` activity may
+exist as legacy history after migration; they are not written by new application code.
+
 ### Lifecycle invariants
 
 - Staff can never transition directly to `COMPLETED`.
+- Only the currently assigned Staff member may execute `ACCEPT_ASSIGNMENT`. Manager and
+  Admin assign or reassign work but do not accept on behalf of Staff.
+- Staff-created self-assigned JobCards are created as `ACCEPTED`; Manager/Admin-created
+  assigned JobCards begin as `NEW`.
+- `START` is allowed only from `ACCEPTED`. Direct `NEW -> IN_PROGRESS` is not allowed.
 - Only manager or admin can approve a `WAITING_APPROVAL` JobCard.
 - Revision requires a non-empty reason.
 - Commercial fields are immutable while `WAITING_APPROVAL`; an authorized edit first uses the
@@ -112,8 +125,15 @@ Allowed transitions are explicit backend commands. Status is never free text and
   Manager/Admin withdrawal is intentional management intervention, not a policy gap.
 - Assigned Staff may cancel their own JobCard in any active state with a non-empty reason;
   Manager/Admin retain the same authority for organization-visible active JobCards.
-- Sales Meeting result fields and Staff notes begin only after start; `NEW` and `PLANNED`
-  meetings neither expose nor accept them.
+- Sales Meeting result fields begin only after start; `NEW` and `ACCEPTED` meetings neither
+  expose nor accept result writes. Assignment-stage notes are allowed in `NEW` and
+  `ACCEPTED` so Staff can communicate schedule conflicts before starting.
+- `scheduledAt` is the planned work instant. `meetingAt` and delivery-item `deliveredAt`
+  are actual times and must not be fabricated from the planned default. Delivery lines may
+  omit actual delivery time before submission; submission still requires a valid actual
+  time on every item.
+- Management reassignment or schedule change while status is `ACCEPTED` invalidates
+  acceptance (returns to `NEW` and clears acceptance facts). Staff schedule edits do not.
 - `COMPLETED` and `CANCELLED` JobCards are immutable in MVP.
 - Admin override and lifecycle reversal are outside MVP.
 
@@ -124,13 +144,14 @@ visible without inventing a second state machine in the UI.
 
 Required visibility:
 
-- Current presentation phase derived from technical status (`CREATED`, `PLANNING`,
-  `EXECUTION`, `REVIEW`, `COMPLETION`), with planning marked skipped when `NEW` went
-  directly to `IN_PROGRESS`.
+- Current presentation phase derived from technical status (assignment, acceptance,
+  execution, review, completion). Scheduling is independent data (`scheduledAt`), never a
+  lifecycle status labeled “Planlandı.”
 - Current responsibility: which role is expected to act next (assigned Staff versus
   Manager/Admin), separate from the full set of allowed intervention permissions.
 - Consequence-led commands: every primary lifecycle control states what happens next
-  (review lock, return to execution, terminal completion, or terminal cancellation).
+  (accept assignment, start work, review lock, return to execution, terminal completion,
+  or terminal cancellation).
 - Structured submission readiness from the same backend evaluator used by
   `SUBMIT_FOR_APPROVAL`, returned as stable requirement codes rather than free-text guesses.
 - Latest revision reason when the JobCard is in the correction loop
@@ -144,14 +165,15 @@ Presentation rules:
   management review summary, and consequence-led primary/secondary commands.
 - List and board show only a compact ordinal phase summary (for example `3 / 5 · Uygulanıyor`)
   plus shared status vocabulary; they do not reimplement permission or readiness policy.
+- List/board cards open Job detail directly; expand-summary disclosure is not used.
 - Frontend owns Turkish labels and layout only. Backend owns allowed commands, allowed
   actions, lifecycle facts, and readiness. The UI must not offer a command the backend did
   not allow and must not recompute whether a JobCard is ready to submit.
 
 ### Detail, list, and board acceptance criteria
 
-- Staff can complete `NEW → START → IN_PROGRESS → SUBMIT → WAITING_APPROVAL` from detail
-  with consequence-led controls and visible readiness.
+- Staff can complete `NEW → ACCEPT → ACCEPTED → START → IN_PROGRESS → SUBMIT →
+  WAITING_APPROVAL` from detail with consequence-led controls and visible readiness.
 - Assigned Staff can withdraw from review, correct records, and resubmit; Manager/Admin may
   also withdraw as intentional intervention before editing.
 - Manager can request revision with a mandatory reason or complete review and close the job.

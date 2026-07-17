@@ -4,6 +4,7 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
+import { localDateTimeToIso } from '../src/jobs/scheduling';
 import { ApiError, type CurrentUser } from '../src/services/api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -11,6 +12,17 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn() }));
+const scheduling = vi.hoisted(() => ({
+  defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
+  localDateTimeToIso: (value: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+    if (!match) throw new Error(value);
+    return new Date(
+      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+      Number(match[4]), Number(match[5]), 0, 0,
+    ).toISOString();
+  },
+}));
 vi.mock('../src/jobs/jobs-api', async (original) => ({
   ...await original<typeof import('../src/jobs/jobs-api')>(), ...jobs,
 }));
@@ -20,6 +32,7 @@ vi.mock('../src/services/people-api', async (original) => ({
 vi.mock('../src/services/crm-api', async (original) => ({
   ...await original<typeof import('../src/services/crm-api')>(), ...crm,
 }));
+vi.mock('../src/jobs/scheduling', () => scheduling);
 
 const manager: CurrentUser = {
   id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici', email: 'm@test.local',
@@ -57,6 +70,7 @@ describe('Sales Meeting planning flow', () => {
   let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
   beforeEach(() => {
     vi.clearAllMocks();
+    scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
     crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0 });
@@ -67,21 +81,39 @@ describe('Sales Meeting planning flow', () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
-  it('keeps Staff ownership fixed and submits the exact required planning payload', async () => {
+  it('keeps Staff ownership fixed and submits scheduledAt without dueDate', async () => {
     await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
     await settle();
     expect(people.listStaff).not.toHaveBeenCalled();
     expect(container.querySelector('#meeting-assignee')).toBeNull();
+    expect(container.textContent).toContain('Planlanan görüşme zamanı');
+    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-17T14:30');
     change(container.querySelector('#meeting-title')!, '  İmplant değerlendirme görüşmesi  ');
     change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
-    change(container.querySelector('#meeting-due-date')!, '2026-07-01');
+    change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).toHaveBeenCalledWith({
       clientActionId: 'action-1', type: 'SALES_MEETING',
       title: 'İmplant değerlendirme görüşmesi', customerId: 'c1', assignedTo: 'staff-1',
-      dueDate: '2026-07-01', description: null, contactId: null, priority: 'normal',
+      scheduledAt: localDateTimeToIso('2026-07-01T10:00'),
+      description: null, contactId: null, priority: 'normal',
     });
     expect(onCreated).toHaveBeenCalledWith('meeting-1');
+  });
+
+  it('initializes planned time once and preserves edits across Customer reload and validation', async () => {
+    await act(async () => root.render(<SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} />));
+    await settle();
+    expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
+    const scheduled = container.querySelector('#meeting-scheduled-at') as HTMLInputElement;
+    change(scheduled, '2026-08-05T15:00');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).not.toHaveBeenCalled();
+    expect(scheduled.value).toBe('2026-08-05T15:00');
+    await act(async () => (container.querySelector('[data-retry-customers]') as HTMLButtonElement | null)?.click());
+    await settle();
+    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-05T15:00');
+    expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
   });
 
   it('blocks on required Customer loading, supports retry, and loads active Staff for managers', async () => {
@@ -96,13 +128,14 @@ describe('Sales Meeting planning flow', () => {
     expect((container.querySelector('#meeting-assignee') as HTMLSelectElement).textContent).toContain('Bora');
   });
 
-  it('requires title, Customer, due date, and manager assignee with accessible errors', async () => {
+  it('requires title, Customer, scheduled time, and manager assignee with accessible errors', async () => {
     await act(async () => root.render(<SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} />));
     await settle();
+    change(container.querySelector('#meeting-scheduled-at')!, '');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).not.toHaveBeenCalled();
     expect(container.querySelector('.form-error')).toBe(document.activeElement);
-    for (const id of ['meeting-title', 'meeting-customer', 'meeting-due-date', 'meeting-assignee']) {
+    for (const id of ['meeting-title', 'meeting-customer', 'meeting-scheduled-at', 'meeting-assignee']) {
       const control = container.querySelector(`#${id}`);
       expect(control?.getAttribute('aria-invalid')).toBe('true');
       const errorId = control?.getAttribute('aria-describedby');
@@ -135,9 +168,12 @@ describe('Sales Meeting planning flow', () => {
     expect(container.textContent).toContain('İlgili kişiler yüklenemedi');
     expect(container.querySelector('[data-retry-contacts]')).not.toBeNull();
     change(container.querySelector('#meeting-title')!, 'Görüşme');
-    change(container.querySelector('#meeting-due-date')!, '2025-01-01');
+    change(container.querySelector('#meeting-scheduled-at')!, '2025-01-01T09:00');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
-    expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({ contactId: null, dueDate: '2025-01-01' }));
+    expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+      contactId: null,
+      scheduledAt: localDateTimeToIso('2025-01-01T09:00'),
+          }));
   });
 
   it('locks double submit and reuses the action ID after a retryable error', async () => {
@@ -146,12 +182,13 @@ describe('Sales Meeting planning flow', () => {
     await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
     await settle(); change(container.querySelector('#meeting-title')!, 'Görüşme');
     await act(async () => change(container.querySelector('#meeting-customer')!, 'c1')); await settle();
-    change(container.querySelector('#meeting-due-date')!, '2026-07-15');
+    change(container.querySelector('#meeting-scheduled-at')!, '2026-07-15T11:00');
     const form = container.querySelector('form') as HTMLFormElement;
     await act(async () => form.requestSubmit()); form.requestSubmit();
     expect(jobs.createJobCard).toHaveBeenCalledTimes(1);
     await act(async () => pending.reject(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi', true)));
     await act(async () => form.requestSubmit());
     expect(jobs.createJobCard.mock.calls[1]![0].clientActionId).toBe('action-1');
+    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-15T11:00');
   });
 });

@@ -84,6 +84,20 @@ describe('JobCard policy', () => {
     expect(getAllowedLifecycleCommands(admin, { ...job, status: 'COMPLETED' })).toEqual([]);
   });
 
+  it('returns actor-scoped acceptance commands without management accept or NEW start', () => {
+    const assignedNew = { ...job, status: 'NEW' as const };
+    const accepted = { ...job, status: 'ACCEPTED' as const };
+    expect(getAllowedLifecycleCommands(staff, assignedNew)).toContain('ACCEPT_ASSIGNMENT');
+    expect(getAllowedLifecycleCommands(manager, assignedNew)).not.toContain('ACCEPT_ASSIGNMENT');
+    expect(getAllowedLifecycleCommands(admin, assignedNew)).not.toContain('ACCEPT_ASSIGNMENT');
+    expect(getAllowedLifecycleCommands(staff, accepted)).toContain('START');
+    expect(getAllowedLifecycleCommands(staff, assignedNew)).not.toContain('START');
+    expect(getAllowedLifecycleCommands({ ...staff, id: 'staff-2' }, assignedNew)).toEqual([]);
+    expect(getAllowedLifecycleCommands(staff, assignedNew)).toEqual(['ACCEPT_ASSIGNMENT', 'CANCEL']);
+    expect(getAllowedLifecycleCommands(manager, assignedNew)).toEqual(['CANCEL']);
+    expect(getAllowedLifecycleCommands(staff, accepted)).toEqual(['START', 'CANCEL']);
+  });
+
   it('returns neutral actions without treating waiting edits as direct mutation', () => {
     const meeting = { ...job, type: 'SALES_MEETING' as const };
     expect(getAllowedJobActions(staff, { ...meeting, status: 'IN_PROGRESS' })).toEqual([
@@ -94,14 +108,45 @@ describe('JobCard policy', () => {
       'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'VIEW_NOTES',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' })).toEqual([
-      'EDIT_JOB_FIELDS',
+      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE',
+    ]);
+    expect(getAllowedJobActions(staff, { ...meeting, status: 'ACCEPTED' })).toEqual([
+      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'CANCELLED' })).toEqual([
       'VIEW_MEETING_RESULT', 'VIEW_NOTES',
     ]);
   });
 
-  it('keeps action projection and write/read guards in parity', () => {
+  it('exposes assignment-stage notes for assigned Staff and conceals other Staff', () => {
+    const meeting = { ...job, type: 'SALES_MEETING' as const };
+    for (const status of ['NEW', 'ACCEPTED'] as const) {
+      expect(getAllowedJobActions(staff, { ...meeting, status }))
+        .toEqual(expect.arrayContaining(['VIEW_NOTES', 'ADD_NOTE']));
+      expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, { ...meeting, status }))
+        .toEqual([]);
+    }
+  });
+
+  it('exposes EDIT_DELIVERY_ACTUAL_TIME only in execution stages for Product Delivery', () => {
+  const delivery = { ...job, type: 'PRODUCT_DELIVERY' as const };
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'NEW' }))
+    .not.toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'ACCEPTED' }))
+    .not.toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'IN_PROGRESS' }))
+    .toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'REVISION_REQUESTED' }))
+    .toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(getAllowedJobActions(staff, { ...delivery, status: 'WAITING_APPROVAL' }))
+    .not.toContain('EDIT_DELIVERY_ACTUAL_TIME');
+  expect(() => assertAllowedJobAction(staff, { ...delivery, status: 'NEW' }, 'EDIT_DELIVERY_ACTUAL_TIME'))
+    .toThrowError(expect.objectContaining({ code: 'JOB_NOT_EDITABLE' }));
+  expect(() => assertAllowedJobAction(staff, { ...delivery, status: 'IN_PROGRESS' }, 'EDIT_DELIVERY_ACTUAL_TIME'))
+    .not.toThrow();
+});
+
+it('keeps action projection and write/read guards in parity', () => {
     const meeting = { ...job, type: 'SALES_MEETING' as const };
     for (const status of JOB_CARD_STATUSES) {
       const candidate = { ...meeting, status };
@@ -116,9 +161,9 @@ describe('JobCard policy', () => {
   });
 
   it.each([
-    ['PLAN', 'NEW', staff], ['PLAN', 'NEW', manager], ['PLAN', 'NEW', admin],
-    ['START', 'NEW', staff], ['START', 'PLANNED', staff],
-    ['START', 'NEW', manager], ['START', 'PLANNED', admin],
+    ['ACCEPT_ASSIGNMENT', 'NEW', staff],
+    ['START', 'ACCEPTED', staff],
+    ['START', 'ACCEPTED', manager], ['START', 'ACCEPTED', admin],
     ['SUBMIT_FOR_APPROVAL', 'IN_PROGRESS', staff],
     ['SUBMIT_FOR_APPROVAL', 'IN_PROGRESS', manager],
     ['SUBMIT_FOR_APPROVAL', 'IN_PROGRESS', admin],
@@ -130,10 +175,10 @@ describe('JobCard policy', () => {
     ['WITHDRAW_FROM_APPROVAL', 'WAITING_APPROVAL', admin],
     ['RESUME', 'REVISION_REQUESTED', staff],
     ['RESUME', 'REVISION_REQUESTED', manager], ['RESUME', 'REVISION_REQUESTED', admin],
-    ['CANCEL', 'NEW', staff, 'İptal'], ['CANCEL', 'PLANNED', staff, 'İptal'],
+    ['CANCEL', 'NEW', staff, 'İptal'], ['CANCEL', 'ACCEPTED', staff, 'İptal'],
     ['CANCEL', 'IN_PROGRESS', staff, 'İptal'],
     ['CANCEL', 'REVISION_REQUESTED', staff, 'İptal'],
-    ['CANCEL', 'NEW', manager, 'İptal'], ['CANCEL', 'PLANNED', admin, 'İptal'],
+    ['CANCEL', 'NEW', manager, 'İptal'], ['CANCEL', 'ACCEPTED', admin, 'İptal'],
     ['CANCEL', 'IN_PROGRESS', manager, 'İptal'], ['CANCEL', 'REVISION_REQUESTED', admin, 'İptal'],
     ['CANCEL', 'WAITING_APPROVAL', staff, 'İptal'],
     ['CANCEL', 'WAITING_APPROVAL', manager, 'İptal'],
@@ -149,19 +194,27 @@ describe('JobCard policy', () => {
       .toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
   });
 
+  it.each([manager, admin] as const)('forbids management acceptance by %s with FORBIDDEN', (actor) => {
+    expect(() => assertCanTransition(actor, { ...job, status: 'NEW' }, 'ACCEPT_ASSIGNMENT'))
+      .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+  });
+
   it.each([
-    ['PLAN', 'PLANNED'], ['START', 'IN_PROGRESS'], ['SUBMIT_FOR_APPROVAL', 'NEW'],
+    ['ACCEPT_ASSIGNMENT', 'ACCEPTED'], ['START', 'NEW'], ['START', 'IN_PROGRESS'],
+    ['SUBMIT_FOR_APPROVAL', 'NEW'],
     ['APPROVE', 'IN_PROGRESS'], ['REQUEST_REVISION', 'REVISION_REQUESTED'],
     ['WITHDRAW_FROM_APPROVAL', 'IN_PROGRESS'], ['RESUME', 'IN_PROGRESS'],
   ] as const)('rejects %s from invalid source %s', (command, status) => {
-    const actor = command === 'WITHDRAW_FROM_APPROVAL' ? staff : manager;
+    const actor = command === 'ACCEPT_ASSIGNMENT' || command === 'WITHDRAW_FROM_APPROVAL'
+      ? staff
+      : manager;
     expect(() => assertCanTransition(actor, { ...job, status }, command, 'Neden'))
       .toThrowError(expect.objectContaining({ code: 'INVALID_TRANSITION' }));
   });
 
   it.each(['COMPLETED', 'CANCELLED'] as const)('denies every command from terminal state %s', (status) => {
     for (const command of [
-      'PLAN', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
+      'ACCEPT_ASSIGNMENT', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
       'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
     ] as const) {
       expect(() => assertCanTransition(admin, { ...job, status }, command, 'Neden'))
@@ -170,9 +223,9 @@ describe('JobCard policy', () => {
   });
 
   it('enforces same-organization and Staff own-assignment boundaries', () => {
-    expect(() => assertCanTransition({ ...staff, id: 'staff-2' }, job, 'START'))
+    expect(() => assertCanTransition({ ...staff, id: 'staff-2' }, { ...job, status: 'ACCEPTED' }, 'START'))
       .toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
-    expect(() => assertCanTransition({ ...manager, organizationId: 'org-2' }, job, 'START'))
+    expect(() => assertCanTransition({ ...manager, organizationId: 'org-2' }, { ...job, status: 'ACCEPTED' }, 'START'))
       .toThrowError(expect.objectContaining({ code: 'FORBIDDEN' }));
   });
 
@@ -186,7 +239,7 @@ describe('JobCard policy', () => {
   });
 
   it('allows only assigned Staff to cancel throughout the active lifecycle', () => {
-    for (const status of ['NEW', 'PLANNED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'] as const) {
+    for (const status of ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'] as const) {
       expect(() => assertCanTransition(staff, { ...job, status }, 'CANCEL', 'Müşteri iptal etti'))
         .not.toThrow();
       expect(() => assertCanTransition({ ...staff, id: 'staff-2' }, { ...job, status }, 'CANCEL', 'Neden'))

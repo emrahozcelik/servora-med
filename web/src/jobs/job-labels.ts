@@ -1,4 +1,4 @@
-import type { JobCardStatus, JobCardType } from './jobs-api';
+import type { JobCardActivityStatus, JobCardStatus, JobCardType } from './jobs-api';
 
 export const jobTypeLabels: Record<JobCardType, string> = {
   PRODUCT_DELIVERY: 'Ürün teslimi',
@@ -6,8 +6,10 @@ export const jobTypeLabels: Record<JobCardType, string> = {
   SALES_MEETING: 'Satış görüşmesi',
 };
 
-export const jobStatusLabels: Record<JobCardStatus, string> = {
-  NEW: 'Oluşturuldu',
+/** Active JobCard statuses plus historical PLANNED for activity timeline only. */
+export const jobStatusLabels: Record<JobCardActivityStatus, string> = {
+  NEW: 'Atandı',
+  ACCEPTED: 'Kabul edildi',
   PLANNED: 'Planlandı',
   IN_PROGRESS: 'Uygulanıyor',
   WAITING_APPROVAL: 'Yönetici kontrolünde',
@@ -16,8 +18,12 @@ export const jobStatusLabels: Record<JobCardStatus, string> = {
   CANCELLED: 'İptal edildi',
 };
 
+export function jobCardStatusLabel(status: JobCardStatus): string {
+  return jobStatusLabels[status];
+}
+
 export const JOB_CARD_ACTIVITY_EVENTS = [
-  'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_STARTED',
+  'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
   'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
@@ -31,6 +37,7 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   JOB_CREATED: 'İş oluşturuldu',
   JOB_ASSIGNED: 'Atanan personel değiştirildi',
   JOB_PLANNED: 'İş planlandı',
+  JOB_ACCEPTED: 'İş kabul edildi',
   JOB_STARTED: 'İş başlatıldı',
   JOB_SUBMITTED_FOR_APPROVAL: 'Kontrole gönderildi',
   JOB_APPROVED: 'Kontrol tamamlandı',
