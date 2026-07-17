@@ -202,11 +202,12 @@ export class ProductService {
     return this.changeActive(actor, productId, expectedVersion, false);
   }
 
-  async deleteProduct(actor: ProductActor, productId: string) {
+  async deleteProduct(actor: ProductActor, productId: string, expectedVersion: number) {
     requireWriter(actor);
     try {
       await this.repository.execute(async (tx) => {
         const current = await this.requireProduct(tx, actor, productId);
+        if (current.version !== expectedVersion) throw versionConflict(current.version);
         if (await tx.productHasDeliveryItems(actor.organizationId, productId)) {
           throw new AppError(
             'PRODUCT_HAS_OPERATION_HISTORY',

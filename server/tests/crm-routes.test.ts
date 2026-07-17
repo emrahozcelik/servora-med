@@ -69,7 +69,7 @@ describe('CRM HTTP routes', () => {
     const routes = [
       ['GET', '/api/customers'], ['POST', '/api/customers'], ['GET', '/api/customers/customer-1'],
       ['PATCH', '/api/customers/customer-1'], ['POST', '/api/customers/customer-1/activate'],
-      ['POST', '/api/customers/customer-1/deactivate'], ['DELETE', '/api/customers/customer-1'],
+      ['POST', '/api/customers/customer-1/deactivate'], ['DELETE', '/api/customers/customer-1', { expectedVersion: 1 }],
       ['GET', '/api/customers/customer-1/contacts'],
       ['POST', '/api/customers/customer-1/contacts'], ['GET', '/api/customers/customer-1/contacts/contact-1'],
       ['PATCH', '/api/customers/customer-1/contacts/contact-1'],
@@ -77,11 +77,16 @@ describe('CRM HTTP routes', () => {
       ['POST', '/api/customers/customer-1/contacts/contact-1/deactivate'],
       ['POST', '/api/customers/customer-1/contacts/contact-1/make-primary'],
     ] as const;
-    for (const [method, url] of routes) {
-      const payload = method === 'GET' || method === 'DELETE' ? undefined : url.endsWith('/customers')
+    for (const entry of routes) {
+      const method = entry[0];
+      const url = entry[1];
+      const explicitPayload = entry.length > 2 ? entry[2] : undefined;
+      const payload = method === 'GET' ? undefined
+        : explicitPayload !== undefined ? explicitPayload
+        : url.endsWith('/customers') && method === 'POST'
         ? { name: 'Klinik', customerType: 'clinic', taxNumber: null, phone: null, email: null,
           city: null, district: null, address: null, assignedStaffUserId: null }
-        : url.endsWith('/contacts') ? { name: 'Dr. Ayşe', title: null, phone: null, email: null }
+        : url.endsWith('/contacts') && method === 'POST' ? { name: 'Dr. Ayşe', title: null, phone: null, email: null }
           : url.includes('/contacts/') && method === 'PATCH'
             ? { expectedVersion: 1, name: 'Dr. Ayşe', title: null, phone: null, email: null }
             : method === 'PATCH'
@@ -95,10 +100,13 @@ describe('CRM HTTP routes', () => {
 
   it('dispatches Customer delete and returns 204', async () => {
     const { app, service } = await createApp();
-    const response = await app.inject({ method: 'DELETE', url: '/api/customers/customer-1' });
+    const response = await app.inject({
+      method: 'DELETE', url: '/api/customers/customer-1',
+      payload: { expectedVersion: 1 },
+    });
     expect(response.statusCode).toBe(204);
     expect(service.deleteCustomer).toHaveBeenCalledWith(
-      expect.objectContaining({ id: 'manager-1' }), 'customer-1',
+      expect.objectContaining({ id: 'manager-1' }), 'customer-1', 1,
     );
   });
 
@@ -108,7 +116,10 @@ describe('CRM HTTP routes', () => {
       'CUSTOMER_HAS_OPERATION_HISTORY', 409,
       'Bu müşteri geçmiş iş veya teslimat kayıtlarında kullanıldığı için silinemez.',
     ));
-    const response = await app.inject({ method: 'DELETE', url: '/api/customers/customer-1' });
+    const response = await app.inject({
+      method: 'DELETE', url: '/api/customers/customer-1',
+      payload: { expectedVersion: 1 },
+    });
     expect(response.statusCode).toBe(409);
     expect(response.json()).toMatchObject({
       code: 'CUSTOMER_HAS_OPERATION_HISTORY',

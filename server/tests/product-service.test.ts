@@ -99,7 +99,7 @@ describe('Product service policy', () => {
       () => service.updateProduct(staff, 'product-1', { expectedVersion: 1, name: 'Ürün' }),
       () => service.activateProduct(staff, 'product-1', 1),
       () => service.deactivateProduct(staff, 'product-1', 1),
-      () => service.deleteProduct(staff, 'product-1'),
+      () => service.deleteProduct(staff, 'product-1', 1),
     ];
     for (const mutate of mutations) {
       await expect(Promise.resolve().then(mutate)).rejects.toMatchObject({
@@ -297,7 +297,7 @@ describe('Product service policy', () => {
 
   it('deletes a Product without delivery history and audits PRODUCT_DELETED', async () => {
     const { service, calls, audits, current } = fixture();
-    await expect(service.deleteProduct(manager, 'product-1')).resolves.toBeUndefined();
+    await expect(service.deleteProduct(manager, 'product-1', 1)).resolves.toBeUndefined();
     expect(current()).toBeNull();
     expect(calls).toEqual(['lock', 'has-delivery', 'delete', 'audit']);
     expect(audits).toEqual([{
@@ -309,7 +309,7 @@ describe('Product service policy', () => {
 
   it('blocks Product delete when delivery items reference the Product', async () => {
     const { service, calls, audits, current } = fixture({ hasDeliveryItems: true });
-    await expect(service.deleteProduct(manager, 'product-1')).rejects.toMatchObject({
+    await expect(service.deleteProduct(manager, 'product-1', 1)).rejects.toMatchObject({
       code: 'PRODUCT_HAS_OPERATION_HISTORY', statusCode: 409,
       message: 'Bu ürün geçmiş teslimat veya satış kayıtlarında kullanıldığı için silinemez.',
     });
@@ -320,15 +320,23 @@ describe('Product service policy', () => {
 
   it('maps FK violations on Product delete to the operation-history conflict', async () => {
     const { service } = fixture({ fkViolationOnDelete: true });
-    await expect(service.deleteProduct(manager, 'product-1')).rejects.toMatchObject({
+    await expect(service.deleteProduct(manager, 'product-1', 1)).rejects.toMatchObject({
       code: 'PRODUCT_HAS_OPERATION_HISTORY', statusCode: 409,
     });
   });
 
   it('conceals a missing Product on delete', async () => {
     const { service } = fixture({ current: null });
-    await expect(service.deleteProduct(manager, 'missing')).rejects.toMatchObject({
+    await expect(service.deleteProduct(manager, 'missing', 1)).rejects.toMatchObject({
       code: 'PRODUCT_NOT_FOUND', statusCode: 404,
     });
   });
 });
+
+  it('rejects Product delete when expectedVersion is stale', async () => {
+    const { service } = fixture();
+    await expect(service.deleteProduct(manager, 'product-1', 99)).rejects.toMatchObject({
+      code: 'VERSION_CONFLICT', statusCode: 409,
+    });
+  });
+

@@ -148,11 +148,12 @@ export class CrmService {
     return this.changeCustomerStatus(actor, customerId, expectedVersion, 'inactive');
   }
 
-  async deleteCustomer(actor: CrmActor, customerId: string) {
+  async deleteCustomer(actor: CrmActor, customerId: string, expectedVersion: number) {
     requireWriter(actor);
     try {
       await this.repository.execute(async (tx) => {
         const current = await this.requireCustomer(tx, actor, customerId);
+        if (current.version !== expectedVersion) throw versionConflict(current.version);
         if (await tx.customerHasAnyJobs(actor.organizationId, customerId)) {
           throw new AppError(
             'CUSTOMER_HAS_OPERATION_HISTORY',

@@ -85,6 +85,6 @@ export const activateProduct = async (id: string, expectedVersion: number) =>
   parseProduct(await request(`${productPath(id)}/activate`, json('POST', { expectedVersion })));
 export const deactivateProduct = async (id: string, expectedVersion: number) =>
   parseProduct(await request(`${productPath(id)}/deactivate`, json('POST', { expectedVersion })));
-export const deleteProduct = async (id: string) => {
-  await request(productPath(id), { method: 'DELETE' });
+export const deleteProduct = async (id: string, expectedVersion: number) => {
+  await request(productPath(id), json('DELETE', { expectedVersion }));
 };

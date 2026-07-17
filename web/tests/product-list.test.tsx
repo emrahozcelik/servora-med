@@ -181,7 +181,7 @@ describe('routed Product list screen', () => {
       .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
     await act(async () => confirm.click());
     await act(async () => { await Promise.resolve(); });
-    expect(remove).toHaveBeenCalledWith('product-1');
+    expect(remove).toHaveBeenCalledWith('product-1', 1);
     expect(container.querySelector('[role="status"]')?.textContent).toContain('Dental İmplant Seti silindi.');
     expect(container.textContent).toContain('Henüz ürün kaydı yok');
   });
@@ -209,6 +209,32 @@ describe('routed Product list screen', () => {
     expect(container.querySelector('[role="alert"]')?.textContent)
       .toContain('Bu ürün geçmiş teslimat veya satış kayıtlarında kullanıldığı için silinemez.');
     expect(container.textContent).toContain('Dental İmplant Seti');
-    expect(remove).toHaveBeenCalledWith('product-1');
+    expect(remove).toHaveBeenCalledWith('product-1', 1);
+  });
+
+  it('clamps empty trailing page offset after product delete', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const load = vi.fn()
+      .mockResolvedValueOnce(page([product], 25, 26))
+      .mockResolvedValueOnce(page([], 25, 25))
+      .mockResolvedValueOnce(page([product], 0, 25));
+    const router = createMemoryRouter([{
+      path: '/products',
+      element: <ProductListScreen user={manager} load={load} remove={remove} />,
+    }], { initialEntries: ['/products?offset=25'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(container.textContent).toContain('Dental İmplant Seti');
+
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === 'Dental İmplant Seti ürününü sil') as HTMLButtonElement;
+    await act(async () => deleteButton.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+    expect(router.state.location.search === '' || router.state.location.search === '?offset=0').toBe(true);
+    expect(remove).toHaveBeenCalledWith('product-1', 1);
   });
 });

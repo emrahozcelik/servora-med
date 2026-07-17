@@ -156,7 +156,7 @@ describe('Product HTTP routes', () => {
       ['PATCH', `/api/products/${PRODUCT_ID}`, { expectedVersion: 1, name: 'Yeni Set' }],
       ['POST', `/api/products/${PRODUCT_ID}/activate`, { expectedVersion: 1 }],
       ['POST', `/api/products/${PRODUCT_ID}/deactivate`, { expectedVersion: 1 }],
-      ['DELETE', `/api/products/${PRODUCT_ID}`, undefined],
+      ['DELETE', `/api/products/${PRODUCT_ID}`, { expectedVersion: 1 }],
     ] as const;
     for (const [method, url, payload] of routes) {
       const response = await app.inject({ method, url, payload, headers: { cookie } });
@@ -182,6 +182,7 @@ describe('Product HTTP routes', () => {
     const { app, productRepository, cookie } = await createApp();
     const deleted = await app.inject({
       method: 'DELETE', url: `/api/products/${PRODUCT_ID}`, headers: { cookie },
+      payload: { expectedVersion: 1 },
     });
     expect(deleted.statusCode).toBe(204);
     expect(productRepository.products.has(PRODUCT_ID)).toBe(false);
@@ -191,6 +192,7 @@ describe('Product HTTP routes', () => {
     recreate.productRepository.hasDeliveryItems = true;
     const blocked = await recreate.app.inject({
       method: 'DELETE', url: `/api/products/${PRODUCT_ID}`, headers: { cookie: recreate.cookie },
+      payload: { expectedVersion: 1 },
     });
     expect(blocked.statusCode).toBe(409);
     expect(blocked.json()).toMatchObject({

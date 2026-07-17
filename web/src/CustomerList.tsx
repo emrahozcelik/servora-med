@@ -415,8 +415,9 @@ export function customerInputFromFormData(data: FormData): CreateCustomerInput {
   };
 }
 
-export function CustomerListScreen({ user, remove = deleteCustomer }: {
+export function CustomerListScreen({ user, load = listCustomers, remove = deleteCustomer }: {
   user: CurrentUser;
+  load?: typeof listCustomers;
   remove?: typeof deleteCustomer;
 }) {
   const navigate = useNavigate();
@@ -436,11 +437,11 @@ export function CustomerListScreen({ user, remove = deleteCustomer }: {
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
     const requestFilters = customerRequestFilters(filters, debouncedQuery);
-    Promise.all([listCustomers(requestFilters), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')])
+    Promise.all([load(requestFilters), user.role === 'STAFF' ? Promise.resolve([]) : listStaff('active')])
       .then(([result, profiles]) => { if (active) { setState({ kind: 'ready', customers: result.items }); setStaff(profiles); } })
       .catch((error) => { if (active) setState({ kind: 'error', message: error instanceof Error ? error.message : 'Müşteriler yüklenemedi.', retryable: error instanceof ApiError ? error.retryable : true }); });
     return () => { active = false; };
-  }, [debouncedQuery, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role]);
+  }, [debouncedQuery, filters.status, filters.customerType, filters.city, filters.assignedStaffUserId, filters.unassigned, filters.limit, filters.offset, reloadKey, user.role, load]);
   function changeFilter(name: string, value: string | boolean) {
     const next = new URLSearchParams(params);
     if (value === '' || value === false) next.delete(name); else next.set(name, String(value));
@@ -468,7 +469,7 @@ export function CustomerListScreen({ user, remove = deleteCustomer }: {
     setDeletePending(true);
     setActionError('');
     try {
-      await remove(deleteTarget.id);
+      await remove(deleteTarget.id, deleteTarget.version);
       const name = deleteTarget.name;
       setDeleteTarget(null);
       setFeedback(`${name} silindi.`);

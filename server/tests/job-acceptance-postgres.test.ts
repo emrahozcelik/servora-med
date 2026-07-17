@@ -150,7 +150,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(upgrade).toEqual({ appliedVersions: ['009_job_acceptance_and_scheduling'] });
+      expect(upgrade).toEqual({ appliedVersions: ['009_job_acceptance_and_scheduling', '010_entity_delete_audit'] });
 
       const rows = await pool.query<{
         title: string;

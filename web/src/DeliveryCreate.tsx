@@ -3,6 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import {
   addDeliveryItem,
   createJobCard,
+  listReferenceCustomers,
   type CurrentUser,
   type DeliveryPurpose,
   type ReferenceCustomer,
@@ -75,14 +76,15 @@ export async function createProductDelivery(
   return { jobCardId: job.id, version: delivery.jobCardVersion };
 }
 
-export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
+export function DeliveryCreateView({ user, customers: initialCustomers = [], onCancel, onCreated }: {
   user: CurrentUser;
-  customers: ReferenceCustomer[];
+  customers?: ReferenceCustomer[];
   onCancel: () => void;
   onCreated: (result: { jobCardId: string; version: number }) => void;
 }) {
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
+  const [customers, setCustomers] = useState<ReferenceCustomer[]>(initialCustomers);
   const [customerId, setCustomerId] = useState('');
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactId, setContactId] = useState('');
@@ -101,6 +103,13 @@ export function DeliveryCreateView({ user, customers, onCancel, onCreated }: {
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  useEffect(() => {
+    let active = true;
+    listReferenceCustomers()
+      .then((next) => { if (active) setCustomers(next); })
+      .catch(() => { if (active) setCustomers([]); });
+    return () => { active = false; };
+  }, []);
   useEffect(() => {
     if (user.role === 'STAFF') return;
     let active = true; setStaffState('loading');

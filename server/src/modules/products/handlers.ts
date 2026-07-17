@@ -163,7 +163,12 @@ export function createProductHandlers(service: ProductService) {
       );
     },
     deleteProduct: async (request: FastifyRequest, reply: FastifyReply) => {
-      await service.deleteProduct(actor(request), productId(request));
+      const value = body(request, ['expectedVersion']);
+      await service.deleteProduct(
+        actor(request),
+        productId(request),
+        expectedVersion(value.expectedVersion),
+      );
       return reply.code(204).send();
     },
   };

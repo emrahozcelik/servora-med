@@ -81,12 +81,12 @@ describe('CRM API client', () => {
     await updateCustomer('customer/1', update);
     await activateCustomer('customer/1', 2);
     await deactivateCustomer('customer/1', 3);
-    await deleteCustomer('customer/1');
+    await deleteCustomer('customer/1', 3);
     expect(fetchMock.mock.calls.map(([, init]) => [init.method, init.body])).toEqual([
       ['POST', JSON.stringify(create)], ['PATCH', JSON.stringify(update)],
       ['POST', JSON.stringify({ expectedVersion: 2 })],
       ['POST', JSON.stringify({ expectedVersion: 3 })],
-      ['DELETE', undefined],
+      ['DELETE', JSON.stringify({ expectedVersion: 3 })],
     ]);
     expect(fetchMock.mock.calls.at(-1)?.[0]).toBe('/api/customers/customer%2F1');
   });

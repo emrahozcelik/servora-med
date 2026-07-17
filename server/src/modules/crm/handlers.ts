@@ -144,7 +144,12 @@ export function createCrmHandlers(service: CrmService) {
       return service.deactivateCustomer(actor(request), params(request).customerId, version(value.expectedVersion));
     },
     deleteCustomer: async (request: FastifyRequest, reply: FastifyReply) => {
-      await service.deleteCustomer(actor(request), params(request).customerId);
+      const value = body(request, ['expectedVersion']);
+      await service.deleteCustomer(
+        actor(request),
+        params(request).customerId,
+        version(value.expectedVersion),
+      );
       return reply.code(204).send();
     },
     listContacts: (request: FastifyRequest) => {

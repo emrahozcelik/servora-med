@@ -208,7 +208,15 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
   useEffect(() => {
     let active = true;
     setState({ kind: 'loading' });
-    load({ ...filters, limit: PAGE_SIZE }).then((page) => { if (active) setState({ kind: 'ready', page }); })
+    load({ ...filters, limit: PAGE_SIZE }).then((page) => {
+        if (!active) return;
+        if (page.total > 0 && page.items.length === 0 && page.offset >= page.total) {
+          const validOffset = Math.floor((page.total - 1) / page.limit) * page.limit;
+          setParams(updateProductSearchParams(params, 'offset', validOffset));
+          return;
+        }
+        setState({ kind: 'ready', page });
+      })
       .catch((caught) => {
         if (!active) return;
         const error = caught instanceof ApiError ? caught : new ApiError(0, 'UNKNOWN_ERROR', 'Ürünler yüklenemedi.', true);
@@ -231,7 +239,7 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
     setDeletePending(true);
     setActionError('');
     try {
-      await remove(deleteTarget.id);
+      await remove(deleteTarget.id, deleteTarget.version);
       const name = deleteTarget.name;
       setDeleteTarget(null);
       setFeedback(`${name} silindi.`);
