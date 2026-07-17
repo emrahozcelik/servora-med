@@ -64,8 +64,8 @@ function staffContext(
     CANCELLED: [],
   };
   const actionsByStatus: Record<JobCard['status'], JobWorkflowContext['allowedActions']> = {
-    NEW: ['EDIT_JOB_FIELDS'],
-    ACCEPTED: ['EDIT_JOB_FIELDS'],
+    NEW: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+    ACCEPTED: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
     IN_PROGRESS: [
       'EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'EDIT_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
     ],
@@ -297,7 +297,7 @@ describe('Staff JobCard detail', () => {
     expect(buttonByName(host, 'Kontrole gönder')).toBeNull();
   });
 
-  it('does not mount hidden Sales Meeting resources in new and accepted states', async () => {
+  it('does not mount meeting result resources in new and accepted states', async () => {
     for (const status of ['NEW', 'ACCEPTED'] as const) {
       await act(async () => root.unmount());
       host.remove();
@@ -321,10 +321,56 @@ describe('Staff JobCard detail', () => {
       const fetch = await renderScreen(newMeetingJob);
       expect(host.textContent).toContain(newMeetingJob.title);
       expect(fetch.mock.calls.some(([url]) => String(url).includes('/meeting-details'))).toBe(false);
-      expect(fetch.mock.calls.some(([url]) => String(url).includes('/notes'))).toBe(false);
       expect(host.textContent).not.toContain('Görüşme sonucu');
-      expect(Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Notlar')).toBe(false);
     }
+  });
+
+  it('shows assignment-stage notes and schedule edit for assigned Staff in NEW and ACCEPTED', async () => {
+    for (const status of ['NEW', 'ACCEPTED'] as const) {
+      await act(async () => root.unmount());
+      host.remove();
+      host = document.createElement('div');
+      document.body.append(host);
+      root = createRoot(host);
+
+      const card: JobCard = {
+        ...job,
+        type: 'SALES_MEETING',
+        status,
+        title: `Atama aşaması ${status}`,
+        dueDate: '2026-07-20',
+        scheduledAt: '2026-07-20T09:00:00.000Z',
+        assignedTo: staffUser.id,
+        workflowContext: staffContext(status, status === 'ACCEPTED'
+          ? {
+            acceptedAt: '2026-07-17T08:30:00.000Z',
+            acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+          }
+          : {}),
+      };
+      await renderScreen(card);
+      expect(Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Notlar')).toBe(true);
+      expect(host.querySelector('.job-notes form')).not.toBeNull();
+      expect(host.querySelector('#job-scheduled-at')).not.toBeNull();
+      expect(host.querySelector('label[for="job-scheduled-at"]')?.textContent)
+        .toContain('Planlanan görüşme zamanı');
+    }
+  });
+
+  it('hides notes and schedule edit when backend allowedActions omit them', async () => {
+    const card: JobCard = {
+      ...job,
+      type: 'SALES_MEETING',
+      status: 'NEW',
+      title: 'Başka personele kapalı iş',
+      dueDate: '2026-07-20',
+      assignedTo: 'other-staff',
+      workflowContext: staffContext('NEW', {}, { allowedActions: [], allowedCommands: [] }),
+    };
+    const fetch = await renderScreen(card, { ...staffUser, id: 'other-staff-viewer' });
+    expect(fetch.mock.calls.some(([url]) => String(url).includes('/notes'))).toBe(false);
+    expect(host.querySelector('.job-notes')).toBeNull();
+    expect(host.querySelector('#job-scheduled-at')).toBeNull();
   });
 
   it('shows read-only notes affordance for waiting and completed review states', async () => {
@@ -500,7 +546,8 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('Numune');
     expect(html).toContain('2 adet');
     expect(html).toContain('İşi kabul et');
-    expect(html).not.toContain('Planla');
+    expect(html).toContain('Planlanan teslim zamanı');
+    expect(html).not.toMatch(/>Planla</);
     expect(html.match(/primary-button/g)?.length ?? 0).toBe(1);
   });
 

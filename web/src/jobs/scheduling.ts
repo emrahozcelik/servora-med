@@ -13,6 +13,15 @@ function formatLocalDateTime(date: Date): string {
     + `T${pad2(date.getHours())}:${pad2(date.getMinutes())}`;
 }
 
+/** Convert a UTC ISO instant to device-local `YYYY-MM-DDTHH:mm` for datetime-local inputs. */
+export function isoInstantToLocalDateTime(value: string): string {
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) {
+    throw new Error(`Invalid ISO instant: ${value}`);
+  }
+  return formatLocalDateTime(date);
+}
+
 /**
  * Default planned time: now + 1 hour, rounded up to the next 30-minute boundary.
  * Exact 30-minute boundaries (with zero seconds/ms after +1h) are kept.

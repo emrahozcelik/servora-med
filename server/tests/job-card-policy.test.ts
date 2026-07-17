@@ -108,11 +108,24 @@ describe('JobCard policy', () => {
       'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'VIEW_NOTES',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' })).toEqual([
-      'EDIT_JOB_FIELDS',
+      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE',
+    ]);
+    expect(getAllowedJobActions(staff, { ...meeting, status: 'ACCEPTED' })).toEqual([
+      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'CANCELLED' })).toEqual([
       'VIEW_MEETING_RESULT', 'VIEW_NOTES',
     ]);
+  });
+
+  it('exposes assignment-stage notes for assigned Staff and conceals other Staff', () => {
+    const meeting = { ...job, type: 'SALES_MEETING' as const };
+    for (const status of ['NEW', 'ACCEPTED'] as const) {
+      expect(getAllowedJobActions(staff, { ...meeting, status }))
+        .toEqual(expect.arrayContaining(['VIEW_NOTES', 'ADD_NOTE']));
+      expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, { ...meeting, status }))
+        .toEqual([]);
+    }
   });
 
   it('keeps action projection and write/read guards in parity', () => {

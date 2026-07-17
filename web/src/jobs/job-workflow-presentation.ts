@@ -30,6 +30,11 @@ export type RecordEditPresentation = {
   confirmation?: { title: string; details: string[]; confirmLabel: string };
 };
 
+export type ScheduleEditPresentation = {
+  label: string;
+  optional: boolean;
+};
+
 export type JobWorkflowPresentation = {
   currentPhase: WorkflowPhase | null;
   phaseItems: Array<{ phase: WorkflowPhase; label: string; state: WorkflowPhaseState }>;
@@ -49,6 +54,8 @@ export type JobWorkflowPresentation = {
   };
   requirements: Array<SubmissionRequirement & { label: string }>;
   recordEditAction: RecordEditPresentation | null;
+  /** Present only when backend allows EDIT_JOB_FIELDS — never derived from role/status alone. */
+  scheduleEdit: ScheduleEditPresentation | null;
   primaryTransition: TransitionPresentation | null;
   secondaryTransitions: TransitionPresentation[];
   terminalState: 'COMPLETED' | 'CANCELLED' | null;
@@ -414,6 +421,28 @@ function viewerOwnsPrimary(
   return false;
 }
 
+export function scheduleFieldLabel(type: JobCard['type']): string {
+  switch (type) {
+    case 'PRODUCT_DELIVERY':
+      return 'Planlanan teslim zamanı';
+    case 'SALES_MEETING':
+      return 'Planlanan görüşme zamanı';
+    case 'GENERAL_TASK':
+      return 'Planlanan zaman';
+  }
+}
+
+function deriveScheduleEdit(
+  job: JobCard,
+  workflowContext: JobWorkflowContext,
+): ScheduleEditPresentation | null {
+  if (!workflowContext.allowedActions.includes('EDIT_JOB_FIELDS')) return null;
+  return {
+    label: scheduleFieldLabel(job.type),
+    optional: job.type === 'GENERAL_TASK',
+  };
+}
+
 function deriveRecordEditAction(
   job: JobCard,
   user: CurrentUser,
@@ -500,6 +529,7 @@ export function deriveJobWorkflowPresentation(
   const { currentPhase, phaseItems } = derivePhaseItems(job.status, lifecycle);
   const expectedRole = expectedRoleForStatus(job.status);
   const recordEditAction = deriveRecordEditAction(job, user, workflowContext);
+  const scheduleEdit = deriveScheduleEdit(job, workflowContext);
   const hideWithdraw = recordEditAction?.action === 'WITHDRAW_AND_EDIT_JOB_FIELDS';
   const { primaryTransition, secondaryTransitions } = deriveTransitions(
     job, user, workflowContext, revisionActive, hideWithdraw,
@@ -533,6 +563,7 @@ export function deriveJobWorkflowPresentation(
     responsibility,
     requirements,
     recordEditAction,
+    scheduleEdit,
     primaryTransition,
     secondaryTransitions,
     terminalState,

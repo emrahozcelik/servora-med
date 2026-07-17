@@ -152,6 +152,7 @@ export type PatchJobCardInput = {
   assignedTo?: string;
   priority?: JobCardPriority;
   dueDate?: string | null;
+  scheduledAt?: string | null;
 };
 
 export type JobCardListFilters = Partial<{

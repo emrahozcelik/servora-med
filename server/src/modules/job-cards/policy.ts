@@ -70,8 +70,10 @@ export function getAllowedJobActions(
   if (['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) {
     actions.push('EDIT_MEETING_RESULT');
   }
-  if (!['NEW', 'ACCEPTED'].includes(job.status)) actions.push('VIEW_NOTES');
-  if (['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) actions.push('ADD_NOTE');
+  actions.push('VIEW_NOTES');
+  if (['NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) {
+    actions.push('ADD_NOTE');
+  }
   return actions;
 }
 

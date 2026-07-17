@@ -1,6 +1,6 @@
 import {
   useEffect, useRef, useState,
-  type ReactNode, type Ref,
+  type FormEvent, type ReactNode, type Ref,
 } from 'react';
 
 import { ApiError, type CurrentUser } from './services/api';
@@ -16,8 +16,13 @@ import {
   deriveJobWorkflowPresentation,
   type JobWorkflowPresentation,
   type RecordEditPresentation,
+  type ScheduleEditPresentation,
   type TransitionPresentation,
 } from './jobs/job-workflow-presentation';
+import {
+  isoInstantToLocalDateTime,
+  localDateTimeToIso,
+} from './jobs/scheduling';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
 import { JobLifecycleSteps } from './jobs/JobLifecycleSteps';
 import {
@@ -109,6 +114,12 @@ const purposeLabels = {
 const WITHDRAW_EDIT_SUCCESS_MESSAGE = 'İş yönetici kontrolünden çıkarıldı ve yeniden düzenlemeye açıldı. '
   + 'Değişikliklerden sonra işi tekrar kontrole göndermeniz gerekir.';
 
+function formatScheduledAt(value: string | null): string {
+  if (!value) return 'Belirtilmedi';
+  return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
+    .format(new Date(value));
+}
+
 function findTransition(
   presentation: JobWorkflowPresentation,
   command: LifecycleCommand,
@@ -121,6 +132,94 @@ function findTransition(
 
 function isManagementUser(user: CurrentUser): boolean {
   return user.role === 'MANAGER' || user.role === 'ADMIN';
+}
+
+function JobScheduleEditForm({
+  job,
+  scheduleEdit,
+  pending,
+  onSave,
+}: {
+  job: JobCard;
+  scheduleEdit: ScheduleEditPresentation;
+  pending: boolean;
+  onSave?: (scheduledAt: string | null) => Promise<void> | void;
+}) {
+  const [localValue, setLocalValue] = useState(() => (
+    job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
+  ));
+  const [fieldError, setFieldError] = useState('');
+  const [submitError, setSubmitError] = useState('');
+  const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}`;
+  const lastKey = useRef(canonicalKey);
+
+  useEffect(() => {
+    if (lastKey.current === canonicalKey) return;
+    lastKey.current = canonicalKey;
+    setLocalValue(job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
+    setFieldError('');
+    setSubmitError('');
+  }, [canonicalKey, job.scheduledAt]);
+
+  async function submit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (pending || !onSave) return;
+    setSubmitError('');
+    if (!localValue.trim()) {
+      if (!scheduleEdit.optional) {
+        setFieldError(`${scheduleEdit.label} seçin.`);
+        return;
+      }
+      setFieldError('');
+      try {
+        await onSave(null);
+      } catch (caught) {
+        setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
+      }
+      return;
+    }
+    setFieldError('');
+    try {
+      await onSave(localDateTimeToIso(localValue));
+    } catch (caught) {
+      setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
+    }
+  }
+
+  return (
+    <section className="job-schedule-edit surface-flat" aria-labelledby="job-schedule-edit-title">
+      <h2 id="job-schedule-edit-title">Planlanan zamanı düzenle</h2>
+      <form onSubmit={submit} noValidate>
+        <div className="field-group">
+          <label htmlFor="job-scheduled-at">
+            {scheduleEdit.label}{scheduleEdit.optional ? ' (isteğe bağlı)' : ''}
+          </label>
+          <input
+            id="job-scheduled-at"
+            name="scheduledAt"
+            type="datetime-local"
+            value={localValue}
+            required={!scheduleEdit.optional}
+            disabled={pending}
+            aria-invalid={fieldError ? true : undefined}
+            aria-describedby={fieldError ? 'job-scheduled-at-error' : undefined}
+            onChange={(event) => {
+              setLocalValue(event.target.value);
+              setFieldError('');
+              setSubmitError('');
+            }}
+          />
+          {fieldError && <span id="job-scheduled-at-error" className="field-error">{fieldError}</span>}
+        </div>
+        {submitError && <p className="field-error" role="alert">{submitError}</p>}
+        <div className="review-buttons">
+          <button className="secondary-button" type="submit" disabled={pending || !onSave}>
+            {pending ? 'Kaydediliyor…' : 'Planlanan zamanı kaydet'}
+          </button>
+        </div>
+      </form>
+    </section>
+  );
 }
 
 function ActionGroup(props: {
@@ -195,7 +294,7 @@ function ActionGroup(props: {
 
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
-  feedbackRef, onBack, onCommand, onRecordEdit, meetingDetails = null,
+  feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, meetingDetails = null,
   records, children,
 }: {
   job: JobCard;
@@ -208,6 +307,7 @@ export function JobDetailPanel({
   onBack: () => void;
   onCommand: (command: LifecycleCommand) => void;
   onRecordEdit?: (action: RecordEditPresentation['action']) => void;
+  onSaveSchedule?: (scheduledAt: string | null) => Promise<void> | void;
   meetingDetails?: MeetingDetails | null;
   records?: ReactNode;
   children?: ReactNode;
@@ -220,6 +320,12 @@ export function JobDetailPanel({
     meetingDetails: job.type === 'SALES_MEETING' ? meetingDetails : null,
   });
   const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
+  const scheduleLabel = presentation.scheduleEdit?.label
+    ?? (job.type === 'SALES_MEETING'
+      ? 'Planlanan görüşme zamanı'
+      : job.type === 'PRODUCT_DELIVERY'
+        ? 'Planlanan teslim zamanı'
+        : 'Planlanan zaman');
 
   return <main className="job-detail">
     <div className="detail-heading"><div><p className="eyebrow">{jobTypeLabels[job.type]}</p><h1>{job.title}</h1></div>
@@ -230,7 +336,12 @@ export function JobDetailPanel({
       <div><dt>Durum</dt><dd><StatusChip status={job.status} /></dd></div>
       <div><dt>Sorumlu personel</dt><dd>{job.assignee.name}</dd></div>
       <div><dt>Öncelik</dt><dd><PriorityChip priority={job.priority} /></dd></div>
-      <div><dt>{job.type === 'SALES_MEETING' ? 'Planlanan görüşme günü' : 'Son tarih'}</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi'}</dd></div>
+      <div><dt>{scheduleLabel}</dt><dd>{job.scheduledAt
+        ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
+        : 'Belirtilmedi'}</dd></div>
+      {job.type !== 'SALES_MEETING' && (
+        <div><dt>Son tarih</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi'}</dd></div>
+      )}
       <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
       <div><dt>İlgili kişi</dt><dd>{job.contact?.name ?? 'Belirtilmedi'}</dd></div>
       <div className="detail-summary-wide"><dt>Açıklama</dt><dd>{job.description ?? 'Belirtilmedi'}</dd></div>
@@ -252,6 +363,15 @@ export function JobDetailPanel({
         job={job}
         lifecycle={job.workflowContext.lifecycle}
         requirements={presentation.requirements}
+      />
+    )}
+
+    {presentation.scheduleEdit && (
+      <JobScheduleEditForm
+        job={job}
+        scheduleEdit={presentation.scheduleEdit}
+        pending={pending}
+        onSave={onSaveSchedule}
       />
     )}
 
@@ -557,6 +677,41 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
     } finally { mutationInFlight.current = false; setPending(false); }
   }
+  async function saveSchedule(scheduledAt: string | null) {
+    if (state.kind !== 'ready' || mutationInFlight.current) {
+      throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
+    }
+    mutationInFlight.current = true;
+    setPending(true); setMessage(''); setMessageIsError(false);
+    try {
+      await patchJobCard(jobId, {
+        expectedVersion: state.detail.job.version,
+        scheduledAt,
+      });
+      await refreshTruth();
+      setTimelineKey((value) => value + 1);
+      setMessage('Planlanan zaman güncellendi.');
+      setFeedbackFocusRequest((value) => value + 1);
+      onChanged();
+    } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
+        await refreshTruth();
+        setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+        setMessageIsError(true);
+        setFeedbackFocusRequest((value) => value + 1);
+        throw new ApiError(409, 'VERSION_CONFLICT', 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+      }
+      setMessage(caught instanceof ApiError ? caught.message : 'Planlanan zaman kaydedilemedi.');
+      setMessageIsError(true);
+      setFeedbackFocusRequest((value) => value + 1);
+      throw caught instanceof Error
+        ? caught
+        : new Error('Planlanan zaman kaydedilemedi.');
+    } finally {
+      mutationInFlight.current = false;
+      setPending(false);
+    }
+  }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
     if (state.kind !== 'ready') return;
     const presentation = presentationFor(state.detail);
@@ -654,6 +809,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     onRecordEdit={(action) => {
       openRecordEditDialog(action, document.activeElement as HTMLElement);
     }}
+    onSaveSchedule={saveSchedule}
     records={recordContent}
   >
     <div className="job-detail-sections">
