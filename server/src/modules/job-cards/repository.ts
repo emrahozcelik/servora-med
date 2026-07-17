@@ -95,7 +95,23 @@ export type JobCustomerReference = { id: string; status: 'prospect' | 'active' |
 export type SubmissionCustomer = JobCustomerReference & { organizationId: string };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
 
-export interface JobCardTransaction {
+export interface SubmissionReader {
+  getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
+  getSubmissionCustomer(
+    organizationId: string,
+    customerId: string,
+  ): Promise<SubmissionCustomer | null>;
+  getSubmissionMeetingDetails(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<MeetingDetailsCandidate | null>;
+  getSubmissionDeliveryItems(
+    organizationId: string,
+    jobCardId: string,
+  ): Promise<SubmissionDeliveryItem[]>;
+}
+
+export interface JobCardTransaction extends SubmissionReader {
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobDetail(organizationId: string, jobCardId: string): Promise<JobCardDetail | null>;
@@ -103,20 +119,11 @@ export interface JobCardTransaction {
   appendActivity(input: ActivityInput): Promise<void>;
   createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
   getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
-  getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
   customerExists(organizationId: string, customerId: string): Promise<boolean>;
-  getSubmissionCustomer(
-    organizationId: string,
-    customerId: string,
-  ): Promise<SubmissionCustomer | null>;
   getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
   createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
-  getMeetingDetailsForUpdate(
-    organizationId: string,
-    jobCardId: string,
-  ): Promise<MeetingDetailsCandidate | null>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
   getProduct(organizationId: string, productId: string): Promise<ProductReference | null>;
@@ -125,7 +132,6 @@ export interface JobCardTransaction {
   updateDeliveryItem(itemId: string, input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
   deleteDeliveryItem(itemId: string): Promise<void>;
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
-  getSubmissionDeliveryItems(organizationId: string, jobCardId: string): Promise<SubmissionDeliveryItem[]>;
 }
 
 export type CriticalActionResult<T> =
@@ -133,7 +139,7 @@ export type CriticalActionResult<T> =
   | { kind: 'replay'; response: T }
   | { kind: 'processing' };
 
-export interface JobCardRepository {
+export interface JobCardRepository extends SubmissionReader {
   executeCriticalAction<T>(
     claim: CriticalActionClaim,
     work: (transaction: JobCardTransaction) => Promise<T>,
@@ -540,7 +546,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     );
   }
 
-  async getMeetingDetailsForUpdate(organizationId: string, jobCardId: string) {
+  async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
     const result = await this.client.query<MeetingDetailsRow>(
       `SELECT job_card_id, meeting_at, outcome, meeting_summary, next_follow_up_at
          FROM job_card_meeting_details
@@ -821,6 +827,50 @@ implements JobCardRepository, ApprovalQueueItemPort {
       [organizationId, jobCardId],
     );
     return result.rows[0] ? mapMeetingDetails(result.rows[0]) : null;
+  }
+
+  async getAssignee(organizationId: string, userId: string) {
+    const result = await this.pool.query<{
+      id: string; organization_id: string; role: JobCardAssignee['role']; is_active: boolean;
+    }>(`SELECT id, organization_id, role, is_active FROM users
+        WHERE organization_id = $1 AND id = $2`, [organizationId, userId]);
+    const row = result.rows[0];
+    return row ? { id: row.id, organizationId: row.organization_id, role: row.role, isActive: row.is_active } : null;
+  }
+
+  async getSubmissionCustomer(organizationId: string, customerId: string) {
+    const result = await this.pool.query<{
+      id: string;
+      organization_id: string;
+      status: SubmissionCustomer['status'];
+    }>(
+      `SELECT id, organization_id, status
+         FROM customers
+        WHERE organization_id = $1 AND id = $2`,
+      [organizationId, customerId],
+    );
+    const row = result.rows[0];
+    return row
+      ? { id: row.id, organizationId: row.organization_id, status: row.status }
+      : null;
+  }
+
+  async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
+    const result = await this.pool.query<MeetingDetailsRow>(
+      `SELECT job_card_id, meeting_at, outcome, meeting_summary, next_follow_up_at
+         FROM job_card_meeting_details
+        WHERE organization_id = $1 AND job_card_id = $2`,
+      [organizationId, jobCardId],
+    );
+    return result.rows[0] ? mapMeetingDetails(result.rows[0]) : null;
+  }
+
+  async getSubmissionDeliveryItems(organizationId: string, jobCardId: string) {
+    const result = await this.pool.query<DeliveryRow>(
+      `SELECT ${DELIVERY_COLUMNS} FROM job_card_delivery_items
+       WHERE organization_id=$1 AND job_card_id=$2 ORDER BY sort_order, created_at, id`,
+      [organizationId, jobCardId]);
+    return result.rows.map(mapDelivery);
   }
 
   async executeTransaction<T>(work: (transaction: JobCardTransaction) => Promise<T>) {

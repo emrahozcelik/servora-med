@@ -150,6 +150,23 @@ export const JOB_WORKFLOW_ACTIONS = [
 ] as const;
 export type JobWorkflowAction = (typeof JOB_WORKFLOW_ACTIONS)[number];
 
+export const SUBMISSION_REQUIREMENT_CODES = [
+  'CUSTOMER_ELIGIBLE', 'ASSIGNEE_ELIGIBLE', 'DELIVERY_ITEM_PRESENT',
+  'DELIVERY_ITEMS_VALID', 'TASK_TITLE_VALID', 'MEETING_TIME_VALID',
+  'MEETING_OUTCOME_VALID', 'MEETING_SUMMARY_PRESENT', 'FOLLOW_UP_TIME_VALID',
+] as const;
+export type SubmissionRequirementCode = (typeof SUBMISSION_REQUIREMENT_CODES)[number];
+export type SubmissionRequirement = {
+  code: SubmissionRequirementCode;
+  state: 'met' | 'missing' | 'invalid';
+  field?: string;
+};
+export type SubmissionReadiness = {
+  evaluatedAt: string;
+  ready: boolean;
+  items: SubmissionRequirement[];
+};
+
 export type JobCardStatusFilter = JobCardStatus | 'active' | 'closed' | 'all';
 
 export type JobCardBaseFilters = {

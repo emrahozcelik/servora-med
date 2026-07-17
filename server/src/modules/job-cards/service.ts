@@ -263,7 +263,7 @@ export class JobCardService {
           );
         }
         assertCanEditMeetingResult(actor, job);
-        const current = await transaction.getMeetingDetailsForUpdate(
+        const current = await transaction.getSubmissionMeetingDetails(
           actor.organizationId,
           jobCardId,
         );

@@ -121,7 +121,7 @@ class SalesMeetingRepository implements JobCardRepository {
           nextFollowUpAt: null,
         });
       },
-      getMeetingDetailsForUpdate: async (organizationId: string, jobCardId: string) => {
+      getSubmissionMeetingDetails: async (organizationId: string, jobCardId: string) => {
         this.lockOrder.push('meeting_details');
         const details = this.meetingDetails.find(
           (details) => details.organizationId === organizationId && details.jobCardId === jobCardId,
@@ -189,6 +189,14 @@ class SalesMeetingRepository implements JobCardRepository {
     );
     return details ? this.meetingCandidate(details) : null;
   }
+  async getAssignee(organizationId: string, userId: string) {
+    return this.assignees.find((item) => item.organizationId === organizationId && item.id === userId) ?? null;
+  }
+  async getSubmissionCustomer() { return null; }
+  async getSubmissionMeetingDetails(organizationId: string, jobCardId: string) {
+    return this.findMeetingDetails(organizationId, jobCardId);
+  }
+  async getSubmissionDeliveryItems() { return []; }
   async executeTransaction<T>(_work: (transaction: JobCardTransaction) => Promise<T>) {
     throw new Error('unused');
   }

@@ -94,7 +94,7 @@ class LifecycleRepository implements JobCardRepository {
         this.submissionReads.push('customer');
         return this.submissionCustomer;
       },
-      getMeetingDetailsForUpdate: async () => {
+      getSubmissionMeetingDetails: async () => {
         this.submissionReads.push('meeting_details');
         return this.meetingDetails;
       },
@@ -135,6 +135,10 @@ class LifecycleRepository implements JobCardRepository {
       contact: null,
     };
   }
+  async getAssignee() { return this.assignee; }
+  async getSubmissionCustomer() { return this.submissionCustomer; }
+  async getSubmissionMeetingDetails() { return this.meetingDetails; }
+  async getSubmissionDeliveryItems() { return this.items; }
   async listDeliveryItems() { return this.items; }
   async listActivity() { return this.events as never; }
   async listReferenceCustomers() { return []; }
@@ -510,7 +514,7 @@ describe('JobCard lifecycle commands', () => {
     )).resolves.toMatchObject({
       type: 'SALES_MEETING', status: 'WAITING_APPROVAL', version: 3,
     });
-    expect(repo.submissionReads).toEqual(['customer', 'assignee', 'meeting_details']);
+    expect(repo.submissionReads).toEqual(['assignee', 'customer', 'meeting_details']);
   });
 
   it('keeps FOLLOW_UP_REQUIRED follow-up optional and accepts valid chronology', async () => {
@@ -592,7 +596,7 @@ describe('JobCard lifecycle commands', () => {
     await expect(new JobCardService(missingCustomer, () => time).submitForApproval(
       staff, 'job-1', input('missing-customer-priority'),
     )).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND', statusCode: 404 });
-    expect(missingCustomer.submissionReads).toEqual(['customer']);
+    expect(missingCustomer.submissionReads).toEqual(['assignee', 'customer', 'meeting_details']);
 
     const inactiveCustomer = salesMeetingRepository();
     inactiveCustomer.submissionCustomer = {
@@ -601,7 +605,7 @@ describe('JobCard lifecycle commands', () => {
     await expect(new JobCardService(inactiveCustomer, () => time).submitForApproval(
       staff, 'job-1', input('inactive-customer-priority'),
     )).rejects.toMatchObject({ code: 'CUSTOMER_INACTIVE', statusCode: 409 });
-    expect(inactiveCustomer.submissionReads).toEqual(['customer']);
+    expect(inactiveCustomer.submissionReads).toEqual(['assignee', 'customer', 'meeting_details']);
 
     const crossOrganizationCustomer = salesMeetingRepository();
     crossOrganizationCustomer.submissionCustomer = {
@@ -610,7 +614,7 @@ describe('JobCard lifecycle commands', () => {
     await expect(new JobCardService(crossOrganizationCustomer, () => time).submitForApproval(
       staff, 'job-1', input('cross-organization-customer'),
     )).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND', statusCode: 404 });
-    expect(crossOrganizationCustomer.submissionReads).toEqual(['customer']);
+    expect(crossOrganizationCustomer.submissionReads).toEqual(['assignee', 'customer', 'meeting_details']);
 
     const inactiveAssignee = salesMeetingRepository();
     inactiveAssignee.assignee.isActive = false;
@@ -618,7 +622,7 @@ describe('JobCard lifecycle commands', () => {
     await expect(new JobCardService(inactiveAssignee, () => time).submitForApproval(
       staff, 'job-1', input('inactive-assignee-priority'),
     )).rejects.toMatchObject({ code: 'ASSIGNEE_NOT_ELIGIBLE', statusCode: 400 });
-    expect(inactiveAssignee.submissionReads).toEqual(['customer', 'assignee']);
+    expect(inactiveAssignee.submissionReads).toEqual(['assignee', 'customer', 'meeting_details']);
   });
 
   it('reports a missing structured detail row as a safe invariant failure', async () => {
