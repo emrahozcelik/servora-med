@@ -282,7 +282,9 @@ describe('JobCard lifecycle commands', () => {
     const result = await new JobCardService(repo, () => time).detail(staff, 'job-1');
     expect(result.workflowContext).toEqual({
       allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
-      allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      allowedActions: [
+        'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE', 'EDIT_DELIVERY_ACTUAL_TIME',
+      ],
       lifecycle: repo.persistedDetail.lifecycle,
       submissionReadiness: {
         evaluatedAt: time.toISOString(),
