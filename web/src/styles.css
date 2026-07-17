@@ -946,10 +946,48 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-timeline li > div:first-child { display: grid; justify-content: start; gap: 0.25rem; }
 .job-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
 .dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(20% 0.02 240deg / 45%); }
-.reason-dialog { width: min(100%, 34rem); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.8rem; background: var(--paper); box-shadow: 0 1.5rem 4rem oklch(20% 0.02 240deg / 24%); }
-.reason-dialog h2 { margin: 0; }
-.reason-dialog > p { color: var(--muted); line-height: 1.5; }
-.reason-dialog .review-buttons { margin-top: 1rem; }
+.reason-dialog, .workflow-dialog { width: min(100%, 34rem); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.8rem; background: var(--paper); box-shadow: 0 1.5rem 4rem oklch(20% 0.02 240deg / 24%); }
+.reason-dialog h2, .workflow-dialog h2 { margin: 0; }
+.reason-dialog > p, .workflow-dialog > p { color: var(--muted); line-height: 1.5; }
+.reason-dialog .review-buttons, .workflow-dialog .review-buttons { margin-top: 1rem; }
+.workflow-dialog .review-buttons button, .reason-dialog .review-buttons button { min-height: 2.75rem; }
+.workflow-dialog-details { margin: 0.85rem 0 0; padding-left: 1.2rem; color: var(--ink); line-height: 1.5; }
+.workflow-dialog-details li { margin: 0.25rem 0; }
+.approval-review {
+  min-width: 0;
+  display: grid;
+  gap: 0.85rem;
+  margin: 0 0 1.5rem;
+  padding: 1.1rem 1.15rem;
+  border: 1px solid var(--rule);
+  border-radius: 0.7rem;
+}
+.approval-review h2 { margin: 0; overflow-wrap: anywhere; }
+.approval-review-submitter { margin: 0; line-height: 1.5; }
+.approval-review-summary {
+  display: grid;
+  gap: 0.65rem;
+  min-width: 0;
+}
+.approval-review-summary > p { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.approval-review-type { color: var(--ink); font-weight: 700; }
+.approval-review-requirements {
+  display: grid;
+  gap: 0.4rem;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.approval-review-requirements li {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+.approval-review-instruction { margin: 0; font-weight: 680; line-height: 1.5; }
 
 .customer-workspace { margin-top: 2rem; }
 .customer-filters { display: grid; grid-template-columns: minmax(12rem, 1.5fr) repeat(4, minmax(9rem, 0.75fr)); gap: 0.9rem; align-items: end; margin-bottom: 2rem; padding-block: 1rem 1.25rem; border-block: 1px solid var(--rule); }
@@ -1138,6 +1176,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .job-timeline li, .job-note-list li > div, .job-timeline li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
   .review-buttons { align-items: stretch; flex-direction: column-reverse; }
   .review-buttons button { width: 100%; }
+  .approval-review-summary { grid-template-columns: 1fr; }
   .people-row { align-items: stretch; flex-direction: column; }
   .people-actions { justify-content: space-between; }
   .profile-facts, .counter-grid { grid-template-columns: 1fr; }

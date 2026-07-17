@@ -1,6 +1,6 @@
 import {
-  useEffect, useId, useRef, useState,
-  type FormEvent, type KeyboardEvent, type ReactNode, type Ref,
+  useEffect, useRef, useState,
+  type ReactNode, type Ref,
 } from 'react';
 
 import { ApiError, type CurrentUser } from './services/api';
@@ -18,6 +18,7 @@ import {
   type RecordEditPresentation,
   type TransitionPresentation,
 } from './jobs/job-workflow-presentation';
+import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
 import { JobLifecycleSteps } from './jobs/JobLifecycleSteps';
 import {
   CancelledJobBanner,
@@ -25,6 +26,10 @@ import {
   RequirementsChecklist,
   RevisionLoopPanel,
 } from './jobs/JobWorkflowPanels';
+import {
+  JobWorkflowDialog,
+  type JobWorkflowDialogKind,
+} from './jobs/JobWorkflowDialog';
 import { MeetingDetailsSection } from './jobs/MeetingDetails';
 import { SalesMeetingEditForm } from './jobs/SalesMeetingEditForm';
 import { JobNotes } from './jobs/JobNotes';
@@ -101,6 +106,9 @@ const purposeLabels = {
   SALE: 'Satış', SAMPLE: 'Numune', CONSIGNMENT: 'Konsinye', RETURN: 'İade', OTHER: 'Diğer',
 } as const;
 
+const WITHDRAW_EDIT_SUCCESS_MESSAGE = 'İş yönetici kontrolünden çıkarıldı ve yeniden düzenlemeye açıldı. '
+  + 'Değişikliklerden sonra işi tekrar kontrole göndermeniz gerekir.';
+
 function findTransition(
   presentation: JobWorkflowPresentation,
   command: LifecycleCommand,
@@ -111,53 +119,84 @@ function findTransition(
   return presentation.secondaryTransitions.find((entry) => entry.command === command);
 }
 
-export function ReasonDialog({ kind, pending, onClose, onConfirm }: {
-  kind: 'REQUEST_REVISION' | 'CANCEL'; pending: boolean; onClose: () => void; onConfirm: (reason: string) => void;
-}) {
-  const titleId = useId();
-  const errorId = useId();
-  const cancelRef = useRef<HTMLButtonElement>(null);
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const [reason, setReason] = useState('');
-  const [error, setError] = useState('');
-  useEffect(() => { cancelRef.current?.focus(); }, []);
+function isManagementUser(user: CurrentUser): boolean {
+  return user.role === 'MANAGER' || user.role === 'ADMIN';
+}
 
-  function keyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape' && !pending) { event.preventDefault(); onClose(); return; }
-    if (event.key !== 'Tab') return;
-    const controls = Array.from(dialogRef.current?.querySelectorAll<HTMLElement>('button:not([disabled]), textarea:not([disabled])') ?? []);
-    if (!controls.length) return;
-    const first = controls[0]; const last = controls[controls.length - 1];
-    if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-  }
-  function submit(event: FormEvent<HTMLFormElement>) {
-    event.preventDefault();
-    const normalized = reason.trim();
-    if (!normalized) { setError('Neden alanı zorunludur.'); return; }
-    onConfirm(normalized);
-  }
-  const revision = kind === 'REQUEST_REVISION';
-  return <div className="dialog-backdrop">
-    <div ref={dialogRef} className="reason-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId} onKeyDown={keyDown}>
-      <h2 id={titleId}>{revision ? 'Düzeltme iste' : 'İşi iptal et'}</h2>
-      <p>{revision ? 'Personelin neyi düzeltmesi gerektiğini açıklayın.' : 'Bu işlem terminaldir; iptal edilen iş yeniden açılamaz. İptal nedenini iş geçmişine ekleyin.'}</p>
-      <form onSubmit={submit} noValidate>
-        <div className="field-group"><label htmlFor={`${titleId}-reason`}>{revision ? 'Düzeltme nedeni' : 'İptal nedeni'}</label>
-          <textarea id={`${titleId}-reason`} rows={4} maxLength={2000} value={reason} disabled={pending} required
-            aria-invalid={error ? 'true' : undefined} aria-describedby={error ? errorId : undefined}
-            onChange={(event) => { setReason(event.target.value); setError(''); }} /></div>
-        {error && <p id={errorId} className="field-error" role="alert">{error}</p>}
-        <div className="review-buttons"><button ref={cancelRef} className="secondary-button" type="button" disabled={pending} onClick={onClose}>Vazgeç</button>
-          <button className="primary-button compact-button" type="submit" disabled={pending || !reason.trim()}>{pending ? 'İşleniyor…' : revision ? 'Onayla' : 'İşi iptal et'}</button></div>
-      </form>
-    </div>
-  </div>;
+function ActionGroup(props: {
+  presentation: JobWorkflowPresentation;
+  job: JobCard;
+  pending: boolean;
+  onCommand: (command: LifecycleCommand) => void;
+  onRecordEdit?: (action: RecordEditPresentation['action']) => void;
+}): ReactNode {
+  const { presentation, job, pending, onCommand, onRecordEdit } = props;
+  const hasTransitions = presentation.primaryTransition !== null
+    || presentation.secondaryTransitions.length > 0
+    || (job.type === 'SALES_MEETING' && presentation.recordEditAction !== null);
+  if (!hasTransitions) return null;
+
+  return (
+    <section className="detail-action surface-flat" aria-label="İş işlemleri">
+      {presentation.primaryTransition?.consequence && (
+        <p>{presentation.primaryTransition.consequence}</p>
+      )}
+      <div className="review-buttons">
+        {presentation.primaryTransition && (
+          <button
+            key={presentation.primaryTransition.command}
+            className="primary-button compact-button"
+            type="button"
+            disabled={pending}
+            onClick={() => onCommand(presentation.primaryTransition!.command)}
+          >
+            {pending ? 'İşleniyor…' : presentation.primaryTransition.label}
+          </button>
+        )}
+        {job.type === 'SALES_MEETING'
+          && presentation.recordEditAction?.action === 'WITHDRAW_AND_EDIT_JOB_FIELDS'
+          && (
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={pending}
+              onClick={() => onRecordEdit?.(presentation.recordEditAction!.action)}
+            >
+              {pending ? 'İşleniyor…' : presentation.recordEditAction.label}
+            </button>
+          )}
+        {job.type === 'SALES_MEETING'
+          && presentation.recordEditAction?.action === 'EDIT_JOB_FIELDS'
+          && (
+            <button
+              className="secondary-button"
+              type="button"
+              disabled={pending}
+              onClick={() => onRecordEdit?.(presentation.recordEditAction!.action)}
+            >
+              {pending ? 'İşleniyor…' : presentation.recordEditAction.label}
+            </button>
+          )}
+        {presentation.secondaryTransitions.map((transition) => (
+          <button
+            key={transition.command}
+            className="secondary-button"
+            type="button"
+            disabled={pending}
+            onClick={() => onCommand(transition.command)}
+          >
+            {pending ? 'İşleniyor…' : transition.label}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
-  feedbackRef, onBack, onCommand, onRecordEdit, meetingDetails = null, children,
+  feedbackRef, onBack, onCommand, onRecordEdit, meetingDetails = null,
+  records, children,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -170,6 +209,7 @@ export function JobDetailPanel({
   onCommand: (command: LifecycleCommand) => void;
   onRecordEdit?: (action: RecordEditPresentation['action']) => void;
   meetingDetails?: MeetingDetails | null;
+  records?: ReactNode;
   children?: ReactNode;
 }) {
   const presentation = deriveJobWorkflowPresentation({
@@ -179,9 +219,7 @@ export function JobDetailPanel({
     deliveryItems: job.type === 'PRODUCT_DELIVERY' ? items : [],
     meetingDetails: job.type === 'SALES_MEETING' ? meetingDetails : null,
   });
-  const hasTransitions = presentation.primaryTransition !== null
-    || presentation.secondaryTransitions.length > 0
-    || (job.type === 'SALES_MEETING' && presentation.recordEditAction !== null);
+  const managementReview = job.status === 'WAITING_APPROVAL' && isManagementUser(user);
 
   return <main className="job-detail">
     <div className="detail-heading"><div><p className="eyebrow">{jobTypeLabels[job.type]}</p><h1>{job.title}</h1></div>
@@ -204,56 +242,35 @@ export function JobDetailPanel({
       <CancelledJobBanner lifecycle={job.workflowContext.lifecycle} />
     )}
     {presentation.revisionLoop && <RevisionLoopPanel loop={presentation.revisionLoop} />}
-    {presentation.terminalState !== 'CANCELLED' && (
+    {!managementReview && presentation.terminalState !== 'CANCELLED' && (
       <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
     )}
     <RequirementsChecklist requirements={presentation.requirements} />
 
-    {hasTransitions && <section className="detail-action surface-flat" aria-label="İş işlemleri">
-      {presentation.primaryTransition?.consequence && (
-        <p>{presentation.primaryTransition.consequence}</p>
-      )}
-      <div className="review-buttons">
-        {presentation.primaryTransition && (
-          <button
-            key={presentation.primaryTransition.command}
-            className="primary-button compact-button"
-            type="button"
-            disabled={pending}
-            onClick={() => onCommand(presentation.primaryTransition!.command)}
-          >
-            {pending ? 'İşleniyor…' : presentation.primaryTransition.label}
-          </button>
-        )}
-        {job.type === 'SALES_MEETING' && presentation.recordEditAction && (
-          <button
-            className="secondary-button"
-            type="button"
-            disabled={pending}
-            onClick={() => onRecordEdit?.(presentation.recordEditAction!.action)}
-          >
-            {pending ? 'İşleniyor…' : presentation.recordEditAction.label}
-          </button>
-        )}
-        {presentation.secondaryTransitions.map((transition) => (
-          <button
-            key={transition.command}
-            className="secondary-button"
-            type="button"
-            disabled={pending}
-            onClick={() => onCommand(transition.command)}
-          >
-            {pending ? 'İşleniyor…' : transition.label}
-          </button>
-        ))}
-      </div>
-    </section>}
+    {managementReview && (
+      <JobApprovalReviewPanel
+        job={job}
+        lifecycle={job.workflowContext.lifecycle}
+        requirements={presentation.requirements}
+      />
+    )}
 
     {job.type === 'PRODUCT_DELIVERY' && <section className="delivery-lines" aria-labelledby="delivery-lines-title"><h2 id="delivery-lines-title">Teslim bilgileri</h2>
       <ul>{items.map((entry) => <li key={entry.id}><div><strong>{entry.productNameSnapshot}</strong><span>{entry.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span></div>
         <dl><div><dt>Amaç</dt><dd>{purposeLabels[entry.deliveryPurpose]}</dd></div><div><dt>Miktar</dt><dd>{entry.quantity}{entry.unit ? ` ${entry.unit}` : ''}</dd></div>
           <div><dt>Teslim zamanı</dt><dd>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(entry.deliveredAt))}</dd></div></dl></li>)}</ul>
     </section>}
+
+    {records}
+
+    <ActionGroup
+      presentation={presentation}
+      job={job}
+      pending={pending}
+      onCommand={onCommand}
+      onRecordEdit={onRecordEdit}
+    />
+
     {children}
   </main>;
 }
@@ -339,7 +356,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
   const [meetingSubmissionError, setMeetingSubmissionError] = useState<ApiError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [timelineKey, setTimelineKey] = useState(0);
-  const [dialog, setDialog] = useState<'REQUEST_REVISION' | 'CANCEL' | null>(null);
+  const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const mutationInFlight = useRef(false);
   const actionIds = useRef<Partial<Record<PendingInteraction, string>>>({});
@@ -423,6 +440,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
         delete actionIds.current[command];
         try { await refreshTruth(); setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.'); }
         catch { setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); setMessageIsError(true); }
+        setDialog(null);
+        setFeedbackFocusRequest((value) => value + 1);
       } else {
         if (!(caught instanceof ApiError) || !caught.retryable) delete actionIds.current[command];
         setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
@@ -460,11 +479,21 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       throw caught;
     } finally { mutationInFlight.current = false; setPending(false); }
   }
-  async function beginEdit(action: RecordEditPresentation['action']) {
+  function openRecordEditDialog(action: RecordEditPresentation['action'], trigger: HTMLElement) {
+    if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING') return;
+    if (action === 'EDIT_JOB_FIELDS') {
+      setEditing(true);
+      return;
+    }
+    const presentation = presentationFor(state.detail);
+    const recordEdit = presentation.recordEditAction;
+    if (!recordEdit || recordEdit.action !== 'WITHDRAW_AND_EDIT_JOB_FIELDS') return;
+    dialogTriggerRef.current = trigger;
+    setDialog({ kind: 'withdraw-edit', presentation: recordEdit });
+  }
+  async function confirmWithdrawAndEdit() {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
       || mutationInFlight.current) return;
-    if (action === 'EDIT_JOB_FIELDS') { setEditing(true); return; }
-    // Task 9 will wrap withdraw-to-edit with an explicit confirmation dialog.
     mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false);
     actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS ??= crypto.randomUUID();
@@ -485,8 +514,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
             : { ...state.detail.meetingDetails, jobCardVersion: updated.version },
         },
       });
-      setTimelineKey((value) => value + 1); setEditing(true);
-      setMessage('İş yönetici kontrolünden geri çekildi. Görüşme bilgilerini düzenleyebilirsiniz.');
+      setTimelineKey((value) => value + 1);
+      setDialog(null);
+      setEditing(true);
+      setMessage(WITHDRAW_EDIT_SUCCESS_MESSAGE);
+      setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT'
@@ -494,6 +526,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
         delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
         try { await refreshTruth(); setMessage('İş güncellendi. En güncel durum gösteriliyor.'); }
         catch { setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); }
+        setDialog(null);
       } else {
         if (!(caught instanceof ApiError) || !caught.retryable) {
           delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
@@ -523,10 +556,47 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     } finally { mutationInFlight.current = false; setPending(false); }
   }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
-    if (commandName === 'REQUEST_REVISION' || commandName === 'CANCEL') {
-      dialogTriggerRef.current = trigger; setDialog(commandName); return;
+    if (state.kind !== 'ready') return;
+    const presentation = presentationFor(state.detail);
+    if (commandName === 'APPROVE') {
+      const transition = findTransition(presentation, 'APPROVE');
+      if (!transition) return;
+      dialogTriggerRef.current = trigger;
+      setDialog({ kind: 'approve', presentation: transition });
+      return;
+    }
+    if (commandName === 'REQUEST_REVISION') {
+      const transition = findTransition(presentation, 'REQUEST_REVISION');
+      if (!transition) return;
+      dialogTriggerRef.current = trigger;
+      setDialog({ kind: 'revision', presentation: transition });
+      return;
+    }
+    if (commandName === 'CANCEL') {
+      const transition = findTransition(presentation, 'CANCEL');
+      if (!transition) return;
+      dialogTriggerRef.current = trigger;
+      setDialog({ kind: 'cancel', presentation: transition });
+      return;
     }
     void execute(commandName);
+  }
+
+  function confirmDialog(reason: string) {
+    if (!dialog) return;
+    if (dialog.kind === 'approve') {
+      void execute('APPROVE');
+      return;
+    }
+    if (dialog.kind === 'revision') {
+      void execute('REQUEST_REVISION', reason);
+      return;
+    }
+    if (dialog.kind === 'cancel') {
+      void execute('CANCEL', reason);
+      return;
+    }
+    void confirmWithdrawAndEdit();
   }
 
   if (state.kind === 'loading') {
@@ -553,6 +623,21 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     && viewMeeting && detail.meetingDetails !== null
     && (detail.job.status !== 'CANCELLED' || hasMeetingResult);
 
+  const recordContent = editing && detail.kind === 'SALES_MEETING'
+    ? <SalesMeetingEditForm job={detail.job} user={user}
+      pending={pending} onCancel={() => setEditing(false)} onSave={saveJob} />
+    : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
+      ? <MeetingDetailsSection
+        job={detail.job}
+        details={detail.meetingDetails}
+        user={user}
+        canEdit={editMeeting}
+        mutationPending={pending}
+        submissionError={meetingSubmissionError}
+        onSave={saveMeeting}
+      />
+      : null;
+
   return <JobDetailPanel
     job={detail.job}
     items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []}
@@ -564,19 +649,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     onBack={onBack}
     meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
     onCommand={(name) => command(name, document.activeElement as HTMLElement)}
-    onRecordEdit={(action) => { void beginEdit(action); }}
+    onRecordEdit={(action) => {
+      openRecordEditDialog(action, document.activeElement as HTMLElement);
+    }}
+    records={recordContent}
   >
-    {editing && detail.kind === 'SALES_MEETING' ? <SalesMeetingEditForm job={detail.job} user={user}
-      pending={pending} onCancel={() => setEditing(false)} onSave={saveJob} />
-      : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails && <MeetingDetailsSection
-        job={detail.job}
-        details={detail.meetingDetails}
-        user={user}
-        canEdit={editMeeting}
-        mutationPending={pending}
-        submissionError={meetingSubmissionError}
-        onSave={saveMeeting}
-      />}
     <div className="job-detail-sections">
       {viewNotes && <JobNotes
         jobId={jobId}
@@ -586,7 +663,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       />}
       <JobTimeline jobId={jobId} refreshKey={timelineKey} />
     </div>
-    {dialog && <ReasonDialog kind={dialog} pending={pending} onClose={closeDialog}
-      onConfirm={(reason) => void execute(dialog, reason)} />}
+    {dialog && <JobWorkflowDialog
+      dialog={dialog}
+      pending={pending}
+      onClose={closeDialog}
+      onConfirm={confirmDialog}
+    />}
   </JobDetailPanel>;
 }
