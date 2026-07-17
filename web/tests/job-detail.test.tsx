@@ -611,6 +611,132 @@ describe('Staff JobCard detail', () => {
     expect(html).not.toContain('Ürün teslimi');
   });
 
+  it('refreshes backend submission readiness after meeting result save', async () => {
+    const missingReadiness = {
+      evaluatedAt: '2026-07-17T12:00:00.000Z',
+      ready: false,
+      items: [
+        { code: 'MEETING_TIME_VALID' as const, state: 'missing' as const },
+        { code: 'MEETING_OUTCOME_VALID' as const, state: 'missing' as const },
+        { code: 'MEETING_SUMMARY_PRESENT' as const, state: 'missing' as const },
+      ],
+    };
+    const metReadiness = {
+      evaluatedAt: '2026-07-17T12:05:00.000Z',
+      ready: true,
+      items: [
+        { code: 'MEETING_TIME_VALID' as const, state: 'met' as const },
+        { code: 'MEETING_OUTCOME_VALID' as const, state: 'met' as const },
+        { code: 'MEETING_SUMMARY_PRESENT' as const, state: 'met' as const },
+      ],
+    };
+    const emptyMeeting: MeetingDetails = {
+      jobCardId: 'job-1', meetingAt: null, outcome: null, meetingSummary: null,
+      nextFollowUpAt: null, jobCardVersion: 3,
+    };
+    const savedMeeting: MeetingDetails = {
+      jobCardId: 'job-1', meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'POSITIVE',
+      meetingSummary: 'Olumlu görüşme', nextFollowUpAt: null, jobCardVersion: 4,
+    };
+    const initialCard: JobCard = {
+      ...inProgressMeeting(),
+      version: 3,
+      assignedTo: staffUser.id,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { submissionReadiness: missingReadiness }),
+    };
+    const refreshedCard: JobCard = {
+      ...initialCard,
+      version: 4,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }, { submissionReadiness: metReadiness }),
+    };
+    let currentCard = initialCard;
+    let currentMeeting = emptyMeeting;
+    const flush = async () => {
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    };
+    const change = (
+      element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement,
+      value: string,
+    ) => {
+      const prototype = element instanceof HTMLSelectElement
+        ? HTMLSelectElement.prototype
+        : element instanceof HTMLTextAreaElement
+          ? HTMLTextAreaElement.prototype
+          : HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
+      element.dispatchEvent(new Event(
+        element instanceof HTMLSelectElement ? 'change' : 'input',
+        { bubbles: true },
+      ));
+    };
+    Object.defineProperty(globalThis.crypto, 'randomUUID', {
+      configurable: true,
+      value: vi.fn(() => 'meeting-save-1'),
+    });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details') && init?.method === 'PATCH') {
+        currentMeeting = savedMeeting;
+        currentCard = refreshedCard;
+        return Response.json(savedMeeting);
+      }
+      if (url.endsWith('/meeting-details')) return Response.json(currentMeeting);
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(currentCard);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+
+    await act(async () => {
+      root.render(<JobDetailScreen
+        jobId={initialCard.id}
+        user={staffUser}
+        onBack={() => {}}
+        onChanged={() => {}}
+      />);
+      await flush();
+    });
+
+    for (const label of [
+      'Gerçekleşen görüşme zamanı',
+      'Görüşme sonucu',
+      'Görüşme özeti',
+    ]) {
+      const item = Array.from(host.querySelectorAll('.workflow-requirement'))
+        .find((el) => el.querySelector('.workflow-requirement-label')?.textContent === label);
+      expect(item?.querySelector('.workflow-requirement-state')?.textContent).toBe('Eksik');
+    }
+    expect(buttonByName(host, 'Kontrole gönder')).not.toBeNull();
+
+    await act(async () => {
+      change(host.querySelector('#meeting-actual-at') as HTMLInputElement, '2026-07-16T13:00');
+      change(host.querySelector('#meeting-outcome') as HTMLSelectElement, 'POSITIVE');
+      change(host.querySelector('#meeting-summary') as HTMLTextAreaElement, 'Olumlu görüşme');
+    });
+    await act(async () => {
+      (host.querySelector('form.meeting-result-form') as HTMLFormElement).requestSubmit();
+      await flush();
+      await flush();
+    });
+
+    expect(host.textContent).toContain('Görüşme sonucu kaydedildi.');
+    for (const label of [
+      'Gerçekleşen görüşme zamanı',
+      'Görüşme sonucu',
+      'Görüşme özeti',
+    ]) {
+      const item = Array.from(host.querySelectorAll('.workflow-requirement'))
+        .find((el) => el.querySelector('.workflow-requirement-label')?.textContent === label);
+      expect(item?.querySelector('.workflow-requirement-state')?.textContent).toBe('Tamam');
+    }
+    expect(buttonByName(host, 'Kontrole gönder')).not.toBeNull();
+  });
+
   it('uses exactly one structured subresource for each canonical type', () => {
     const source = readFileSync(`${process.cwd()}/src/JobDetail.tsx`, 'utf8');
 

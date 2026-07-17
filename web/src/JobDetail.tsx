@@ -584,15 +584,10 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     try {
       const meetingDetails = await patchMeetingDetails(jobId, input);
-      setState({
-        kind: 'ready',
-        detail: {
-          ...state.detail,
-          job: { ...state.detail.job, version: meetingDetails.jobCardVersion },
-          meetingDetails,
-        },
-      });
-      setTimelineKey((value) => value + 1); onChanged(); return meetingDetails;
+      await refreshTruth();
+      setTimelineKey((value) => value + 1);
+      onChanged();
+      return meetingDetails;
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
         await refreshTruth();
