@@ -543,9 +543,10 @@ export class JobCardService {
     return this.repository.listReferenceCustomers(actor.organizationId);
   }
 
-  async plan(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
+  async acceptAssignment(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
     return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
-      command: 'PLAN', operationKey: 'JOB_PLAN', target: 'PLANNED', event: 'JOB_PLANNED',
+      command: 'ACCEPT_ASSIGNMENT', operationKey: 'JOB_ACCEPT_ASSIGNMENT',
+      target: 'ACCEPTED', event: 'JOB_ACCEPTED',
       note: null, revisionReason: null, cancelReason: null,
     });
   }

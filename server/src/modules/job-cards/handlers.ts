@@ -76,8 +76,8 @@ export function createJobCardHandlers(service: JobCardService) {
       service.patchDeliveryItem(actor(request), request.params.id, request.params.itemId!, body(request, DELIVERY_FIELDS.filter((field) => field !== 'clientActionId')) as never),
     removeDeliveryItem: async (request: FastifyRequest<{ Params: Params }>) =>
       service.removeDeliveryItem(actor(request), request.params.id, request.params.itemId!, body(request, ['expectedVersion']) as never),
-    plan: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.plan(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
+    accept: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.acceptAssignment(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     start: async (request: FastifyRequest<{ Params: Params }>) =>
       service.start(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     submit: async (request: FastifyRequest<{ Params: Params }>) =>

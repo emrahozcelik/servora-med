@@ -164,7 +164,7 @@ export type DeliveryItem = {
 };
 
 export type LifecycleCommand =
-  | 'PLAN'
+  | 'ACCEPT_ASSIGNMENT'
   | 'START'
   | 'SUBMIT_FOR_APPROVAL'
   | 'APPROVE'
@@ -172,6 +172,9 @@ export type LifecycleCommand =
   | 'WITHDRAW_FROM_APPROVAL'
   | 'RESUME'
   | 'CANCEL';
+
+/** Active statuses plus legacy PLANNED retained only for historical activity presentation. */
+export type JobCardActivityStatus = JobCardStatus | 'PLANNED';
 
 export type JobPermissionSubject = Pick<
   JobCard,
@@ -286,8 +289,8 @@ export type ActivityRecord = {
 export type JobCardActivityDetails =
   | {
       kind: 'STATUS_TRANSITION';
-      fromStatus: JobCardStatus;
-      toStatus: JobCardStatus;
+      fromStatus: JobCardActivityStatus;
+      toStatus: JobCardActivityStatus;
       reason: string | null;
     }
   | {

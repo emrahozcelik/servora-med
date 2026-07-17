@@ -34,7 +34,7 @@ function serviceDouble() {
     listDeliveryItems: vi.fn().mockResolvedValue([]), addDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 2 }),
     patchDeliveryItem: vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 3 }),
     removeDeliveryItem: vi.fn().mockResolvedValue({ id: 'item-1', jobCardVersion: 4 }),
-    plan: vi.fn().mockResolvedValue({ ...result, status: 'PLANNED' }),
+    acceptAssignment: vi.fn().mockResolvedValue({ ...result, status: 'ACCEPTED' }),
     start: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     submitForApproval: vi.fn().mockResolvedValue({ ...result, status: 'WAITING_APPROVAL' }),
     approve: vi.fn().mockResolvedValue({ ...result, status: 'COMPLETED' }),
@@ -275,7 +275,7 @@ describe('JobCard routes', () => {
   });
 
   it.each([
-    ['plan', 'plan', { clientActionId: 'a0', expectedVersion: 1 }],
+    ['accept', 'acceptAssignment', { clientActionId: 'a0', expectedVersion: 1 }],
     ['start', 'start', { clientActionId: 'a1', expectedVersion: 1 }],
     ['submit-for-approval', 'submitForApproval', { clientActionId: 'a2', expectedVersion: 2, note: 'Bitti' }],
     ['approve', 'approve', { clientActionId: 'a3', expectedVersion: 3, note: 'Uygun' }],
@@ -290,7 +290,7 @@ describe('JobCard routes', () => {
   });
 
   it.each([
-    ['plan', { clientActionId: 'x1', expectedVersion: 1, note: 'forbidden' }],
+    ['accept', { clientActionId: 'x1', expectedVersion: 1, note: 'forbidden' }],
     ['start', { clientActionId: 'x2', expectedVersion: 1, revisionReason: 'forbidden' }],
     ['resume', { clientActionId: 'x3', expectedVersion: 1, cancelReason: 'forbidden' }],
     ['submit-for-approval', { clientActionId: 'x4', expectedVersion: 1, cancelReason: 'forbidden' }],

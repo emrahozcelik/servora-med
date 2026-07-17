@@ -21,7 +21,8 @@ const baseRecord = (eventType: JobCardActivityEvent, values: Partial<ActivityRec
 
 const lifecycleCases = [
   ['JOB_PLANNED', 'NEW', 'PLANNED'],
-  ['JOB_STARTED', 'NEW', 'IN_PROGRESS'],
+  ['JOB_ACCEPTED', 'NEW', 'ACCEPTED'],
+  ['JOB_STARTED', 'ACCEPTED', 'IN_PROGRESS'],
   ['JOB_STARTED', 'PLANNED', 'IN_PROGRESS'],
   ['JOB_SUBMITTED_FOR_APPROVAL', 'IN_PROGRESS', 'WAITING_APPROVAL'],
   ['JOB_APPROVED', 'WAITING_APPROVAL', 'COMPLETED'],
@@ -29,6 +30,7 @@ const lifecycleCases = [
   ['JOB_APPROVAL_WITHDRAWN', 'WAITING_APPROVAL', 'IN_PROGRESS'],
   ['JOB_RESUMED', 'REVISION_REQUESTED', 'IN_PROGRESS'],
   ['JOB_CANCELLED', 'NEW', 'CANCELLED'],
+  ['JOB_CANCELLED', 'ACCEPTED', 'CANCELLED'],
   ['JOB_CANCELLED', 'PLANNED', 'CANCELLED'],
   ['JOB_CANCELLED', 'IN_PROGRESS', 'CANCELLED'],
   ['JOB_CANCELLED', 'REVISION_REQUESTED', 'CANCELLED'],
@@ -36,11 +38,11 @@ const lifecycleCases = [
 ] as const;
 
 describe('safe JobCard activity presenter', () => {
-  it('keeps the canonical activity vocabulary at exactly 16 unique events', () => {
-    expect(JOB_CARD_ACTIVITY_EVENTS).toHaveLength(16);
-    expect(new Set(JOB_CARD_ACTIVITY_EVENTS).size).toBe(16);
+  it('keeps the canonical activity vocabulary at exactly 17 unique events', () => {
+    expect(JOB_CARD_ACTIVITY_EVENTS).toHaveLength(17);
+    expect(new Set(JOB_CARD_ACTIVITY_EVENTS).size).toBe(17);
     expect(new Set(JOB_CARD_ACTIVITY_EVENTS)).toEqual(new Set([
-      'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_STARTED',
+      'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
       'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
       'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED',
       'DELIVERY_ITEM_ADDED', 'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED',
@@ -91,10 +93,10 @@ describe('safe JobCard activity presenter', () => {
       toStatus: 'CANCELLED', reason: 'Müşteri iptal etti',
     });
     expect(presentActivity(baseRecord('JOB_STARTED', {
-      oldValue: { status: 'PLANNED' }, newValue: { status: 'IN_PROGRESS' },
+      oldValue: { status: 'ACCEPTED' }, newValue: { status: 'IN_PROGRESS' },
       metadata: { reason: 'must not leak' },
     })).details).toEqual({
-      kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED',
+      kind: 'STATUS_TRANSITION', fromStatus: 'ACCEPTED',
       toStatus: 'IN_PROGRESS', reason: null,
     });
   });
@@ -128,7 +130,9 @@ describe('safe JobCard activity presenter', () => {
 
   it.each([
     ['JOB_PLANNED', 'PLANNED', 'PLANNED'],
+    ['JOB_ACCEPTED', 'ACCEPTED', 'ACCEPTED'],
     ['JOB_STARTED', 'IN_PROGRESS', 'IN_PROGRESS'],
+    ['JOB_STARTED', 'NEW', 'IN_PROGRESS'],
     ['JOB_SUBMITTED_FOR_APPROVAL', 'NEW', 'WAITING_APPROVAL'],
     ['JOB_APPROVED', 'IN_PROGRESS', 'COMPLETED'],
     ['JOB_REVISION_REQUESTED', 'IN_PROGRESS', 'REVISION_REQUESTED'],
@@ -248,6 +252,7 @@ describe('JobCard activity service scope', () => {
     id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 1,
     title: 'Teslim', description: null, customerId: 'customer-1', contactId: null,
     assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
+    scheduledAt: null,
   };
 
   it('projects a canonical page after enforcing Staff visibility and organization scope', async () => {
@@ -256,7 +261,7 @@ describe('JobCard activity service scope', () => {
       customer: { id: 'customer-1', name: 'Demo Klinik' }, contact: null,
       lifecycle: {
         createdAt: '2026-07-13T10:00:00.000Z',
-        plannedAt: null, startedAt: null, submittedAt: null, submittedBy: null,
+        acceptedAt: null, acceptedBy: null, startedAt: null, submittedAt: null, submittedBy: null,
         submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
         revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
         cancelledAt: null, cancelledBy: null, cancelReason: null, cancelledFromStatus: null,

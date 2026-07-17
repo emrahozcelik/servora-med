@@ -526,7 +526,8 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `UPDATE job_cards
        SET status = $4::varchar(30),
            version = version + 1,
-           planned_at = CASE WHEN $4 = 'PLANNED' THEN $5 ELSE planned_at END,
+           accepted_at = CASE WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $5 ELSE accepted_at END,
+           accepted_by = CASE WHEN $10 = 'ACCEPT_ASSIGNMENT' THEN $6 ELSE accepted_by END,
            started_at = CASE WHEN $10 = 'START' THEN COALESCE(started_at, $5) ELSE started_at END,
            staff_completed_at = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $5 ELSE staff_completed_at END,
            staff_completed_by = CASE WHEN $10 = 'SUBMIT_FOR_APPROVAL' THEN $6 ELSE staff_completed_by END,

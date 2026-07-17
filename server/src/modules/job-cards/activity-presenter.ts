@@ -7,13 +7,14 @@ import {
   type DeliveryPurpose,
   type JobCardActivityDetails,
   type JobCardActivityDto,
+  type JobCardActivityStatus,
   type JobCardPriority,
-  type JobCardStatus,
 } from './types.js';
 
 type JsonRecord = Record<string, unknown>;
 type LifecycleEvent =
   | 'JOB_PLANNED'
+  | 'JOB_ACCEPTED'
   | 'JOB_STARTED'
   | 'JOB_SUBMITTED_FOR_APPROVAL'
   | 'JOB_APPROVED'
@@ -22,9 +23,15 @@ type LifecycleEvent =
   | 'JOB_RESUMED'
   | 'JOB_CANCELLED';
 
-const LIFECYCLE_TRANSITIONS: Record<LifecycleEvent, ReadonlyArray<readonly [JobCardStatus, JobCardStatus]>> = {
+const ACTIVITY_STATUSES: readonly JobCardActivityStatus[] = [...JOB_CARD_STATUSES, 'PLANNED'];
+
+const LIFECYCLE_TRANSITIONS: Record<
+  LifecycleEvent,
+  ReadonlyArray<readonly [JobCardActivityStatus, JobCardActivityStatus]>
+> = {
   JOB_PLANNED: [['NEW', 'PLANNED']],
-  JOB_STARTED: [['NEW', 'IN_PROGRESS'], ['PLANNED', 'IN_PROGRESS']],
+  JOB_ACCEPTED: [['NEW', 'ACCEPTED']],
+  JOB_STARTED: [['ACCEPTED', 'IN_PROGRESS'], ['PLANNED', 'IN_PROGRESS']],
   JOB_SUBMITTED_FOR_APPROVAL: [['IN_PROGRESS', 'WAITING_APPROVAL']],
   JOB_APPROVED: [['WAITING_APPROVAL', 'COMPLETED']],
   JOB_REVISION_REQUESTED: [['WAITING_APPROVAL', 'REVISION_REQUESTED']],
@@ -32,6 +39,7 @@ const LIFECYCLE_TRANSITIONS: Record<LifecycleEvent, ReadonlyArray<readonly [JobC
   JOB_RESUMED: [['REVISION_REQUESTED', 'IN_PROGRESS']],
   JOB_CANCELLED: [
     ['NEW', 'CANCELLED'],
+    ['ACCEPTED', 'CANCELLED'],
     ['PLANNED', 'CANCELLED'],
     ['IN_PROGRESS', 'CANCELLED'],
     ['REVISION_REQUESTED', 'CANCELLED'],
@@ -55,8 +63,8 @@ function jsonRecord(value: unknown): JsonRecord | null {
     : null;
 }
 
-function isStatus(value: unknown): value is JobCardStatus {
-  return JOB_CARD_STATUSES.includes(value as JobCardStatus);
+function isStatus(value: unknown): value is JobCardActivityStatus {
+  return ACTIVITY_STATUSES.includes(value as JobCardActivityStatus);
 }
 
 function validFieldValue(field: string, value: unknown) {
@@ -160,6 +168,7 @@ function details(record: ActivityRecord): JobCardActivityDetails {
     case 'JOB_FIELDS_UPDATED':
       return fieldDetails(record.eventType, record.oldValue, record.newValue);
     case 'JOB_PLANNED':
+    case 'JOB_ACCEPTED':
     case 'JOB_STARTED':
     case 'JOB_SUBMITTED_FOR_APPROVAL':
     case 'JOB_APPROVED':
