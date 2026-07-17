@@ -94,11 +94,14 @@ export type JobCardCreateInput =
   | { clientActionId: string; type: 'SALES_MEETING'; title: string; customerId: string;
     assignedTo: string; dueDate: string; description?: string | null;
     contactId?: string | null; priority?: JobCardPriority };
-export type JobCardListItem = {
+export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; createdAt: string; updatedAt: string;
   staffCompletedAt: string | null; customer: RelatedName | null; contact: RelatedName | null;
-  assignee: RelatedName; deliveryItemCount: number; allowedCommands: LifecycleCommand[];
+  assignee: RelatedName; deliveryItemCount: number;
+};
+export type JobCardListItem = PersistedJobCardListItem & {
+  allowedCommands: LifecycleCommand[];
 };
 export type JobCardBoard = {
   columns: Record<'NEW' | 'PLANNED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'REVISION_REQUESTED', {
@@ -303,7 +306,7 @@ function parseJobCard(value: unknown): JobCard {
     workflowContext: parseWorkflowContext(v.workflowContext),
   };
 }
-export function parseJobCardListItem(value: unknown): JobCardListItem {
+export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
   const v = object(value);
   return {
     id: string(v.id, 'id'), type: oneOf(v.type, 'type', JOB_CARD_TYPES),
@@ -313,6 +316,12 @@ export function parseJobCardListItem(value: unknown): JobCardListItem {
     updatedAt: string(v.updatedAt, 'updatedAt'), staffCompletedAt: nullableString(v.staffCompletedAt, 'staffCompletedAt'),
     customer: nullableRelated(v.customer, 'customer'), contact: nullableRelated(v.contact, 'contact'),
     assignee: related(v.assignee, 'assignee'), deliveryItemCount: count(v.deliveryItemCount, 'deliveryItemCount'),
+  };
+}
+export function parseJobCardListItem(value: unknown): JobCardListItem {
+  const v = object(value);
+  return {
+    ...parsePersistedJobCardListItem(value),
     allowedCommands: uniqueValues(
       array(v.allowedCommands, 'allowedCommands').map((entry) =>
         oneOf(entry, 'allowedCommands', LIFECYCLE_COMMANDS)),

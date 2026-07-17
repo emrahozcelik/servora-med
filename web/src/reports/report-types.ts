@@ -1,7 +1,7 @@
 import type {
   DeliveryPurpose,
-  JobCardListItem,
   MeetingOutcome,
+  PersistedJobCardListItem,
 } from '../jobs/jobs-api';
 
 export type RequestedReportRange = { from: string; to: string } | null;
@@ -78,7 +78,8 @@ export type StaffReportResponse = {
   meetingsByOutcome: Array<{ outcome: MeetingOutcome; count: number }>;
 };
 
-export type ApprovalItem = JobCardListItem & { waitingMinutes: number };
+/** Approval queue rows reuse the persisted list projection, not actor-scoped commands. */
+export type ApprovalItem = PersistedJobCardListItem & { waitingMinutes: number };
 export type ApprovalSummary = {
   pendingCount: number;
   oldestWaitingMinutes: number | null;
