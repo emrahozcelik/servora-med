@@ -8,6 +8,11 @@ import type {
   StaffReportResponse,
 } from './report-types';
 import type { DeliveryPurpose, MeetingOutcome } from '../jobs/jobs-api';
+import {
+  OperationalTable,
+  type OperationalTableColumn,
+  type OperationalTableRow,
+} from '../ui/OperationalTable';
 
 const staffCounterLabels: Record<keyof StaffOperationalCounters, string> = {
   openJobCards: 'Açık işler',
@@ -28,6 +33,40 @@ const outcomeLabels: Record<MeetingOutcome, string> = {
   POSITIVE: 'Olumlu', FOLLOW_UP_REQUIRED: 'Takip gerekli',
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
+
+const DELIVERY_PURPOSE_COLUMNS: readonly OperationalTableColumn[] = [
+  { key: 'purpose', title: 'Amaç' },
+  { key: 'unit', title: 'Birim' },
+  { key: 'quantity', title: 'Miktar' },
+];
+
+const MEETING_OUTCOME_COLUMNS: readonly OperationalTableColumn[] = [
+  { key: 'outcome', title: 'Sonuç' },
+  { key: 'count', title: 'Görüşme sayısı' },
+];
+
+function deliveryPurposeRows(items: readonly DeliveryPurposeItem[]): OperationalTableRow[] {
+  return items.map((item) => ({
+    key: JSON.stringify([item.purpose, item.unit]),
+    cells: {
+      purpose: purposeLabels[item.purpose],
+      unit: item.unit ?? 'Birim belirtilmedi',
+      quantity: item.quantity,
+    },
+  }));
+}
+
+function meetingOutcomeRows(
+  items: StaffReportResponse['meetingsByOutcome'],
+): OperationalTableRow[] {
+  return items.map((item) => ({
+    key: item.outcome,
+    cells: {
+      outcome: outcomeLabels[item.outcome],
+      count: item.count,
+    },
+  }));
+}
 
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('tr-TR', {
@@ -59,18 +98,14 @@ function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
       <p>Bu dönemde onaylı teslim bulunmuyor.</p>
     </div>;
   }
-  return <div className="report-table-wrap">
-    <table className="report-table responsive-report-table">
-      <caption>Onaylı teslimler</caption>
-      <thead><tr><th scope="col">Amaç</th><th scope="col">Birim</th>
-        <th scope="col">Miktar</th></tr></thead>
-      <tbody>{items.map((item) => <tr key={JSON.stringify([item.purpose, item.unit])}>
-        <th scope="row" data-label="Amaç">{purposeLabels[item.purpose]}</th>
-        <td data-label="Birim">{item.unit ?? 'Birim belirtilmedi'}</td>
-        <td className="report-quantity" data-label="Miktar">{item.quantity}</td>
-      </tr>)}</tbody>
-    </table>
-  </div>;
+  return (
+    <OperationalTable
+      caption="Onaylı teslimler"
+      columns={DELIVERY_PURPOSE_COLUMNS}
+      rows={deliveryPurposeRows(items)}
+      rowHeaderKey="purpose"
+    />
+  );
 }
 
 function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsByOutcome'] }) {
@@ -78,10 +113,12 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
   return <section className="meeting-outcome-report" aria-labelledby="meeting-outcome-title">
     <h3 id="meeting-outcome-title">Görüşme sonuçları</h3>
     {total === 0 && <p className="report-empty-copy">Bu dönemde onaylı satış görüşmesi bulunmuyor.</p>}
-    <div className="report-table-wrap"><table className="report-table responsive-report-table">
-      <thead><tr><th scope="col">Sonuç</th><th scope="col">Görüşme sayısı</th></tr></thead>
-      <tbody>{items.map((item) => <tr key={item.outcome}><th scope="row" data-label="Sonuç">{outcomeLabels[item.outcome]}</th>
-        <td data-label="Görüşme sayısı">{item.count}</td></tr>)}</tbody></table></div>
+    <OperationalTable
+      caption="Görüşme sonuçları"
+      columns={MEETING_OUTCOME_COLUMNS}
+      rows={meetingOutcomeRows(items)}
+      rowHeaderKey="outcome"
+    />
   </section>;
 }
 

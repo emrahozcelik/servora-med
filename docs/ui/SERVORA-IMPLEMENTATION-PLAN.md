@@ -283,12 +283,12 @@ Work below is **out of the mandatory A–F chain**. Each item needs its own desi
 | ID | Slice | Class |
 | --- | --- | --- |
 | PR G | UI plan closeout | Docs-only — merged via PR #25 |
-| PR H | Approval report → `OperationalTable` | Optional runtime — complete on `feature/approval-operational-table`; awaiting review |
-| PR I | Staff report → `OperationalTable` | Optional runtime (after H) |
+| PR H | Approval report → `OperationalTable` | Optional runtime — merged via PR #26 |
+| PR I | Staff report → `OperationalTable` | Optional runtime — complete on `feature/staff-operational-table`; awaiting review |
 
 ### PR H: Approval report → `OperationalTable`
 
-Implementation status: Complete on `feature/approval-operational-table`; awaiting review.
+Implementation status: Merged via PR #26 at `f3e3e33`.
 
 Completion checklist:
 
@@ -307,10 +307,33 @@ Verification record (18 July 2026):
 - `cd server && npm run build`: passed
 - `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped
 
+### PR I: Staff report → `OperationalTable`
+
+Implementation status: Complete on `feature/staff-operational-table`; awaiting review.
+
+Completion checklist:
+
+- [x] approved-delivery purpose and meeting-outcome dense tables migrated to the existing Servora-native `OperationalTable`
+- [x] API/DTO contracts, five counters, report range, quantities, meeting counts, loading, error, retry, inactive-personnel, and empty behavior unchanged
+- [x] delivery purpose and meeting outcome explicitly selected as desktop row headers with `rowHeaderKey`
+- [x] every field preserved across desktop tables and mobile cards without recomputing report data
+- [x] real Staff operational view uses mobile cards at and below `720px`, desktop tables above `720px`, and does not overflow with long values
+- [x] KPI redesign, backend metrics/formulas, API changes, charts, export, Result/Skeleton standardization, and Popconfirm remain out of scope
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 64 files and 587 tests passed
+- `cd web && npm run build`: passed; emitted JS was 831.22 kB raw and 246.65 kB gzip, and CSS was 64.30 kB raw and 11.30 kB gzip, with the existing 500 kB chunk warning
+- `cd web && npm run smoke:responsive`: 390, 720, 768, 1024, 1440, 200% text, and 400% reflow checks passed; both real Staff report tables preserved desktop/mobile field parity, explicit row headers, the exact `720px` switch, and no overflow
+- `cd web && npm audit --omit=dev`: passed with zero vulnerabilities
+- `cd server && npm run build`: passed
+- `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped
+- `cd server && npm audit --omit=dev`: passed with zero vulnerabilities
+
 ### Optional (implementation when prioritised)
 
-- Approval queue list → `OperationalTable` (720px mobile card parity; summary + SLA chart unchanged; no API change) — **PR H**
-- Staff dense table → `OperationalTable` (after Approval)
+- Approval queue list → `OperationalTable` (720px mobile card parity; summary + SLA chart unchanged; no API change) — **PR H, merged via PR #26**
+- Staff dense table → `OperationalTable` — **PR I, complete; awaiting review**
 - `ResultState` / shared Empty / Skeleton adapters
 - Popconfirm for proven low-risk, short confirmations only
 - AppShell navigation drawer parity vs Ant Drawer (behavior tests first)

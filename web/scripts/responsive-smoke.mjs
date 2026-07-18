@@ -62,6 +62,9 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <section class="report-workspace" aria-label="Onay raporu responsive fixture" data-smoke-approval-report>
         <div id="responsive-approval-report-root"></div>
       </section>
+      <section class="report-workspace" aria-label="Personel raporu responsive fixture" data-smoke-staff-report>
+        <div id="responsive-staff-report-root"></div>
+      </section>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="workflow-board">
           <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
@@ -128,6 +131,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <script type="module" src="/scripts/responsive-job-detail-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-operational-table-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-approval-report-fixture.tsx"></script>
+<script type="module" src="/scripts/responsive-staff-report-fixture.tsx"></script>
 </body></html>`;
 
 const viewports = [
@@ -314,6 +318,44 @@ async function measure(page) {
       )).map((cell) => cell.textContent?.trim() ?? '')
       : [];
     const approvalLink = approvalTable?.querySelector('a[href="/jobs/smoke-approval-job"]');
+    const staffSection = document.querySelector('[data-smoke-staff-report]');
+    const staffSectionRect = staffSection?.getBoundingClientRect();
+    const staffTables = staffSection
+      ? Array.from(staffSection.querySelectorAll('[data-servora-operational-table="true"]'))
+      : [];
+    const staffTableMetrics = staffTables.map((table) => {
+      const desktop = table.querySelector('.servora-operational-table__desktop');
+      const mobile = table.querySelector('.servora-operational-table__mobile');
+      const desktopRect = desktop?.getBoundingClientRect();
+      const mobileRect = mobile?.getBoundingClientRect();
+      const desktopVisible = Boolean(desktop && getComputedStyle(desktop).display !== 'none');
+      const mobileDisplay = mobile ? getComputedStyle(mobile).display : 'none';
+      const mobileVisible = Boolean(mobile
+        && mobileDisplay !== 'none' && mobileDisplay !== 'contents');
+      const desktopValues = Array.from(table.querySelectorAll(
+        '.servora-operational-table__desktop tbody tr:first-child > *',
+      )).map((cell) => cell.textContent?.trim() ?? '');
+      const mobileValues = Array.from(table.querySelectorAll(
+        '.servora-operational-table__card:first-child dd',
+      )).map((cell) => cell.textContent?.trim() ?? '');
+      const overflow = Boolean(staffSectionRect && (
+        (desktopVisible && desktopRect
+          && (desktopRect.right > staffSectionRect.right + 2
+            || desktopRect.left < staffSectionRect.left - 2))
+        || (mobileVisible && mobileRect
+          && (mobileRect.right > staffSectionRect.right + 2
+            || mobileRect.left < staffSectionRect.left - 2))
+      ));
+      return {
+        desktopVisible,
+        mobileVisible,
+        overflow,
+        desktopValues,
+        mobileValues,
+        caption: table.querySelector('caption')?.textContent?.trim() ?? '',
+        rowHeader: table.querySelector('tbody th[scope="row"]')?.textContent?.trim() ?? '',
+      };
+    });
     return {
       overflowX,
       results,
@@ -343,6 +385,8 @@ async function measure(page) {
       approvalDesktopValues,
       approvalMobileValues,
       approvalLinkName: approvalLink?.getAttribute('aria-label') ?? '',
+      staffPresent: staffTableMetrics.length === 2,
+      staffTables: staffTableMetrics,
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
     };
@@ -375,6 +419,16 @@ try {
     if (JSON.stringify(m.approvalDesktopValues) !== JSON.stringify(m.approvalMobileValues)) {
       failures.push(`${vp.name}: Approval desktop/mobile field parity mismatch`);
     }
+    if (!m.staffPresent) failures.push(`${vp.name}: Staff OperationalTable fixtures missing`);
+    for (const table of m.staffTables) {
+      if (table.overflow) failures.push(`${vp.name}: Staff OperationalTable exceeds report workspace`);
+      if (JSON.stringify(table.desktopValues) !== JSON.stringify(table.mobileValues)) {
+        failures.push(`${vp.name}: Staff desktop/mobile field parity mismatch`);
+      }
+      if (!table.caption || !table.rowHeader) {
+        failures.push(`${vp.name}: Staff table needs caption and row header`);
+      }
+    }
     if (vp.width <= 720) {
       if (m.desktopVisible) failures.push(`${vp.name}: OperationalTable desktop must be hidden at/under 720px`);
       if (!m.mobileVisible) failures.push(`${vp.name}: OperationalTable mobile must be visible at/under 720px`);
@@ -385,6 +439,9 @@ try {
       if (m.approvalDesktopVisible || !m.approvalMobileVisible) {
         failures.push(`${vp.name}: Approval must use mobile cards at/under 720px`);
       }
+      if (m.staffTables.some((table) => table.desktopVisible || !table.mobileVisible)) {
+        failures.push(`${vp.name}: Staff must use mobile cards at/under 720px`);
+      }
     }
     if (vp.width > 720) {
       if (!m.desktopVisible) failures.push(`${vp.name}: OperationalTable desktop must be visible above 720px`);
@@ -394,6 +451,9 @@ try {
       }
       if (!m.approvalDesktopVisible || m.approvalMobileVisible) {
         failures.push(`${vp.name}: Approval must use the desktop table above 720px`);
+      }
+      if (m.staffTables.some((table) => !table.desktopVisible || table.mobileVisible)) {
+        failures.push(`${vp.name}: Staff must use desktop tables above 720px`);
       }
     }
     if ((vp.width === 390 || vp.width === 1024) && !m.descriptionsUseFullWidth) {
@@ -464,6 +524,11 @@ try {
       || JSON.stringify(m.approvalDesktopValues) !== JSON.stringify(m.approvalMobileValues)) {
       failures.push('200% text: Approval mobile reflow failure');
     }
+    if (!m.staffPresent || m.staffTables.some((table) => table.overflow
+      || !table.mobileVisible || table.desktopVisible
+      || JSON.stringify(table.desktopValues) !== JSON.stringify(table.mobileValues))) {
+      failures.push('200% text: Staff mobile reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
     }
@@ -491,6 +556,11 @@ try {
       || m.approvalLinkName !== 'Klinik kontrolü işini aç'
       || JSON.stringify(m.approvalDesktopValues) !== JSON.stringify(m.approvalMobileValues)) {
       failures.push('400% reflow: Approval mobile reflow failure');
+    }
+    if (!m.staffPresent || m.staffTables.some((table) => table.overflow
+      || !table.mobileVisible || table.desktopVisible
+      || JSON.stringify(table.desktopValues) !== JSON.stringify(table.mobileValues))) {
+      failures.push('400% reflow: Staff mobile reflow failure');
     }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {
