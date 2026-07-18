@@ -461,7 +461,7 @@ function deriveRecordEditAction(
   workflowContext: JobWorkflowContext,
 ): RecordEditPresentation | null {
   const actions = workflowContext.allowedActions;
-  if (actions.includes('WITHDRAW_AND_EDIT_JOB_FIELDS')) {
+  if (job.type === 'SALES_MEETING' && actions.includes('WITHDRAW_AND_EDIT_JOB_FIELDS')) {
     const staffWording = user.role === 'STAFF';
     return {
       action: 'WITHDRAW_AND_EDIT_JOB_FIELDS',
@@ -547,10 +547,13 @@ export function deriveJobWorkflowPresentation(
     job, user, workflowContext, revisionActive, hideWithdraw,
   );
 
-  const requirements = (workflowContext.submissionReadiness?.items ?? []).map((item) => ({
-    ...item,
-    label: requirementLabels[item.code],
-  }));
+  const isTerminal = job.status === 'COMPLETED' || job.status === 'CANCELLED';
+  const requirements = isTerminal
+    ? []
+    : (workflowContext.submissionReadiness?.items ?? []).map((item) => ({
+      ...item,
+      label: requirementLabels[item.code],
+    }));
 
   let terminalState: JobWorkflowPresentation['terminalState'] = null;
   if (job.status === 'COMPLETED') terminalState = 'COMPLETED';
@@ -584,7 +587,7 @@ export function deriveJobWorkflowPresentation(
   return {
     currentPhase,
     phaseItems,
-    revisionLoop: revisionActive
+    revisionLoop: terminalState === null && revisionActive
       ? {
         active: true,
         returnedFrom: 'REVIEW',

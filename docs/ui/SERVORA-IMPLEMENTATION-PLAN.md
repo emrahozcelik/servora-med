@@ -148,9 +148,9 @@ Completion checklist:
 
 Verification record (18 July 2026):
 
-- `cd web && npm test -- --run`: 60 files and 550 tests passed
-- `cd web && npm run build`: passed; emitted JS was 829.86 kB raw and 246.82 kB gzip, and CSS was 64.58 kB raw and 11.33 kB gzip, with the existing 500 kB chunk warning
-- `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200 percent text, and 400 percent reflow checks passed; JobDetail used one, one, two, two, one, and one columns respectively, without horizontal overflow and with the primary action before the Timeline
+- `cd web && npm test -- --run`: 60 files and 554 tests passed
+- `cd web && npm run build`: passed; emitted JS was 829.95 kB raw and 246.83 kB gzip, and CSS was 64.76 kB raw and 11.38 kB gzip, with the existing 500 kB chunk warning
+- `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200 percent text, and 400 percent reflow checks passed; JobDetail used one, one, two, two, one, and one columns respectively, without horizontal overflow and with the primary action before the Timeline; the real owned Descriptions and Timeline adapter DOM also preserved full summary width, content bounds, and Timeline rail layout
 - `cd server && npm run build`: passed
 - `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped
 

@@ -30,8 +30,9 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.detail-section-heading > \* \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.job-notes, \.job-timeline \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.job-notes h2, \.job-timeline h2 \{[^}]*overflow-wrap: anywhere;/);
-    expect(css).toMatch(/\.job-timeline li > div \{[^}]*min-width: 0;/);
-    expect(css).toMatch(/\.job-timeline strong, \.job-timeline span \{[^}]*min-width: 0;[^}]*overflow-wrap: anywhere;/);
+    expect(css).toMatch(/\.servora-activity-timeline article \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/\.servora-activity-timeline article p \{[^}]*overflow-wrap: anywhere;/);
+    expect(css).toMatch(/\.servora-activity-timeline article footer \{[^}]*display: flex;[^}]*flex-wrap: wrap;/);
     expect(css).toMatch(/\.meeting-details h2 \{[^}]*overflow-wrap: anywhere;/);
     expect(css).toMatch(/\.delivery-heading \{[^}]*flex-wrap: wrap;/);
     expect(css).toMatch(/\.task-form fieldset \{[^}]*min-width: 0;/);
@@ -45,8 +46,8 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.eyebrow \{[^}]*overflow-wrap: anywhere;/);
     expect(css).toMatch(/\.detail-summary time \{[^}]*overflow-wrap: anywhere;/);
     expect(css).toMatch(/\.delivery-pair \{ grid-template-columns: 1fr;/);
-    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.detail-summary \{ grid-template-columns: 1fr;/);
-    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-timeline li, \.job-note-list li > div, \.job-timeline li > div \{[^}]*flex-direction: column;/);
+    expect(css).toMatch(/\.detail-summary \{[^}]*display: block;/);
+    expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-note-list li > div \{[^}]*flex-direction: column;/);
     expect(css).toMatch(/\.delivery-lines > ul > li \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.customer-filters \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.customer-row \{ grid-template-columns: 1fr;/);
@@ -56,6 +57,15 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.product-filters \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.product-row \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.product-form-pair \{ grid-template-columns: 1fr;/);
+  });
+
+  it('styles owned Ant adapters through the configured prefix only', () => {
+    expect(css).toContain('.servora-workflow-steps .servora-ant-steps');
+    expect(css).toContain('.servora-ant-steps-item-title');
+    expect(css).toContain('.servora-ant-descriptions-item-label');
+    expect(css).toContain('.servora-ant-descriptions-item-content');
+    expect(css).not.toMatch(/\.ant-(?:steps|descriptions|timeline)(?:\b|-)/);
+    expect(css).not.toMatch(/\.job-timeline\s+(?:ol|li)(?:\b|\s|>)/);
   });
 
   it('prevents Product content from forcing page-level horizontal scrolling', () => {

@@ -175,6 +175,33 @@ describe('deriveJobWorkflowPresentation', () => {
     })).revisionLoop).toBeNull();
   });
 
+  it('suppresses an active revision loop after cancellation', () => {
+    const lifecycle = {
+      ...workflowContext.lifecycle,
+      submittedAt: '2026-07-17T10:00:00.000Z',
+      revisionRequestedAt: '2026-07-17T10:30:00.000Z',
+      revisionRequestedBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      revisionReason: 'Miktarı düzeltin',
+      cancelledAt: '2026-07-17T11:00:00.000Z',
+      cancelledBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      cancelReason: 'Teslimat iptal edildi',
+      cancelledFromStatus: 'REVISION_REQUESTED' as const,
+    };
+    const model = derive(jobAt('CANCELLED', lifecycle));
+
+    expect(model.revisionLoop).toBeNull();
+    expect(model.terminalDetails).toMatchObject({
+      kind: 'CANCELLED',
+      actorName: 'Mehmet Yönetici',
+      at: '2026-07-17T11:00:00.000Z',
+      reason: 'Teslimat iptal edildi',
+      sourceStatus: 'REVISION_REQUESTED',
+      sourceLabel: 'Düzeltme istendi',
+    });
+    expect(model.primaryTransition).toBeNull();
+    expect(model.requirements).toEqual([]);
+  });
+
   it('marks execution as attention while revision is requested', () => {
     const model = derive(jobWith({
       status: 'REVISION_REQUESTED',
@@ -423,6 +450,24 @@ describe('deriveJobWorkflowPresentation', () => {
       'REQUEST_REVISION', 'CANCEL',
     ]);
   });
+
+  it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const)(
+    'does not expose a dead withdraw-and-edit record action for %s',
+    (type) => {
+      const model = derive(jobWith({
+        type, status: 'WAITING_APPROVAL', assignedTo: 's1',
+        workflowContext: contextWith({
+          allowedCommands: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+          allowedActions: ['WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_NOTES'],
+        }),
+      }), staff);
+
+      expect(model.recordEditAction).toBeNull();
+      expect(model.secondaryTransitions.map((transition) => transition.command)).toEqual([
+        'WITHDRAW_FROM_APPROVAL', 'CANCEL',
+      ]);
+    },
+  );
 
   it('presents Sales Meeting field edit without confirmation', () => {
     const model = derive(jobWith({

@@ -765,22 +765,22 @@ button:disabled { cursor: wait; opacity: 0.65; }
   border-radius: 0.7rem;
   background: var(--canvas);
 }
-.servora-workflow-steps .ant-steps { min-width: 0; }
+.servora-workflow-steps .servora-ant-steps { min-width: 0; }
 .servora-workflow-step-state {
   color: var(--muted);
   font-size: 0.8rem;
   font-weight: 650;
 }
-.servora-workflow-step--skipped .ant-steps-item-title,
-.servora-workflow-step--upcoming .ant-steps-item-title { color: var(--muted); }
-.servora-workflow-step--attention .ant-steps-item-title { color: var(--error); }
-.detail-summary .servora-record-descriptions { min-width: 0; }
-.servora-record-descriptions .ant-descriptions-item-label {
+.servora-workflow-step--skipped .servora-ant-steps-item-title,
+.servora-workflow-step--upcoming .servora-ant-steps-item-title { color: var(--muted); }
+.servora-workflow-step--attention .servora-ant-steps-item-title { color: var(--error); }
+.detail-summary .servora-record-descriptions { width: 100%; min-width: 0; }
+.servora-record-descriptions .servora-ant-descriptions-item-label {
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 650;
 }
-.servora-record-descriptions .ant-descriptions-item-content {
+.servora-record-descriptions .servora-ant-descriptions-item-content {
   min-width: 0;
   overflow-wrap: anywhere;
 }
@@ -790,9 +790,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .detail-feedback { margin-top: 1.25rem; padding: 0.8rem 0.9rem; border: 1px solid oklch(78% 0.055 238deg); border-radius: 0.6rem; color: var(--accent-hover); background: var(--accent-soft); }
 .detail-feedback-error { color: var(--error); border-color: oklch(78% 0.07 28deg); background: var(--error-soft); }
 .detail-summary {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1.25rem 2rem;
+  display: block;
   margin: 2rem 0;
   padding-block: 1rem;
   border-block: 1px solid var(--rule);
@@ -801,7 +799,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   border-block: 0;
   padding: 1.15rem 1.25rem;
 }
-.detail-summary div { display: grid; gap: 0.25rem; }
+.meeting-details .detail-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem 2rem; }
+.meeting-details .detail-summary > div { display: grid; gap: 0.25rem; }
 .detail-summary dt, .delivery-lines dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
 .detail-summary dd, .delivery-lines dd { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
 .detail-summary time { overflow-wrap: anywhere; }
@@ -1082,16 +1081,18 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .detail-section-heading span, .detail-empty { color: var(--muted); font-size: 0.8rem; }
 .detail-section-heading span { overflow-wrap: anywhere; }
 .job-notes form { max-width: 38rem; }
-.job-note-list, .job-timeline ol { padding: 0; margin: 1.25rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
-.job-note-list li, .job-timeline li { padding-block: 1rem; border-bottom: 1px solid var(--rule); }
+.job-note-list { padding: 0; margin: 1.25rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
+.job-note-list li { padding-block: 1rem; border-bottom: 1px solid var(--rule); }
 .job-note-list p { margin: 0 0 0.6rem; white-space: pre-wrap; }
-.job-note-list li > div, .job-timeline li, .job-timeline li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
-.job-timeline li > div { min-width: 0; }
-.job-timeline strong, .job-timeline span { min-width: 0; overflow-wrap: anywhere; }
+.job-note-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.servora-activity-timeline { min-width: 0; margin-top: 1.25rem; }
+.servora-activity-timeline article { min-width: 0; }
+.servora-activity-timeline article p { overflow-wrap: anywhere; }
+.servora-activity-timeline article footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; }
+.servora-activity-timeline article footer > * { min-width: 0; overflow-wrap: anywhere; }
 .timeline-reason { margin: 0.15rem 0 0; color: var(--ink); font-size: 0.875rem; line-height: 1.4; overflow-wrap: anywhere; }
 .timeline-reason strong { font-weight: 650; }
-.job-note-list time, .job-timeline time, .job-timeline li > div:last-child { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-.job-timeline li > div:first-child { display: grid; justify-content: start; gap: 0.25rem; }
+.job-note-list time, .servora-activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .job-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
 .dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(20% 0.02 240deg / 45%); }
 .reason-dialog, .workflow-dialog { width: min(100%, 34rem); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.8rem; background: var(--paper); box-shadow: 0 1.5rem 4rem oklch(20% 0.02 240deg / 24%); }
@@ -1424,7 +1425,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .job-pagination button { flex: 1; }
   .delivery-pair { grid-template-columns: 1fr; gap: 0; }
   .detail-heading { align-items: flex-start; }
-  .detail-summary { grid-template-columns: 1fr; }
+  .meeting-details .detail-summary { grid-template-columns: 1fr; }
   .delivery-lines > ul > li { grid-template-columns: 1fr; gap: 0.9rem; }
   .delivery-lines dl { grid-template-columns: 1fr 1fr; }
   .delivery-lines dl div:last-child { grid-column: 1 / -1; }
@@ -1435,7 +1436,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .revision-loop-facts, .completed-job-facts { grid-template-columns: 1fr; }
   .workflow-requirement { grid-template-columns: 1.35rem minmax(0, 1fr); }
   .workflow-requirement-state { grid-column: 2; }
-  .job-timeline li, .job-note-list li > div, .job-timeline li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
+  .job-note-list li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
   .review-buttons { align-items: stretch; flex-direction: column-reverse; }
   .review-buttons button { width: 100%; }
   .approval-review-summary { grid-template-columns: 1fr; }

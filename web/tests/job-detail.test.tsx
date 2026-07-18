@@ -484,7 +484,11 @@ describe('Staff JobCard detail', () => {
 
   it('renders terminal cancellation facts without inventing missing history', async () => {
     await renderDetail(cancelledJob({
-      cancelledFromStatus: 'IN_PROGRESS',
+      submittedAt: '2026-07-17T10:00:00.000Z',
+      revisionRequestedAt: '2026-07-17T11:00:00.000Z',
+      revisionRequestedBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      revisionReason: 'Miktarı düzeltin',
+      cancelledFromStatus: 'REVISION_REQUESTED',
       cancelledAt: '2026-07-17T12:00:00.000Z',
       cancelledBy: { id: 'm1', name: 'Mehmet Yönetici' },
       cancelReason: 'Müşteri vazgeçti',
@@ -492,7 +496,10 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('İptal edildi');
     expect(host.textContent).toContain('Müşteri vazgeçti');
     expect(host.textContent).toContain('Mehmet Yönetici');
-    expect(host.textContent).toMatch(/Uygulanıyor|İncelem/);
+    expect(host.textContent).toContain('Düzeltme istendi');
+    expect(host.querySelector('.revision-loop')).toBeNull();
+    expect(host.querySelector('.workflow-requirements')).toBeNull();
+    expect(host.querySelector('[data-job-decision-panel="true"]')).toBeNull();
 
     await act(async () => {
       root.render(<JobDetailPanel

@@ -43,6 +43,7 @@ describe('owned JobDetail Ant adapters', () => {
     /></ServoraAntProvider>);
 
     expect(html).toContain('aria-label="İş süreci"');
+    expect(html).toContain('servora-ant-steps');
     expect(html).toContain('aria-current="step"');
     expect(html).toContain('Uygulanıyor');
     expect(html).toContain('Şu an');
@@ -64,6 +65,7 @@ describe('owned JobDetail Ant adapters', () => {
     /></ServoraAntProvider>);
 
     expect(html).toContain('aria-label="İş kayıt bilgileri"');
+    expect(html).toContain('servora-ant-descriptions');
     expect(html).toContain('Durum');
     expect(html).toContain('Uygulanıyor');
     expect(html).toContain('Açıklama');
@@ -83,6 +85,7 @@ describe('owned JobDetail Ant adapters', () => {
     }]} /></ServoraAntProvider>);
 
     expect(html).toContain('data-activity-id="a1"');
+    expect(html).toContain('servora-ant-timeline');
     expect(html).toContain('Düzeltme için geri gönderildi');
     expect(html).toContain('Miktarı düzeltin');
     expect(html).toContain('Emrah Yönetici');
