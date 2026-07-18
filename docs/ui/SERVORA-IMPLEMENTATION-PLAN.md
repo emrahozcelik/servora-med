@@ -1,7 +1,7 @@
 # Servora UI Implementation Plan
 
-Status: Approved sequence; PR A–D merged; PR E design opened on feature branch
-Current phase: PR E - Reporting surfaces
+Status: Approved sequence; PR A–E merged; PR F design opened on feature branch
+Current phase: PR F - Report charts
 
 ## Entry gate
 
@@ -206,7 +206,7 @@ Verification record (18 July 2026):
 
 ## PR E: Reporting surfaces
 
-Implementation status: Implementing on `feature/reporting-surfaces` (Delivery-only, table-first).
+Implementation status: Merged through PR #23 at `9f2fb8984ce8104f05dd3592688ea8fa3630b106`.
 
 Design: `docs/superpowers/specs/2026-07-18-reporting-surfaces-design.md`
 Plan: `docs/superpowers/plans/2026-07-18-reporting-surfaces.md`
@@ -249,15 +249,27 @@ Verification record (18 July 2026):
 
 ## PR F: Charts
 
-Separate dependency and architecture decision.
+Implementation status: Design and plan opened on `feature/report-charts` (not yet implemented).
+
+Design: `docs/superpowers/specs/2026-07-18-report-charts-design.md`
+Plan: `docs/superpowers/plans/2026-07-18-report-charts.md`
+
+Separate dependency and architecture decision. **Default recommendation: no new chart package**; harden existing Servora-native chart surfaces first.
 
 Candidate first charts:
 
-- completed jobs over time
-- job-type distribution
-- approval waiting duration
+- completed jobs over time (`TrendBars` + `CompletedTrendCalendar`)
+- job-type distribution (only if DTO already exposes series)
+- approval waiting duration (`SegmentedDistributionBar`)
 
-No chart package is selected by this plan. Chart accessibility, data tables, empty states, and color-independent series identification are required before adoption.
+Chart accessibility, data tables/summaries, empty states, and color-independent series identification are required before any package adoption.
+
+Completion checklist:
+
+- [ ] chart a11y/empty/color contracts tested for shipped surfaces
+- [ ] no unapproved chart dependency
+- [ ] existing dashboard/approval tests still pass
+- [ ] package decision recorded (native keep vs exact-pinned library)
 
 ## Deferred
 
