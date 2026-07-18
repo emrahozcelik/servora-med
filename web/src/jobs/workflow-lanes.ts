@@ -8,7 +8,7 @@ export type WorkflowLane = Readonly<{
   label: string;
 }>;
 
-const laneByStatus: Readonly<Record<WorkflowLaneStatus, WorkflowLane>> = {
+export const activeWorkflowPresentation: Readonly<Record<WorkflowLaneStatus, WorkflowLane>> = {
   NEW: { status: 'NEW', label: 'Hazırlanıyor' },
   ACCEPTED: { status: 'ACCEPTED', label: 'Atandı' },
   IN_PROGRESS: { status: 'IN_PROGRESS', label: 'Uygulanıyor' },
@@ -20,6 +20,11 @@ const desktopOrder: readonly WorkflowLaneStatus[] = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
 ];
 
+export const activeWorkflowStatusOptions = desktopOrder.map((status) => ({
+  value: status,
+  label: activeWorkflowPresentation[status].label,
+}));
+
 const staffCompactOrder: readonly WorkflowLaneStatus[] = [
   'REVISION_REQUESTED', 'IN_PROGRESS', 'ACCEPTED', 'NEW', 'WAITING_APPROVAL',
 ];
@@ -30,5 +35,5 @@ const managerCompactOrder: readonly WorkflowLaneStatus[] = [
 
 export function workflowLanesFor(role: CurrentUser['role'], compact: boolean): readonly WorkflowLane[] {
   const order = !compact ? desktopOrder : role === 'STAFF' ? staffCompactOrder : managerCompactOrder;
-  return order.map((status) => laneByStatus[status]);
+  return order.map((status) => activeWorkflowPresentation[status]);
 }

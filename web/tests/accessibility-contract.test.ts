@@ -147,6 +147,12 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-filter-secondary \{[^}]*grid-template-columns: minmax\(0, 1fr\);/);
   });
 
+  it('keeps the compact view switch outside the filter sheet with reachable controls', () => {
+    expect(css).toMatch(/\.job-view-switcher \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
+    expect(css).toMatch(/\.job-view-switcher button \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.job-view-switcher button\[aria-pressed="true"\] \{[^}]*background: var\(--accent-soft\);/);
+  });
+
   it('keeps manager approval review and workflow dialogs reflowable with reachable targets', () => {
     expect(css).toMatch(/\.approval-review \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.approval-review h2 \{[^}]*overflow-wrap: anywhere;/);

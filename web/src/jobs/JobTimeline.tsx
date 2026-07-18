@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '../services/api';
-import { isKnownJobCardActivityEvent, jobActivityLabel, jobStatusLabels } from './job-labels';
+import { historicalJobStatusLabels, isKnownJobCardActivityEvent, jobActivityLabel } from './job-labels';
 import { listActivity, type JobCardActivity, type JobCardActivityDetails, type Paginated } from './jobs-api';
 
 const PAGE_SIZE = 50;
@@ -21,7 +21,7 @@ type TimelineState =
 
 function detailText(details: JobCardActivityDetails) {
   if (details.kind === 'STATUS_TRANSITION') {
-    return `${jobStatusLabels[details.fromStatus]} → ${jobStatusLabels[details.toStatus]}`;
+    return `${historicalJobStatusLabels[details.fromStatus]} → ${historicalJobStatusLabels[details.toStatus]}`;
   }
   if (details.kind === 'FIELDS_UPDATED') return details.changedFields.map((field) => fieldLabels[field]).join(', ');
   if (details.kind === 'DELIVERY_ITEM') {

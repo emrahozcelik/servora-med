@@ -9,7 +9,7 @@ import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
 import type { JobCommandIntent } from './JobRow';
 import { getJobCardBoard, listJobCards, type JobCardBoard } from './jobs-api';
-import { canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectQuickStatusPreservingContext, selectStatus, updateJobSearch, type JobSearchState } from './job-search';
+import { canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus, updateJobSearch, type JobSearchState } from './job-search';
 import { NewJobMenu } from './NewJobMenu';
 
 const PAGE_SIZE = 25;
@@ -19,7 +19,7 @@ function filterHref(params: URLSearchParams, status: JobSearchState['status']) {
 }
 
 function closedFilterHref(params: URLSearchParams) {
-  return `?${selectQuickStatusPreservingContext(params, 'closed').toString()}`;
+  return `?${selectStatus(params, 'closed').toString()}`;
 }
 
 type BoardState =

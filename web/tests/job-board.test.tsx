@@ -95,8 +95,8 @@ describe('read-only JobCard board', () => {
     expect(laneLinks[2]?.getAttribute('href')).toContain('q=klinik');
     expect(laneLinks[2]?.getAttribute('href')).toContain('priority=urgent');
     expect(laneLinks[2]?.getAttribute('href')).toContain('status=IN_PROGRESS');
-    expect(laneLinks[2]?.getAttribute('href')).toContain('view=list');
-    expect(laneLinks[2]?.getAttribute('href')).toContain('offset=0');
+    expect(laneLinks[2]?.getAttribute('href')).not.toContain('view=');
+    expect(laneLinks[2]?.getAttribute('href')).not.toContain('offset=');
 
     const card = host.querySelector<HTMLElement>('[data-board-card="job-waiting"]')!;
     for (const value of ['ABC Klinik teslimi', 'Ürün teslimi', 'Acil öncelik', 'ABC Klinik', 'Dr. Deniz', 'Ayşe Personel', '20 Tem 2026', '2 ürün kalemi']) {
@@ -109,8 +109,8 @@ describe('read-only JobCard board', () => {
     const closedLinks = Array.from(host.querySelectorAll<HTMLAnchorElement>('.job-board-closed a'));
     expect(closedLinks.map((link) => link.textContent)).toEqual(['Tamamlandı6', 'İptal edildi2']);
     expect(closedLinks[0]?.getAttribute('href')).toContain('status=COMPLETED');
-    expect(closedLinks[0]?.getAttribute('href')).toContain('view=list');
-    expect(closedLinks[0]?.getAttribute('href')).toContain('offset=0');
+    expect(closedLinks[0]?.getAttribute('href')).not.toContain('view=');
+    expect(closedLinks[0]?.getAttribute('href')).not.toContain('offset=');
     expect(host.querySelector('button, [role="menu"], [draggable="true"]')).toBeNull();
     expect(host.textContent?.toLocaleLowerCase('tr-TR')).not.toMatch(/sürükle|drag|bırak/);
   });
@@ -217,7 +217,7 @@ describe('read-only JobCard board', () => {
     );
     const card = host.querySelector<HTMLElement>('[data-board-card="job-revision"]')!;
     expect(card.textContent).toContain('3 / 5');
-    expect(card.textContent).toContain('Düzeltme gerekiyor');
+    expect(card.textContent).toContain('Düzeltme istendi');
     expect(card.textContent).toContain('Yönetici notu mevcut');
     expect(card.querySelector('.compact-workflow--attention')).not.toBeNull();
     expect(card.textContent).not.toContain('3 aşama tamamlandı');
@@ -301,7 +301,7 @@ describe('responsive routed JobCard board', () => {
     return { router, listLoad, boardLoad };
   }
 
-  it('preserves a closed board URL while loading the terminal list instead of active Kanban', async () => {
+  it('replaces a closed board URL with its canonical list URL and loads only the terminal list', async () => {
     installMatchMedia(true);
     const listLoad = vi.fn().mockResolvedValue(page([
       item('COMPLETED', 'job-completed'),
@@ -311,7 +311,7 @@ describe('responsive routed JobCard board', () => {
       '/jobs?q=klinik&status=closed&offset=50&view=board', listLoad, boardLoad,
     );
     await act(async () => { await Promise.resolve(); });
-    expect(router.state.location.search).toBe('?q=klinik&status=closed&view=board&offset=50');
+    expect(router.state.location.search).toBe('?q=klinik&status=closed&offset=50');
     expect(listLoad).toHaveBeenCalledWith({ q: 'klinik', status: 'closed', limit: 25, offset: 50 });
     expect(boardLoad).not.toHaveBeenCalled();
     expect(container.querySelectorAll('[data-board-column]')).toHaveLength(0);
@@ -331,6 +331,10 @@ describe('responsive routed JobCard board', () => {
     });
     expect(router.state.location.search).toBe('?view=board');
     expect(boardLoad).toHaveBeenCalledTimes(1);
+
+    const closed = Array.from(container.querySelectorAll<HTMLAnchorElement>('a'))
+      .find((link) => link.textContent === 'Biten işler')!;
+    expect(closed.getAttribute('href')).toBe('/jobs?status=closed');
 
     const status = container.querySelector<HTMLSelectElement>('#job-status')!;
     await act(async () => {

@@ -89,7 +89,7 @@ describe('structured JobCard list', () => {
       allowedCommands: ['RESUME', 'CANCEL'],
     }), staff);
     expect(html).toContain('3 / 5');
-    expect(html).toContain('Düzeltme gerekiyor');
+    expect(html).toContain('Düzeltme istendi');
     expect(html).toContain('Yönetici notu mevcut');
     expect(html).toContain('compact-workflow--attention');
     expect(html).not.toContain('3 aşama tamamlandı');
@@ -226,7 +226,7 @@ describe('routed JobCard workspace', () => {
     expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'closed', limit: 25 }));
   });
 
-  it('renders Biten işler after the existing quick views and preserves list context', async () => {
+  it('renders Biten işler after the existing quick views and resets list pagination', async () => {
     const load = vi.fn().mockResolvedValue(page([item], 25, 80));
     await mount('/jobs?q=klinik&status=closed&priority=high&offset=25', load);
     await act(async () => { await Promise.resolve(); });
@@ -235,7 +235,7 @@ describe('routed JobCard workspace', () => {
       'Aktif işler', 'Onay kuyruğu', 'Düzeltme istenenler', 'Biten işler',
     ]);
     const closed = links.at(-1)!;
-    expect(closed.getAttribute('href')).toBe('/jobs?q=klinik&status=closed&priority=high&offset=25');
+    expect(closed.getAttribute('href')).toBe('/jobs?q=klinik&status=closed&priority=high');
     expect(closed.getAttribute('aria-current')).toBe('page');
   });
 
@@ -246,7 +246,7 @@ describe('routed JobCard workspace', () => {
     expect(container.textContent).not.toContain('Onay kuyruğu');
   });
 
-  it('keeps board URL context but loads the closed list instead of active Kanban', async () => {
+  it('canonicalizes a closed board URL and loads only the terminal list', async () => {
     const load = vi.fn().mockResolvedValue(page([item], 25, 80));
     const loadBoard = vi.fn();
     const router = createMemoryRouter([{
@@ -254,7 +254,7 @@ describe('routed JobCard workspace', () => {
     }], { initialEntries: ['/jobs?q=klinik&status=closed&view=board&offset=25'] });
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await Promise.resolve(); });
-    expect(router.state.location.search).toBe('?q=klinik&status=closed&view=board&offset=25');
+    expect(router.state.location.search).toBe('?q=klinik&status=closed&offset=25');
     expect(load).toHaveBeenCalledWith(expect.objectContaining({
       q: 'klinik', status: 'closed', offset: 25, limit: 25,
     }));

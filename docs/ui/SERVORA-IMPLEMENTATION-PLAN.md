@@ -86,7 +86,9 @@ Completion checklist:
 - [x] `Tümünü gör` preserves active filters, selects the lane status, switches to list, and resets offset
 - [x] each lane renders no more than four response items while preserving the backend total count
 - [x] responsive CSS exposes two compact, three desktop, and four wide preview cards
-- [x] compact filter sheet can select Liste or Pano through the existing URL state owner
+- [x] compact toolbar selects Liste or Pano immediately, outside the staged filter sheet
+- [x] closed aggregate links and direct `view=board&status=closed` URLs canonicalize to list view
+- [x] active lane, filter, chip, and summary labels derive from one presentation model while historical timeline wording stays isolated
 - [x] COMPLETED/CANCELLED filters and closed counts remain outside active lanes and unchanged
 - [x] exact shell boundary is compact below `64rem` and desktop at `64rem` or above
 - [x] no Ant Design Layout, Menu, or Card adoption
@@ -94,8 +96,8 @@ Completion checklist:
 
 Verification record (18 July 2026):
 
-- `cd web && npm test -- --run`: 59 files and 538 tests passed
-- `cd web && npm run build`: passed; emitted JS was 759.09 kB raw and 224.90 kB gzip, with the existing 500 kB chunk warning
+- `cd web && npm test -- --run`: 59 files and 542 tests passed
+- `cd web && npm run build`: passed; emitted JS was 758.27 kB raw and 224.91 kB gzip, with the existing 500 kB chunk warning
 - `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200 percent text, and 400 percent reflow checks passed; lane previews measured 2, 2, 3, and 4 respectively with no horizontal page overflow
 - `cd server && npm run build`: passed
 - `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped

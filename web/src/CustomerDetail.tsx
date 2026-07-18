@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'rea
 import { Link, useNavigate } from 'react-router-dom';
 
 import { addContact, ContactCreateForm, ContactListView } from './ContactManagement';
+import { jobCardStatusLabel } from './jobs/job-labels';
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
@@ -13,12 +14,6 @@ import { createRequestGate } from './services/request-gate';
 
 const typeLabels: Record<CustomerType, string> = { clinic: 'Klinik', hospital: 'Hastane', dealer: 'Bayi', company: 'Firma', other: 'Diğer' };
 const statusLabels = { prospect: 'Aday', active: 'Aktif', inactive: 'Pasif' } as const;
-const jobStatusLabels = {
-  NEW: 'Atandı', ACCEPTED: 'Kabul edildi', IN_PROGRESS: 'Uygulanıyor',
-  WAITING_APPROVAL: 'Yönetici kontrolünde', REVISION_REQUESTED: 'Düzeltme istendi',
-  COMPLETED: 'Tamamlandı', CANCELLED: 'İptal edildi',
-} as const;
-
 function nullable(data: FormData, name: string) { return String(data.get(name) ?? '').trim() || null; }
 
 export function customerFieldsFromFormData(data: FormData, expectedVersion: number) {
@@ -52,7 +47,7 @@ function JobSummaries({ title, jobs }: { title: string; jobs: CustomerJobSummary
   const titleId = title === 'Açık işler' ? 'open-jobs-title' : 'completed-jobs-title';
   return <section className="record-section job-summaries" aria-labelledby={titleId}><h2 id={titleId}>{title}</h2>
     {visible.length === 0 ? <p className="muted-copy">Bu kapsamda iş kartı yok.</p> : <ul>{visible.map((job) => <li key={job.id}><Link to={paths.job(job.id)}>{job.title}</Link>
-      <span>{jobStatusLabels[job.status]}</span>{job.dueDate && <time dateTime={job.dueDate}>{job.dueDate}</time>}</li>)}</ul>}
+      <span>{jobCardStatusLabel(job.status)}</span>{job.dueDate && <time dateTime={job.dueDate}>{job.dueDate}</time>}</li>)}</ul>}
   </section>;
 }
 

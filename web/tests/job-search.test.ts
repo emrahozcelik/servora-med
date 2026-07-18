@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import {
   canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus,
-  selectQuickStatusPreservingContext, updateJobSearch,
+  updateJobSearch,
 } from '../src/jobs/job-search';
 
 describe('canonical JobCard URL state', () => {
@@ -54,6 +54,13 @@ describe('canonical JobCard URL state', () => {
       .toEqual({ view: 'board', offset: 0 });
   });
 
+  it('canonicalizes the closed aggregate to list view even when the URL requests board', () => {
+    const params = new URLSearchParams('view=board&status=closed');
+
+    expect(parseJobSearch(params)).toEqual({ status: 'closed', view: 'list', offset: 0 });
+    expect(canonicalJobSearchParams(params).toString()).toBe('status=closed');
+  });
+
   it('resets offset when filters change and omits default values', () => {
     const current = new URLSearchParams('status=closed&view=list&offset=50&priority=urgent');
     expect(updateJobSearch(current, { priority: 'normal', status: 'active' }).toString())
@@ -71,20 +78,11 @@ describe('canonical JobCard URL state', () => {
     expect(next.toString()).toBe('q=klinik&priority=urgent&view=board');
   });
 
-  it('selects a board status by explicitly forcing list and offset zero', () => {
+  it('selects a status with canonical list defaults and reset pagination', () => {
     const next = selectStatus(new URLSearchParams('view=board&q=klinik&priority=urgent'), 'COMPLETED');
-    expect(next.toString()).toBe('q=klinik&status=COMPLETED&priority=urgent&view=list&offset=0');
+    expect(next.toString()).toBe('q=klinik&status=COMPLETED&priority=urgent');
     expect(selectStatus(new URLSearchParams('status=closed&offset=75'), 'NEW').toString())
-      .toBe('status=NEW&view=list&offset=0');
-  });
-
-  it('changes only quick-view status while preserving valid context', () => {
-    expect(selectQuickStatusPreservingContext(new URLSearchParams(
-      'status=active&view=list&offset=50&q=klinik&priority=high',
-    ), 'closed').toString()).toBe('q=klinik&status=closed&priority=high&offset=50');
-    expect(selectQuickStatusPreservingContext(new URLSearchParams(
-      'q=klinik&view=board&priority=high',
-    ), 'closed').toString()).toBe('q=klinik&status=closed&priority=high&view=board');
+      .toBe('status=NEW');
   });
 
   it('mobile force-list changes only view and desktop growth has no auto-restore helper', () => {
