@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 
 const css = readFileSync(resolve(__dirname, '../src/styles.css'), 'utf8');
 
-describe('responsive layout CSS contracts (PR A)', () => {
+describe('responsive layout CSS contracts (PR B)', () => {
   it('collapses multi-column filters by container query on usable width', () => {
     expect(css).toContain('container-type: inline-size');
     expect(css).toContain('container-name: filter-region');
@@ -16,12 +16,18 @@ describe('responsive layout CSS contracts (PR A)', () => {
     expect(block).toContain('.report-filters-wide');
   });
 
-  it('gates five-column Kanban on container width with 90rem viewport fallback', () => {
+  it('uses one-column lanes with three-card desktop and four-card wide previews', () => {
     expect(css).toContain('container-type: inline-size');
     expect(css).toContain('container-name: job-board');
     expect(css).toMatch(/@container\s+job-board\s*\(\s*min-width:\s*68rem\s*\)/);
     expect(css).toMatch(/@media\s*\(\s*min-width:\s*90rem\s*\)/);
-    expect(css).toMatch(/\.job-board-columns\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(css).toMatch(/\.workflow-lane-cards\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(css).toMatch(/@media\s*\(\s*min-width:\s*64rem\s*\)[\s\S]*\.workflow-lane-cards\s*\{[^}]*grid-template-columns:\s*repeat\(3,\s*minmax\(0,\s*1fr\)\)/s);
+    expect(css).toMatch(/@container\s+job-board\s*\(\s*min-width:\s*68rem\s*\)[\s\S]*\.workflow-lane-cards\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(0,\s*1fr\)\)/s);
+    expect(css).toMatch(/\.workflow-lane-cards > li:nth-child\(n \+ 3\)\s*\{[^}]*display:\s*none/);
+    expect(css).toMatch(/@media\s*\(\s*min-width:\s*64rem\s*\)[\s\S]*\.workflow-lane-cards > li:nth-child\(n \+ 4\)\s*\{[^}]*display:\s*none/);
+    expect(css).not.toContain('.job-board-columns');
+    expect(css).not.toContain('.job-board-column');
   });
 
   it('exposes shared form-control and field-hint styles', () => {
@@ -35,7 +41,7 @@ describe('responsive layout CSS contracts (PR A)', () => {
     expect(css).toMatch(/\.job-lifecycle-steps\s*\{[^}]*display:\s*grid/s);
     expect(css).toMatch(/\.job-lifecycle-steps\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
     expect(css).toMatch(/@media\s*\(\s*min-width:\s*64rem\s*\)[\s\S]*\.job-lifecycle-steps\s*\{[^}]*grid-template-columns:\s*repeat\(\s*5\s*,\s*minmax\(0,\s*1fr\)\s*\)/s);
-    expect(css).toMatch(/@media\s*\(\s*max-width:\s*63\.99rem\s*\)[\s\S]*\.job-lifecycle-steps\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(css).toMatch(/@media\s*\(\s*width\s*<\s*64rem\s*\)[\s\S]*\.job-lifecycle-steps\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
   });
 
   it('supports 200% text and 400% reflow at 320 CSS px without page scroll dependence', () => {
@@ -48,6 +54,7 @@ describe('responsive layout CSS contracts (PR A)', () => {
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.structured-job-row/);
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.job-row-facts/);
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.job-row-commands/);
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.workflow-lane-cards/);
     expect(css).not.toMatch(/\.job-row-summary\s*\{/);
     expect(css).not.toMatch(/\.job-expand\s*\{/);
   });

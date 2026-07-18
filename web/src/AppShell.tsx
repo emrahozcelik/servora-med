@@ -51,12 +51,29 @@ function DestinationNav({
   onNavigate?: () => void;
   label?: string;
 }) {
+  const sections = destinations.reduce<Array<{ label: NavLinkItem['section']; items: NavLinkItem[] }>>(
+    (groups, destination) => {
+      const current = groups.at(-1);
+      if (current?.label === destination.section) current.items.push(destination);
+      else groups.push({ label: destination.section, items: [destination] });
+      return groups;
+    },
+    [],
+  );
+
   return (
     <nav className="shell-nav" aria-label={label}>
-      {destinations.map((destination) => (
-        <NavLink key={destination.id} to={destination.to} onClick={onNavigate}>
-          {destination.label}
-        </NavLink>
+      {sections.map((section) => (
+        <section className="shell-nav-section" data-nav-section={section.label} key={section.label}>
+          <h2>{section.label}</h2>
+          <div className="shell-nav-links">
+            {section.items.map((destination) => (
+              <NavLink key={destination.id} to={destination.to} onClick={onNavigate}>
+                {destination.label}
+              </NavLink>
+            ))}
+          </div>
+        </section>
       ))}
     </nav>
   );

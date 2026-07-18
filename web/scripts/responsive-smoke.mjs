@@ -55,12 +55,15 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
         </form>
       </div>
       <section class="job-board" aria-label="Aktif iş panosu">
-        <div class="job-board-columns">
-          <section class="job-board-column"><h2>Yeni</h2></section>
-          <section class="job-board-column"><h2>Planlandı</h2></section>
-          <section class="job-board-column"><h2>Devam</h2></section>
-          <section class="job-board-column"><h2>Onay</h2></section>
-          <section class="job-board-column"><h2>Düzeltme</h2></section>
+        <div class="workflow-board">
+          <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
+            <ul class="workflow-lane-cards">
+              <li><article class="job-board-card"><a href="#"><strong>İş 1</strong></a></article></li>
+              <li><article class="job-board-card"><a href="#"><strong>İş 2</strong></a></article></li>
+              <li><article class="job-board-card"><a href="#"><strong>İş 3</strong></a></article></li>
+              <li><article class="job-board-card"><a href="#"><strong>İş 4</strong></a></article></li>
+            </ul>
+          </section>
         </div>
       </section>
       <div class="sticky-new-job" id="sticky-create" style="display:none">
@@ -162,10 +165,13 @@ async function measure(page) {
         regionWidth: region?.width ?? 0, containerIsAncestor,
       });
     }
-    const columns = document.querySelector('.job-board-columns');
-    let boardCols = 0;
-    if (columns) {
-      boardCols = getComputedStyle(columns).gridTemplateColumns.trim().split(/\s+/).filter(Boolean).length;
+    const laneCards = document.querySelector('.workflow-lane-cards');
+    let laneCardCols = 0;
+    let visiblePreviewCards = 0;
+    if (laneCards) {
+      laneCardCols = getComputedStyle(laneCards).gridTemplateColumns.trim().split(/\s+/).filter(Boolean).length;
+      visiblePreviewCards = Array.from(laneCards.children)
+        .filter((item) => getComputedStyle(item).display !== 'none').length;
     }
     const board = document.querySelector('.job-board');
     const boardWidth = board ? board.getBoundingClientRect().width : 0;
@@ -182,7 +188,8 @@ async function measure(page) {
     return {
       overflowX,
       results,
-      boardCols,
+      laneCardCols,
+      visiblePreviewCards,
       boardWidth,
       stickyVisible,
       stickyInViewport,
@@ -223,11 +230,18 @@ try {
         }
       }
     }
-    if (vp.width <= 1024 && m.boardCols === 5 && m.boardWidth < 68 * 16) {
-      failures.push(`${vp.name}: five-column Kanban too early (cols=${m.boardCols}, boardWidth=${m.boardWidth})`);
+    if (vp.width < 1024 && m.laneCardCols !== 1) {
+      failures.push(`${vp.name}: compact lane cards must be one column (cols=${m.laneCardCols})`);
     }
-    if (vp.width >= 1440 && m.boardWidth >= 68 * 16 && m.boardCols !== 5) {
-      failures.push(`${vp.name}: expected 5 board cols when container wide (cols=${m.boardCols}, boardWidth=${m.boardWidth})`);
+    if (vp.width === 1024 && m.laneCardCols !== 3) {
+      failures.push(`${vp.name}: expected 3 lane cards at desktop shell width (cols=${m.laneCardCols})`);
+    }
+    if (vp.width >= 1440 && m.boardWidth >= 68 * 16 && m.laneCardCols !== 4) {
+      failures.push(`${vp.name}: expected 4 lane cards when container is wide (cols=${m.laneCardCols}, boardWidth=${m.boardWidth})`);
+    }
+    const expectedPreviewCards = vp.width < 1024 ? 2 : vp.width < 1440 ? 3 : 4;
+    if (m.visiblePreviewCards !== expectedPreviewCards) {
+      failures.push(`${vp.name}: expected ${expectedPreviewCards} visible preview cards (visible=${m.visiblePreviewCards})`);
     }
     if (vp.width >= 641 && vp.width < 1024 && m.stickyVisible && !m.stickyInViewport) {
       failures.push(`${vp.name}: sticky Yeni iş sheet panel outside viewport`);

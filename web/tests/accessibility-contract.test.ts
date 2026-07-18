@@ -78,6 +78,7 @@ describe('shared accessibility CSS contract', () => {
 
   it('defines the 64rem shell structure, 44px targets, and no page overflow', () => {
     expect(css).toContain('@media (min-width: 64rem)');
+    expect(css).toContain('@media (width < 64rem)');
     expect(css).toMatch(/\.shell-menu-button, \.shell-nav a, \.shell-signout, \.drawer-close \{[^}]*min-width: 2\.75rem;[^}]*min-height: 2\.75rem;/);
     expect(css).toMatch(/\.authenticated-shell \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.shell-content \{[^}]*min-width: 0;/);
@@ -119,12 +120,15 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-row-commands \{[^}]*flex-direction: column;/);
   });
 
-  it('keeps the desktop board inside the page with independently scrolling columns', () => {
+  it('keeps horizontal workflow lanes reflowable without nested scroll columns', () => {
     expect(css).toMatch(/\.job-board \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*overflow-x: hidden;/);
-    expect(css).toMatch(/\.job-board-columns \{[^}]*grid-template-columns: repeat\(5, minmax\(0, 1fr\)\);/);
-    expect(css).toMatch(/\.job-board-column \{[^}]*min-width: 0;/);
-    expect(css).toMatch(/\.job-board-items \{[^}]*overflow-x: hidden;[^}]*overflow-y: auto;/);
-    expect(css).not.toMatch(/\.job-board-card[^}]*box-shadow|\.job-board-column[^}]*gradient/);
+    expect(css).toMatch(/\.workflow-lane \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/\.workflow-lane-heading \{[^}]*flex-wrap: wrap;/);
+    expect(css).toMatch(/\.workflow-lane-link \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.workflow-lane-cards \{[^}]*min-width: 0;[^}]*grid-template-columns: minmax\(0, 1fr\);/);
+    expect(css).not.toMatch(/\.workflow-lane-cards[^}]*overflow-y|\.workflow-lane[^}]*overflow-y/);
+    expect(css).not.toMatch(/\.job-board-card[^}]*box-shadow|\.workflow-lane[^}]*gradient/);
+    expect(css).not.toMatch(/\.ant-layout|\.ant-menu|\.ant-card/);
   });
 
   it('keeps General Task creation and type cues accessible without color-only meaning', () => {

@@ -89,6 +89,36 @@ describe('filter sheets and active counts', () => {
     expect(host.querySelector('[role="dialog"]')).toBeNull();
   });
 
+  it('selects board view from the compact filter sheet through the existing callback', async () => {
+    setNarrow(true);
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    const onViewChange = vi.fn();
+    await act(async () => {
+      root!.render(
+        <JobFilters
+          user={manager}
+          filters={{ view: 'list', offset: 0, status: 'active' }}
+          onApply={() => undefined}
+          onChange={() => undefined}
+          onViewChange={onViewChange}
+          showViewControl
+        />,
+      );
+    });
+    const trigger = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Filtreler');
+    await act(async () => trigger?.click());
+    const view = host.querySelector<HTMLSelectElement>('#job-view-sheet')!;
+    expect(view).not.toBeNull();
+    expect(Array.from(view.options).map((option) => option.textContent)).toEqual(['Liste', 'Pano']);
+    await act(async () => {
+      view.value = 'board';
+      view.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    expect(onViewChange).toHaveBeenCalledWith('board');
+  });
+
   it('dismisses FilterSheet without calling apply', async () => {
     host = document.createElement('div');
     document.body.append(host);

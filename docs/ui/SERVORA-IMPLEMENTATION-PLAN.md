@@ -1,7 +1,7 @@
 # Servora UI Implementation Plan
 
-Status: Approved sequence; PR A implemented on its feature branch
-Current phase: PR A - Ant Design foundation
+Status: Approved sequence; PR A merged and PR B implemented on its feature branch
+Current phase: PR B - App shell and workspace composition review
 
 ## Entry gate
 
@@ -16,7 +16,7 @@ The vocabulary gate is resolved in this planning PR: ACCEPTED is the persisted s
 
 ## PR A: Ant Design foundation
 
-Implementation status: Complete on the PR A feature branch; final branch verification is recorded below.
+Implementation status: Merged through PR #19 at `3ae12fec59fc443681b34f6375600973ef036806`.
 
 Scope:
 
@@ -57,6 +57,8 @@ Completion checklist:
 
 ## PR B: App shell and workspace composition
 
+Implementation status: Complete on `feature/app-shell-workspace-composition`; awaiting review.
+
 Scope:
 
 - refine desktop workspace surface without replacing AppShell behavior
@@ -75,6 +77,30 @@ Verification:
 - 200 percent text and 400 percent reflow
 - no page-level horizontal workflow scroll
 - backend status filters and closed counts remain unchanged
+
+Completion checklist:
+
+- [x] desktop sidebar groups derive from the existing role-aware navigation model
+- [x] approved horizontal lane labels are isolated in a frontend presentation model
+- [x] desktop uses canonical domain order; compact Staff and Manager/Admin use role-priority order
+- [x] `Tümünü gör` preserves active filters, selects the lane status, switches to list, and resets offset
+- [x] each lane renders no more than four response items while preserving the backend total count
+- [x] responsive CSS exposes two compact, three desktop, and four wide preview cards
+- [x] compact filter sheet can select Liste or Pano through the existing URL state owner
+- [x] COMPLETED/CANCELLED filters and closed counts remain outside active lanes and unchanged
+- [x] exact shell boundary is compact below `64rem` and desktop at `64rem` or above
+- [x] no Ant Design Layout, Menu, or Card adoption
+- [x] no JobDetail, Steps, Timeline, domain, API, server, or migration change
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 59 files and 538 tests passed
+- `cd web && npm run build`: passed; emitted JS was 759.09 kB raw and 224.90 kB gzip, with the existing 500 kB chunk warning
+- `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200 percent text, and 400 percent reflow checks passed; lane previews measured 2, 2, 3, and 4 respectively with no horizontal page overflow
+- `cd server && npm run build`: passed
+- `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped
+
+The approved board API has exact counts only for persisted status columns. A separate Manager/Admin `Geciken` collection is therefore not synthesized from the limited lane previews: doing so would expose an incomplete count and duplicate records across lanes. Existing overdue reporting and `dueBefore` list filtering remain unchanged. Compact Manager/Admin ordering is control queue first across the five canonical active lanes.
 
 ## PR C: Job detail lifecycle UI
 

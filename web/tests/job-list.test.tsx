@@ -7,7 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobList, type JobListState } from '../src/jobs/JobList';
 import { JobWorkspace } from '../src/jobs/JobWorkspace';
-import type { JobCardListItem, LifecycleCommand, Paginated } from '../src/jobs/jobs-api';
+import type { JobCardBoard, JobCardListItem, LifecycleCommand, Paginated } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -175,8 +175,9 @@ describe('routed JobCard workspace', () => {
   beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
 
-  async function mount(initialEntry: string, load: Parameters<typeof JobWorkspace>[0]['load'], user = manager) {
-    const router = createMemoryRouter([{ path: '/jobs', element: <JobWorkspace user={user} load={load} /> }], { initialEntries: [initialEntry] });
+  async function mount(initialEntry: string, load: Parameters<typeof JobWorkspace>[0]['load'], user = manager,
+    loadBoard?: Parameters<typeof JobWorkspace>[0]['loadBoard']) {
+    const router = createMemoryRouter([{ path: '/jobs', element: <JobWorkspace user={user} load={load} loadBoard={loadBoard} /> }], { initialEntries: [initialEntry] });
     await act(async () => root.render(<RouterProvider router={router} />));
     return router;
   }
@@ -370,12 +371,26 @@ describe('routed JobCard workspace', () => {
     expect(load).toHaveBeenCalledTimes(2);
   });
 
-  it('keeps the Task 11 board boundary without issuing a list request', async () => {
+  it('loads the compact PR B board without issuing a list request', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
-    await mount('/jobs?view=board', load);
+    const board: JobCardBoard = {
+      columns: {
+        NEW: { items: [], count: 0 },
+        ACCEPTED: { items: [], count: 0 },
+        IN_PROGRESS: { items: [], count: 0 },
+        WAITING_APPROVAL: { items: [item], count: 1 },
+        REVISION_REQUESTED: { items: [], count: 0 },
+      },
+      closedCounts: { COMPLETED: 0, CANCELLED: 0 },
+    };
+    const loadBoard = vi.fn().mockResolvedValue(board);
+    await mount('/jobs?view=board', load, manager, loadBoard);
+    await act(async () => { await Promise.resolve(); });
     expect(load).not.toHaveBeenCalled();
-    expect(container.textContent).toContain('Kanban görünümü henüz kullanıma açık değil');
-    expect(container.textContent).toContain('Liste görünümüne dön');
+    expect(loadBoard).toHaveBeenCalledWith({});
+    expect(container.querySelector('[data-workflow-lane]')?.getAttribute('data-workflow-lane'))
+      .toBe('WAITING_APPROVAL');
+    expect(container.textContent).toContain('ABC Klinik teslimi');
   });
 
   it('opens detail from the title link without a summary disclosure and emits only permitted commands', async () => {

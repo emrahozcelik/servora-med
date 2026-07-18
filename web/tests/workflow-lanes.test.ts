@@ -1,0 +1,39 @@
+import { describe, expect, it } from 'vitest';
+
+import { workflowLanesFor } from '../src/jobs/workflow-lanes';
+
+describe('workflow lane presentation model', () => {
+  it('uses the approved desktop order and labels for every role', () => {
+    const expected = [
+      ['NEW', 'Hazırlanıyor'],
+      ['ACCEPTED', 'Atandı'],
+      ['IN_PROGRESS', 'Uygulanıyor'],
+      ['WAITING_APPROVAL', 'Yönetici kontrolünde'],
+      ['REVISION_REQUESTED', 'Düzeltme istendi'],
+    ];
+
+    for (const role of ['STAFF', 'MANAGER', 'ADMIN'] as const) {
+      expect(workflowLanesFor(role, false).map(({ status, label }) => [status, label])).toEqual(expected);
+    }
+  });
+
+  it('prioritizes recovery work for Staff on compact shells', () => {
+    expect(workflowLanesFor('STAFF', true).map(({ status }) => status)).toEqual([
+      'REVISION_REQUESTED', 'IN_PROGRESS', 'ACCEPTED', 'NEW', 'WAITING_APPROVAL',
+    ]);
+  });
+
+  it.each(['MANAGER', 'ADMIN'] as const)('puts the control queue first for %s on compact shells', (role) => {
+    expect(workflowLanesFor(role, true).map(({ status }) => status)).toEqual([
+      'WAITING_APPROVAL', 'REVISION_REQUESTED', 'IN_PROGRESS', 'NEW', 'ACCEPTED',
+    ]);
+  });
+
+  it('never creates persisted, terminal, or synthetic statuses', () => {
+    const statuses = workflowLanesFor('MANAGER', true).map(({ status }) => status);
+    expect(statuses).not.toContain('PLANNED');
+    expect(statuses).not.toContain('COMPLETED');
+    expect(statuses).not.toContain('CANCELLED');
+    expect(statuses).not.toContain('OVERDUE');
+  });
+});

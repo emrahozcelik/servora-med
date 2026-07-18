@@ -2,7 +2,7 @@
 
 Status: Approved
 Scope: Architecture decision and phased implementation boundary
-Production impact: PR A provider foundation only; feature screens remain unchanged
+Production impact: PR A provider foundation is merged; PR B shell/workspace composition is implemented on its feature branch
 
 ## Decision
 
@@ -195,7 +195,7 @@ Component overrides follow global tokens. The adapter must not create CSS specif
 
 ## Workflow lanes
 
-The proposed desktop default replaces five tall, narrow Kanban columns with full-width horizontal workflow lanes:
+The PR B desktop implementation replaces five tall, narrow Kanban columns with full-width horizontal workflow lanes:
 
 - NEW: Hazırlanıyor
 - ACCEPTED: Atandı
@@ -205,11 +205,11 @@ The proposed desktop default replaces five tall, narrow Kanban columns with full
 
 COMPLETED and CANCELLED remain outside the active lanes and are reached through closed-work filters.
 
-Each lane shows three or four responsive cards and a Tümünü gör link to a filtered list. The page must not depend on horizontal scrolling. Cards prioritize title, customer, assignee, schedule, type-specific summary, workflow summary, then attention signal.
+Each lane shows three or four responsive desktop cards and a Tümünü gör link to a filtered list. Compact layouts show two preview cards in a one-column flow. The page does not depend on horizontal scrolling. Cards prioritize title, customer, assignee, schedule, type-specific summary, workflow summary, then attention signal.
 
 Mobile lanes become vertical sections with one-column cards. They do not become miniature horizontal columns.
 
-Recommended Staff order:
+Implemented compact Staff order:
 
 1. Düzeltme istendi
 2. Uygulanıyor
@@ -217,15 +217,15 @@ Recommended Staff order:
 4. Hazırlanıyor
 5. Yönetici kontrolünde
 
-Recommended Manager/Admin order:
+Implemented compact Manager/Admin order:
 
 1. Yönetici kontrolünde
 2. Düzeltme istendi
-3. Geciken
-4. Uygulanıyor
-5. Hazırlanıyor and Atandı
+3. Uygulanıyor
+4. Hazırlanıyor
+5. Atandı
 
-This ordering is a presentation decision, not a new domain transition rule. Prototype approval is required before PR B fixes the default.
+This ordering is a presentation decision, not a new domain transition rule. Desktop keeps canonical domain order. The preserved board API returns exact counts per persisted status but no complete overdue collection, so PR B does not synthesize a separate Geciken lane from limited previews. Existing overdue reports and `dueBefore` list filtering remain the source for that view.
 
 ## Canonical status vocabulary
 

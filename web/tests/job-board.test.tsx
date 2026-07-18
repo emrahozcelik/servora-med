@@ -71,22 +71,32 @@ function installMatchMedia(initial: boolean) {
 }
 
 describe('read-only JobCard board', () => {
-  it('renders exactly five labelled active columns, counts, canonical cards, and closed list links', () => {
+  it('renders five approved horizontal lanes, filtered list links, canonical cards, and closed counts', () => {
     const host = document.createElement('div');
     host.innerHTML = renderToStaticMarkup(
-      <MemoryRouter><JobBoard board={board} user={manager} params={new URLSearchParams('q=klinik&view=board')} /></MemoryRouter>,
+      <MemoryRouter><JobBoard board={board} user={manager} compact={false}
+        params={new URLSearchParams('q=klinik&priority=urgent&offset=25&view=board')} /></MemoryRouter>,
     );
-    const columns = Array.from(host.querySelectorAll<HTMLElement>('[data-board-column]'));
-    expect(columns).toHaveLength(5);
-    expect(columns.map((column) => column.getAttribute('data-board-column'))).toEqual([
+    const lanes = Array.from(host.querySelectorAll<HTMLElement>('[data-workflow-lane]'));
+    expect(lanes).toHaveLength(5);
+    expect(lanes.map((lane) => lane.getAttribute('data-workflow-lane'))).toEqual([
       'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
     ]);
-    expect(columns.map((column) => column.querySelector('h2')?.textContent)).toEqual([
-      'Atandı1', 'Kabul edildi1', 'Uygulanıyor1', 'Yönetici kontrolünde4', 'Düzeltme gerekiyor1',
+    expect(lanes.map((lane) => lane.querySelector('h2')?.textContent)).toEqual([
+      'Hazırlanıyor1', 'Atandı1', 'Uygulanıyor1', 'Yönetici kontrolünde4', 'Düzeltme istendi1',
     ]);
     expect(host.querySelectorAll('.job-status-shape')).toHaveLength(5);
-    expect(host.querySelector('[data-board-column="PLANNED"]')).toBeNull();
+    expect(host.querySelector('[data-workflow-lane="PLANNED"]')).toBeNull();
     expect(host.textContent).not.toContain('Planlandı');
+
+    const laneLinks = Array.from(host.querySelectorAll<HTMLAnchorElement>('.workflow-lane-link'));
+    expect(laneLinks).toHaveLength(5);
+    expect(laneLinks.every((link) => link.textContent === 'Tümünü gör')).toBe(true);
+    expect(laneLinks[2]?.getAttribute('href')).toContain('q=klinik');
+    expect(laneLinks[2]?.getAttribute('href')).toContain('priority=urgent');
+    expect(laneLinks[2]?.getAttribute('href')).toContain('status=IN_PROGRESS');
+    expect(laneLinks[2]?.getAttribute('href')).toContain('view=list');
+    expect(laneLinks[2]?.getAttribute('href')).toContain('offset=0');
 
     const card = host.querySelector<HTMLElement>('[data-board-card="job-waiting"]')!;
     for (const value of ['ABC Klinik teslimi', 'Ürün teslimi', 'Acil öncelik', 'ABC Klinik', 'Dr. Deniz', 'Ayşe Personel', '20 Tem 2026', '2 ürün kalemi']) {
@@ -103,6 +113,63 @@ describe('read-only JobCard board', () => {
     expect(closedLinks[0]?.getAttribute('href')).toContain('offset=0');
     expect(host.querySelector('button, [role="menu"], [draggable="true"]')).toBeNull();
     expect(host.textContent?.toLocaleLowerCase('tr-TR')).not.toMatch(/sürükle|drag|bırak/);
+  });
+
+  it('uses role-priority source order only for compact lanes', () => {
+    const renderOrder = (user: CurrentUser, compact: boolean) => {
+      const host = document.createElement('div');
+      host.innerHTML = renderToStaticMarkup(
+        <MemoryRouter><JobBoard board={board} user={user} compact={compact}
+          params={new URLSearchParams('view=board')} /></MemoryRouter>,
+      );
+      return Array.from(host.querySelectorAll<HTMLElement>('[data-workflow-lane]'))
+        .map((lane) => lane.dataset.workflowLane);
+    };
+
+    expect(renderOrder(manager, false)).toEqual([
+      'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+    ]);
+    expect(renderOrder(manager, true)).toEqual([
+      'WAITING_APPROVAL', 'REVISION_REQUESTED', 'IN_PROGRESS', 'NEW', 'ACCEPTED',
+    ]);
+    expect(renderOrder({ ...manager, role: 'STAFF' }, true)).toEqual([
+      'REVISION_REQUESTED', 'IN_PROGRESS', 'ACCEPTED', 'NEW', 'WAITING_APPROVAL',
+    ]);
+  });
+
+  it('caps lane previews at four while preserving the backend count', () => {
+    const previewBoard: JobCardBoard = {
+      ...board,
+      columns: {
+        ...board.columns,
+        NEW: {
+          items: Array.from({ length: 5 }, (_, index) => item('NEW', `job-${index}`)),
+          count: 9,
+        },
+      },
+    };
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={previewBoard} user={manager} compact={false}
+        params={new URLSearchParams()} /></MemoryRouter>,
+    );
+    const lane = host.querySelector<HTMLElement>('[data-workflow-lane="NEW"]')!;
+    expect(lane.querySelector('h2')?.textContent).toBe('Hazırlanıyor9');
+    expect(lane.querySelectorAll('[data-board-card]')).toHaveLength(4);
+  });
+
+  it('shows an explicit empty lane state', () => {
+    const emptyBoard: JobCardBoard = {
+      ...board,
+      columns: { ...board.columns, ACCEPTED: { items: [], count: 0 } },
+    };
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={emptyBoard} user={manager} compact={false}
+        params={new URLSearchParams()} /></MemoryRouter>,
+    );
+    expect(host.querySelector('[data-workflow-lane="ACCEPTED"] .workflow-lane-empty')?.textContent)
+      .toBe('Bu aşamada iş yok.');
   });
 
   it('shows the same compact workflow summary as list for waiting approval', () => {
@@ -275,19 +342,41 @@ describe('responsive routed JobCard board', () => {
     expect(container.querySelector('[data-board-column]')).toBeNull();
   });
 
-  it('replaces compact board URLs before board render/request and loads list only after transition', async () => {
+  it('keeps compact board URLs and renders Manager control-queue lanes', async () => {
     installMatchMedia(false);
     const { router, listLoad, boardLoad } = await mount('/jobs?q=klinik&view=board');
     await act(async () => { await Promise.resolve(); });
-    expect(router.state.location.search).toBe('?q=klinik');
-    expect(router.state.historyAction).toBe('REPLACE');
-    expect(boardLoad).not.toHaveBeenCalled();
-    expect(listLoad).toHaveBeenCalledWith({ q: 'klinik', status: 'active', limit: 25, offset: 0 });
-    expect(container.querySelector('[data-board-column]')).toBeNull();
+    expect(router.state.location.search).toBe('?q=klinik&view=board');
+    expect(boardLoad).toHaveBeenCalledWith({ q: 'klinik' });
+    expect(listLoad).not.toHaveBeenCalled();
+    expect(container.querySelector('[data-workflow-lane]')?.getAttribute('data-workflow-lane'))
+      .toBe('WAITING_APPROVAL');
     expect(container.querySelector('#job-view')).toBeNull();
   });
 
-  it('offers the list and board view control only at desktop widths', async () => {
+  it('switches a compact board status filter to the canonical list URL', async () => {
+    installMatchMedia(false);
+    const listLoad = vi.fn().mockResolvedValue(page([item('WAITING_APPROVAL', 'job-filtered')]));
+    const { router } = await mount('/jobs?q=klinik&view=board', listLoad);
+    await act(async () => { await Promise.resolve(); });
+    const trigger = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.startsWith('Filtreler'))!;
+    await act(async () => trigger.click());
+    const status = container.querySelector<HTMLSelectElement>('#job-status-sheet')!;
+    await act(async () => {
+      status.value = 'WAITING_APPROVAL';
+      status.dispatchEvent(new Event('change', { bubbles: true }));
+    });
+    const apply = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Uygula')!;
+    await act(async () => apply.click());
+    expect(router.state.location.search).toBe('?q=klinik&status=WAITING_APPROVAL');
+    expect(listLoad).toHaveBeenCalledWith({
+      q: 'klinik', status: 'WAITING_APPROVAL', limit: 25, offset: 0,
+    });
+  });
+
+  it('keeps the inline list and board view control for desktop widths', async () => {
     const viewport = installMatchMedia(false);
     await mount('/jobs');
     await act(async () => { await Promise.resolve(); });
@@ -297,7 +386,7 @@ describe('responsive routed JobCard board', () => {
     expect(container.querySelector<HTMLSelectElement>('#job-view')?.value).toBe('list');
   });
 
-  it('invalidates in-flight board data on compact resize and never restores board after desktop growth', async () => {
+  it('keeps one in-flight board request stable across compact and desktop composition changes', async () => {
     const viewport = installMatchMedia(true);
     const pendingBoard = deferred<JobCardBoard>();
     const listLoad = vi.fn().mockResolvedValue(page([{ ...baseItem, id: 'list-job', title: 'Güncel liste işi' }]));
@@ -306,18 +395,20 @@ describe('responsive routed JobCard board', () => {
     expect(boardLoad).toHaveBeenCalledTimes(1);
 
     await act(async () => viewport.set(false));
-    expect(router.state.location.search).toBe('');
+    expect(router.state.location.search).toBe('?view=board');
     expect(container.querySelector('[data-board-column]')).toBeNull();
     await act(async () => pendingBoard.resolve({
       ...board,
-      columns: { ...board.columns, NEW: { items: [item('NEW', 'stale-board', 'Eski pano işi')], count: 1 } },
+      columns: { ...board.columns, NEW: { items: [item('NEW', 'current-board', 'Güncel pano işi')], count: 1 } },
     }));
-    expect(container.textContent).toContain('Güncel liste işi');
-    expect(container.textContent).not.toContain('Eski pano işi');
+    expect(container.textContent).toContain('Güncel pano işi');
+    expect(container.textContent).not.toContain('Güncel liste işi');
+    expect(container.querySelector('[data-workflow-lane]')?.getAttribute('data-workflow-lane'))
+      .toBe('WAITING_APPROVAL');
 
     await act(async () => viewport.set(true));
-    expect(router.state.location.search).toBe('');
+    expect(router.state.location.search).toBe('?view=board');
     expect(boardLoad).toHaveBeenCalledTimes(1);
-    expect(container.querySelector('[data-board-column]')).toBeNull();
+    expect(container.querySelector('[data-workflow-lane]')?.getAttribute('data-workflow-lane')).toBe('NEW');
   });
 });

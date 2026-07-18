@@ -43,9 +43,9 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   const [boardState, setBoardState] = useState<BoardState>({ kind: 'loading' });
   const [reload, setReload] = useState(0);
   const requestGate = useRef(createRequestGate());
-  const [isDesktop, setIsDesktop] = useState<boolean | null>(() => (
+  const [isDesktop, setIsDesktop] = useState(() => (
     typeof window !== 'undefined' && typeof window.matchMedia === 'function'
-      ? window.matchMedia('(min-width: 64rem)').matches : null
+      ? window.matchMedia('(min-width: 64rem)').matches : false
   ));
   const queryKey = params.toString();
   const canonicalParams = canonicalJobSearchParams(params);
@@ -55,10 +55,8 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
     const media = window.matchMedia('(min-width: 64rem)');
-    const handleChange = (event: MediaQueryListEvent) => {
-      if (!event.matches) requestGate.current.next();
-      setIsDesktop(event.matches);
-    };
+    const handleChange = (event: MediaQueryListEvent) => setIsDesktop(event.matches);
+    setIsDesktop(media.matches);
     media.addEventListener('change', handleChange);
     return () => media.removeEventListener('change', handleChange);
   }, []);
@@ -70,15 +68,6 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       return;
     }
     if (showBoard) {
-      if (isDesktop === false) {
-        requestGate.current.next();
-        setParams(forceMobileList(params), { replace: true });
-        return;
-      }
-      if (isDesktop !== true) {
-        requestGate.current.next();
-        return;
-      }
       const generation = requestGate.current.next();
       setBoardState({ kind: 'loading' });
       const { view: _view, status: _status, offset: _offset, ...requestFilters } = filters;
@@ -117,19 +106,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
     return () => { requestGate.current.next(); };
   // queryKey owns filter identity; parsed filters are reconstructed from it.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [canonicalKey, isDesktop, load, loadBoard, queryKey, reload, showBoard, user.id, user.role]);
-
-  if (showBoard && isDesktop === null) return <main className="workspace job-workspace">
-    <p className="eyebrow">Çalışma alanı</p><div className="workspace-message">
-      <h1>Kanban görünümü henüz kullanıma açık değil</h1>
-      <p>Bu görünüm sonraki çalışma diliminde eklenecek. İş kayıtlarına liste görünümünden ulaşabilirsiniz.</p>
-      <Link className="secondary-button" to={{ search: forceMobileList(params).toString() }}>Liste görünümüne dön</Link>
-    </div>
-  </main>;
-
-  if (showBoard && isDesktop === false) return <main className="workspace job-workspace" aria-busy="true">
-    <h1 className="sr-only">Liste görünümüne geçiliyor</h1>
-  </main>;
+  }, [canonicalKey, load, loadBoard, queryKey, reload, showBoard, user.id, user.role]);
 
   const hasFilters = Boolean(filters.q || filters.type || filters.assignedTo || filters.customerId || filters.priority
     || filters.dueAfter || filters.dueBefore || filters.status !== 'active');
@@ -155,15 +132,20 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
     </nav>
     {filters.status === 'WAITING_APPROVAL' && <p className="job-order-note">En uzun süredir onay bekleyen işler önce gösterilir.</p>}
     <JobFilters user={user} filters={filters}
-      onApply={(changes) => setParams(updateJobSearch(params, changes))}
+      onApply={(changes) => {
+        const next = updateJobSearch(params, changes);
+        setParams(changes.status && changes.status !== 'active'
+          ? selectStatus(next, changes.status)
+          : next);
+      }}
       onChange={(_name, value) => setParams(selectStatus(params, value))}
       onViewChange={(view) => setParams(view === 'board' ? enterBoard(params) : forceMobileList(params))}
-      showViewControl={isDesktop === true && filters.status !== 'closed'} />
+      showViewControl={filters.status !== 'closed'} />
     {showBoard ? (boardState.kind === 'loading'
       ? <div className="job-results" aria-busy="true" aria-live="polite"><h2 className="sr-only">İş panosu yükleniyor</h2></div>
       : boardState.kind === 'error'
         ? <div className="workspace-message" role="alert"><h2>İş panosu yüklenemedi</h2><p>{boardState.message}</p></div>
-        : <JobBoard board={boardState.board} user={user} params={params} />)
+        : <JobBoard board={boardState.board} user={user} params={params} compact={!isDesktop} />)
       : <JobList state={state} user={user} hasFilters={hasFilters} onRetry={() => setReload((value) => value + 1)}
       onOffsetChange={(offset) => { const next = updateJobSearch(params, {}); if (offset > 0) next.set('offset', String(offset)); setParams(next); }}
       onCommand={(intent) => onCommand?.(intent)} />}

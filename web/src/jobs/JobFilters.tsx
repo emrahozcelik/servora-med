@@ -215,6 +215,11 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
           onClear={clearSheet}
           returnFocusRef={filterTriggerRef}
         >
+          {showViewControl && <div className="field-group"><label htmlFor="job-view-sheet">Görünüm</label>
+            <select id="job-view-sheet" value={filters.view}
+              onChange={(event) => onViewChange(event.target.value as JobSearchState['view'])}>
+              <option value="list">Liste</option><option value="board">Pano</option>
+            </select></div>}
           <div className="field-group"><label htmlFor="job-status-sheet">Durum</label>
             <select id="job-status-sheet" value={draftStatus}
               onChange={(event) => setDraftStatus(event.target.value as JobCardStatusFilter)}>
