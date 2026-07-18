@@ -159,17 +159,47 @@ describe('deriveJobWorkflowPresentation', () => {
       ...workflowContext.lifecycle,
       submittedAt: '2026-07-17T10:00:00.000Z',
       revisionRequestedAt: '2026-07-17T10:30:00.000Z',
+      revisionRequestedBy: { id: 'm1', name: 'Mehmet Yönetici' },
       revisionReason: 'İkinci miktarı düzeltin',
     };
     expect(derive(jobAt('REVISION_REQUESTED', lifecycle)).revisionLoop)
       .toEqual({
         active: true, returnedFrom: 'REVIEW', returnedTo: 'EXECUTION',
         reason: 'İkinci miktarı düzeltin',
+        actorName: 'Mehmet Yönetici',
+        at: '2026-07-17T10:30:00.000Z',
       });
     expect(derive(jobAt('IN_PROGRESS', lifecycle)).revisionLoop?.active).toBe(true);
     expect(derive(jobAt('WAITING_APPROVAL', {
       ...lifecycle, submittedAt: '2026-07-17T11:00:00.000Z',
     })).revisionLoop).toBeNull();
+  });
+
+  it('suppresses an active revision loop after cancellation', () => {
+    const lifecycle = {
+      ...workflowContext.lifecycle,
+      submittedAt: '2026-07-17T10:00:00.000Z',
+      revisionRequestedAt: '2026-07-17T10:30:00.000Z',
+      revisionRequestedBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      revisionReason: 'Miktarı düzeltin',
+      cancelledAt: '2026-07-17T11:00:00.000Z',
+      cancelledBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      cancelReason: 'Teslimat iptal edildi',
+      cancelledFromStatus: 'REVISION_REQUESTED' as const,
+    };
+    const model = derive(jobAt('CANCELLED', lifecycle));
+
+    expect(model.revisionLoop).toBeNull();
+    expect(model.terminalDetails).toMatchObject({
+      kind: 'CANCELLED',
+      actorName: 'Mehmet Yönetici',
+      at: '2026-07-17T11:00:00.000Z',
+      reason: 'Teslimat iptal edildi',
+      sourceStatus: 'REVISION_REQUESTED',
+      sourceLabel: 'Düzeltme istendi',
+    });
+    expect(model.primaryTransition).toBeNull();
+    expect(model.requirements).toEqual([]);
   });
 
   it('marks execution as attention while revision is requested', () => {
@@ -421,6 +451,24 @@ describe('deriveJobWorkflowPresentation', () => {
     ]);
   });
 
+  it.each(['PRODUCT_DELIVERY', 'GENERAL_TASK'] as const)(
+    'does not expose a dead withdraw-and-edit record action for %s',
+    (type) => {
+      const model = derive(jobWith({
+        type, status: 'WAITING_APPROVAL', assignedTo: 's1',
+        workflowContext: contextWith({
+          allowedCommands: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+          allowedActions: ['WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_NOTES'],
+        }),
+      }), staff);
+
+      expect(model.recordEditAction).toBeNull();
+      expect(model.secondaryTransitions.map((transition) => transition.command)).toEqual([
+        'WITHDRAW_FROM_APPROVAL', 'CANCEL',
+      ]);
+    },
+  );
+
   it('presents Sales Meeting field edit without confirmation', () => {
     const model = derive(jobWith({
       type: 'SALES_MEETING', status: 'IN_PROGRESS', assignedTo: 's1',
@@ -570,11 +618,15 @@ describe('deriveJobWorkflowPresentation', () => {
           startedAt: '2026-07-17T09:00:00.000Z',
           submittedAt: '2026-07-17T10:00:00.000Z',
           approvedAt: '2026-07-17T11:00:00.000Z',
+          approvedBy: { id: 'm1', name: 'Mehmet Yönetici' },
         },
         submissionReadiness: null,
       }),
     }));
     expect(model.terminalState).toBe('COMPLETED');
+    expect(model.terminalDetails).toEqual({
+      kind: 'COMPLETED', actorName: 'Mehmet Yönetici', at: '2026-07-17T11:00:00.000Z',
+    });
     expect(model.currentPhase).toBe('COMPLETION');
     expect(model.primaryTransition).toBeNull();
     expect(model.secondaryTransitions).toEqual([]);
@@ -596,6 +648,7 @@ describe('deriveJobWorkflowPresentation', () => {
           acceptedBy: null,
           startedAt: '2026-07-17T09:00:00.000Z',
           cancelledAt: '2026-07-17T12:00:00.000Z',
+          cancelledBy: { id: 'm1', name: 'Mehmet Yönetici' },
           cancelReason: 'Müşteri erteledi',
           cancelledFromStatus: 'IN_PROGRESS',
         },
@@ -603,6 +656,10 @@ describe('deriveJobWorkflowPresentation', () => {
       }),
     }));
     expect(model.terminalState).toBe('CANCELLED');
+    expect(model.terminalDetails).toEqual({
+      kind: 'CANCELLED', actorName: 'Mehmet Yönetici', at: '2026-07-17T12:00:00.000Z',
+      reason: 'Müşteri erteledi', sourceStatus: 'IN_PROGRESS', sourceLabel: 'Uygulanıyor',
+    });
     expect(model.currentPhase).toBe('EXECUTION');
     expect(model.phaseItems.map(({ label, state }) => [label, state])).toEqual([
       ['Atandı', 'complete'],
@@ -632,6 +689,10 @@ describe('deriveJobWorkflowPresentation', () => {
       }),
     }));
     expect(model.terminalState).toBe('CANCELLED');
+    expect(model.terminalDetails).toEqual({
+      kind: 'CANCELLED', actorName: null, at: '2026-07-17T12:00:00.000Z',
+      reason: 'İptal', sourceStatus: null, sourceLabel: null,
+    });
     expect(model.currentPhase).toBeNull();
     expect(model.phaseItems.map(({ state }) => state)).toEqual([
       'complete', 'upcoming', 'upcoming', 'upcoming', 'upcoming',

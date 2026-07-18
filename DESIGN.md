@@ -210,7 +210,8 @@ These surfaces use existing design tokens, surface levels, button variants, and 
 They do not introduce a second visual system. Reviewed lifecycle adapters may
 use the owned Ant Design boundary in later implementation PRs.
 
-- **Lifecycle stepper** (`.job-lifecycle-steps`): ordered list of presentation phases
+- **Lifecycle stepper** (`.servora-workflow-steps` via `WorkflowSteps`): screen-reader
+  ordered list plus visual Ant Steps of presentation phases
   (`Oluşturuldu` → `Planlandı` → `Uygulanıyor` → `Yönetici kontrolü` → `Tamamlandı`).
   Current step uses `aria-current="step"`. Complete, current, skipped (`Planlama atlandı`),
   attention (revision loop), and upcoming states use text/icon semantics plus restrained

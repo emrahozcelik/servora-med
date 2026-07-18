@@ -1,5 +1,5 @@
 import type { JobCardActivityStatus, JobCardStatus, JobCardType } from './jobs-api';
-import { activeWorkflowPresentation } from './workflow-lanes';
+import { activeWorkflowPresentation } from './job-status-presentation';
 
 export const jobTypeLabels: Record<JobCardType, string> = {
   PRODUCT_DELIVERY: 'Ürün teslimi',

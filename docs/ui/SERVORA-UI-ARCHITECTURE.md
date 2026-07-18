@@ -2,7 +2,7 @@
 
 Status: Approved
 Scope: Architecture decision and phased implementation boundary
-Production impact: PR A provider foundation is merged; PR B shell/workspace composition is implemented on its feature branch
+Production impact: PR A and PR B are merged; PR C job detail lifecycle composition is implemented on its feature branch
 
 ## Decision
 
@@ -71,19 +71,25 @@ Implemented foundation surface:
       index.ts
       useAppFeedback.ts
 
-Planned future adapter surface, introduced only by its owning PR:
+Implemented job detail adapter surface:
 
     web/src/ui/antd/
       WorkflowSteps.tsx
       ActivityTimeline.tsx
       RecordDescriptions.tsx
+
+Planned future adapter surface, introduced only by its owning PR:
+
+    web/src/ui/antd/
       OperationalDropdown.tsx
       ResponsiveDrawer.tsx
       ConfirmationAction.tsx
       ResultState.tsx
       OperationalTable.tsx
 
-The planned names are architectural targets, not files created by PR A.
+The PR C adapters are render-only: they receive presentation data and do not call APIs, calculate permissions or readiness, create command intents, or translate domain status. Overlay and feedback migration remains owned by PR D; PR C preserves the existing accessible confirmation and revision-reason dialogs.
+
+The remaining planned names are architectural targets, not files created by the completed foundation or job detail slices.
 
 ## Component decision matrix
 

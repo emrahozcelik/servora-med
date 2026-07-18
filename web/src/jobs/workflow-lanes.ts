@@ -1,29 +1,18 @@
 import type { CurrentUser } from '../services/api';
-import type { JobCardBoard } from './jobs-api';
+import {
+  activeWorkflowPresentation,
+  activeWorkflowStatuses,
+  type ActiveWorkflowStatus,
+} from './job-status-presentation';
 
-export type WorkflowLaneStatus = keyof JobCardBoard['columns'];
+export type WorkflowLaneStatus = ActiveWorkflowStatus;
 
 export type WorkflowLane = Readonly<{
   status: WorkflowLaneStatus;
   label: string;
 }>;
 
-export const activeWorkflowPresentation: Readonly<Record<WorkflowLaneStatus, WorkflowLane>> = {
-  NEW: { status: 'NEW', label: 'Hazırlanıyor' },
-  ACCEPTED: { status: 'ACCEPTED', label: 'Atandı' },
-  IN_PROGRESS: { status: 'IN_PROGRESS', label: 'Uygulanıyor' },
-  WAITING_APPROVAL: { status: 'WAITING_APPROVAL', label: 'Yönetici kontrolünde' },
-  REVISION_REQUESTED: { status: 'REVISION_REQUESTED', label: 'Düzeltme istendi' },
-};
-
-const desktopOrder: readonly WorkflowLaneStatus[] = [
-  'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
-];
-
-export const activeWorkflowStatusOptions = desktopOrder.map((status) => ({
-  value: status,
-  label: activeWorkflowPresentation[status].label,
-}));
+const desktopOrder: readonly WorkflowLaneStatus[] = activeWorkflowStatuses;
 
 const staffCompactOrder: readonly WorkflowLaneStatus[] = [
   'REVISION_REQUESTED', 'IN_PROGRESS', 'ACCEPTED', 'NEW', 'WAITING_APPROVAL',

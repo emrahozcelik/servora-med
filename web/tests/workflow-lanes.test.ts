@@ -1,10 +1,25 @@
 import { describe, expect, it } from 'vitest';
+import { readFile } from 'node:fs/promises';
+import { resolve } from 'node:path';
 
 import {
-  activeWorkflowPresentation, activeWorkflowStatusOptions, workflowLanesFor,
-} from '../src/jobs/workflow-lanes';
+  activeWorkflowPresentation, activeWorkflowStatusOptions,
+} from '../src/jobs/job-status-presentation';
+import { workflowLanesFor } from '../src/jobs/workflow-lanes';
 
 describe('workflow lane presentation model', () => {
+  it('keeps shared active status presentation in a lane-neutral module', async () => {
+    const sourceRoot = resolve(process.cwd(), 'src/jobs');
+    const neutralSource = await readFile(resolve(sourceRoot, 'job-status-presentation.ts'), 'utf8')
+      .catch(() => '');
+    const laneSource = await readFile(resolve(sourceRoot, 'workflow-lanes.ts'), 'utf8');
+    const labelSource = await readFile(resolve(sourceRoot, 'job-labels.ts'), 'utf8');
+
+    expect(neutralSource).toContain('activeWorkflowPresentation');
+    expect(laneSource).toContain("from './job-status-presentation'");
+    expect(labelSource).toContain("from './job-status-presentation'");
+  });
+
   it('owns the active workflow labels used by every current-state consumer', () => {
     expect(activeWorkflowPresentation).toEqual({
       NEW: { status: 'NEW', label: 'Hazırlanıyor' },

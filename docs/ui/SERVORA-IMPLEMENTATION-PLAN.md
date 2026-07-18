@@ -1,7 +1,7 @@
 # Servora UI Implementation Plan
 
-Status: Approved sequence; PR A merged and PR B implemented on its feature branch
-Current phase: PR B - App shell and workspace composition review
+Status: Approved sequence; PR A and PR B merged, PR C implemented on its feature branch
+Current phase: PR C - Job detail lifecycle UI review
 
 ## Entry gate
 
@@ -57,7 +57,7 @@ Completion checklist:
 
 ## PR B: App shell and workspace composition
 
-Implementation status: Complete on `feature/app-shell-workspace-composition`; awaiting review.
+Implementation status: Merged through PR #20 at `e5d34d17ce36ad809b7226b2e9418e248149548c`.
 
 Scope:
 
@@ -106,6 +106,8 @@ The approved board API has exact counts only for persisted status columns. A sep
 
 ## PR C: Job detail lifecycle UI
 
+Implementation status: Complete on `feature/job-detail-lifecycle-ui`; awaiting review.
+
 Scope:
 
 - owned WorkflowSteps adapter
@@ -132,6 +134,25 @@ Verification:
 - Staff REVISION_REQUESTED recovery coverage
 - invalid and stale version paths
 - focus, keyboard, screen-reader, and responsive checks
+
+Completion checklist:
+
+- [x] owned `WorkflowSteps`, `RecordDescriptions`, and `ActivityTimeline` adapters
+- [x] render-only responsibility, requirements, decision, revision, completion, and cancellation surfaces
+- [x] existing `JobWorkflowPresentation`, command intents, API/domain commands, and server refresh flow preserved
+- [x] existing confirmation and revision-reason dialogs preserved for PR D
+- [x] dialog focus restoration targets the relocated decision trigger
+- [x] persisted timeline ordering, reason, actor, time, fallback, retry, and pagination behavior preserved
+- [x] compact DOM order keeps the primary lifecycle action before the Timeline
+- [x] desktop detail composition begins at the canonical `64rem` shell boundary
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 60 files and 554 tests passed
+- `cd web && npm run build`: passed; emitted JS was 829.95 kB raw and 246.83 kB gzip, and CSS was 64.76 kB raw and 11.38 kB gzip, with the existing 500 kB chunk warning
+- `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200 percent text, and 400 percent reflow checks passed; JobDetail used one, one, two, two, one, and one columns respectively, without horizontal overflow and with the primary action before the Timeline; the real owned Descriptions and Timeline adapter DOM also preserved full summary width, content bounds, and Timeline rail layout
+- `cd server && npm run build`: passed
+- `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped
 
 ## PR D: Feedback and overlays
 

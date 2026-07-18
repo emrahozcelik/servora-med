@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDetailPanel, JobDetailScreen, runManagerJobCommand } from '../src/JobDetail';
 import { JobWorkflowDialog } from '../src/jobs/JobWorkflowDialog';
@@ -14,6 +14,14 @@ import type {
 import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+    matches: false, media: '', onchange: null,
+    addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+  }));
+});
 
 function contextWith(
   allowedCommands: LifecycleCommand[],
@@ -145,6 +153,9 @@ describe('Manager review', () => {
     expect(html).toContain('Düzeltme için personele geri gönder');
     expect(html).toContain('Yönetici kontrolü');
     expect(html).toContain('İş kayıtlarını inceleyerek karar verin.');
+    expect(html).toContain('data-job-decision-panel="true"');
+    expect(html).toContain('servora-workflow-steps');
+    expect(html).toContain('servora-record-descriptions');
     expect(html).not.toContain('name="quantity"');
   });
 
@@ -209,6 +220,36 @@ describe('Manager review', () => {
         && (init as RequestInit | undefined)?.method === 'POST');
       const body = JSON.parse(String((approveCall?.[1] as RequestInit).body));
       expect(body.expectedVersion).toBe(waitingJob.version);
+    } finally { await act(async () => root.unmount()); host.remove(); }
+  });
+
+  it('restores focus to the decision-panel trigger when the existing dialog closes', async () => {
+    const waitingJob = {
+      ...job,
+      workflowContext: contextWith(
+        ['APPROVE', 'REQUEST_REVISION'], ['VIEW_NOTES'], waitingLifecycle,
+      ),
+    };
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(page);
+      if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(waitingJob);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        await flush();
+      });
+      const trigger = buttonByName(host, 'Kontrolü tamamla ve işi kapat')!;
+      expect(trigger.closest('[data-job-decision-panel="true"]')).not.toBeNull();
+      await act(async () => { trigger.click(); await flush(); });
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      await act(async () => { buttonByName(dialog, 'Vazgeç')!.click(); await renderFrame(); });
+      expect(document.activeElement).toBe(trigger);
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 

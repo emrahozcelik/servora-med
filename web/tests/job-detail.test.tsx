@@ -156,6 +156,7 @@ function revisionRequestedJob(opts: { revisionReason: string }): JobCard {
       acceptedBy: { id: 's1', name: 'Ayşe Personel' },
       submittedAt: '2026-07-17T10:00:00.000Z',
       revisionRequestedAt: '2026-07-17T11:00:00.000Z',
+      revisionRequestedBy: { id: 'm1', name: 'Mehmet Yönetici' },
       revisionReason: opts.revisionReason,
     }),
   };
@@ -217,6 +218,11 @@ describe('Staff JobCard detail', () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+      matches: false, media: '', onchange: null,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+    }));
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
@@ -256,11 +262,22 @@ describe('Staff JobCard detail', () => {
     const card = inProgressMeeting({ acceptedAt: null, startedAt: '2026-07-17T09:00:00.000Z' });
     await renderDetail(card);
     expect(host.querySelector('h1')?.textContent).toBe(card.title);
-    const steps = host.querySelector('[aria-label="İş süreci"]');
-    expect(steps?.getAttribute('role') ?? steps?.tagName.toLowerCase()).toMatch(/list|ol/);
+    const steps = host.querySelector('.servora-workflow-steps');
+    expect(steps).not.toBeNull();
+    const list = steps?.querySelector(
+      'ol[aria-label="İş süreci"], [role="list"][aria-label="İş süreci"]',
+    );
+    expect(list).not.toBeNull();
+    const listItems = list?.querySelectorAll('li, [role="listitem"]');
+    expect((listItems?.length ?? 0) >= 1).toBe(true);
+    expect(
+      Array.from(listItems ?? []).filter(
+        (item) => item.getAttribute('aria-current') === 'step',
+      ),
+    ).toHaveLength(1);
     expect(steps?.textContent).toContain('Kabul bilgisi kaydedilmemiş');
     expect(steps?.textContent).not.toContain('Planlama atlandı');
-    const current = steps?.querySelector('[aria-current="step"]');
+    const current = list?.querySelector('[aria-current="step"]');
     expect(current?.textContent).toContain('Uygulanıyor');
     expect(host.querySelector('h2')?.textContent === 'Şimdi sizden beklenen'
       || Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Şimdi sizden beklenen')).toBe(true);
@@ -268,7 +285,9 @@ describe('Staff JobCard detail', () => {
       'İş yönetici kontrolüne geçecek ve kontrol sona erene kadar kayıtlar düzenlenemeyecektir.',
     );
     expect(buttonByName(host, 'Kontrole gönder')).not.toBeNull();
-    const stepsEl = host.querySelector('.job-lifecycle-steps');
+    expect(host.querySelector('.servora-record-descriptions[aria-label="İş kayıt bilgileri"]'))
+      .not.toBeNull();
+    const stepsEl = host.querySelector('.servora-workflow-steps');
     const responsibilityEl = Array.from(host.querySelectorAll('h2'))
       .find((el) => el.textContent === 'Şimdi sizden beklenen');
     const deliveryOrMeeting = Array.from(host.querySelectorAll('h2'))
@@ -292,9 +311,41 @@ describe('Staff JobCard detail', () => {
     expect(Array.from(host.querySelectorAll('h2'))
       .some((el) => el.textContent === 'Düzeltme gerekiyor')).toBe(true);
     expect(host.textContent).toContain('Miktarı düzeltin');
+    expect(host.textContent).toContain('Mehmet Yönetici');
+    expect(host.querySelector('time[datetime="2026-07-17T11:00:00.000Z"]')).not.toBeNull();
     expect(buttonByName(host, 'Düzeltmeye başla')).not.toBeNull();
     expect(buttonByName(host, 'Yeniden kontrole gönder')).toBeNull();
     expect(buttonByName(host, 'Kontrole gönder')).toBeNull();
+    const revision = host.querySelector('.revision-loop')!;
+    const lifecycle = host.querySelector('.servora-workflow-steps')!;
+    const responsibility = host.querySelector('.workflow-responsibility')!;
+    expect(revision.compareDocumentPosition(lifecycle) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(lifecycle.compareDocumentPosition(responsibility) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
+  it('keeps requirements and the primary action before Timeline in mobile-first DOM order', async () => {
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={inProgressMeeting()}
+        items={[]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+      >
+        <section className="job-timeline" data-test-timeline>Timeline</section>
+      </JobDetailPanel>);
+    });
+    const requirements = host.querySelector('.workflow-requirements')!;
+    const action = host.querySelector('[data-job-decision-panel="true"]')!;
+    const timeline = host.querySelector('[data-test-timeline]')!;
+    expect(requirements.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(action.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
   });
 
   it('does not mount meeting result resources in new and accepted states', async () => {
@@ -443,7 +494,11 @@ describe('Staff JobCard detail', () => {
 
   it('renders terminal cancellation facts without inventing missing history', async () => {
     await renderDetail(cancelledJob({
-      cancelledFromStatus: 'IN_PROGRESS',
+      submittedAt: '2026-07-17T10:00:00.000Z',
+      revisionRequestedAt: '2026-07-17T11:00:00.000Z',
+      revisionRequestedBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      revisionReason: 'Miktarı düzeltin',
+      cancelledFromStatus: 'REVISION_REQUESTED',
       cancelledAt: '2026-07-17T12:00:00.000Z',
       cancelledBy: { id: 'm1', name: 'Mehmet Yönetici' },
       cancelReason: 'Müşteri vazgeçti',
@@ -451,7 +506,10 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('İptal edildi');
     expect(host.textContent).toContain('Müşteri vazgeçti');
     expect(host.textContent).toContain('Mehmet Yönetici');
-    expect(host.textContent).toMatch(/Uygulanıyor|İncelem/);
+    expect(host.textContent).toContain('Düzeltme istendi');
+    expect(host.querySelector('.revision-loop')).toBeNull();
+    expect(host.querySelector('.workflow-requirements')).toBeNull();
+    expect(host.querySelector('[data-job-decision-panel="true"]')).toBeNull();
 
     await act(async () => {
       root.render(<JobDetailPanel
@@ -468,6 +526,24 @@ describe('Staff JobCard detail', () => {
     });
     // source, actor, time, reason — all missing → no invented history
     expect(host.textContent?.match(/Bilgi kaydedilmemiş/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+  });
+
+  it('renders completed approval facts without active requirements or actions', async () => {
+    const completed: JobCard = {
+      ...job,
+      status: 'COMPLETED',
+      workflowContext: staffContext('COMPLETED', {
+        submittedAt: '2026-07-17T10:00:00.000Z',
+        approvedAt: '2026-07-17T11:00:00.000Z',
+        approvedBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      }, { allowedCommands: [], allowedActions: ['VIEW_NOTES'], submissionReadiness: null }),
+    };
+    await renderDetail(completed);
+    expect(host.querySelector('[data-terminal-state="COMPLETED"]')).not.toBeNull();
+    expect(host.textContent).toContain('Mehmet Yönetici');
+    expect(host.querySelector('time[datetime="2026-07-17T11:00:00.000Z"]')).not.toBeNull();
+    expect(host.querySelector('.workflow-requirements')).toBeNull();
+    expect(host.querySelector('.detail-action')).toBeNull();
   });
 
   it('hides Staff primary lifecycle actions when the viewer is not the assignee', async () => {

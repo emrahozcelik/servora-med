@@ -7,6 +7,7 @@ import { readFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
+import { createServer as createViteServer } from 'vite';
 
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const css = readFileSync(resolve(root, 'src/styles.css'), 'utf8');
@@ -66,6 +67,17 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
           </section>
         </div>
       </section>
+      <section class="job-detail" aria-label="İş detayı responsive fixture">
+        <div class="servora-workflow-steps">Atandı → Uygulanıyor → Yönetici kontrolü</div>
+        <section class="workflow-responsibility surface"><h2>Şimdi sizden beklenen</h2><p>Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.</p></section>
+        <div class="job-detail-content">
+          <section class="detail-summary surface"><div id="responsive-descriptions-root"></div></section>
+          <section class="delivery-lines"><h2>Teslim bilgileri</h2><p>ProSeal Membran · 2 kutu</p></section>
+          <section class="workflow-requirements surface-flat"><h2>Kontrole hazırlık</h2><p>Ürün, amaç, miktar ve teslim zamanı</p></section>
+          <section class="detail-action surface-flat" data-smoke-action><p>Kontrol sırasında kayıtlar salt okunur olur.</p><button class="primary-button">Kontrole gönder</button></section>
+        </div>
+        <section class="job-timeline" data-smoke-timeline><h2>İşlem geçmişi</h2><div id="responsive-timeline-root"></div></section>
+      </section>
       <div class="sticky-new-job" id="sticky-create" style="display:none">
         <div class="new-job-menu">
           <button type="button" class="primary-button compact-button new-job-menu-trigger">Yeni iş</button>
@@ -106,6 +118,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
   applyLayout();
   window.addEventListener('resize', applyLayout);
 </script>
+<script type="module" src="/scripts/responsive-job-detail-fixture.tsx"></script>
 </body></html>`;
 
 const viewports = [
@@ -115,15 +128,29 @@ const viewports = [
   { name: '1440x900', width: 1440, height: 900 },
 ];
 
-function startServer() {
+async function startServer() {
+  const vite = await createViteServer({
+    root,
+    configFile: false,
+    appType: 'custom',
+    logLevel: 'error',
+    server: { middlewareMode: true },
+  });
   return new Promise((resolveServer) => {
-    const server = createServer((_req, res) => {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
-      res.end(fixture);
+    const server = createServer((req, res) => {
+      if (req.url === '/') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(fixture);
+        return;
+      }
+      vite.middlewares(req, res, () => {
+        res.writeHead(404);
+        res.end();
+      });
     });
     server.listen(0, '127.0.0.1', () => {
       const { port } = server.address();
-      resolveServer({ server, url: `http://127.0.0.1:${port}/` });
+      resolveServer({ server, vite, url: `http://127.0.0.1:${port}/` });
     });
   });
 }
@@ -175,6 +202,40 @@ async function measure(page) {
     }
     const board = document.querySelector('.job-board');
     const boardWidth = board ? board.getBoundingClientRect().width : 0;
+    const detail = document.querySelector('.job-detail');
+    const detailContent = document.querySelector('.job-detail-content');
+    const detailRect = detail?.getBoundingClientRect();
+    const detailContentRect = detailContent?.getBoundingClientRect();
+    const detailOverflow = Boolean(detailRect && detailContentRect
+      && (detailContentRect.left < detailRect.left - 2 || detailContentRect.right > detailRect.right + 2));
+    const detailCols = detailContent
+      ? getComputedStyle(detailContent).gridTemplateColumns.trim().split(/\s+/).filter(Boolean).length
+      : 0;
+    const action = document.querySelector('[data-smoke-action]');
+    const timeline = document.querySelector('[data-smoke-timeline]');
+    const actionBeforeTimeline = Boolean(action && timeline
+      && (action.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING));
+    const summary = document.querySelector('.detail-summary');
+    const descriptions = summary?.querySelector('.servora-record-descriptions');
+    const summaryRect = summary?.getBoundingClientRect();
+    const descriptionsRect = descriptions?.getBoundingClientRect();
+    const summaryStyle = summary ? getComputedStyle(summary) : null;
+    const summaryContentWidth = summaryRect && summaryStyle
+      ? summaryRect.width
+        - Number.parseFloat(summaryStyle.paddingLeft)
+        - Number.parseFloat(summaryStyle.paddingRight)
+      : 0;
+    const descriptionsUseFullWidth = Boolean(summaryRect && descriptionsRect
+      && descriptionsRect.width >= summaryContentWidth - 2);
+    const timelineRoot = timeline?.querySelector('.servora-ant-timeline');
+    const timelineArticle = timeline?.querySelector('.servora-activity-timeline article');
+    const timelineRail = timeline?.querySelector('.servora-ant-timeline-item-rail');
+    const timelineRect = timeline?.getBoundingClientRect();
+    const articleRect = timelineArticle?.getBoundingClientRect();
+    const timelineAdapterFits = Boolean(timelineRoot && timelineRect && articleRect
+      && articleRect.left >= timelineRect.left - 2 && articleRect.right <= timelineRect.right + 2);
+    const timelineRailIntact = Boolean(timelineRail
+      && getComputedStyle(timelineRail).position === 'absolute');
     const stickyPanel = document.getElementById('sticky-panel');
     let stickyVisible = false;
     let stickyInViewport = true;
@@ -191,6 +252,12 @@ async function measure(page) {
       laneCardCols,
       visiblePreviewCards,
       boardWidth,
+      detailOverflow,
+      detailCols,
+      actionBeforeTimeline,
+      descriptionsUseFullWidth,
+      timelineAdapterFits,
+      timelineRailIntact,
       stickyVisible,
       stickyInViewport,
       sidebarVisible,
@@ -200,7 +267,7 @@ async function measure(page) {
   });
 }
 
-const { server, url } = await startServer();
+const { server, vite, url } = await startServer();
 const failures = [];
 let browser;
 try {
@@ -208,10 +275,19 @@ try {
   for (const vp of viewports) {
     const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
     await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('.servora-ant-timeline');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: vp.name, ...m }));
     if (m.overflowX) failures.push(`${vp.name}: horizontal overflow`);
+    if (m.detailOverflow) failures.push(`${vp.name}: job detail exceeds its workspace`);
+    if (!m.actionBeforeTimeline) failures.push(`${vp.name}: detail action must precede Timeline in DOM`);
+    if ((vp.width === 390 || vp.width === 1024) && !m.descriptionsUseFullWidth) {
+      failures.push(`${vp.name}: RecordDescriptions must use the full summary width`);
+    }
+    if ((vp.width === 390 || vp.width === 1024) && (!m.timelineAdapterFits || !m.timelineRailIntact)) {
+      failures.push(`${vp.name}: real ActivityTimeline must fit without breaking its rail layout`);
+    }
     for (const r of m.results) {
       if (r.filterOverflow) failures.push(`${vp.name}: ${r.sel} exceeds filter-region`);
       if (r.sameRowIntersect) failures.push(`${vp.name}: ${r.sel} same-row controls intersect`);
@@ -233,6 +309,10 @@ try {
     if (vp.width < 1024 && m.laneCardCols !== 1) {
       failures.push(`${vp.name}: compact lane cards must be one column (cols=${m.laneCardCols})`);
     }
+    const expectedDetailCols = vp.width < 1024 ? 1 : 2;
+    if (m.detailCols !== expectedDetailCols) {
+      failures.push(`${vp.name}: expected ${expectedDetailCols} detail columns (cols=${m.detailCols})`);
+    }
     if (vp.width === 1024 && m.laneCardCols !== 3) {
       failures.push(`${vp.name}: expected 3 lane cards at desktop shell width (cols=${m.laneCardCols})`);
     }
@@ -252,11 +332,15 @@ try {
   {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('.servora-ant-timeline');
     await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: '390-200pct-font', ...m }));
     if (m.overflowX) failures.push('200% text: horizontal overflow');
+    if (m.detailOverflow || m.detailCols !== 1 || !m.actionBeforeTimeline) {
+      failures.push('200% text: job detail reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
     }
@@ -268,10 +352,14 @@ try {
     // Prefer viewport reflow over document.zoom (zoom distorts getBoundingClientRect).
     const page = await browser.newPage({ viewport: { width: 320, height: 256 } });
     await page.goto(url, { waitUntil: 'load' });
+    await page.waitForSelector('.servora-ant-timeline');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: '320-wcag-400pct-reflow', ...m }));
     if (m.overflowX) failures.push('400% reflow: horizontal overflow');
+    if (m.detailOverflow || m.detailCols !== 1 || !m.actionBeforeTimeline) {
+      failures.push('400% reflow: job detail reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {
         failures.push(`400% reflow: ${r.sel} layout failure`);
@@ -286,6 +374,7 @@ try {
 } finally {
   await browser?.close();
   server.close();
+  await vite.close();
 }
 
 if (failures.length) {
