@@ -1,5 +1,5 @@
 import {
-  useEffect, useRef, useState, type FormEvent, type KeyboardEvent, type MouseEvent, type RefObject,
+  useEffect, useRef, useState, type FormEvent, type MouseEvent, type RefObject,
 } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -11,6 +11,7 @@ import {
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
+import { ConfirmationAction } from './ui/antd';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
 
@@ -227,60 +228,6 @@ function CustomerFiltersView({ filters, staff, onChange, onApplyMany }: {
   </form></div>;
 }
 
-function CustomerDeleteDialog({ customer, pending, onCancel, onConfirm, trigger }: {
-  customer: CustomerSummary;
-  pending: boolean;
-  onCancel: () => void;
-  onConfirm: () => void;
-  trigger: RefObject<HTMLButtonElement | null>;
-}) {
-  const dialogRef = useRef<HTMLDivElement>(null);
-  const cancelRef = useRef<HTMLButtonElement>(null);
-
-  useEffect(() => { cancelRef.current?.focus(); }, []);
-  useEffect(() => {
-    function keepFocusInside(event: FocusEvent) {
-      if (dialogRef.current?.contains(event.target as Node)) return;
-      (cancelRef.current ?? dialogRef.current)?.focus();
-    }
-    document.addEventListener('focusin', keepFocusInside);
-    return () => {
-      document.removeEventListener('focusin', keepFocusInside);
-      trigger.current?.focus();
-    };
-  }, [trigger]);
-
-  function handleKeyDown(event: KeyboardEvent<HTMLDivElement>) {
-    if (event.key === 'Escape' && !pending) { event.preventDefault(); onCancel(); return; }
-    if (event.key !== 'Tab') return;
-    const focusable = Array.from(dialogRef.current?.querySelectorAll<HTMLButtonElement>('button:not(:disabled)') ?? []);
-    if (focusable.length === 0) { event.preventDefault(); dialogRef.current?.focus(); return; }
-    const first = focusable[0]!; const last = focusable[focusable.length - 1]!;
-    if (focusable.length === 1) { event.preventDefault(); first.focus(); }
-    else if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus(); }
-    else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus(); }
-    else if (!dialogRef.current?.contains(document.activeElement)) {
-      event.preventDefault();
-      (event.shiftKey ? last : first).focus();
-    }
-  }
-
-  return <div className="product-dialog-backdrop">
-    <div className="product-dialog" role="dialog" aria-modal="true" aria-labelledby="customer-delete-title"
-      tabIndex={-1} aria-describedby="customer-delete-description" ref={dialogRef} onKeyDown={handleKeyDown}>
-      <h2 id="customer-delete-title">{customer.name} müşterisini sil</h2>
-      <p id="customer-delete-description">Bu işlem geri alınamaz. Müşteri ve ilgili kişiler kalıcı olarak silinir.</p>
-      <div className="product-dialog-actions">
-        <button className="secondary-button" type="button" ref={cancelRef}
-          onClick={() => { if (!pending) onCancel(); }} aria-disabled={pending}>Vazgeç</button>
-        <button className="destructive-button" type="button" onClick={onConfirm} disabled={pending}>
-          {pending ? 'Siliniyor…' : 'Sil'}
-        </button>
-      </div>
-    </div>
-  </div>;
-}
-
 function openCardIfEmpty(
   event: MouseEvent<HTMLElement>,
   open: ((id: string) => void) | undefined,
@@ -488,9 +435,18 @@ export function CustomerListScreen({ user, load = listCustomers, remove = delete
       onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)}
       onOpenCustomer={(customerId) => navigate(paths.customer(customerId))}
       onRequestDelete={requestDelete} feedback={feedback} actionError={actionError} />
-    {deleteTarget && <CustomerDeleteDialog customer={deleteTarget} pending={deletePending}
-      trigger={deleteTriggerRef} onCancel={() => { if (!deletePending) setDeleteTarget(null); }}
-      onConfirm={() => { void confirmDelete(); }} />}
+    <ConfirmationAction
+      open={deleteTarget !== null}
+      title={deleteTarget ? `${deleteTarget.name} müşterisini sil` : 'Müşteriyi sil'}
+      description="Bu işlem geri alınamaz. Müşteri ve ilgili kişiler kalıcı olarak silinir."
+      confirmLabel="Sil"
+      pending={deletePending}
+      pendingLabel="Siliniyor…"
+      destructive
+      returnFocusRef={deleteTriggerRef}
+      onCancel={() => { if (!deletePending) setDeleteTarget(null); }}
+      onConfirm={() => { void confirmDelete(); }}
+    />
   </>;
 }
 

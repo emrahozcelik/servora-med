@@ -262,7 +262,8 @@ describe('Manager review', () => {
       />));
       const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
       expect(dialog.querySelector('h2')?.textContent).toBe('Düzeltme için personele geri gönder');
-      expect(buttonByName(dialog, 'Düzeltme için geri gönder')?.disabled).toBe(true);
+      // Confirm stays clickable so empty submit can surface inline validation.
+      expect(buttonByName(dialog, 'Düzeltme için geri gönder')?.disabled).toBe(false);
       expect(buttonByName(dialog, 'Onayla')).toBeNull();
       expect(dialog.textContent).toContain('Düzeltme nedeni');
     } finally { await act(async () => root.unmount()); host.remove(); }
@@ -422,23 +423,29 @@ describe('Manager review', () => {
     expect(html).not.toContain('>Onayla<');
   });
 
-  it('warns that waiting cancellation is terminal and disables blank confirmation', async () => {
+  it('warns that waiting cancellation is terminal and validates blank confirmation on submit', async () => {
     const host = document.createElement('div'); document.body.append(host); const root = createRoot(host);
+    const onConfirm = vi.fn();
     try {
       await act(async () => root.render(<JobWorkflowDialog
         dialog={{ kind: 'cancel', presentation: cancelPresentation }}
-        pending={false} onClose={() => {}} onConfirm={() => {}}
+        pending={false} onClose={() => {}} onConfirm={onConfirm}
       />));
       expect(host.textContent).toContain('iptal edilen iş yeniden açılamaz');
       expect(host.querySelector('textarea')?.required).toBe(true);
       const confirm = buttonByName(host, 'İşi iptal et')!;
-      expect(confirm.disabled).toBe(true);
+      expect(confirm.disabled).toBe(false);
+      await act(async () => { confirm.click(); });
+      await act(async () => { await new Promise((r) => requestAnimationFrame(r)); });
+      expect(onConfirm).not.toHaveBeenCalled();
+      expect(host.querySelector('[role="alert"]')?.textContent).toContain('Neden alanı zorunludur.');
       const textarea = host.querySelector('textarea')!;
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, '  Neden  ');
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
       });
-      expect(confirm.disabled).toBe(false);
+      await act(async () => { confirm.click(); });
+      expect(onConfirm).toHaveBeenCalledWith('Neden');
     } finally { await act(async () => root.unmount()); host.remove(); }
   });
 

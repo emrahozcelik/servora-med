@@ -1,7 +1,7 @@
 # Servora UI Implementation Plan
 
-Status: Approved sequence; PR A and PR B merged, PR C implemented on its feature branch
-Current phase: PR C - Job detail lifecycle UI review
+Status: Approved sequence; PR A–C merged; PR D design opened on feature branch
+Current phase: PR D - Feedback and overlays
 
 ## Entry gate
 
@@ -106,7 +106,7 @@ The approved board API has exact counts only for persisted status columns. A sep
 
 ## PR C: Job detail lifecycle UI
 
-Implementation status: Complete on `feature/job-detail-lifecycle-ui`; awaiting review.
+Implementation status: Merged through PR #21 at `e73f05644cc643e95a7bd4b22311a27cafa37c3f`.
 
 Scope:
 
@@ -156,31 +156,53 @@ Verification record (18 July 2026):
 
 ## PR D: Feedback and overlays
 
-Scope:
+Implementation status: Narrowed scope approved; implementing on `feature/feedback-overlays`.
 
-- App.useApp based feedback
-- OperationalDropdown
-- mobile filter ResponsiveDrawer
-- ResultState
-- Empty and Skeleton standardization
-- ConfirmationAction
-- reason dialog adapter where inline or dedicated surfaces are unsuitable
+Design: `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`
+Plan: `docs/superpowers/plans/2026-07-18-feedback-overlays.md`
+
+Ship scope (only):
+
+- ConfirmationAction (modal-only; Popconfirm deferred)
+- ReasonDialog
+- ResponsiveDrawer for existing Job and Customer filters
+
+Out of this PR:
+
+- ResultState, EmptyState, LoadingSkeleton, OperationalDropdown
+- AppShell navigation drawer
+- broad toast / useAppFeedback helper expansion
 
 Constraints:
 
-- no lifecycle primary action inside Dropdown
-- Popconfirm only for short, single-outcome confirmation
+- adapters remain presentation/orchestration only; domain authority stays in services and presentation builders
 - reason capture never uses Popconfirm
 - critical errors stay inline
-- existing navigation drawer changes only after behavior parity tests
+- ConfirmationAction does not auto-select Popconfirm
+- focus restoration for migrated overlays is owned solely by the adapter
+- existing navigation drawer unchanged
 
 Verification:
 
 - Escape and focus restoration
-- scroll lock and portal layering
+- scroll lock and portal layering (filters)
 - pending action duplicate prevention
-- error announcements
-- reduced-motion behavior
+- reason validation announcements
+- product/customer delete, job workflow dialog, and filter-sheet parity tests
+
+Completion checklist:
+
+- [x] owned ConfirmationAction, ReasonDialog, and ResponsiveDrawer adapters
+- [x] product/customer delete and JobWorkflowDialog paths migrated
+- [x] JobFilters and Customer filters use ResponsiveDrawer with FilterSheet parity
+- [x] AppShell navigation drawer left unchanged
+- [x] no Result/Empty/Skeleton/Dropdown adapters shipped
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 62 files and 568 tests passed
+- `cd web && npm run build`: passed; JS ~829 kB raw / 246 kB gzip (existing 500 kB chunk warning)
+- `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200% text, and 400% reflow checks passed
 
 ## PR E: Reporting surfaces
 
