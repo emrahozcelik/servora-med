@@ -59,7 +59,7 @@ Provider responsibilities:
 
 Feedback must be exposed through a Servora-owned hook based on App.useApp(). Feature code must not spread static message.success, Modal.confirm, or notification.open calls. Ant Design documents that App.useApp() must run beneath App and that ConfigProvider must wrap App for theme tokens to be available: [App](https://ant.design/components/app/) and [ConfigProvider](https://ant.design/components/config-provider/).
 
-The implementation PR must pin an exact Ant Design version after reviewing its changelog. The current official documentation reports version 6.5.1; this planning PR does not add or select a package version.
+PR A selects the current stable Ant Design release at implementation time after reviewing its changelog and pins the exact version. This planning PR does not add or select a package version.
 
 ## Owned adapter surface
 
@@ -221,11 +221,16 @@ Recommended Manager/Admin order:
 
 This ordering is a presentation decision, not a new domain transition rule. Prototype approval is required before PR B fixes the default.
 
-## Existing status drift
+## Canonical status vocabulary
 
-Current frontend contracts and tests use ACCEPTED as the active assignment state and retain PLANNED only for historical activity presentation. Root AGENTS.md still lists PLANNED among the initial JobCard statuses.
+The domain and presentation terms have distinct responsibilities:
 
-This planning PR follows current runtime behavior and the approved mapping ACCEPTED → Atandı. Before PR B, the team must confirm the canonical domain vocabulary and update durable documentation if needed. No compatibility fallback or domain change is introduced here.
+- persisted domain status: ACCEPTED
+- workflow lane label: Atandı
+- lifecycle presentation phase: Planlandı
+- historical event text: Planlandı or İş kabul edildi, according to the persisted event
+
+PLANNED is not a persisted JobCard status. Root AGENTS.md records ACCEPTED accordingly. No compatibility fallback or domain transition change is introduced by this planning PR.
 
 ## DESIGN.md amendment proposal
 

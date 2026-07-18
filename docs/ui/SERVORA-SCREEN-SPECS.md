@@ -31,14 +31,13 @@ Structure:
 6. Filters
 7. Five horizontal workflow lanes
 
-Sidebar groups:
+Manager sidebar destinations, in production navigation order:
 
 - Operasyon: İşler, Müşteriler, Ürünler
-- Ekip: Personel, Kullanıcılar
 - Analiz: Raporlar
-- Sistem: Ayarlar
+- Ekip: Personel
 
-The production navigation model remains the source of destinations. The prototype demonstrates hierarchy only and does not authorize hardcoded production groups.
+The production navigation model remains the source of destinations. Admin additionally receives Kullanıcılar; Staff receives Profilim instead of Personel and does not receive Raporlar. Ayarlar is not a current destination. A future settings area remains deferred scope and must not appear in prototypes until it exists in the production navigation model.
 
 Lane header content:
 
@@ -65,12 +64,11 @@ The lane uses a responsive card grid. It never introduces page-level horizontal 
 Structure:
 
 - one sticky top bar
-- role-specific ordering note
 - quick filters
 - vertical workflow sections
 - one-column cards
 - one primary create action
-- existing bottom navigation model
+- the Staff bottom navigation: İşler, Müşteriler, Ürünler, Profilim
 
 The prototype shows Staff ordering:
 
@@ -83,6 +81,25 @@ The prototype shows Staff ordering:
 Alternative to validate with users: keep the same domain order as desktop. The recommended role-priority order is better for field recovery because revision work and current execution need immediate attention. The alternative is more predictable but makes urgent staff actions harder to scan.
 
 For Manager/Admin, prototype follow-up should compare a control queue first ordering against domain order. The recommendation is control queue first.
+
+Ordering alternatives and approval notes belong in this specification, not inside the product-direction screenshot. The committed mobile HTML and PNG show the clean Staff product state only.
+
+## Shared job-detail shell and document order
+
+All three responsive detail prototypes use the Servora-owned AppShell. Desktop keeps the persistent role-aware sidebar and renders the detail inside its workspace. At the mobile breakpoint the sidebar is removed and one detail top bar is shown.
+
+The accessible, mobile-first document order is:
+
+1. title
+2. lifecycle
+3. responsibility
+4. facts
+5. delivery or other type-specific content
+6. requirements
+7. action panel
+8. activity timeline
+
+Desktop CSS Grid may place requirements and actions in the right column. The timeline spans the workspace below both columns. CSS placement must not change the document or keyboard order.
 
 ## 2. Staff IN_PROGRESS detail
 
@@ -134,7 +151,14 @@ Actions:
 - primary: Kontrolü tamamla ve işi kapat
 - secondary: Düzeltme için personele geri gönder
 
-Approval requires a consequence confirmation. Revision requires a reason and therefore must not use Popconfirm. The reason field belongs in an accessible dialog or dedicated panel with a visible label, error association, pending lock, and focus restoration.
+Approval requires a consequence confirmation. Revision requires a reason and therefore must not use Popconfirm. In the default WAITING_APPROVAL state, no reason textarea is visible. Düzeltme için personele geri gönder opens an accessible dialog with this content:
+
+    Düzeltme sebebi
+    [textarea]
+
+    [Vazgeç] [Düzeltme iste]
+
+The textarea has a visible label and required-error association. The dialog traps focus while open, restores focus to the triggering action when closed, and locks duplicate submission while pending.
 
 No UI-only rule may enable approval. The backend remains authoritative.
 

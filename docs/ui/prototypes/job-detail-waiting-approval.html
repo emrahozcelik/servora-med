@@ -7,35 +7,61 @@
   <link rel="stylesheet" href="prototype.css">
 </head>
 <body>
-  <div class="detail-shell">
-    <header class="detail-topbar">
-      <span class="brand"><span class="brand-mark">S</span><span>Servora-Med</span></span>
-      <div class="detail-account"><span>Ayşe Kaya · Yönetici</span><span class="avatar">AK</span></div>
-    </header>
-    <p class="prototype-note">Yönetici · WAITING_APPROVAL · Responsive detay</p>
-    <main class="detail-main">
-      <a class="back-link" href="#">← Onay kuyruğuna dön</a>
-      <header class="detail-title">
-        <div><p class="eyebrow">Ürün teslimi · JOB-2026-0709</p><h1>Xenofill ürün teslimi</h1><p>Güven Ağız Sağlığı · Kontrole gönderildi 09:42</p></div>
-        <span class="status-chip"><span class="status-shape review"></span>Yönetici kontrolünde</span>
+  <div class="app-shell detail-app-shell">
+    <aside class="sidebar" aria-label="Uygulama kenar çubuğu">
+      <div class="brand"><span class="brand-mark">S</span><span>Servora-Med</span></div>
+      <nav class="nav-groups" aria-label="Ana navigasyon">
+        <section class="nav-group">
+          <h2>Operasyon</h2>
+          <ul>
+            <li><a class="nav-link" aria-current="page" href="#"><span class="nav-icon">▦</span>İşler</a></li>
+            <li><a class="nav-link" href="#"><span class="nav-icon">◇</span>Müşteriler</a></li>
+            <li><a class="nav-link" href="#"><span class="nav-icon">□</span>Ürünler</a></li>
+          </ul>
+        </section>
+        <section class="nav-group">
+          <h2>Analiz</h2>
+          <ul><li><a class="nav-link" href="#"><span class="nav-icon">⌗</span>Raporlar</a></li></ul>
+        </section>
+        <section class="nav-group">
+          <h2>Ekip</h2>
+          <ul><li><a class="nav-link" href="#"><span class="nav-icon">○</span>Personel</a></li></ul>
+        </section>
+      </nav>
+      <div class="sidebar-account">
+        <div class="identity"><span class="avatar">AK</span><span class="identity-copy"><strong>Ayşe Kaya</strong><span>Yönetici</span></span></div>
+        <button class="button button-ghost" type="button">Oturumu kapat</button>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="detail-mobile-topbar">
+        <a class="icon-button" href="#" aria-label="Onay kuyruğuna dön">←</a>
+        <strong>İş detayı</strong>
+        <span class="avatar">AK</span>
       </header>
+      <main class="detail-main">
+        <a class="back-link" href="#">← Onay kuyruğuna dön</a>
+        <header class="detail-title">
+          <div><p class="eyebrow">Ürün teslimi · JOB-2026-0709</p><h1>Xenofill ürün teslimi</h1><p>Güven Ağız Sağlığı · Kontrole gönderildi 09:42</p></div>
+          <span class="status-chip"><span class="status-shape review"></span>Yönetici kontrolünde</span>
+        </header>
 
-      <ol class="lifecycle" aria-label="İş süreci">
-        <li class="complete"><span class="step-mark">✓</span><span>Oluşturuldu</span></li>
-        <li class="complete"><span class="step-mark">✓</span><span>Planlandı</span></li>
-        <li class="complete"><span class="step-mark">✓</span><span>Uygulandı</span></li>
-        <li class="current" aria-current="step"><span class="step-mark">4</span><span>Yönetici kontrolü</span></li>
-        <li><span class="step-mark">5</span><span>Tamamlandı</span></li>
-      </ol>
+        <ol class="lifecycle" aria-label="İş süreci">
+          <li class="complete"><span class="step-mark">✓</span><span>Oluşturuldu</span></li>
+          <li class="complete"><span class="step-mark">✓</span><span>Planlandı</span></li>
+          <li class="complete"><span class="step-mark">✓</span><span>Uygulandı</span></li>
+          <li class="current" aria-current="step"><span class="step-mark">4</span><span>Yönetici kontrolü</span></li>
+          <li><span class="step-mark">5</span><span>Tamamlandı</span></li>
+        </ol>
 
-      <div class="detail-grid">
-        <div class="detail-stack">
-          <section class="responsibility" aria-labelledby="manager-responsibility">
+        <div class="detail-grid">
+          <section class="responsibility detail-responsibility" aria-labelledby="manager-responsibility">
             <h2 id="manager-responsibility">Şimdi sizden beklenen</h2>
             <p>Personelin gönderdiği teslim kaydını ürün, miktar ve gerçekleşen zaman bilgileriyle kontrol edin. Onay işi kalıcı olarak tamamlar.</p>
           </section>
 
-          <section class="section" aria-labelledby="review-facts">
+          <section class="section detail-facts" aria-labelledby="review-facts">
             <h2 id="review-facts">Gönderim özeti</h2>
             <dl class="facts-grid">
               <div><dt>Müşteri</dt><dd>Güven Ağız Sağlığı</dd></div>
@@ -47,7 +73,7 @@
             </dl>
           </section>
 
-          <section class="section" aria-labelledby="review-delivery">
+          <section class="section detail-delivery" aria-labelledby="review-delivery">
             <h2 id="review-delivery">Teslim kaydı</h2>
             <ul class="delivery-list">
               <li><div><strong>Xenofill İmplant Seti</strong><small>SKU XF-IM-42 · Satış · Lot XF2607</small></div><span>3 kutu</span></li>
@@ -55,17 +81,7 @@
             </ul>
           </section>
 
-          <section class="section" aria-labelledby="review-timeline">
-            <h2 id="review-timeline">Aktivite geçmişi</h2>
-            <ol class="timeline">
-              <li><span class="timeline-dot"></span><div><strong>Yönetici kontrolü istendi</strong><p>Mehmet Yılmaz · Teslim kaydı tamamlandı</p></div><time datetime="2026-07-18T09:42">09:42</time></li>
-              <li><span class="timeline-dot"></span><div><strong>Ürün miktarı güncellendi</strong><p>ProSeal Membran, 2 kutu</p></div><time datetime="2026-07-17T16:18">Dün 16:18</time></li>
-              <li><span class="timeline-dot"></span><div><strong>İş uygulanmaya başladı</strong><p>Mehmet Yılmaz</p></div><time datetime="2026-07-17T15:44">Dün 15:44</time></li>
-            </ol>
-          </section>
-        </div>
-
-        <aside class="detail-stack" aria-label="Kontrol özeti ve kararlar">
+          <aside class="detail-side" aria-label="Kontrol özeti ve kararlar">
           <section class="section">
             <h2>Gönderim gereklilikleri</h2>
             <p class="review-summary">✓ 5 gerekliliğin tamamı karşılanıyor</p>
@@ -85,14 +101,29 @@
               <button class="button button-primary" type="button">Kontrolü tamamla ve işi kapat</button>
               <button class="button button-secondary" type="button">Düzeltme için personele geri gönder</button>
             </div>
-            <div class="reason-preview">
-              <label for="revision-reason">Düzeltme sebebi, geri gönderimde zorunlu</label>
-              <textarea class="reason-field" id="revision-reason" rows="3" placeholder="Düzeltilmesi gereken kaydı açıkça yazın"></textarea>
-            </div>
+            <dialog class="reason-dialog" aria-labelledby="reason-dialog-title" hidden>
+              <h2 id="reason-dialog-title">Düzeltme sebebi</h2>
+              <label for="revision-reason">Personele iletilecek açıklama</label>
+              <textarea class="reason-field" id="revision-reason" rows="4"></textarea>
+              <div class="action-buttons">
+                <button class="button button-secondary" type="button">Vazgeç</button>
+                <button class="button button-primary" type="button">Düzeltme iste</button>
+              </div>
+            </dialog>
           </section>
-        </aside>
+          </aside>
+
+          <section class="section detail-timeline" aria-labelledby="review-timeline">
+            <h2 id="review-timeline">Aktivite geçmişi</h2>
+            <ol class="timeline">
+              <li><span class="timeline-dot"></span><div><strong>Yönetici kontrolü istendi</strong><p>Mehmet Yılmaz · Teslim kaydı tamamlandı</p></div><time datetime="2026-07-18T09:42">09:42</time></li>
+              <li><span class="timeline-dot"></span><div><strong>Ürün miktarı güncellendi</strong><p>ProSeal Membran, 2 kutu</p></div><time datetime="2026-07-17T16:18">Dün 16:18</time></li>
+              <li><span class="timeline-dot"></span><div><strong>İş uygulanmaya başladı</strong><p>Mehmet Yılmaz</p></div><time datetime="2026-07-17T15:44">Dün 15:44</time></li>
+            </ol>
+          </section>
+        </div>
+      </main>
       </div>
-    </main>
   </div>
 </body>
 </html>

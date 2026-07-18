@@ -10,8 +10,9 @@ Do not begin production implementation until:
 - the five required screenshots are reviewed
 - desktop lane structure is approved
 - mobile Staff and Manager/Admin ordering is approved
-- the ACCEPTED and PLANNED documentation drift has a canonical decision
 - the exact Ant Design version is selected from the then-current official release
+
+The vocabulary gate is resolved in this planning PR: ACCEPTED is the persisted status, Atandı is its lane label, and Planlandı is a lifecycle presentation phase. PLANNED must not be reintroduced as a persisted status or compatibility fallback.
 
 ## PR A: Ant Design foundation
 
@@ -197,8 +198,7 @@ Dark mode:
 | Portal and focus regression | Shell-level integration tests for container, z-index, Escape, restore, and scroll lock |
 | Bundle growth | Pin and measure dependency in PR A; avoid Pro and Charts packages |
 | Mobile reflow | Card/list alternatives, structural breakpoints, 320 and 390 pixel checks |
-| Domain status confused with phase | Presentation model maps persisted facts; Ant primitives never decide workflow |
-| ACCEPTED and PLANNED drift | Confirm canonical vocabulary before PR B and update durable documentation |
+| Domain status confused with phase | Presentation model maps persisted facts; keep ACCEPTED persisted, Atandı as its lane label, and Planlandı as presentation only; do not add a PLANNED fallback |
 | Direct imports spread | Lint or architecture test after adapter boundary exists |
 | Toast hides critical information | Feedback policy keeps decisions, reasons, and critical errors inline |
 
