@@ -2,7 +2,7 @@
 
 Status: Approved
 Scope: Architecture decision and phased implementation boundary
-Production impact: PR A–E are merged; PR F report charts design is open on `feature/report-charts`
+Production impact: **PR A–F are merged** on `main` at `0d1ee816212da47b0932492899ba390978b07ffd`. The mandatory Ant Design UI implementation chain is complete. Further UI work is optional backlog (see `docs/ui/SERVORA-IMPLEMENTATION-PLAN.md` Post A–F backlog).
 
 ## Decision
 
@@ -86,7 +86,7 @@ PR D overlay adapter surface (narrowed ship):
       ResponsiveDrawer.tsx     # Job + Customer filters only
       overlay-focus.ts
 
-PR E reporting surface (Delivery-first):
+PR E reporting surface (Delivery migrated; Approval/Staff optional backlog):
 
     web/src/ui/OperationalTable.tsx
 
@@ -95,13 +95,19 @@ PR E reporting surface (Delivery-first):
 import Ant Design `Table`. Ant `Table` remains a selective future primitive for
 sortable/admin density when that need is proven.
 
-Still planned for later PRs under the Ant boundary:
+PR F report charts (merged via PR #24): native surfaces remain under
+`web/src/reports/report-charts.tsx` (`TrendBars`, `CompletedTrendCalendar`,
+`SegmentedDistributionBar`, `IndependentMeterBars`). No chart package was
+adopted. Decorative bars stay `aria-hidden` and must pair with textual summary
+and/or accessible table data at the call site.
+
+Optional later adapters under the Ant boundary (not part of A–F):
 
     web/src/ui/antd/
       OperationalDropdown.tsx
       ResultState.tsx
 
-The PR C adapters are render-only: they receive presentation data and do not call APIs, calculate permissions or readiness, create command intents, or translate domain status. Overlay migration is owned by PR D; see `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`.
+The PR C adapters are render-only: they receive presentation data and do not call APIs, calculate permissions or readiness, create command intents, or translate domain status. Overlay migration shipped in PR D; see `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`.
 
 ## Component decision matrix
 
@@ -266,4 +272,4 @@ PR A amends DESIGN.md with the approved foundation rules covering:
 - toast policy
 - provider locale, prefix, popup, and reduced-motion policy
 
-Horizontal workflow lanes, table/mobile fallback, charts, drag and drop, and dark mode remain governed by their later PR gates. The obsolete lifecycle statement that no dependency exists is revised by PR A; existing visual and accessibility rules remain intact.
+Horizontal workflow lanes, Delivery table/mobile fallback, and native report charts shipped through PR B–F. Drag and drop, dark mode, Approval/Staff table migration, and remaining Ant adapters remain optional backlog gates—not blockers for the completed A–F chain. The obsolete lifecycle statement that no dependency exists is revised by PR A; existing visual and accessibility rules remain intact.
