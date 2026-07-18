@@ -5,6 +5,7 @@ import { FilterSheet, countTruthy } from '../ui/FilterSheet';
 import type { JobCardStatusFilter } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
 import { isValidJobFilterUuid, type JobSearchState } from './job-search';
+import { activeWorkflowStatusOptions } from './workflow-lanes';
 
 type FilterName = 'status';
 type FilterChanges = Partial<Omit<JobSearchState, 'view' | 'offset'>>;
@@ -27,6 +28,19 @@ function advancedFromFilters(filters: JobSearchState): AdvancedDraft {
     dueAfter: filters.dueAfter ?? '',
     dueBefore: filters.dueBefore ?? '',
   };
+}
+
+function JobStatusOptions() {
+  return <>
+    <option value="active">Aktif</option>
+    <option value="closed">Kapalı</option>
+    <option value="all">Tümü</option>
+    {activeWorkflowStatusOptions.map(({ value, label }) => (
+      <option key={value} value={value}>{label}</option>
+    ))}
+    <option value="COMPLETED">Tamamlandı</option>
+    <option value="CANCELLED">İptal edildi</option>
+  </>;
 }
 
 /** Compact filter sheet when shell is not desktop (same 64rem gate as AppShell). */
@@ -207,6 +221,10 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
             {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
           </button>
         </form>
+        {showViewControl && <div className="job-view-switcher" role="group" aria-label="İş görünümü">
+          <button type="button" aria-pressed={filters.view === 'list'} onClick={() => onViewChange('list')}>Liste</button>
+          <button type="button" aria-pressed={filters.view === 'board'} onClick={() => onViewChange('board')}>Pano</button>
+        </div>}
         <FilterSheet
           open={sheetOpen}
           title="İş filtreleri"
@@ -218,10 +236,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
           <div className="field-group"><label htmlFor="job-status-sheet">Durum</label>
             <select id="job-status-sheet" value={draftStatus}
               onChange={(event) => setDraftStatus(event.target.value as JobCardStatusFilter)}>
-              <option value="active">Aktif</option><option value="WAITING_APPROVAL">Onay bekliyor</option>
-              <option value="REVISION_REQUESTED">Düzeltme istendi</option><option value="closed">Kapalı</option><option value="all">Tümü</option>
-              <option value="NEW">Yeni</option><option value="ACCEPTED">Kabul edildi</option><option value="IN_PROGRESS">Devam ediyor</option>
-              <option value="COMPLETED">Tamamlandı</option><option value="CANCELLED">İptal edildi</option>
+              <JobStatusOptions />
             </select></div>
           {advancedFields}
         </FilterSheet>
@@ -240,10 +255,7 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
         </select></div>}
       <div className="field-group"><label htmlFor="job-status">Durum</label>
         <select id="job-status" value={filters.status ?? 'active'} onChange={(event) => onChange('status', event.target.value as JobCardStatusFilter)}>
-          <option value="active">Aktif</option><option value="WAITING_APPROVAL">Onay bekliyor</option>
-          <option value="REVISION_REQUESTED">Düzeltme istendi</option><option value="closed">Kapalı</option><option value="all">Tümü</option>
-          <option value="NEW">Yeni</option><option value="ACCEPTED">Kabul edildi</option><option value="IN_PROGRESS">Devam ediyor</option>
-          <option value="COMPLETED">Tamamlandı</option><option value="CANCELLED">İptal edildi</option>
+          <JobStatusOptions />
         </select></div>
       <button className="secondary-button job-search-submit" type="submit">Ara</button>
     </div>

@@ -1,4 +1,5 @@
 import type { JobCardActivityStatus, JobCardStatus, JobCardType } from './jobs-api';
+import { activeWorkflowPresentation } from './workflow-lanes';
 
 export const jobTypeLabels: Record<JobCardType, string> = {
   PRODUCT_DELIVERY: 'Ürün teslimi',
@@ -6,8 +7,20 @@ export const jobTypeLabels: Record<JobCardType, string> = {
   SALES_MEETING: 'Satış görüşmesi',
 };
 
-/** Active JobCard statuses plus historical PLANNED for activity timeline only. */
+/** Current JobCard presentation labels; PLANNED remains readable for legacy data only. */
 export const jobStatusLabels: Record<JobCardActivityStatus, string> = {
+  NEW: activeWorkflowPresentation.NEW.label,
+  ACCEPTED: activeWorkflowPresentation.ACCEPTED.label,
+  PLANNED: 'Planlandı',
+  IN_PROGRESS: activeWorkflowPresentation.IN_PROGRESS.label,
+  WAITING_APPROVAL: activeWorkflowPresentation.WAITING_APPROVAL.label,
+  REVISION_REQUESTED: activeWorkflowPresentation.REVISION_REQUESTED.label,
+  COMPLETED: 'Tamamlandı',
+  CANCELLED: 'İptal edildi',
+};
+
+/** Immutable wording for status transitions already recorded in the activity timeline. */
+export const historicalJobStatusLabels: Record<JobCardActivityStatus, string> = {
   NEW: 'Atandı',
   ACCEPTED: 'Kabul edildi',
   PLANNED: 'Planlandı',

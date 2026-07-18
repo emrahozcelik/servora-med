@@ -6,6 +6,7 @@ export type NavLinkItem = {
   id: string;
   label: string;
   to: string;
+  section: 'Operasyon' | 'Analiz' | 'Ekip';
 };
 
 export type NavMenuItem = {
@@ -30,16 +31,17 @@ export type NavigationModel = {
  * Do not duplicate role lists in shell components.
  */
 export function buildNavigationModel(user: CurrentUser): NavigationModel {
-  const jobs: NavLinkItem = { kind: 'link', id: 'jobs', label: 'İşler', to: paths.jobs };
-  const customers: NavLinkItem = { kind: 'link', id: 'customers', label: 'Müşteriler', to: paths.customers };
-  const products: NavLinkItem = { kind: 'link', id: 'products', label: 'Ürünler', to: paths.products };
-  const reports: NavLinkItem = { kind: 'link', id: 'reports', label: 'Raporlar', to: paths.reports };
-  const users: NavLinkItem = { kind: 'link', id: 'users', label: 'Kullanıcılar', to: paths.users };
+  const jobs: NavLinkItem = { kind: 'link', id: 'jobs', label: 'İşler', to: paths.jobs, section: 'Operasyon' };
+  const customers: NavLinkItem = { kind: 'link', id: 'customers', label: 'Müşteriler', to: paths.customers, section: 'Operasyon' };
+  const products: NavLinkItem = { kind: 'link', id: 'products', label: 'Ürünler', to: paths.products, section: 'Operasyon' };
+  const reports: NavLinkItem = { kind: 'link', id: 'reports', label: 'Raporlar', to: paths.reports, section: 'Analiz' };
+  const users: NavLinkItem = { kind: 'link', id: 'users', label: 'Kullanıcılar', to: paths.users, section: 'Ekip' };
   const staff: NavLinkItem = {
     kind: 'link',
     id: 'staff',
     label: user.role === 'STAFF' ? 'Profilim' : 'Personel',
     to: paths.staff,
+    section: 'Ekip',
   };
 
   const destinations: NavLinkItem[] = [

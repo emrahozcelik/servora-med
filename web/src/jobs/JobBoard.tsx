@@ -5,20 +5,16 @@ import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
 import type { JobCardBoard, JobCardListItem } from './jobs-api';
-import { jobStatusLabels, jobTypeLabels } from './job-labels';
+import { jobTypeLabels } from './job-labels';
 import { deriveCompactWorkflowSummary } from './job-workflow-presentation';
 import { selectStatus } from './job-search';
 import { cardScheduleFact } from './scheduling';
+import { workflowLanesFor, type WorkflowLaneStatus } from './workflow-lanes';
 
-const columns = [
-  'NEW',
-  'ACCEPTED',
-  'IN_PROGRESS',
-  'WAITING_APPROVAL',
-  'REVISION_REQUESTED',
-] as const satisfies readonly (keyof JobCardBoard['columns'])[];
-
-function statusHref(params: URLSearchParams, status: 'COMPLETED' | 'CANCELLED') {
+function statusHref(
+  params: URLSearchParams,
+  status: WorkflowLaneStatus | 'COMPLETED' | 'CANCELLED',
+) {
   return `?${selectStatus(params, status).toString()}`;
 }
 
@@ -44,28 +40,35 @@ function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
   </article>;
 }
 
-export function JobBoard({ board, user, params }: {
+export function JobBoard({ board, user, params, compact = false }: {
   board: JobCardBoard;
   user: CurrentUser;
   params: URLSearchParams;
+  compact?: boolean;
 }) {
+  const lanes = workflowLanesFor(user.role, compact);
+
   return <section className="job-board" aria-label="Aktif iş panosu">
     <nav className="job-board-closed" aria-label="Kapanmış işler">
       <Link to={{ search: statusHref(params, 'COMPLETED') }}>Tamamlandı<strong>{board.closedCounts.COMPLETED}</strong></Link>
       <Link to={{ search: statusHref(params, 'CANCELLED') }}>İptal edildi<strong>{board.closedCounts.CANCELLED}</strong></Link>
     </nav>
-    <div className="job-board-columns">
-      {columns.map((status) => {
+    <div className="workflow-board">
+      {lanes.map(({ status, label }) => {
         const column = board.columns[status];
         const headingId = `job-board-${status.toLowerCase()}`;
-        return <section className="job-board-column" data-board-column={status} aria-labelledby={headingId} key={status}>
-          <h2 id={headingId} className={`job-status-${status.toLowerCase()}`}>
-            <span><span className="job-status-shape" aria-hidden="true" />{jobStatusLabels[status]}</span>
-            <strong>{column.count}</strong>
-          </h2>
-          <ul className="job-board-items">
-            {column.items.map((job) => <li key={job.id}><BoardCard job={job} user={user} /></li>)}
-          </ul>
+        return <section className="workflow-lane" data-workflow-lane={status} data-board-column={status}
+          aria-labelledby={headingId} key={status}>
+          <header className="workflow-lane-heading">
+            <h2 id={headingId} className={`job-status-${status.toLowerCase()}`}>
+              <span><span className="job-status-shape" aria-hidden="true" />{label}</span>
+              <strong>{column.count}</strong>
+            </h2>
+            <Link className="workflow-lane-link" to={{ search: statusHref(params, status) }}>Tümünü gör</Link>
+          </header>
+          {column.items.length > 0 ? <ul className="workflow-lane-cards">
+            {column.items.slice(0, 4).map((job) => <li key={job.id}><BoardCard job={job} user={user} /></li>)}
+          </ul> : <p className="workflow-lane-empty">Bu aşamada iş yok.</p>}
         </section>;
       })}
     </div>

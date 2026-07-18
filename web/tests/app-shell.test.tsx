@@ -50,16 +50,21 @@ describe('responsive authenticated AppShell', () => {
 
   it.each([
     [staff, ['İşler', 'Müşteriler', 'Ürünler', 'Profilim'], ['Personel', 'Kullanıcılar']],
-    [manager, ['İşler', 'Müşteriler', 'Ürünler', 'Personel'], ['Profilim', 'Kullanıcılar']],
-    [admin, ['İşler', 'Müşteriler', 'Ürünler', 'Personel', 'Kullanıcılar'], ['Profilim']],
+    [manager, ['İşler', 'Müşteriler', 'Ürünler', 'Raporlar', 'Personel'], ['Profilim', 'Kullanıcılar']],
+    [admin, ['İşler', 'Müşteriler', 'Ürünler', 'Raporlar', 'Personel', 'Kullanıcılar'], ['Profilim']],
   ] as const)('renders exact desktop destinations for %s', async (user, visible, hidden) => {
     await render(user, true);
     const aside = container.querySelector('aside')!;
     expect(aside).not.toBeNull();
     const navigation = aside.querySelector('nav')!;
     expect(navigation.getAttribute('aria-label')).toBe('Ana navigasyon');
+    const groups = Array.from(navigation.querySelectorAll<HTMLElement>('[data-nav-section]'));
+    const expectedGroups = user.role === 'STAFF' ? ['Operasyon', 'Ekip'] : ['Operasyon', 'Analiz', 'Ekip'];
+    expect(groups.map((group) => group.getAttribute('data-nav-section'))).toEqual(expectedGroups);
+    expect(groups.map((group) => group.querySelector('h2')?.textContent)).toEqual(expectedGroups);
     for (const label of visible) expect(navigation.textContent).toContain(label);
     for (const label of hidden) expect(navigation.textContent).not.toContain(label);
+    expect(navigation.querySelectorAll('a')).toHaveLength(visible.length);
     expect(aside.textContent).toContain(user.name);
     expect(aside.textContent).toContain('Oturumu kapat');
     expect(aside.querySelector('a[href="/jobs"]')?.getAttribute('aria-current')).toBe('page');

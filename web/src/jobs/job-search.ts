@@ -42,7 +42,9 @@ function date(value: string | undefined) {
 }
 
 export function parseJobSearch(params: URLSearchParams): JobSearchState {
-  const view = scalar(params, 'view') === 'board' ? 'board' : 'list';
+  const status = scalar(params, 'status');
+  const requestedView = scalar(params, 'view') === 'board' ? 'board' : 'list';
+  const view = status === 'closed' ? 'list' : requestedView;
   const state: JobSearchState = { view, offset: 0 };
   const q = scalar(params, 'q')?.trim();
   if (q && Array.from(q).length <= 200) state.q = q;
@@ -62,8 +64,7 @@ export function parseJobSearch(params: URLSearchParams): JobSearchState {
     if (dueAfter) state.dueAfter = dueAfter;
     if (dueBefore) state.dueBefore = dueBefore;
   }
-  const status = scalar(params, 'status');
-  if (view === 'list' || status === 'closed') {
+  if (view === 'list') {
     state.status = STATUSES.includes(status as JobCardStatusFilter)
       ? status as JobCardStatusFilter : 'active';
     const offset = scalar(params, 'offset');
@@ -82,15 +83,6 @@ export function canonicalJobSearchParams(current: URLSearchParams) {
     if (value === undefined || value === '' || (key === 'status' && value === 'active')
       || (key === 'view' && value === 'list') || (key === 'offset' && value === 0)) continue;
     next.set(key, String(value));
-  }
-  return next;
-}
-
-function orderedParams(current: URLSearchParams) {
-  const next = new URLSearchParams();
-  for (const key of ALLOWED_KEYS) {
-    const value = current.get(key);
-    if (value !== null) next.set(key, value);
   }
   return next;
 }
@@ -121,16 +113,7 @@ export function selectStatus(current: URLSearchParams, status: JobCardStatusFilt
   next.set('status', status);
   next.set('view', 'list');
   next.set('offset', '0');
-  return orderedParams(next);
-}
-
-export function selectQuickStatusPreservingContext(
-  current: URLSearchParams,
-  status: JobCardStatusFilter,
-) {
-  const next = canonicalJobSearchParams(current);
-  next.set('status', status);
-  return orderedParams(next);
+  return canonicalJobSearchParams(next);
 }
 
 export function forceMobileList(current: URLSearchParams) {
