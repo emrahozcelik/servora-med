@@ -79,7 +79,7 @@ describe('Report accessibility contract', () => {
     expect(view.textContent).toContain('Tamamlanan işler');
   });
 
-  it('gives delivery and Staff tables captions, scoped headers, and mobile row labels', () => {
+  it('gives delivery OperationalTable and Staff tables accessible dual/mobile contracts', () => {
     const delivery: DeliveryReportResponse = {
       groupBy: 'purpose',
       items: [{ purpose: 'SALE', unit: 'Kutu', quantity: '3.000' }],
@@ -100,18 +100,24 @@ describe('Report accessibility contract', () => {
       ],
     };
 
-    for (const view of [
-      markup(<DeliveryReportView report={delivery} />),
-      markup(<StaffOperationalReport report={staff} />),
-    ]) {
-      expect(view.querySelector('table caption')?.textContent).not.toBe('');
-      expect(view.querySelectorAll('thead th[scope="col"]').length).toBeGreaterThan(0);
-      expect(view.querySelector('tbody th[scope="row"]')).not.toBeNull();
-      expect(view.querySelector('table')?.classList.contains('responsive-report-table')).toBe(true);
-      expect(view.querySelectorAll('tbody [data-label]').length).toBeGreaterThan(0);
-    }
-    expect(markup(<StaffOperationalReport report={staff} />).textContent)
-      .toContain('Pasif personel');
+    const deliveryView = markup(<DeliveryReportView report={delivery} />);
+    expect(deliveryView.querySelector('[data-servora-operational-table="true"]')).not.toBeNull();
+    expect(deliveryView.querySelector('table caption')?.textContent).not.toBe('');
+    expect(deliveryView.querySelectorAll('thead th[scope="col"]').length).toBeGreaterThan(0);
+    expect(deliveryView.querySelector('tbody th[scope="row"]')).not.toBeNull();
+    expect(deliveryView.querySelector('.servora-operational-table__mobile')).not.toBeNull();
+    expect(deliveryView.querySelector('.servora-operational-table__mobile-caption')?.textContent)
+      .toContain('birim kırılımları birleştirilmez');
+    expect(deliveryView.querySelectorAll('.servora-operational-table__field dt').length)
+      .toBeGreaterThan(0);
+
+    const staffView = markup(<StaffOperationalReport report={staff} />);
+    expect(staffView.querySelector('table caption')?.textContent).not.toBe('');
+    expect(staffView.querySelectorAll('thead th[scope="col"]').length).toBeGreaterThan(0);
+    expect(staffView.querySelector('tbody th[scope="row"]')).not.toBeNull();
+    expect(staffView.querySelector('table')?.classList.contains('responsive-report-table')).toBe(true);
+    expect(staffView.querySelectorAll('tbody [data-label]').length).toBeGreaterThan(0);
+    expect(staffView.textContent).toContain('Pasif personel');
   });
 
   it('keeps approval age buckets textual instead of relying on color', () => {

@@ -2,7 +2,7 @@
 
 Status: Approved
 Scope: Architecture decision and phased implementation boundary
-Production impact: PR A–C are merged; PR D implements ConfirmationAction, ReasonDialog, and ResponsiveDrawer (filters) on `feature/feedback-overlays`
+Production impact: PR A–D are merged; PR E reporting surfaces design is open on `feature/reporting-surfaces`
 
 ## Decision
 
@@ -86,12 +86,20 @@ PR D overlay adapter surface (narrowed ship):
       ResponsiveDrawer.tsx     # Job + Customer filters only
       overlay-focus.ts
 
-Still planned for later PRs (not PR D):
+PR E reporting surface (Delivery-first):
+
+    web/src/ui/OperationalTable.tsx
+
+`OperationalTable` is **Servora-native** (semantic `<table>` + mobile cards at
+`max-width: 720px`). It is intentionally **not** under `ui/antd/` and does not
+import Ant Design `Table`. Ant `Table` remains a selective future primitive for
+sortable/admin density when that need is proven.
+
+Still planned for later PRs under the Ant boundary:
 
     web/src/ui/antd/
       OperationalDropdown.tsx
       ResultState.tsx
-      OperationalTable.tsx
 
 The PR C adapters are render-only: they receive presentation data and do not call APIs, calculate permissions or readiness, create command intents, or translate domain status. Overlay migration is owned by PR D; see `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`.
 

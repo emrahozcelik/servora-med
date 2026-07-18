@@ -12,6 +12,11 @@ import { getDeliveryReport } from './reports-api';
 import { deliverySearch, readDeliverySearch, validateRequestedRange } from './report-search';
 import type { DeliveryReportResponse } from './report-types';
 import {
+  OperationalTable,
+  type OperationalTableColumn,
+  type OperationalTableRow,
+} from '../ui/OperationalTable';
+import {
   ReportDateRangeForm,
   ReportEmptyState,
   ReportErrorState,
@@ -25,6 +30,84 @@ const purposeLabels = {
 const formatDate = (value: string) => new Intl.DateTimeFormat('tr-TR', {
   dateStyle: 'medium', timeZone: 'UTC',
 }).format(new Date(`${value}T00:00:00Z`));
+
+const DELIVERY_TABLE_CAPTION = 'Teslim miktarları (birim kırılımları birleştirilmez)';
+
+function deliveryTableModel(report: DeliveryReportResponse): {
+  columns: OperationalTableColumn[];
+  rows: OperationalTableRow[];
+} {
+  if (report.groupBy === 'day') {
+    return {
+      columns: [
+        { key: 'date', title: 'Tarih' },
+        { key: 'unit', title: 'Birim' },
+        { key: 'quantity', title: 'Miktar' },
+      ],
+      rows: report.items.map((item, index) => ({
+        key: `day-${index}-${item.date}-${item.unit ?? ''}-${item.quantity}`,
+        cells: {
+          date: formatDate(item.date),
+          unit: item.unit ?? 'Birim belirtilmedi',
+          quantity: item.quantity,
+        },
+      })),
+    };
+  }
+  if (report.groupBy === 'purpose') {
+    return {
+      columns: [
+        { key: 'purpose', title: 'Amaç' },
+        { key: 'unit', title: 'Birim' },
+        { key: 'quantity', title: 'Miktar' },
+      ],
+      rows: report.items.map((item, index) => ({
+        key: `purpose-${index}-${item.purpose}-${item.unit ?? ''}-${item.quantity}`,
+        cells: {
+          purpose: purposeLabels[item.purpose],
+          unit: item.unit ?? 'Birim belirtilmedi',
+          quantity: item.quantity,
+        },
+      })),
+    };
+  }
+  if (report.groupBy === 'product') {
+    return {
+      columns: [
+        { key: 'product', title: 'Ürün' },
+        { key: 'sku', title: 'SKU' },
+        { key: 'model', title: 'Model' },
+        { key: 'unit', title: 'Birim' },
+        { key: 'quantity', title: 'Miktar' },
+      ],
+      rows: report.items.map((item, index) => ({
+        key: `product-${index}-${item.productId}-${item.unit ?? ''}-${item.quantity}`,
+        cells: {
+          product: item.productNameSnapshot,
+          sku: item.productSkuSnapshot ?? 'Belirtilmedi',
+          model: item.productModelSnapshot ?? 'Belirtilmedi',
+          unit: item.unit ?? 'Birim belirtilmedi',
+          quantity: item.quantity,
+        },
+      })),
+    };
+  }
+  return {
+    columns: [
+      { key: 'staff', title: 'Personel' },
+      { key: 'unit', title: 'Birim' },
+      { key: 'quantity', title: 'Miktar' },
+    ],
+    rows: report.items.map((item, index) => ({
+      key: `staff-${index}-${item.staff.userId}-${item.unit ?? ''}-${item.quantity}`,
+      cells: {
+        staff: `${item.staff.name}${item.staff.isActive ? '' : ' (Pasif)'}`,
+        unit: item.unit ?? 'Birim belirtilmedi',
+        quantity: item.quantity,
+      },
+    })),
+  };
+}
 
 export function DeliveryReportView({
   report,
@@ -46,71 +129,13 @@ export function DeliveryReportView({
       />
     );
   }
-  if (report.groupBy === 'day') {
-    return (
-      <ReportTable
-        headings={['Tarih', 'Birim', 'Miktar']}
-        rows={report.items.map((item) => [
-          formatDate(item.date), item.unit ?? 'Birim belirtilmedi', item.quantity,
-        ])}
-      />
-    );
-  }
-  if (report.groupBy === 'purpose') {
-    return (
-      <ReportTable
-        headings={['Amaç', 'Birim', 'Miktar']}
-        rows={report.items.map((item) => [
-          purposeLabels[item.purpose], item.unit ?? 'Birim belirtilmedi', item.quantity,
-        ])}
-      />
-    );
-  }
-  if (report.groupBy === 'product') {
-    return (
-      <ReportTable
-        headings={['Ürün', 'SKU', 'Model', 'Birim', 'Miktar']}
-        rows={report.items.map((item) => [
-          item.productNameSnapshot,
-          item.productSkuSnapshot ?? 'Belirtilmedi',
-          item.productModelSnapshot ?? 'Belirtilmedi',
-          item.unit ?? 'Birim belirtilmedi',
-          item.quantity,
-        ])}
-      />
-    );
-  }
+  const table = deliveryTableModel(report);
   return (
-    <ReportTable
-      headings={['Personel', 'Birim', 'Miktar']}
-      rows={report.items.map((item) => [
-        `${item.staff.name}${item.staff.isActive ? '' : ' (Pasif)'}`,
-        item.unit ?? 'Birim belirtilmedi',
-        item.quantity,
-      ])}
+    <OperationalTable
+      caption={DELIVERY_TABLE_CAPTION}
+      columns={table.columns}
+      rows={table.rows}
     />
-  );
-}
-
-function ReportTable({ headings, rows }: { headings: string[]; rows: string[][] }) {
-  return (
-    <table className="report-table responsive-report-table">
-      <caption>Teslim miktarları (birim kırılımları birleştirilmez)</caption>
-      <thead>
-        <tr>{headings.map((heading) => <th key={heading} scope="col">{heading}</th>)}</tr>
-      </thead>
-      <tbody>
-        {rows.map((row, index) => (
-          <tr key={JSON.stringify([index, row])}>
-            {row.map((value, cell) => (
-              cell === 0
-                ? <th key={cell} scope="row" data-label={headings[cell]}>{value}</th>
-                : <td key={cell} data-label={headings[cell]}>{value}</td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 

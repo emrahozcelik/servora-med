@@ -55,6 +55,10 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
           <button type="button" class="secondary-button">Uygula</button>
         </form>
       </div>
+      <section class="report-workspace" aria-label="Teslim raporu responsive fixture" data-smoke-report>
+        <h2>Teslim raporu</h2>
+        <div id="responsive-operational-table-root"></div>
+      </section>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="workflow-board">
           <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
@@ -119,10 +123,12 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
   window.addEventListener('resize', applyLayout);
 </script>
 <script type="module" src="/scripts/responsive-job-detail-fixture.tsx"></script>
+<script type="module" src="/scripts/responsive-operational-table-fixture.tsx"></script>
 </body></html>`;
 
 const viewports = [
   { name: '390x844', width: 390, height: 844 },
+  { name: '720x900', width: 720, height: 900 },
   { name: '768x1024', width: 768, height: 1024 },
   { name: '1024x768', width: 1024, height: 768 },
   { name: '1440x900', width: 1440, height: 900 },
@@ -246,6 +252,33 @@ async function measure(page) {
     }
     const sidebar = document.getElementById('sidebar');
     const sidebarVisible = sidebar && getComputedStyle(sidebar).display !== 'none';
+    const reportRoot = document.querySelector('[data-servora-operational-table="true"]');
+    const reportSection = document.querySelector('[data-smoke-report]');
+    const desktopTable = reportRoot?.querySelector('.servora-operational-table__desktop');
+    const mobileSurface = reportRoot?.querySelector('.servora-operational-table__mobile');
+    const mobileCaption = reportRoot?.querySelector('.servora-operational-table__mobile-caption');
+    const reportRect = reportSection?.getBoundingClientRect();
+    const desktopRect = desktopTable?.getBoundingClientRect();
+    const mobileRect = mobileSurface?.getBoundingClientRect();
+    const desktopDisplay = desktopTable ? getComputedStyle(desktopTable).display : 'none';
+    const mobileDisplay = mobileSurface ? getComputedStyle(mobileSurface).display : 'none';
+    const desktopVisible = Boolean(desktopTable && desktopDisplay !== 'none');
+    const mobileVisible = Boolean(mobileSurface && mobileDisplay !== 'none' && mobileDisplay !== 'contents');
+    const captionVisible = Boolean(
+      mobileCaption
+      && getComputedStyle(mobileCaption).display !== 'none'
+      && (mobileCaption.textContent ?? '').includes('birim kırılımları birleştirilmez'),
+    );
+    const reportOverflow = Boolean(reportRect && (
+      (desktopVisible && desktopRect && (desktopRect.right > reportRect.right + 2 || desktopRect.left < reportRect.left - 2))
+      || (mobileVisible && mobileRect && (mobileRect.right > reportRect.right + 2 || mobileRect.left < reportRect.left - 2))
+    ));
+    const mobileFieldCount = reportRoot
+      ? reportRoot.querySelectorAll('.servora-operational-table__card:first-child .servora-operational-table__field').length
+      : 0;
+    const desktopColumnCount = reportRoot
+      ? reportRoot.querySelectorAll('.servora-operational-table__desktop thead th').length
+      : 0;
     return {
       overflowX,
       results,
@@ -261,6 +294,13 @@ async function measure(page) {
       stickyVisible,
       stickyInViewport,
       sidebarVisible,
+      reportPresent: Boolean(reportRoot),
+      desktopVisible,
+      mobileVisible,
+      captionVisible,
+      reportOverflow,
+      mobileFieldCount,
+      desktopColumnCount,
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
     };
@@ -276,12 +316,30 @@ try {
     const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
     await page.goto(url, { waitUntil: 'load' });
     await page.waitForSelector('.servora-ant-timeline');
+    await page.waitForSelector('[data-servora-operational-table="true"]');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: vp.name, ...m }));
     if (m.overflowX) failures.push(`${vp.name}: horizontal overflow`);
     if (m.detailOverflow) failures.push(`${vp.name}: job detail exceeds its workspace`);
     if (!m.actionBeforeTimeline) failures.push(`${vp.name}: detail action must precede Timeline in DOM`);
+    if (!m.reportPresent) failures.push(`${vp.name}: OperationalTable fixture missing`);
+    if (m.reportOverflow) failures.push(`${vp.name}: OperationalTable exceeds report workspace`);
+    if (vp.width <= 720) {
+      if (m.desktopVisible) failures.push(`${vp.name}: OperationalTable desktop must be hidden at/under 720px`);
+      if (!m.mobileVisible) failures.push(`${vp.name}: OperationalTable mobile must be visible at/under 720px`);
+      if (!m.captionVisible) failures.push(`${vp.name}: mobile caption text must be visible`);
+      if (m.mobileFieldCount !== 5) {
+        failures.push(`${vp.name}: expected 5 mobile product fields (got ${m.mobileFieldCount})`);
+      }
+    }
+    if (vp.width > 720) {
+      if (!m.desktopVisible) failures.push(`${vp.name}: OperationalTable desktop must be visible above 720px`);
+      if (m.mobileVisible) failures.push(`${vp.name}: OperationalTable mobile must be hidden above 720px`);
+      if (m.desktopColumnCount !== 5) {
+        failures.push(`${vp.name}: expected 5 desktop product columns (got ${m.desktopColumnCount})`);
+      }
+    }
     if ((vp.width === 390 || vp.width === 1024) && !m.descriptionsUseFullWidth) {
       failures.push(`${vp.name}: RecordDescriptions must use the full summary width`);
     }
@@ -333,6 +391,7 @@ try {
     const page = await browser.newPage({ viewport: { width: 390, height: 844 } });
     await page.goto(url, { waitUntil: 'load' });
     await page.waitForSelector('.servora-ant-timeline');
+    await page.waitForSelector('[data-servora-operational-table="true"]');
     await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
@@ -340,6 +399,9 @@ try {
     if (m.overflowX) failures.push('200% text: horizontal overflow');
     if (m.detailOverflow || m.detailCols !== 1 || !m.actionBeforeTimeline) {
       failures.push('200% text: job detail reflow failure');
+    }
+    if (m.reportOverflow || !m.mobileVisible || !m.captionVisible) {
+      failures.push('200% text: OperationalTable mobile reflow failure');
     }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
@@ -353,12 +415,16 @@ try {
     const page = await browser.newPage({ viewport: { width: 320, height: 256 } });
     await page.goto(url, { waitUntil: 'load' });
     await page.waitForSelector('.servora-ant-timeline');
+    await page.waitForSelector('[data-servora-operational-table="true"]');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: '320-wcag-400pct-reflow', ...m }));
     if (m.overflowX) failures.push('400% reflow: horizontal overflow');
     if (m.detailOverflow || m.detailCols !== 1 || !m.actionBeforeTimeline) {
       failures.push('400% reflow: job detail reflow failure');
+    }
+    if (m.reportOverflow || !m.mobileVisible || !m.captionVisible) {
+      failures.push('400% reflow: OperationalTable mobile reflow failure');
     }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {
