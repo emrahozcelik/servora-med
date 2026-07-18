@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Servora-Med İş Detayı, Uygulanıyor</title>
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <div class="app-shell detail-app-shell">
+    <aside class="sidebar" aria-label="Uygulama kenar çubuğu">
+      <div class="brand"><span class="brand-mark">S</span><span>Servora-Med</span></div>
+      <nav class="nav-groups" aria-label="Ana navigasyon">
+        <section class="nav-group">
+          <h2>Operasyon</h2>
+          <ul>
+            <li><a class="nav-link" aria-current="page" href="#"><span class="nav-icon">▦</span>İşler</a></li>
+            <li><a class="nav-link" href="#"><span class="nav-icon">◇</span>Müşteriler</a></li>
+            <li><a class="nav-link" href="#"><span class="nav-icon">□</span>Ürünler</a></li>
+          </ul>
+        </section>
+        <section class="nav-group">
+          <h2>Hesabım</h2>
+          <ul><li><a class="nav-link" href="#"><span class="nav-icon">○</span>Profilim</a></li></ul>
+        </section>
+      </nav>
+      <div class="sidebar-account">
+        <div class="identity"><span class="avatar">MY</span><span class="identity-copy"><strong>Mehmet Yılmaz</strong><span>Personel</span></span></div>
+        <button class="button button-ghost" type="button">Oturumu kapat</button>
+      </div>
+    </aside>
+
+    <div class="workspace">
+      <header class="detail-mobile-topbar">
+        <a class="icon-button" href="#" aria-label="İşlerime dön">←</a>
+        <strong>İş detayı</strong>
+        <span class="avatar">MY</span>
+      </header>
+      <main class="detail-main">
+        <a class="back-link" href="#">← İşlerime dön</a>
+        <header class="detail-title">
+          <div><p class="eyebrow">Ürün teslimi · JOB-2026-0718</p><h1>DentArt kliniğine ürün teslimi</h1><p>DentArt Ağız ve Diş Sağlığı · Bugün 15:00</p></div>
+          <span class="status-chip active"><span class="status-shape active"></span>Uygulanıyor</span>
+        </header>
+
+        <ol class="lifecycle" aria-label="İş süreci">
+          <li class="complete"><span class="step-mark">✓</span><span>Oluşturuldu</span></li>
+          <li class="complete"><span class="step-mark">✓</span><span>Planlandı</span></li>
+          <li class="current" aria-current="step"><span class="step-mark">3</span><span>Uygulanıyor</span></li>
+          <li><span class="step-mark">4</span><span>Yönetici kontrolü</span></li>
+          <li><span class="step-mark">5</span><span>Tamamlandı</span></li>
+        </ol>
+
+        <div class="detail-grid">
+          <section class="responsibility detail-responsibility" aria-labelledby="responsibility-title">
+            <h2 id="responsibility-title">Şimdi sizden beklenen</h2>
+            <p>Teslim edilen ürünleri ve gerçekleşen zamanı doğrulayın. Kontrole gönderdiğinizde kayıtlar yönetici kararı tamamlanana kadar düzenlenemez.</p>
+          </section>
+
+          <section class="section detail-facts" aria-labelledby="facts-title">
+            <h2 id="facts-title">İş bilgileri</h2>
+            <dl class="facts-grid">
+              <div><dt>Müşteri</dt><dd>DentArt Ağız ve Diş Sağlığı</dd></div>
+              <div><dt>İlgili kişi</dt><dd>Dr. Ece Demir</dd></div>
+              <div><dt>Sorumlu</dt><dd>Mehmet Yılmaz</dd></div>
+              <div><dt>Öncelik</dt><dd>Yüksek</dd></div>
+              <div><dt>Planlanan teslim</dt><dd>18 Temmuz 2026, 15:00</dd></div>
+              <div><dt>Gerçekleşen teslim</dt><dd>18 Temmuz 2026, 15:18</dd></div>
+            </dl>
+          </section>
+
+          <section class="section detail-delivery" aria-labelledby="delivery-title">
+            <h2 id="delivery-title">Teslim edilen ürünler</h2>
+            <ul class="delivery-list">
+              <li><div><strong>Xenofill İmplant Seti</strong><small>SKU XF-IM-42 · Satış</small></div><span>4 kutu</span></li>
+              <li><div><strong>ProSeal Membran</strong><small>SKU PS-MB-20 · Numune</small></div><span>2 kutu</span></li>
+            </ul>
+          </section>
+
+          <aside class="detail-side" aria-label="İş gereklilikleri ve işlemleri">
+          <section class="section">
+            <h2>Kontrole gönderme gereklilikleri</h2>
+            <ul class="checklist">
+              <li class="met"><span class="check-mark">✓</span><span>Müşteri teslim için uygun</span></li>
+              <li class="met"><span class="check-mark">✓</span><span>Atanan personel aktif</span></li>
+              <li class="met"><span class="check-mark">✓</span><span>En az bir ürün kalemi var</span></li>
+              <li class="met"><span class="check-mark">✓</span><span>Miktarlar sıfırdan büyük</span></li>
+              <li class="met"><span class="check-mark">✓</span><span>Gerçekleşen teslim zamanı kayıtlı</span></li>
+            </ul>
+          </section>
+          <section class="action-panel" aria-labelledby="action-title">
+            <h2 id="action-title">İşi yönetici kontrolüne gönder</h2>
+            <p>Tüm gereklilikler tamam. Gönderimden sonra yönetici onayı beklenir.</p>
+            <div class="action-buttons"><button class="button button-primary" type="button">Kontrole gönder</button></div>
+          </section>
+          </aside>
+
+          <section class="section detail-timeline" aria-labelledby="timeline-title">
+            <h2 id="timeline-title">Aktivite geçmişi</h2>
+            <ol class="timeline">
+              <li><span class="timeline-dot"></span><div><strong>Gerçekleşen teslim zamanı kaydedildi</strong><p>Mehmet Yılmaz · 18 Temmuz 2026, 15:18</p></div><time datetime="2026-07-18T15:18">15:18</time></li>
+              <li><span class="timeline-dot"></span><div><strong>2 ürün kalemi güncellendi</strong><p>Toplam 6 kutu teslim kaydı</p></div><time datetime="2026-07-18T15:16">15:16</time></li>
+              <li><span class="timeline-dot"></span><div><strong>İş uygulanmaya başladı</strong><p>Mehmet Yılmaz</p></div><time datetime="2026-07-18T14:42">14:42</time></li>
+              <li><span class="timeline-dot"></span><div><strong>İş kabul edildi</strong><p>Mehmet Yılmaz</p></div><time datetime="2026-07-18T09:06">09:06</time></li>
+            </ol>
+          </section>
+        </div>
+      </main>
+      </div>
+  </div>
+</body>
+</html>

@@ -1,0 +1,70 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Servora-Med İşlerim, Mobil Prototip</title>
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <div class="mobile-prototype">
+    <header class="mobile-topbar">
+      <span class="brand"><span class="brand-mark">S</span><span>İşlerim</span></span>
+      <button class="icon-button" type="button" aria-label="Menüyü aç">☰</button>
+    </header>
+    <main class="mobile-content">
+      <h1 class="sr-only">İşlerim</h1>
+      <header class="mobile-intro">
+        <div><p class="eyebrow">18 Temmuz Cumartesi</p><p class="mobile-section-label">Öncelikli işler</p></div>
+        <button class="button button-primary" type="button"><span aria-hidden="true">＋</span> Yeni</button>
+      </header>
+
+      <nav class="mobile-quick" aria-label="Hızlı görünümler">
+        <a class="button button-secondary" href="#">Bugün</a>
+        <a class="button button-secondary" href="#">Filtreler <span aria-hidden="true">2</span></a>
+      </nav>
+
+      <div class="workflow-board">
+        <section class="workflow-lane" aria-labelledby="mobile-revision">
+          <header class="lane-heading"><div class="lane-title"><span class="status-shape attention"></span><h2 id="mobile-revision">Düzeltme istendi</h2><span class="count">2</span></div><a class="lane-link" href="#">Tümü</a></header>
+          <ul class="lane-cards">
+            <li class="job-card"><div class="job-card-top"><h3><a href="#">ProSeal membran teslimi</a></h3><span class="chip chip-attention">Düzeltme</span></div><span class="job-type">Ürün teslimi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Kent Dental</dd></div><div><dt>İstenen</dt><dd>Miktarı doğrula</dd></div><div><dt>Plan</dt><dd>Bugün · 13:30</dd></div><div><dt>Özet</dt><dd>1 ürün · 4 kutu</dd></div></dl><p class="workflow-summary">Yönetici notu var · Düzeltmeye başla</p></li>
+          </ul>
+        </section>
+
+        <section class="workflow-lane" aria-labelledby="mobile-progress">
+          <header class="lane-heading"><div class="lane-title"><span class="status-shape active"></span><h2 id="mobile-progress">Uygulanıyor</h2><span class="count">3</span></div><a class="lane-link" href="#">Tümü</a></header>
+          <ul class="lane-cards">
+            <li class="job-card"><div class="job-card-top"><h3><a href="#">DentArt kliniğine ürün teslimi</a></h3><span class="chip">Yüksek</span></div><span class="job-type">Ürün teslimi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>DentArt Ağız ve Diş Sağlığı</dd></div><div><dt>Plan</dt><dd>Bugün · 15:00</dd></div><div><dt>Özet</dt><dd>2 ürün · 6 kutu</dd></div><div><dt>Sorumlu</dt><dd>Mehmet Yılmaz</dd></div></dl><p class="workflow-summary">3 / 5 · Uygulanıyor</p></li>
+            <li class="job-card"><div class="job-card-top"><h3><a href="#">Klinik ürün tanıtım görüşmesi</a></h3><span class="chip chip-attention">Gecikiyor</span></div><span class="job-type">Satış görüşmesi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Vera Diş Kliniği</dd></div><div><dt>Plan</dt><dd>Dün · 16:30</dd></div><div><dt>İlgili kişi</dt><dd>Dr. Onur Sarı</dd></div><div><dt>Sonuç</dt><dd>Henüz girilmedi</dd></div></dl><p class="workflow-summary">3 / 5 · Uygulanıyor · Dikkat</p></li>
+          </ul>
+        </section>
+
+        <section class="workflow-lane" aria-labelledby="mobile-accepted">
+          <header class="lane-heading"><div class="lane-title"><span class="status-shape active"></span><h2 id="mobile-accepted">Atandı</h2><span class="count">2</span></div><a class="lane-link" href="#">Tümü</a></header>
+          <ul class="lane-cards">
+            <li class="job-card"><div class="job-card-top"><h3><a href="#">İmplant seti eğitim ziyareti</a></h3><span class="chip">Normal</span></div><span class="job-type">Satış görüşmesi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Oris Polikliniği</dd></div><div><dt>Plan</dt><dd>19 Tem · 11:00</dd></div></dl><p class="workflow-summary">2 / 5 · Planlandı</p></li>
+          </ul>
+        </section>
+
+        <section class="workflow-lane" aria-labelledby="mobile-new">
+          <header class="lane-heading"><div class="lane-title"><span class="status-shape"></span><h2 id="mobile-new">Hazırlanıyor</h2><span class="count">1</span></div><a class="lane-link" href="#">Tümü</a></header>
+          <ul class="lane-cards"><li class="job-card"><div class="job-card-top"><h3><a href="#">Yeni ürün föylerini kliniğe ulaştır</a></h3><span class="chip">Normal</span></div><span class="job-type">Genel görev</span><p class="workflow-summary">1 / 5 · Oluşturuldu</p></li></ul>
+        </section>
+
+        <section class="workflow-lane" aria-labelledby="mobile-review">
+          <header class="lane-heading"><div class="lane-title"><span class="status-shape review"></span><h2 id="mobile-review">Yönetici kontrolünde</h2><span class="count">1</span></div><a class="lane-link" href="#">Tümü</a></header>
+          <ul class="lane-cards"><li class="job-card"><div class="job-card-top"><h3><a href="#">Xenofill ürün teslimi</a></h3><span class="chip chip-review">Bekliyor</span></div><span class="job-type">Ürün teslimi</span><p class="workflow-summary">4 / 5 · Yönetici kontrolü</p></li></ul>
+        </section>
+      </div>
+    </main>
+
+    <nav class="bottom-nav" aria-label="Alt navigasyon">
+      <a aria-current="page" href="#"><b>▦</b>İşler</a>
+      <a href="#"><b>◇</b>Müşteriler</a>
+      <a href="#"><b>□</b>Ürünler</a>
+      <a href="#"><b>○</b>Profilim</a>
+    </nav>
+  </div>
+</body>
+</html>

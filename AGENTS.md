@@ -137,12 +137,14 @@ JobCard status must be an enum/state machine, not free text.
 Initial statuses:
 
 * `NEW`
-* `PLANNED`
+* `ACCEPTED`
 * `IN_PROGRESS`
 * `WAITING_APPROVAL`
 * `REVISION_REQUESTED`
 * `COMPLETED`
 * `CANCELLED`
+
+`ACCEPTED` is the persisted assignment status. `Planlandı` is a lifecycle presentation phase or historical activity label, not a persisted `PLANNED` status. Do not add a compatibility fallback for `PLANNED`.
 
 Status transitions must be explicit, validated in backend service logic, and tested.
 
