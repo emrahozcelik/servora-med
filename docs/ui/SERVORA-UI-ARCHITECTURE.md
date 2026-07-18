@@ -1,12 +1,12 @@
 # Servora UI Architecture
 
-Status: Proposed, awaiting prototype approval
-Scope: Planning and visual prototyping only
-Production impact: None
+Status: Approved
+Scope: Architecture decision and phased implementation boundary
+Production impact: PR A provider foundation only; feature screens remain unchanged
 
 ## Decision
 
-Ant Design will become a runtime dependency in a later implementation PR, but it will not own Servora-Med's design system or product identity.
+Ant Design `6.5.1` is an exact-pinned runtime dependency, but it does not own Servora-Med's design system or product identity.
 
 The integration boundary is:
 
@@ -35,7 +35,7 @@ Replacing these with Ant Design Layout, Menu, Card, or Form would create regress
 
 ## Provider foundation
 
-The later foundation PR should introduce a single provider boundary:
+PR A introduces a single provider boundary:
 
     <ConfigProvider
       prefixCls="servora-ant"
@@ -59,14 +59,21 @@ Provider responsibilities:
 
 Feedback must be exposed through a Servora-owned hook based on App.useApp(). Feature code must not spread static message.success, Modal.confirm, or notification.open calls. Ant Design documents that App.useApp() must run beneath App and that ConfigProvider must wrap App for theme tokens to be available: [App](https://ant.design/components/app/) and [ConfigProvider](https://ant.design/components/config-provider/).
 
-PR A selects the current stable Ant Design release at implementation time after reviewing its changelog and pins the exact version. This planning PR does not add or select a package version.
+PR A selected and exact-pinned Ant Design `6.5.1`, the npm `latest` release on 18 July 2026. Its official 13 July 2026 changelog was reviewed; the patch includes responsive breakpoint and reduced-motion fixes relevant to the planned primitives. The package accepts the existing React and React DOM 19.2.7 versions through its `>=18.0.0` peer contract.
 
 ## Owned adapter surface
 
-Proposed future structure:
+Implemented foundation surface:
 
     web/src/ui/antd/
       ServoraAntProvider.tsx
+      servora-ant-theme.ts
+      index.ts
+      useAppFeedback.ts
+
+Planned future adapter surface, introduced only by its owning PR:
+
+    web/src/ui/antd/
       WorkflowSteps.tsx
       ActivityTimeline.tsx
       RecordDescriptions.tsx
@@ -75,9 +82,8 @@ Proposed future structure:
       ConfirmationAction.tsx
       ResultState.tsx
       OperationalTable.tsx
-      useAppFeedback.ts
 
-These are architectural names, not files created by this PR.
+The planned names are architectural targets, not files created by PR A.
 
 ## Component decision matrix
 
@@ -230,21 +236,16 @@ The domain and presentation terms have distinct responsibilities:
 - lifecycle presentation phase: Planlandı
 - historical event text: Planlandı or İş kabul edildi, according to the persisted event
 
-PLANNED is not a persisted JobCard status. Root AGENTS.md records ACCEPTED accordingly. No compatibility fallback or domain transition change is introduced by this planning PR.
+PLANNED is not a persisted JobCard status. Root AGENTS.md records ACCEPTED accordingly. No compatibility fallback or domain transition change is introduced by this architecture decision or PR A.
 
-## DESIGN.md amendment proposal
+## DESIGN.md amendment
 
-DESIGN.md is not changed in this PR. After prototype approval, add a reviewed amendment covering:
+PR A amends DESIGN.md with the approved foundation rules covering:
 
 - selected Ant Design primitives
 - owned adapter boundary
 - no direct feature-level Ant imports
-- horizontal workflow lane default
-- desktop and mobile lane behavior
 - toast policy
-- table policy and mobile fallback
-- charts as a separate decision
-- drag and drop as a non-goal
-- dark mode deferred
+- provider locale, prefix, popup, and reduced-motion policy
 
-The existing statement that lifecycle surfaces introduce no new dependency must be revised only when Ant Design adoption is approved and implemented. Existing visual and accessibility rules remain intact.
+Horizontal workflow lanes, table/mobile fallback, charts, drag and drop, and dark mode remain governed by their later PR gates. The obsolete lifecycle statement that no dependency exists is revised by PR A; existing visual and accessibility rules remain intact.

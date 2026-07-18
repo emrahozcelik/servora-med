@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client';
 import { BrowserRouter } from 'react-router-dom';
 
 import { App } from './App';
+import { ServoraAntProvider } from './ui/antd';
 import './styles.css';
 
 const rootElement = document.getElementById('root');
@@ -13,8 +14,10 @@ if (!rootElement) {
 
 createRoot(rootElement).render(
   <StrictMode>
-    <BrowserRouter>
-      <App />
-    </BrowserRouter>
+    <ServoraAntProvider>
+      <BrowserRouter>
+        <App />
+      </BrowserRouter>
+    </ServoraAntProvider>
   </StrictMode>,
 );

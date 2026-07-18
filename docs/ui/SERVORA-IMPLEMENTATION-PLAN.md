@@ -1,20 +1,22 @@
 # Servora UI Implementation Plan
 
-Status: Proposed sequence after prototype approval
-Current PR: Architecture, specs, static prototypes, and screenshots only
+Status: Approved sequence; PR A implemented on its feature branch
+Current phase: PR A - Ant Design foundation
 
 ## Entry gate
 
-Do not begin production implementation until:
+The production implementation gates were satisfied before PR A:
 
-- the five required screenshots are reviewed
-- desktop lane structure is approved
-- mobile Staff and Manager/Admin ordering is approved
-- the exact Ant Design version is selected from the then-current official release
+- [x] the five required screenshots were reviewed
+- [x] desktop lane structure was approved
+- [x] mobile Staff and Manager/Admin ordering was approved
+- [x] Ant Design `6.5.1`, the npm `latest` release on 18 July 2026, was selected after official changelog review and exact-pinned
 
 The vocabulary gate is resolved in this planning PR: ACCEPTED is the persisted status, Atandı is its lane label, and Planlandı is a lifecycle presentation phase. PLANNED must not be reintroduced as a persisted status or compatibility fallback.
 
 ## PR A: Ant Design foundation
+
+Implementation status: Complete on the PR A feature branch; final branch verification is recorded below.
 
 Scope:
 
@@ -41,6 +43,17 @@ Verification:
 - App.useApp feedback runs under provider context
 - token and contrast contracts pass
 - web tests and production build pass
+
+Completion checklist:
+
+- [x] exact-pinned `antd` dependency
+- [x] paired ConfigProvider and Ant Design App at the React root
+- [x] Turkish locale and `servora-ant` prefix
+- [x] canonical `servoraAntTheme` token bridge and reduced-motion policy
+- [x] document-body popup policy
+- [x] owned `web/src/ui/antd` boundary and `useAppFeedback`
+- [x] provider, token, contrast, root-wiring, and import-boundary tests
+- [x] no PR B screen, shell, navigation, domain, or API change
 
 ## PR B: App shell and workspace composition
 
@@ -170,7 +183,7 @@ Dark mode:
 - separate token set
 - contrast and chart validation
 
-## Acceptance checklist for this planning PR
+## Historical acceptance checklist for architecture/prototype PR #18
 
 - [x] Production application code is unchanged
 - [x] web/package.json and lockfiles are unchanged
@@ -202,7 +215,7 @@ Dark mode:
 | Direct imports spread | Lint or architecture test after adapter boundary exists |
 | Toast hides critical information | Feedback policy keeps decisions, reasons, and critical errors inline |
 
-## Verification record for this PR
+## Verification record for architecture/prototype PR #18
 
 Recorded on 18 July 2026:
 
@@ -213,4 +226,19 @@ Recorded on 18 July 2026:
 - production path diff: web source, server, package files, lockfiles, and DESIGN.md unchanged
 - final verification: rerun immediately before commit and PR publication
 
-Production implementation stops after this planning PR until the user approves the prototype set.
+Production implementation remained stopped after PR #18 until the user approved the prototype set; that gate is now satisfied.
+
+## PR A verification record
+
+Recorded on 18 July 2026 on the PR A feature branch:
+
+- `cd web && npm test -- --run`: 58 test files and 528 tests passed
+- `cd web && npm run build`: TypeScript and Vite production build passed
+- `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200 percent text, and 400 percent reflow checks passed
+- `cd server && npm run build`: passed with migrations copied
+- `cd server && npm test -- --run`: 911 tests passed and 29 environment-dependent tests skipped
+- production JS baseline: 496.93 kB raw and 135.04 kB gzip
+- production JS with the provider foundation: 758.27 kB raw and 224.68 kB gzip
+- measured Ant Design foundation delta: +261.34 kB raw and +89.64 kB gzip
+- Vite reports the resulting single application chunk above its 500 kB warning threshold; the warning is retained and recorded rather than hidden by increasing the limit
+- server, API, domain, shell, navigation, and feature-screen source files are unchanged
