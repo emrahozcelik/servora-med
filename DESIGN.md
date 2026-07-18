@@ -152,6 +152,25 @@ components:
     rounded: 999px
 ```
 
+### Ant Design foundation
+
+Ant Design `6.5.1` is an exact-pinned runtime dependency for reviewed complex
+primitives. `DESIGN.md` remains the source of truth for visual tokens,
+interaction rules, responsive structure, and accessibility. Production modules
+outside `web/src/ui/antd/` must not import Ant Design directly; feature screens
+consume Servora-owned adapters instead of raw primitives.
+
+The application root pairs `ConfigProvider` with Ant Design `App`, uses the
+`servora-ant` class prefix and Turkish locale, maps the canonical Servora tokens
+through `servoraAntTheme`, and keeps popup layers at the document-body viewport
+level. Feedback is obtained only through the owned `useAppFeedback` hook so it
+inherits provider context. Optional Ant motion is disabled when
+`prefers-reduced-motion: reduce` is active.
+
+This foundation does not adopt Ant Design `Layout`, `Menu`, `Card`, or `Form`,
+does not replace the Servora shell or navigation model, and does not authorize
+direct feature-level static message, notification, or modal calls.
+
 ### Button
 
 Variants: **primary**, **secondary**, **destructive**, **ghost**. Sizes: **btn-sm** (alias: `compact-button`), **btn-md**.  
@@ -188,7 +207,8 @@ Destinations come from one navigation model shared with sidebar and drawer. Mana
 ### Job lifecycle guidance (detail-first)
 
 These surfaces use existing design tokens, surface levels, button variants, and chip rules.
-They do not introduce a second visual system or a new dependency.
+They do not introduce a second visual system. Reviewed lifecycle adapters may
+use the owned Ant Design boundary in later implementation PRs.
 
 - **Lifecycle stepper** (`.job-lifecycle-steps`): ordered list of presentation phases
   (`Oluşturuldu` → `Planlandı` → `Uygulanıyor` → `Yönetici kontrolü` → `Tamamlandı`).
