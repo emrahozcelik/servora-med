@@ -156,47 +156,53 @@ Verification record (18 July 2026):
 
 ## PR D: Feedback and overlays
 
-Implementation status: Design and plan opened on `feature/feedback-overlays` (not yet implemented).
+Implementation status: Narrowed scope approved; implementing on `feature/feedback-overlays`.
 
-Design: `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`  
+Design: `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`
 Plan: `docs/superpowers/plans/2026-07-18-feedback-overlays.md`
 
-Scope:
+Ship scope (only):
 
-- App.useApp based feedback
-- OperationalDropdown
-- mobile filter ResponsiveDrawer
-- ResultState
-- Empty and Skeleton standardization
-- ConfirmationAction
-- reason dialog adapter where inline or dedicated surfaces are unsuitable
+- ConfirmationAction (modal-only; Popconfirm deferred)
+- ReasonDialog
+- ResponsiveDrawer for existing Job and Customer filters
+
+Out of this PR:
+
+- ResultState, EmptyState, LoadingSkeleton, OperationalDropdown
+- AppShell navigation drawer
+- broad toast / useAppFeedback helper expansion
 
 Constraints:
 
-- no lifecycle primary action inside Dropdown
-- Popconfirm only for short, single-outcome confirmation
+- adapters remain presentation/orchestration only; domain authority stays in services and presentation builders
 - reason capture never uses Popconfirm
 - critical errors stay inline
-- existing navigation drawer changes only after behavior parity tests
-- adapters remain presentation/orchestration only; domain authority stays in services and presentation builders
+- ConfirmationAction does not auto-select Popconfirm
+- focus restoration for migrated overlays is owned solely by the adapter
+- existing navigation drawer unchanged
 
 Verification:
 
 - Escape and focus restoration
-- scroll lock and portal layering
+- scroll lock and portal layering (filters)
 - pending action duplicate prevention
-- error announcements
-- reduced-motion behavior
+- reason validation announcements
 - product/customer delete, job workflow dialog, and filter-sheet parity tests
 
 Completion checklist:
 
-- [ ] owned ConfirmationAction, ReasonDialog, and ResponsiveDrawer adapters
-- [ ] useAppFeedback is the only toast/notice entry for migrated call sites
-- [ ] JobWorkflowDialog reason and confirmation paths preserve copy and commands
-- [ ] FilterSheet callers keep apply/clear/dismiss and focus contracts
-- [ ] AppShell navigation drawer left unchanged unless a later parity-tested slice is approved
-- [ ] no lifecycle primary action lives only inside Dropdown
+- [x] owned ConfirmationAction, ReasonDialog, and ResponsiveDrawer adapters
+- [x] product/customer delete and JobWorkflowDialog paths migrated
+- [x] JobFilters and Customer filters use ResponsiveDrawer with FilterSheet parity
+- [x] AppShell navigation drawer left unchanged
+- [x] no Result/Empty/Skeleton/Dropdown adapters shipped
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 62 files and 568 tests passed
+- `cd web && npm run build`: passed; JS ~829 kB raw / 246 kB gzip (existing 500 kB chunk warning)
+- `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200% text, and 400% reflow checks passed
 
 ## PR E: Reporting surfaces
 

@@ -564,8 +564,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
   }, [feedbackFocusRequest]);
 
   function closeDialog() {
+    // Focus restoration is owned by ConfirmationAction / ReasonDialog.
     setDialog(null);
-    requestAnimationFrame(() => dialogTriggerRef.current?.focus());
   }
   async function refreshTruth() {
     const detail = await loadJobDetail(jobId);
@@ -919,6 +919,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       pending={pending}
       onClose={closeDialog}
       onConfirm={confirmDialog}
+      returnFocusRef={dialogTriggerRef}
     />}
   </JobDetailPanel>;
 }

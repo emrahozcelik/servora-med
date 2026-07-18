@@ -1,98 +1,155 @@
 # PR D — Feedback and overlays design
 
-**Date:** 2026-07-18  
-**Owning PR:** PR D — Feedback and overlays  
+**Date:** 2026-07-18
+**Owning PR:** PR D — Feedback and overlays
 **Base:** `main` at merge of PR #21 (`e73f056`)
+**Status:** Scope narrowed and approved for implementation (18 July 2026 review)
 
 ## Goal
 
-Introduce Servora-owned overlay and feedback adapters under `web/src/ui/antd/` so feature screens stop growing ad-hoc dialog, sheet, and toast code. Preserve existing accessibility contracts (focus trap, Escape, restoration, pending lock, labelled titles) and keep lifecycle permissions, readiness, and API commands outside adapters.
+Migrate existing high-risk dialog and filter overlays into Servora-owned adapters under `web/src/ui/antd/` without losing accessibility or domain authority.
 
-## Non-goals
+## Approved PR D ship scope (narrowed)
 
-- AppShell navigation drawer replacement (parity tests required first; not first slice)
-- Report tables (PR E)
-- Charts (PR F)
-- Lifecycle primary actions inside Dropdown
-- Collecting revision/cancel reasons with Popconfirm
-- Changing backend contracts, JobCard state machine, or command intents
-- Broad visual redesign of list/detail pages
+1. `ConfirmationAction` — **modal-only** (Popconfirm deferred)
+2. `ReasonDialog` — required reason capture
+3. `ResponsiveDrawer` — **only** existing Job and Customer filter sheets
 
-## Owned adapters (PR D)
+### Explicitly out of PR D
 
-| Adapter | Role | Ant primitive |
-| --- | --- | --- |
-| `useAppFeedback` (extend) | Typed success / informational toast and non-critical notice | App.useApp `message` / `notification` |
-| `ConfirmationAction` | Short, single-outcome confirm with optional consequence list | Popconfirm **or** owned modal shell when consequence is multi-line |
-| `ReasonDialog` | Required reason capture (revision, cancel, similar) | Modal-class dialog (owned), never Popconfirm |
-| `ResponsiveDrawer` | Mobile filter / secondary sheet with shared a11y | Drawer or owned sheet parity with `FilterSheet` |
-| `ResultState` | Forbidden / not found / success / retryable failure | Result |
-| `EmptyState` / `LoadingSkeleton` | Operational empty and stable loading | Empty, Skeleton |
-| `OperationalDropdown` | Secondary, low-frequency commands only | Dropdown |
+- `ResultState`, `EmptyState`, `LoadingSkeleton`
+- `OperationalDropdown`
+- AppShell navigation drawer
+- Broad toast migration
+- Popconfirm support on `ConfirmationAction`
 
-## Composition rules
+## Approved decisions (must remain true)
 
-1. **Adapters render and orchestrate presentation only.** They receive titles, labels, consequences, pending flags, and callbacks. They do not call job APIs, invent permissions, or decide readiness.
-2. **Feedback goes through `useAppFeedback` only.** No static `message.success`, `Modal.confirm`, or `notification.open` in feature modules.
-3. **Critical errors stay inline** (field `role="alert"`, detail feedback banners). Toasts are for non-blocking success / secondary notice.
-4. **Reason capture always uses a full dialog** with labelled textarea, client validation, pending disable, Escape-when-safe, and focus restore to the trigger.
-5. **Short confirmations** may use Popconfirm when: single outcome, no free-text reason, short copy, and no complex lifecycle consequence list that needs a multi-line dialog.
-6. **Lifecycle primary actions** remain visible buttons (JobDecisionPanel / list commands). Dropdown may hold secondary only (for example share-less admin helpers if added later).
-7. **Filter sheet migration** must keep: 64rem desktop gate, body scroll lock, Escape, focus trap, apply/clear/dismiss, return focus to trigger, and existing active-filter count UX.
-8. **AppShell drawer** is out of the first migration slice. A later optional slice may compare Ant Drawer only after behavior parity tests against the current shell drawer.
+### 1. ConfirmationAction is modal-only in PR D
 
-## Migration map (first PR D ship)
+Do not branch on short vs long copy to pick Popconfirm. All first migration surfaces are high-impact (product delete, customer delete, approve-and-complete, withdraw-and-edit). Popconfirm may be added later for a proven low-risk secondary use.
+
+```ts
+type ConfirmationActionProps = {
+  open: boolean;
+  title: string;
+  description?: ReactNode;
+  details?: readonly string[];
+  confirmLabel: string;
+  cancelLabel?: string;
+  pending: boolean;
+  destructive?: boolean;
+  onConfirm: () => void;
+  onCancel: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
+};
+```
+
+The adapter must not:
+
+- choose Popconfirm because text is short
+- invent destructive vs primary from domain rules (caller passes `destructive`)
+- produce commands or consequences
+- calculate permissions
+
+### 2. State / focus ownership
+
+```text
+Feature
+→ open/closed intent
+→ command presentation copy
+→ pending flag
+→ command callback
+
+Adapter
+→ dialog DOM
+→ transient reason draft/error (ReasonDialog only)
+→ focus trap
+→ Escape policy
+→ opener capture and focus restoration
+```
+
+Focus restoration has **one owner: the adapter**. Parent-side restoration used only for these overlays must be removed during migration so both do not restore focus.
+
+Initial focus parity (do not change in PR D):
+
+- confirmation dialog → **Vazgeç**
+- reason dialog → **Vazgeç**
+
+Do not auto-focus the reason textarea.
+
+### 3. ReasonDialog
+
+```ts
+type ReasonDialogProps = {
+  open: boolean;
+  title: string;
+  description: ReactNode;
+  reasonLabel: string;
+  confirmLabel: string;
+  cancelLabel?: string;
+  maxLength: number;
+  required: boolean;
+  pending: boolean;
+  destructive?: boolean;
+  onConfirm: (reason: string) => void;
+  onCancel: () => void;
+  returnFocusRef?: RefObject<HTMLElement | null>;
+};
+```
+
+Acceptance:
+
+- whitespace-only reason rejected when required
+- error linked via `aria-describedby` and `role="alert"`
+- 2000 character limit preserved where callers set it
+- pending prevents double submit
+- Escape/cancel while pending match existing behavior
+- reopening clears prior reason/error draft
+
+### 4. ResponsiveDrawer (filters only)
+
+Preserve FilterSheet contracts for JobFilters and Customer filters. AppShell drawer unchanged.
+
+| Behavior | Expectation |
+| --- | --- |
+| Open | Close/Vazgeç control receives focus |
+| Escape | Panel closes |
+| Mask/backdrop | `onDismiss` |
+| Tab / Shift+Tab | Cycles inside panel |
+| Body scroll | Locked while open; restored on close |
+| Focus restoration | Returns to provided trigger ref |
+| Vazgeç | Draft not applied |
+| Uygula | Only `onApply` |
+| Temizle | Only `onClear`; does not auto-close |
+| Unmount | No leftover body scroll lock |
+| Desktop | Existing caller gate preserved |
+| AppShell | Unchanged |
+
+### 5. useAppFeedback
+
+Do not expand into a speculative helper SSOT. Critical errors stay inline. Only truly ephemeral success/secondary notices use feedback if a real migrated call site needs it. Task 1 may remain a no-op beyond existing boundary tests.
+
+## Migration map
 
 | Current surface | Target |
 | --- | --- |
-| Product / customer delete confirm dialogs | `ConfirmationAction` (short single-outcome) |
-| `JobWorkflowDialog` approve / withdraw-edit | `ConfirmationAction` with multi-line consequence (modal form) |
+| Product / customer delete dialogs | `ConfirmationAction` |
+| `JobWorkflowDialog` approve / withdraw-edit | `ConfirmationAction` |
 | `JobWorkflowDialog` revision / cancel | `ReasonDialog` |
-| `FilterSheet` (jobs + customers) | `ResponsiveDrawer` preserving contracts |
-| Success-only ephemeral copy (where already toast-like) | `useAppFeedback().message` |
-| Inline empty lists (minimal) | `EmptyState` only where a shared empty contract already fits |
-| Loading placeholders that already exist | `LoadingSkeleton` only where geometry is stable |
+| `FilterSheet` (jobs + customers) | `ResponsiveDrawer` |
 
-Out of first ship unless time remains: operational dropdown adoption, ResultState on every route, shell navigation drawer.
+## Boundary
 
-## Accessibility contract
-
-Every overlay must provide:
-
-- labelled title (`aria-labelledby` or equivalent)
-- modal semantics when blocking (`role="dialog"` + `aria-modal="true"` or Ant equivalent that yields the same tree)
-- initial focus inside the overlay
-- Tab cycle containment
-- Escape dismiss when not pending
-- focus restoration to the opener
-- pending lock: no double submit; cancel disabled or no-op while pending only if product already does that
-- reduced-motion: no required entrance animation for correctness
-
-Tests must cover Escape, restore, pending duplicate prevention, and reason validation where applicable.
-
-## Provider / boundary
-
-- All Ant imports remain under `web/src/ui/antd/` (plus existing reviewed foundation).
-- Feature code imports adapters from `web/src/ui/antd` or thin re-exports under `web/src/ui/` when the surface is not Ant-backed (`FilterSheet` may become a re-export of `ResponsiveDrawer`).
-- `prefixCls="servora-ant"` stays global; owned CSS targets `servora-ant-*` only for Ant internals.
-
-## Verification bar
-
-- Focused unit/integration tests for each new adapter
-- Existing job-detail, manager-review, filter-sheet, product/customer delete, and app-shell drawer tests still pass
-- Escape + focus restoration regression for dialog migrations
-- Pending action cannot fire twice
-- `cd web && npm test -- --run`
-- `cd web && npm run build`
-- `cd web && npm run smoke:responsive` when layout-affecting drawer changes land
-- Server suite unchanged unless a doc-only path requires it; CI must still be green
+- Ant imports remain under `web/src/ui/antd/` only.
+- Adapters are presentation/orchestration only.
+- Domain commands, readiness, and permissions stay in feature/service layers.
 
 ## Exit criteria
 
-PR D is mergeable when:
-
-1. Owned adapters exist and are the only Ant overlay entry points used by migrated call sites.
-2. Job workflow reason and confirmation paths keep product copy and server command ownership.
-3. Mobile filters keep parity with pre-migration FilterSheet behavior.
-4. No lifecycle primary action lives only inside a Dropdown.
-5. Docs (`SERVORA-IMPLEMENTATION-PLAN.md`, architecture surface list) record PR D completion and leave PR E next.
+1. Three owned adapters exist and own the migrated call sites above.
+2. Job workflow reason/confirmation paths keep product copy and server command ownership.
+3. Filter sheets keep apply/clear/dismiss and focus contracts.
+4. AppShell drawer unchanged.
+5. No Popconfirm, Result/Empty/Skeleton, or OperationalDropdown ship in this PR.
+6. Docs and CI green; PR remains draft until review.

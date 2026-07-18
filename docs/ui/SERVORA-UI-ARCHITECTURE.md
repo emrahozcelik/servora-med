@@ -2,7 +2,7 @@
 
 Status: Approved
 Scope: Architecture decision and phased implementation boundary
-Production impact: PR A–C are merged; PR D feedback/overlays design is open on `feature/feedback-overlays`
+Production impact: PR A–C are merged; PR D implements ConfirmationAction, ReasonDialog, and ResponsiveDrawer (filters) on `feature/feedback-overlays`
 
 ## Decision
 
@@ -78,18 +78,22 @@ Implemented job detail adapter surface:
       ActivityTimeline.tsx
       RecordDescriptions.tsx
 
-Planned future adapter surface, introduced only by its owning PR:
+PR D overlay adapter surface (narrowed ship):
+
+    web/src/ui/antd/
+      ConfirmationAction.tsx   # modal-only; Popconfirm deferred
+      ReasonDialog.tsx
+      ResponsiveDrawer.tsx     # Job + Customer filters only
+      overlay-focus.ts
+
+Still planned for later PRs (not PR D):
 
     web/src/ui/antd/
       OperationalDropdown.tsx
-      ResponsiveDrawer.tsx
-      ConfirmationAction.tsx
       ResultState.tsx
       OperationalTable.tsx
 
-The PR C adapters are render-only: they receive presentation data and do not call APIs, calculate permissions or readiness, create command intents, or translate domain status. Overlay and feedback migration is owned by PR D; see `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`.
-
-PR D planned adapter names become real files only when that PR implements them; until then they remain architectural targets.
+The PR C adapters are render-only: they receive presentation data and do not call APIs, calculate permissions or readiness, create command intents, or translate domain status. Overlay migration is owned by PR D; see `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`.
 
 ## Component decision matrix
 
