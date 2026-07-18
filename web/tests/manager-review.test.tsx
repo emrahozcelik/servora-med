@@ -2,7 +2,7 @@
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDetailPanel, JobDetailScreen, runManagerJobCommand } from '../src/JobDetail';
 import { JobWorkflowDialog } from '../src/jobs/JobWorkflowDialog';
@@ -14,6 +14,14 @@ import type {
 import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+beforeEach(() => {
+  vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+    matches: false, media: '', onchange: null,
+    addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+  }));
+});
 
 function contextWith(
   allowedCommands: LifecycleCommand[],
@@ -146,6 +154,8 @@ describe('Manager review', () => {
     expect(html).toContain('Yönetici kontrolü');
     expect(html).toContain('İş kayıtlarını inceleyerek karar verin.');
     expect(html).toContain('data-job-decision-panel="true"');
+    expect(html).toContain('servora-workflow-steps');
+    expect(html).toContain('servora-record-descriptions');
     expect(html).not.toContain('name="quantity"');
   });
 

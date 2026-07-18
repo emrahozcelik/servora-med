@@ -218,6 +218,11 @@ describe('Staff JobCard detail', () => {
   let root: Root;
 
   beforeEach(() => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+      matches: false, media: '', onchange: null,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+    }));
     host = document.createElement('div');
     document.body.append(host);
     root = createRoot(host);
@@ -258,6 +263,7 @@ describe('Staff JobCard detail', () => {
     await renderDetail(card);
     expect(host.querySelector('h1')?.textContent).toBe(card.title);
     const steps = host.querySelector('[aria-label="İş süreci"]');
+    expect(steps?.classList.contains('servora-workflow-steps')).toBe(true);
     expect(steps?.getAttribute('role') ?? steps?.tagName.toLowerCase()).toMatch(/list|ol/);
     expect(steps?.textContent).toContain('Kabul bilgisi kaydedilmemiş');
     expect(steps?.textContent).not.toContain('Planlama atlandı');
@@ -269,7 +275,9 @@ describe('Staff JobCard detail', () => {
       'İş yönetici kontrolüne geçecek ve kontrol sona erene kadar kayıtlar düzenlenemeyecektir.',
     );
     expect(buttonByName(host, 'Kontrole gönder')).not.toBeNull();
-    const stepsEl = host.querySelector('.job-lifecycle-steps');
+    expect(host.querySelector('.servora-record-descriptions[aria-label="İş kayıt bilgileri"]'))
+      .not.toBeNull();
+    const stepsEl = host.querySelector('.servora-workflow-steps');
     const responsibilityEl = Array.from(host.querySelectorAll('h2'))
       .find((el) => el.textContent === 'Şimdi sizden beklenen');
     const deliveryOrMeeting = Array.from(host.querySelectorAll('h2'))
@@ -298,6 +306,36 @@ describe('Staff JobCard detail', () => {
     expect(buttonByName(host, 'Düzeltmeye başla')).not.toBeNull();
     expect(buttonByName(host, 'Yeniden kontrole gönder')).toBeNull();
     expect(buttonByName(host, 'Kontrole gönder')).toBeNull();
+    const revision = host.querySelector('.revision-loop')!;
+    const lifecycle = host.querySelector('.servora-workflow-steps')!;
+    const responsibility = host.querySelector('.workflow-responsibility')!;
+    expect(revision.compareDocumentPosition(lifecycle) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(lifecycle.compareDocumentPosition(responsibility) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+  });
+
+  it('keeps requirements and the primary action before Timeline in mobile-first DOM order', async () => {
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={inProgressMeeting()}
+        items={[]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+      >
+        <section className="job-timeline" data-test-timeline>Timeline</section>
+      </JobDetailPanel>);
+    });
+    const requirements = host.querySelector('.workflow-requirements')!;
+    const action = host.querySelector('[data-job-decision-panel="true"]')!;
+    const timeline = host.querySelector('[data-test-timeline]')!;
+    expect(requirements.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(action.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
   });
 
   it('does not mount meeting result resources in new and accepted states', async () => {

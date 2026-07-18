@@ -25,7 +25,6 @@ import {
 } from './jobs/scheduling';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
 import { JobDecisionPanel } from './jobs/JobDecisionPanel';
-import { JobLifecycleSteps } from './jobs/JobLifecycleSteps';
 import {
   CurrentResponsibilityPanel,
   RequirementsChecklist,
@@ -43,6 +42,7 @@ import { JobTimeline } from './jobs/JobTimeline';
 import { jobTypeLabels } from './jobs/job-labels';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
+import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
 
 type StaffCommand = 'start' | 'submit';
 type PendingInteraction = LifecycleCommand | 'WITHDRAW_AND_EDIT_JOB_FIELDS';
@@ -344,54 +344,64 @@ export function JobDetailPanel({
       : job.type === 'PRODUCT_DELIVERY'
         ? 'Planlanan teslim zamanı'
         : 'Planlanan zaman');
+  const descriptionItems: RecordDescriptionItem[] = [
+    { key: 'status', label: 'Durum', content: <StatusChip status={job.status} /> },
+    { key: 'assignee', label: 'Sorumlu personel', content: job.assignee.name },
+    { key: 'priority', label: 'Öncelik', content: <PriorityChip priority={job.priority} /> },
+    {
+      key: 'schedule', label: scheduleLabel,
+      content: job.scheduledAt
+        ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
+        : 'Belirtilmedi',
+    },
+    ...(job.type === 'SALES_MEETING' ? [] : [{
+      key: 'due-date', label: 'Son tarih',
+      content: job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi',
+    }]),
+    { key: 'customer', label: 'Müşteri', content: job.customer?.name ?? 'Belirtilmedi' },
+    { key: 'contact', label: 'İlgili kişi', content: job.contact?.name ?? 'Belirtilmedi' },
+    { key: 'description', label: 'Açıklama', content: job.description ?? 'Belirtilmedi', wide: true },
+  ];
 
   return <main className="job-detail">
     <div className="detail-heading"><div><p className="eyebrow">{jobTypeLabels[job.type]}</p><h1>{job.title}</h1></div>
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
     {message && <div ref={feedbackRef} className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
       role={messageIsError ? 'alert' : 'status'} tabIndex={-1}>{message}</div>}
-    <dl className="detail-summary surface">
-      <div><dt>Durum</dt><dd><StatusChip status={job.status} /></dd></div>
-      <div><dt>Sorumlu personel</dt><dd>{job.assignee.name}</dd></div>
-      <div><dt>Öncelik</dt><dd><PriorityChip priority={job.priority} /></dd></div>
-      <div><dt>{scheduleLabel}</dt><dd>{job.scheduledAt
-        ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
-        : 'Belirtilmedi'}</dd></div>
-      {job.type !== 'SALES_MEETING' && (
-        <div><dt>Son tarih</dt><dd>{job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi'}</dd></div>
-      )}
-      <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
-      <div><dt>İlgili kişi</dt><dd>{job.contact?.name ?? 'Belirtilmedi'}</dd></div>
-      <div className="detail-summary-wide"><dt>Açıklama</dt><dd>{job.description ?? 'Belirtilmedi'}</dd></div>
-    </dl>
-
-    <JobLifecycleSteps phaseItems={presentation.phaseItems} currentPhase={presentation.currentPhase} />
-
-    {presentation.terminalDetails && <TerminalJobBanner details={presentation.terminalDetails} />}
     {presentation.revisionLoop && <RevisionLoopPanel loop={presentation.revisionLoop} />}
-    {!managementReview && presentation.terminalState === null && (
+    <WorkflowSteps
+      items={presentation.phaseItems.map((item) => ({
+        key: item.phase, label: item.label, state: item.state,
+      }))}
+      currentKey={presentation.currentPhase}
+    />
+    {presentation.terminalDetails && <TerminalJobBanner details={presentation.terminalDetails} />}
+    {presentation.terminalState === null && (
       <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
     )}
-    <RequirementsChecklist requirements={presentation.requirements} />
+    <div className="job-detail-content">
+      <section className="detail-summary surface">
+        <RecordDescriptions ariaLabel="İş kayıt bilgileri" items={descriptionItems} />
+      </section>
 
-    {managementReview && (
-      <JobApprovalReviewPanel
-        job={job}
-        lifecycle={job.workflowContext.lifecycle}
-        requirements={presentation.requirements}
-      />
-    )}
+      {managementReview && (
+        <JobApprovalReviewPanel
+          job={job}
+          lifecycle={job.workflowContext.lifecycle}
+          requirements={presentation.requirements}
+        />
+      )}
 
-    {presentation.scheduleEdit && (
-      <JobScheduleEditForm
-        job={job}
-        scheduleEdit={presentation.scheduleEdit}
-        pending={pending}
-        onSave={onSaveSchedule}
-      />
-    )}
+      {presentation.scheduleEdit && (
+        <JobScheduleEditForm
+          job={job}
+          scheduleEdit={presentation.scheduleEdit}
+          pending={pending}
+          onSave={onSaveSchedule}
+        />
+      )}
 
-    {job.type === 'PRODUCT_DELIVERY' && (
+      {job.type === 'PRODUCT_DELIVERY' && (
       <section className="delivery-lines" aria-labelledby="delivery-lines-title">
         <h2 id="delivery-lines-title">Teslim bilgileri</h2>
         <ul>
@@ -422,18 +432,23 @@ export function JobDetailPanel({
           ))}
         </ul>
       </section>
-    )}
+      )}
 
-    {records}
+      {records && <div className="job-detail-records">{records}</div>}
 
-    <JobDecisionPanel
-      primary={presentation.primaryTransition}
-      secondary={presentation.secondaryTransitions}
-      recordEditAction={presentation.recordEditAction}
-      pending={pending}
-      onCommand={onCommand}
-      onRecordEdit={onRecordEdit}
-    />
+      {!managementReview && presentation.terminalState === null && (
+        <RequirementsChecklist requirements={presentation.requirements} />
+      )}
+
+      <JobDecisionPanel
+        primary={presentation.primaryTransition}
+        secondary={presentation.secondaryTransitions}
+        recordEditAction={presentation.recordEditAction}
+        pending={pending}
+        onCommand={onCommand}
+        onRecordEdit={onRecordEdit}
+      />
+    </div>
 
     {children}
   </main>;
