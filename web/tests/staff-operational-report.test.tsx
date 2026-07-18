@@ -64,6 +64,18 @@ describe('Staff operational report', () => {
     expect(html).toContain('Birim belirtilmedi');
     expect(html).toContain('Görüşme sonuçları');
     expect(html).toContain('Takip gerekli');
+    expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(2);
+    expect(html).toContain('<caption>Onaylı teslimler</caption>');
+    expect(html).toContain('<caption>Görüşme sonuçları</caption>');
+    expect(html).toMatch(/<th[^>]*scope="row"[^>]*>Satış<\/th>/);
+    expect(html).toMatch(/<th[^>]*scope="row"[^>]*>Olumlu<\/th>/);
+    for (const heading of ['Amaç', 'Birim', 'Miktar', 'Sonuç', 'Görüşme sayısı']) {
+      expect(html).toContain(`<dt>${heading}</dt>`);
+    }
+    // Every first-row value is emitted by both the desktop table and mobile card.
+    for (const value of ['Satış', 'Kutu', '12.500', 'Olumlu']) {
+      expect((html.match(new RegExp(value, 'g')) ?? []).length).toBeGreaterThanOrEqual(2);
+    }
     expect(html).not.toMatch(/puan|sıralama|ciro|stok|komisyon|type="date"|select/i);
   });
 
@@ -74,7 +86,9 @@ describe('Staff operational report', () => {
     }} />);
     expect(html).toContain('Bu dönemde onaylı teslim bulunmuyor.');
     expect(html).toContain('Bu dönemde onaylı satış görüşmesi bulunmuyor.');
-    expect((html.match(/<tr/g) ?? []).length).toBe(5);
+    expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(1);
+    expect(html).not.toContain('<caption>Onaylı teslimler</caption>');
+    expect(html).toContain('<caption>Görüşme sonuçları</caption>');
   });
 
   it('loads the own report independently with the default range', async () => {

@@ -112,11 +112,13 @@ describe('Report accessibility contract', () => {
       .toBeGreaterThan(0);
 
     const staffView = markup(<StaffOperationalReport report={staff} />);
+    expect(staffView.querySelectorAll('[data-servora-operational-table="true"]')).toHaveLength(2);
     expect(staffView.querySelector('table caption')?.textContent).not.toBe('');
     expect(staffView.querySelectorAll('thead th[scope="col"]').length).toBeGreaterThan(0);
     expect(staffView.querySelector('tbody th[scope="row"]')).not.toBeNull();
-    expect(staffView.querySelector('table')?.classList.contains('responsive-report-table')).toBe(true);
-    expect(staffView.querySelectorAll('tbody [data-label]').length).toBeGreaterThan(0);
+    expect(staffView.querySelectorAll('.servora-operational-table__mobile')).toHaveLength(2);
+    expect(staffView.querySelectorAll('.servora-operational-table__field dt').length)
+      .toBeGreaterThan(0);
     expect(staffView.textContent).toContain('Pasif personel');
   });
 
@@ -167,4 +169,3 @@ describe('Report accessibility contract', () => {
     }
   });
 });
-
