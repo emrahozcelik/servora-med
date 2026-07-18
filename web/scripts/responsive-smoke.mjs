@@ -59,6 +59,9 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
         <h2>Teslim raporu</h2>
         <div id="responsive-operational-table-root"></div>
       </section>
+      <section class="report-workspace" aria-label="Onay raporu responsive fixture" data-smoke-approval-report>
+        <div id="responsive-approval-report-root"></div>
+      </section>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="workflow-board">
           <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
@@ -124,6 +127,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 </script>
 <script type="module" src="/scripts/responsive-job-detail-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-operational-table-fixture.tsx"></script>
+<script type="module" src="/scripts/responsive-approval-report-fixture.tsx"></script>
 </body></html>`;
 
 const viewports = [
@@ -279,6 +283,37 @@ async function measure(page) {
     const desktopColumnCount = reportRoot
       ? reportRoot.querySelectorAll('.servora-operational-table__desktop thead th').length
       : 0;
+    const approvalSection = document.querySelector('[data-smoke-approval-report]');
+    const approvalTable = approvalSection?.querySelector('[data-servora-operational-table="true"]');
+    const approvalDesktop = approvalTable?.querySelector('.servora-operational-table__desktop');
+    const approvalMobile = approvalTable?.querySelector('.servora-operational-table__mobile');
+    const approvalSectionRect = approvalSection?.getBoundingClientRect();
+    const approvalDesktopRect = approvalDesktop?.getBoundingClientRect();
+    const approvalMobileRect = approvalMobile?.getBoundingClientRect();
+    const approvalDesktopVisible = Boolean(approvalDesktop
+      && getComputedStyle(approvalDesktop).display !== 'none');
+    const approvalMobileDisplay = approvalMobile ? getComputedStyle(approvalMobile).display : 'none';
+    const approvalMobileVisible = Boolean(approvalMobile
+      && approvalMobileDisplay !== 'none' && approvalMobileDisplay !== 'contents');
+    const approvalOverflow = Boolean(approvalSectionRect && (
+      (approvalDesktopVisible && approvalDesktopRect
+        && (approvalDesktopRect.right > approvalSectionRect.right + 2
+          || approvalDesktopRect.left < approvalSectionRect.left - 2))
+      || (approvalMobileVisible && approvalMobileRect
+        && (approvalMobileRect.right > approvalSectionRect.right + 2
+          || approvalMobileRect.left < approvalSectionRect.left - 2))
+    ));
+    const approvalDesktopValues = approvalTable
+      ? Array.from(approvalTable.querySelectorAll(
+        '.servora-operational-table__desktop tbody tr:first-child > *',
+      )).map((cell) => cell.textContent?.trim() ?? '')
+      : [];
+    const approvalMobileValues = approvalTable
+      ? Array.from(approvalTable.querySelectorAll(
+        '.servora-operational-table__card:first-child dd',
+      )).map((cell) => cell.textContent?.trim() ?? '')
+      : [];
+    const approvalLink = approvalTable?.querySelector('a[href="/jobs/smoke-approval-job"]');
     return {
       overflowX,
       results,
@@ -301,6 +336,13 @@ async function measure(page) {
       reportOverflow,
       mobileFieldCount,
       desktopColumnCount,
+      approvalPresent: Boolean(approvalTable),
+      approvalDesktopVisible,
+      approvalMobileVisible,
+      approvalOverflow,
+      approvalDesktopValues,
+      approvalMobileValues,
+      approvalLinkName: approvalLink?.getAttribute('aria-label') ?? '',
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
     };
@@ -325,6 +367,14 @@ try {
     if (!m.actionBeforeTimeline) failures.push(`${vp.name}: detail action must precede Timeline in DOM`);
     if (!m.reportPresent) failures.push(`${vp.name}: OperationalTable fixture missing`);
     if (m.reportOverflow) failures.push(`${vp.name}: OperationalTable exceeds report workspace`);
+    if (!m.approvalPresent) failures.push(`${vp.name}: Approval OperationalTable fixture missing`);
+    if (m.approvalOverflow) failures.push(`${vp.name}: Approval OperationalTable exceeds report workspace`);
+    if (m.approvalLinkName !== 'Klinik kontrolü işini aç') {
+      failures.push(`${vp.name}: Approval row link needs its accessible job name`);
+    }
+    if (JSON.stringify(m.approvalDesktopValues) !== JSON.stringify(m.approvalMobileValues)) {
+      failures.push(`${vp.name}: Approval desktop/mobile field parity mismatch`);
+    }
     if (vp.width <= 720) {
       if (m.desktopVisible) failures.push(`${vp.name}: OperationalTable desktop must be hidden at/under 720px`);
       if (!m.mobileVisible) failures.push(`${vp.name}: OperationalTable mobile must be visible at/under 720px`);
@@ -332,12 +382,18 @@ try {
       if (m.mobileFieldCount !== 5) {
         failures.push(`${vp.name}: expected 5 mobile product fields (got ${m.mobileFieldCount})`);
       }
+      if (m.approvalDesktopVisible || !m.approvalMobileVisible) {
+        failures.push(`${vp.name}: Approval must use mobile cards at/under 720px`);
+      }
     }
     if (vp.width > 720) {
       if (!m.desktopVisible) failures.push(`${vp.name}: OperationalTable desktop must be visible above 720px`);
       if (m.mobileVisible) failures.push(`${vp.name}: OperationalTable mobile must be hidden above 720px`);
       if (m.desktopColumnCount !== 5) {
         failures.push(`${vp.name}: expected 5 desktop product columns (got ${m.desktopColumnCount})`);
+      }
+      if (!m.approvalDesktopVisible || m.approvalMobileVisible) {
+        failures.push(`${vp.name}: Approval must use the desktop table above 720px`);
       }
     }
     if ((vp.width === 390 || vp.width === 1024) && !m.descriptionsUseFullWidth) {
