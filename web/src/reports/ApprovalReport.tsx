@@ -22,7 +22,7 @@ import {
 
 const duration = formatWaitingDuration;
 
-const APPROVAL_QUEUE_CAPTION = 'Onay kuyruğundaki işler (bekleme süreleri sunucu özetinden gelir)';
+const APPROVAL_QUEUE_CAPTION = 'Onay kuyruğundaki işler';
 
 const APPROVAL_COLUMNS: readonly OperationalTableColumn[] = [
   { key: 'type', title: 'Tür' },
@@ -86,6 +86,7 @@ export function ApprovalReportView({ report }: { report: ApprovalReportResponse 
             caption={APPROVAL_QUEUE_CAPTION}
             columns={APPROVAL_COLUMNS}
             rows={approvalQueueRows(report.items)}
+            rowHeaderKey="title"
           />
         )}
     </>

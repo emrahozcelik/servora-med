@@ -14,6 +14,7 @@ export type OperationalTableProps = Readonly<{
   caption: string;
   columns: readonly OperationalTableColumn[];
   rows: readonly OperationalTableRow[];
+  rowHeaderKey?: string;
 }>;
 
 /**
@@ -26,8 +27,10 @@ export function OperationalTable({
   caption,
   columns,
   rows,
+  rowHeaderKey,
 }: OperationalTableProps): ReactNode {
   const mobileCaptionId = useId();
+  const resolvedRowHeaderKey = rowHeaderKey ?? columns[0]?.key;
 
   return (
     <div className="servora-operational-table" data-servora-operational-table="true">
@@ -43,9 +46,9 @@ export function OperationalTable({
         <tbody>
           {rows.map((row) => (
             <tr key={row.key}>
-              {columns.map((column, index) => {
+              {columns.map((column) => {
                 const value = row.cells[column.key] ?? '';
-                if (index === 0) {
+                if (column.key === resolvedRowHeaderKey) {
                   return (
                     <th key={column.key} scope="row">{value}</th>
                   );

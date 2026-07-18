@@ -33,7 +33,8 @@ describe('Approval report presentation', () => {
       expect(html).toContain(label);
     }
     expect(html).toContain('data-servora-operational-table="true"');
-    expect(html).toContain('Onay kuyruğundaki işler');
+    expect(html).toContain('<caption>Onay kuyruğundaki işler</caption>');
+    expect(html).not.toContain('sunucu özetinden gelir');
     expect(html).toContain('servora-operational-table__mobile-caption');
     for (const heading of ['Tür', 'İş', 'Personel', 'Müşteri', 'Bekleme süresi']) {
       expect(html).toContain(`>${heading}</th>`);
@@ -43,7 +44,11 @@ describe('Approval report presentation', () => {
     expect(html).toContain('Klinik ziyareti');
     expect(html).toContain('href="/jobs/job-1"');
     expect(html).toContain('aria-label="Klinik ziyareti işini aç"');
+    expect(html).toMatch(
+      /<th[^>]*scope="row"[^>]*><a[^>]*aria-label="Klinik ziyareti işini aç"/,
+    );
     expect(html).toContain('Ayşe');
+    expect(html).toMatch(/<td>—<\/td>/);
     expect(html).toContain('25 saat');
     // Duration and title appear on both desktop and mobile surfaces.
     expect((html.match(/Klinik ziyareti/g) ?? []).length).toBeGreaterThanOrEqual(2);

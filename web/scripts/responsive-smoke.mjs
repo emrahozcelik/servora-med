@@ -459,6 +459,11 @@ try {
     if (m.reportOverflow || !m.mobileVisible || !m.captionVisible) {
       failures.push('200% text: OperationalTable mobile reflow failure');
     }
+    if (m.approvalOverflow || !m.approvalMobileVisible
+      || m.approvalLinkName !== 'Klinik kontrolü işini aç'
+      || JSON.stringify(m.approvalDesktopValues) !== JSON.stringify(m.approvalMobileValues)) {
+      failures.push('200% text: Approval mobile reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
     }
@@ -481,6 +486,11 @@ try {
     }
     if (m.reportOverflow || !m.mobileVisible || !m.captionVisible) {
       failures.push('400% reflow: OperationalTable mobile reflow failure');
+    }
+    if (m.approvalOverflow || !m.approvalMobileVisible
+      || m.approvalLinkName !== 'Klinik kontrolü işini aç'
+      || JSON.stringify(m.approvalDesktopValues) !== JSON.stringify(m.approvalMobileValues)) {
+      failures.push('400% reflow: Approval mobile reflow failure');
     }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {
