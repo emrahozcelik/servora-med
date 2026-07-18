@@ -50,18 +50,45 @@ export function WorkflowSteps({ items, currentKey }: {
   currentKey: string | null;
 }): ReactNode {
   const desktop = useDesktopShell();
-  return <div className="servora-workflow-steps" role="list" aria-label="İş süreci">
-    <Steps
-      responsive={false}
-      orientation={desktop ? 'horizontal' : 'vertical'}
-      current={items.findIndex((item) => item.key === currentKey)}
-      items={items.map((item) => ({
-        key: item.key,
-        status: ANT_STATUS[item.state],
-        className: `servora-workflow-step servora-workflow-step--${item.state}`,
-        title: <span aria-current={item.key === currentKey ? 'step' : undefined}>{item.label}</span>,
-        content: <span className="servora-workflow-step-state">{STATE_TEXT[item.state]}</span>,
-      }))}
-    />
-  </div>;
+  return (
+    <section
+      className="servora-workflow-steps"
+      aria-labelledby="job-workflow-title"
+    >
+      <h2 id="job-workflow-title" className="sr-only">
+        İş süreci
+      </h2>
+
+      {/* Native list for screen readers — Ant Steps root/items are divs without listitem. */}
+      <ol className="sr-only" aria-label="İş süreci">
+        {items.map((item) => (
+          <li
+            key={item.key}
+            aria-current={item.key === currentKey ? 'step' : undefined}
+          >
+            {item.label}: {STATE_TEXT[item.state]}
+          </li>
+        ))}
+      </ol>
+
+      <div aria-hidden="true">
+        <Steps
+          responsive={false}
+          orientation={desktop ? 'horizontal' : 'vertical'}
+          current={items.findIndex((item) => item.key === currentKey)}
+          items={items.map((item) => ({
+            key: item.key,
+            status: ANT_STATUS[item.state],
+            className: `servora-workflow-step servora-workflow-step--${item.state}`,
+            title: item.label,
+            content: (
+              <span className="servora-workflow-step-state">
+                {STATE_TEXT[item.state]}
+              </span>
+            ),
+          }))}
+        />
+      </div>
+    </section>
+  );
 }

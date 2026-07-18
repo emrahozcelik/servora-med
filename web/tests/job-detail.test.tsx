@@ -262,12 +262,22 @@ describe('Staff JobCard detail', () => {
     const card = inProgressMeeting({ acceptedAt: null, startedAt: '2026-07-17T09:00:00.000Z' });
     await renderDetail(card);
     expect(host.querySelector('h1')?.textContent).toBe(card.title);
-    const steps = host.querySelector('[aria-label="İş süreci"]');
-    expect(steps?.classList.contains('servora-workflow-steps')).toBe(true);
-    expect(steps?.getAttribute('role') ?? steps?.tagName.toLowerCase()).toMatch(/list|ol/);
+    const steps = host.querySelector('.servora-workflow-steps');
+    expect(steps).not.toBeNull();
+    const list = steps?.querySelector(
+      'ol[aria-label="İş süreci"], [role="list"][aria-label="İş süreci"]',
+    );
+    expect(list).not.toBeNull();
+    const listItems = list?.querySelectorAll('li, [role="listitem"]');
+    expect((listItems?.length ?? 0) >= 1).toBe(true);
+    expect(
+      Array.from(listItems ?? []).filter(
+        (item) => item.getAttribute('aria-current') === 'step',
+      ),
+    ).toHaveLength(1);
     expect(steps?.textContent).toContain('Kabul bilgisi kaydedilmemiş');
     expect(steps?.textContent).not.toContain('Planlama atlandı');
-    const current = steps?.querySelector('[aria-current="step"]');
+    const current = list?.querySelector('[aria-current="step"]');
     expect(current?.textContent).toContain('Uygulanıyor');
     expect(host.querySelector('h2')?.textContent === 'Şimdi sizden beklenen'
       || Array.from(host.querySelectorAll('h2')).some((el) => el.textContent === 'Şimdi sizden beklenen')).toBe(true);

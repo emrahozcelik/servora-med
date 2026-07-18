@@ -31,15 +31,17 @@ describe('owned JobDetail Ant adapters', () => {
     expect(WorkflowSteps).toBeTypeOf('function');
     if (!WorkflowSteps) return;
 
+    const items = [
+      { key: 'CREATED', label: 'Atandı', state: 'complete' as const },
+      { key: 'ACCEPTANCE', label: 'Planlama atlandı', state: 'skipped' as const },
+      { key: 'EXECUTION', label: 'Uygulanıyor', state: 'current' as const },
+      { key: 'REVIEW', label: 'Yönetici kontrolü', state: 'upcoming' as const },
+      { key: 'COMPLETION', label: 'Tamamlandı', state: 'upcoming' as const },
+    ];
+
     const html = renderToStaticMarkup(<ServoraAntProvider><WorkflowSteps
       currentKey="EXECUTION"
-      items={[
-        { key: 'CREATED', label: 'Atandı', state: 'complete' },
-        { key: 'ACCEPTANCE', label: 'Planlama atlandı', state: 'skipped' },
-        { key: 'EXECUTION', label: 'Uygulanıyor', state: 'current' },
-        { key: 'REVIEW', label: 'Yönetici kontrolü', state: 'upcoming' },
-        { key: 'COMPLETION', label: 'Tamamlandı', state: 'upcoming' },
-      ]}
+      items={items}
     /></ServoraAntProvider>);
 
     expect(html).toContain('aria-label="İş süreci"');
@@ -49,6 +51,26 @@ describe('owned JobDetail Ant adapters', () => {
     expect(html).toContain('Şu an');
     expect(html).toContain('Planlama atlandı');
     expect(html).toContain('Atlandı');
+    expect(html).toMatch(/aria-hidden="true"/);
+
+    // Accessible list contract: real ol/li (or list/listitem), one current step, state text.
+    document.body.innerHTML = html;
+    const list = document.body.querySelector(
+      'ol[aria-label="İş süreci"], [role="list"][aria-label="İş süreci"]',
+    );
+    const listItems = list?.querySelectorAll('li, [role="listitem"]');
+    expect(listItems).toHaveLength(5);
+    expect(
+      Array.from(listItems ?? []).filter(
+        (item) => item.getAttribute('aria-current') === 'step',
+      ),
+    ).toHaveLength(1);
+    const stateTexts = ['Tamamlandı', 'Şu an', 'Sırada', 'Atlandı', 'Dikkat gerekiyor'];
+    for (const item of Array.from(listItems ?? [])) {
+      const text = item.textContent ?? '';
+      expect(stateTexts.some((state) => text.includes(state))).toBe(true);
+    }
+    document.body.innerHTML = '';
   });
 
   it('renders prepared read-only description items without domain knowledge', async () => {
