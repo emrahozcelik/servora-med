@@ -86,12 +86,16 @@ PR D overlay adapter surface (narrowed ship):
       ResponsiveDrawer.tsx     # Job + Customer filters only
       overlay-focus.ts
 
-PR E reporting adapter (Delivery-first):
+PR E reporting surface (Delivery-first):
 
-    web/src/ui/antd/
-      OperationalTable.tsx
+    web/src/ui/OperationalTable.tsx
 
-Still planned for later PRs:
+`OperationalTable` is **Servora-native** (semantic `<table>` + mobile cards at
+`max-width: 720px`). It is intentionally **not** under `ui/antd/` and does not
+import Ant Design `Table`. Ant `Table` remains a selective future primitive for
+sortable/admin density when that need is proven.
+
+Still planned for later PRs under the Ant boundary:
 
     web/src/ui/antd/
       OperationalDropdown.tsx

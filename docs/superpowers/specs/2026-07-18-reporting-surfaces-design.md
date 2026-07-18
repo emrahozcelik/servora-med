@@ -36,6 +36,20 @@ Ship an owned `OperationalTable` adapter and migrate the Delivery dense report t
 - Backend metric/formula changes
 - Global 64rem report breakpoint migration
 
+## Native table decision (approved for Delivery)
+
+Delivery uses a **Servora-native** dual-layout component at
+`web/src/ui/OperationalTable.tsx`, not Ant Design `Table` under `ui/antd/`.
+
+Reasons:
+
+- static report rows need caption, `scope`, and equal mobile cards without sort/expand
+- KISS for the Delivery-only first slice
+- Ant Table remains selective for future admin/sortable surfaces
+
+Mobile surface must show the same caption as desktop as **visible text** (not only
+`aria-label`).
+
 ## Adapter rules
 
 `OperationalTable` must not:

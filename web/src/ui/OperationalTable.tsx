@@ -1,4 +1,4 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 
 export type OperationalTableColumn = Readonly<{
   key: string;
@@ -17,14 +17,18 @@ export type OperationalTableProps = Readonly<{
 }>;
 
 /**
- * Render-only dense table with a real mobile card alternative at max-width 720px.
- * Feature prepares columns/cells; this adapter does not call APIs or compute metrics.
+ * Servora-native dense report table with a real mobile card alternative at max-width 720px.
+ * Not an Ant Design adapter: Delivery needs semantic dual layout without Table sorting.
+ * Ant Table remains selective for future admin/sortable surfaces.
+ * Feature prepares columns/cells; this component does not call APIs or compute metrics.
  */
 export function OperationalTable({
   caption,
   columns,
   rows,
 }: OperationalTableProps): ReactNode {
+  const mobileCaptionId = useId();
+
   return (
     <div className="servora-operational-table" data-servora-operational-table="true">
       <table className="report-table servora-operational-table__desktop">
@@ -53,23 +57,28 @@ export function OperationalTable({
         </tbody>
       </table>
 
-      <ul
-        className="servora-operational-table__mobile"
-        aria-label={caption}
-      >
-        {rows.map((row) => (
-          <li key={row.key} className="servora-operational-table__card">
-            <dl>
-              {columns.map((column) => (
-                <div key={column.key} className="servora-operational-table__field">
-                  <dt>{column.title}</dt>
-                  <dd>{row.cells[column.key] ?? ''}</dd>
-                </div>
-              ))}
-            </dl>
-          </li>
-        ))}
-      </ul>
+      <div className="servora-operational-table__mobile">
+        <p
+          id={mobileCaptionId}
+          className="servora-operational-table__mobile-caption"
+        >
+          {caption}
+        </p>
+        <ul aria-labelledby={mobileCaptionId}>
+          {rows.map((row) => (
+            <li key={row.key} className="servora-operational-table__card">
+              <dl>
+                {columns.map((column) => (
+                  <div key={column.key} className="servora-operational-table__field">
+                    <dt>{column.title}</dt>
+                    <dd>{row.cells[column.key] ?? ''}</dd>
+                  </div>
+                ))}
+              </dl>
+            </li>
+          ))}
+        </ul>
+      </div>
     </div>
   );
 }

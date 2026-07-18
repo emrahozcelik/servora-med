@@ -15,7 +15,7 @@ import {
   OperationalTable,
   type OperationalTableColumn,
   type OperationalTableRow,
-} from '../ui/antd';
+} from '../ui/OperationalTable';
 import {
   ReportDateRangeForm,
   ReportEmptyState,

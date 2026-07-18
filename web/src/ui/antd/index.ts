@@ -22,9 +22,3 @@ export { ReasonDialog } from './ReasonDialog';
 export type { ReasonDialogProps } from './ReasonDialog';
 export { ResponsiveDrawer } from './ResponsiveDrawer';
 export type { ResponsiveDrawerProps } from './ResponsiveDrawer';
-export { OperationalTable } from './OperationalTable';
-export type {
-  OperationalTableColumn,
-  OperationalTableProps,
-  OperationalTableRow,
-} from './OperationalTable';

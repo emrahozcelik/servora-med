@@ -106,6 +106,8 @@ describe('Report accessibility contract', () => {
     expect(deliveryView.querySelectorAll('thead th[scope="col"]').length).toBeGreaterThan(0);
     expect(deliveryView.querySelector('tbody th[scope="row"]')).not.toBeNull();
     expect(deliveryView.querySelector('.servora-operational-table__mobile')).not.toBeNull();
+    expect(deliveryView.querySelector('.servora-operational-table__mobile-caption')?.textContent)
+      .toContain('birim kırılımları birleştirilmez');
     expect(deliveryView.querySelectorAll('.servora-operational-table__field dt').length)
       .toBeGreaterThan(0);
 
