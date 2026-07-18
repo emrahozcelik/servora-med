@@ -2,7 +2,7 @@
 
 Status: Approved
 Scope: Architecture decision and phased implementation boundary
-Production impact: PR A and PR B are merged; PR C job detail lifecycle composition is implemented on its feature branch
+Production impact: PR A–C are merged; PR D feedback/overlays design is open on `feature/feedback-overlays`
 
 ## Decision
 
@@ -87,9 +87,9 @@ Planned future adapter surface, introduced only by its owning PR:
       ResultState.tsx
       OperationalTable.tsx
 
-The PR C adapters are render-only: they receive presentation data and do not call APIs, calculate permissions or readiness, create command intents, or translate domain status. Overlay and feedback migration remains owned by PR D; PR C preserves the existing accessible confirmation and revision-reason dialogs.
+The PR C adapters are render-only: they receive presentation data and do not call APIs, calculate permissions or readiness, create command intents, or translate domain status. Overlay and feedback migration is owned by PR D; see `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`.
 
-The remaining planned names are architectural targets, not files created by the completed foundation or job detail slices.
+PR D planned adapter names become real files only when that PR implements them; until then they remain architectural targets.
 
 ## Component decision matrix
 
