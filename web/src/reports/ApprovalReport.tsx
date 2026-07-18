@@ -3,11 +3,16 @@ import { Link, useSearchParams } from 'react-router-dom';
 
 import { jobTypeLabels } from '../jobs/job-labels';
 import { paths } from '../paths';
+import {
+  OperationalTable,
+  type OperationalTableColumn,
+  type OperationalTableRow,
+} from '../ui/OperationalTable';
 import { SegmentedDistributionBar } from './report-charts';
 import { formatRefreshTime, formatWaitingDuration } from './report-range';
 import { getApprovalReport } from './reports-api';
 import { approvalSearch, readApprovalSearch } from './report-search';
-import type { ApprovalReportResponse } from './report-types';
+import type { ApprovalItem, ApprovalReportResponse } from './report-types';
 import {
   ReportEmptyState,
   ReportErrorState,
@@ -16,6 +21,36 @@ import {
 } from './report-shell';
 
 const duration = formatWaitingDuration;
+
+const APPROVAL_QUEUE_CAPTION = 'Onay kuyruğundaki işler';
+
+const APPROVAL_COLUMNS: readonly OperationalTableColumn[] = [
+  { key: 'type', title: 'Tür' },
+  { key: 'title', title: 'İş' },
+  { key: 'assignee', title: 'Personel' },
+  { key: 'customer', title: 'Müşteri' },
+  { key: 'waiting', title: 'Bekleme süresi' },
+];
+
+function approvalQueueRows(items: readonly ApprovalItem[]): OperationalTableRow[] {
+  return items.map((item) => ({
+    key: item.id,
+    cells: {
+      type: jobTypeLabels[item.type],
+      title: (
+        <Link
+          to={paths.job(item.id)}
+          aria-label={`${item.title} işini aç`}
+        >
+          {item.title}
+        </Link>
+      ),
+      assignee: item.assignee.name,
+      customer: item.customer?.name ?? '—',
+      waiting: duration(item.waitingMinutes),
+    },
+  }));
+}
 
 export function ApprovalReportView({ report }: { report: ApprovalReportResponse }) {
   const values = [
@@ -47,20 +82,12 @@ export function ApprovalReportView({ report }: { report: ApprovalReportResponse 
       {report.items.length === 0
         ? <ReportEmptyState title="Onay bekleyen iş bulunmuyor." description="Onay kuyruğu şu an boş." />
         : (
-          <ul className="approval-list">
-            {report.items.map((item) => (
-              <li key={item.id}>
-                <div>
-                  <span>{jobTypeLabels[item.type]}</span>
-                  <h2>
-                    <Link to={paths.job(item.id)}>{item.title}</Link>
-                  </h2>
-                  <p>{item.assignee.name}{item.customer ? ` · ${item.customer.name}` : ''}</p>
-                </div>
-                <strong>{duration(item.waitingMinutes)}</strong>
-              </li>
-            ))}
-          </ul>
+          <OperationalTable
+            caption={APPROVAL_QUEUE_CAPTION}
+            columns={APPROVAL_COLUMNS}
+            rows={approvalQueueRows(report.items)}
+            rowHeaderKey="title"
+          />
         )}
     </>
   );

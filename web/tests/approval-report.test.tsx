@@ -16,21 +16,54 @@ const report: ApprovalReportResponse = {
   total: 2, limit: 50, offset: 0,
 };
 
+const reportWithCustomer: ApprovalReportResponse = {
+  ...report,
+  items: [{
+    ...report.items[0]!,
+    customer: { id: 'c1', name: 'DentArt Klinik' },
+  }],
+};
+
 describe('Approval report presentation', () => {
-  it('renders the whole-queue summary and canonical JobCard projection', () => {
+  it('renders summary, SLA segments, and OperationalTable queue rows', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter><ApprovalReportView report={report} /></MemoryRouter>,
     );
     for (const label of ['2 saatten kısa', '2–8 saat', '8–24 saat', '24 saatten uzun']) {
       expect(html).toContain(label);
     }
+    expect(html).toContain('data-servora-operational-table="true"');
+    expect(html).toContain('<caption>Onay kuyruğundaki işler</caption>');
+    expect(html).not.toContain('sunucu özetinden gelir');
+    expect(html).toContain('servora-operational-table__mobile-caption');
+    for (const heading of ['Tür', 'İş', 'Personel', 'Müşteri', 'Bekleme süresi']) {
+      expect(html).toContain(`>${heading}</th>`);
+      expect(html).toContain(`<dt>${heading}</dt>`);
+    }
     expect(html).toContain('Genel görev');
     expect(html).toContain('Klinik ziyareti');
     expect(html).toContain('href="/jobs/job-1"');
+    expect(html).toContain('aria-label="Klinik ziyareti işini aç"');
+    expect(html).toMatch(
+      /<th[^>]*scope="row"[^>]*><a[^>]*aria-label="Klinik ziyareti işini aç"/,
+    );
+    expect(html).toContain('Ayşe');
+    expect(html).toMatch(/<td>—<\/td>/);
     expect(html).toContain('25 saat');
+    // Duration and title appear on both desktop and mobile surfaces.
+    expect((html.match(/Klinik ziyareti/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect((html.match(/25 saat/g) ?? []).length).toBeGreaterThanOrEqual(2);
+    expect(html).not.toContain('approval-list');
   });
 
-  it('renders an explanatory empty queue', () => {
+  it('preserves customer name when present on the queue row', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter><ApprovalReportView report={reportWithCustomer} /></MemoryRouter>,
+    );
+    expect(html).toContain('DentArt Klinik');
+  });
+
+  it('renders an explanatory empty queue without a table', () => {
     const html = renderToStaticMarkup(
       <MemoryRouter><ApprovalReportView report={{ ...report,
         summary: { pendingCount: 0, oldestWaitingMinutes: null, averageWaitingMinutes: null,
@@ -38,5 +71,6 @@ describe('Approval report presentation', () => {
         items: [], total: 0 }} /></MemoryRouter>,
     );
     expect(html).toContain('Onay bekleyen iş bulunmuyor.');
+    expect(html).not.toContain('data-servora-operational-table="true"');
   });
 });

@@ -282,13 +282,34 @@ Work below is **out of the mandatory A–F chain**. Each item needs its own desi
 
 | ID | Slice | Class |
 | --- | --- | --- |
-| PR G | This docs closeout | Docs-only (in progress / this PR) |
-| PR H | Approval report → `OperationalTable` | Optional runtime (recommended next) |
+| PR G | UI plan closeout | Docs-only — merged via PR #25 |
+| PR H | Approval report → `OperationalTable` | Optional runtime — complete on `feature/approval-operational-table`; awaiting review |
 | PR I | Staff report → `OperationalTable` | Optional runtime (after H) |
+
+### PR H: Approval report → `OperationalTable`
+
+Implementation status: Complete on `feature/approval-operational-table`; awaiting review.
+
+Completion checklist:
+
+- [x] Approval queue dense list migrated to the existing Servora-native `OperationalTable`
+- [x] summary, SLA distribution, API contract, URL pagination, loading, error, retry, and empty behavior unchanged
+- [x] type, job title, assignee, customer, and waiting duration preserved across desktop and mobile surfaces
+- [x] JobCard title is the desktop row header and its link has a specific accessible name
+- [x] real Approval view uses mobile cards at and below `720px`, desktop table above `720px`, and does not overflow
+- [x] Staff report, KPI redesign, charts, backend formulas, API, and export remain out of scope
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 64 files and 587 tests passed
+- `cd web && npm run build`: passed; emitted JS was 831.88 kB raw and 246.67 kB gzip, and CSS was 64.30 kB raw and 11.30 kB gzip, with the existing 500 kB chunk warning
+- `cd web && npm run smoke:responsive`: 390, 720, 768, 1024, 1440, 200% text, and 400% reflow checks passed; Approval desktop/mobile field parity, title row header, accessible row link, exact `720px` switch, and no overflow were verified from the real view
+- `cd server && npm run build`: passed
+- `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped
 
 ### Optional (implementation when prioritised)
 
-- Approval dense table → `OperationalTable` (720px mobile card parity; no KPI/chart/API change)
+- Approval queue list → `OperationalTable` (720px mobile card parity; summary + SLA chart unchanged; no API change) — **PR H**
 - Staff dense table → `OperationalTable` (after Approval)
 - `ResultState` / shared Empty / Skeleton adapters
 - Popconfirm for proven low-risk, short confirmations only

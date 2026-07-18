@@ -74,6 +74,22 @@ describe('OperationalTable', () => {
     expect(html).toContain('servora-operational-table__mobile-caption');
   });
 
+  it('uses an explicit feature-owned column as the desktop row header', () => {
+    const html = renderToStaticMarkup(
+      <OperationalTable
+        caption="Teslim miktarları"
+        columns={[...columns]}
+        rows={rows}
+        rowHeaderKey="sku"
+      />,
+    );
+
+    expect(html).toMatch(
+      /<th[^>]*scope="row"[^>]*>DENTAL-IMPLANT-SUPER-LONG-SKU-2026-000123<\/th>/,
+    );
+    expect(html).toMatch(/<td>Uzun ürün adı<\/td>/);
+  });
+
   it('exposes caption as a visible text node on the mobile surface', () => {
     const html = renderToStaticMarkup(
       <OperationalTable
