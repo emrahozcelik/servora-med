@@ -9,7 +9,12 @@ import {
   type RefObject,
 } from 'react';
 
-import { restoreFocus, trapTabKey } from './overlay-focus';
+import {
+  ensureFocusInsideOverlay,
+  focusOverlay,
+  restoreFocus,
+  trapTabKey,
+} from './overlay-focus';
 
 export type ReasonDialogProps = {
   open: boolean;
@@ -53,6 +58,7 @@ export function ReasonDialog({
   const reasonId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
+  const reasonRef = useRef<HTMLTextAreaElement>(null);
   const openerRef = useRef<HTMLElement | null>(null);
   const [reason, setReason] = useState('');
   const [error, setError] = useState('');
@@ -67,11 +73,11 @@ export function ReasonDialog({
     setError('');
     openerRef.current = returnFocusRef?.current
       ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-    cancelRef.current?.focus();
+    focusOverlay(dialogRef.current, cancelRef.current);
 
     function keepFocusInside(event: FocusEvent) {
       if (dialogRef.current?.contains(event.target as Node)) return;
-      (cancelRef.current ?? dialogRef.current)?.focus();
+      focusOverlay(dialogRef.current, cancelRef.current);
     }
     document.addEventListener('focusin', keepFocusInside);
     return () => {
@@ -79,6 +85,11 @@ export function ReasonDialog({
       restoreFocus(returnFocusRef, openerRef.current);
     };
   }, [open, returnFocusRef]);
+
+  useEffect(() => {
+    if (!open || !pending) return;
+    ensureFocusInsideOverlay(dialogRef.current, cancelRef.current);
+  }, [open, pending]);
 
   if (!open) return null;
 
@@ -103,6 +114,7 @@ export function ReasonDialog({
       const normalized = reason.trim();
       if (!normalized) {
         setError('Neden alanı zorunludur.');
+        requestAnimationFrame(() => reasonRef.current?.focus());
         return;
       }
       onConfirm(normalized);
@@ -111,7 +123,8 @@ export function ReasonDialog({
     onConfirm(reason.trim());
   }
 
-  const confirmDisabled = pending || (required && !reason.trim());
+  // Only pending locks the confirm button; empty reason is validated on submit.
+  const confirmDisabled = pending;
 
   return (
     <div className="dialog-backdrop product-dialog-backdrop">
@@ -130,6 +143,7 @@ export function ReasonDialog({
           <div className="field-group">
             <label htmlFor={reasonId}>{reasonLabel}</label>
             <textarea
+              ref={reasonRef}
               id={reasonId}
               rows={4}
               maxLength={maxLength}

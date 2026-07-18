@@ -48,3 +48,33 @@ export function restoreFocus(
   const target = returnFocusRef?.current ?? fallback ?? null;
   queueMicrotask(() => target?.focus());
 }
+
+/** Focus preferred control when enabled; otherwise keep focus on the dialog root. */
+export function focusOverlay(
+  dialog: HTMLElement | null,
+  preferred: HTMLButtonElement | null | undefined,
+): void {
+  if (preferred && !preferred.disabled) {
+    preferred.focus();
+    return;
+  }
+  dialog?.focus();
+}
+
+/** When pending disables controls, ensure active focus stays inside the dialog. */
+export function ensureFocusInsideOverlay(
+  dialog: HTMLElement | null,
+  preferred?: HTMLButtonElement | null,
+): void {
+  const active = document.activeElement;
+  if (
+    active instanceof HTMLElement
+    && dialog?.contains(active)
+    && !(active instanceof HTMLButtonElement && active.disabled)
+    && !(active instanceof HTMLTextAreaElement && active.disabled)
+    && !(active instanceof HTMLInputElement && active.disabled)
+  ) {
+    return;
+  }
+  focusOverlay(dialog, preferred ?? null);
+}

@@ -7,7 +7,12 @@ import {
   type KeyboardEvent,
 } from 'react';
 
-import { restoreFocus, trapTabKey } from './overlay-focus';
+import {
+  ensureFocusInsideOverlay,
+  focusOverlay,
+  restoreFocus,
+  trapTabKey,
+} from './overlay-focus';
 
 export type ConfirmationActionProps = {
   open: boolean;
@@ -52,11 +57,11 @@ export function ConfirmationAction({
     if (!open) return;
     openerRef.current = returnFocusRef?.current
       ?? (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-    cancelRef.current?.focus();
+    focusOverlay(dialogRef.current, cancelRef.current);
 
     function keepFocusInside(event: FocusEvent) {
       if (dialogRef.current?.contains(event.target as Node)) return;
-      (cancelRef.current ?? dialogRef.current)?.focus();
+      focusOverlay(dialogRef.current, cancelRef.current);
     }
     document.addEventListener('focusin', keepFocusInside);
     return () => {
@@ -64,6 +69,11 @@ export function ConfirmationAction({
       restoreFocus(returnFocusRef, openerRef.current);
     };
   }, [open, returnFocusRef]);
+
+  useEffect(() => {
+    if (!open || !pending) return;
+    ensureFocusInsideOverlay(dialogRef.current, cancelRef.current);
+  }, [open, pending]);
 
   if (!open) return null;
 
