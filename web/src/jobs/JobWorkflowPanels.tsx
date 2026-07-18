@@ -1,8 +1,7 @@
 import type { ReactNode } from 'react';
 
-import { jobStatusLabels } from './job-labels';
 import type { JobWorkflowPresentation } from './job-workflow-presentation';
-import type { JobLifecycleFacts, SubmissionRequirement } from './jobs-api';
+import type { SubmissionRequirement } from './jobs-api';
 
 const REQUIREMENT_STATE_TEXT: Record<SubmissionRequirement['state'], string> = {
   met: 'Tamam',
@@ -96,37 +95,59 @@ export function RevisionLoopPanel(props: {
         <span className="revision-loop-reason-label">Düzeltme nedeni</span>
         <span>{loop.reason?.trim() ? loop.reason : 'Bilgi kaydedilmemiş'}</span>
       </p>
+      <dl className="revision-loop-facts">
+        <div><dt>Düzeltme isteyen</dt><dd>{loop.actorName ?? 'Bilgi kaydedilmemiş'}</dd></div>
+        <div><dt>İstek zamanı</dt><dd>{loop.at
+          ? <time dateTime={loop.at}>{formatInstant(loop.at)}</time>
+          : 'Bilgi kaydedilmemiş'}</dd></div>
+      </dl>
     </section>
   );
 }
 
-export function CancelledJobBanner(props: {
-  lifecycle: JobLifecycleFacts;
+export function TerminalJobBanner(props: {
+  details: NonNullable<JobWorkflowPresentation['terminalDetails']>;
 }): ReactNode {
-  const { lifecycle } = props;
-  const source = lifecycle.cancelledFromStatus
-    ? jobStatusLabels[lifecycle.cancelledFromStatus]
-    : 'Bilgi kaydedilmemiş';
+  const { details } = props;
+  if (details.kind === 'COMPLETED') {
+    return <section
+      className="completed-job-banner surface"
+      role="status"
+      aria-labelledby="completed-job-title"
+      data-terminal-state="COMPLETED"
+    >
+      <h2 id="completed-job-title">Tamamlandı</h2>
+      <p>İş yönetici kontrolünden geçerek tamamlandı.</p>
+      <dl className="completed-job-facts">
+        <div><dt>Kontrolü tamamlayan</dt><dd>{details.actorName ?? 'Bilgi kaydedilmemiş'}</dd></div>
+        <div><dt>Tamamlanma zamanı</dt><dd>{details.at
+          ? <time dateTime={details.at}>{formatInstant(details.at)}</time>
+          : 'Bilgi kaydedilmemiş'}</dd></div>
+      </dl>
+    </section>;
+  }
+
   return (
-    <section className="cancelled-job-banner surface" role="status" aria-labelledby="cancelled-job-title">
+    <section className="cancelled-job-banner surface" role="status" aria-labelledby="cancelled-job-title"
+      data-terminal-state="CANCELLED">
       <h2 id="cancelled-job-title">İptal edildi</h2>
       <p>İş iptal edildi ve yeniden açılamaz.</p>
       <dl className="cancelled-job-facts">
         <div>
           <dt>İptal öncesi aşama</dt>
-          <dd>{source}</dd>
+          <dd>{details.sourceLabel ?? 'Bilgi kaydedilmemiş'}</dd>
         </div>
         <div>
           <dt>İptal eden</dt>
-          <dd>{lifecycle.cancelledBy?.name?.trim() ? lifecycle.cancelledBy.name : 'Bilgi kaydedilmemiş'}</dd>
+          <dd>{details.actorName ?? 'Bilgi kaydedilmemiş'}</dd>
         </div>
         <div>
           <dt>İptal zamanı</dt>
-          <dd>{formatInstant(lifecycle.cancelledAt)}</dd>
+          <dd>{details.at ? <time dateTime={details.at}>{formatInstant(details.at)}</time> : 'Bilgi kaydedilmemiş'}</dd>
         </div>
         <div className="cancelled-job-reason">
           <dt>İptal nedeni</dt>
-          <dd>{lifecycle.cancelReason?.trim() ? lifecycle.cancelReason : 'Bilgi kaydedilmemiş'}</dd>
+          <dd>{details.reason ?? 'Bilgi kaydedilmemiş'}</dd>
         </div>
       </dl>
     </section>

@@ -24,12 +24,13 @@ import {
   localDateTimeToIso,
 } from './jobs/scheduling';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
+import { JobDecisionPanel } from './jobs/JobDecisionPanel';
 import { JobLifecycleSteps } from './jobs/JobLifecycleSteps';
 import {
-  CancelledJobBanner,
   CurrentResponsibilityPanel,
   RequirementsChecklist,
   RevisionLoopPanel,
+  TerminalJobBanner,
 } from './jobs/JobWorkflowPanels';
 import {
   JobWorkflowDialog,
@@ -303,76 +304,6 @@ function JobScheduleEditForm({
   );
 }
 
-function ActionGroup(props: {
-  presentation: JobWorkflowPresentation;
-  job: JobCard;
-  pending: boolean;
-  onCommand: (command: LifecycleCommand) => void;
-  onRecordEdit?: (action: RecordEditPresentation['action']) => void;
-}): ReactNode {
-  const { presentation, job, pending, onCommand, onRecordEdit } = props;
-  const hasTransitions = presentation.primaryTransition !== null
-    || presentation.secondaryTransitions.length > 0
-    || (job.type === 'SALES_MEETING' && presentation.recordEditAction !== null);
-  if (!hasTransitions) return null;
-
-  return (
-    <section className="detail-action surface-flat" aria-label="İş işlemleri">
-      {presentation.primaryTransition?.consequence && (
-        <p>{presentation.primaryTransition.consequence}</p>
-      )}
-      <div className="review-buttons">
-        {presentation.primaryTransition && (
-          <button
-            key={presentation.primaryTransition.command}
-            className="primary-button compact-button"
-            type="button"
-            disabled={pending}
-            onClick={() => onCommand(presentation.primaryTransition!.command)}
-          >
-            {pending ? 'İşleniyor…' : presentation.primaryTransition.label}
-          </button>
-        )}
-        {job.type === 'SALES_MEETING'
-          && presentation.recordEditAction?.action === 'WITHDRAW_AND_EDIT_JOB_FIELDS'
-          && (
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={pending}
-              onClick={() => onRecordEdit?.(presentation.recordEditAction!.action)}
-            >
-              {pending ? 'İşleniyor…' : presentation.recordEditAction.label}
-            </button>
-          )}
-        {job.type === 'SALES_MEETING'
-          && presentation.recordEditAction?.action === 'EDIT_JOB_FIELDS'
-          && (
-            <button
-              className="secondary-button"
-              type="button"
-              disabled={pending}
-              onClick={() => onRecordEdit?.(presentation.recordEditAction!.action)}
-            >
-              {pending ? 'İşleniyor…' : presentation.recordEditAction.label}
-            </button>
-          )}
-        {presentation.secondaryTransitions.map((transition) => (
-          <button
-            key={transition.command}
-            className="secondary-button"
-            type="button"
-            disabled={pending}
-            onClick={() => onCommand(transition.command)}
-          >
-            {pending ? 'İşleniyor…' : transition.label}
-          </button>
-        ))}
-      </div>
-    </section>
-  );
-}
-
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
@@ -386,8 +317,10 @@ export function JobDetailPanel({
   messageIsError?: boolean;
   feedbackRef?: Ref<HTMLDivElement>;
   onBack: () => void;
-  onCommand: (command: LifecycleCommand) => void;
-  onRecordEdit?: (action: RecordEditPresentation['action']) => void;
+  onCommand: (command: LifecycleCommand, trigger: HTMLButtonElement) => void;
+  onRecordEdit?: (
+    action: RecordEditPresentation['action'], trigger: HTMLButtonElement,
+  ) => void;
   onSaveSchedule?: (scheduledAt: string | null) => Promise<void> | void;
   onSaveDeliveredAt?: (itemId: string, deliveredAt: string) => Promise<void>;
   meetingDetails?: MeetingDetails | null;
@@ -434,11 +367,9 @@ export function JobDetailPanel({
 
     <JobLifecycleSteps phaseItems={presentation.phaseItems} currentPhase={presentation.currentPhase} />
 
-    {presentation.terminalState === 'CANCELLED' && (
-      <CancelledJobBanner lifecycle={job.workflowContext.lifecycle} />
-    )}
+    {presentation.terminalDetails && <TerminalJobBanner details={presentation.terminalDetails} />}
     {presentation.revisionLoop && <RevisionLoopPanel loop={presentation.revisionLoop} />}
-    {!managementReview && presentation.terminalState !== 'CANCELLED' && (
+    {!managementReview && presentation.terminalState === null && (
       <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
     )}
     <RequirementsChecklist requirements={presentation.requirements} />
@@ -495,9 +426,10 @@ export function JobDetailPanel({
 
     {records}
 
-    <ActionGroup
-      presentation={presentation}
-      job={job}
+    <JobDecisionPanel
+      primary={presentation.primaryTransition}
+      secondary={presentation.secondaryTransitions}
+      recordEditAction={presentation.recordEditAction}
       pending={pending}
       onCommand={onCommand}
       onRecordEdit={onRecordEdit}
@@ -950,9 +882,9 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     feedbackRef={feedbackRef}
     onBack={onBack}
     meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
-    onCommand={(name) => command(name, document.activeElement as HTMLElement)}
-    onRecordEdit={(action) => {
-      openRecordEditDialog(action, document.activeElement as HTMLElement);
+    onCommand={(name, trigger) => command(name, trigger)}
+    onRecordEdit={(action, trigger) => {
+      openRecordEditDialog(action, trigger);
     }}
     onSaveSchedule={saveSchedule}
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}

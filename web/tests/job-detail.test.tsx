@@ -156,6 +156,7 @@ function revisionRequestedJob(opts: { revisionReason: string }): JobCard {
       acceptedBy: { id: 's1', name: 'Ayşe Personel' },
       submittedAt: '2026-07-17T10:00:00.000Z',
       revisionRequestedAt: '2026-07-17T11:00:00.000Z',
+      revisionRequestedBy: { id: 'm1', name: 'Mehmet Yönetici' },
       revisionReason: opts.revisionReason,
     }),
   };
@@ -292,6 +293,8 @@ describe('Staff JobCard detail', () => {
     expect(Array.from(host.querySelectorAll('h2'))
       .some((el) => el.textContent === 'Düzeltme gerekiyor')).toBe(true);
     expect(host.textContent).toContain('Miktarı düzeltin');
+    expect(host.textContent).toContain('Mehmet Yönetici');
+    expect(host.querySelector('time[datetime="2026-07-17T11:00:00.000Z"]')).not.toBeNull();
     expect(buttonByName(host, 'Düzeltmeye başla')).not.toBeNull();
     expect(buttonByName(host, 'Yeniden kontrole gönder')).toBeNull();
     expect(buttonByName(host, 'Kontrole gönder')).toBeNull();
@@ -468,6 +471,24 @@ describe('Staff JobCard detail', () => {
     });
     // source, actor, time, reason — all missing → no invented history
     expect(host.textContent?.match(/Bilgi kaydedilmemiş/g)?.length ?? 0).toBeGreaterThanOrEqual(3);
+  });
+
+  it('renders completed approval facts without active requirements or actions', async () => {
+    const completed: JobCard = {
+      ...job,
+      status: 'COMPLETED',
+      workflowContext: staffContext('COMPLETED', {
+        submittedAt: '2026-07-17T10:00:00.000Z',
+        approvedAt: '2026-07-17T11:00:00.000Z',
+        approvedBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      }, { allowedCommands: [], allowedActions: ['VIEW_NOTES'], submissionReadiness: null }),
+    };
+    await renderDetail(completed);
+    expect(host.querySelector('[data-terminal-state="COMPLETED"]')).not.toBeNull();
+    expect(host.textContent).toContain('Mehmet Yönetici');
+    expect(host.querySelector('time[datetime="2026-07-17T11:00:00.000Z"]')).not.toBeNull();
+    expect(host.querySelector('.workflow-requirements')).toBeNull();
+    expect(host.querySelector('.detail-action')).toBeNull();
   });
 
   it('hides Staff primary lifecycle actions when the viewer is not the assignee', async () => {

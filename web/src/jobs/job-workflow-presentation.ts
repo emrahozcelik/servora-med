@@ -43,6 +43,8 @@ export type JobWorkflowPresentation = {
     returnedFrom: 'REVIEW';
     returnedTo: 'EXECUTION';
     reason: string | null;
+    actorName: string | null;
+    at: string | null;
   } | null;
   responsibility: {
     role: ExpectedRole;
@@ -59,6 +61,13 @@ export type JobWorkflowPresentation = {
   primaryTransition: TransitionPresentation | null;
   secondaryTransitions: TransitionPresentation[];
   terminalState: 'COMPLETED' | 'CANCELLED' | null;
+  terminalDetails:
+    | { kind: 'COMPLETED'; actorName: string | null; at: string | null }
+    | {
+      kind: 'CANCELLED'; actorName: string | null; at: string | null; reason: string | null;
+      sourceStatus: JobCardStatus | null; sourceLabel: string | null;
+    }
+    | null;
 };
 
 export type CompactWorkflowSummary = {
@@ -546,6 +555,26 @@ export function deriveJobWorkflowPresentation(
   let terminalState: JobWorkflowPresentation['terminalState'] = null;
   if (job.status === 'COMPLETED') terminalState = 'COMPLETED';
   if (job.status === 'CANCELLED') terminalState = 'CANCELLED';
+  let terminalDetails: JobWorkflowPresentation['terminalDetails'] = null;
+  if (job.status === 'COMPLETED') {
+    terminalDetails = {
+      kind: 'COMPLETED',
+      actorName: lifecycle.approvedBy?.name?.trim() || null,
+      at: lifecycle.approvedAt,
+    };
+  }
+  if (job.status === 'CANCELLED') {
+    terminalDetails = {
+      kind: 'CANCELLED',
+      actorName: lifecycle.cancelledBy?.name?.trim() || null,
+      at: lifecycle.cancelledAt,
+      reason: lifecycle.cancelReason?.trim() || null,
+      sourceStatus: lifecycle.cancelledFromStatus,
+      sourceLabel: lifecycle.cancelledFromStatus
+        ? jobStatusLabels[lifecycle.cancelledFromStatus]
+        : null,
+    };
+  }
 
   const responsibility = responsibilityFor(job.status, expectedRole, user, lifecycle);
   if (primaryTransition) {
@@ -561,6 +590,8 @@ export function deriveJobWorkflowPresentation(
         returnedFrom: 'REVIEW',
         returnedTo: 'EXECUTION',
         reason: lifecycle.revisionReason,
+        actorName: lifecycle.revisionRequestedBy?.name?.trim() || null,
+        at: lifecycle.revisionRequestedAt,
       }
       : null,
     responsibility,
@@ -570,6 +601,7 @@ export function deriveJobWorkflowPresentation(
     primaryTransition,
     secondaryTransitions,
     terminalState,
+    terminalDetails,
   };
 }
 
