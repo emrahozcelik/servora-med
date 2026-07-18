@@ -1,7 +1,7 @@
 # Servora UI Implementation Plan
 
-Status: Approved sequence; PR A–D merged; PR E design opened on feature branch
-Current phase: PR E - Reporting surfaces
+Status: Approved sequence; PR A–E merged; PR F design opened on feature branch
+Current phase: PR F - Report charts
 
 ## Entry gate
 
@@ -206,7 +206,7 @@ Verification record (18 July 2026):
 
 ## PR E: Reporting surfaces
 
-Implementation status: Implementing on `feature/reporting-surfaces` (Delivery-only, table-first).
+Implementation status: Merged through PR #23 at `9f2fb8984ce8104f05dd3592688ea8fa3630b106`.
 
 Design: `docs/superpowers/specs/2026-07-18-reporting-surfaces-design.md`
 Plan: `docs/superpowers/plans/2026-07-18-reporting-surfaces.md`
@@ -249,15 +249,29 @@ Verification record (18 July 2026):
 
 ## PR F: Charts
 
-Separate dependency and architecture decision.
+Implementation status: Implementing on `feature/report-charts` (native harden only).
 
-Candidate first charts:
+Design: `docs/superpowers/specs/2026-07-18-report-charts-design.md`
+Plan: `docs/superpowers/plans/2026-07-18-report-charts.md`
 
-- completed jobs over time
-- job-type distribution
-- approval waiting duration
+Approved ship:
 
-No chart package is selected by this plan. Chart accessibility, data tables, empty states, and color-independent series identification are required before adoption.
+- No chart package
+- Harden existing three families only
+- Job-type distribution deferred (no DTO series)
+- Keep components in `web/src/reports/report-charts.tsx`
+
+Completion checklist:
+
+- [x] chart a11y/empty/color contracts tested for shipped surfaces
+- [x] no chart dependency added
+- [x] existing dashboard/approval tests still pass
+- [x] package decision recorded: native keep
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 64 files and 585 tests passed
+- `cd web && npm run build`: passed
 
 ## Deferred
 

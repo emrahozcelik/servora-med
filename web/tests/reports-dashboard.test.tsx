@@ -62,9 +62,12 @@ describe('Reports dashboard presentation', () => {
     expect(html).not.toContain('pasta diyagramı');
   });
 
-  it('renders trend as the main visual with an accessible calendar disclosure', () => {
+  it('pairs decorative TrendBars with visible summary and accessible calendar disclosure', () => {
     const html = render(<ReportsDashboardView report={report} approval={approval} />);
-    expect(html).toContain('report-trend-bars');
+    expect(html).toContain('data-report-trend-section="true"');
+    expect(html).toContain('data-report-trend-summary="true"');
+    expect(html).toContain('Toplam 2 tamamlanma');
+    expect(html).toContain('data-report-trend-bars="true"');
     expect(html).toContain('aria-hidden="true"');
     expect(html).toContain('Tamamlanan işler');
     expect(html).toContain('report-calendar-table');
@@ -72,6 +75,21 @@ describe('Reports dashboard presentation', () => {
     expect(html).toContain('Pzt');
     expect(html).toContain('1 Tem 2026: 2 tamamlanan iş');
     expect(html).toContain('2 Tem 2026: 0 tamamlanan iş');
+    // Independent meters remain label+value, not a 100% partition visual alone.
+    expect(html).toContain('data-report-meters="true"');
+    expect(html).toContain('Onay bekleyen');
+  });
+
+  it('states empty completion trend without relying on decorative bars', () => {
+    const emptyTrend: DashboardReportResponse = {
+      ...report,
+      completedTrend: [],
+      counters: { ...report.counters, completedInPeriod: 0 },
+    };
+    const html = render(<ReportsDashboardView report={emptyTrend} approval={approval} />);
+    expect(html).toContain('Seçilen dönemde tamamlanma yok.');
+    expect(html).not.toContain('data-report-trend-bars="true"');
+    expect(html).toContain('Takvimde gösterilecek gün yok.');
   });
 
   it('shows mutually exclusive approval SLA buckets and attention actions', () => {

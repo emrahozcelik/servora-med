@@ -167,6 +167,7 @@ export function trendDensityClass(pointCount: number): 'density-normal' | 'densi
 
 /**
  * Decorative daily trend bars. Always pair with an accessible summary/table.
+ * Never conveys meaning alone (always aria-hidden).
  * Zero / single / max edge cases: min height for zero, scale to max count.
  */
 export function TrendBars({
@@ -183,6 +184,7 @@ export function TrendBars({
       className={`${className} ${className}--${density}`}
       data-density={density}
       data-point-count={points.length}
+      data-report-trend-bars="true"
       aria-hidden="true"
     >
       {points.map((point) => {
@@ -205,7 +207,8 @@ export function TrendBars({
 
 /**
  * Mutually exclusive bucket distribution (e.g. approval SLA).
- * Segments must not represent overlapping counts.
+ * Callers must pass non-overlapping segment counts; values are not a free-form pie of unrelated metrics.
+ * Color/swatch is never the only encoding — legend labels and numbers carry meaning.
  */
 export function SegmentedDistributionBar({
   segments,
@@ -216,7 +219,7 @@ export function SegmentedDistributionBar({
 }) {
   const total = segments.reduce((sum, segment) => sum + segment.value, 0);
   return (
-    <div className={className}>
+    <div className={className} data-report-segmented="true">
       <div className="report-segmented-track" aria-hidden="true">
         {total === 0
           ? <span className="report-segmented-empty" />
@@ -242,7 +245,7 @@ export function SegmentedDistributionBar({
           </li>
         ))}
       </ul>
-      <p className="report-chart-summary">
+      <p className="report-chart-summary" data-report-segmented-summary="true">
         {total === 0
           ? 'Dağılımda kayıt yok.'
           : `Toplam ${total} kayıt: ${segments.map((s) => `${s.label} ${s.value}`).join(', ')}.`}
@@ -254,6 +257,7 @@ export function SegmentedDistributionBar({
 /**
  * Independent horizontal meters — NOT a partition of 100%.
  * Each bar scales to the max among the provided values for visual comparison only.
+ * Meaning is carried by visible label + value; the track is decorative.
  */
 export function IndependentMeterBars({
   items,
@@ -262,9 +266,20 @@ export function IndependentMeterBars({
   items: readonly { key: string; label: string; value: number; tone?: 'primary' | 'warning' | 'danger' | 'muted' }[];
   className?: string;
 }) {
+  if (items.length === 0) {
+    return (
+      <p
+        className="report-chart-summary"
+        data-report-meters-empty="true"
+      >
+        Gösterilecek gösterge yok.
+      </p>
+    );
+  }
+
   const max = items.reduce((peak, item) => Math.max(peak, item.value), 0);
   return (
-    <ul className={className}>
+    <ul className={className} data-report-meters="true">
       {items.map((item) => {
         const ratio = max === 0 ? 0 : item.value / max;
         return (
