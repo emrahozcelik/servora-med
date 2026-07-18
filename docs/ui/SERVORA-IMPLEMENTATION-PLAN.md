@@ -282,13 +282,13 @@ Work below is **out of the mandatory A–F chain**. Each item needs its own desi
 
 | ID | Slice | Class |
 | --- | --- | --- |
-| PR G | This docs closeout | Docs-only (in progress / this PR) |
-| PR H | Approval report → `OperationalTable` | Optional runtime (recommended next) |
+| PR G | UI plan closeout | Docs-only — merged via PR #25 |
+| PR H | Approval report → `OperationalTable` | Optional runtime — in progress on `feature/approval-operational-table` |
 | PR I | Staff report → `OperationalTable` | Optional runtime (after H) |
 
 ### Optional (implementation when prioritised)
 
-- Approval dense table → `OperationalTable` (720px mobile card parity; no KPI/chart/API change)
+- Approval queue list → `OperationalTable` (720px mobile card parity; summary + SLA chart unchanged; no API change) — **PR H**
 - Staff dense table → `OperationalTable` (after Approval)
 - `ResultState` / shared Empty / Skeleton adapters
 - Popconfirm for proven low-risk, short confirmations only
