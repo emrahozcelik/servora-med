@@ -1,7 +1,10 @@
 # Servora UI Implementation Plan
 
-Status: Approved sequence; PR A–E merged; PR F design opened on feature branch
-Current phase: PR F - Report charts
+Status: **PR A–F merged** — mandatory UI implementation chain complete
+Current main (closeout record): `0d1ee816212da47b0932492899ba390978b07ffd`
+Current phase: **Post A–F backlog** (optional / deferred / product-decision work only)
+
+The original Ant Design foundation → shell → lifecycle → overlays → reporting table → charts sequence is finished. Remaining UI work is **not** part of that mandatory chain; it is classified under [Post A–F backlog](#post-af-backlog).
 
 ## Entry gate
 
@@ -249,7 +252,7 @@ Verification record (18 July 2026):
 
 ## PR F: Charts
 
-Implementation status: Implementing on `feature/report-charts` (native harden only).
+Implementation status: Merged through PR #24 at `0d1ee816212da47b0932492899ba390978b07ffd`.
 
 Design: `docs/superpowers/specs/2026-07-18-report-charts-design.md`
 Plan: `docs/superpowers/plans/2026-07-18-report-charts.md`
@@ -273,20 +276,44 @@ Verification record (18 July 2026):
 - `cd web && npm test -- --run`: 64 files and 585 tests passed
 - `cd web && npm run build`: passed
 
-## Deferred
+## Post A–F backlog
 
-Drag and drop:
+Work below is **out of the mandatory A–F chain**. Each item needs its own design gate when it starts. Suggested optional sequence after this closeout:
 
-- optional alternative input only
-- cannot bypass backend transitions
-- requires keyboard alternative
-- cannot silently approve or request revision
+| ID | Slice | Class |
+| --- | --- | --- |
+| PR G | This docs closeout | Docs-only (in progress / this PR) |
+| PR H | Approval report → `OperationalTable` | Optional runtime (recommended next) |
+| PR I | Staff report → `OperationalTable` | Optional runtime (after H) |
 
-Dark mode:
+### Optional (implementation when prioritised)
 
-- only after light theme completion
-- separate token set
-- contrast and chart validation
+- Approval dense table → `OperationalTable` (720px mobile card parity; no KPI/chart/API change)
+- Staff dense table → `OperationalTable` (after Approval)
+- `ResultState` / shared Empty / Skeleton adapters
+- Popconfirm for proven low-risk, short confirmations only
+- AppShell navigation drawer parity vs Ant Drawer (behavior tests first)
+- Responsive smoke chart fixtures (long meter labels, segmented legend, 366-point trend)
+- Bundle / code-split work for the Vite 500 kB chunk warning (measure; do not hide the limit)
+
+### Deferred (explicit product/design gate)
+
+- Drag and drop: optional alternative input only; cannot bypass backend transitions; keyboard alternative required; cannot silently approve or request revision
+- Dark mode: only after light theme completion; separate token set; contrast and chart validation
+- Job-type distribution chart: requires prepared dashboard DTO series + backend definition (not a presentation-only PR)
+- Chart library adoption: only if multi-series interactive needs prove native surfaces inadequate; exact pin + bundle measurement
+- Manager/Admin synthetic “Geciken” board lane: board API has no full overdue collection; keep overdue report / `dueBefore` filtering
+- Settings (`Ayarlar`) destination: not in production navigation model
+- Generic `ui/` extraction of report charts until cross-feature reuse is proven
+
+### Product decision (MVP / AGENTS out of scope unless explicitly requested)
+
+- Native mobile app
+- Full warehouse / accounting modules
+- e-invoice / e-archive / ERP integrations
+- SMS/WhatsApp, AI features, multi-tenant SaaS
+- User-defined Notion-style custom tables
+- Mandatory drag/drop Kanban as primary workflow
 
 ## Historical acceptance checklist for architecture/prototype PR #18
 
