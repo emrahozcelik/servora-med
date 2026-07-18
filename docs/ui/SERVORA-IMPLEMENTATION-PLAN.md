@@ -249,27 +249,29 @@ Verification record (18 July 2026):
 
 ## PR F: Charts
 
-Implementation status: Design and plan opened on `feature/report-charts` (not yet implemented).
+Implementation status: Implementing on `feature/report-charts` (native harden only).
 
 Design: `docs/superpowers/specs/2026-07-18-report-charts-design.md`
 Plan: `docs/superpowers/plans/2026-07-18-report-charts.md`
 
-Separate dependency and architecture decision. **Default recommendation: no new chart package**; harden existing Servora-native chart surfaces first.
+Approved ship:
 
-Candidate first charts:
-
-- completed jobs over time (`TrendBars` + `CompletedTrendCalendar`)
-- job-type distribution (only if DTO already exposes series)
-- approval waiting duration (`SegmentedDistributionBar`)
-
-Chart accessibility, data tables/summaries, empty states, and color-independent series identification are required before any package adoption.
+- No chart package
+- Harden existing three families only
+- Job-type distribution deferred (no DTO series)
+- Keep components in `web/src/reports/report-charts.tsx`
 
 Completion checklist:
 
-- [ ] chart a11y/empty/color contracts tested for shipped surfaces
-- [ ] no unapproved chart dependency
-- [ ] existing dashboard/approval tests still pass
-- [ ] package decision recorded (native keep vs exact-pinned library)
+- [x] chart a11y/empty/color contracts tested for shipped surfaces
+- [x] no chart dependency added
+- [x] existing dashboard/approval tests still pass
+- [x] package decision recorded: native keep
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 64 files and 585 tests passed
+- `cd web && npm run build`: passed
 
 ## Deferred
 

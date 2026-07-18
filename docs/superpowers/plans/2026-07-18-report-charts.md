@@ -1,55 +1,38 @@
 # PR F — Report charts implementation plan
 
-**Goal:** Formalize and harden Servora-native report chart contracts without a new package unless design reopens that gate.
+**Goal:** Harden native chart contracts only; no package; no job-type metric.
 
-**Design:** `docs/superpowers/specs/2026-07-18-report-charts-design.md`
-**Branch:** `feature/report-charts` from `main` after PR #23.
+**Branch:** `feature/report-charts`
 
----
+## Approved decisions
 
-### Task 0: Status bookkeeping
-
-- [x] Mark PR E merged via PR #23
-- [x] Set current phase to PR F
-- [x] Add design + plan
-- [ ] Resolve package / scope open questions before Task 2 code
+- [x] No chart package
+- [x] Harden existing three families only; job-type deferred
+- [x] Stay in `reports/report-charts.tsx`
 
 ---
 
-### Task 1: Inventory contracts (after design approval)
+### Task 1: Component contract tests
 
-- Map `report-charts.tsx` + dashboard/approval call sites
-- List empty, max=0, single-point, long-range (366 day) behaviors already tested
-- Identify missing a11y assertions (legend, calendar caption, summary pairing)
+- Empty / zero / single / 366-day for TrendBars density
+- Calendar caption, col scope, SR day text, empty input
+- Segmented legend + total + empty
+- Meters empty items + label/value + non-partition note in docs/comments
 
----
+### Task 2: Harden components
 
-### Task 2: Harden native charts (default path)
+- IndependentMeterBars empty state
+- TrendBars empty points safe render
+- Any small a11y/copy gaps
 
-- Strengthen tests for color-independent encoding and empty states
-- Fix any layout overflow for dense trends if found
-- Document pairing rule: decorative bars require table/summary nearby
+### Task 3: Call-site pairing tests
 
----
+- ReportsDashboardView: TrendBars aria-hidden + summary + calendar disclosure
+- Empty completedTrend explicit message
+- Approval/SLA uses segmented with legend values
 
-### Task 3: Optional job-type chart
+### Task 4: Verify and push
 
-- Only if design approves and DTO already provides series
-- Otherwise explicitly defer
-
----
-
-### Task 4: Package path (only if design rejects default)
-
-- Exact-pin candidate
-- Dual accessible data table for every chart
-- Bundle measurement recorded in plan
-
----
-
-### Task 5: Verify and draft PR
-
-- `cd web && npm test -- --run`
-- `cd web && npm run build`
-- smoke if layout-affecting
-- Keep draft until review
+- Full web tests + build
+- Update implementation plan verification
+- Push PR #24; keep draft until review

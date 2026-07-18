@@ -210,8 +210,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .report-calendar-count { display: block; margin-top: 0.2rem; font-size: 1.05rem; font-weight: 760; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 .report-meter-list { list-style: none; margin: 0 0 0.5rem; padding: 0; display: grid; gap: 0.75rem; }
-.report-meter-label { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.875rem; margin-bottom: 0.3rem; }
-.report-meter-label strong { font-variant-numeric: tabular-nums; }
+.report-meter-label { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.875rem; margin-bottom: 0.3rem; min-width: 0; }
+.report-meter-label span { min-width: 0; overflow-wrap: anywhere; }
+.report-meter-label strong { font-variant-numeric: tabular-nums; flex-shrink: 0; }
 .report-meter-track { height: 0.55rem; border-radius: 999px; background: var(--rule); overflow: hidden; }
 .report-meter-track span { display: block; height: 100%; border-radius: inherit; background: var(--accent); min-width: 0; }
 .report-meter--warning .report-meter-track span { background: oklch(68% 0.14 70deg); }

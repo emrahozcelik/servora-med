@@ -167,12 +167,16 @@ export function ReportsDashboardView({
         </section>
       ) : null}
 
-      <section className="report-section" aria-labelledby="trend-title">
+      <section className="report-section" aria-labelledby="trend-title" data-report-trend-section="true">
         <h2 id="trend-title">Tamamlanma eğilimi</h2>
-        <p className="report-chart-summary">
-          Seçilen dönemde günlük tamamlanan işler. Toplam {trendTotal} tamamlanma.
+        <p className="report-chart-summary" data-report-trend-summary="true">
+          {report.completedTrend.length === 0
+            ? 'Seçilen dönemde tamamlanma yok.'
+            : `Seçilen dönemde günlük tamamlanan işler. Toplam ${trendTotal} tamamlanma.`}
         </p>
-        <TrendBars points={report.completedTrend} />
+        {report.completedTrend.length > 0 ? (
+          <TrendBars points={report.completedTrend} />
+        ) : null}
         <details className="report-data-disclosure">
           <summary>Tamamlanan işler</summary>
           <CompletedTrendCalendar points={report.completedTrend} />
