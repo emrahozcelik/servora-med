@@ -3,10 +3,11 @@
 import { ConfigProvider, theme } from 'antd';
 import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { useContext } from 'react';
+import { act, useContext } from 'react';
+import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../src/App';
 import {
@@ -33,6 +34,56 @@ function FoundationProbe() {
     />
   );
 }
+
+function MotionProbe() {
+  const config = useContext(ConfigProvider.ConfigContext);
+
+  return <output data-motion={String(config.theme?.token?.motion)} />;
+}
+
+const originalMatchMedia = window.matchMedia;
+
+function installMatchMedia(initialMatches: boolean) {
+  let matches = initialMatches;
+  const listeners = new Set<(event: MediaQueryListEvent) => void>();
+  const addEventListener = vi.fn((_: string, listener: (event: MediaQueryListEvent) => void) => {
+    listeners.add(listener);
+  });
+  const removeEventListener = vi.fn((_: string, listener: (event: MediaQueryListEvent) => void) => {
+    listeners.delete(listener);
+  });
+  const mediaQuery = {
+    addEventListener,
+    addListener: vi.fn(),
+    dispatchEvent: vi.fn(() => true),
+    media: '(prefers-reduced-motion: reduce)',
+    onchange: null,
+    removeEventListener,
+    removeListener: vi.fn(),
+  } as unknown as MediaQueryList;
+
+  Object.defineProperty(mediaQuery, 'matches', { get: () => matches });
+  const matchMedia = vi.fn(() => mediaQuery);
+  Object.defineProperty(window, 'matchMedia', { configurable: true, value: matchMedia });
+
+  return {
+    addEventListener,
+    matchMedia,
+    removeEventListener,
+    setMatches(nextMatches: boolean) {
+      matches = nextMatches;
+      const event = { matches, media: mediaQuery.media } as MediaQueryListEvent;
+      listeners.forEach((listener) => listener(event));
+    },
+  };
+}
+
+afterEach(() => {
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    value: originalMatchMedia,
+  });
+});
 
 function channelToLinear(channel: number) {
   const normalized = channel / 255;
@@ -148,6 +199,82 @@ describe('Servora Ant Design foundation', () => {
     expect(reducedMotionTheme).not.toBe(servoraAntTheme);
     expect(reducedMotionTheme.token?.motion).toBe(false);
     expect(servoraAntTheme.token).toEqual(baseToken);
+  });
+
+  it('disables motion on the first render when the system preference requests it', () => {
+    const media = installMatchMedia(true);
+
+    const html = renderToStaticMarkup(
+      <ServoraAntProvider>
+        <MotionProbe />
+      </ServoraAntProvider>,
+    );
+
+    expect(media.matchMedia).toHaveBeenCalledWith('(prefers-reduced-motion: reduce)');
+    expect(html).toContain('data-motion="false"');
+  });
+
+  it('keeps motion enabled on the first render when the system preference allows it', () => {
+    installMatchMedia(false);
+
+    const html = renderToStaticMarkup(
+      <ServoraAntProvider>
+        <MotionProbe />
+      </ServoraAntProvider>,
+    );
+
+    expect(html).toContain('data-motion="true"');
+  });
+
+  it('updates the theme when the reduced-motion preference changes', async () => {
+    const media = installMatchMedia(false);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(
+        <ServoraAntProvider>
+          <MotionProbe />
+        </ServoraAntProvider>,
+      );
+    });
+    expect(host.querySelector('output')?.dataset.motion).toBe('true');
+
+    await act(async () => media.setMatches(true));
+    expect(host.querySelector('output')?.dataset.motion).toBe('false');
+
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  it('removes the reduced-motion listener when the provider unmounts', async () => {
+    const media = installMatchMedia(false);
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+
+    await act(async () => {
+      root.render(<ServoraAntProvider>content</ServoraAntProvider>);
+    });
+    const listener = media.addEventListener.mock.calls[0]?.[1];
+
+    await act(async () => root.unmount());
+
+    expect(media.removeEventListener).toHaveBeenCalledWith('change', listener);
+    host.remove();
+  });
+
+  it('falls back to motion-enabled rendering when matchMedia is unavailable', () => {
+    Object.defineProperty(window, 'matchMedia', { configurable: true, value: undefined });
+
+    const html = renderToStaticMarkup(
+      <ServoraAntProvider>
+        <MotionProbe />
+      </ServoraAntProvider>,
+    );
+
+    expect(html).toContain('data-motion="true"');
   });
 
   it('wires the owned provider around the existing application root', () => {

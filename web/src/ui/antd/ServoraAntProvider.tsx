@@ -8,8 +8,18 @@ export const SERVORA_ANT_PREFIX = 'servora-ant';
 
 const REDUCED_MOTION_QUERY = '(prefers-reduced-motion: reduce)';
 
+function readReducedMotionPreference() {
+  if (typeof window === 'undefined' || typeof window.matchMedia !== 'function') {
+    return false;
+  }
+
+  return window.matchMedia(REDUCED_MOTION_QUERY).matches;
+}
+
 function usePrefersReducedMotion() {
-  const [prefersReducedMotion, setPrefersReducedMotion] = useState(false);
+  const [prefersReducedMotion, setPrefersReducedMotion] = useState(
+    readReducedMotionPreference,
+  );
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') {
@@ -17,11 +27,13 @@ function usePrefersReducedMotion() {
     }
 
     const mediaQuery = window.matchMedia(REDUCED_MOTION_QUERY);
-    const syncPreference = () => setPrefersReducedMotion(mediaQuery.matches);
+    const handleChange = (event: MediaQueryListEvent) => {
+      setPrefersReducedMotion(event.matches);
+    };
 
-    syncPreference();
-    mediaQuery.addEventListener('change', syncPreference);
-    return () => mediaQuery.removeEventListener('change', syncPreference);
+    setPrefersReducedMotion(mediaQuery.matches);
+    mediaQuery.addEventListener('change', handleChange);
+    return () => mediaQuery.removeEventListener('change', handleChange);
   }, []);
 
   return prefersReducedMotion;

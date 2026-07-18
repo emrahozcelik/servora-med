@@ -232,12 +232,13 @@ Production implementation remained stopped after PR #18 until the user approved 
 
 Recorded on 18 July 2026 on the PR A feature branch:
 
-- `cd web && npm test -- --run`: 58 test files and 523 tests passed
+- `cd web && npm test -- --run`: 58 test files and 528 tests passed
 - `cd web && npm run build`: TypeScript and Vite production build passed
+- `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200 percent text, and 400 percent reflow checks passed
 - `cd server && npm run build`: passed with migrations copied
 - `cd server && npm test -- --run`: 911 tests passed and 29 environment-dependent tests skipped
 - production JS baseline: 496.93 kB raw and 135.04 kB gzip
-- production JS with the provider foundation: 758.15 kB raw and 224.65 kB gzip
-- measured Ant Design foundation delta: +261.22 kB raw and +89.61 kB gzip
+- production JS with the provider foundation: 758.27 kB raw and 224.68 kB gzip
+- measured Ant Design foundation delta: +261.34 kB raw and +89.64 kB gzip
 - Vite reports the resulting single application chunk above its 500 kB warning threshold; the warning is retained and recorded rather than hidden by increasing the limit
 - server, API, domain, shell, navigation, and feature-screen source files are unchanged
