@@ -98,6 +98,7 @@ describe('Staff operational report', () => {
     }));
     await act(async () => root.render(<StaffOperationalReportScreen onBack={() => {}} />));
     expect(container.textContent).toContain('Operasyon raporu yükleniyor');
+    expect(container.querySelector('[data-servora-loading-skeleton="true"]')).not.toBeNull();
     await act(async () => resolveReport(report));
     expect(getOwnStaffReport).toHaveBeenCalledWith(null);
     expect(container.textContent).toContain('12.500');
@@ -113,6 +114,7 @@ describe('Staff operational report', () => {
     await act(async () => { await Promise.resolve(); });
     expect(container.querySelector('[role="alert"]')?.textContent)
       .toContain('Personel profili bulunamadı.');
+    expect(container.querySelector('[data-servora-result-state="true"]')).not.toBeNull();
     const retry = Array.from(container.querySelectorAll('button'))
       .find((button) => button.textContent === 'Tekrar dene')!;
     await act(async () => retry.click());

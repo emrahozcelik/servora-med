@@ -284,7 +284,8 @@ Work below is **out of the mandatory A–F chain**. Each item needs its own desi
 | --- | --- | --- |
 | PR G | UI plan closeout | Docs-only — merged via PR #25 |
 | PR H | Approval report → `OperationalTable` | Optional runtime — merged via PR #26 |
-| PR I | Staff report → `OperationalTable` | Optional runtime — complete on `feature/staff-operational-table`; awaiting review |
+| PR I | Staff report → `OperationalTable` | Optional runtime — merged via PR #27 |
+| PR J | Shared Result / Empty / Skeleton adapters | Optional runtime — complete on `feature/shared-result-states`; awaiting review |
 
 ### PR H: Approval report → `OperationalTable`
 
@@ -309,7 +310,7 @@ Verification record (18 July 2026):
 
 ### PR I: Staff report → `OperationalTable`
 
-Implementation status: Complete on `feature/staff-operational-table`; awaiting review.
+Implementation status: Merged via PR #27 at `efeae5c`.
 
 Completion checklist:
 
@@ -330,11 +331,35 @@ Verification record (18 July 2026):
 - `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped
 - `cd server && npm audit --omit=dev`: passed with zero vulnerabilities
 
+### PR J: Shared Result / Empty / Skeleton adapters
+
+Implementation status: Complete on `feature/shared-result-states`; awaiting review.
+
+Completion checklist:
+
+- [x] owned `ResultState`, `EmptyState`, and `LoadingSkeleton` adapters added under `web/src/ui/antd`
+- [x] raw Ant `Result`, `Empty`, and `Skeleton` imports restricted to their matching owned adapter files
+- [x] report Dashboard, Delivery, and Approval states migrated through existing `Report*State` wrappers
+- [x] Staff operational loading, retryable error, and delivery-empty states migrated without changing API calls, retry callbacks, state conditions, or report calculations
+- [x] semantic heading levels, error announcement, loading live/busy state, explanatory empty copy, and existing actions preserved
+- [x] real adapters verified without overflow at 390, 720, 768, 1024, and 1440 px plus 200% text and 400% reflow
+- [x] Product, Customer, Job, global 403/404, success flows, Popconfirm, AppShell drawer, backend/API, and feedback migration remain out of scope
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 65 files and 591 tests passed
+- `cd web && npm run build`: passed; emitted JS was 870.74 kB raw and 259.79 kB gzip, and CSS was 64.93 kB raw and 11.41 kB gzip, with the existing 500 kB chunk warning
+- `cd web && npm run smoke:responsive`: 390, 720, 768, 1024, 1440, 200% text, and 400% reflow checks passed; Result announcement, Empty explanation/action, Skeleton busy state, and no-overflow behavior were verified from real adapters
+- `cd web && npm audit --omit=dev`: passed with zero vulnerabilities
+- `cd server && npm run build`: passed
+- `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped
+- `cd server && npm audit --omit=dev`: passed with zero vulnerabilities
+
 ### Optional (implementation when prioritised)
 
 - Approval queue list → `OperationalTable` (720px mobile card parity; summary + SLA chart unchanged; no API change) — **PR H, merged via PR #26**
-- Staff dense table → `OperationalTable` — **PR I, complete; awaiting review**
-- `ResultState` / shared Empty / Skeleton adapters
+- Staff dense table → `OperationalTable` — **PR I, merged via PR #27**
+- `ResultState` / shared Empty / Skeleton adapters — **PR J, complete; awaiting review**
 - Popconfirm for proven low-risk, short confirmations only
 - AppShell navigation drawer parity vs Ant Drawer (behavior tests first)
 - Responsive smoke chart fixtures (long meter labels, segmented legend, 366-point trend)

@@ -65,6 +65,9 @@ describe('Ant Design ownership boundary', () => {
       Steps: 'WorkflowSteps.tsx',
       Descriptions: 'RecordDescriptions.tsx',
       Timeline: 'ActivityTimeline.tsx',
+      Result: 'ResultState.tsx',
+      Empty: 'EmptyState.tsx',
+      Skeleton: 'LoadingSkeleton.tsx',
     } as const;
     const violations: string[] = [];
 

@@ -65,6 +65,9 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <section class="report-workspace" aria-label="Personel raporu responsive fixture" data-smoke-staff-report>
         <div id="responsive-staff-report-root"></div>
       </section>
+      <section class="report-workspace" aria-label="Ortak durum bileşenleri responsive fixture" data-smoke-state-adapters>
+        <div id="responsive-state-adapters-root"></div>
+      </section>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="workflow-board">
           <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
@@ -132,6 +135,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <script type="module" src="/scripts/responsive-operational-table-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-approval-report-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-staff-report-fixture.tsx"></script>
+<script type="module" src="/scripts/responsive-state-adapters-fixture.tsx"></script>
 </body></html>`;
 
 const viewports = [
@@ -356,6 +360,20 @@ async function measure(page) {
         rowHeader: table.querySelector('tbody th[scope="row"]')?.textContent?.trim() ?? '',
       };
     });
+    const stateAdapterSection = document.querySelector('[data-smoke-state-adapters]');
+    const stateAdapterSectionRect = stateAdapterSection?.getBoundingClientRect();
+    const stateAdapters = stateAdapterSection
+      ? Array.from(stateAdapterSection.querySelectorAll(
+        '[data-servora-result-state], [data-servora-empty-state], [data-servora-loading-skeleton]',
+      ))
+      : [];
+    const stateAdapterOverflow = stateAdapters.some((adapter) => {
+      const rect = adapter.getBoundingClientRect();
+      return Boolean(stateAdapterSectionRect
+        && (rect.right > stateAdapterSectionRect.right + 2
+          || rect.left < stateAdapterSectionRect.left - 2
+          || adapter.scrollWidth > adapter.clientWidth + 2));
+    });
     return {
       overflowX,
       results,
@@ -387,6 +405,18 @@ async function measure(page) {
       approvalLinkName: approvalLink?.getAttribute('aria-label') ?? '',
       staffPresent: staffTableMetrics.length === 2,
       staffTables: staffTableMetrics,
+      stateAdaptersPresent: stateAdapters.length === 3,
+      stateAdapterOverflow,
+      resultStateAnnounced: Boolean(stateAdapterSection?.querySelector(
+        '[data-servora-result-state="true"][role="alert"]',
+      )),
+      emptyStateExplained: Boolean(stateAdapterSection?.querySelector(
+        '[data-servora-empty-state="true"] h3',
+      )),
+      loadingSkeletonBusy: Boolean(stateAdapterSection?.querySelector(
+        '[data-servora-loading-skeleton="true"][aria-busy="true"]',
+      )),
+      stateActionVisible: Boolean(stateAdapterSection?.querySelector('button')),
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
     };
@@ -428,6 +458,10 @@ try {
       if (!table.caption || !table.rowHeader) {
         failures.push(`${vp.name}: Staff table needs caption and row header`);
       }
+    }
+    if (!m.stateAdaptersPresent || m.stateAdapterOverflow || !m.resultStateAnnounced
+      || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.stateActionVisible) {
+      failures.push(`${vp.name}: shared state adapter contract failure`);
     }
     if (vp.width <= 720) {
       if (m.desktopVisible) failures.push(`${vp.name}: OperationalTable desktop must be hidden at/under 720px`);
@@ -529,6 +563,10 @@ try {
       || JSON.stringify(table.desktopValues) !== JSON.stringify(table.mobileValues))) {
       failures.push('200% text: Staff mobile reflow failure');
     }
+    if (!m.stateAdaptersPresent || m.stateAdapterOverflow || !m.resultStateAnnounced
+      || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.stateActionVisible) {
+      failures.push('200% text: shared state adapter reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
     }
@@ -561,6 +599,10 @@ try {
       || !table.mobileVisible || table.desktopVisible
       || JSON.stringify(table.desktopValues) !== JSON.stringify(table.mobileValues))) {
       failures.push('400% reflow: Staff mobile reflow failure');
+    }
+    if (!m.stateAdaptersPresent || m.stateAdapterOverflow || !m.resultStateAnnounced
+      || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.stateActionVisible) {
+      failures.push('400% reflow: shared state adapter reflow failure');
     }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {

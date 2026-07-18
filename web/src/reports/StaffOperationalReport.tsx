@@ -13,6 +13,7 @@ import {
   type OperationalTableColumn,
   type OperationalTableRow,
 } from '../ui/OperationalTable';
+import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
 
 const staffCounterLabels: Record<keyof StaffOperationalCounters, string> = {
   openJobCards: 'Açık işler',
@@ -93,10 +94,11 @@ function StaffCounterList({ counters }: { counters: StaffOperationalCounters }) 
 
 function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
   if (items.length === 0) {
-    return <div className="report-empty">
-      <h3>Onaylı teslim bulunmuyor</h3>
-      <p>Bu dönemde onaylı teslim bulunmuyor.</p>
-    </div>;
+    return <EmptyState
+      title="Onaylı teslim bulunmuyor"
+      description="Bu dönemde onaylı teslim bulunmuyor."
+      headingLevel={3}
+    />;
   }
   return (
     <OperationalTable
@@ -170,16 +172,20 @@ export function StaffOperationalReportScreen({
 
   const content = <>
     {!embedded && <button className="back-link" type="button" onClick={onBack}>Personel profiline dön</button>}
-    {loading && <section className="report-loading" aria-busy="true" aria-live="polite">
-      {embedded ? <h2>Operasyon raporu yükleniyor</h2> : <h1>Operasyon raporu yükleniyor</h1>}
-      <div className="loading-line" aria-hidden="true" />
-      <div className="loading-line loading-line-short" aria-hidden="true" />
-    </section>}
-    {!loading && error && <div className="workspace-message" role="alert">
-      {embedded ? <h2>Operasyon raporu yüklenemedi</h2> : <h1>Operasyon raporu yüklenemedi</h1>}
-      <p>{error}</p>
-      <button className="secondary-button" type="button" onClick={() => void load()}>Tekrar dene</button>
-    </div>}
+    {loading && <LoadingSkeleton
+      title="Operasyon raporu yükleniyor"
+      headingLevel={embedded ? 2 : 1}
+      rows={2}
+    />}
+    {!loading && error && <ResultState
+      status="error"
+      title="Operasyon raporu yüklenemedi"
+      description={error}
+      headingLevel={embedded ? 2 : 1}
+      action={<button className="secondary-button" type="button" onClick={() => void load()}>
+        Tekrar dene
+      </button>}
+    />}
     {!loading && !error && report && <>
       {!embedded && <header className="staff-report-identity">
         <p className="eyebrow">Personel raporu</p>

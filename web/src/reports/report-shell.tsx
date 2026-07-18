@@ -1,6 +1,7 @@
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { Link } from 'react-router-dom';
 
+import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
 import type { ReportDatePreset } from './report-range';
 import { reportSectionHref, type ReportRangeContext } from './report-navigation';
 
@@ -55,13 +56,12 @@ export function ReportEmptyState({
   description?: string;
   action?: ReactNode;
 }) {
-  return (
-    <div className="report-empty">
-      <h3>{title}</h3>
-      {description ? <p>{description}</p> : null}
-      {action}
-    </div>
-  );
+  return <EmptyState
+    title={title}
+    description={description}
+    action={action}
+    headingLevel={3}
+  />;
 }
 
 export function ReportErrorState({
@@ -73,25 +73,21 @@ export function ReportErrorState({
   message: string;
   onRetry?: () => void;
 }) {
-  return (
-    <div className="workspace-message" role="alert">
-      <h2>{title}</h2>
-      <p>{message}</p>
-      {onRetry ? (
-        <button type="button" className="secondary-button" onClick={onRetry}>
-          Tekrar dene
-        </button>
-      ) : null}
-    </div>
-  );
+  return <ResultState
+    status="error"
+    title={title}
+    description={message}
+    headingLevel={2}
+    action={onRetry ? (
+      <button type="button" className="secondary-button" onClick={onRetry}>
+        Tekrar dene
+      </button>
+    ) : undefined}
+  />;
 }
 
 export function ReportLoadingState({ title }: { title: string }) {
-  return (
-    <section className="report-loading" aria-busy="true">
-      <h1>{title}</h1>
-    </section>
-  );
+  return <LoadingSkeleton title={title} headingLevel={1} rows={3} />;
 }
 
 export function ReportDateRangeForm({

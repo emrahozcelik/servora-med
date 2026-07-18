@@ -311,6 +311,20 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .identity-loading p { color: var(--muted); }
 .loading-line { width: 100%; height: 0.9rem; margin-bottom: 0.75rem; border-radius: 0.3rem; background: var(--canvas); }
 .loading-line-short { width: 42%; }
+.servora-result-state,
+.servora-empty-state,
+.servora-loading-skeleton { width: 100%; min-width: 0; max-width: 40rem; }
+.servora-result-state__content,
+.servora-empty-state__content { padding: 2rem 0; text-align: left; }
+.servora-result-state__content h1,
+.servora-result-state__content h2,
+.servora-result-state__content h3,
+.servora-empty-state__content h1,
+.servora-empty-state__content h2,
+.servora-empty-state__content h3 { margin: 0; font-size: 1.25rem; }
+.servora-empty-state__description p { margin: 0.5rem 0 0; color: var(--muted); line-height: 1.6; }
+.servora-empty-state__content .servora-ant-empty-image { margin-inline: 0; }
+.servora-loading-skeleton { padding-block: 2rem; }
 
 .authenticated-shell { min-width: 0; min-height: 100vh; }
 .shell-content { min-width: 0; }
