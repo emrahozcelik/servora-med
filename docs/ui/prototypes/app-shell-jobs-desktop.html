@@ -1,0 +1,117 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Servora-Med İşler, Desktop Prototip</title>
+  <link rel="stylesheet" href="prototype.css">
+</head>
+<body>
+  <p class="prototype-note">Planlama prototipi · Desktop 1440 × 1000</p>
+  <div class="app-shell">
+    <aside class="sidebar" aria-label="Uygulama kenar çubuğu">
+      <div class="brand"><span class="brand-mark">S</span><span>Servora-Med</span></div>
+      <nav class="nav-groups" aria-label="Ana navigasyon">
+        <section class="nav-group">
+          <h2>Operasyon</h2>
+          <ul>
+            <li><a class="nav-link" aria-current="page" href="#"><span class="nav-icon">▦</span>İşler</a></li>
+            <li><a class="nav-link" href="#"><span class="nav-icon">◇</span>Müşteriler</a></li>
+            <li><a class="nav-link" href="#"><span class="nav-icon">□</span>Ürünler</a></li>
+          </ul>
+        </section>
+        <section class="nav-group">
+          <h2>Ekip</h2>
+          <ul>
+            <li><a class="nav-link" href="#"><span class="nav-icon">○</span>Personel</a></li>
+            <li><a class="nav-link" href="#"><span class="nav-icon">⌁</span>Kullanıcılar</a></li>
+          </ul>
+        </section>
+        <section class="nav-group">
+          <h2>Analiz</h2>
+          <ul><li><a class="nav-link" href="#"><span class="nav-icon">⌗</span>Raporlar</a></li></ul>
+        </section>
+        <section class="nav-group">
+          <h2>Sistem</h2>
+          <ul><li><a class="nav-link" href="#"><span class="nav-icon">⚙</span>Ayarlar</a></li></ul>
+        </section>
+      </nav>
+      <div class="sidebar-account">
+        <div class="identity"><span class="avatar">AK</span><span class="identity-copy"><strong>Ayşe Kaya</strong><span>Yönetici</span></span></div>
+        <button class="button button-ghost" type="button">Oturumu kapat</button>
+      </div>
+    </aside>
+
+    <main class="workspace">
+      <div class="workspace-inner">
+        <header class="page-heading">
+          <div><p class="eyebrow">Operasyon çalışma alanı</p><h1>İşler</h1><p>Aktif işleri durumlarına göre tarayın, onay kuyruğunu yönetin.</p></div>
+          <button class="button button-primary" type="button"><span aria-hidden="true">＋</span> Yeni iş</button>
+        </header>
+
+        <nav class="quick-views" aria-label="Hızlı iş görünümleri">
+          <a class="quick-link" aria-current="page" href="#">Aktif işler</a>
+          <a class="quick-link" href="#">Onay kuyruğu <strong>&nbsp;3</strong></a>
+          <a class="quick-link" href="#">Düzeltme istenenler <strong>&nbsp;2</strong></a>
+          <a class="quick-link" href="#">Biten işler</a>
+        </nav>
+
+        <form class="filter-bar" aria-label="İş filtreleri">
+          <div class="filter-control"><label for="search">İşlerde ara</label><input id="search" value="DentArt" aria-label="İşlerde ara"></div>
+          <div class="filter-control"><label for="type">İş türü</label><select id="type"><option>Tüm türler</option><option>Ürün teslimi</option></select></div>
+          <div class="filter-control"><label for="staff">Sorumlu</label><select id="staff"><option>Tüm personel</option><option>Mehmet Yılmaz</option></select></div>
+          <div class="filter-control"><label for="priority">Öncelik</label><select id="priority"><option>Tümü</option><option>Yüksek</option></select></div>
+          <button class="button button-secondary" type="button">Filtrele</button>
+        </form>
+
+        <div class="workflow-board">
+          <section class="workflow-lane" aria-labelledby="lane-new">
+            <header class="lane-heading"><div class="lane-title"><span class="status-shape"></span><h2 id="lane-new">Hazırlanıyor</h2><span class="count">6</span></div><a class="lane-link" href="#">Tümünü gör</a></header>
+            <ul class="lane-cards">
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">Marmara Dental için numune hazırlığı</a></h3><span class="chip">Normal</span></div><span class="job-type">Numune teslimi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Marmara Dental</dd></div><div><dt>Sorumlu</dt><dd>Selin Aras</dd></div><div><dt>Plan</dt><dd>20 Tem · 10:30</dd></div><div><dt>Özet</dt><dd>3 ürün · 8 kutu</dd></div></dl><p class="workflow-summary">1 / 5 · Oluşturuldu</p></li>
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">Eksen Klinik tanışma görüşmesi</a></h3><span class="chip">Düşük</span></div><span class="job-type">Satış görüşmesi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Eksen Ağız Sağlığı</dd></div><div><dt>Sorumlu</dt><dd>Can Öz</dd></div><div><dt>Plan</dt><dd>21 Tem · 13:00</dd></div><div><dt>İlgili kişi</dt><dd>Dr. Ece Ekin</dd></div></dl><p class="workflow-summary">1 / 5 · Oluşturuldu</p></li>
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">Yeni ürün föylerini kliniğe ulaştır</a></h3><span class="chip">Normal</span></div><span class="job-type">Genel görev</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>NovaDent</dd></div><div><dt>Sorumlu</dt><dd>Mehmet Yılmaz</dd></div><div><dt>Son tarih</dt><dd>22 Tem</dd></div><div><dt>Özet</dt><dd>2 doküman seti</dd></div></dl><p class="workflow-summary">1 / 5 · Oluşturuldu</p></li>
+            </ul>
+          </section>
+
+          <section class="workflow-lane" aria-labelledby="lane-accepted">
+            <header class="lane-heading"><div class="lane-title"><span class="status-shape active"></span><h2 id="lane-accepted">Atandı</h2><span class="count">4</span></div><a class="lane-link" href="#">Tümünü gör</a></header>
+            <ul class="lane-cards">
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">DentArt kliniğine ürün teslimi</a></h3><span class="chip">Yüksek</span></div><span class="job-type">Ürün teslimi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>DentArt Ağız ve Diş Sağlığı</dd></div><div><dt>Sorumlu</dt><dd>Mehmet Yılmaz</dd></div><div><dt>Plan</dt><dd>Bugün · 15:00</dd></div><div><dt>Özet</dt><dd>2 ürün · 6 kutu</dd></div></dl><p class="workflow-summary">2 / 5 · Planlandı</p></li>
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">İmplant seti eğitim ziyareti</a></h3><span class="chip">Normal</span></div><span class="job-type">Satış görüşmesi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Oris Polikliniği</dd></div><div><dt>Sorumlu</dt><dd>Selin Aras</dd></div><div><dt>Plan</dt><dd>19 Tem · 11:00</dd></div><div><dt>İlgili kişi</dt><dd>Dr. Tuna Ak</dd></div></dl><p class="workflow-summary">2 / 5 · Planlandı</p></li>
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">ProSeal ürün bilgi formu takibi</a></h3><span class="chip">Normal</span></div><span class="job-type">Genel görev</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Özel İnci Dental</dd></div><div><dt>Sorumlu</dt><dd>Can Öz</dd></div><div><dt>Son tarih</dt><dd>20 Tem</dd></div><div><dt>Özet</dt><dd>Satın alma takibi</dd></div></dl><p class="workflow-summary">2 / 5 · Planlandı</p></li>
+            </ul>
+          </section>
+
+          <section class="workflow-lane" aria-labelledby="lane-progress">
+            <header class="lane-heading"><div class="lane-title"><span class="status-shape active"></span><h2 id="lane-progress">Uygulanıyor</h2><span class="count">5</span></div><a class="lane-link" href="#">Tümünü gör</a></header>
+            <ul class="lane-cards">
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">DentArt kliniğine ürün teslimi</a></h3><span class="chip">Yüksek</span></div><span class="job-type">Ürün teslimi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>DentArt Ağız ve Diş Sağlığı</dd></div><div><dt>Sorumlu</dt><dd>Mehmet Yılmaz</dd></div><div><dt>Plan</dt><dd>Bugün · 15:00</dd></div><div><dt>Özet</dt><dd>2 ürün · 6 kutu</dd></div></dl><p class="workflow-summary">3 / 5 · Uygulanıyor</p></li>
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">Numune kullanım sonucunu kaydet</a></h3><span class="chip chip-attention">Gecikiyor</span></div><span class="job-type">Satış görüşmesi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Vera Diş Kliniği</dd></div><div><dt>Sorumlu</dt><dd>Selin Aras</dd></div><div><dt>Plan</dt><dd>Dün · 16:30</dd></div><div><dt>İlgili kişi</dt><dd>Dr. Onur Sarı</dd></div></dl><p class="workflow-summary">3 / 5 · Uygulanıyor · Dikkat</p></li>
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">Cerrahi set teslim tutanağı</a></h3><span class="chip">Normal</span></div><span class="job-type">Ürün teslimi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Ataşehir Oral</dd></div><div><dt>Sorumlu</dt><dd>Can Öz</dd></div><div><dt>Plan</dt><dd>Bugün · 17:30</dd></div><div><dt>Özet</dt><dd>1 ürün · 2 set</dd></div></dl><p class="workflow-summary">3 / 5 · Uygulanıyor</p></li>
+            </ul>
+          </section>
+
+          <section class="workflow-lane" aria-labelledby="lane-review">
+            <header class="lane-heading"><div class="lane-title"><span class="status-shape review"></span><h2 id="lane-review">Yönetici kontrolünde</h2><span class="count">3</span></div><a class="lane-link" href="#">Tümünü gör</a></header>
+            <ul class="lane-cards">
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">Xenofill ürün teslimi</a></h3><span class="chip chip-review">Kontrol bekliyor</span></div><span class="job-type">Ürün teslimi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Güven Ağız Sağlığı</dd></div><div><dt>Sorumlu</dt><dd>Mehmet Yılmaz</dd></div><div><dt>Gönderildi</dt><dd>09:42</dd></div><div><dt>Özet</dt><dd>2 ürün · 5 kutu</dd></div></dl><p class="workflow-summary">4 / 5 · Yönetici kontrolü</p></li>
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">Klinik ürün tanıtım görüşmesi</a></h3><span class="chip chip-review">Kontrol bekliyor</span></div><span class="job-type">Satış görüşmesi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Mavişehir Dental</dd></div><div><dt>Sorumlu</dt><dd>Selin Aras</dd></div><div><dt>Gönderildi</dt><dd>Dün · 17:15</dd></div><div><dt>Sonuç</dt><dd>Takip gerekli</dd></div></dl><p class="workflow-summary">4 / 5 · Yönetici kontrolü</p></li>
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">Temmuz bayi evrak kontrolü</a></h3><span class="chip chip-review">Kontrol bekliyor</span></div><span class="job-type">Genel görev</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Anadolu Medikal</dd></div><div><dt>Sorumlu</dt><dd>Can Öz</dd></div><div><dt>Gönderildi</dt><dd>Dün · 14:20</dd></div><div><dt>Özet</dt><dd>4 evrak tamam</dd></div></dl><p class="workflow-summary">4 / 5 · Yönetici kontrolü</p></li>
+            </ul>
+          </section>
+
+          <section class="workflow-lane" aria-labelledby="lane-revision">
+            <header class="lane-heading"><div class="lane-title"><span class="status-shape attention"></span><h2 id="lane-revision">Düzeltme istendi</h2><span class="count">2</span></div><a class="lane-link" href="#">Tümünü gör</a></header>
+            <ul class="lane-cards">
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">ProSeal membran teslimi</a></h3><span class="chip chip-attention">Düzeltme</span></div><span class="job-type">Ürün teslimi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Kent Dental</dd></div><div><dt>Sorumlu</dt><dd>Mehmet Yılmaz</dd></div><div><dt>İstenen</dt><dd>Miktarı doğrula</dd></div><div><dt>Özet</dt><dd>1 ürün · 4 kutu</dd></div></dl><p class="workflow-summary">Düzeltme döngüsü · Personel aksiyonu</p></li>
+              <li class="job-card"><div class="job-card-top"><h3><a href="#">İmplant görüşme sonucunu tamamla</a></h3><span class="chip chip-attention">Düzeltme</span></div><span class="job-type">Satış görüşmesi</span><dl class="job-facts"><div><dt>Müşteri</dt><dd>Güneş Diş</dd></div><div><dt>Sorumlu</dt><dd>Selin Aras</dd></div><div><dt>İstenen</dt><dd>Takip tarihini ekle</dd></div><div><dt>Sonuç</dt><dd>Takip gerekli</dd></div></dl><p class="workflow-summary">Düzeltme döngüsü · Personel aksiyonu</p></li>
+              <li class="job-card" aria-hidden="true" style="visibility:hidden"></li>
+            </ul>
+          </section>
+        </div>
+      </div>
+    </main>
+  </div>
+</body>
+</html>
