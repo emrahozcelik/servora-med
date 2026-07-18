@@ -58,4 +58,26 @@ describe('Ant Design ownership boundary', () => {
 
     expect(rawReExports).toEqual([]);
   });
+
+  it('keeps detail primitives inside their matching owned adapters', async () => {
+    const boundaryFiles = await listSourceFiles(ownedBoundaryRoot);
+    const owners = {
+      Steps: 'WorkflowSteps.tsx',
+      Descriptions: 'RecordDescriptions.tsx',
+      Timeline: 'ActivityTimeline.tsx',
+    } as const;
+    const violations: string[] = [];
+
+    for (const path of boundaryFiles) {
+      const source = await readFile(path, 'utf8');
+      for (const [primitive, owner] of Object.entries(owners)) {
+        const directImport = new RegExp(`import\\s*\\{[^}]*\\b${primitive}\\b[^}]*\\}\\s*from\\s*["']antd["']`, 's');
+        if (directImport.test(source) && path.split(sep).at(-1) !== owner) {
+          violations.push(`${relative(ownedBoundaryRoot, path)} imports ${primitive}`);
+        }
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
 });
