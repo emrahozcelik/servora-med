@@ -2,7 +2,7 @@
 
 Status: Approved
 Scope: Architecture decision and phased implementation boundary
-Production impact: PR A–C are merged; PR D implements ConfirmationAction, ReasonDialog, and ResponsiveDrawer (filters) on `feature/feedback-overlays`
+Production impact: PR A–D are merged; PR E reporting surfaces design is open on `feature/reporting-surfaces`
 
 ## Decision
 

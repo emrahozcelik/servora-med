@@ -1,7 +1,7 @@
 # Servora UI Implementation Plan
 
-Status: Approved sequence; PR A–C merged; PR D design opened on feature branch
-Current phase: PR D - Feedback and overlays
+Status: Approved sequence; PR A–D merged; PR E design opened on feature branch
+Current phase: PR E - Reporting surfaces
 
 ## Entry gate
 
@@ -156,7 +156,7 @@ Verification record (18 July 2026):
 
 ## PR D: Feedback and overlays
 
-Implementation status: Narrowed scope approved; implementing on `feature/feedback-overlays`.
+Implementation status: Merged through PR #22 at `033d5b7935069d71e5499249af5f1a2da3516d3a`.
 
 Design: `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`
 Plan: `docs/superpowers/plans/2026-07-18-feedback-overlays.md`
@@ -206,19 +206,26 @@ Verification record (18 July 2026):
 
 ## PR E: Reporting surfaces
 
+Implementation status: Design and plan opened on `feature/reporting-surfaces` (not yet implemented).
+
+Design: `docs/superpowers/specs/2026-07-18-reporting-surfaces-design.md`
+Plan: `docs/superpowers/plans/2026-07-18-reporting-surfaces.md`
+
 Scope:
 
 - KPI summary using Servora-native composition
 - OperationalTable adapter for dense data
 - mobile card/list fallback
 - filter toolbar
-- export affordances
+- export affordances only if already product-required (do not invent)
 
 Constraints:
 
 - tables only where structured density justifies them
 - no compressed desktop table on mobile
 - report data remains derived from persisted backend truth
+- no chart package (PR F)
+- adapters do not recompute report metrics
 
 Verification:
 
@@ -226,6 +233,13 @@ Verification:
 - responsive alternative parity
 - pagination, filtering, empty, and error states
 - current report correctness tests
+
+Completion checklist:
+
+- [ ] owned OperationalTable (and minimal KPI/empty contracts as approved)
+- [ ] at least one dense report migrated with mobile alternative
+- [ ] existing report API/search/range tests still pass
+- [ ] no chart dependency added
 
 ## PR F: Charts
 
