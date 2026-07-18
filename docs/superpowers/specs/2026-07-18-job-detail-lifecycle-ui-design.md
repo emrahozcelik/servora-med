@@ -1,7 +1,7 @@
 # Job Detail Lifecycle UI Design
 
-**Date:** 18 July 2026  
-**Status:** Approved  
+**Date:** 18 July 2026
+**Status:** Approved
 **Owning PR:** PR C — Job detail lifecycle UI
 
 ## Goal

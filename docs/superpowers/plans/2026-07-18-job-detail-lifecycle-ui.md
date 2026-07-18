@@ -48,7 +48,7 @@ expect(activeWorkflowStatusOptions).toEqual([
 
 - [ ] **Step 2: Run the focused tests and verify RED**
 
-Run: `cd web && npm test -- --run tests/workflow-lanes.test.ts tests/job-workflow-presentation.test.ts`  
+Run: `cd web && npm test -- --run tests/workflow-lanes.test.ts tests/job-workflow-presentation.test.ts`
 Expected: FAIL because `job-status-presentation.ts` does not exist.
 
 - [ ] **Step 3: Move the presentation constants without changing values**
@@ -57,7 +57,7 @@ Create the neutral module with a typed record and ordered options. Import it fro
 
 - [ ] **Step 4: Run focused tests and verify GREEN**
 
-Run: `cd web && npm test -- --run tests/workflow-lanes.test.ts tests/job-workflow-presentation.test.ts`  
+Run: `cd web && npm test -- --run tests/workflow-lanes.test.ts tests/job-workflow-presentation.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -96,7 +96,7 @@ Also extend the architecture test to scan production imports and allow each prim
 
 - [ ] **Step 2: Run focused tests and verify RED**
 
-Run: `cd web && npm test -- --run tests/job-detail-antd-adapters.test.tsx tests/antd-boundary.test.ts`  
+Run: `cd web && npm test -- --run tests/job-detail-antd-adapters.test.tsx tests/antd-boundary.test.ts`
 Expected: FAIL because adapters and exports are absent.
 
 - [ ] **Step 3: Implement minimal adapters**
@@ -114,7 +114,7 @@ Use `Steps` with horizontal/vertical orientation from the existing `64rem` shell
 
 - [ ] **Step 4: Run focused tests and verify GREEN**
 
-Run: `cd web && npm test -- --run tests/job-detail-antd-adapters.test.tsx tests/antd-boundary.test.ts`  
+Run: `cd web && npm test -- --run tests/job-detail-antd-adapters.test.tsx tests/antd-boundary.test.ts`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -140,7 +140,7 @@ Assert rendered item order by stable item markers, actor fallback `Sistem`, sema
 
 - [ ] **Step 2: Run Timeline tests and verify RED for adapter markers**
 
-Run: `cd web && npm test -- --run tests/job-timeline.test.tsx`  
+Run: `cd web && npm test -- --run tests/job-timeline.test.tsx`
 Expected: FAIL because `JobTimeline` still renders its native ordered list.
 
 - [ ] **Step 3: Prepare adapter items inside JobTimeline**
@@ -163,7 +163,7 @@ Pass the array to `ActivityTimeline`; retain loading/error/empty/pagination DOM 
 
 - [ ] **Step 4: Run Timeline and adapter tests and verify GREEN**
 
-Run: `cd web && npm test -- --run tests/job-timeline.test.tsx tests/job-detail-antd-adapters.test.tsx`  
+Run: `cd web && npm test -- --run tests/job-timeline.test.tsx tests/job-detail-antd-adapters.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 5: Commit**
@@ -201,7 +201,7 @@ expect(model.revisionLoop).toMatchObject({
 
 - [ ] **Step 2: Run focused tests and verify RED**
 
-Run: `cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/job-detail.test.tsx tests/manager-review.test.tsx`  
+Run: `cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/job-detail.test.tsx tests/manager-review.test.tsx`
 Expected: FAIL on absent actor/time and state-specific panel contracts.
 
 - [ ] **Step 3: Extend the presentation builder from lifecycle facts**
@@ -214,7 +214,7 @@ Keep `JobWorkflowDialog` unchanged. Integration tests click the new panel trigge
 
 - [ ] **Step 5: Run focused tests and verify GREEN**
 
-Run: `cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/job-detail.test.tsx tests/manager-review.test.tsx`  
+Run: `cd web && npm test -- --run tests/job-workflow-presentation.test.ts tests/job-detail.test.tsx tests/manager-review.test.tsx`
 Expected: PASS.
 
 - [ ] **Step 6: Commit**
@@ -244,7 +244,7 @@ Assert title/revision/lifecycle/responsibility/facts/delivery/requirements/actio
 
 - [ ] **Step 2: Run focused tests and verify RED**
 
-Run: `cd web && npm test -- --run tests/job-detail.test.tsx tests/manager-review.test.tsx tests/accessibility-contract.test.ts`  
+Run: `cd web && npm test -- --run tests/job-detail.test.tsx tests/manager-review.test.tsx tests/accessibility-contract.test.ts`
 Expected: FAIL on old summary, old step list, and incomplete state ordering.
 
 - [ ] **Step 3: Recompose JobDetailPanel**
@@ -257,9 +257,9 @@ Use the existing tokens and `64rem` boundary. Mobile remains one column; desktop
 
 - [ ] **Step 5: Run focused tests and build**
 
-Run: `cd web && npm test -- --run tests/job-detail.test.tsx tests/manager-review.test.tsx tests/accessibility-contract.test.ts tests/antd-boundary.test.ts`  
-Expected: PASS.  
-Run: `cd web && npm run build`  
+Run: `cd web && npm test -- --run tests/job-detail.test.tsx tests/manager-review.test.tsx tests/accessibility-contract.test.ts tests/antd-boundary.test.ts`
+Expected: PASS.
+Run: `cd web && npm run build`
 Expected: PASS with only the existing bundle-size warning.
 
 - [ ] **Step 6: Commit**
@@ -305,7 +305,7 @@ Expected: build passes; 911 tests pass and the known environment-dependent tests
 
 - [ ] **Step 4: Verify repository scope**
 
-Run: `git diff --check && git status --short`  
+Run: `git diff --check && git status --short`
 Expected: no whitespace errors and only PR C files changed.
 
 - [ ] **Step 5: Commit documentation**
