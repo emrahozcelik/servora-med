@@ -4,8 +4,8 @@ import type { CurrentUser } from '../services/api';
 import { FilterSheet, countTruthy } from '../ui/FilterSheet';
 import type { JobCardStatusFilter } from './jobs-api';
 import { jobTypeLabels } from './job-labels';
+import { activeWorkflowStatusOptions } from './job-status-presentation';
 import { isValidJobFilterUuid, type JobSearchState } from './job-search';
-import { activeWorkflowStatusOptions } from './workflow-lanes';
 
 type FilterName = 'status';
 type FilterChanges = Partial<Omit<JobSearchState, 'view' | 'offset'>>;
