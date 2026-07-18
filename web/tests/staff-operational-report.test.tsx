@@ -99,6 +99,14 @@ describe('Staff operational report', () => {
     await act(async () => root.render(<StaffOperationalReportScreen onBack={() => {}} />));
     expect(container.textContent).toContain('Operasyon raporu yükleniyor');
     expect(container.querySelector('[data-servora-loading-skeleton="true"]')).not.toBeNull();
+    const loadingTitle = container.querySelector('.servora-loading-skeleton__title');
+    expect(loadingTitle?.textContent).toBe('Operasyon raporu yükleniyor');
+    expect(loadingTitle?.classList.contains('sr-only')).toBe(false);
+    expect(loadingTitle?.querySelector('[role="status"]')?.closest('[aria-busy="true"]')).toBeNull();
+    expect(container.querySelector('.servora-loading-skeleton__geometry[aria-busy="true"]'))
+      .not.toBeNull();
+    expect(container.querySelector('[aria-hidden="true"] .servora-loading-skeleton__content'))
+      .not.toBeNull();
     await act(async () => resolveReport(report));
     expect(getOwnStaffReport).toHaveBeenCalledWith(null);
     expect(container.textContent).toContain('12.500');

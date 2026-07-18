@@ -93,9 +93,15 @@ describe('owned result-state adapters', () => {
     );
 
     expect(html).toContain('data-servora-loading-skeleton="true"');
-    expect(html).toContain('aria-busy="true"');
-    expect(html).toContain('aria-live="polite"');
-    expect(html).toMatch(/<h1[^>]*class="sr-only"[^>]*>Rapor yükleniyor<\/h1>/);
+    expect(html).toMatch(
+      /<h1[^>]*class="servora-loading-skeleton__title"[^>]*><span role="status">Rapor yükleniyor<\/span><\/h1>/,
+    );
+    expect(html).not.toMatch(/data-servora-loading-skeleton="true"[^>]*aria-busy/);
+    expect(html).toMatch(
+      /<div[^>]*class="servora-loading-skeleton__geometry"[^>]*aria-busy="true"/,
+    );
+    expect(html).toMatch(/<div aria-hidden="true"><div class="servora-ant-skeleton/);
+    expect(html).not.toMatch(/aria-busy="true"[^>]*>[\s\S]*role="status"/);
     expect(html).toContain('servora-loading-skeleton__content');
     expect((html.match(/<li/g) ?? [])).toHaveLength(3);
   });
@@ -113,5 +119,7 @@ describe('owned result-state adapters', () => {
     expect(error).toContain('data-servora-result-state="true"');
     expect(error).toContain('role="alert"');
     expect(loading).toContain('data-servora-loading-skeleton="true"');
+    expect(loading).toContain('servora-loading-skeleton__title');
+    expect(loading).not.toContain('class="sr-only"');
   });
 });

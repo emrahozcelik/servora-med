@@ -9,7 +9,7 @@ export type LoadingSkeletonProps = Readonly<{
   rows?: number;
 }>;
 
-/** Stable, non-interactive loading geometry with an accessible live label. */
+/** Stable, non-interactive loading geometry with an accessible status label. */
 export function LoadingSkeleton({
   title,
   headingLevel = 2,
@@ -19,16 +19,20 @@ export function LoadingSkeleton({
     <section
       className="servora-loading-skeleton"
       data-servora-loading-skeleton="true"
-      aria-busy="true"
-      aria-live="polite"
     >
-      <StateHeading level={headingLevel} className="sr-only">{title}</StateHeading>
-      <Skeleton
-        className="servora-loading-skeleton__content"
-        active
-        title={{ width: '42%' }}
-        paragraph={{ rows }}
-      />
+      <StateHeading level={headingLevel} className="servora-loading-skeleton__title">
+        <span role="status">{title}</span>
+      </StateHeading>
+      <div className="servora-loading-skeleton__geometry" aria-busy="true">
+        <div aria-hidden="true">
+          <Skeleton
+            className="servora-loading-skeleton__content"
+            active
+            title={{ width: '42%' }}
+            paragraph={{ rows }}
+          />
+        </div>
+      </div>
     </section>
   );
 }

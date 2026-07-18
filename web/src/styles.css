@@ -326,6 +326,13 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .servora-empty-state__content .servora-ant-empty-image { margin-inline: 0; }
 .servora-loading-skeleton { padding-block: 2rem; }
 
+.servora-loading-skeleton__title {
+  margin: 0 0 1rem;
+  font-size: 1.25rem;
+}
+
+.servora-loading-skeleton__geometry { min-width: 0; }
+
 .authenticated-shell { min-width: 0; min-height: 100vh; }
 .shell-content { min-width: 0; }
 .compact-shell-header { display: flex; position: sticky; z-index: 10; top: 0; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; min-height: 4.5rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--rule); background: var(--canvas); }

@@ -414,8 +414,26 @@ async function measure(page) {
         '[data-servora-empty-state="true"] h3',
       )),
       loadingSkeletonBusy: Boolean(stateAdapterSection?.querySelector(
-        '[data-servora-loading-skeleton="true"][aria-busy="true"]',
+        '[data-servora-loading-skeleton="true"] .servora-loading-skeleton__geometry[aria-busy="true"]',
       )),
+      loadingSkeletonDecorative: Boolean(stateAdapterSection?.querySelector(
+        '[data-servora-loading-skeleton="true"] [aria-hidden="true"] .servora-loading-skeleton__content',
+      )),
+      loadingStatusOutsideBusy: Boolean((() => {
+        const status = stateAdapterSection?.querySelector(
+          '[data-servora-loading-skeleton="true"] [role="status"]',
+        );
+        return status && !status.closest('[aria-busy="true"]');
+      })()),
+      loadingTitleVisible: Boolean((() => {
+        const title = stateAdapterSection?.querySelector(
+          '[data-servora-loading-skeleton="true"] .servora-loading-skeleton__title',
+        );
+        if (!title) return false;
+        const style = getComputedStyle(title);
+        const rect = title.getBoundingClientRect();
+        return style.display !== 'none' && style.visibility !== 'hidden' && rect.height > 0;
+      })()),
       stateActionVisible: Boolean(stateAdapterSection?.querySelector('button')),
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
@@ -460,7 +478,8 @@ try {
       }
     }
     if (!m.stateAdaptersPresent || m.stateAdapterOverflow || !m.resultStateAnnounced
-      || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.stateActionVisible) {
+      || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.loadingSkeletonDecorative
+      || !m.loadingStatusOutsideBusy || !m.loadingTitleVisible || !m.stateActionVisible) {
       failures.push(`${vp.name}: shared state adapter contract failure`);
     }
     if (vp.width <= 720) {
@@ -564,7 +583,8 @@ try {
       failures.push('200% text: Staff mobile reflow failure');
     }
     if (!m.stateAdaptersPresent || m.stateAdapterOverflow || !m.resultStateAnnounced
-      || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.stateActionVisible) {
+      || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.loadingSkeletonDecorative
+      || !m.loadingStatusOutsideBusy || !m.loadingTitleVisible || !m.stateActionVisible) {
       failures.push('200% text: shared state adapter reflow failure');
     }
     for (const r of m.results) {
@@ -601,7 +621,8 @@ try {
       failures.push('400% reflow: Staff mobile reflow failure');
     }
     if (!m.stateAdaptersPresent || m.stateAdapterOverflow || !m.resultStateAnnounced
-      || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.stateActionVisible) {
+      || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.loadingSkeletonDecorative
+      || !m.loadingStatusOutsideBusy || !m.loadingTitleVisible || !m.stateActionVisible) {
       failures.push('400% reflow: shared state adapter reflow failure');
     }
     for (const r of m.results) {
