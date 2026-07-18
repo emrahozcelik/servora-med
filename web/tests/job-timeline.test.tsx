@@ -16,8 +16,17 @@ function page(items: JobCardActivity[]): Paginated<JobCardActivity> {
 describe('safe JobCard timeline', () => {
   let host: HTMLDivElement;
   let root: Root;
-  beforeEach(() => { host = document.createElement('div'); document.body.append(host); root = createRoot(host); });
-  afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); });
+  beforeEach(() => {
+    vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
+      matches: false, media: '', onchange: null,
+      addEventListener: vi.fn(), removeEventListener: vi.fn(),
+      addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+    }));
+    host = document.createElement('div'); document.body.append(host); root = createRoot(host);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount()); host.remove(); vi.restoreAllMocks(); vi.unstubAllGlobals();
+  });
 
   it('renders actor names and known details without raw audit fields', async () => {
     const activity: JobCardActivity = {
@@ -115,6 +124,10 @@ describe('safe JobCard timeline', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(host.querySelector('.timeline-order-note')?.textContent).toBe('En yeni işlem üstte');
+    expect(host.querySelector('.servora-activity-timeline')).not.toBeNull();
+    expect(Array.from(host.querySelectorAll<HTMLElement>('[data-activity-id]'))
+      .map((entry) => entry.dataset.activityId)).toEqual(['a1', 'a2']);
+    expect(host.querySelector('time[datetime="2026-07-14T09:00:00.000Z"]')).not.toBeNull();
     expect(host.textContent).toContain('Neden: Müşteri teslimatı iptal etti');
     expect(host.querySelectorAll('.timeline-reason')).toHaveLength(1);
     expect(host.textContent).toContain('Uygulanıyor → İptal edildi');

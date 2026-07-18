@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '../services/api';
+import { ActivityTimeline, type ActivityTimelineItem } from '../ui/antd';
 import { historicalJobStatusLabels, isKnownJobCardActivityEvent, jobActivityLabel } from './job-labels';
 import { listActivity, type JobCardActivity, type JobCardActivityDetails, type Paginated } from './jobs-api';
 
@@ -36,6 +37,23 @@ function detailText(details: JobCardActivityDetails) {
 
 function transitionReason(details: JobCardActivityDetails): string | null {
   return details.kind === 'STATUS_TRANSITION' ? details.reason : null;
+}
+
+function formatInstant(value: string) {
+  return new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' })
+    .format(new Date(value));
+}
+
+function presentActivity(activity: JobCardActivity): ActivityTimelineItem {
+  return {
+    key: activity.id,
+    action: jobActivityLabel(activity.eventType),
+    detail: detailText(activity.details),
+    reason: transitionReason(activity.details),
+    actor: activity.actor?.name ?? 'Sistem',
+    occurredAt: activity.createdAt,
+    occurredAtLabel: formatInstant(activity.createdAt),
+  };
 }
 
 export function JobTimeline({ jobId, refreshKey = 0, load = listActivity }: {
@@ -84,21 +102,7 @@ export function JobTimeline({ jobId, refreshKey = 0, load = listActivity }: {
     </div>}
     {state.kind === 'ready' && (state.page.items.length === 0
       ? <p className="detail-empty">Henüz işlem geçmişi yok.</p>
-      : <ol>{state.page.items.map((activity) => {
-        const reason = transitionReason(activity.details);
-        const detail = detailText(activity.details);
-        return <li key={activity.id}>
-          <div>
-            <strong>{jobActivityLabel(activity.eventType)}</strong>
-            {detail && <span>{detail}</span>}
-            {reason && (
-              <p className="timeline-reason"><strong>Neden:</strong> {reason}</p>
-            )}
-          </div>
-          <div><span>{activity.actor?.name ?? 'Sistem'}</span>
-            <time dateTime={activity.createdAt}>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(activity.createdAt))}</time></div>
-        </li>;
-      })}</ol>)}
+      : <ActivityTimeline items={state.page.items.map(presentActivity)} />)}
     {state.kind === 'ready' && state.page.total > state.page.limit && <nav className="job-pagination" aria-label="İşlem geçmişi sayfaları">
       <button type="button" className="secondary-button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Önceki</button>
       <span>{offset + 1}–{Math.min(offset + state.page.items.length, state.page.total)} / {state.page.total}</span>
