@@ -86,12 +86,16 @@ PR D overlay adapter surface (narrowed ship):
       ResponsiveDrawer.tsx     # Job + Customer filters only
       overlay-focus.ts
 
-Still planned for later PRs (not PR D):
+PR E reporting adapter (Delivery-first):
+
+    web/src/ui/antd/
+      OperationalTable.tsx
+
+Still planned for later PRs:
 
     web/src/ui/antd/
       OperationalDropdown.tsx
       ResultState.tsx
-      OperationalTable.tsx
 
 The PR C adapters are render-only: they receive presentation data and do not call APIs, calculate permissions or readiness, create command intents, or translate domain status. Overlay migration is owned by PR D; see `docs/superpowers/specs/2026-07-18-feedback-overlays-design.md`.
 

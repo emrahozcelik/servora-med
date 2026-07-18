@@ -65,6 +65,7 @@ describe('Ant Design ownership boundary', () => {
       Steps: 'WorkflowSteps.tsx',
       Descriptions: 'RecordDescriptions.tsx',
       Timeline: 'ActivityTimeline.tsx',
+      // Table is optional for OperationalTable; current Delivery uses semantic dual layout.
     } as const;
     const violations: string[] = [];
 

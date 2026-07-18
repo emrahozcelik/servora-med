@@ -206,18 +206,17 @@ Verification record (18 July 2026):
 
 ## PR E: Reporting surfaces
 
-Implementation status: Design and plan opened on `feature/reporting-surfaces` (not yet implemented).
+Implementation status: Implementing on `feature/reporting-surfaces` (Delivery-only, table-first).
 
 Design: `docs/superpowers/specs/2026-07-18-reporting-surfaces-design.md`
 Plan: `docs/superpowers/plans/2026-07-18-reporting-surfaces.md`
 
-Scope:
+Approved ship:
 
-- KPI summary using Servora-native composition
-- OperationalTable adapter for dense data
-- mobile card/list fallback
-- filter toolbar
-- export affordances only if already product-required (do not invent)
+- OperationalTable adapter
+- Delivery dense report migration only
+- Mobile card/list at max-width 720px (not 64rem)
+- No ReportKpiSummary extraction
 
 Constraints:
 
@@ -226,20 +225,27 @@ Constraints:
 - report data remains derived from persisted backend truth
 - no chart package (PR F)
 - adapters do not recompute report metrics
+- Approval/Staff report migration out of this PR
 
 Verification:
 
 - semantic headers and captions
-- responsive alternative parity
+- responsive alternative parity at 720px
 - pagination, filtering, empty, and error states
 - current report correctness tests
 
 Completion checklist:
 
-- [ ] owned OperationalTable (and minimal KPI/empty contracts as approved)
-- [ ] at least one dense report migrated with mobile alternative
-- [ ] existing report API/search/range tests still pass
-- [ ] no chart dependency added
+- [x] owned OperationalTable
+- [x] Delivery dense report migrated with mobile card alternative
+- [x] existing report API/search/range tests still pass
+- [x] no chart dependency / KPI extraction / Approval-Staff migration
+
+Verification record (18 July 2026):
+
+- `cd web && npm test -- --run`: 63 files and 576 tests passed
+- `cd web && npm run build`: passed
+- `cd web && npm run smoke:responsive`: 390, 768, 1024, 1440, 200% text, and 400% reflow checks passed
 
 ## PR F: Charts
 
