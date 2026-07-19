@@ -138,6 +138,7 @@ jobs:
           cache-dependency-path: web/package-lock.json
       - run: npm ci
       - run: npm run build
+      - run: npm run bundle:check
       - run: npm test -- --run
       - run: npx playwright install --with-deps chromium
       - run: npm run smoke:responsive

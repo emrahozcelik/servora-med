@@ -12,7 +12,9 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "smoke:responsive": "node scripts/responsive-smoke.mjs"
+    "smoke:responsive": "node scripts/responsive-smoke.mjs",
+    "bundle:report": "node scripts/report-bundle-sizes.mjs",
+    "bundle:check": "BUNDLE_ENFORCE=1 node scripts/report-bundle-sizes.mjs"
   },
   "dependencies": {
     "antd": "6.5.1",
