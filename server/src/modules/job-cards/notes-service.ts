@@ -34,7 +34,7 @@ export class JobCardNotesService {
           organizationId: actor.organizationId, jobCardId, actorId: actor.id,
           event: 'NOTE_ADDED', clientActionId, metadata: { noteId: created.id },
         });
-        return created;
+        return { response: created, realtimeEvents: [] };
       },
     );
     if (result.kind === 'processing') {

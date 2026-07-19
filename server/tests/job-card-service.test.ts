@@ -2,9 +2,12 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   CriticalActionClaim,
+  CriticalActionWorkResult,
   JobCardRepository,
   JobCardTransaction,
 } from '../src/modules/job-cards/repository.js';
+import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
+import type { RealtimeEventRecord } from '../src/modules/realtime/types.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActivityEvent, JobCardActor } from '../src/modules/job-cards/types.js';
 
@@ -18,13 +21,15 @@ class MemoryJobCardRepository implements JobCardRepository {
     description: null, scheduledAt: '2026-07-16T11:30:00.000Z',
   };
   activities: Activity[] = [];
+  realtimeEvents: RealtimeEventRecord[] = [];
+  nextCriticalResult: 'completed' | 'replay' = 'completed';
   completed = new Map<string, unknown>();
   processing = new Set<string>();
   failActivity = false;
 
-  async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
+  async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<CriticalActionWorkResult<T>>) {
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
-    if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T };
+    if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T, realtimeEvents: [] as const };
     if (this.processing.has(key)) return { kind: 'processing' as const };
     this.processing.add(key);
     const jobBefore = { ...this.job };
@@ -57,12 +62,23 @@ class MemoryJobCardRepository implements JobCardRepository {
         return { ...this.job };
       },
       createMeetingDetails: async () => { throw new Error('unused'); },
+      createNote: async (input) => ({
+        id: 'note-1',
+        jobCardId: input.jobCardId,
+        note: input.note,
+        author: { id: input.authorId, name: 'Staff One' },
+        createdAt: '2026-07-19T14:30:00.000Z',
+      }),
       appendActivity: async (input) => {
         if (this.failActivity) throw new Error('activity failed');
         this.activities.push({ event: input.event, jobCardId: input.jobCardId, actorId: input.actorId, clientActionId: input.clientActionId });
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
-      appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
+      appendRealtimeEvent: async (input) => {
+        const record: RealtimeEventRecord = { ...input, id: BigInt(this.realtimeEvents.length + 1) };
+        this.realtimeEvents.push(record);
+        return record;
+      },
       getAssignee: async () => ({
         id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
       }),
@@ -73,9 +89,12 @@ class MemoryJobCardRepository implements JobCardRepository {
       getSubmissionDeliveryItems: async () => [],
     };
     try {
-      const response = await work(tx);
-      this.completed.set(key, response);
-      return { kind: 'completed' as const, response };
+      const workResult = await work(tx);
+      this.completed.set(key, workResult.response);
+      if (this.nextCriticalResult === 'replay') {
+        return { kind: 'replay' as const, response: workResult.response, realtimeEvents: [] as const };
+      }
+      return { kind: 'completed' as const, response: workResult.response, realtimeEvents: workResult.realtimeEvents };
     } catch (error) {
       this.job = jobBefore;
       this.activities.splice(activityCount);
@@ -132,5 +151,56 @@ describe('JobCardService critical command foundation', () => {
     const repository = new MemoryJobCardRepository();
     await expect(new JobCardService(repository).start({ ...staff, organizationId: 'org-2' }, 'job-1', input))
       .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+  });
+});
+
+describe('JobCardService realtime event emission', () => {
+  function withPublisher() {
+    const repository = new MemoryJobCardRepository();
+    const published: RealtimeEventRecord[] = [];
+    const publisher: RealtimeEventPublisher = {
+      publish(event) {
+        published.push(event);
+      },
+    };
+    const service = new JobCardService(
+      repository,
+      () => new Date('2026-07-19T14:30:00.000Z'),
+      publisher,
+    );
+    return { repository, published, service };
+  }
+
+  it('persists and publishes a covered event after successful commit', async () => {
+    const { repository, published, service } = withPublisher();
+    await service.start(staff, 'job-1', input);
+
+    expect(repository.realtimeEvents).toHaveLength(1);
+    expect(repository.realtimeEvents[0]).toMatchObject({
+      type: 'job.started',
+      entityId: 'job-1',
+      sourceActivityId: 'activity-1',
+    });
+    expect(published).toEqual(repository.realtimeEvents);
+  });
+
+  it('does not publish an idempotent replay', async () => {
+    const { repository, published, service } = withPublisher();
+    repository.nextCriticalResult = 'replay';
+
+    await service.start(staff, 'job-1', input);
+
+    expect(published).toEqual([]);
+  });
+
+  it('does not persist or publish excluded note events', async () => {
+    const { repository, published, service } = withPublisher();
+    await service.addNote(staff, 'job-1', {
+      clientActionId: 'note-action',
+      note: 'Kapıya bırakıldı.',
+    });
+
+    expect(repository.realtimeEvents).toEqual([]);
+    expect(published).toEqual([]);
   });
 });

@@ -158,15 +158,30 @@ export interface JobCardTransaction extends SubmissionReader {
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
 }
 
+export type CriticalActionWorkResult<T> = Readonly<{
+  response: T;
+  realtimeEvents: readonly RealtimeEventRecord[];
+}>;
+
 export type CriticalActionResult<T> =
-  | { kind: 'completed'; response: T }
-  | { kind: 'replay'; response: T }
+  | {
+      kind: 'completed';
+      response: T;
+      realtimeEvents: readonly RealtimeEventRecord[];
+    }
+  | {
+      kind: 'replay';
+      response: T;
+      realtimeEvents: readonly [];
+    }
   | { kind: 'processing' };
 
 export interface JobCardRepository extends SubmissionReader {
   executeCriticalAction<T>(
     claim: CriticalActionClaim,
-    work: (transaction: JobCardTransaction) => Promise<T>,
+    work: (
+      transaction: JobCardTransaction,
+    ) => Promise<CriticalActionWorkResult<T>>,
   ): Promise<CriticalActionResult<T>>;
   listJobCards(
     scope: JobCardReadScope,
@@ -813,7 +828,9 @@ implements JobCardRepository, ApprovalQueueItemPort {
 
   async executeCriticalAction<T>(
     claim: CriticalActionClaim,
-    work: (transaction: JobCardTransaction) => Promise<T>,
+    work: (
+      transaction: JobCardTransaction,
+    ) => Promise<CriticalActionWorkResult<T>>,
   ): Promise<CriticalActionResult<T>> {
     const client = await this.pool.connect();
     try {
@@ -837,20 +854,24 @@ implements JobCardRepository, ApprovalQueueItemPort {
         await client.query('COMMIT');
         const action = existing.rows[0];
         if (action?.status === 'completed' && action.response_body !== null) {
-          return { kind: 'replay', response: action.response_body };
+          return { kind: 'replay', response: action.response_body, realtimeEvents: [] };
         }
         return { kind: 'processing' };
       }
 
-      const response = await work(new PostgresJobCardTransaction(client));
+      const workResult = await work(new PostgresJobCardTransaction(client));
       await client.query(
         `UPDATE processed_actions
          SET status = 'completed', status_code = 200, response_body = $2, completed_at = NOW()
          WHERE id = $1`,
-        [claimed.rows[0]!.id, response],
+        [claimed.rows[0]!.id, workResult.response],
       );
       await client.query('COMMIT');
-      return { kind: 'completed', response };
+      return {
+        kind: 'completed',
+        response: workResult.response,
+        realtimeEvents: workResult.realtimeEvents,
+      };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;
