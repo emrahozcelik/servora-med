@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -178,17 +180,21 @@ describe('responsive authenticated AppShell', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
-  it('drawer element carries no CSS transition under prefers-reduced-motion', async () => {
-    await render(manager, false);
-    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
-    await act(async () => trigger.click());
-    const drawer = container.querySelector<HTMLElement>('.shell-drawer')!;
-    expect(drawer).not.toBeNull();
-    // The computed transition must be empty or 'none' when the media query fires
-    // In jsdom getComputedStyle always returns '', which satisfies the assertion that
-    // no hard-coded transition string is inlined on the element itself.
-    const inlineTransition = drawer.style.transition;
-    expect(inlineTransition).toBe('');
+  it('does not introduce drawer motion styling', () => {
+    const css = readFileSync(
+      resolve(__dirname, '../src/styles.css'),
+      'utf8',
+    );
+
+    // Extract rules whose selector contains .shell-drawer or .shell-drawer-backdrop
+    const drawerRules =
+      css.match(/\.shell-drawer(?:-backdrop)?[^{]*\{[^}]*\}/g)?.join('\n') ?? '';
+
+    // If motion is ever added, a proper Playwright computed-style test is needed;
+    // for now there is no motion in the drawer, so this guard must stay green.
+    expect(drawerRules).not.toMatch(
+      /\b(?:transition|animation)(?:-[\w-]+)?\s*:/,
+    );
   });
 });
 
