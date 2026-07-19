@@ -60,7 +60,9 @@ class MemoryJobCardRepository implements JobCardRepository {
       appendActivity: async (input) => {
         if (this.failActivity) throw new Error('activity failed');
         this.activities.push({ event: input.event, jobCardId: input.jobCardId, actorId: input.actorId, clientActionId: input.clientActionId });
+        return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
       getAssignee: async () => ({
         id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
       }),

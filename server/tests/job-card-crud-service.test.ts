@@ -149,7 +149,9 @@ class CrudMemoryRepository implements JobCardRepository {
       appendActivity: async (input) => {
         if (this.failActivity) throw new Error('activity failed');
         this.activities.push(input.event);
+        return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
     };
     try {
       const response = await work(tx); this.completed.set(key, response);
@@ -218,7 +220,11 @@ class CrudMemoryRepository implements JobCardRepository {
         if (clearAcceptance) this.acceptance.delete(input.jobCardId);
         return this.jobs[index]!;
       },
-      appendActivity: async (input) => { this.activities.push(input.event); },
+      appendActivity: async (input) => {
+        this.activities.push(input.event);
+        return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
+      },
+      appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
     };
     try { return await work(tx); } catch (error) { this.jobs = before; this.activities.splice(eventCount); throw error; }
   }

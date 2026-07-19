@@ -149,7 +149,9 @@ class SalesMeetingRepository implements JobCardRepository {
         if (this.failActivity) throw new Error('activity failed');
         this.activities.push(input.event);
         this.activityMetadata.push(input.metadata ?? null);
+        return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
       getJobDetail: async (organizationId: string, jobCardId: string) => {
         const job = this.jobs.find(
           (candidate) => candidate.organizationId === organizationId && candidate.id === jobCardId,

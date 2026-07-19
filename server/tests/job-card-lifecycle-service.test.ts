@@ -118,7 +118,9 @@ class LifecycleRepository implements JobCardRepository {
       appendActivity: async (input) => {
         if (this.failActivity) throw new Error('activity failed');
         this.events.push(input);
+        return { id: `activity-${this.events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
       getAssignee: async () => {
         this.submissionReads.push('assignee');
         return this.assignee;
@@ -238,7 +240,11 @@ function twoJobRepository() {
           jobs.set(job.id, updated);
           return { ...updated };
         },
-        appendActivity: async (input: ActivityInput) => { events.push(input); },
+        appendActivity: async (input: ActivityInput) => {
+          events.push(input);
+          return { id: `activity-${events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
+        },
+        appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
         getAssignee: async () => ({
           id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
         }),

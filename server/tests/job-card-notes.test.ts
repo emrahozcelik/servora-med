@@ -60,7 +60,9 @@ class NotesRepository {
       appendActivity: async (input) => {
         if (this.failActivity) throw new Error('activity failed');
         this.activities.push(input);
+        return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
     } as JobCardTransaction;
   }
 
