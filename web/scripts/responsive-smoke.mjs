@@ -68,6 +68,9 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <section class="report-workspace" aria-label="Ortak durum bileşenleri responsive fixture" data-smoke-state-adapters>
         <div id="responsive-state-adapters-root"></div>
       </section>
+      <section class="report-workspace" aria-label="Chart bileşenleri responsive fixture" data-smoke-charts>
+        <div id="responsive-chart-fixture-root"></div>
+      </section>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="workflow-board">
           <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
@@ -136,6 +139,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <script type="module" src="/scripts/responsive-approval-report-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-staff-report-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-state-adapters-fixture.tsx"></script>
+<script type="module" src="/scripts/responsive-chart-fixture.tsx"></script>
 </body></html>`;
 
 const viewports = [
@@ -374,6 +378,61 @@ async function measure(page) {
           || rect.left < stateAdapterSectionRect.left - 2
           || adapter.scrollWidth > adapter.clientWidth + 2));
     });
+    // Chart component measurements
+    const chartSection = document.querySelector('[data-smoke-charts]');
+    const chartSectionRect = chartSection?.getBoundingClientRect();
+    const trendSection = chartSection?.querySelector('[data-smoke-chart-trend]');
+    const calendarSection = chartSection?.querySelector('[data-smoke-chart-calendar]');
+    const metersSection = chartSection?.querySelector('[data-smoke-chart-meters]');
+    const segmentedSection = chartSection?.querySelector('[data-smoke-chart-segmented]');
+    function sectionOverflows(section) {
+      if (!section || !chartSectionRect) return false;
+      const r = section.getBoundingClientRect();
+      return r.right > chartSectionRect.right + 2 || r.left < chartSectionRect.left - 2
+        || section.scrollWidth > section.clientWidth + 2;
+    }
+    const trendBarsEl = trendSection?.querySelector('[data-report-trend-bars="true"]');
+    const trendBarsRect = trendBarsEl?.getBoundingClientRect();
+    const trendSectionRect = trendSection?.getBoundingClientRect();
+    const trendOverflow = Boolean(trendBarsRect && trendSectionRect
+      && (trendBarsRect.right > trendSectionRect.right + 2
+        || trendBarsRect.left < trendSectionRect.left - 2));
+    const calendarTables = calendarSection
+      ? Array.from(calendarSection.querySelectorAll('.report-calendar-table'))
+      : [];
+    const calendarOverflow = calendarTables.some((table) => {
+      if (!chartSectionRect) return false;
+      const r = table.getBoundingClientRect();
+      return r.right > chartSectionRect.right + 2 || r.left < chartSectionRect.left - 2;
+    });
+    const metersEl = metersSection?.querySelector('[data-report-meters="true"]');
+    const metersRect = metersEl?.getBoundingClientRect();
+    const metersSectionRect = metersSection?.getBoundingClientRect();
+    const metersOverflow = Boolean(metersRect && metersSectionRect
+      && (metersRect.right > metersSectionRect.right + 2
+        || metersRect.left < metersSectionRect.left - 2));
+    const segmentedEl = segmentedSection?.querySelector('[data-report-segmented="true"]');
+    const segmentedRect = segmentedEl?.getBoundingClientRect();
+    const segmentedSectionRect = segmentedSection?.getBoundingClientRect();
+    const segmentedOverflow = Boolean(segmentedRect && segmentedSectionRect
+      && (segmentedRect.right > segmentedSectionRect.right + 2
+        || segmentedRect.left < segmentedSectionRect.left - 2));
+    const legendItems = segmentedSection
+      ? Array.from(segmentedSection.querySelectorAll('.report-segmented-legend li'))
+      : [];
+    const legendOverflow = legendItems.some((item) => {
+      if (!segmentedSectionRect) return false;
+      const r = item.getBoundingClientRect();
+      return r.right > segmentedSectionRect.right + 2 || r.left < segmentedSectionRect.left - 2;
+    });
+    const meterLabels = metersSection
+      ? Array.from(metersSection.querySelectorAll('.report-meter-label'))
+      : [];
+    const meterLabelOverflow = meterLabels.some((label) => {
+      if (!metersSectionRect) return false;
+      const r = label.getBoundingClientRect();
+      return r.right > metersSectionRect.right + 2 || r.left < metersSectionRect.left - 2;
+    });
     return {
       overflowX,
       results,
@@ -435,6 +494,20 @@ async function measure(page) {
         return style.display !== 'none' && style.visibility !== 'hidden' && rect.height > 0;
       })()),
       stateActionVisible: Boolean(stateAdapterSection?.querySelector('button')),
+      // Chart measurements
+      chartsPresent: Boolean(chartSection),
+      trendPresent: Boolean(trendBarsEl),
+      trendOverflow,
+      trendDensity: trendBarsEl?.getAttribute('data-density') ?? '',
+      trendPointCount: Number(trendBarsEl?.getAttribute('data-point-count') ?? 0),
+      calendarTableCount: calendarTables.length,
+      calendarOverflow,
+      metersPresent: Boolean(metersEl),
+      metersOverflow,
+      meterLabelOverflow,
+      segmentedPresent: Boolean(segmentedEl),
+      segmentedOverflow,
+      legendOverflow,
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
     };
@@ -451,6 +524,7 @@ try {
     await page.goto(url, { waitUntil: 'load' });
     await page.waitForSelector('.servora-ant-timeline');
     await page.waitForSelector('[data-servora-operational-table="true"]');
+    await page.waitForSelector('[data-smoke-charts]');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: vp.name, ...m }));
@@ -553,6 +627,22 @@ try {
     if (vp.width >= 641 && vp.width < 1024 && m.stickyVisible && !m.stickyInViewport) {
       failures.push(`${vp.name}: sticky Yeni iş sheet panel outside viewport`);
     }
+    if (!m.chartsPresent) {
+      failures.push(`${vp.name}: chart fixture section missing`);
+    } else {
+      if (!m.trendPresent) failures.push(`${vp.name}: TrendBars fixture missing`);
+      if (m.trendOverflow) failures.push(`${vp.name}: TrendBars (366pt) overflows its section`);
+      if (m.trendDensity !== 'density-dense') failures.push(`${vp.name}: 366-point trend must use density-dense (got ${m.trendDensity})`);
+      if (m.trendPointCount !== 366) failures.push(`${vp.name}: expected 366 trend points (got ${m.trendPointCount})`);
+      if (m.calendarTableCount === 0) failures.push(`${vp.name}: CompletedTrendCalendar produced no table elements`);
+      if (m.calendarOverflow) failures.push(`${vp.name}: CompletedTrendCalendar overflows its section`);
+      if (!m.metersPresent) failures.push(`${vp.name}: IndependentMeterBars fixture missing`);
+      if (m.metersOverflow) failures.push(`${vp.name}: IndependentMeterBars overflows its section`);
+      if (m.meterLabelOverflow) failures.push(`${vp.name}: IndependentMeterBars long label overflows`);
+      if (!m.segmentedPresent) failures.push(`${vp.name}: SegmentedDistributionBar fixture missing`);
+      if (m.segmentedOverflow) failures.push(`${vp.name}: SegmentedDistributionBar overflows its section`);
+      if (m.legendOverflow) failures.push(`${vp.name}: SegmentedDistributionBar legend item overflows`);
+    }
     await page.close();
   }
 
@@ -561,6 +651,7 @@ try {
     await page.goto(url, { waitUntil: 'load' });
     await page.waitForSelector('.servora-ant-timeline');
     await page.waitForSelector('[data-servora-operational-table="true"]');
+    await page.waitForSelector('[data-smoke-charts]');
     await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
@@ -587,6 +678,10 @@ try {
       || !m.loadingStatusOutsideBusy || !m.loadingTitleVisible || !m.stateActionVisible) {
       failures.push('200% text: shared state adapter reflow failure');
     }
+    if (m.chartsPresent && (m.trendOverflow || m.calendarOverflow || m.metersOverflow
+      || m.meterLabelOverflow || m.segmentedOverflow || m.legendOverflow)) {
+      failures.push('200% text: chart component reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
     }
@@ -600,6 +695,7 @@ try {
     await page.goto(url, { waitUntil: 'load' });
     await page.waitForSelector('.servora-ant-timeline');
     await page.waitForSelector('[data-servora-operational-table="true"]');
+    await page.waitForSelector('[data-smoke-charts]');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: '320-wcag-400pct-reflow', ...m }));
@@ -624,6 +720,10 @@ try {
       || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.loadingSkeletonDecorative
       || !m.loadingStatusOutsideBusy || !m.loadingTitleVisible || !m.stateActionVisible) {
       failures.push('400% reflow: shared state adapter reflow failure');
+    }
+    if (m.chartsPresent && (m.trendOverflow || m.calendarOverflow || m.metersOverflow
+      || m.meterLabelOverflow || m.segmentedOverflow || m.legendOverflow)) {
+      failures.push('400% reflow: chart component reflow failure');
     }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {
