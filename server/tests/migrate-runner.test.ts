@@ -70,9 +70,10 @@ describe('runMigrations', () => {
       '008_meeting_approval_withdrawal.sql',
       '009_job_acceptance_and_scheduling.sql',
       '010_entity_delete_audit.sql',
+      '011_create_realtime_events.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('010_entity_delete_audit.sql');
-    expect(expectedSchemaVersion).toBe(10);
+    expect(migrations.at(-1)?.name).toBe('011_create_realtime_events.sql');
+    expect(expectedSchemaVersion).toBe(11);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {
