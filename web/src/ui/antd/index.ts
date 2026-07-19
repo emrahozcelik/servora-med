@@ -18,6 +18,8 @@ export { ActivityTimeline } from './ActivityTimeline';
 export type { ActivityTimelineItem } from './ActivityTimeline';
 export { ConfirmationAction } from './ConfirmationAction';
 export type { ConfirmationActionProps } from './ConfirmationAction';
+export { CompactConfirmationAction } from './CompactConfirmationAction';
+export type { CompactConfirmationActionProps } from './CompactConfirmationAction';
 export { ReasonDialog } from './ReasonDialog';
 export type { ReasonDialogProps } from './ReasonDialog';
 export { ResponsiveDrawer } from './ResponsiveDrawer';

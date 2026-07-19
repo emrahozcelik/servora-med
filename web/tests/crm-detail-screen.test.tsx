@@ -8,7 +8,16 @@ import { ContactRoute, CustomerRoute } from '../src/AppRouter';
 import { ApiError, type CurrentUser } from '../src/services/api';
 import type { Contact, CustomerDetail } from '../src/services/crm-api';
 
-Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+class TestResizeObserver {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+Object.assign(globalThis, {
+  IS_REACT_ACT_ENVIRONMENT: true,
+  ResizeObserver: TestResizeObserver,
+});
 
 const crm = vi.hoisted(() => ({
   getCustomer: vi.fn(), getContact: vi.fn(), updateCustomer: vi.fn(), updateContact: vi.fn(),
@@ -137,10 +146,47 @@ describe('CRM detail screen concurrency', () => {
     await render(router);
     (container.querySelector('#contact-name') as HTMLInputElement).value = 'Kaydedilmemiş kişi adı';
     const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Birincil kişi yap')!;
-    await act(async () => trigger.click()); await settle();
+    await act(async () => trigger.click());
+    expect(crm.makePrimaryContact).not.toHaveBeenCalled();
+    const confirm = Array.from(document.body.querySelectorAll('button'))
+      .find((button) => button !== trigger && button.textContent === 'Birincil kişi yap')!;
+    expect(confirm).toBeTruthy();
+    await act(async () => confirm.click()); await settle();
+    expect(crm.makePrimaryContact).toHaveBeenCalledTimes(1);
     await act(async () => vi.runAllTimers());
     expect(document.activeElement).toBe(container.querySelector('.record-commands'));
     expect((container.querySelector('#contact-name') as HTMLInputElement).value).toBe('Kaydedilmemiş kişi adı');
     expect(container.textContent).not.toContain('Birincil kişi yap');
+  });
+
+  it('prevents duplicate make-primary commands while confirmation is pending', async () => {
+    const command = deferred<{ contact: Contact; previousPrimaryContactId: string | null }>();
+    const secondary = contact('contact-2', 'Selin Ak');
+    crm.getContact.mockResolvedValue(secondary);
+    crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik'));
+    crm.makePrimaryContact.mockReturnValue(command.promise);
+    const router = createMemoryRouter(
+      [{ path: '/customers/:customerId/contacts/:contactId', element: <ContactRoute user={manager} /> }],
+      { initialEntries: ['/customers/customer-1/contacts/contact-2'] },
+    );
+    await render(router);
+
+    const trigger = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Birincil kişi yap')!;
+    await act(async () => trigger.click());
+    expect(crm.makePrimaryContact).not.toHaveBeenCalled();
+
+    const confirm = Array.from(document.body.querySelectorAll('button'))
+      .find((button) => button !== trigger && button.textContent === 'Birincil kişi yap')!;
+    await act(async () => {
+      confirm.click();
+      confirm.click();
+    });
+    expect(crm.makePrimaryContact).toHaveBeenCalledTimes(1);
+
+    await act(async () => command.resolve({
+      contact: { ...secondary, isPrimary: true, version: 2 },
+      previousPrimaryContactId: 'contact-1',
+    }));
   });
 });

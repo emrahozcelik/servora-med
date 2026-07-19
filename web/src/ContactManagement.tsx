@@ -8,6 +8,7 @@ import {
   updateContact, type Contact, type ContactFields,
 } from './services/crm-api';
 import { createRequestGate } from './services/request-gate';
+import { CompactConfirmationAction } from './ui/antd';
 import { isInteractiveTarget } from './ui/clickable-card';
 
 export type ContactListState =
@@ -108,7 +109,15 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
       {contact.isPrimary
         ? <p>Bu kayıt müşterinin varsayılan ilgili kişisidir.</p>
         : <><p>Bu komut müşterinin varsayılan ilgili kişisini değiştirir.</p>
-          <div><button className="secondary-button" type="button" disabled={pending || conflict} onClick={(event) => onMakePrimary(event.currentTarget)}>Birincil kişi yap</button></div></>}
+          <div><CompactConfirmationAction
+            title="Birincil kişi değiştirilsin mi?"
+            description="Bu kayıt müşterinin varsayılan ilgili kişisi olur."
+            triggerLabel="Birincil kişi yap"
+            confirmLabel="Birincil kişi yap"
+            pending={pending}
+            disabled={conflict}
+            onConfirm={onMakePrimary}
+          /></div></>}
     </section>}
   </main>;
 }
