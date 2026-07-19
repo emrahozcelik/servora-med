@@ -68,19 +68,35 @@ describe('Ant Design ownership boundary', () => {
       Result: 'ResultState.tsx',
       Empty: 'EmptyState.tsx',
       Skeleton: 'LoadingSkeleton.tsx',
+      Popconfirm: 'CompactConfirmationAction.tsx',
     } as const;
     const violations: string[] = [];
+    const imports = new Map<string, string[]>();
 
     for (const path of boundaryFiles) {
       const source = await readFile(path, 'utf8');
       for (const [primitive, owner] of Object.entries(owners)) {
         const directImport = new RegExp(`import\\s*\\{[^}]*\\b${primitive}\\b[^}]*\\}\\s*from\\s*["']antd["']`, 's');
-        if (directImport.test(source) && path.split(sep).at(-1) !== owner) {
-          violations.push(`${relative(ownedBoundaryRoot, path)} imports ${primitive}`);
+        if (directImport.test(source)) {
+          const filename = path.split(sep).at(-1) ?? '';
+          imports.set(primitive, [...(imports.get(primitive) ?? []), filename]);
+          if (filename !== owner) {
+            violations.push(`${relative(ownedBoundaryRoot, path)} imports ${primitive}`);
+          }
         }
       }
     }
 
     expect(violations).toEqual([]);
+    for (const [primitive, owner] of Object.entries(owners)) {
+      expect(imports.get(primitive), `${primitive} owner`).toEqual([owner]);
+    }
+  });
+
+  it('exports the owned compact confirmation adapter', async () => {
+    const indexSource = await readFile(join(ownedBoundaryRoot, 'index.ts'), 'utf8');
+    expect(indexSource).toContain(
+      "export { CompactConfirmationAction } from './CompactConfirmationAction';",
+    );
   });
 });
