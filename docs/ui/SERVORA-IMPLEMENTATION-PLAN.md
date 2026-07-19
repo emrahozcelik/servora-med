@@ -1,10 +1,10 @@
 # Servora UI Implementation Plan
 
-Status: **PR A–F merged** — mandatory UI implementation chain complete
-Current main (closeout record): `0d1ee816212da47b0932492899ba390978b07ffd`
-Current phase: **Post A–F backlog** (optional / deferred / product-decision work only)
+Status: **PR A–M merged** — mandatory chain and approved optional UI runtime backlog complete
+Current main (runtime closeout baseline): `b8434d633a40055f3b6f772c3eadfe9bc9e610e5`
+Current phase: **Deferred / product-decision work only**
 
-The original Ant Design foundation → shell → lifecycle → overlays → reporting table → charts sequence is finished. Remaining UI work is **not** part of that mandatory chain; it is classified under [Post A–F backlog](#post-af-backlog).
+The original Ant Design foundation → shell → lifecycle → overlays → reporting table → charts sequence and the approved post-chain runtime slices are finished. Remaining UI work requires an explicit product or design gate and is classified under [Post A–F backlog](#post-af-backlog).
 
 ## Entry gate
 
@@ -278,7 +278,7 @@ Verification record (18 July 2026):
 
 ## Post A–F backlog
 
-Work below is **out of the mandatory A–F chain**. Each item needs its own design gate when it starts. Suggested optional sequence after this closeout:
+Work below is **out of the mandatory A–F chain**. The approved optional sequence is now complete; deferred and product-decision items still require their own gate.
 
 | ID | Slice | Class |
 | --- | --- | --- |
@@ -286,6 +286,10 @@ Work below is **out of the mandatory A–F chain**. Each item needs its own desi
 | PR H | Approval report → `OperationalTable` | Optional runtime — merged via PR #26 |
 | PR I | Staff report → `OperationalTable` | Optional runtime — merged via PR #27 |
 | PR J | Shared Result / Empty / Skeleton adapters | Optional runtime — merged via PR #28 at `3424042` |
+| PR K | Responsive chart smoke fixtures | Optional verification — merged via PR #29 |
+| PR L | Route code-splitting and bundle budget | Optional performance — merged via PR #30 at `4735bcc` |
+| PR M | Compact primary-contact confirmation | Optional runtime — merged via PR #31 at `b8434d6` |
+| Hardening | AppShell navigation drawer parity | Direct main commits `d69815a`, `5c9ba65`, and `d245785` |
 
 ### PR H: Approval report → `OperationalTable`
 
@@ -356,15 +360,24 @@ Verification record (18 July 2026):
 - `cd server && npm test -- --run`: 911 passed and 29 environment-dependent tests skipped
 - `cd server && npm audit --omit=dev`: passed with zero vulnerabilities
 
-### Optional (implementation when prioritised)
+### Completed optional implementation
 
 - Approval queue list → `OperationalTable` (720px mobile card parity; summary + SLA chart unchanged; no API change) — **PR H, merged via PR #26**
 - Staff dense table → `OperationalTable` — **PR I, merged via PR #27**
 - `ResultState` / shared Empty / Skeleton adapters — **PR J, merged via PR #28**
-- Popconfirm for proven low-risk, short confirmations only
-- AppShell navigation drawer parity vs Ant Drawer (behavior tests first)
 - Responsive smoke chart fixtures (long meter labels, segmented legend, 366-point trend) — **PR K, merged via PR #29**
-- Bundle / code-split work for the Vite 500 kB chunk warning (measure; do not hide the limit)
+- Route code-splitting and the independent 500,000-byte JavaScript chunk budget — **PR L, merged via PR #30**
+- Owned compact `Popconfirm` for the reversible “Birincil kişi yap” command only — **PR M, merged via PR #31**
+- AppShell navigation drawer parity — **backdrop close/focus behavior in `d69815a`; no-motion CSS contract hardened in `5c9ba65` and `d245785`**
+
+Closeout verification record (19 July 2026):
+
+- PR #29 responsive smoke covers long meter labels, segmented legends, and the 366-point trend fixture
+- PR #30 keeps `/jobs` eager, lazy-loads non-primary routes, and enforces every JavaScript chunk below 500,000 bytes in CI
+- PR #31 restricts raw Ant `Popconfirm` to the owned adapter and preserves the existing primary-contact command contract
+- AppShell drawer tests cover labelled modal semantics, Escape, backdrop close, route-change close, body scroll lock, focus restoration, and the no-motion CSS contract
+- latest merged runtime CI passed 600 web tests, responsive smoke, bundle budget, 911 server tests, and web/server production audits
+- Node.js action-runtime deprecation maintenance remains a separate CI task and is not part of this UI closeout
 
 ### Deferred (explicit product/design gate)
 
