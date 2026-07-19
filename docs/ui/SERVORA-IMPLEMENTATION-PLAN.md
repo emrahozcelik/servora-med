@@ -363,7 +363,7 @@ Verification record (18 July 2026):
 - `ResultState` / shared Empty / Skeleton adapters — **PR J, merged via PR #28**
 - Popconfirm for proven low-risk, short confirmations only
 - AppShell navigation drawer parity vs Ant Drawer (behavior tests first)
-- Responsive smoke chart fixtures (long meter labels, segmented legend, 366-point trend)
+- Responsive smoke chart fixtures (long meter labels, segmented legend, 366-point trend) — **PR K, merged via PR #29**
 - Bundle / code-split work for the Vite 500 kB chunk warning (measure; do not hide the limit)
 
 ### Deferred (explicit product/design gate)
