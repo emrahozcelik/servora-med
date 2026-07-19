@@ -1,5 +1,5 @@
 /** @vitest-environment jsdom */
-import { act } from 'react';
+import { act, Suspense } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { createMemoryRouter, RouterProvider } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -42,7 +42,12 @@ function deferred<T>() {
   return { promise, resolve, reject };
 }
 
-async function settle() { await act(async () => { await Promise.resolve(); }); }
+async function settle() {
+  await act(async () => {
+    await vi.dynamicImportSettled();
+    await Promise.resolve();
+  });
+}
 
 describe('CRM detail screen concurrency', () => {
   let root: Root; let container: HTMLDivElement;
@@ -54,12 +59,20 @@ describe('CRM detail screen concurrency', () => {
 
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.useRealTimers(); vi.restoreAllMocks(); });
 
+  async function render(router: any) {
+    await act(async () => {
+      root.render(<Suspense fallback={null}><RouterProvider router={router} /></Suspense>);
+      await vi.dynamicImportSettled();
+    });
+  }
+
   it('remounts on route identity and rejects the late response from the previous Customer', async () => {
     const first = deferred<CustomerDetail>(); const second = deferred<CustomerDetail>();
     crm.getCustomer.mockImplementation((id: string) => id === 'customer-a' ? first.promise : second.promise);
     const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-a'] });
-    await act(async () => root.render(<RouterProvider router={router} />));
+    await render(router);
     await act(async () => { await router.navigate('/customers/customer-b'); });
+    await settle();
     expect(container.textContent).toContain('Müşteri detayı yükleniyor'); expect(container.textContent).not.toContain('A Kliniği');
     await act(async () => second.resolve(customer('customer-b', 'B Kliniği')));
     expect(container.textContent).toContain('B Kliniği');
@@ -72,7 +85,7 @@ describe('CRM detail screen concurrency', () => {
     crm.getCustomer.mockImplementation((id: string) => Promise.resolve(customer(id, id === 'customer-a' ? 'A Kliniği' : 'B Kliniği')));
     crm.updateCustomer.mockReturnValue(update.promise);
     const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-a'] });
-    await act(async () => root.render(<RouterProvider router={router} />)); await settle();
+    await render(router);
     await act(async () => (container.querySelector('.record-form') as HTMLFormElement).requestSubmit());
     await act(async () => { await router.navigate('/customers/customer-b'); }); await settle();
     await act(async () => update.resolve(customer('customer-a', 'A Kliniği güncel', 2)));
@@ -83,7 +96,7 @@ describe('CRM detail screen concurrency', () => {
     crm.getCustomer.mockResolvedValueOnce(customer('customer-1', 'Eski Klinik', 1)).mockResolvedValueOnce(customer('customer-1', 'Güncel Klinik', 2));
     crm.updateCustomer.mockRejectedValue(new ApiError(409, 'VERSION_CONFLICT', 'Güncel değil.'));
     const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-1'] });
-    await act(async () => root.render(<RouterProvider router={router} />)); await settle();
+    await render(router);
     const name = container.querySelector('#detail-customer-name') as HTMLInputElement; name.value = 'Benim değişikliğim';
     await act(async () => (container.querySelector('.record-form') as HTMLFormElement).requestSubmit()); await settle();
     expect(name.value).toBe('Benim değişikliğim');
@@ -96,7 +109,7 @@ describe('CRM detail screen concurrency', () => {
   it('does not render customer lifecycle commands on the detail screen', async () => {
     crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik', 1));
     const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-1'] });
-    await act(async () => root.render(<RouterProvider router={router} />)); await settle();
+    await render(router);
     expect(container.textContent).not.toContain('Müşteriyi pasifleştir');
     expect(container.textContent).not.toContain('Müşteriyi aktifleştir');
     expect(container.textContent).not.toContain('Müşteri durumu');
@@ -106,7 +119,7 @@ describe('CRM detail screen concurrency', () => {
     vi.useFakeTimers(); crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik'));
     crm.createContact.mockResolvedValue(contact('contact-3', 'Dr. Deniz'));
     const router = createMemoryRouter([{ path: '/customers/:customerId', element: <CustomerRoute user={manager} /> }], { initialEntries: ['/customers/customer-1'] });
-    await act(async () => root.render(<RouterProvider router={router} />)); await settle();
+    await render(router);
     const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'İlgili kişi ekle')!;
     await act(async () => trigger.click());
     const name = container.querySelector('#new-contact-name') as HTMLInputElement; name.value = 'Dr. Deniz';
@@ -121,7 +134,7 @@ describe('CRM detail screen concurrency', () => {
     crm.getContact.mockResolvedValue(secondary); crm.getCustomer.mockResolvedValue(customer('customer-1', 'Demo Klinik'));
     crm.makePrimaryContact.mockResolvedValue({ contact: { ...secondary, isPrimary: true, version: 2 }, previousPrimaryContactId: 'contact-1' });
     const router = createMemoryRouter([{ path: '/customers/:customerId/contacts/:contactId', element: <ContactRoute user={manager} /> }], { initialEntries: ['/customers/customer-1/contacts/contact-2'] });
-    await act(async () => root.render(<RouterProvider router={router} />)); await settle();
+    await render(router);
     (container.querySelector('#contact-name') as HTMLInputElement).value = 'Kaydedilmemiş kişi adı';
     const trigger = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Birincil kişi yap')!;
     await act(async () => trigger.click()); await settle();
