@@ -1,6 +1,5 @@
 /** @vitest-environment jsdom */
 import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useLocation } from 'react-router-dom';
@@ -182,19 +181,18 @@ describe('responsive authenticated AppShell', () => {
 
   it('does not introduce drawer motion styling', () => {
     const css = readFileSync(
-      resolve(__dirname, '../src/styles.css'),
+      new URL('../src/styles.css', 'file://' + __dirname + '/'),
       'utf8',
     );
 
-    // Extract rules whose selector contains .shell-drawer or .shell-drawer-backdrop
+    // Extract all CSS rule blocks whose selector contains .shell-drawer or .shell-drawer-backdrop
     const drawerRules =
       css.match(/\.shell-drawer(?:-backdrop)?[^{]*\{[^}]*\}/g)?.join('\n') ?? '';
 
-    // If motion is ever added, a proper Playwright computed-style test is needed;
-    // for now there is no motion in the drawer, so this guard must stay green.
-    expect(drawerRules).not.toMatch(
-      /\b(?:transition|animation)(?:-[\w-]+)?\s*:/,
-    );
+    // Assert that no transition or animation properties are present in those rules.
+    // If motion is intentionally added in the future, a @media (prefers-reduced-motion: reduce)
+    // counterpart must be added at the same time — update this test then.
+    expect(drawerRules).not.toMatch(/\b(?:transition|animation)(?:-[\w-]+)?\s*:/);
   });
 });
 
