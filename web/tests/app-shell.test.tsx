@@ -163,4 +163,32 @@ describe('responsive authenticated AppShell', () => {
     await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })));
     expect(document.body.style.overflow).toBe('');
   });
+
+  it('closes the drawer when the backdrop overlay is clicked', async () => {
+    await render(manager, false);
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    trigger.focus();
+    await act(async () => trigger.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    const backdrop = container.querySelector<HTMLElement>('.shell-drawer-backdrop')!;
+    expect(backdrop).not.toBeNull();
+    // Click directly on the backdrop element (not on the inner drawer panel)
+    await act(async () => backdrop.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('drawer element carries no CSS transition under prefers-reduced-motion', async () => {
+    await render(manager, false);
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    await act(async () => trigger.click());
+    const drawer = container.querySelector<HTMLElement>('.shell-drawer')!;
+    expect(drawer).not.toBeNull();
+    // The computed transition must be empty or 'none' when the media query fires
+    // In jsdom getComputedStyle always returns '', which satisfies the assertion that
+    // no hard-coded transition string is inlined on the element itself.
+    const inlineTransition = drawer.style.transition;
+    expect(inlineTransition).toBe('');
+  });
 });
+

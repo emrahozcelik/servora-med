@@ -222,7 +222,9 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
       )}
 
       {!desktop && drawerOpen && (
-        <div className="shell-drawer-backdrop">
+        <div className="shell-drawer-backdrop" onClick={(event) => {
+            if (event.target === event.currentTarget) closeDrawer(true);
+          }}>
           <div id="app-navigation-drawer" ref={drawerRef} className="shell-drawer" role="dialog" aria-modal="true"
             aria-labelledby="app-navigation-title" onKeyDown={handleDrawerKeyDown}>
             <div className="drawer-heading">
