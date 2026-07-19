@@ -3,7 +3,7 @@ import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { MemoryRouter, useLocation } from 'react-router-dom';
-import { describe, expect, it, vi } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../src/App';
 import { DeliveryReport } from '../src/reports/DeliveryReport';
@@ -33,10 +33,33 @@ const staff: CurrentUser = { ...manager, id: 'staff-1', role: 'STAFF' };
 const admin: CurrentUser = { ...manager, id: 'admin-1', role: 'ADMIN' };
 const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 
-function render(path: string, user: CurrentUser) {
-  return renderToStaticMarkup(<MemoryRouter initialEntries={[path]}>
-    <App initialUser={user} />
-  </MemoryRouter>);
+beforeEach(() => {
+  const pending = new Promise<never>(() => {});
+  vi.stubGlobal('fetch', vi.fn(() => pending));
+  vi.mocked(getDeliveryReport).mockReset().mockReturnValue(pending);
+  vi.mocked(listStaff).mockReset().mockReturnValue(pending);
+});
+
+async function render(path: string, user: CurrentUser) {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(
+      <MemoryRouter initialEntries={[path]}>
+        <App initialUser={user} />
+      </MemoryRouter>,
+    );
+  });
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
+  const html = container.innerHTML;
+  await act(async () => {
+    root.unmount();
+  });
+  container.remove();
+  return html;
 }
 
 describe('Management report navigation', () => {
@@ -44,25 +67,25 @@ describe('Management report navigation', () => {
     ['/reports', 'Rapor özeti yükleniyor'],
     ['/reports/deliveries', 'Teslim raporu yükleniyor'],
     ['/reports/approvals', 'Onay raporu yükleniyor'],
-  ])('registers stable management route %s', (path, expected) => {
-    expect(render(path, manager)).toContain(expected);
+  ])('registers stable management route %s', async (path, expected) => {
+    expect(await render(path, manager)).toContain(expected);
   });
 
   it.each(['/reports', '/reports/deliveries', '/reports/approvals'])
-    ('labels report section navigation on %s', (path) => {
-      expect(render(path, manager)).toContain('aria-label="Rapor bölümleri"');
+    ('labels report section navigation on %s', async (path) => {
+      expect(await render(path, manager)).toContain('aria-label="Rapor bölümleri"');
     });
 
-  it('shows report navigation only to management roles', () => {
-    const management = render('/jobs', manager);
+  it('shows report navigation only to management roles', async () => {
+    const management = await render('/jobs', manager);
     expect(management).toContain('href="/reports"');
     expect(management).toContain('Raporlar');
-    expect(render('/jobs', staff)).not.toContain('href="/reports"');
+    expect(await render('/jobs', staff)).not.toContain('href="/reports"');
   });
 
   it.each(['/reports', '/reports/deliveries', '/reports/approvals'])
-    ('denies Staff direct report route %s', (path) => {
-      expect(render(path, staff)).toContain('Bu alana erişim yetkiniz yok');
+    ('denies Staff direct report route %s', async (path) => {
+      expect(await render(path, staff)).toContain('Bu alana erişim yetkiniz yok');
     });
 
   it('replaces invalid delivery URL state and writes the echoed default range', async () => {

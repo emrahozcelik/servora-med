@@ -1,10 +1,26 @@
-import { renderToStaticMarkup } from 'react-dom/server';
+/** @vitest-environment jsdom */
+import { act } from 'react';
+import { createRoot } from 'react-dom/client';
 import { MemoryRouter } from 'react-router-dom';
-import { describe, expect, it } from 'vitest';
+import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../src/App';
 import { paths } from '../src/AppRouter';
 import type { CurrentUser } from '../src/services/api';
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+Object.defineProperty(window, 'matchMedia', {
+  configurable: true,
+  value: vi.fn().mockReturnValue({
+    matches: true,
+    media: '(min-width: 64rem)',
+    addEventListener: vi.fn(),
+    removeEventListener: vi.fn(),
+    addListener: vi.fn(),
+    removeListener: vi.fn(),
+    dispatchEvent: vi.fn(),
+  }),
+});
 
 const staff: CurrentUser = {
   id: 'staff-1', organizationId: 'org-1', name: 'Ayşe Personel',
@@ -13,12 +29,30 @@ const staff: CurrentUser = {
 const manager: CurrentUser = { ...staff, id: 'manager-1', name: 'Murat Yönetici', role: 'MANAGER' };
 const admin: CurrentUser = { ...manager, id: 'admin-1', name: 'Deniz Admin', role: 'ADMIN' };
 
-function render(path: string, user: CurrentUser = manager) {
-  return renderToStaticMarkup(
-    <MemoryRouter initialEntries={[path]}>
-      <App initialUser={user} />
-    </MemoryRouter>,
-  );
+beforeEach(() => {
+  vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
+});
+
+async function render(path: string, user: CurrentUser = manager) {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  await act(async () => {
+    root.render(
+      <MemoryRouter initialEntries={[path]}>
+        <App initialUser={user} />
+      </MemoryRouter>,
+    );
+  });
+  await act(async () => {
+    await vi.dynamicImportSettled();
+  });
+  const html = container.innerHTML;
+  await act(async () => {
+    root.unmount();
+  });
+  container.remove();
+  return html;
 }
 
 describe('application routes', () => {
@@ -45,8 +79,8 @@ describe('application routes', () => {
     ['/products?q=eski&offset=25', 'Ürünler', manager],
     ['/products/new', 'Yeni ürün', manager],
     ['/products/product-1', 'Ürün detayı yükleniyor', staff],
-  ] as const)('renders %s at a stable URL', (path, expected, user) => {
-    expect(render(path, user)).toContain(expected);
+  ] as const)('renders %s at a stable URL', async (path, expected, user) => {
+    expect(await render(path, user)).toContain(expected);
   });
 
   it.each([
@@ -54,20 +88,20 @@ describe('application routes', () => {
     ['/customers/new', staff],
     ['/products/new', staff],
     ['/staff/staff-1/reports', staff],
-  ] as const)('renders the established forbidden state for unauthorized direct route %s', (path, user) => {
-    const html = render(path, user);
+  ] as const)('renders the established forbidden state for unauthorized direct route %s', async (path, user) => {
+    const html = await render(path, user);
     expect(html).toContain('Bu alana erişim yetkiniz yok');
     expect(html).not.toContain('Kullanıcı oluştur');
   });
 
-  it('renders a safe not-found view for an unknown route', () => {
-    const html = render('/unknown');
+  it('renders a safe not-found view for an unknown route', async () => {
+    const html = await render('/unknown');
     expect(html).toContain('Sayfa bulunamadı');
     expect(html).toContain('İşlere dön');
   });
 
-  it('redirects an authenticated user away from the sign-in route', () => {
-    const html = render('/login');
+  it('redirects an authenticated user away from the sign-in route', async () => {
+    const html = await render('/login');
     expect(html).not.toContain('Sayfa bulunamadı');
   });
 
@@ -89,15 +123,15 @@ describe('application routes', () => {
     expect(paths.user('user/1')).toBe('/users/user%2F1');
   });
 
-  it('shows Product navigation to every role', () => {
-    expect(render('/jobs', staff)).toContain('href="/products"');
-    expect(render('/jobs', manager)).toContain('href="/products"');
-    expect(render('/jobs', admin)).toContain('href="/products"');
+  it('shows Product navigation to every role', async () => {
+    expect(await render('/jobs', staff)).toContain('href="/products"');
+    expect(await render('/jobs', manager)).toContain('href="/products"');
+    expect(await render('/jobs', admin)).toContain('href="/products"');
   });
 
-  it('marks the active shell destination without weakening direct-route authorization', () => {
-    const html = render('/products', staff);
+  it('marks the active shell destination without weakening direct-route authorization', async () => {
+    const html = await render('/products', staff);
     expect(html).toMatch(/aria-current="page"[^>]*href="\/products"/);
-    expect(render('/users', staff)).toContain('Bu alana erişim yetkiniz yok');
+    expect(await render('/users', staff)).toContain('Bu alana erişim yetkiniz yok');
   });
 });

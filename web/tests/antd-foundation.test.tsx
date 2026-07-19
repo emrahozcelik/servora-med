@@ -280,7 +280,7 @@ describe('Servora Ant Design foundation', () => {
   it('wires the owned provider around the existing application root', () => {
     const mainSource = readFileSync(resolve(process.cwd(), 'src/main.tsx'), 'utf8');
 
-    expect(mainSource).toContain("import { ServoraAntProvider } from './ui/antd';");
+    expect(mainSource).toContain("import { ServoraAntProvider } from './ui/antd/ServoraAntProvider';");
     expect(mainSource).toMatch(
       /<StrictMode>\s*<ServoraAntProvider>\s*<BrowserRouter>\s*<App \/>\s*<\/BrowserRouter>\s*<\/ServoraAntProvider>\s*<\/StrictMode>/,
     );

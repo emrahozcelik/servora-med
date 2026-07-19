@@ -12,6 +12,24 @@ export default defineConfig({
       },
     },
   },
+  build: {
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            {
+              name: 'vendor',
+              test: /node_modules[\\/]/,
+              entriesAware: true,
+              minSize: 30_000,
+              maxSize: 450_000,
+              priority: 10,
+            },
+          ],
+        },
+      },
+    },
+  },
   test: {
     environment: 'node',
     include: ['tests/**/*.test.{ts,tsx}'],

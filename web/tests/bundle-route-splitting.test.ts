@@ -18,6 +18,11 @@ const ciWorkflow = readFileSync(
   'utf8',
 );
 
+const viteConfigSource = readFileSync(
+  new URL('../vite.config.ts', import.meta.url),
+  'utf8',
+);
+
 const lazyModules = [
   './DeliveryCreate',
   './GeneralTaskCreate',
@@ -75,5 +80,17 @@ describe('route code-splitting contract', () => {
       'BUNDLE_ENFORCE=1 node scripts/report-bundle-sizes.mjs',
     );
     expect(ciWorkflow).toContain('- run: npm run bundle:check');
+  });
+
+  it('uses the Vite 8 Rolldown chunking API without hiding the budget', () => {
+    expect(viteConfigSource).toContain('rolldownOptions');
+    expect(viteConfigSource).toContain('codeSplitting');
+    expect(viteConfigSource).toContain("name: 'vendor'");
+    expect(viteConfigSource).toContain('entriesAware: true');
+    expect(viteConfigSource).toContain('maxSize: 450_000');
+
+    expect(viteConfigSource).not.toContain('manualChunks');
+    expect(viteConfigSource).not.toContain('rollupOptions');
+    expect(viteConfigSource).not.toContain('chunkSizeWarningLimit');
   });
 });
