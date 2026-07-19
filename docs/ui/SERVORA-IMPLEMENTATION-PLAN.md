@@ -285,7 +285,7 @@ Work below is **out of the mandatory A–F chain**. Each item needs its own desi
 | PR G | UI plan closeout | Docs-only — merged via PR #25 |
 | PR H | Approval report → `OperationalTable` | Optional runtime — merged via PR #26 |
 | PR I | Staff report → `OperationalTable` | Optional runtime — merged via PR #27 |
-| PR J | Shared Result / Empty / Skeleton adapters | Optional runtime — complete on `feature/shared-result-states`; awaiting review |
+| PR J | Shared Result / Empty / Skeleton adapters | Optional runtime — merged via PR #28 at `3424042` |
 
 ### PR H: Approval report → `OperationalTable`
 
@@ -333,7 +333,7 @@ Verification record (18 July 2026):
 
 ### PR J: Shared Result / Empty / Skeleton adapters
 
-Implementation status: Complete on `feature/shared-result-states`; awaiting review.
+Implementation status: Merged via PR #28 at `3424042`.
 
 Completion checklist:
 
@@ -360,7 +360,7 @@ Verification record (18 July 2026):
 
 - Approval queue list → `OperationalTable` (720px mobile card parity; summary + SLA chart unchanged; no API change) — **PR H, merged via PR #26**
 - Staff dense table → `OperationalTable` — **PR I, merged via PR #27**
-- `ResultState` / shared Empty / Skeleton adapters — **PR J, complete; awaiting review**
+- `ResultState` / shared Empty / Skeleton adapters — **PR J, merged via PR #28**
 - Popconfirm for proven low-risk, short confirmations only
 - AppShell navigation drawer parity vs Ant Drawer (behavior tests first)
 - Responsive smoke chart fixtures (long meter labels, segmented legend, 366-point trend)
