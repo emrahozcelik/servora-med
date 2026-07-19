@@ -1,26 +1,23 @@
-# Servora-Med Kalan UI Teknik İşler Uygulama Planı
+# Servora-Med Route Code-Splitting ve Bundle Budget Uygulama Planı
 
 > **Kodlama ajanı için zorunlu çalışma modu:** Bu belge onaylanmış tasarım ve uygulama planıdır. Brainstorming, writing-plans veya benzeri planlama skill’lerini çağırma. Kullanıcıya soru sorma. Karar seçenekleri üretme. Adımları sırayla uygula ve her PR sonunda dur.
 
-**Goal:** Servora-Med web uygulamasında route bazlı code-splitting uygulamak, 500 kB bundle uyarısını ölçülebilir bir bütçeyle kaldırmak, yalnız kanıtlanmış düşük riskli “Birincil kişi yap” komutuna owned Popconfirm adapter’ı eklemek ve UI uygulama planını kapatmak.
+**Goal:** Ana Jobs çalışma alanını eager tutarak diğer feature route’larını lazy-load etmek, JavaScript chunk boyutlarını 500.000 byte altında tutmak ve bu bütçeyi CI içinde korumak.
 
-**Architecture:** Ana `/jobs` çalışma alanı eager kalacak; diğer feature ekranları `React.lazy` ile route bazlı yüklenecek. Bundle bütçesi bir Node script’i ve GitHub Actions adımıyla korunacak. Kısa ve geri alınabilir confirmation işlemi owned Ant adapter üzerinden sunulacak; domain komutu, pending state ve hata yönetimi feature katmanında kalacak.
+**Architecture:** Ana `/jobs` çalışma alanı eager kalacak; diğer feature ekranları `React.lazy` ile route bazlı yüklenecek. Bundle bütçesi bir Node script’i ve GitHub Actions adımıyla korunacak.
 
 **Tech Stack:** React 19.2.7, React Router 7.18.1, Ant Design 6.5.1, TypeScript 5.9.3, Vite 8.1.4, Vitest 4.1.10, Playwright.
 
 ## Global Constraints
 
 * Doğrudan `main` üzerinde çalışma yapma.
-* Her plan için temiz `main` üzerinden ayrı branch aç.
+* Bu plan için temiz `main` üzerinden ayrı branch aç.
 * Yeni npm dependency ekleme.
 * Backend, API, DTO, database veya domain contract değiştirme.
 * `build.chunkSizeWarningLimit` değerini yükseltme veya uyarıyı gizleme.
 * `manualChunks` ekleme; route split sonrasında bütçe hâlâ geçilmiyorsa ölçümle birlikte dur.
 * `JobWorkspace` eager kalacak.
 * Raw `antd` importu yalnız `web/src/ui/antd` altında bulunabilir.
-* Mevcut `ConfirmationAction` modalını değiştirme.
-* Popconfirm yalnız “Birincil kişi yap” komutunda kullanılacak.
-* Approval, revision, cancel, delete veya lifecycle komutlarını Popconfirm’a taşıma.
 * Deferred işlere başlama: drag/drop, dark mode, yeni chart, Ayarlar, warehouse/accounting veya generic chart extraction.
 * Kapsam dışı dosyaları formatlama veya düzenleme.
 * Draft PR aç; ready, approve veya merge yapma.
@@ -725,3 +722,32 @@ EOF
 ```
 
 PR açıldıktan sonra dur. Ready veya merge yapma.
+
+## Implementation Amendment and Result
+
+Initial route-level lazy loading reduced the largest JavaScript chunk from the previous monolithic bundle to 668,129 bytes, but it did not satisfy the 500,000-byte budget.
+
+The approved blocker resolution was:
+
+- keep `/jobs` and `JobWorkspace` eager
+- keep non-primary routes lazy
+- narrow eager application imports to their exact Servora-owned adapter files
+- configure Vite 8 through `build.rolldownOptions.output.codeSplitting`
+- use one entry-aware `vendor` group with `minSize: 30_000` and `maxSize: 450_000`
+- retain the independent hard `bundle:check` gate at 500,000 bytes
+- do not use `manualChunks`, `build.rollupOptions`, or `chunkSizeWarningLimit`
+
+Direct `antd/es` imports in `ServoraAntProvider` and `LoadingSkeleton` were evaluated and reverted because they introduced a risk of separate Ant Design context instances. Those adapters retain their established Ant imports.
+
+### Final verification
+
+- largest generated JavaScript chunk: approximately 179 KB
+- web tests: 598 passed
+- server tests: 911 passed
+- web build: passed
+- bundle budget: passed
+- responsive smoke: passed
+- web and server production audits: zero vulnerabilities
+- GitHub Actions CI run #110: passed
+
+Implementation status: Draft PR #30, runtime implementation head `dc76bd1`.
