@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobBoard } from '../src/jobs/JobBoard';
 import { JobWorkspace } from '../src/jobs/JobWorkspace';
+import { RealtimeProvider, type RealtimeEventSource } from '../src/realtime/RealtimeProvider';
 import type { JobCardBoard, JobCardListItem, Paginated } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
 
@@ -68,6 +69,27 @@ function installMatchMedia(initial: boolean) {
       listeners.forEach((listener) => listener(event));
     },
   };
+}
+
+class FakeRealtimeEventSource implements RealtimeEventSource {
+  private readonly listeners = new Map<string, Set<EventListener>>();
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListener) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  close() {}
+
+  emitChange(data: object) {
+    const event = new MessageEvent('servora.change', { data: JSON.stringify(data) });
+    this.listeners.get('servora.change')?.forEach((listener) => listener(event));
+  }
 }
 
 describe('read-only JobCard board', () => {
@@ -344,6 +366,33 @@ describe('responsive routed JobCard board', () => {
     expect(router.state.location.search).toBe('?status=COMPLETED');
     expect(listLoad).toHaveBeenLastCalledWith({ status: 'COMPLETED', limit: 25, offset: 0 });
     expect(container.querySelector('[data-board-column]')).toBeNull();
+  });
+
+  it('reconciles the mounted board without changing its current URL filters', async () => {
+    installMatchMedia(true);
+    const source = new FakeRealtimeEventSource();
+    const boardLoad = vi.fn().mockResolvedValue(board);
+    const router = createMemoryRouter([{
+      path: '/jobs',
+      element: <RealtimeProvider eventSourceFactory={() => source}>
+        <JobWorkspace user={manager} load={vi.fn().mockResolvedValue(page([]))} loadBoard={boardLoad} />
+      </RealtimeProvider>,
+    }], { initialEntries: ['/jobs?view=board&q=klinik&priority=urgent'] });
+    await act(async () => { root.render(<RouterProvider router={router} />); });
+    await act(async () => { await Promise.resolve(); });
+    expect(boardLoad).toHaveBeenCalledTimes(1);
+    const searchBeforeRealtimeInvalidation = router.state.location.search;
+
+    await act(async () => {
+      source.emitChange({
+        id: '1', type: 'job.updated', entity: { type: 'job-card', id: 'job-1' },
+        resourceKeys: ['job-board'], occurredAt: '2026-07-20T10:00:00.000Z',
+      });
+      await Promise.resolve();
+    });
+
+    expect(boardLoad).toHaveBeenCalledTimes(2);
+    expect(router.state.location.search).toBe(searchBeforeRealtimeInvalidation);
   });
 
   it('keeps compact board URLs and renders Manager control-queue lanes', async () => {
