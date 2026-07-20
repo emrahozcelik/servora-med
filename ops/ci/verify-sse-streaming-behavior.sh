@@ -135,33 +135,32 @@ done
 sleep 1
 
 # --- Test SSE streaming behavior ---
-# 1. Content-Type text/event-stream
-# 2. First event arrives without connection closing
-# 3. Heartbeat arrives
-# 4. Connection stays open for the test interval
+# Use one deliberately time-bounded request: curl exit 28 proves that the
+# proxy kept the SSE connection open while the captured body proves flushing.
+set +e
+curl --silent --show-error --no-buffer --max-time 5 \
+  --dump-header "$TMP/headers" \
+  "http://127.0.0.1:${CADDY_PORT}/events" \
+  >"$TMP/body"
+curl_status=$?
+set -e
 
-content_type="$(curl -sS -o /dev/null -w '%{content_type}' \
-  "http://127.0.0.1:${CADDY_PORT}/events" 2>/dev/null || true)"
+[[ "$curl_status" -eq 28 ]] \
+  || fail "SSE connection did not remain open for the test interval (curl: $curl_status)"
 
-if echo "$content_type" | grep -qi 'text/event-stream'; then
-  echo "SSE Content-Type verified: $content_type"
+if grep -qi '^content-type: text/event-stream' "$TMP/headers"; then
+  echo "SSE Content-Type verified"
 else
-  fail "expected text/event-stream, got: $content_type"
+  fail "expected text/event-stream response"
 fi
 
-# Read SSE stream for a few seconds to verify events arrive
-output="$(
-  curl -sS --max-time 5 --no-buffer \
-    "http://127.0.0.1:${CADDY_PORT}/events" 2>/dev/null || true
-)"
-
-if echo "$output" | grep -q 'event: servora.change'; then
+if grep -q 'event: servora.change' "$TMP/body"; then
   echo "SSE event received through Caddy proxy"
 else
   fail "no servora.change event received through Caddy proxy"
 fi
 
-if echo "$output" | grep -q ': heartbeat'; then
+if grep -q ': heartbeat' "$TMP/body"; then
   echo "SSE heartbeat received through Caddy proxy"
 else
   fail "no heartbeat received through Caddy proxy"
