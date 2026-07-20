@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { AppRouter } from './AppRouter';
 import { AppShell, BrandMark } from './AppShell';
@@ -6,6 +6,16 @@ import { PasswordChangeScreen } from './PasswordChange';
 import { getCurrentUser, login, logout, type CurrentUser } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
+
+export const SUCCESS_NOTICE_DISMISS_MS = 6_000;
+
+export function useAutoDismissNotice(notice: string, onDismiss: () => void) {
+  useEffect(() => {
+    if (!notice) return;
+    const timeoutId = window.setTimeout(onDismiss, SUCCESS_NOTICE_DISMISS_MS);
+    return () => window.clearTimeout(timeoutId);
+  }, [notice, onDismiss]);
+}
 
 function LoadingScreen() {
   return (
@@ -85,6 +95,8 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   const [pending, setPending] = useState(false);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const clearNotice = useCallback(() => setNotice(''), []);
+  useAutoDismissNotice(notice, clearNotice);
   async function signOut() {
     setPending(true); setError('');
     try { await logout(); onSignedOut(); }
@@ -93,7 +105,7 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   return (
     <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
       <AppRouter user={user}
-        notice={notice} onClearNotice={() => setNotice('')}
+        notice={notice} onClearNotice={clearNotice}
         onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')} />
       {error && <div className="shell-error form-error" role="alert">{error}</div>}
     </AppShell>
