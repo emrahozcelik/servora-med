@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   cardScheduleFact,
@@ -71,6 +71,15 @@ describe('localDateTimeToIso', () => {
 });
 
 describe('cardScheduleFact', () => {
+  beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-15T12:00:00.000Z'));
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
   it('prefers scheduledAt over dueDate with type-specific labels', () => {
     const delivery = cardScheduleFact({
       type: 'PRODUCT_DELIVERY',
