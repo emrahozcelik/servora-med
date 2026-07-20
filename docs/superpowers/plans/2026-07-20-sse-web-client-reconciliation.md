@@ -1,8 +1,8 @@
 # Servora-Med SSE Web Client Reconciliation Plan
 
-> **Execution mode:** This is the implementation plan for the already merged
-> server SSE foundation. Apply the tasks in order on a branch based on current
-> `main`. Keep the work in one draft PR. Do not add work from PR #35.
+> **Status:** Completed. The server SSE foundation merged as PR #34, and this
+> web-client reconciliation slice squash-merged as PR #36. The work remained
+> separate from the staff sidebar alignment fix in PR #35.
 
 **Goal:** Reconcile mounted web surfaces with authenticated SSE invalidations
 without moving domain decisions, permissions, or canonical data out of the
@@ -132,4 +132,13 @@ npm audit --omit=dev
 ```
 
 - [x] Record exact command outcomes and completed manual two-session/Safari
-  checks in the PR description. Keep the PR draft.
+  checks in the PR description before moving PR #36 to review.
+
+## Completion Record
+
+- PR #36 squash-merged into `main` as `e1426cf7e52ddb54b2c0b6e741d536efb14540df`
+  (`feat(web): reconcile active views from SSE`).
+- GitHub Actions run `29774052932` completed successfully for both the web and
+  server jobs.
+- Local `main` was fast-forwarded to the merge commit; the source branch was
+  deleted during merge and stale remote-tracking references were pruned.
