@@ -1,7 +1,7 @@
 # SSE Web Client and Reconciliation Design
 
 **Date:** 2026-07-20
-**Status:** Implemented and verified (PR #36 draft)
+**Status:** Implemented, verified, and merged (PR #36)
 **Parent roadmap:** `2026-07-19-browser-realtime-capabilities-roadmap-design.md`
 **Server dependency:** `2026-07-19-sse-realtime-foundation-design.md` (merged as PR #34)
 
@@ -184,8 +184,9 @@ steps, not a source of additional behavior in this PR.
 
 ## Implementation Record
 
-Implemented in draft PR #36 on rebased head `7bda1d7`, with current `main`
-base `f9f36a3`.
+Implemented in PR #36 on rebased head `ba9df831a81863676b9c840b812532dabf412ea2`,
+then squash-merged into `main` as
+`e1426cf7e52ddb54b2c0b6e741d536efb14540df`.
 
 The implementation adds one authenticated browser EventSource, validates and
 de-duplicates named invalidation envelopes, and reuses existing REST loaders
@@ -197,7 +198,8 @@ Final automated verification:
 - web: 613 tests passed; build, bundle budget, responsive smoke, and audit
   passed;
 - server: build, 955 tests passed with 36 expected skips, and audit passed;
-- GitHub Actions CI: server and web jobs passed on the rebased head.
+- GitHub Actions CI: server and web jobs passed on the rebased head (run
+  `29774052932`).
 
 Manual verification passed:
 
@@ -207,3 +209,7 @@ Manual verification passed:
 - Safari background/resume reconciled through visibility and focus recovery;
 - an active detail editor retained local input and showed its stale-data action
   after a remote change.
+
+The merge deleted the `feature/sse-web-client` source branch; local stale
+remote-tracking references were pruned after `main` was fast-forwarded to the
+merge commit.
