@@ -73,6 +73,106 @@ describe('Postgres realtime repository', () => {
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
 describe.skipIf(!databaseUrl)('Postgres realtime repository (PostgreSQL)', () => {
+  it('serializes event insertion order for the same organization', async () => {
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `realtime_conc_${randomUUID().replaceAll('-', '')}`;
+    let pool: Pool | null = null;
+    try {
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      for (const migration of [
+        '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
+        '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
+        '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
+        '009_job_acceptance_and_scheduling.sql', '010_entity_delete_audit.sql',
+        '011_create_realtime_events.sql',
+      ]) {
+        const path = fileURLToPath(
+          new URL(`../src/db/migrations/${migration}`, import.meta.url),
+        );
+        await pool.query(await readFile(path, 'utf8'));
+      }
+
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name) VALUES ('Realtime conc') RETURNING id`,
+      )).rows[0]!.id;
+      const actorId = (await pool.query<{ id: string }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Staff', $2, 'unused-test-hash', 'STAFF') RETURNING id`,
+        [organizationId, `${randomUUID()}@test.local`],
+      )).rows[0]!.id;
+      const jobCardId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (organization_id, type, title, assigned_to, created_by)
+         VALUES ($1, 'GENERAL_TASK', 'İş', $2, $2) RETURNING id`,
+        [organizationId, actorId],
+      )).rows[0]!.id;
+
+      async function insertActivity(): Promise<string> {
+        return (await pool!.query<{ id: string }>(
+          `INSERT INTO job_card_activity_logs
+             (organization_id, job_card_id, actor_id, event_type)
+           VALUES ($1, $2, $3, 'JOB_STARTED') RETURNING id`,
+          [organizationId, jobCardId, actorId],
+        )).rows[0]!.id;
+      }
+
+      const activityId1 = await insertActivity();
+      const activityId2 = await insertActivity();
+
+      const eventInput1 = {
+        organizationId,
+        sourceActivityId: activityId1,
+        type: 'job.started' as const,
+        entityType: 'job-card' as const,
+        entityId: jobCardId,
+        actorUserId: actorId,
+        audience: { roles: ['ADMIN', 'MANAGER'] as const, userIds: [actorId] },
+        resourceKeys: ['job-board'],
+        occurredAt: new Date('2026-07-19T14:30:00.000Z'),
+      };
+      const eventInput2 = {
+        ...eventInput1,
+        sourceActivityId: activityId2,
+      };
+
+      const client1 = await pool.connect();
+      const client2 = await pool.connect();
+      try {
+        await client1.query('BEGIN');
+        await client2.query('BEGIN');
+
+        const tx1 = new PostgresRealtimeEventTransaction(client1);
+        const tx2 = new PostgresRealtimeEventTransaction(client2);
+
+        const event1 = await tx1.append(eventInput1);
+        await client1.query('COMMIT');
+
+        const event2 = await tx2.append(eventInput2);
+        await client2.query('COMMIT');
+
+        expect(event1.id).toBeLessThan(event2.id);
+      } finally {
+        client1.release();
+        client2.release();
+      }
+
+      const allEvents = await pool.query(
+        'SELECT id FROM realtime_events WHERE organization_id=$1 ORDER BY id ASC',
+        [organizationId],
+      );
+      expect(allEvents.rows.map(r => BigInt(r.id))).toEqual([eventInput1, eventInput2].map(
+        (_, index) => allEvents.rows[index].id,
+      ));
+    } finally {
+      if (pool) await pool.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
+
   it('rejects a duplicate source_activity_id and rolls back cleanly', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `realtime_repo_${randomUUID().replaceAll('-', '')}`;

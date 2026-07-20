@@ -52,6 +52,10 @@ implements RealtimeEventTransaction {
   constructor(private readonly client: Pick<PoolClient, 'query'>) {}
 
   async append(input: RealtimeEventInput): Promise<RealtimeEventRecord> {
+    await this.client.query(
+      'SELECT pg_advisory_xact_lock(1, hashtext($1::text))',
+      [input.organizationId],
+    );
     const result = await this.client.query<EventRow>(
       `INSERT INTO realtime_events
         (organization_id, source_activity_id, event_type, entity_type,
