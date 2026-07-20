@@ -29,16 +29,16 @@ Allowed source area: only this plan and the paired design spec.
 Allowed source area: new notifications module, migration `012`, focused server
 tests, and dependency wiring only.
 
-- [ ] Write failing migration/repository tests for recipient/source-event
+- [x] Write failing migration/repository tests for recipient/source-event
   uniqueness, tenant-safe composite source FK, allowed kinds, recipient-scoped
   ordering, unread counting, cursor pagination, and idempotent read updates.
-- [ ] Add `012_create_in_app_notifications.sql` with the approved table,
+- [x] Add `012_create_in_app_notifications.sql` with the approved table,
   foreign keys, checks, indexes, and no business snapshot fields.
-- [ ] Add notification types plus a transaction/repository port. Reuse the
+- [x] Add notification types plus a transaction/repository port. Reuse the
   existing PostgreSQL transaction; do not add a queue or projector.
-- [ ] Implement list, unread count, and mark-read repository operations with
+- [x] Implement list, unread count, and mark-read repository operations with
   organization + recipient predicates on every query.
-- [ ] Run focused notification tests and `cd server && npm run build`.
+- [x] Run focused notification tests and `cd server && npm run build`.
 
 ## Task 3 — Transactional Event Projection (TDD)
 

@@ -35,3 +35,17 @@ export type NotificationPage = Readonly<{
   items: readonly NotificationRecord[];
   nextCursor: NotificationCursor | null;
 }>;
+
+export type NotificationDraft = Readonly<{
+  recipientUserId: string;
+  kind: NotificationKind;
+  entityType: 'job-card';
+  entityId: string;
+}>;
+
+export type NotificationAppendInput = Readonly<{
+  organizationId: string;
+  sourceRealtimeEventId: bigint;
+  createdAt: Date;
+  drafts: readonly NotificationDraft[];
+}>;

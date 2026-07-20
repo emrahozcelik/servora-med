@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import {
   PostgresNotificationRepository,
+  PostgresNotificationTransaction,
 } from '../src/modules/notifications/repository.js';
 
 describe('Postgres notification repository', () => {
@@ -103,5 +104,37 @@ describe('Postgres notification repository', () => {
     expect(sql).toContain('recipient_user_id = $2');
     expect(sql).toContain('id = $3');
     expect(values).toEqual(['organization-1', 'recipient-1', 'notification-1']);
+  });
+});
+
+describe('Postgres notification transaction', () => {
+  it('appends recipient drafts against one persisted realtime event idempotently', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [] });
+    const transaction = new PostgresNotificationTransaction({ query } as never);
+
+    await expect(transaction.append({
+      organizationId: 'organization-1',
+      sourceRealtimeEventId: 42n,
+      createdAt: new Date('2026-07-21T09:30:00.000Z'),
+      drafts: [{
+        recipientUserId: 'recipient-1',
+        kind: 'job.approved',
+        entityType: 'job-card',
+        entityId: 'job-1',
+      }],
+    })).resolves.toEqual([]);
+
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toContain('INSERT INTO in_app_notifications');
+    expect(sql).toContain('ON CONFLICT (recipient_user_id, source_realtime_event_id) DO NOTHING');
+    expect(values).toEqual([
+      'organization-1',
+      'recipient-1',
+      '42',
+      'job.approved',
+      'job-card',
+      'job-1',
+      new Date('2026-07-21T09:30:00.000Z'),
+    ]);
   });
 });

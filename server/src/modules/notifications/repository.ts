@@ -1,7 +1,8 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import type {
   NotificationCursor,
+  NotificationAppendInput,
   NotificationKind,
   NotificationPage,
   NotificationRecord,
@@ -37,6 +38,45 @@ function mapNotification(row: NotificationRow): NotificationRecord {
     createdAt: row.created_at,
     readAt: row.read_at,
   };
+}
+
+const NOTIFICATION_COLUMNS = `id, organization_id, recipient_user_id,
+  source_realtime_event_id, kind, entity_type, entity_id, created_at, read_at`;
+
+export class PostgresNotificationTransaction {
+  constructor(private readonly client: Pick<PoolClient, 'query'>) {}
+
+  async append(
+    input: NotificationAppendInput,
+  ): Promise<readonly NotificationRecord[]> {
+    if (input.drafts.length === 0) return [];
+
+    const values: unknown[] = [];
+    const rows = input.drafts.map((draft, index) => {
+      const offset = index * 7;
+      values.push(
+        input.organizationId,
+        draft.recipientUserId,
+        input.sourceRealtimeEventId.toString(),
+        draft.kind,
+        draft.entityType,
+        draft.entityId,
+        input.createdAt,
+      );
+      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4},
+        $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+    });
+    const result = await this.client.query<NotificationRow>(
+      `INSERT INTO in_app_notifications
+        (organization_id, recipient_user_id, source_realtime_event_id, kind,
+         entity_type, entity_id, created_at)
+       VALUES ${rows.join(', ')}
+       ON CONFLICT (recipient_user_id, source_realtime_event_id) DO NOTHING
+       RETURNING ${NOTIFICATION_COLUMNS}`,
+      values,
+    );
+    return result.rows.map(mapNotification);
+  }
 }
 
 export class PostgresNotificationRepository {
