@@ -47,6 +47,7 @@ jobs:
             ../ops/scripts/ensure-macos-service-identity.sh \
             ../ops/ci/verify-caddyfile.sh \
             ../ops/ci/verify-sse-streaming.sh \
+            ../ops/ci/verify-sse-streaming-behavior.sh \
             ../ops/ci/verify-tunnel-caddyfile.sh \
             ../ops/ci/verify-tunnel-caddy-behavior.sh \
             ../ops/ci/verify-cloudflared-ingress.sh \
@@ -65,6 +66,7 @@ jobs:
             ../ops/scripts/ensure-macos-service-identity.sh \
             ../ops/ci/verify-caddyfile.sh \
             ../ops/ci/verify-sse-streaming.sh \
+            ../ops/ci/verify-sse-streaming-behavior.sh \
             ../ops/ci/verify-tunnel-caddyfile.sh \
             ../ops/ci/verify-tunnel-caddy-behavior.sh \
             ../ops/ci/verify-cloudflared-ingress.sh \
