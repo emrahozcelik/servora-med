@@ -11,7 +11,6 @@ import {
 } from './types.js';
 
 const MAX_REPLAY = 500;
-const MAX_PENDING_WRITES = 100;
 
 export interface RealtimeStreamSink {
   send(event: RealtimeEventEnvelope): Promise<void>;
@@ -58,8 +57,9 @@ export class RealtimeService {
     let replaying = true;
     let writeChain = Promise.resolve();
     let lastSent = cursor ?? 0n;
-    let pendingWrites = 0;
-    const buffered = new Map<bigint, RealtimeEventRecord>();
+    let liveSignalBuffered = false;
+    let catchUpRequested = false;
+    let liveDrain: Promise<void> | undefined;
 
     const closeConnection = (error?: unknown) => {
       if (closed) return;
@@ -71,33 +71,61 @@ export class RealtimeService {
     };
 
     const send = (event: RealtimeEventEnvelope) => {
-      pendingWrites += 1;
       const promise = writeChain.then(async () => {
-        try {
-          if (!closed) await sink.send(event);
-        } finally {
-          pendingWrites -= 1;
-        }
+        if (!closed) await sink.send(event);
       });
       writeChain = promise;
       return promise;
     };
 
+    const sendCatchUp = async () => {
+      const replay = await this.repository.replayVisible(
+        viewer,
+        lastSent,
+        MAX_REPLAY + 1,
+      );
+      if (replay.length > MAX_REPLAY) {
+        const highWater = await this.repository.visibleHighWater(viewer);
+        await send({
+          id: highWater.toString(),
+          type: 'sync.required',
+          resourceKeys: ['workspace'],
+          occurredAt: this.now().toISOString(),
+        });
+        lastSent = highWater;
+        return;
+      }
+      for (const event of replay) {
+        if (event.id <= lastSent) continue;
+        await send(presentRealtimeEvent(event));
+        lastSent = event.id;
+      }
+    };
+
+    const requestCatchUp = (): Promise<void> | undefined => {
+      catchUpRequested = true;
+      if (closed || replaying || liveDrain) return liveDrain;
+      liveDrain = (async () => {
+        while (!closed && catchUpRequested) {
+          catchUpRequested = false;
+          await sendCatchUp();
+        }
+      })().catch(() => {
+        closeConnection();
+      }).finally(() => {
+        liveDrain = undefined;
+        if (!closed && catchUpRequested) requestCatchUp();
+      });
+      return liveDrain;
+    };
+
     const handleLiveEvent = (event: RealtimeEventRecord) => {
       if (closed || !canViewRealtimeEvent(viewer, event)) return;
-      if (event.id <= lastSent) return;
       if (replaying) {
-        buffered.set(event.id, event);
+        liveSignalBuffered = true;
         return;
       }
-      if (pendingWrites >= MAX_PENDING_WRITES) {
-        closeConnection();
-        return;
-      }
-      lastSent = event.id;
-      void send(presentRealtimeEvent(event)).catch(() => {
-        closeConnection();
-      });
+      requestCatchUp();
     };
 
     const unsubscribe = this.bus.subscribe(handleLiveEvent);
@@ -145,25 +173,14 @@ export class RealtimeService {
         } else {
           for (const event of replay) {
             if (event.id <= lastSent) continue;
-            lastSent = event.id;
             await send(presentRealtimeEvent(event));
+            lastSent = event.id;
           }
         }
       }
 
-      while (buffered.size > 0) {
-        const batch = [...buffered.values()].sort(
-          (left, right) => left.id < right.id ? -1 : 1,
-        );
-        buffered.clear();
-        for (const event of batch) {
-          if (event.id <= lastSent) continue;
-          lastSent = event.id;
-          await send(presentRealtimeEvent(event));
-        }
-      }
-
       replaying = false;
+      if (liveSignalBuffered) await requestCatchUp();
     } catch (error) {
       closeConnection(error);
       throw error;

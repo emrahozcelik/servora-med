@@ -61,11 +61,16 @@ describe('RealtimeService', () => {
       releaseReplay = resolve;
     });
     const bus = new InMemoryRealtimeEventBus();
+    let replayCalls = 0;
     const repository = {
       visibleHighWater: async () => 3n,
       replayVisible: async () => {
-        await replayGate;
-        return [event(2n), event(3n)];
+        replayCalls += 1;
+        if (replayCalls === 1) {
+          await replayGate;
+          return [event(2n), event(3n)];
+        }
+        return [event(4n)];
       },
     };
     const sent: string[] = [];
@@ -116,7 +121,10 @@ describe('RealtimeService', () => {
     const bus = new InMemoryRealtimeEventBus();
     const repository = {
       visibleHighWater: async () => 2n,
-      replayVisible: async () => [event(2n), event(3n)],
+      replayVisible: async (_viewer: unknown, afterId: bigint) =>
+        [event(2n), event(3n), event(4n)].filter(
+          (value) => value.id > afterId,
+        ),
     };
     let releaseSink!: () => void;
     let sinkCalls = 0;
@@ -152,7 +160,7 @@ describe('RealtimeService', () => {
     const bus = new InMemoryRealtimeEventBus();
     const repository = {
       visibleHighWater: async () => 0n,
-      replayVisible: async () => [],
+      replayVisible: async () => [event(1n)],
     };
     let callCount = 0;
     const closedCalls: string[] = [];
@@ -174,6 +182,35 @@ describe('RealtimeService', () => {
     await new Promise(process.nextTick);
 
     expect(closedCalls).toContain('sink');
+    subscription.close();
+  });
+
+  it('catches up durable events in order when the bus publishes them out of order', async () => {
+    const bus = new InMemoryRealtimeEventBus();
+    const durableEvents = [event(5n), event(6n)];
+    let opening = true;
+    const repository = {
+      visibleHighWater: async () => 0n,
+      replayVisible: async (_viewer: unknown, afterId: bigint) => {
+        if (opening) return [];
+        return durableEvents.filter((value) => value.id > afterId);
+      },
+    };
+    const sent: string[] = [];
+    const service = new RealtimeService(repository, bus);
+
+    const subscription = await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      4n,
+      { send: async (value) => { sent.push(value.id); } },
+    );
+    opening = false;
+
+    bus.publish(event(6n));
+    bus.publish(event(5n));
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+
+    expect(sent).toEqual(['5', '6']);
     subscription.close();
   });
 
@@ -211,32 +248,43 @@ describe('RealtimeService', () => {
     sub2.close();
   });
 
-  it('closes subscription when pending live events exceed limit', async () => {
+  it('coalesces live signals while a durable send is pending', async () => {
     let releaseSend: (() => void) | null = null;
     const sendGate = new Promise<void>((resolve) => { releaseSend = resolve; });
     const bus = new InMemoryRealtimeEventBus();
+    const durableEvents = Array.from(
+      { length: 110 },
+      (_, index) => event(BigInt(index + 151)),
+    );
+    let opening = true;
     const repository = {
       visibleHighWater: async () => 200n,
-      replayVisible: async () => [],
+      replayVisible: async (_viewer: unknown, afterId: bigint) =>
+        opening ? [] : durableEvents.filter((value) => value.id > afterId),
     };
-    const closedCalls: string[] = [];
+    const sent: string[] = [];
     const service = new RealtimeService(repository, bus);
 
     const subscription = await service.open(
       { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
       150n,
       {
-        send: async () => { await sendGate; },
-        close: () => { closedCalls.push('sink'); },
+        send: async (value) => {
+          sent.push(value.id);
+          if (sent.length === 1) await sendGate;
+        },
       },
     );
+    opening = false;
 
     for (let i = 151; i <= 260; i++) {
       bus.publish(event(BigInt(i)));
     }
     await new Promise(process.nextTick);
-    expect(closedCalls).toContain('sink');
+    expect(sent).toEqual(['151']);
     releaseSend!();
+    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    expect(sent).toEqual(durableEvents.map((value) => value.id.toString()));
     subscription.close();
   });
 
