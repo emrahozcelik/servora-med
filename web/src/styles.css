@@ -1358,6 +1358,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 @media (min-width: 64rem) {
   .job-detail-content {
     grid-template-columns: minmax(0, 2fr) minmax(17rem, 1fr);
+    grid-auto-flow: row dense;
     align-items: start;
   }
   .job-detail-content > .detail-summary,

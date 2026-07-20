@@ -235,6 +235,15 @@ async function measure(page) {
       : 0;
     const action = document.querySelector('[data-smoke-action]');
     const timeline = document.querySelector('[data-smoke-timeline]');
+    const requirements = document.querySelector('.workflow-requirements');
+    const requirementsRect = requirements?.getBoundingClientRect();
+    const secondaryRecordRect = document.querySelector(
+      '.delivery-lines, .job-detail-records',
+    )?.getBoundingClientRect();
+    const desktopSidePanelBackfillsFirstRow = Boolean(
+      requirementsRect && secondaryRecordRect
+      && requirementsRect.top < secondaryRecordRect.top - 2,
+    );
     const actionBeforeTimeline = Boolean(action && timeline
       && (action.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING));
     const summary = document.querySelector('.detail-summary');
@@ -450,6 +459,7 @@ async function measure(page) {
       boardWidth,
       detailOverflow,
       detailCols,
+      desktopSidePanelBackfillsFirstRow,
       actionBeforeTimeline,
       descriptionsUseFullWidth,
       timelineAdapterFits,
@@ -664,6 +674,9 @@ try {
     const expectedDetailCols = vp.width < 1024 ? 1 : 2;
     if (m.detailCols !== expectedDetailCols) {
       failures.push(`${vp.name}: expected ${expectedDetailCols} detail columns (cols=${m.detailCols})`);
+    }
+    if (vp.width >= 1024 && !m.desktopSidePanelBackfillsFirstRow) {
+      failures.push(`${vp.name}: Staff detail side panel must backfill the first grid row`);
     }
     if (vp.width === 1024 && m.laneCardCols !== 3) {
       failures.push(`${vp.name}: expected 3 lane cards at desktop shell width (cols=${m.laneCardCols})`);

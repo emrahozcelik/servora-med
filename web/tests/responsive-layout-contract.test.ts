@@ -44,6 +44,12 @@ describe('responsive layout CSS contracts (PR B)', () => {
     expect(css).not.toMatch(/\.job-lifecycle-step(?:-|\s|\{)/);
   });
 
+  it('densely packs the desktop detail sidebar without changing mobile-first DOM order', () => {
+    expect(css).toMatch(
+      /@media\s*\(\s*min-width:\s*64rem\s*\)[\s\S]*\.job-detail-content\s*\{[^}]*grid-auto-flow:\s*row dense/s,
+    );
+  });
+
   it('supports 200% text and 400% reflow at 320 CSS px without page scroll dependence', () => {
     expect(css).toMatch(/body\s*\{[^}]*overflow-x:\s*clip/s);
     expect(css).toMatch(/\.servora-record-descriptions\s+\.servora-ant-descriptions-item-content\s*\{[^}]*overflow-wrap:\s*anywhere/s);
