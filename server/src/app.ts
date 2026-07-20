@@ -184,6 +184,9 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: dependencies.realtimeService,
         authenticate: authenticateDomain,
       });
+      app.addHook('onClose', async () => {
+        dependencies.realtimeService!.close();
+      });
     }
   }
 

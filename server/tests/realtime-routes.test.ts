@@ -4,7 +4,7 @@ import Fastify, {
 } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-import { buildApp } from '../src/app.js';
+import { buildApp, type AppDependencies } from '../src/app.js';
 import { SESSION_COOKIE_NAME } from '../src/modules/auth/middleware.js';
 import {
   createRealtimeHandler,
@@ -198,11 +198,53 @@ describe('realtime SSE route', () => {
     }
   });
 
+  it('closes subscription when disconnect happens before service.open completes', async () => {
+    let releaseOpen!: () => void;
+    const openGate = new Promise<void>((resolve) => { releaseOpen = resolve; });
+    const closeSubscription = vi.fn();
+    const service = {
+      open: vi.fn(async () => {
+        await openGate;
+        return { close: closeSubscription };
+      }),
+    };
+    const closeListeners = new Map<string, () => void>();
+    const requestRaw = {
+      once: vi.fn((event: string, listener: () => void) => {
+        closeListeners.set(event, listener);
+      }),
+    };
+    const raw = {
+      setHeader: vi.fn(),
+      flushHeaders: vi.fn(),
+      write: vi.fn(() => true),
+      once: vi.fn(),
+      end: vi.fn(),
+      destroyed: false,
+    };
+
+    const handlerPromise = createRealtimeHandler(service as never, 20_000)(
+      {
+        headers: {},
+        currentUser: { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' },
+        raw: requestRaw,
+        log: { error: vi.fn() },
+      } as never,
+      { hijack: vi.fn(), raw } as never,
+    );
+
+    closeListeners.get('close')!();
+    releaseOpen();
+
+    await handlerPromise;
+    expect(closeSubscription).toHaveBeenCalledOnce();
+  });
+
   it('rejects a forced-password-change session before stream start', async () => {
     const open = vi.fn();
     const app = await buildApp(testConfig, {
       authRepository: forcedPasswordAuthRepository(),
-      realtimeService: { open } as never,
+      realtimeService: { open, close() {} } as never,
     });
     apps.push(app);
 

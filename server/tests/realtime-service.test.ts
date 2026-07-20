@@ -112,6 +112,134 @@ describe('RealtimeService', () => {
     subscription.close();
   });
 
+  it('preserves events that arrive while buffer is being drained', async () => {
+    const bus = new InMemoryRealtimeEventBus();
+    const repository = {
+      visibleHighWater: async () => 2n,
+      replayVisible: async () => [event(2n), event(3n)],
+    };
+    let releaseSink!: () => void;
+    let sinkCalls = 0;
+    const sinkGate = new Promise<void>((resolve) => {
+      releaseSink = resolve;
+    });
+    const sent: string[] = [];
+    const service = new RealtimeService(repository, bus);
+
+    const opening = service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      1n,
+      {
+        send: async (value) => {
+          sent.push(value.id);
+          sinkCalls += 1;
+          if (sinkCalls === 1) await sinkGate;
+        },
+        close: () => {},
+      },
+    );
+    await new Promise(process.nextTick);
+
+    bus.publish(event(4n));
+
+    releaseSink();
+    const subscription = await opening;
+    expect(sent).toEqual(['2', '3', '4']);
+    subscription.close();
+  });
+
+  it('closes subscription when live sink send rejects', async () => {
+    const bus = new InMemoryRealtimeEventBus();
+    const repository = {
+      visibleHighWater: async () => 0n,
+      replayVisible: async () => [],
+    };
+    let callCount = 0;
+    const closedCalls: string[] = [];
+    const service = new RealtimeService(repository, bus);
+
+    const subscription = await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      null,
+      {
+        send: async () => {
+          callCount += 1;
+          if (callCount > 1) throw new Error('socket closed');
+        },
+        close: () => { closedCalls.push('sink'); },
+      },
+    );
+
+    bus.publish(event(1n));
+    await new Promise(process.nextTick);
+
+    expect(closedCalls).toContain('sink');
+    subscription.close();
+  });
+
+  it('close removes all active subscriptions and prevents new ones', async () => {
+    const bus = new InMemoryRealtimeEventBus();
+    const repository = {
+      visibleHighWater: async () => 0n,
+      replayVisible: async () => [],
+    };
+    const closedCalls: string[] = [];
+    const service = new RealtimeService(repository, bus);
+
+    const sub1 = await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      null,
+      { send: async () => {}, close: () => { closedCalls.push('sub1'); } },
+    );
+    const sub2 = await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      null,
+      { send: async () => {}, close: () => { closedCalls.push('sub2'); } },
+    );
+
+    service.close();
+
+    expect(closedCalls).toEqual(['sub1', 'sub2']);
+
+    await expect(service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      null,
+      { send: async () => {}, close: () => {} },
+    )).rejects.toThrow('shutting down');
+
+    sub1.close();
+    sub2.close();
+  });
+
+  it('closes subscription when pending live events exceed limit', async () => {
+    let releaseSend: (() => void) | null = null;
+    const sendGate = new Promise<void>((resolve) => { releaseSend = resolve; });
+    const bus = new InMemoryRealtimeEventBus();
+    const repository = {
+      visibleHighWater: async () => 200n,
+      replayVisible: async () => [],
+    };
+    const closedCalls: string[] = [];
+    const service = new RealtimeService(repository, bus);
+
+    const subscription = await service.open(
+      { organizationId: 'org-1', userId: 'staff-1', role: 'STAFF' },
+      150n,
+      {
+        send: async () => { await sendGate; },
+        close: () => { closedCalls.push('sink'); },
+      },
+    );
+
+    for (let i = 151; i <= 260; i++) {
+      bus.publish(event(BigInt(i)));
+    }
+    await new Promise(process.nextTick);
+    expect(closedCalls).toContain('sink');
+    releaseSend!();
+    subscription.close();
+  });
+
   it('closes and unsubscribes when replay send fails', async () => {
     const bus = new InMemoryRealtimeEventBus();
     const repository = {

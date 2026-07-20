@@ -93,7 +93,7 @@ export function createRealtimeHandler(
     request.raw.once('aborted', close);
 
     try {
-      subscription = await service.open(
+      const opened = await service.open(
         {
           organizationId: currentUser.organizationId,
           userId: currentUser.id,
@@ -105,6 +105,11 @@ export function createRealtimeHandler(
           close,
         },
       );
+      if (closed) {
+        opened.close();
+        return;
+      }
+      subscription = opened;
     } catch (error) {
       close();
       request.log.error(

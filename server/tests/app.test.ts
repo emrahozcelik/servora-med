@@ -114,6 +114,7 @@ describe('AppDependencies', () => {
       authRepository: {} as never,
       realtimeService: {
         open: async () => ({ close() {} }),
+        close() {},
       } as never,
     });
     apps.push(app);
