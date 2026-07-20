@@ -1,7 +1,7 @@
 # SSE Realtime Foundation Design
 
 **Date:** 2026-07-19  
-**Status:** Implemented and verified (PR #34)  
+**Status:** Implementation follow-up in progress; final verification pending (PR #34 draft)
 **Parent spec:** `2026-07-19-browser-realtime-capabilities-roadmap-design.md`  
 **Delivery:** Phase N — server realtime event contract and SSE transport
 
@@ -522,29 +522,15 @@ Phase N is complete when:
 ## Implementation Record
 
 - **Branch:** `feature/sse-realtime-foundation` (PR #34, draft)
+- **Status:** Verification is pending after follow-up fixes; do not mark ready or merge.
 - **Migration:** `011_create_realtime_events.sql`
 - **Transport:** authenticated SSE at `GET /api/realtime/events`
 - **Replay:** `Last-Event-ID`, maximum 500 visible events, then `sync.required`
 - **First connection:** visible high-water `sync.required`
-- **Cursor ordering:** PostgreSQL `pg_advisory_xact_lock` per organization serializes event ID allocation with commit order
+- **Live ordering:** bus publication is a durable catch-up signal; visible events are reread from the ledger in cursor order
 - **Publication:** after committed JobCard transaction only
 - **Audience:** Admin/Manager organization scope; explicit current/previous assignee
-- **Handoff safety:** safe buffer drain loop prevents event loss during replay/live transition; bounded pending write queue (max 100); live send rejection triggers cleanup
+- **Handoff safety:** replay/live transition and live publication both reconcile from the durable ledger; route backpressure cancellation and heartbeat coalescing are covered by follow-up tests
 - **Lifecycle:** `RealtimeService.close()` closes all active subscriptions; Fastify `onClose` hook triggers cleanup on shutdown
 - **Excluded:** frontend client, notifications, geolocation, manifest, service worker, Web Push
-- **Verification (server):**
-  - `cd server && npm run build` — PASS
-  - `cd server && npm test -- --run` — 953 passed, 36 skipped (env-dependent), 71/83 test files passed
-  - `cd server && npm audit --omit=dev` — PASS (0 high/critical)
-- **Verification (ops):**
-  - `ops/ci/verify-caddyfile.sh` — PASS
-  - `ops/ci/verify-sse-streaming.sh` — PASS
-  - `ops/ci/verify-sse-streaming-behavior.sh` — Docker-based behavior smoke with Caddy (config guard + CI startup-check)
-  - `bash -n` + `shellcheck -x` on all ops scripts — PASS
-- **Verification (web):**
-  - `cd web && npm run build` — PASS
-  - `cd web && npm run bundle:check` — PASS
-  - `cd web && npm test -- --run` — 600 passed, 66/66 test files passed
-  - `cd web && npm run smoke:responsive` — PASS
-  - `cd web && npm audit --omit=dev` — PASS (0 high/critical)
-- **GitHub Actions CI:** server job green; web job green after date-dependent test clock fix
+- **Verification:** Follow-up server, ops, web, and GitHub Actions runs are pending. Record pass counts and CI status only after they complete.
