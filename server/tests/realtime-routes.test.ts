@@ -4,10 +4,52 @@ import Fastify, {
 } from 'fastify';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
+import { buildApp } from '../src/app.js';
+import { SESSION_COOKIE_NAME } from '../src/modules/auth/middleware.js';
 import {
   createRealtimeHandler,
   realtimeRoutes,
 } from '../src/modules/realtime/routes.js';
+
+const testConfig = {
+  nodeEnv: 'test' as const,
+  host: '127.0.0.1',
+  port: 3000,
+  databaseUrl: 'postgresql://unused-in-app-test',
+  logLevel: 'silent',
+  corsOrigin: 'http://127.0.0.1:5173',
+  sessionTtlSeconds: 28_800,
+  loginRateLimitMax: 5,
+  rateLimitWindowMs: 60_000,
+  trustedProxy: 'loopback' as const,
+  healthSchemaVersion: null,
+};
+
+function forcedPasswordAuthRepository() {
+  const user = {
+    id: 'staff-1',
+    organizationId: 'org-1',
+    name: 'Staff',
+    email: 'staff@example.com',
+    passwordHash: 'unused',
+    role: 'STAFF' as const,
+    mustChangePassword: true,
+    isActive: true,
+    version: 1,
+  };
+  return {
+    findSessionWithUser: async () => ({
+      session: {
+        id: 'session-1',
+        userId: user.id,
+        tokenHash: 'hash',
+        expiresAt: new Date('2999-01-01T00:00:00.000Z'),
+        revokedAt: null,
+      },
+      user,
+    }),
+  } as never;
+}
 
 const apps: Awaited<ReturnType<typeof Fastify>>[] = [];
 
@@ -98,5 +140,82 @@ describe('realtime SSE route', () => {
     expect(writes.join('')).toContain('id: 42\n');
     expect(writes.join('')).toContain('event: servora.change\n');
     expect(writes.join('')).toContain('"type":"job.started"');
+  });
+
+  it('cleans up the heartbeat and subscription when the connection closes', async () => {
+    vi.useFakeTimers();
+    const writes: string[] = [];
+    const closeSubscription = vi.fn();
+    const closeListeners = new Map<string, () => void>();
+    const requestRaw = {
+      once: vi.fn((event: string, listener: () => void) => {
+        closeListeners.set(event, listener);
+      }),
+    };
+    const raw = {
+      setHeader: vi.fn(),
+      flushHeaders: vi.fn(),
+      write: vi.fn((chunk: string) => {
+        writes.push(chunk);
+        return true;
+      }),
+      once: vi.fn((event: string, listener: () => void) => {
+        closeListeners.set(event, listener);
+      }),
+      end: vi.fn(),
+      destroyed: false,
+    };
+    const service = {
+      open: vi.fn(async () => ({ close: closeSubscription })),
+    };
+
+    try {
+      await createRealtimeHandler(service as never, 1_000)(
+        {
+          headers: {},
+          currentUser: {
+            id: 'manager-1',
+            organizationId: 'org-1',
+            role: 'MANAGER',
+          },
+          raw: requestRaw,
+          log: { error: vi.fn() },
+        } as never,
+        { hijack: vi.fn(), raw } as never,
+      );
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(writes).toEqual([': heartbeat\n\n']);
+
+      closeListeners.get('close')!();
+      expect(closeSubscription).toHaveBeenCalledOnce();
+      expect(raw.end).toHaveBeenCalledOnce();
+
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(writes).toEqual([': heartbeat\n\n']);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('rejects a forced-password-change session before stream start', async () => {
+    const open = vi.fn();
+    const app = await buildApp(testConfig, {
+      authRepository: forcedPasswordAuthRepository(),
+      realtimeService: { open } as never,
+    });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/realtime/events',
+      cookies: { [SESSION_COOKIE_NAME]: 'any-token' },
+    });
+
+    expect(response.statusCode).toBe(403);
+    expect(response.json()).toMatchObject({
+      code: 'PASSWORD_CHANGE_REQUIRED',
+    });
+    expect(open).not.toHaveBeenCalled();
   });
 });

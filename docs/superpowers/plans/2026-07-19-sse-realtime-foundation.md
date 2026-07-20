@@ -2300,6 +2300,8 @@ git commit -m "feat(server): expose authenticated SSE stream"
   - production singleton bus/service per Fastify process
   - registered `/api/realtime/events`
 
+**Status:** Completed on 2026-07-20. Production startup creates one shared realtime bus, repository, and service; route authentication and connection-cleanup coverage are verified.
+
 - [ ] **Step 1: Write failing app wiring tests**
 
 Add to `server/tests/app.test.ts`:

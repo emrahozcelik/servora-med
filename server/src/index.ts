@@ -13,6 +13,9 @@ import { PostgresCustomerAssignmentCleanup } from './modules/crm/people-adapter.
 import { PostgresCrmRepository } from './modules/crm/repository.js';
 import { PostgresProductRepository } from './modules/products/repository.js';
 import { PostgresReportsRepository } from './modules/reports/repository.js';
+import { InMemoryRealtimeEventBus } from './modules/realtime/event-bus.js';
+import { PostgresRealtimeEventRepository } from './modules/realtime/repository.js';
+import { RealtimeService } from './modules/realtime/service.js';
 import { createShutdown } from './shutdown.js';
 
 async function main() {
@@ -27,6 +30,16 @@ async function main() {
     const customerAssignments = new PostgresCustomerAssignmentCleanup();
     const jobCards = new PostgresJobCardRepository(database.pool);
     const reports = new PostgresReportsRepository(database.pool);
+    const realtimeBus = new InMemoryRealtimeEventBus((error) => {
+      app?.log.error({ err: error }, 'Realtime subscriber failed');
+    });
+    const realtimeRepository = new PostgresRealtimeEventRepository(
+      database.pool,
+    );
+    const realtimeService = new RealtimeService(
+      realtimeRepository,
+      realtimeBus,
+    );
     app = await buildApp(config, {
       authRepository: new PostgresAuthRepository(database.pool),
       jobCardRepository: jobCards,
@@ -38,6 +51,8 @@ async function main() {
       approvalQueueItemPort: jobCards,
       reportsRepository: reports,
       healthReadiness: createPostgresReadiness(database.pool, config.healthSchemaVersion),
+      realtimeService,
+      realtimePublisher: realtimeBus,
     });
 
     const shutdown = createShutdown({

@@ -33,6 +33,15 @@ import { productRoutes } from './modules/products/routes.js';
 import type { ApprovalQueueItemPort, ReportsReadModel } from './modules/reports/ports.js';
 import { ReportsService } from './modules/reports/service.js';
 import { reportsRoutes } from './modules/reports/routes.js';
+import type {
+  RealtimeEventPublisher,
+} from './modules/realtime/event-bus.js';
+import type {
+  RealtimeService,
+} from './modules/realtime/service.js';
+import {
+  realtimeRoutes,
+} from './modules/realtime/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -55,6 +64,8 @@ export type AppDependencies = {
   approvalQueueItemPort?: ApprovalQueueItemPort;
   reportsRepository?: ReportsReadModel;
   healthReadiness?: HealthReadinessPort;
+  realtimeService?: RealtimeService;
+  realtimePublisher?: RealtimeEventPublisher;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
 };
@@ -116,7 +127,11 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       await passwordChanged(...args);
     };
     if (dependencies.jobCardRepository) {
-      const jobCardService = new JobCardService(dependencies.jobCardRepository);
+      const jobCardService = new JobCardService(
+        dependencies.jobCardRepository,
+        undefined,
+        dependencies.realtimePublisher,
+      );
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',
         service: jobCardService,
@@ -160,6 +175,13 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       await app.register(productRoutes, {
         prefix: '/api',
         service: new ProductService(dependencies.productRepository),
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.realtimeService) {
+      await app.register(realtimeRoutes, {
+        prefix: '/api/realtime',
+        service: dependencies.realtimeService,
         authenticate: authenticateDomain,
       });
     }
