@@ -66,7 +66,7 @@ class SalesMeetingRepository implements JobCardRepository {
   ) {
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
     if (this.completed.has(key)) {
-      return { kind: 'replay' as const, response: this.completed.get(key) as T };
+      return { kind: 'replay' as const, response: this.completed.get(key) as T, realtimeEvents: [] as const };
     }
     if (this.processing.has(key)) return { kind: 'processing' as const };
     this.processing.add(key);
@@ -149,7 +149,9 @@ class SalesMeetingRepository implements JobCardRepository {
         if (this.failActivity) throw new Error('activity failed');
         this.activities.push(input.event);
         this.activityMetadata.push(input.metadata ?? null);
+        return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       getJobDetail: async (organizationId: string, jobCardId: string) => {
         const job = this.jobs.find(
           (candidate) => candidate.organizationId === organizationId && candidate.id === jobCardId,
@@ -159,9 +161,9 @@ class SalesMeetingRepository implements JobCardRepository {
     } as unknown as JobCardTransaction;
 
     try {
-      const response = await work(transaction);
-      this.completed.set(key, response);
-      return { kind: 'completed' as const, response };
+      const completed = await work(transaction);
+      this.completed.set(key, completed.response);
+      return { kind: 'completed' as const, response: completed.response, realtimeEvents: completed.realtimeEvents };
     } catch (error) {
       this.jobs = jobsBefore;
       this.meetingDetails = detailsBefore;

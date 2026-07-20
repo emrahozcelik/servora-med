@@ -29,3 +29,4 @@ docker run --rm \
   caddy validate --config /etc/caddy/Caddyfile.example --adapter caddyfile
 
 echo "caddy validate passed"
+"$ROOT/ops/ci/verify-sse-streaming.sh" "$CONFIG"

@@ -24,6 +24,18 @@ import {
 import type { Pool, PoolClient } from 'pg';
 import type { ApprovalQueueItemPort } from '../reports/ports.js';
 import type { ApprovalItem } from '../reports/types.js';
+import type {
+  RealtimeEventInput,
+  RealtimeEventRecord,
+} from '../realtime/types.js';
+import {
+  PostgresRealtimeEventTransaction,
+} from '../realtime/repository.js';
+
+export type AppendedActivity = {
+  id: string;
+  createdAt: Date;
+};
 
 export type CriticalActionClaim = {
   organizationId: string;
@@ -125,7 +137,10 @@ export interface JobCardTransaction extends SubmissionReader {
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
-  appendActivity(input: ActivityInput): Promise<void>;
+  appendActivity(input: ActivityInput): Promise<AppendedActivity>;
+  appendRealtimeEvent(
+    input: RealtimeEventInput,
+  ): Promise<RealtimeEventRecord>;
   createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
   getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
@@ -143,15 +158,30 @@ export interface JobCardTransaction extends SubmissionReader {
   bumpVersion(organizationId: string, jobCardId: string, expectedVersion: number): Promise<JobCard | null>;
 }
 
+export type CriticalActionWorkResult<T> = Readonly<{
+  response: T;
+  realtimeEvents: readonly RealtimeEventRecord[];
+}>;
+
 export type CriticalActionResult<T> =
-  | { kind: 'completed'; response: T }
-  | { kind: 'replay'; response: T }
+  | {
+      kind: 'completed';
+      response: T;
+      realtimeEvents: readonly RealtimeEventRecord[];
+    }
+  | {
+      kind: 'replay';
+      response: T;
+      realtimeEvents: readonly [];
+    }
   | { kind: 'processing' };
 
 export interface JobCardRepository extends SubmissionReader {
   executeCriticalAction<T>(
     claim: CriticalActionClaim,
-    work: (transaction: JobCardTransaction) => Promise<T>,
+    work: (
+      transaction: JobCardTransaction,
+    ) => Promise<CriticalActionWorkResult<T>>,
   ): Promise<CriticalActionResult<T>>;
   listJobCards(
     scope: JobCardReadScope,
@@ -498,7 +528,11 @@ function workspaceWhere(
 }
 
 class PostgresJobCardTransaction implements JobCardTransaction {
-  constructor(private readonly client: PoolClient) {}
+  private readonly realtime: PostgresRealtimeEventTransaction;
+
+  constructor(private readonly client: PoolClient) {
+    this.realtime = new PostgresRealtimeEventTransaction(client);
+  }
 
   async getJob(organizationId: string, jobCardId: string) {
     const result = await this.client.query<JobCardRow>(
@@ -558,15 +592,21 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
 
-  async appendActivity(input: ActivityInput) {
-    await this.client.query(
+  async appendActivity(input: ActivityInput): Promise<AppendedActivity> {
+    const result = await this.client.query<{ id: string; created_at: Date }>(
       `INSERT INTO job_card_activity_logs
          (organization_id, job_card_id, actor_id, event_type, old_value, new_value, metadata, client_action_id)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+       RETURNING id, created_at`,
       [input.organizationId, input.jobCardId, input.actorId, input.event,
         input.oldValue ?? null, input.newValue ?? null, input.metadata ?? null,
         input.clientActionId ?? null],
     );
+    return { id: result.rows[0]!.id, createdAt: result.rows[0]!.created_at };
+  }
+
+  appendRealtimeEvent(input: RealtimeEventInput) {
+    return this.realtime.append(input);
   }
 
   async createNote(input: CreateNoteRecord) {
@@ -788,7 +828,9 @@ implements JobCardRepository, ApprovalQueueItemPort {
 
   async executeCriticalAction<T>(
     claim: CriticalActionClaim,
-    work: (transaction: JobCardTransaction) => Promise<T>,
+    work: (
+      transaction: JobCardTransaction,
+    ) => Promise<CriticalActionWorkResult<T>>,
   ): Promise<CriticalActionResult<T>> {
     const client = await this.pool.connect();
     try {
@@ -812,20 +854,24 @@ implements JobCardRepository, ApprovalQueueItemPort {
         await client.query('COMMIT');
         const action = existing.rows[0];
         if (action?.status === 'completed' && action.response_body !== null) {
-          return { kind: 'replay', response: action.response_body };
+          return { kind: 'replay', response: action.response_body, realtimeEvents: [] };
         }
         return { kind: 'processing' };
       }
 
-      const response = await work(new PostgresJobCardTransaction(client));
+      const workResult = await work(new PostgresJobCardTransaction(client));
       await client.query(
         `UPDATE processed_actions
          SET status = 'completed', status_code = 200, response_body = $2, completed_at = NOW()
          WHERE id = $1`,
-        [claimed.rows[0]!.id, response],
+        [claimed.rows[0]!.id, workResult.response],
       );
       await client.query('COMMIT');
-      return { kind: 'completed', response };
+      return {
+        kind: 'completed',
+        response: workResult.response,
+        realtimeEvents: workResult.realtimeEvents,
+      };
     } catch (error) {
       await client.query('ROLLBACK');
       throw error;

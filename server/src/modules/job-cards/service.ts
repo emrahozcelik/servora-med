@@ -58,6 +58,17 @@ import {
   type SubmissionEvaluation,
 } from './submission-policy.js';
 import { validateMeetingDetailsCandidate } from './meeting-details-input.js';
+import {
+  mapJobCardActivityToRealtime,
+} from '../realtime/event-mapper.js';
+import {
+  NOOP_REALTIME_EVENT_PUBLISHER,
+  type RealtimeEventPublisher,
+} from '../realtime/event-bus.js';
+import type {
+  RealtimeEventRecord,
+} from '../realtime/types.js';
+import type { AppendedActivity } from './repository.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
@@ -154,7 +165,40 @@ export class JobCardService {
   constructor(
     private readonly repository: JobCardRepository,
     private readonly now: () => Date = () => new Date(),
+    private readonly realtimePublisher: RealtimeEventPublisher =
+      NOOP_REALTIME_EVENT_PUBLISHER,
   ) { this.notesService = new JobCardNotesService(repository); }
+
+  private publishRealtime(events: readonly RealtimeEventRecord[]) {
+    for (const event of events) {
+      this.realtimePublisher.publish(event);
+    }
+  }
+
+  private async appendRealtimeForActivity(
+    transaction: JobCardTransaction,
+    input: {
+      activity: AppendedActivity;
+      organizationId: string;
+      jobCardId: string;
+      actorUserId: string;
+      event: JobCardActivityEvent;
+      beforeAssigneeId: string | null;
+      afterAssigneeId: string;
+    },
+  ): Promise<RealtimeEventRecord[]> {
+    const mapped = mapJobCardActivityToRealtime({
+      activityId: input.activity.id,
+      organizationId: input.organizationId,
+      jobCardId: input.jobCardId,
+      actorUserId: input.actorUserId,
+      event: input.event,
+      occurredAt: input.activity.createdAt,
+      beforeAssigneeId: input.beforeAssigneeId,
+      afterAssigneeId: input.afterAssigneeId,
+    });
+    return mapped ? [await transaction.appendRealtimeEvent(mapped)] : [];
+  }
 
   async listNotes(actor: JobCardActor, jobCardId: string, page: PageQuery) {
     return this.notesService.listNotes(actor, jobCardId, page);
@@ -215,18 +259,33 @@ export class JobCardService {
           createdValue.acceptedBy = actor.id;
         }
         if (job.scheduledAt !== null) createdValue.scheduledAt = job.scheduledAt;
-        await transaction.appendActivity({
+        const activity = await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
           event: 'JOB_CREATED', clientActionId: input.clientActionId,
           newValue: createdValue,
         });
+        const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId: job.id,
+          actorUserId: actor.id,
+          event: 'JOB_CREATED',
+          beforeAssigneeId: null,
+          afterAssigneeId: job.assignedTo,
+        });
         const detail = await transaction.getJobDetail(actor.organizationId, job.id);
         if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-        return this.presentDetail(transaction, actor, detail, requestTime);
+        return {
+          response: await this.presentDetail(transaction, actor, detail, requestTime),
+          realtimeEvents,
+        };
       },
     );
     if (result.kind === 'processing') {
       throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') {
+      this.publishRealtime(result.realtimeEvents);
     }
     return result.response;
   }
@@ -388,11 +447,17 @@ export class JobCardService {
           clientActionId,
           metadata: { changedFields },
         });
-        return meetingDetailsResponse(jobCardId, updated.version, candidate);
+        return {
+          response: meetingDetailsResponse(jobCardId, updated.version, candidate),
+          realtimeEvents: [],
+        };
       },
     );
     if (result.kind === 'processing') {
       throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') {
+      this.publishRealtime(result.realtimeEvents);
     }
     return result.response;
   }
@@ -468,27 +533,52 @@ export class JobCardService {
         organizationId: actor.organizationId, jobCardId, expectedVersion: input.expectedVersion, fields,
       });
       if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+      const realtimeEvents: RealtimeEventRecord[] = [];
       if (fields.assignedTo !== undefined && fields.assignedTo !== job.assignedTo) {
-        await transaction.appendActivity({
+        const activity = await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId, actorId: actor.id,
           event: 'JOB_ASSIGNED',
           oldValue: { assignedTo: job.assignedTo }, newValue: { assignedTo: updated.assignedTo },
         });
+        realtimeEvents.push(...await this.appendRealtimeForActivity(transaction, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: 'JOB_ASSIGNED',
+          beforeAssigneeId: job.assignedTo,
+          afterAssigneeId: updated.assignedTo,
+        }));
       }
       const nonAssignmentFields = Object.keys(fields).filter(
         (key) => key !== 'assignedTo' && key !== 'clearAcceptance',
       );
       if (nonAssignmentFields.length > 0) {
-        await transaction.appendActivity({
+        const activity = await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId, actorId: actor.id,
           event: 'JOB_FIELDS_UPDATED',
           oldValue: Object.fromEntries(nonAssignmentFields.map((key) => [key, job[key as keyof typeof job]])),
           newValue: Object.fromEntries(nonAssignmentFields.map((key) => [key, updated[key as keyof typeof updated]])),
         });
+        realtimeEvents.push(...await this.appendRealtimeForActivity(transaction, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: 'JOB_FIELDS_UPDATED',
+          beforeAssigneeId: job.assignedTo,
+          afterAssigneeId: updated.assignedTo,
+        }));
       }
       const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
       if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-      return this.presentDetail(transaction, actor, detail, this.now());
+      return {
+        response: await this.presentDetail(transaction, actor, detail, this.now()),
+        realtimeEvents,
+      };
+    }).then((committed) => {
+      this.publishRealtime(committed.realtimeEvents);
+      return committed.response;
     });
   }
 
@@ -539,9 +629,10 @@ export class JobCardService {
             quantity: item.quantity,
             deliveredAt: item.deliveredAt === null ? null : item.deliveredAt.toISOString(),
           } });
-        return { item, jobCardVersion: updated.version };
+        return { response: { item, jobCardVersion: updated.version }, realtimeEvents: [] };
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
     return result.response;
   }
 
@@ -742,7 +833,7 @@ export class JobCardService {
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         const reason = definition.revisionReason ?? definition.cancelReason;
         const metadata = reason === null ? undefined : { reason };
-        await tx.appendActivity({
+        const activity = await tx.appendActivity({
           organizationId: actor.organizationId,
           jobCardId,
           actorId: actor.id,
@@ -752,11 +843,24 @@ export class JobCardService {
           newValue: { status: updated.status, version: updated.version },
           metadata,
         });
+        const realtimeEvents = await this.appendRealtimeForActivity(tx, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: definition.event,
+          beforeAssigneeId: job.assignedTo,
+          afterAssigneeId: updated.assignedTo,
+        });
         const detail = await tx.getJobDetail(actor.organizationId, jobCardId);
         if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
-        return this.presentDetail(tx, actor, detail, requestTime, precomputed);
+        return {
+          response: await this.presentDetail(tx, actor, detail, requestTime, precomputed),
+          realtimeEvents,
+        };
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
     return result.response;
   }
 

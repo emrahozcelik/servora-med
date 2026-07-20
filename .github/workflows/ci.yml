@@ -46,6 +46,8 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/scripts/ensure-macos-service-identity.sh \
             ../ops/ci/verify-caddyfile.sh \
+            ../ops/ci/verify-sse-streaming.sh \
+            ../ops/ci/verify-sse-streaming-behavior.sh \
             ../ops/ci/verify-tunnel-caddyfile.sh \
             ../ops/ci/verify-tunnel-caddy-behavior.sh \
             ../ops/ci/verify-cloudflared-ingress.sh \
@@ -63,6 +65,8 @@ jobs:
             ../ops/scripts/deploy-release.sh \
             ../ops/scripts/ensure-macos-service-identity.sh \
             ../ops/ci/verify-caddyfile.sh \
+            ../ops/ci/verify-sse-streaming.sh \
+            ../ops/ci/verify-sse-streaming-behavior.sh \
             ../ops/ci/verify-tunnel-caddyfile.sh \
             ../ops/ci/verify-tunnel-caddy-behavior.sh \
             ../ops/ci/verify-cloudflared-ingress.sh \
@@ -77,6 +81,8 @@ jobs:
           bash ../ops/ci/verify-systemd-units.sh
       - name: caddy validate Caddyfile (VPS)
         run: bash ../ops/ci/verify-caddyfile.sh
+      - name: caddy SSE streaming behavior smoke
+        run: bash ../ops/ci/verify-sse-streaming-behavior.sh
       - name: caddy validate Caddyfile (tunnel pilot)
         run: bash ../ops/ci/verify-tunnel-caddyfile.sh
       - name: caddy tunnel behavior smoke

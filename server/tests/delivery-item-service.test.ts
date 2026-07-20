@@ -26,7 +26,9 @@ class DeliveryRepository implements JobCardRepository {
     appendActivity: async (i) => {
       this.events.push(i.event);
       this.activity.push({ event: i.event, oldValue: i.oldValue, newValue: i.newValue });
+      return { id: `activity-${this.events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
     },
+    appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
     getAssignee: async () => null, customerExists: async () => false, createJobCard: async () => { throw new Error('unused'); },
     updateFieldsWithVersion: async () => null,
     getProduct: async (org, id) => {
@@ -48,8 +50,8 @@ class DeliveryRepository implements JobCardRepository {
   }; }
   async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
     const key = `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
-    if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T };
-    const response = await work(this.tx()); this.completed.set(key, response); return { kind: 'completed' as const, response };
+    if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T, realtimeEvents: [] as const };
+    const completed = await work(this.tx()); this.completed.set(key, completed.response); return { kind: 'completed' as const, response: completed.response, realtimeEvents: completed.realtimeEvents };
   }
   async executeTransaction<T>(work: (tx: JobCardTransaction) => Promise<T>) { return work(this.tx()); }
   async listJobCards() { return [this.job]; }

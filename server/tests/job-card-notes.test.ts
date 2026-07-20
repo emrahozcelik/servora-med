@@ -60,20 +60,22 @@ class NotesRepository {
       appendActivity: async (input) => {
         if (this.failActivity) throw new Error('activity failed');
         this.activities.push(input);
+        return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
     } as JobCardTransaction;
   }
 
   async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
     this.claims.push(claim);
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
-    if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T };
+    if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T, realtimeEvents: [] as const };
     if (this.processing.has(key)) return { kind: 'processing' as const };
     const noteCount = this.notes.length; const activityCount = this.activities.length;
     try {
-      const response = await work(this.tx());
-      this.completed.set(key, response);
-      return { kind: 'completed' as const, response };
+      const completed = await work(this.tx());
+      this.completed.set(key, completed.response);
+      return { kind: 'completed' as const, response: completed.response, realtimeEvents: completed.realtimeEvents };
     } catch (error) {
       this.notes.splice(noteCount); this.activities.splice(activityCount);
       throw error;

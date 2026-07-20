@@ -118,7 +118,9 @@ class LifecycleRepository implements JobCardRepository {
       appendActivity: async (input) => {
         if (this.failActivity) throw new Error('activity failed');
         this.events.push(input);
+        return { id: `activity-${this.events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       getAssignee: async () => {
         this.submissionReads.push('assignee');
         return this.assignee;
@@ -139,7 +141,7 @@ class LifecycleRepository implements JobCardRepository {
   async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
     this.claims.push(claim);
     const key = `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
-    if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T };
+    if (this.completed.has(key)) return { kind: 'replay' as const, response: this.completed.get(key) as T, realtimeEvents: [] as const };
     if (this.processing.has(key)) return { kind: 'processing' as const };
     const before = {
       job: { ...this.job }, events: [...this.events], transitions: [...this.transitions],
@@ -148,9 +150,9 @@ class LifecycleRepository implements JobCardRepository {
       revision: { ...this.revision }, cancellation: { ...this.cancellation },
     };
     try {
-      const response = await work(this.tx());
-      this.completed.set(key, response);
-      return { kind: 'completed' as const, response };
+      const completed = await work(this.tx());
+      this.completed.set(key, completed.response);
+      return { kind: 'completed' as const, response: completed.response, realtimeEvents: completed.realtimeEvents };
     } catch (error) {
       this.job = before.job; this.events = before.events; this.transitions = before.transitions;
       this.acceptedAt = before.acceptedAt; this.acceptedBy = before.acceptedBy;
@@ -204,7 +206,7 @@ function twoJobRepository() {
   const repository = {
     async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
       const key = `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
-      if (completed.has(key)) return { kind: 'replay' as const, response: completed.get(key) as T };
+      if (completed.has(key)) return { kind: 'replay' as const, response: completed.get(key) as T, realtimeEvents: [] as const };
       const tx = {
         getJobForUpdate: async (organizationId: string, id: string) => {
           const job = jobs.get(id);
@@ -238,7 +240,11 @@ function twoJobRepository() {
           jobs.set(job.id, updated);
           return { ...updated };
         },
-        appendActivity: async (input: ActivityInput) => { events.push(input); },
+        appendActivity: async (input: ActivityInput) => {
+          events.push(input);
+          return { id: `activity-${events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
+        },
+        appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
         getAssignee: async () => ({
           id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
         }),
@@ -248,9 +254,9 @@ function twoJobRepository() {
         getSubmissionMeetingDetails: async () => null,
         getSubmissionDeliveryItems: async () => [],
       } as JobCardTransaction;
-      const response = await work(tx);
-      completed.set(key, response);
-      return { kind: 'completed' as const, response };
+      const completedResult = await work(tx);
+      completed.set(key, completedResult.response);
+      return { kind: 'completed' as const, response: completedResult.response, realtimeEvents: completedResult.realtimeEvents };
     },
   } as JobCardRepository;
   return { repository, jobs, events };

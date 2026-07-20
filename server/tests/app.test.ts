@@ -96,4 +96,34 @@ describe('AppDependencies', () => {
     expect(withoutApprovalItems.hasRoute({ method: 'GET', url: '/api/reports/dashboard' })).toBe(false);
     expect(complete.hasRoute({ method: 'GET', url: '/api/reports/dashboard' })).toBe(true);
   });
+
+  it('does not expose realtime routes without realtime dependencies', async () => {
+    const app = await buildApp(testConfig);
+    apps.push(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/realtime/events',
+    });
+
+    expect(response.statusCode).toBe(404);
+  });
+
+  it('registers the realtime route when auth and service exist', async () => {
+    const app = await buildApp(testConfig, {
+      authRepository: {} as never,
+      realtimeService: {
+        open: async () => ({ close() {} }),
+        close() {},
+      } as never,
+    });
+    apps.push(app);
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/realtime/events',
+    });
+
+    expect(response.statusCode).toBe(401);
+  });
 });
