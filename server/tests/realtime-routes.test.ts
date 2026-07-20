@@ -1,3 +1,5 @@
+import { EventEmitter } from 'node:events';
+
 import Fastify, {
   type FastifyReply,
   type FastifyRequest,
@@ -238,6 +240,52 @@ describe('realtime SSE route', () => {
 
     await handlerPromise;
     expect(closeSubscription).toHaveBeenCalledOnce();
+  });
+
+  it('settles an initial backpressured write when the request closes', async () => {
+    const requestRaw = new EventEmitter();
+    const raw = Object.assign(new EventEmitter(), {
+      setHeader: vi.fn(),
+      flushHeaders: vi.fn(),
+      write: vi.fn(() => false),
+      end: vi.fn(),
+      destroyed: false,
+    });
+    const closeSubscription = vi.fn();
+    const service = {
+      open: vi.fn(async (_viewer, _cursor, sink) => {
+        await sink.send({
+          id: '0',
+          type: 'sync.required',
+          resourceKeys: ['workspace'],
+          occurredAt: '2026-07-20T00:00:00.000Z',
+        });
+        return { close: closeSubscription };
+      }),
+    };
+
+    const handler = createRealtimeHandler(service as never, 20_000)(
+      {
+        headers: {},
+        currentUser: {
+          id: 'manager-1',
+          organizationId: 'org-1',
+          role: 'MANAGER',
+        },
+        raw: requestRaw,
+        log: { error: vi.fn() },
+      } as never,
+      { hijack: vi.fn(), raw } as never,
+    );
+    await new Promise(process.nextTick);
+    requestRaw.emit('close');
+
+    await expect(Promise.race([
+      handler.then(() => true),
+      new Promise<boolean>((resolve) => setTimeout(() => resolve(false), 20)),
+    ])).resolves.toBe(true);
+    expect(closeSubscription).toHaveBeenCalledOnce();
+    expect(raw.end).toHaveBeenCalledOnce();
   });
 
   it('rejects a forced-password-change session before stream start', async () => {

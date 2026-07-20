@@ -62,22 +62,49 @@ export function createRealtimeHandler(
     let subscription: { close(): void } | undefined;
     let writeChain = Promise.resolve();
     let closed = false;
+    let queuedWrites = 0;
+    let cancelPendingDrain: (() => void) | undefined;
+
+    const waitForDrain = () => new Promise<void>((resolve) => {
+      let settled = false;
+      const finish = () => {
+        if (settled) return;
+        settled = true;
+        reply.raw.removeListener?.('drain', finish);
+        reply.raw.removeListener?.('close', finish);
+        reply.raw.removeListener?.('error', finish);
+        request.raw.removeListener?.('close', finish);
+        request.raw.removeListener?.('aborted', finish);
+        if (cancelPendingDrain === finish) cancelPendingDrain = undefined;
+        resolve();
+      };
+      cancelPendingDrain = finish;
+      reply.raw.once('drain', finish);
+      reply.raw.once('close', finish);
+      reply.raw.once('error', finish);
+      request.raw.once('close', finish);
+      request.raw.once('aborted', finish);
+      if (closed) finish();
+    });
 
     const write = (chunk: string) => {
+      queuedWrites += 1;
       writeChain = writeChain.then(async () => {
-        if (closed) return;
-        const accepted = reply.raw.write(chunk);
-        if (!accepted) {
-          await new Promise<void>((resolve) => {
-            reply.raw.once('drain', resolve);
-          });
+        try {
+          if (closed) return;
+          const accepted = reply.raw.write(chunk);
+          if (!accepted) await waitForDrain();
+        } finally {
+          queuedWrites -= 1;
         }
       });
       return writeChain;
     };
 
     const heartbeat = setInterval(() => {
-      void write(': heartbeat\n\n');
+      if (!closed && queuedWrites === 0) {
+        void write(': heartbeat\n\n');
+      }
     }, heartbeatMs);
     heartbeat.unref?.();
 
@@ -85,6 +112,7 @@ export function createRealtimeHandler(
       if (closed) return;
       closed = true;
       clearInterval(heartbeat);
+      cancelPendingDrain?.();
       subscription?.close();
       if (!reply.raw.destroyed) reply.raw.end();
     };
