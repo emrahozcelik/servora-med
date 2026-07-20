@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 import { AppRouter } from './AppRouter';
 import { AppShell, BrandMark } from './AppShell';
 import { PasswordChangeScreen } from './PasswordChange';
+import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { getCurrentUser, login, logout, type CurrentUser } from './services/api';
 
 type AppProps = { initialUser?: CurrentUser | null };
@@ -103,12 +104,14 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Oturum kapatılamadı.'); setPending(false); }
   }
   return (
-    <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
-      <AppRouter user={user}
-        notice={notice} onClearNotice={clearNotice}
-        onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')} />
-      {error && <div className="shell-error form-error" role="alert">{error}</div>}
-    </AppShell>
+    <RealtimeProvider>
+      <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
+        <AppRouter user={user}
+          notice={notice} onClearNotice={clearNotice}
+          onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')} />
+        {error && <div className="shell-error form-error" role="alert">{error}</div>}
+      </AppShell>
+    </RealtimeProvider>
   );
 }
 

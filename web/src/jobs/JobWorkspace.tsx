@@ -4,6 +4,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import type { CurrentUser } from '../services/api';
 import { ApiError } from '../services/api';
 import { createRequestGate } from '../services/request-gate';
+import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { JobBoard } from './JobBoard';
 import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
@@ -51,6 +52,10 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   const canonicalParams = canonicalJobSearchParams(params);
   const canonicalKey = canonicalParams.toString();
   const showBoard = filters.view === 'board' && filters.status !== 'closed';
+
+  useRealtimeInvalidation(['job-list', 'job-board'], () => {
+    setReload((value) => value + 1);
+  });
 
   useEffect(() => {
     if (typeof window.matchMedia !== 'function') return;
