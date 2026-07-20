@@ -2,6 +2,7 @@ import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import { paths } from './paths';
+import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import type { CurrentUser } from './services/api';
 import { getOwnStaffProfile, getStaffProfile, listStaff, listUsers, updateStaffProfile, type ManagedUser, type StaffProfile } from './services/people-api';
 import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
@@ -85,12 +86,19 @@ export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenPr
 }) {
   const [profiles, setProfiles] = useState<StaffProfile[]>([]); const [own, setOwn] = useState<StaffProfile | null>(null); const [selected, setSelected] = useState<StaffProfile | null>(null);
   const [managers, setManagers] = useState<ManagedUser[]>([]); const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+  const [reload, setReload] = useState(0);
+  const realtimeResourceKeys = user.role === 'STAFF'
+    ? [`staff-profile:${user.id}`]
+    : initialStaffUserId
+      ? [`staff-profile:${initialStaffUserId}`]
+      : profiles.map((profile) => `staff-profile:${profile.user.id}`);
   useEffect(() => { setLoading(true); setError('');
     if (user.role === 'STAFF') getOwnStaffProfile().then(setOwn).catch((e) => setError(e instanceof Error ? e.message : 'Profil yüklenemedi.')).finally(() => setLoading(false));
     else Promise.all([listStaff('active'), user.role === 'ADMIN' ? listUsers() : Promise.resolve([{ ...user, lastLoginAt: null, createdAt: '', updatedAt: '' } as ManagedUser]),
       initialStaffUserId ? getStaffProfile(initialStaffUserId) : Promise.resolve(null)])
       .then(([items, allUsers, initialProfile]) => { setProfiles(items); setManagers(allUsers.filter((item) => item.role === 'MANAGER' && item.isActive)); setSelected(initialProfile); }).catch((e) => setError(e instanceof Error ? e.message : 'Personel yüklenemedi.')).finally(() => setLoading(false));
-  }, [user, initialStaffUserId]);
+  }, [user, initialStaffUserId, reload]);
+  useRealtimeInvalidation(realtimeResourceKeys, () => { setReload((value) => value + 1); });
   if (loading) return <main className="workspace" aria-busy="true"><h1>{initialStaffUserId ? 'Personel profili yükleniyor' : 'Personel bilgileri yükleniyor'}</h1></main>;
   if (error) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Personel bilgileri yüklenemedi</h1><p>{error}</p></div></main>;
   if (user.role === 'STAFF' && own) return <OwnStaffProfileView profile={own} onBack={onBack} />;
