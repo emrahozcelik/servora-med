@@ -314,12 +314,16 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
           clientActionId: randomUUID(),
           note: 'Teslim tamamlandı.',
         });
-        await Promise.resolve();
-
-        expect(managerEvents).toContainEqual(expect.objectContaining({
+        await expect.poll(() => managerEvents, {
+          interval: 5,
+          timeout: 1_000,
+        }).toContainEqual(expect.objectContaining({
           type: 'job.submitted_for_approval',
         }));
-        expect(assignedEvents).toContainEqual(expect.objectContaining({
+        await expect.poll(() => assignedEvents, {
+          interval: 5,
+          timeout: 1_000,
+        }).toContainEqual(expect.objectContaining({
           type: 'job.submitted_for_approval',
         }));
         expect(unrelatedEvents).toEqual([]);
