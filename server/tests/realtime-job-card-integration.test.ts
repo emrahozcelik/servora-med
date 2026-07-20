@@ -8,8 +8,17 @@ import { describe, expect, it } from 'vitest';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import { mapJobCardActivityToRealtime } from '../src/modules/realtime/event-mapper.js';
-import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
-import type { RealtimeEventRecord } from '../src/modules/realtime/types.js';
+import {
+  InMemoryRealtimeEventBus,
+  type RealtimeEventPublisher,
+} from '../src/modules/realtime/event-bus.js';
+import { PostgresRealtimeEventRepository } from '../src/modules/realtime/repository.js';
+import { RealtimeService } from '../src/modules/realtime/service.js';
+import type {
+  RealtimeEventEnvelope,
+  RealtimeEventRecord,
+  RealtimeViewer,
+} from '../src/modules/realtime/types.js';
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -25,7 +34,9 @@ const MIGRATIONS = [
 type Fixture = {
   pool: Pool;
   organizationId: string;
-  staffUserId: string;
+  managerUserId: string;
+  assignedStaffUserId: string;
+  unrelatedStaffUserId: string;
   jobCardId: string;
   jobVersion: number;
 };
@@ -50,9 +61,19 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     const organizationId = (await pool.query<{ id: string }>(
       `INSERT INTO organizations (name) VALUES ('Realtime jobcard') RETURNING id`,
     )).rows[0]!.id;
-    const staffUserId = (await pool.query<{ id: string }>(
+    const managerUserId = (await pool.query<{ id: string }>(
+      `INSERT INTO users (organization_id, name, email, password_hash, role)
+       VALUES ($1, 'Manager', $2, 'unused-test-hash', 'MANAGER') RETURNING id`,
+      [organizationId, `${randomUUID()}@test.local`],
+    )).rows[0]!.id;
+    const assignedStaffUserId = (await pool.query<{ id: string }>(
       `INSERT INTO users (organization_id, name, email, password_hash, role)
        VALUES ($1, 'Staff', $2, 'unused-test-hash', 'STAFF') RETURNING id`,
+      [organizationId, `${randomUUID()}@test.local`],
+    )).rows[0]!.id;
+    const unrelatedStaffUserId = (await pool.query<{ id: string }>(
+      `INSERT INTO users (organization_id, name, email, password_hash, role)
+       VALUES ($1, 'Other staff', $2, 'unused-test-hash', 'STAFF') RETURNING id`,
       [organizationId, `${randomUUID()}@test.local`],
     )).rows[0]!.id;
     const job = (await pool.query<{ id: string; version: number }>(
@@ -61,13 +82,15 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
           accepted_at, accepted_by)
        VALUES ($1, 'GENERAL_TASK', 'ACCEPTED', 'İş kaydı', $2, $2, NOW(), $2)
        RETURNING id, version`,
-      [organizationId, staffUserId],
+      [organizationId, assignedStaffUserId],
     )).rows[0]!;
 
     await run({
       pool,
       organizationId,
-      staffUserId,
+      managerUserId,
+      assignedStaffUserId,
+      unrelatedStaffUserId,
       jobCardId: job.id,
       jobVersion: job.version,
     });
@@ -88,16 +111,24 @@ function capturingPublisher() {
   return { published, publisher };
 }
 
+function viewer(
+  organizationId: string,
+  userId: string,
+  role: RealtimeViewer['role'],
+): RealtimeViewer {
+  return { organizationId, userId, role };
+}
+
 describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () => {
   it('commits activity and realtime event together', async () => {
-    await withFixture(async ({ pool, organizationId, staffUserId, jobCardId, jobVersion }) => {
+    await withFixture(async ({ pool, organizationId, assignedStaffUserId, jobCardId, jobVersion }) => {
       const { published, publisher } = capturingPublisher();
       const service = new JobCardService(
         new PostgresJobCardRepository(pool),
         () => new Date('2026-07-19T14:30:00.000Z'),
         publisher,
       );
-      const actor: JobCardActor = { id: staffUserId, organizationId, role: 'STAFF' };
+      const actor: JobCardActor = { id: assignedStaffUserId, organizationId, role: 'STAFF' };
 
       await service.start(actor, jobCardId, {
         expectedVersion: jobVersion,
@@ -132,13 +163,13 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
   });
 
   it('rolls back both rows when event insertion fails', async () => {
-    await withFixture(async ({ pool, organizationId, staffUserId, jobCardId, jobVersion }) => {
+    await withFixture(async ({ pool, organizationId, assignedStaffUserId, jobCardId, jobVersion }) => {
       const repository = new PostgresJobCardRepository(pool);
-      const actor: JobCardActor = { id: staffUserId, organizationId, role: 'STAFF' };
+      const actor: JobCardActor = { id: assignedStaffUserId, organizationId, role: 'STAFF' };
 
       const attempt = repository.executeCriticalAction(
         {
-          organizationId, userId: staffUserId,
+          organizationId, userId: assignedStaffUserId,
           clientActionId: randomUUID(), operationKey: `JOB_START:${jobCardId}`,
         },
         async (tx) => {
@@ -157,7 +188,7 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
           const mapped = mapJobCardActivityToRealtime({
             activityId: activity.id, organizationId, jobCardId,
             actorUserId: actor.id, event: 'JOB_STARTED', occurredAt: activity.createdAt,
-            beforeAssigneeId: null, afterAssigneeId: staffUserId,
+            beforeAssigneeId: null, afterAssigneeId: assignedStaffUserId,
           });
           const first = await tx.appendRealtimeEvent(mapped!);
           await tx.appendRealtimeEvent(mapped!);
@@ -188,14 +219,14 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
   });
 
   it('does not create a second event on idempotent replay', async () => {
-    await withFixture(async ({ pool, organizationId, staffUserId, jobCardId, jobVersion }) => {
+    await withFixture(async ({ pool, organizationId, assignedStaffUserId, jobCardId, jobVersion }) => {
       const { published, publisher } = capturingPublisher();
       const service = new JobCardService(
         new PostgresJobCardRepository(pool),
         () => new Date('2026-07-19T14:30:00.000Z'),
         publisher,
       );
-      const actor: JobCardActor = { id: staffUserId, organizationId, role: 'STAFF' };
+      const actor: JobCardActor = { id: assignedStaffUserId, organizationId, role: 'STAFF' };
       const clientActionId = randomUUID();
 
       const first = await service.start(actor, jobCardId, {
@@ -220,6 +251,111 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
       expect(eventCount.rows[0]!.count).toBe(1);
 
       expect(published).toHaveLength(1);
+    });
+  });
+
+  it('delivers submission to manager and assignee but not unrelated staff', async () => {
+    await withFixture(async ({
+      pool, organizationId, managerUserId, assignedStaffUserId,
+      unrelatedStaffUserId, jobCardId, jobVersion,
+    }) => {
+      const bus = new InMemoryRealtimeEventBus();
+      const jobCards = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => new Date('2026-07-20T10:00:00.000Z'),
+        bus,
+      );
+      const realtimeRepository = new PostgresRealtimeEventRepository(pool);
+      const realtime = new RealtimeService(realtimeRepository, bus);
+      const assignedStaff = viewer(organizationId, assignedStaffUserId, 'STAFF');
+      const manager = viewer(organizationId, managerUserId, 'MANAGER');
+      const unrelatedStaff = viewer(organizationId, unrelatedStaffUserId, 'STAFF');
+
+      await jobCards.start(assignedStaff, jobCardId, {
+        expectedVersion: jobVersion,
+        clientActionId: randomUUID(),
+      });
+
+      const managerEvents: RealtimeEventEnvelope[] = [];
+      const assignedEvents: RealtimeEventEnvelope[] = [];
+      const unrelatedEvents: RealtimeEventEnvelope[] = [];
+      const managerSub = await realtime.open(
+        manager,
+        await realtimeRepository.visibleHighWater(manager),
+        { send: async (event) => { managerEvents.push(event); } },
+      );
+      const assignedSub = await realtime.open(
+        assignedStaff,
+        await realtimeRepository.visibleHighWater(assignedStaff),
+        { send: async (event) => { assignedEvents.push(event); } },
+      );
+      const unrelatedSub = await realtime.open(
+        unrelatedStaff,
+        await realtimeRepository.visibleHighWater(unrelatedStaff),
+        { send: async (event) => { unrelatedEvents.push(event); } },
+      );
+
+      try {
+        await jobCards.submitForApproval(assignedStaff, jobCardId, {
+          expectedVersion: jobVersion + 1,
+          clientActionId: randomUUID(),
+          note: 'Teslim tamamlandı.',
+        });
+        await Promise.resolve();
+
+        expect(managerEvents).toContainEqual(expect.objectContaining({
+          type: 'job.submitted_for_approval',
+        }));
+        expect(assignedEvents).toContainEqual(expect.objectContaining({
+          type: 'job.submitted_for_approval',
+        }));
+        expect(unrelatedEvents).toEqual([]);
+      } finally {
+        managerSub.close();
+        assignedSub.close();
+        unrelatedSub.close();
+      }
+    });
+  });
+
+  it('replays a missed visible event exactly once after its cursor', async () => {
+    await withFixture(async ({
+      pool, organizationId, managerUserId, assignedStaffUserId, jobCardId, jobVersion,
+    }) => {
+      const bus = new InMemoryRealtimeEventBus();
+      const jobCards = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => new Date('2026-07-20T10:00:00.000Z'),
+        bus,
+      );
+      const realtimeRepository = new PostgresRealtimeEventRepository(pool);
+      const realtime = new RealtimeService(realtimeRepository, bus);
+      const assignedStaff = viewer(organizationId, assignedStaffUserId, 'STAFF');
+      const manager = viewer(organizationId, managerUserId, 'MANAGER');
+
+      await jobCards.start(assignedStaff, jobCardId, {
+        expectedVersion: jobVersion,
+        clientActionId: randomUUID(),
+      });
+      const before = await realtimeRepository.visibleHighWater(manager);
+
+      await jobCards.submitForApproval(assignedStaff, jobCardId, {
+        expectedVersion: jobVersion + 1,
+        clientActionId: randomUUID(),
+        note: 'Teslim tamamlandı.',
+      });
+
+      const replayed: RealtimeEventEnvelope[] = [];
+      const subscription = await realtime.open(manager, before, {
+        send: async (event) => { replayed.push(event); },
+      });
+      try {
+        expect(replayed.filter(
+          (event) => event.type === 'job.submitted_for_approval',
+        )).toHaveLength(1);
+      } finally {
+        subscription.close();
+      }
     });
   });
 });
