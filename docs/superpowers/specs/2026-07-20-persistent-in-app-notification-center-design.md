@@ -48,6 +48,7 @@ the canonical JobCard activity and its existing `realtime_events` record.
 ```text
 JobCard command
   -> activity log (canonical audit record)
+  -> pure notification policy and recipient drafts
   -> realtime event ledger (existing transport record)
   -> recipient notification rows (Phase P read model)
   -> transaction commit
@@ -68,16 +69,26 @@ The Phase N ledger is the durable source link, but Phase P must not introduce a
 separate background consumer. A projector is unnecessary until there is a
 proven cross-process or deferred-delivery requirement.
 
+The policy runs before the realtime event is appended. If it produces one or
+more recipient drafts, the event is appended with the `notifications` resource
+key; the persisted event ID is then used to append the rows. If it produces no
+drafts, no `notifications` key is added. This removes any post-insert mutation
+or circular dependency between the event and notification records.
+
 ## Data Model
 
 Migration `012_create_in_app_notifications.sql` creates:
 
 ```sql
+ALTER TABLE realtime_events
+  ADD CONSTRAINT realtime_events_organization_id_id_unique
+  UNIQUE (organization_id, id);
+
 CREATE TABLE in_app_notifications (
   id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
   organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
   recipient_user_id UUID NOT NULL,
-  source_realtime_event_id BIGINT NOT NULL REFERENCES realtime_events(id),
+  source_realtime_event_id BIGINT NOT NULL,
   kind VARCHAR(80) NOT NULL,
   entity_type VARCHAR(40) NOT NULL,
   entity_id UUID NOT NULL,
@@ -86,7 +97,17 @@ CREATE TABLE in_app_notifications (
   UNIQUE (recipient_user_id, source_realtime_event_id),
   FOREIGN KEY (organization_id, recipient_user_id)
     REFERENCES users (organization_id, id),
-  CHECK (entity_type = 'job-card')
+  FOREIGN KEY (organization_id, source_realtime_event_id)
+    REFERENCES realtime_events (organization_id, id),
+  CHECK (entity_type = 'job-card'),
+  CHECK (kind IN (
+    'job.assigned',
+    'job.reassigned',
+    'job.awaiting_approval',
+    'job.approved',
+    'job.revision_requested',
+    'job.cancelled'
+  ))
 );
 ```
 
@@ -98,7 +119,9 @@ Required indexes:
   cursor pagination;
 - `(source_realtime_event_id)` for integrity diagnostics.
 
-`kind`, entity identity, source event, and timestamps are stored. No title,
+`kind`, entity identity, source event, and timestamps are stored. The composite
+source-event foreign key makes a cross-organization source relation impossible.
+No title,
 note, delivery data, customer/contact data, JobCard status snapshot, or actor
 name is persisted in the notification row. The server presenter maps the
 stable `kind` to a Turkish title/body at read time; the first slice intentionally
@@ -134,9 +157,10 @@ activity is produced; the notification service owns recipient selection,
 idempotent row creation, presentation, and recipient-scoped reads.
 
 The JobCard transaction receives a notification transaction port alongside its
-existing realtime transaction port. It appends notifications only after the
-realtime event has been inserted and only for the mapped event kinds above.
-The public JobCard command response is unchanged.
+existing realtime transaction port. It first asks the pure policy for recipient
+drafts. It then appends the realtime event with `notifications` only when drafts
+exist, and finally appends the rows with that persisted event ID. The public
+JobCard command response is unchanged.
 
 Authenticated, password-change-gated API routes:
 
@@ -150,7 +174,9 @@ List order is `created_at DESC, id DESC`. The opaque cursor encodes exactly the
 last item’s timestamp and ID; it is validated, not trusted. The list response
 returns items and `nextCursor`. The unread endpoint returns `{ unreadCount }`.
 `PATCH` is idempotent: an already-read notification returns its current public
-DTO and does not change `read_at`.
+DTO and does not change `read_at`. A notification outside the current user's
+organization/recipient scope returns `404`, including when the UUID exists for
+another recipient, so the API does not disclose its existence.
 
 Every repository query predicates both `organization_id` and
 `recipient_user_id = currentUser.id`. A recipient cannot list, mark, infer, or
@@ -158,11 +184,11 @@ deep-link through another user’s notification ID. The deep-link target is
 derived only from the public entity type and ID (`/jobs/:id`); the destination
 still performs its existing canonical authorization read.
 
-After successful notification creation, its source realtime event must include
-the `notifications` resource key. This is an invalidation hint only, not a
-notification payload. SSE replay and duplicate delivery therefore cause at
-most repeated guarded REST reads; the database uniqueness constraint prevents
-duplicate notification history.
+The policy determines whether its source realtime event includes the
+`notifications` resource key before that event is inserted. The key is an
+invalidation hint only, not a notification payload. SSE replay and duplicate
+delivery therefore cause at most repeated guarded REST reads; the database
+uniqueness constraint prevents duplicate notification history.
 
 ## Web Composition and Accessibility
 
@@ -184,8 +210,11 @@ messages from SSE envelopes.
   accessible drawer/dialog pattern. The chosen surface has `role="dialog"`, an
   accessible name, Escape close, focus containment, and focus restoration to
   the trigger.
-- The panel handles loading, empty, error, and retry states. It does not reuse
-  lifecycle confirmation dialogs or add global toast behaviour.
+- The panel handles loading, empty, error, retry, and `Daha fazla yükle` states.
+  Each later page is deduplicated by notification ID. A new `notifications`
+  invalidation resets pagination and canonically reloads the first page; later
+  pages are not merged across that boundary. It does not reuse lifecycle
+  confirmation dialogs or add global toast behaviour.
 - Activating a notification first performs the existing idempotent mark-read
   request, then navigates to the derived JobCard path. A mark-read failure keeps
   the user on the panel and announces the error; it must not navigate as if the
@@ -198,6 +227,13 @@ messages from SSE envelopes.
   the unread count and reloads the current list page only when the panel is
   open. Its request gates prevent stale responses from restoring an obsolete
   read state.
+- A successful local mark-read immediately reloads its own canonical unread
+  count and open list. Mark-read intentionally emits no new realtime ledger
+  event in Phase P. Other tabs reconcile that user-state change through their
+  existing focus, visibility, online, reconnect, or disconnected fallback
+  recovery; instant cross-tab read-state delivery is a separate future design.
+- On logout, user change, or organization change, the controller clears badge,
+  list, cursor, pending, and error state before loading for the new session.
 
 ## Error, Concurrency, and Security Rules
 
@@ -218,13 +254,15 @@ messages from SSE envelopes.
 
 Server tests must prove:
 
-- migration constraints/indexes and recipient/source-event uniqueness;
+- migration constraints/indexes, recipient/source-event uniqueness, allowed
+  kinds, and rejection of cross-organization source-event links;
 - recipient isolation across organizations, roles, inactive managers, actor
   exclusion, and unrelated staff;
 - transaction rollback and idempotent command replay produce no duplicate row;
 - each initial semantic mapping creates only its intended recipients;
 - list ordering/cursor validation, unread count, and idempotent mark-read;
-- authorization rejects cross-user/cross-organization list and mark-read;
+- authorization returns `404` for cross-user/cross-organization mark-read and
+  does not reveal whether that notification exists;
 - a notification-producing event invalidates `notifications` without changing
   the existing SSE envelope’s sensitive-data boundary.
 
@@ -233,14 +271,20 @@ Web tests must prove:
 - badge/list load and loading/empty/error/retry states;
 - semantic message rendering and deep-link navigation;
 - pending duplicate-click protection and mark-read error behaviour;
+- load-more pagination, ID de-duplication, first-page reset after invalidation,
+  and retry after a load-more error;
 - realtime `notifications` invalidation refreshes canonical REST data without
   creating client-side notifications;
+- successful local mark-read reloads canonical state, while another tab uses
+  recovery/fallback rather than an invented mark-read SSE event;
+- logout/user/organization changes clear all recipient-scoped UI state;
 - focus, Escape, focus restoration, keyboard operation, and mobile/desktop
   composition.
 
 Browser smoke/manual tests cover 390, 720, 768, 1024, and 1440 px plus 200%
 and 400% reflow; separate manager/staff sessions; another tab marking a row
-read; replay/reconnect; and an inaccessible target deep link.
+read then recovering through focus/reconnect/fallback; and an inaccessible
+target deep link.
 
 ## Acceptance Criteria
 
