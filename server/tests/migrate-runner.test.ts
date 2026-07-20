@@ -47,7 +47,7 @@ class MemoryMigrationStore implements MigrationStore {
 }
 
 describe('runMigrations', () => {
-  it('ships the complete ordered migration set through entity delete audit', async () => {
+  it('ships the complete ordered migration set through in-app notifications', async () => {
     const migrationsDirectory = fileURLToPath(
       new URL('../src/db/migrations', import.meta.url),
     );
@@ -71,9 +71,10 @@ describe('runMigrations', () => {
       '009_job_acceptance_and_scheduling.sql',
       '010_entity_delete_audit.sql',
       '011_create_realtime_events.sql',
+      '012_create_in_app_notifications.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('011_create_realtime_events.sql');
-    expect(expectedSchemaVersion).toBe(11);
+    expect(migrations.at(-1)?.name).toBe('012_create_in_app_notifications.sql');
+    expect(expectedSchemaVersion).toBe(12);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

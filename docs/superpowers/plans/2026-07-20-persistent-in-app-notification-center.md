@@ -21,7 +21,7 @@ Allowed source area: only this plan and the paired design spec.
 - [x] Create the independent `feature/in-app-notification-center` branch.
 - [x] Record the notification model, transaction boundary, recipients, API,
   web behaviour, and acceptance tests in the paired design.
-- [ ] Obtain explicit review approval for the design before runtime code.
+- [x] Obtain explicit review approval for the design before runtime code.
 - [x] Open and retain draft PR #39 titled `feat: add in-app notification center`.
 
 ## Task 2 — Server Notification Model (TDD)
