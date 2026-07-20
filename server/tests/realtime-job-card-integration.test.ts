@@ -119,6 +119,14 @@ function viewer(
   return { organizationId, userId, role };
 }
 
+function jobCardActor(
+  organizationId: string,
+  id: string,
+  role: JobCardActor['role'],
+): JobCardActor {
+  return { organizationId, id, role };
+}
+
 describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () => {
   it('commits activity and realtime event together', async () => {
     await withFixture(async ({ pool, organizationId, assignedStaffUserId, jobCardId, jobVersion }) => {
@@ -268,10 +276,15 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
       const realtimeRepository = new PostgresRealtimeEventRepository(pool);
       const realtime = new RealtimeService(realtimeRepository, bus);
       const assignedStaff = viewer(organizationId, assignedStaffUserId, 'STAFF');
+      const assignedStaffActor = jobCardActor(
+        organizationId,
+        assignedStaffUserId,
+        'STAFF',
+      );
       const manager = viewer(organizationId, managerUserId, 'MANAGER');
       const unrelatedStaff = viewer(organizationId, unrelatedStaffUserId, 'STAFF');
 
-      await jobCards.start(assignedStaff, jobCardId, {
+      await jobCards.start(assignedStaffActor, jobCardId, {
         expectedVersion: jobVersion,
         clientActionId: randomUUID(),
       });
@@ -296,7 +309,7 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
       );
 
       try {
-        await jobCards.submitForApproval(assignedStaff, jobCardId, {
+        await jobCards.submitForApproval(assignedStaffActor, jobCardId, {
           expectedVersion: jobVersion + 1,
           clientActionId: randomUUID(),
           note: 'Teslim tamamlandı.',
@@ -331,15 +344,20 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
       const realtimeRepository = new PostgresRealtimeEventRepository(pool);
       const realtime = new RealtimeService(realtimeRepository, bus);
       const assignedStaff = viewer(organizationId, assignedStaffUserId, 'STAFF');
+      const assignedStaffActor = jobCardActor(
+        organizationId,
+        assignedStaffUserId,
+        'STAFF',
+      );
       const manager = viewer(organizationId, managerUserId, 'MANAGER');
 
-      await jobCards.start(assignedStaff, jobCardId, {
+      await jobCards.start(assignedStaffActor, jobCardId, {
         expectedVersion: jobVersion,
         clientActionId: randomUUID(),
       });
       const before = await realtimeRepository.visibleHighWater(manager);
 
-      await jobCards.submitForApproval(assignedStaff, jobCardId, {
+      await jobCards.submitForApproval(assignedStaffActor, jobCardId, {
         expectedVersion: jobVersion + 1,
         clientActionId: randomUUID(),
         note: 'Teslim tamamlandı.',
