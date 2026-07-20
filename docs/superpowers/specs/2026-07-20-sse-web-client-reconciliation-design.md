@@ -1,8 +1,8 @@
 # SSE Web Client and Reconciliation Design
 
-**Date:** 2026-07-20  
-**Status:** Approved implementation design  
-**Parent roadmap:** `2026-07-19-browser-realtime-capabilities-roadmap-design.md`  
+**Date:** 2026-07-20
+**Status:** Implemented and verified (PR #36 draft)
+**Parent roadmap:** `2026-07-19-browser-realtime-capabilities-roadmap-design.md`
 **Server dependency:** `2026-07-19-sse-realtime-foundation-design.md` (merged as PR #34)
 
 ## Objective
@@ -181,3 +181,29 @@ Tests must prove:
 Manual browser verification after automated checks covers two logged-in
 sessions, server restart/replay, and Safari resume. These are verification
 steps, not a source of additional behavior in this PR.
+
+## Implementation Record
+
+Implemented in draft PR #36 on rebased head `7bda1d7`, with current `main`
+base `f9f36a3`.
+
+The implementation adds one authenticated browser EventSource, validates and
+de-duplicates named invalidation envelopes, and reuses existing REST loaders
+for mounted JobCard, report, and staff surfaces. Job detail protects active
+editing and pending commands with an explicit stale-data reload action.
+
+Final automated verification:
+
+- web: 613 tests passed; build, bundle budget, responsive smoke, and audit
+  passed;
+- server: build, 955 tests passed with 36 expected skips, and audit passed;
+- GitHub Actions CI: server and web jobs passed on the rebased head.
+
+Manual verification passed:
+
+- two concurrent authenticated sessions reconciled open list, board, detail,
+  report, and staff surfaces through canonical REST reads;
+- server restart/replay resumed from the cursor without duplicate refreshes;
+- Safari background/resume reconciled through visibility and focus recovery;
+- an active detail editor retained local input and showed its stale-data action
+  after a remote change.

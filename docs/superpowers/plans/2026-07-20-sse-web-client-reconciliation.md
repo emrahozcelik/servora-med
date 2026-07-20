@@ -112,10 +112,10 @@ focused tests.
 
 ## Task 5 — Full Regression and Handoff
 
-- [ ] Add provider lifecycle, parser, de-duplication, resource routing,
+- [x] Add provider lifecycle, parser, de-duplication, resource routing,
   workspace reconciliation, detail safety, reconnect/fallback and report/staff
   integration tests.
-- [ ] Run:
+- [x] Run:
 
 ```bash
 cd web
@@ -131,5 +131,5 @@ npm test -- --run
 npm audit --omit=dev
 ```
 
-- [ ] Record exact command outcomes and remaining manual two-session/Safari
+- [x] Record exact command outcomes and completed manual two-session/Safari
   checks in the PR description. Keep the PR draft.
