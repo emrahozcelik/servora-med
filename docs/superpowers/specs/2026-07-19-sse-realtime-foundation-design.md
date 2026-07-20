@@ -1,7 +1,7 @@
 # SSE Realtime Foundation Design
 
 **Date:** 2026-07-19  
-**Status:** Implementation follow-up in progress; final verification pending (PR #34 draft)
+**Status:** Implemented and verified (PR #34 draft)
 **Parent spec:** `2026-07-19-browser-realtime-capabilities-roadmap-design.md`  
 **Delivery:** Phase N — server realtime event contract and SSE transport
 
@@ -522,7 +522,7 @@ Phase N is complete when:
 ## Implementation Record
 
 - **Branch:** `feature/sse-realtime-foundation` (PR #34, draft)
-- **Status:** Verification is pending after follow-up fixes; do not mark ready or merge.
+- **Status:** Verified on GitHub Actions run #122 at `0f03f53`; PR remains draft pending review.
 - **Migration:** `011_create_realtime_events.sql`
 - **Transport:** authenticated SSE at `GET /api/realtime/events`
 - **Replay:** `Last-Event-ID`, maximum 500 visible events, then `sync.required`
@@ -533,4 +533,7 @@ Phase N is complete when:
 - **Handoff safety:** replay/live transition and live publication both reconcile from the durable ledger; route backpressure cancellation and heartbeat coalescing are covered by follow-up tests
 - **Lifecycle:** `RealtimeService.close()` closes all active subscriptions; Fastify `onClose` hook triggers cleanup on shutdown
 - **Excluded:** frontend client, notifications, geolocation, manifest, service worker, Web Push
-- **Verification:** Follow-up server, ops, web, and GitHub Actions runs are pending. Record pass counts and CI status only after they complete.
+- **Verification (GitHub Actions CI #122):**
+  - server: build, migration, 991/991 tests, production audit, and all ops checks passed
+  - Caddy: config guard and Docker end-to-end SSE behavior smoke passed
+  - web: build, bundle budget, 600/600 tests, responsive smoke, and production audit passed
