@@ -1,7 +1,7 @@
 # SSE Realtime Foundation Design
 
 **Date:** 2026-07-19  
-**Status:** First sub-project spec awaiting repository review  
+**Status:** Implemented and verified (PR #34)  
 **Parent spec:** `2026-07-19-browser-realtime-capabilities-roadmap-design.md`  
 **Delivery:** Phase N — server realtime event contract and SSE transport
 
@@ -518,3 +518,33 @@ Phase N is complete when:
 10. Existing public REST response contracts remain unchanged.
 11. Existing server tests, migration tests, build, audit, and ops validation remain green.
 12. No frontend, notification, geolocation, manifest, service-worker, or push code is introduced.
+
+## Implementation Record
+
+- **Branch:** `feature/sse-realtime-foundation` (PR #34, draft)
+- **Migration:** `011_create_realtime_events.sql`
+- **Transport:** authenticated SSE at `GET /api/realtime/events`
+- **Replay:** `Last-Event-ID`, maximum 500 visible events, then `sync.required`
+- **First connection:** visible high-water `sync.required`
+- **Cursor ordering:** PostgreSQL `pg_advisory_xact_lock` per organization serializes event ID allocation with commit order
+- **Publication:** after committed JobCard transaction only
+- **Audience:** Admin/Manager organization scope; explicit current/previous assignee
+- **Handoff safety:** safe buffer drain loop prevents event loss during replay/live transition; bounded pending write queue (max 100); live send rejection triggers cleanup
+- **Lifecycle:** `RealtimeService.close()` closes all active subscriptions; Fastify `onClose` hook triggers cleanup on shutdown
+- **Excluded:** frontend client, notifications, geolocation, manifest, service worker, Web Push
+- **Verification (server):**
+  - `cd server && npm run build` — PASS
+  - `cd server && npm test -- --run` — 953 passed, 36 skipped (env-dependent), 71/83 test files passed
+  - `cd server && npm audit --omit=dev` — PASS (0 high/critical)
+- **Verification (ops):**
+  - `ops/ci/verify-caddyfile.sh` — PASS
+  - `ops/ci/verify-sse-streaming.sh` — PASS
+  - `ops/ci/verify-sse-streaming-behavior.sh` — Docker-based behavior smoke with Caddy (config guard + CI startup-check)
+  - `bash -n` + `shellcheck -x` on all ops scripts — PASS
+- **Verification (web):**
+  - `cd web && npm run build` — PASS
+  - `cd web && npm run bundle:check` — PASS
+  - `cd web && npm test -- --run` — 600 passed, 66/66 test files passed
+  - `cd web && npm run smoke:responsive` — PASS
+  - `cd web && npm audit --omit=dev` — PASS (0 high/critical)
+- **GitHub Actions CI:** server job green; web job green after date-dependent test clock fix
