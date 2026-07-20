@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 
 import { jobTypeLabels } from '../jobs/job-labels';
 import { paths } from '../paths';
+import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import {
   OperationalTable,
   type OperationalTableColumn,
@@ -124,6 +125,7 @@ export function ApprovalReport() {
   }, [state.offset]);
 
   useEffect(() => { void load(); }, [load]);
+  useRealtimeInvalidation(['approval-queue'], () => { void load(); });
 
   const refreshLabel = refreshedAt ? formatRefreshTime(refreshedAt) : null;
 

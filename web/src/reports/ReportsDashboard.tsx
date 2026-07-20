@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
+import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import {
   CompletedTrendCalendar,
   IndependentMeterBars,
@@ -265,6 +266,7 @@ export function ReportsDashboard() {
   useEffect(() => {
     void load();
   }, [load]);
+  useRealtimeInvalidation(['reports', 'approval-queue'], () => { void load(); });
 
   function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();

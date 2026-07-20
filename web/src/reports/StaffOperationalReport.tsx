@@ -8,6 +8,7 @@ import type {
   StaffReportResponse,
 } from './report-types';
 import type { DeliveryPurpose, MeetingOutcome } from '../jobs/jobs-api';
+import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import {
   OperationalTable,
   type OperationalTableColumn,
@@ -169,6 +170,7 @@ export function StaffOperationalReportScreen({
   }, [staffUserId]);
 
   useEffect(() => { void load(); }, [load]);
+  useRealtimeInvalidation(['reports'], () => { void load(); });
 
   const content = <>
     {!embedded && <button className="back-link" type="button" onClick={onBack}>Personel profiline dön</button>}

@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 
 import type { CurrentUser } from '../services/api';
 import { listStaff, type StaffProfile } from '../services/people-api';
+import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import {
   formatRefreshTime,
   resolveDatePreset,
@@ -205,6 +206,7 @@ export function DeliveryReport({ user }: { user: CurrentUser }) {
   }, [from, to, groupBy, staffUserId, offset, setSearch]);
 
   useEffect(() => { void load(); }, [load]);
+  useRealtimeInvalidation(['reports'], () => { void load(); });
 
   const allowed = useMemo(
     () => new Set([
