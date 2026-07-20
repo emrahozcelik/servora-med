@@ -54,30 +54,30 @@ Recommended next investigation:
 
 ## Task 1 — Baseline and Draft PR
 
-- [ ] Confirm `feature/sse-web-client` has `main` as its merge base and the
+- [x] Confirm `feature/sse-web-client` has `main` as its merge base and the
   worktree is clean.
-- [ ] Run `cd web && npm test -- --run && npm run build` before source changes.
-- [ ] Create a draft PR titled `feat(web): reconcile active views from SSE`.
-- [ ] Commit this design and plan as the first focused commit.
+- [x] Run `cd web && npm test -- --run && npm run build` before source changes.
+- [x] Create draft PR #36 titled `feat(web): reconcile active views from SSE`.
+- [x] Commit this design and plan as the first focused commit.
 
 ## Task 2 — Transport and Subscription Core
 
 Allowed source area: `web/src/realtime/`, `web/src/App.tsx`, and new focused
 tests.
 
-- [ ] Add typed envelope parsing that accepts only the exact server shapes.
-- [ ] Add an injectable native EventSource factory for deterministic Vitest
+- [x] Add typed envelope parsing that accepts only the exact server shapes.
+- [x] Add an injectable native EventSource factory for deterministic Vitest
   tests; production factory opens `/api/realtime/events`.
-- [ ] Add `RealtimeProvider`, `useRealtimeInvalidation`, and optional read-only
+- [x] Add `RealtimeProvider`, `useRealtimeInvalidation`, and optional read-only
   connection-state hook.
-- [ ] Register `servora.change` with `addEventListener`, de-duplicate decimal
+- [x] Register `servora.change` with `addEventListener`, de-duplicate decimal
   cursor IDs, silently ignore malformed/unknown events, and broadcast
   `sync.required` to all active subscriptions.
-- [ ] Coalesce callback delivery per subscription per task.
-- [ ] Attach visibility, focus, and online reconciliation; use 60s fallback
+- [x] Coalesce callback delivery per subscription per task.
+- [x] Attach visibility, focus, and online reconciliation; use 60s fallback
   only while disconnected; clean every listener, timer, and EventSource on
   unmount.
-- [ ] Wrap the authenticated `ProtectedShell` subtree only.
+- [x] Wrap the authenticated `ProtectedShell` subtree only.
 
 ## Task 3 — Job Workspace and Detail
 
@@ -85,14 +85,14 @@ Allowed source area: Task 2 files plus `web/src/jobs/JobWorkspace.tsx`,
 `web/src/JobDetail.tsx`, `web/src/AppRouter.tsx`, minimal CSS, and focused
 tests.
 
-- [ ] Subscribe JobWorkspace to `job-list` and `job-board`; one invalidation
+- [x] Subscribe JobWorkspace to `job-list` and `job-board`; one invalidation
   increments its existing reload key without changing the current search.
-- [ ] Subscribe a detail only to `job-detail:<jobId>`.
-- [ ] Reuse `refreshTruth()` for an idle detail; preserve the existing
+- [x] Subscribe a detail only to `job-detail:<jobId>`.
+- [x] Reuse `refreshTruth()` for an idle detail; preserve the existing
   lifecycle mutation/version-conflict path.
-- [ ] Add the accessible stale notice and explicit reload action for an editing
+- [x] Add the accessible stale notice and explicit reload action for an editing
   or pending detail. It must not clear local form data or move focus.
-- [ ] Prove list/board reload, coalescing, route unmount cleanup, idle refresh,
+- [x] Prove list/board reload, coalescing, route unmount cleanup, idle refresh,
   and stale-detail protection with tests.
 
 ## Task 4 — Report and Staff Consumers
@@ -100,14 +100,14 @@ tests.
 Allowed source area: Task 2 files plus current report/staff components and
 focused tests.
 
-- [ ] `ApprovalReport` and dashboard approval summary subscribe to
+- [x] `ApprovalReport` and dashboard approval summary subscribe to
   `approval-queue`.
-- [ ] Dashboard, delivery report, and staff operational report subscribe to
+- [x] Dashboard, delivery report, and staff operational report subscribe to
   `reports`.
-- [ ] Staff directory/profile subscribes to its matching `staff-profile:<id>`
+- [x] Staff directory/profile subscribes to its matching `staff-profile:<id>`
   key; directory uses mounted/visible profiles only and never invents a staff
   ID from the event.
-- [ ] Each consumer invokes its existing guarded load function, preserving
+- [x] Each consumer invokes its existing guarded load function, preserving
   filters, pagination and errors/retry behavior.
 
 ## Task 5 — Full Regression and Handoff

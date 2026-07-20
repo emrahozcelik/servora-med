@@ -136,4 +136,21 @@ describe('RealtimeProvider', () => {
     await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
     expect(view.querySelector('output')?.textContent).toBe('2');
   });
+
+  it('reconciles active resources when the page becomes visible, focused, or online', async () => {
+    const source = new FakeEventSource();
+    const view = await render(source);
+    const originalVisibility = Object.getOwnPropertyDescriptor(document, 'visibilityState');
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'hidden' });
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await Promise.resolve(); });
+    expect(view.querySelector('output')?.textContent).toBe('0');
+
+    Object.defineProperty(document, 'visibilityState', { configurable: true, value: 'visible' });
+    await act(async () => { document.dispatchEvent(new Event('visibilitychange')); await Promise.resolve(); });
+    await act(async () => { window.dispatchEvent(new Event('focus')); await Promise.resolve(); });
+    await act(async () => { window.dispatchEvent(new Event('online')); await Promise.resolve(); });
+    expect(view.querySelector('output')?.textContent).toBe('3');
+
+    if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+  });
 });

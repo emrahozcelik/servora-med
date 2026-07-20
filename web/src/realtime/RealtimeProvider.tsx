@@ -49,7 +49,7 @@ export type RealtimeEventSource = Readonly<{
   close(): void;
 }>;
 
-export type RealtimeEventSourceFactory = (url: string) => RealtimeEventSource;
+export type RealtimeEventSourceFactory = (url: string) => RealtimeEventSource | null;
 
 type RealtimeContextValue = Readonly<{
   connectionState: RealtimeConnectionState;
@@ -107,8 +107,8 @@ function parseEnvelope(input: string): RealtimeEnvelope | null {
   };
 }
 
-function defaultEventSourceFactory(url: string): RealtimeEventSource {
-  return new EventSource(url);
+function defaultEventSourceFactory(url: string): RealtimeEventSource | null {
+  return typeof EventSource === 'function' ? new EventSource(url) : null;
 }
 
 export function RealtimeProvider({
@@ -160,6 +160,10 @@ export function RealtimeProvider({
 
   useEffect(() => {
     const eventSource = eventSourceFactory('/api/realtime/events');
+    if (!eventSource) {
+      setConnectionState('disconnected');
+      return;
+    }
     const onOpen: EventListener = () => {
       setConnectionState('connected');
       reconcileAll();
