@@ -39,6 +39,7 @@ import { MeetingDetailsSection } from './jobs/MeetingDetails';
 import { SalesMeetingEditForm } from './jobs/SalesMeetingEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
+import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobTypeLabels } from './jobs/job-labels';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
@@ -307,7 +308,7 @@ function JobScheduleEditForm({
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
-  meetingDetails = null, records, children,
+  meetingDetails = null, records, realtimeStaleNotice, children,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -325,6 +326,7 @@ export function JobDetailPanel({
   onSaveDeliveredAt?: (itemId: string, deliveredAt: string) => Promise<void>;
   meetingDetails?: MeetingDetails | null;
   records?: ReactNode;
+  realtimeStaleNotice?: ReactNode;
   children?: ReactNode;
 }) {
   const presentation = deriveJobWorkflowPresentation({
@@ -368,6 +370,7 @@ export function JobDetailPanel({
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
     {message && <div ref={feedbackRef} className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
       role={messageIsError ? 'alert' : 'status'} tabIndex={-1}>{message}</div>}
+    {realtimeStaleNotice}
     {presentation.revisionLoop && <RevisionLoopPanel loop={presentation.revisionLoop} />}
     <WorkflowSteps
       items={presentation.phaseItems.map((item) => ({
@@ -542,6 +545,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
   const feedbackRef = useRef<HTMLDivElement>(null);
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
+  const [realtimeStale, setRealtimeStale] = useState(false);
+  const realtimeRefreshInFlight = useRef(false);
 
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
@@ -572,6 +577,37 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     setState({ kind: 'ready', detail });
     setTimelineKey((value) => value + 1);
   }
+  async function reconcileRealtimeTruth() {
+    if (pending || editing || mutationInFlight.current) {
+      setRealtimeStale(true);
+      return;
+    }
+    if (realtimeRefreshInFlight.current) return;
+    realtimeRefreshInFlight.current = true;
+    try {
+      await refreshTruth();
+      setRealtimeStale(false);
+    } catch {
+      setRealtimeStale(true);
+    } finally {
+      realtimeRefreshInFlight.current = false;
+    }
+  }
+  async function reloadStaleTruth() {
+    if (pending || realtimeRefreshInFlight.current) return;
+    realtimeRefreshInFlight.current = true;
+    try {
+      await refreshTruth();
+      setRealtimeStale(false);
+    } catch {
+      setRealtimeStale(true);
+    } finally {
+      realtimeRefreshInFlight.current = false;
+    }
+  }
+  useRealtimeInvalidation([`job-detail:${jobId}`], () => {
+    void reconcileRealtimeTruth();
+  });
   function presentationFor(detail: LoadedJobDetail): JobWorkflowPresentation {
     return deriveJobWorkflowPresentation({
       job: detail.job,
@@ -895,6 +931,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     message={message}
     messageIsError={messageIsError}
     feedbackRef={feedbackRef}
+    realtimeStaleNotice={realtimeStale ? <div className="detail-feedback detail-feedback-error" role="status">
+      <p>Bu iş başka bir oturumda güncellendi. Açık düzenlemeniz korunuyor.</p>
+      <button className="secondary-button" type="button" disabled={pending}
+        onClick={() => void reloadStaleTruth()}>En güncel bilgileri yükle</button>
+    </div> : undefined}
     onBack={onBack}
     meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
     onCommand={(name, trigger) => command(name, trigger)}

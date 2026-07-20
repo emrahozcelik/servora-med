@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   JobDetailPanel, JobDetailScreen, prepareMeetingEdit, runStaffJobCommand,
 } from '../src/JobDetail';
+import { RealtimeProvider, type RealtimeEventSource } from '../src/realtime/RealtimeProvider';
 import { ApiError, type CurrentUser, type DeliveryItem } from '../src/services/api';
 import type {
   JobCard, JobLifecycleFacts, JobWorkflowContext, LifecycleCommand, MeetingDetails,
@@ -213,6 +214,35 @@ function mockDetailFetch(card: JobCard, options: {
   });
 }
 
+class FakeRealtimeEventSource implements RealtimeEventSource {
+  private readonly listeners = new Map<string, Set<EventListener>>();
+
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+
+  removeEventListener(type: string, listener: EventListener) {
+    this.listeners.get(type)?.delete(listener);
+  }
+
+  close() {}
+
+  emitJobUpdate(id: string) {
+    const event = new MessageEvent('servora.change', {
+      data: JSON.stringify({
+        id,
+        type: 'job.updated',
+        entity: { type: 'job-card', id: 'job-1' },
+        resourceKeys: ['job-detail:job-1'],
+        occurredAt: '2026-07-20T10:00:00.000Z',
+      }),
+    });
+    this.listeners.get('servora.change')?.forEach((listener) => listener(event));
+  }
+}
+
 describe('Staff JobCard detail', () => {
   let host: HTMLDivElement;
   let root: Root;
@@ -252,6 +282,18 @@ describe('Staff JobCard detail', () => {
     vi.stubGlobal('fetch', fetch);
     await act(async () => {
       root.render(<JobDetailScreen jobId={card.id} user={user} onBack={() => {}} onChanged={() => {}} />);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    return fetch;
+  }
+
+  async function renderRealtimeScreen(card: JobCard, source: FakeRealtimeEventSource, fetch = mockDetailFetch(card)) {
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId={card.id} user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
       await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
@@ -304,6 +346,49 @@ describe('Staff JobCard detail', () => {
           & Node.DOCUMENT_POSITION_FOLLOWING) !== 0,
       ).toBe(true);
     }
+  });
+
+  it('refreshes an idle matching detail from canonical REST truth', async () => {
+    const source = new FakeRealtimeEventSource();
+    const fetch = await renderRealtimeScreen(job, source);
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    expect(jobRequests()).toHaveLength(1);
+
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(jobRequests()).toHaveLength(2);
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('preserves an open meeting editor and offers an explicit realtime reload', async () => {
+    const source = new FakeRealtimeEventSource();
+    const meeting = inProgressMeeting();
+    const fetch = await renderRealtimeScreen(meeting, source, mockDetailFetch(meeting, { meeting: meetingDetails }));
+    const edit = buttonByName(host, 'Görüşmeyi düzenle');
+    expect(edit).not.toBeNull();
+    await act(async () => { edit?.click(); await Promise.resolve(); });
+    expect(host.textContent).toContain('Görüşmeyi düzenle');
+    const jobRequestsBeforeEvent = fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1')).length;
+
+    await act(async () => { source.emitJobUpdate('1'); await Promise.resolve(); });
+
+    expect(host.textContent).toContain('Bu iş başka bir oturumda güncellendi. Açık düzenlemeniz korunuyor.');
+    expect(host.textContent).toContain('En güncel bilgileri yükle');
+    expect(fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'))).toHaveLength(jobRequestsBeforeEvent);
+
+    await act(async () => {
+      buttonByName(host, 'En güncel bilgileri yükle')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1')))
+      .toHaveLength(jobRequestsBeforeEvent + 1);
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi.');
   });
 
   it('shows revision reason and separates resuming from resubmitting', async () => {
