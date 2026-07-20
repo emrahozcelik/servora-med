@@ -1,8 +1,8 @@
 # Persistent In-App Notification Center Design
 
-**Date:** 2026-07-20  
-**Status:** Proposed — implementation must not start before this design and its plan are reviewed  
-**Delivery:** Phase P of `2026-07-19-browser-realtime-capabilities-roadmap-design.md`  
+**Date:** 2026-07-20
+**Status:** Proposed — implementation must not start before this design and its plan are reviewed
+**Delivery:** Phase P of `2026-07-19-browser-realtime-capabilities-roadmap-design.md`
 **Dependencies:** SSE server foundation (PR #34) and SSE web reconciliation (PR #36)
 
 ## Objective
