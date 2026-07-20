@@ -141,6 +141,9 @@ describe.skipIf(!databaseUrl)('Postgres realtime repository (PostgreSQL)', () =>
       const client1 = await pool.connect();
       const client2 = await pool.connect();
       try {
+        const client2Pid = (await client2.query<{ pid: number }>(
+          'SELECT pg_backend_pid() AS pid',
+        )).rows[0]!.pid;
         await client1.query('BEGIN');
         await client2.query('BEGIN');
 
@@ -148,24 +151,47 @@ describe.skipIf(!databaseUrl)('Postgres realtime repository (PostgreSQL)', () =>
         const tx2 = new PostgresRealtimeEventTransaction(client2);
 
         const event1 = await tx1.append(eventInput1);
-        await client1.query('COMMIT');
+        let event2Settled = false;
+        const event2Promise = tx2.append(eventInput2).finally(() => {
+          event2Settled = true;
+        });
 
-        const event2 = await tx2.append(eventInput2);
+        let lockObserved = false;
+        for (let attempt = 0; attempt < 20; attempt += 1) {
+          const activity = await adminPool.query<{
+            wait_event_type: string | null;
+          }>(
+            'SELECT wait_event_type FROM pg_stat_activity WHERE pid=$1',
+            [client2Pid],
+          );
+          if (activity.rows[0]?.wait_event_type === 'Lock') {
+            lockObserved = true;
+            break;
+          }
+          await new Promise<void>((resolve) => setTimeout(resolve, 5));
+        }
+
+        expect(lockObserved).toBe(true);
+        expect(event2Settled).toBe(false);
+
+        await client1.query('COMMIT');
+        const event2 = await event2Promise;
         await client2.query('COMMIT');
 
         expect(event1.id).toBeLessThan(event2.id);
+
+        const allEvents = await pool.query<{ id: string }>(
+          'SELECT id FROM realtime_events WHERE organization_id=$1 ORDER BY id ASC',
+          [organizationId],
+        );
+        expect(allEvents.rows.map((value) => BigInt(value.id))).toEqual([
+          event1.id,
+          event2.id,
+        ]);
       } finally {
         client1.release();
         client2.release();
       }
-
-      const allEvents = await pool.query(
-        'SELECT id FROM realtime_events WHERE organization_id=$1 ORDER BY id ASC',
-        [organizationId],
-      );
-      expect(allEvents.rows.map(r => BigInt(r.id))).toEqual([eventInput1, eventInput2].map(
-        (_, index) => allEvents.rows[index].id,
-      ));
     } finally {
       if (pool) await pool.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
