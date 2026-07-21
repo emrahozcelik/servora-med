@@ -234,11 +234,18 @@ Staff click
   -> one browser getCurrentPosition attempt
   -> normalized captured/unavailable envelope
   -> existing start command and existing clientActionId
-  -> completed-action lookup; return stored result if already committed
+  -> authenticate and validate enabled request shape
+  -> organization/actor/action-scoped completed-action lookup
+       return stored result if already committed
+  -> non-mutating START preflight:
+       load JobCard within the authenticated organization
+       verify assigned Staff actor may execute START
+       verify current transition eligibility
+       reject an obvious expectedVersion mismatch
   -> optional bounded reverse-geocoding lookup before DB transaction
   -> one DB transaction:
        lock/idempotency claim
-       validate transition/version/actor
+       repeat organization/actor/version/transition checks under lock
        transition to IN_PROGRESS
        append JOB_STARTED activity
        append one location outcome linked to that activity
@@ -254,12 +261,24 @@ reverse geocoding times out or fails, coordinates are persisted with
 skips geocoding.
 
 Before calling the reverse geocoder, the service performs a cheap lookup for an
-already completed critical action with the same actor, action kind, and
-`clientActionId`. A completed retry returns its stored result without sending
-coordinates to the provider again. The transaction's existing critical-action
-claim and row locking remain the final concurrency defense; simultaneous first
-requests may both reach the provider, but only one may commit the transition,
-activity, and location row.
+already completed critical action with the same organization, actor, action
+kind, and `clientActionId`. A completed retry returns its stored result without
+sending coordinates to the provider again.
+
+For a new action, a non-mutating preflight loads the JobCard through the
+authenticated organization boundary and verifies the existing START actor,
+assignment, transition, and obvious expected-version rules. Request/capture
+shape validation also precedes the preflight. Cross-organization requests,
+unassigned Staff, Admin/Manager START attempts, ineligible statuses, obvious
+version mismatches, and malformed captures therefore cannot cause provider
+I/O. The preflight does not claim that the mutation will succeed and does not
+replace any transactional rule.
+
+The transaction's existing critical-action claim and row locking repeat all
+authorization, version, and transition checks as the final concurrency defense.
+State may legitimately change between preflight and transaction; in that TOCTOU
+case the provider call may already have occurred but the transaction commits no
+transition, activity, location, or realtime ledger event.
 
 The same `clientActionId` therefore does not create a second activity or
 location row. A transport retry reuses the same capture envelope and does not
@@ -336,8 +355,8 @@ provider-config startup validation, disabled request enforcement, validation,
 tenant-safe constraints, one-to-one activity linkage, Staff-only start
 authorization, captured/unavailable persistence, low-accuracy behavior,
 geocoder failure fallback, transaction rollback, idempotent replay, no provider
-call for a completed `clientActionId`, no public list DTO change, and no
-location in SSE/logs.
+call for a completed `clientActionId` or a preflight-rejected request, no public
+list DTO change, and no location in SSE/logs.
 
 Web tests prove disabled capability causes no notice, location call, or location
 request field; enabled capture occurs only after the click; allow, deny,
@@ -364,6 +383,8 @@ verifies that no request occurs at login or page load.
     browser request, provider call, or location row, even for a modified client.
 11. Enabled mode with missing required provider configuration fails before the
     server accepts requests.
+12. Requests known before transaction to be unauthorized, cross-organization,
+    transition-ineligible, version-stale, or malformed cause no provider call.
 
 ## 16. Design Review and Enablement Gates
 
@@ -374,6 +395,8 @@ design, including:
 - authoritative server time versus client-claimed `capturedAt`;
 - the completed-action lookup before reverse geocoding and the transactional
   claim as the final concurrency defense;
+- the organization-scoped, non-mutating START preflight before provider I/O and
+  repeated transactional checks after provider I/O;
 - non-blocking capture and reverse-geocoder failure behavior.
 - default-off server configuration, server-enforced disabled behavior, and
   fail-closed startup validation for enabled provider configuration.

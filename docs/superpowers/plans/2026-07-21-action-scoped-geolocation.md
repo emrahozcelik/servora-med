@@ -73,12 +73,17 @@ tests.
   captured and every normalized unavailable outcome.
 - [ ] Extend only the existing start command with the discriminated
   `locationCapture` field; do not add a second endpoint or transition.
-- [ ] Validate coordinate bounds, finite values, positive accuracy, canonical
-  instant, exact fields, and failure enum on the backend.
+- [ ] Validate coordinate bounds, finite values, positive accuracy, a
+  well-formed ISO client timestamp, exact fields, and failure enum on the
+  backend before any provider I/O.
 - [ ] Keep reverse-geocoder I/O outside the DB transaction with a strict bound;
   map only Servora-owned address components and persist no raw response.
 - [ ] Before reverse geocoding, return the stored result for an already
-  completed critical action with the same actor, kind, and `clientActionId`.
+  completed critical action with the same organization, actor, kind, and
+  `clientActionId`.
+- [ ] Before reverse geocoding, perform an organization-scoped, non-mutating
+  START preflight for assigned Staff authorization, transition eligibility, and
+  obvious `expectedVersion` mismatch; repeat every check inside the transaction.
 - [ ] When disabled, discard any client-supplied `locationCapture` before
   provider/persistence work, execute the legacy start transition, and prove no
   geocoder call or location row occurs.
@@ -87,6 +92,12 @@ tests.
 - [ ] Prove geocoder timeout/failure and low accuracy do not block start.
 - [ ] Prove completed replay does not call the geocoder again and transaction
   rollback/concurrent requests create no duplicate business records.
+- [ ] Prove cross-organization users, unrelated Staff, Admin/Manager START,
+  already `IN_PROGRESS` or otherwise ineligible status, obvious stale version,
+  and malformed capture payloads never call the geocoder.
+- [ ] Prove a genuine state/version race after successful preflight may call the
+  provider but commits no business records when the transaction rejects it;
+  record this accepted TOCTOU transfer/cost risk in the Implementation Record.
 - [ ] Prove SSE and logs contain no location data and public JobCard list/board
   DTOs remain unchanged.
 
