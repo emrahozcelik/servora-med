@@ -82,28 +82,28 @@ Allowed source area: a new notifications feature, AppShell composition,
 existing owned UI primitives/styles, API service, focused web tests, and
 responsive fixtures/smoke.
 
-- [ ] Write failing controller/component tests for initial unread load, list
+- [x] Write failing controller/component tests for initial unread load, list
   loading/empty/error/retry, semantic rendering, zero/non-zero badge, and
   clearing all recipient-scoped state on logout/user/organization change.
-- [ ] Add a Servora-owned notification controller that loads unread count and,
+- [x] Add a Servora-owned notification controller that loads unread count and,
   only while open, the current list page through the API service.
-- [ ] Add the labelled AppShell trigger, badge, and accessible responsive panel
+- [x] Add the labelled AppShell trigger, badge, and accessible responsive panel
   using the established mobile drawer/dialog focus contract.
-- [ ] Implement one-row pending state, idempotent mark-read then deep-link
+- [x] Implement one-row pending state, idempotent mark-read then deep-link
   navigation, and error handling that keeps the panel open.
-- [ ] Implement `Daha fazla yükle`: append later pages with ID de-duplication,
+- [x] Implement `Daha fazla yükle`: append later pages with ID de-duplication,
   expose load-more retry, and reset to the canonical first page on a new
   notification invalidation.
-- [ ] Do not migrate ConfirmationAction, introduce a toast system, or alter
+- [x] Do not migrate ConfirmationAction, introduce a toast system, or alter
   existing shell navigation/drawer semantics outside the notification surface.
-- [ ] Run focused web tests and `cd web && npm run build`.
+- [x] Run focused web tests and `cd web && npm run build`.
 
 ## Task 6 — Realtime Reconciliation and Regression (TDD)
 
 Allowed source area: Task 5 files, `RealtimeProvider` subscriptions, focused
 tests, and responsive smoke fixtures only.
 
-- [ ] Write tests that a `notifications` invalidation reloads canonical unread
+- [x] Write tests that a `notifications` invalidation reloads canonical unread
   count and, if open, its list; no SSE payload is rendered as a notification.
 - [ ] Prove reconnect/focus/visibility/online/fallback reconciliation reuses
   the same guarded loaders and does not duplicate rows or reads. A local

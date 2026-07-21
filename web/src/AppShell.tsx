@@ -6,6 +6,7 @@ import { paths } from './paths';
 import type { CurrentUser } from './services/api';
 import { MobileBottomNav } from './shell/MobileBottomNav';
 import { MobileTopBar } from './shell/MobileTopBar';
+import { NotificationCenter } from './notifications/NotificationCenter';
 import {
   buildNavigationModel,
   isJobsListPath,
@@ -180,6 +181,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
       {desktop ? (
         <aside className="shell-sidebar">
           <div className="brand-lockup"><BrandMark /><span>Servora-Med</span></div>
+          <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
           <DestinationNav destinations={model.destinations} />
           <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
         </aside>
@@ -191,6 +193,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
           menuControlsId="app-navigation-drawer"
           onOpenMenu={(opener) => openDrawer('full', opener)}
           menuTriggerRef={topMenuRef}
+          notifications={<NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile />}
         />
       )}
 
