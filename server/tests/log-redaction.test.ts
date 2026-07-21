@@ -33,6 +33,7 @@ describe('buildApp serialized logger redaction', () => {
       rateLimitWindowMs: 60_000,
       trustedProxy: 'loopback',
       healthSchemaVersion: null,
+      actionScopedGeolocationEnabled: false,
     };
 
     const app = await buildApp(config, { loggerDestination: stream });
@@ -62,6 +63,13 @@ describe('buildApp serialized logger redaction', () => {
         temporaryPassword: 'temp-secret',
         token: 'raw-token-value',
         sessionToken: 'raw-session-token',
+        locationCapture: {
+          outcome: 'captured',
+          latitude: 39.92077,
+          longitude: 32.85411,
+          accuracyMeters: 24.5,
+          capturedAt: '2026-07-21T06:15:30.123Z',
+        },
       },
     });
 
@@ -76,6 +84,10 @@ describe('buildApp serialized logger redaction', () => {
       'secret-token-value',
       'raw-token-value',
       'raw-session-token',
+      '39.92077',
+      '32.85411',
+      '24.5',
+      '2026-07-21T06:15:30.123Z',
     ]) {
       expect(joined).not.toContain(secret);
     }

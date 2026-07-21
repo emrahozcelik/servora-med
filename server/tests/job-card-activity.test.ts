@@ -16,7 +16,7 @@ const baseRecord = (eventType: JobCardActivityEvent, values: Partial<ActivityRec
   id: `activity-${eventType}`, jobCardId: 'job-1', actorId: 'staff-1', actorName: 'Ayşe Personel',
   eventType, oldValue: { secret: 'old-secret' }, newValue: { secret: 'new-secret' },
   metadata: { note: 'çok gizli not', secret: 'metadata-secret' }, clientActionId: 'action-secret',
-  createdAt, ...values,
+  createdAt, startLocation: null, ...values,
 });
 
 const lifecycleCases = [
@@ -70,6 +70,44 @@ describe('safe JobCard activity presenter', () => {
       kind: 'STATUS_TRANSITION', fromStatus, toStatus, reason: null,
     });
     expect(JSON.stringify(result)).not.toContain('never expose');
+  });
+
+  it('attaches a safe captured location presentation only to JOB_STARTED', () => {
+    const result = presentActivity(baseRecord('JOB_STARTED', {
+      oldValue: { status: 'ACCEPTED' },
+      newValue: { status: 'IN_PROGRESS' },
+      startLocation: {
+        outcome: 'CAPTURED',
+        approximateLabel: 'Kızılay, Çankaya / Ankara',
+        accuracyMeters: 24.5,
+        capturedAt: new Date('2026-07-21T06:15:30.123Z'),
+      },
+    }));
+
+    expect(result.details).toEqual({
+      kind: 'STATUS_TRANSITION', fromStatus: 'ACCEPTED', toStatus: 'IN_PROGRESS',
+      reason: null,
+      startLocation: {
+        outcome: 'CAPTURED',
+        approximateLabel: 'Kızılay, Çankaya / Ankara',
+        accuracyMeters: 24.5,
+        capturedAt: '2026-07-21T06:15:30.123Z',
+      },
+    });
+    expect(JSON.stringify(result)).not.toMatch(/latitude|longitude|provider/);
+  });
+
+  it('presents a normalized unavailable start location reason', () => {
+    const result = presentActivity(baseRecord('JOB_STARTED', {
+      oldValue: { status: 'ACCEPTED' },
+      newValue: { status: 'IN_PROGRESS' },
+      startLocation: { outcome: 'UNAVAILABLE', reason: 'PERMISSION_DENIED' },
+    }));
+
+    expect(result.details).toMatchObject({
+      kind: 'STATUS_TRANSITION',
+      startLocation: { outcome: 'UNAVAILABLE', reason: 'PERMISSION_DENIED' },
+    });
   });
 
   it('allowlists reasons only for revision and cancellation events', () => {
@@ -239,6 +277,7 @@ describe('paginated JobCard activity repository', () => {
     expect(calls[0]!.sql).toContain('organization_id=$1 AND job_card_id=$2');
     expect(calls[0]!.values).toEqual(['org-1', 'job-1']);
     expect(calls[1]!.sql).toContain('LEFT JOIN users u');
+    expect(calls[1]!.sql).toContain('LEFT JOIN job_action_locations l');
     expect(calls[1]!.sql).toContain('u.organization_id = a.organization_id AND u.id = a.actor_id');
     expect(calls[1]!.sql).toContain('ORDER BY a.created_at DESC, a.id DESC');
     expect(calls[1]!.sql).toContain('LIMIT $3 OFFSET $4');

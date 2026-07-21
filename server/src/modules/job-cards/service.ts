@@ -72,6 +72,12 @@ import type {
   RealtimeEventRecord,
 } from '../realtime/types.js';
 import type { AppendedActivity } from './repository.js';
+import type { ReverseGeocoder } from './reverse-geocoder.js';
+import {
+  parseStartLocationCapture,
+  type StartLocationCapture,
+} from './start-location-input.js';
+import type { JobActionLocationCapture } from './location-types.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
@@ -86,6 +92,7 @@ type DeliveryInput = {
 type AddDeliveryInput = DeliveryInput & { clientActionId: string };
 type PatchDeliveryInput = { expectedVersion: number } & Partial<Omit<DeliveryInput, 'expectedVersion'>>;
 type LifecycleInput = { expectedVersion: number; clientActionId: string; note?: string | null };
+type StartInput = LifecycleInput & { locationCapture?: unknown };
 type RevisionInput = LifecycleInput & { revisionReason: string };
 type CancelInput = LifecycleInput & { cancelReason: string };
 type LifecycleDefinition = {
@@ -137,6 +144,12 @@ function invariantViolation(): never {
   );
 }
 
+function assertStaffStartActor(actor: JobCardActor) {
+  if (actor.role !== 'STAFF') {
+    throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+  }
+}
+
 function meetingDetailsResponse(
   jobCardId: string,
   jobCardVersion: number,
@@ -170,6 +183,11 @@ export class JobCardService {
     private readonly now: () => Date = () => new Date(),
     private readonly realtimePublisher: RealtimeEventPublisher =
       NOOP_REALTIME_EVENT_PUBLISHER,
+    private readonly geolocation: Readonly<{
+      enabled: boolean;
+      reverseGeocoder?: ReverseGeocoder;
+      reverseGeocoderTimeoutMs?: number;
+    }> = { enabled: false },
   ) { this.notesService = new JobCardNotesService(repository); }
 
   private publishRealtime(events: readonly RealtimeEventRecord[]) {
@@ -768,11 +786,30 @@ export class JobCardService {
     });
   }
 
-  async start(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
-    return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
+  async start(actor: JobCardActor, jobCardId: string, input: StartInput) {
+    const lifecycleInput = this.lifecycleInput(input);
+    const definition: LifecycleDefinition = {
       command: 'START', operationKey: 'JOB_START', target: 'IN_PROGRESS', event: 'JOB_STARTED',
       note: null, revisionReason: null, cancelReason: null,
-    });
+    };
+    if (!this.geolocation.enabled) {
+      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
+    }
+
+    const capture = parseStartLocationCapture(input.locationCapture);
+    const claim = this.lifecycleClaim(actor, jobCardId, lifecycleInput.clientActionId, definition);
+    const completed = await this.repository.findCompletedCriticalAction<JobCardDetail>(claim);
+    if (completed) return completed;
+
+    const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
+    if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    if (job.version !== lifecycleInput.expectedVersion) {
+      throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+    }
+    assertStaffStartActor(actor);
+    assertCanTransition(actor, job, 'START');
+    const resolvedCapture = await this.resolveStartLocation(capture, lifecycleInput.clientActionId);
+    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, resolvedCapture);
   }
 
   async submitForApproval(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
@@ -834,16 +871,16 @@ export class JobCardService {
     jobCardId: string,
     input: { clientActionId: string; expectedVersion: number },
     definition: LifecycleDefinition,
+    startLocation?: JobActionLocationCapture,
   ) {
     const requestTime = this.now();
     const result = await this.repository.executeCriticalAction(
-      { organizationId: actor.organizationId, userId: actor.id,
-        clientActionId: input.clientActionId,
-        operationKey: `${definition.operationKey}:${jobCardId}` },
+      this.lifecycleClaim(actor, jobCardId, input.clientActionId, definition),
       async (tx) => {
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
         if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         if (job.version !== input.expectedVersion) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        if (startLocation) assertStaffStartActor(actor);
         assertCanTransition(
           actor, job, definition.command,
           definition.revisionReason ?? definition.cancelReason ?? undefined,
@@ -872,6 +909,16 @@ export class JobCardService {
           newValue: { status: updated.status, version: updated.version },
           metadata,
         });
+        if (startLocation) {
+          await tx.appendJobActionLocation({
+            organizationId: actor.organizationId,
+            jobCardId,
+            activityId: activity.id,
+            actorUserId: actor.id,
+            action: 'JOB_STARTED',
+            capture: startLocation,
+          });
+        }
         const realtimeEvents = await this.appendRealtimeForActivity(tx, {
           activity,
           organizationId: actor.organizationId,
@@ -893,6 +940,58 @@ export class JobCardService {
     return result.response;
   }
 
+  private lifecycleClaim(
+    actor: JobCardActor,
+    jobCardId: string,
+    clientActionId: string,
+    definition: LifecycleDefinition,
+  ) {
+    return {
+      organizationId: actor.organizationId,
+      userId: actor.id,
+      clientActionId,
+      operationKey: `${definition.operationKey}:${jobCardId}`,
+    };
+  }
+
+  private async resolveStartLocation(
+    capture: StartLocationCapture,
+    correlationId: string,
+  ): Promise<JobActionLocationCapture> {
+    if (capture.outcome === 'UNAVAILABLE') return capture;
+    const base = {
+      ...capture,
+      neighborhood: null,
+      district: null,
+      city: null,
+      approximateLabel: null,
+    };
+    if (capture.accuracyMeters > 1_000) {
+      return { ...base, geocodingStatus: 'NOT_REQUESTED' };
+    }
+    try {
+      const timeoutMs = this.geolocation.reverseGeocoderTimeoutMs ?? 3_000;
+      let timeoutId: ReturnType<typeof setTimeout> | undefined;
+      const timeout = new Promise<never>((_resolve, reject) => {
+        timeoutId = setTimeout(() => reject(new Error('Reverse geocoder timed out')), timeoutMs);
+      });
+      const address = await Promise.race([
+        this.geolocation.reverseGeocoder!.reverse({
+          latitude: capture.latitude,
+          longitude: capture.longitude,
+          accuracyMeters: capture.accuracyMeters,
+          correlationId,
+        }),
+        timeout,
+      ]).finally(() => {
+        if (timeoutId !== undefined) clearTimeout(timeoutId);
+      });
+      return { ...base, ...address, geocodingStatus: 'RESOLVED' };
+    } catch {
+      return { ...base, geocodingStatus: 'FAILED' };
+    }
+  }
+
   private async presentDetail(
     reader: SubmissionReader,
     actor: JobCardActor,
@@ -907,11 +1006,15 @@ export class JobCardService {
     const evaluation = readinessStatuses.includes(job.status)
       ? precomputed ?? await evaluateSubmission(reader, actor, job, evaluatedAt)
       : null;
+    const allowedCommands = getAllowedLifecycleCommands(actor, job);
     return {
       ...job,
       workflowContext: {
-        allowedCommands: getAllowedLifecycleCommands(actor, job),
+        allowedCommands,
         allowedActions: getAllowedJobActions(actor, job),
+        startLocationCaptureEnabled: this.geolocation.enabled
+          && actor.role === 'STAFF'
+          && allowedCommands.includes('START'),
         lifecycle,
         submissionReadiness: evaluation?.readiness ?? null,
       },

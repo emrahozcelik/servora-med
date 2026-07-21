@@ -466,6 +466,7 @@ cd web && npm audit --omit=dev
 | `CORS_ORIGIN` | production | single exact origin without a path; production requires `https`; local default is `http://127.0.0.1:5173` |
 | `TRUSTED_PROXY` | production | `loopback`, `127.0.0.1`, or `::1`; defaults to `loopback` outside production |
 | `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (e.g. `008_meeting_approval_withdrawal`); optional in development/test |
+| `ACTION_SCOPED_GEOLOCATION_ENABLED` | no | exact `true`/`false`; defaults to `false` and must remain disabled until the disclosure, retention, and reverse-geocoding provider gates are approved |
 | `SESSION_TTL_SECONDS` | no | opaque session lifetime; defaults to `28800` (8 hours) |
 | `LOGIN_RATE_LIMIT_MAX` | no | login attempts allowed per limiter window; defaults to `5` |
 | `RATE_LIMIT_WINDOW_MS` | no | login limiter window in milliseconds; defaults to `60000` |

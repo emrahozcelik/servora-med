@@ -79,6 +79,7 @@ function statusDetails(
   oldValue: unknown,
   newValue: unknown,
   metadata: unknown,
+  startLocation: ActivityRecord['startLocation'],
 ): JobCardActivityDetails {
   const oldRecord = jsonRecord(oldValue);
   const newRecord = jsonRecord(newValue);
@@ -94,11 +95,22 @@ function statusDetails(
     && typeof metadataRecord?.reason === 'string' && metadataRecord.reason.trim()
     ? metadataRecord.reason.trim()
     : null;
+  const safeStartLocation = eventType === 'JOB_STARTED' && startLocation != null
+    ? startLocation.outcome === 'CAPTURED'
+      ? {
+          outcome: 'CAPTURED' as const,
+          approximateLabel: startLocation.approximateLabel,
+          accuracyMeters: startLocation.accuracyMeters,
+          capturedAt: startLocation.capturedAt.toISOString(),
+        }
+      : { outcome: 'UNAVAILABLE' as const, reason: startLocation.reason }
+    : undefined;
   return {
     kind: 'STATUS_TRANSITION',
     fromStatus: oldRecord.status,
     toStatus: newRecord.status,
     reason,
+    ...(safeStartLocation ? { startLocation: safeStartLocation } : {}),
   };
 }
 
@@ -176,7 +188,13 @@ function details(record: ActivityRecord): JobCardActivityDetails {
     case 'JOB_APPROVAL_WITHDRAWN':
     case 'JOB_RESUMED':
     case 'JOB_CANCELLED':
-      return statusDetails(record.eventType, record.oldValue, record.newValue, record.metadata);
+      return statusDetails(
+        record.eventType,
+        record.oldValue,
+        record.newValue,
+        record.metadata,
+        record.startLocation,
+      );
     case 'DELIVERY_ITEM_ADDED':
     case 'DELIVERY_ITEM_UPDATED':
     case 'DELIVERY_ITEM_REMOVED':

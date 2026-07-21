@@ -45,6 +45,7 @@ import {
 import type { NotificationRepository } from './modules/notifications/repository.js';
 import { NotificationService } from './modules/notifications/service.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
+import type { ReverseGeocoder } from './modules/job-cards/reverse-geocoder.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -56,6 +57,7 @@ export const LOGGER_REDACT_PATHS = [
   'req.body.temporaryPassword',
   'req.body.token',
   'req.body.sessionToken',
+  'req.body.locationCapture',
 ];
 
 export type AppDependencies = {
@@ -70,6 +72,7 @@ export type AppDependencies = {
   realtimeService?: RealtimeService;
   realtimePublisher?: RealtimeEventPublisher;
   notificationRepository?: NotificationRepository;
+  reverseGeocoder?: ReverseGeocoder;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
 };
@@ -86,6 +89,12 @@ export function buildLoggerOptions(
 }
 
 export async function buildApp(config: AppConfig, dependencies: AppDependencies = {}) {
+  if (config.actionScopedGeolocationEnabled && !dependencies.reverseGeocoder) {
+    throw new Error(
+      'ACTION_SCOPED_GEOLOCATION_ENABLED requires a configured reverse geocoder',
+    );
+  }
+
   const app = Fastify({
     trustProxy: resolveTrustProxyOption(config.trustedProxy),
     logger: buildLoggerOptions(config, dependencies.loggerDestination),
@@ -135,6 +144,10 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         dependencies.jobCardRepository,
         undefined,
         dependencies.realtimePublisher,
+        {
+          enabled: config.actionScopedGeolocationEnabled,
+          reverseGeocoder: dependencies.reverseGeocoder,
+        },
       );
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',

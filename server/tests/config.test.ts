@@ -43,6 +43,7 @@ describe('loadConfig', () => {
       rateLimitWindowMs: 90000,
       trustedProxy: '127.0.0.1',
       healthSchemaVersion: '007_sales_meeting',
+      actionScopedGeolocationEnabled: false,
     });
   });
 
@@ -59,8 +60,36 @@ describe('loadConfig', () => {
       rateLimitWindowMs: 60000,
       trustedProxy: 'loopback',
       healthSchemaVersion: null,
+      actionScopedGeolocationEnabled: false,
     });
   });
+
+  it('enables action-scoped geolocation only for exact true', () => {
+    expect(loadConfig({
+      ...validEnvironment,
+      ACTION_SCOPED_GEOLOCATION_ENABLED: 'true',
+    }).actionScopedGeolocationEnabled).toBe(true);
+  });
+
+  it.each([undefined, '', 'false'])(
+    'keeps action-scoped geolocation disabled for %s',
+    (value) => {
+      expect(loadConfig({
+        ...validEnvironment,
+        ACTION_SCOPED_GEOLOCATION_ENABLED: value,
+      }).actionScopedGeolocationEnabled).toBe(false);
+    },
+  );
+
+  it.each(['TRUE', '1', 'yes', 'enabled'])(
+    'rejects invalid action-scoped geolocation value %s',
+    (value) => {
+      expect(() => loadConfig({
+        ...validEnvironment,
+        ACTION_SCOPED_GEOLOCATION_ENABLED: value,
+      })).toThrow('ACTION_SCOPED_GEOLOCATION_ENABLED must be true or false');
+    },
+  );
 
   it('accepts production loopback host with https CORS and trusted proxy', () => {
     expect(loadConfig(productionBase)).toMatchObject({

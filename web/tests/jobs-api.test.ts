@@ -54,6 +54,23 @@ describe('JobCard workspace transport', () => {
     });
   });
 
+  it('normalizes an absent start location capability to false and preserves server true', async () => {
+    const { startLocationCaptureEnabled: _omitted, ...legacyContext } = workflowContext;
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(json({ ...job, workflowContext: legacyContext }))
+      .mockResolvedValueOnce(json({
+        ...job,
+        workflowContext: { ...workflowContext, startLocationCaptureEnabled: true },
+      })));
+
+    await expect(getJobCard('job-1')).resolves.toMatchObject({
+      workflowContext: { startLocationCaptureEnabled: false },
+    });
+    await expect(getJobCard('job-1')).resolves.toMatchObject({
+      workflowContext: { startLocationCaptureEnabled: true },
+    });
+  });
+
   it.each([
     ['unknown command', { ...workflowContext, allowedCommands: ['DELETE'] }],
     ['legacy PLAN command', { ...workflowContext, allowedCommands: ['PLAN'] }],
@@ -300,6 +317,54 @@ describe('JobCard workspace transport', () => {
       }], total: 1, limit: 50, offset: 0,
     })));
     await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('parses only the safe start location activity presentation', async () => {
+    const captured = {
+      id: 'a1', jobCardId: 'job-1', eventType: 'JOB_STARTED', actor: related('s1', 'Ayşe'),
+      details: {
+        kind: 'STATUS_TRANSITION', fromStatus: 'ACCEPTED', toStatus: 'IN_PROGRESS', reason: null,
+        startLocation: {
+          outcome: 'CAPTURED', approximateLabel: 'Kızılay, Çankaya / Ankara',
+          accuracyMeters: 24.5, capturedAt: '2026-07-21T06:15:30.123Z',
+        },
+      },
+      createdAt: '2026-07-21T06:15:32.000Z',
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [captured], total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).resolves.toMatchObject({ items: [captured] });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{
+        ...captured,
+        details: {
+          ...captured.details,
+          startLocation: { ...captured.details.startLocation, latitude: 39.92077 },
+        },
+      }],
+      total: 1, limit: 50, offset: 0,
+    })));
+    await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('sends the exact captured envelope on the existing start endpoint', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json(job));
+    vi.stubGlobal('fetch', fetchMock);
+    const input = {
+      clientActionId: 'start-location-1', expectedVersion: 7,
+      locationCapture: {
+        outcome: 'captured' as const, latitude: 39.92077, longitude: 32.85411,
+        accuracyMeters: 24.5, capturedAt: '2026-07-21T06:15:30.123Z',
+      },
+    };
+
+    await startJobCard('job-1', input);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/start', expect.objectContaining({
+      method: 'POST', body: JSON.stringify(input), credentials: 'include',
+    }));
   });
 
   it('rejects raw activity JSONB fields rather than exposing them', async () => {

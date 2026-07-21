@@ -38,6 +38,12 @@ import type {
   NotificationAppendInput,
   NotificationRecord,
 } from '../notifications/types.js';
+import type {
+  AppendJobActionLocationInput,
+  JobActionLocationRecord,
+  LocationFailureReason,
+  LocationGeocodingStatus,
+} from './location-types.js';
 
 export type AppendedActivity = {
   id: string;
@@ -116,6 +122,12 @@ export type ActivityRecord = {
   id: string; jobCardId: string; actorId: string | null; actorName: string | null;
   eventType: JobCardActivityEvent;
   oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: Date;
+  startLocation: null | {
+    outcome: 'CAPTURED'; approximateLabel: string | null;
+    accuracyMeters: number; capturedAt: Date;
+  } | {
+    outcome: 'UNAVAILABLE'; reason: LocationFailureReason;
+  };
 };
 export type PageQuery = { limit: number; offset: number };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
@@ -150,6 +162,9 @@ export interface JobCardTransaction extends SubmissionReader {
   getJobDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
   appendActivity(input: ActivityInput): Promise<AppendedActivity>;
+  appendJobActionLocation(
+    input: AppendJobActionLocationInput,
+  ): Promise<JobActionLocationRecord>;
   appendRealtimeEvent(
     input: RealtimeEventInput,
   ): Promise<RealtimeEventRecord>;
@@ -195,6 +210,9 @@ export type CriticalActionResult<T> =
   | { kind: 'processing' };
 
 export interface JobCardRepository extends SubmissionReader {
+  findCompletedCriticalAction<T>(
+    claim: CriticalActionClaim,
+  ): Promise<T | null>;
   executeCriticalAction<T>(
     claim: CriticalActionClaim,
     work: (
@@ -311,6 +329,26 @@ type MeetingDetailsRow = {
   meeting_summary: string | null;
   next_follow_up_at: Date | null;
 };
+type JobActionLocationRow = {
+  id: string;
+  organization_id: string;
+  job_card_id: string;
+  activity_id: string;
+  actor_user_id: string;
+  action: 'JOB_STARTED';
+  capture_outcome: JobActionLocationRecord['capture']['outcome'];
+  failure_reason: LocationFailureReason | null;
+  latitude: string | null;
+  longitude: string | null;
+  accuracy_meters: string | null;
+  captured_at: Date | null;
+  geocoding_status: LocationGeocodingStatus;
+  neighborhood: string | null;
+  district: string | null;
+  city: string | null;
+  approximate_label: string | null;
+  created_at: Date;
+};
 
 function mapMeetingDetails(row: MeetingDetailsRow): MeetingDetailsCandidate {
   return {
@@ -318,6 +356,35 @@ function mapMeetingDetails(row: MeetingDetailsRow): MeetingDetailsCandidate {
     outcome: row.outcome,
     meetingSummary: row.meeting_summary,
     nextFollowUpAt: row.next_follow_up_at?.toISOString() ?? null,
+  };
+}
+function mapJobActionLocation(row: JobActionLocationRow): JobActionLocationRecord {
+  const capture: JobActionLocationRecord['capture'] = row.capture_outcome === 'UNAVAILABLE'
+    ? {
+        outcome: 'UNAVAILABLE',
+        reason: row.failure_reason!,
+      }
+    : {
+        outcome: 'CAPTURED',
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        accuracyMeters: Number(row.accuracy_meters),
+        capturedAt: row.captured_at!,
+        geocodingStatus: row.geocoding_status,
+        neighborhood: row.neighborhood,
+        district: row.district,
+        city: row.city,
+        approximateLabel: row.approximate_label,
+      };
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    jobCardId: row.job_card_id,
+    activityId: row.activity_id,
+    actorUserId: row.actor_user_id,
+    action: row.action,
+    capture,
+    createdAt: row.created_at,
   };
 }
 function mapNote(row: NoteRow): JobCardNoteDto {
@@ -625,6 +692,45 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     return { id: result.rows[0]!.id, createdAt: result.rows[0]!.created_at };
   }
 
+  async appendJobActionLocation(
+    input: AppendJobActionLocationInput,
+  ): Promise<JobActionLocationRecord> {
+    const capture = input.capture;
+    const captured = capture.outcome === 'CAPTURED' ? capture : null;
+    const result = await this.client.query<JobActionLocationRow>(
+      `INSERT INTO job_action_locations
+         (organization_id, job_card_id, activity_id, actor_user_id, action,
+          capture_outcome, failure_reason, latitude, longitude, accuracy_meters,
+          captured_at, geocoding_status, neighborhood, district, city,
+          approximate_label)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+               $14, $15, $16)
+       RETURNING id, organization_id, job_card_id, activity_id, actor_user_id,
+                 action, capture_outcome, failure_reason, latitude, longitude,
+                 accuracy_meters, captured_at, geocoding_status, neighborhood,
+                 district, city, approximate_label, created_at`,
+      [
+        input.organizationId,
+        input.jobCardId,
+        input.activityId,
+        input.actorUserId,
+        input.action,
+        capture.outcome,
+        capture.outcome === 'UNAVAILABLE' ? capture.reason : null,
+        captured?.latitude ?? null,
+        captured?.longitude ?? null,
+        captured?.accuracyMeters ?? null,
+        captured?.capturedAt ?? null,
+        captured?.geocodingStatus ?? 'NOT_REQUESTED',
+        captured?.neighborhood ?? null,
+        captured?.district ?? null,
+        captured?.city ?? null,
+        captured?.approximateLabel ?? null,
+      ],
+    );
+    return mapJobActionLocation(result.rows[0]!);
+  }
+
   appendRealtimeEvent(input: RealtimeEventInput) {
     return this.realtime.append(input);
   }
@@ -862,6 +968,18 @@ class PostgresJobCardTransaction implements JobCardTransaction {
 export class PostgresJobCardRepository
 implements JobCardRepository, ApprovalQueueItemPort {
   constructor(private readonly pool: Pool) {}
+
+  async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
+    const result = await this.pool.query<{ response_body: T }>(
+      `SELECT response_body
+       FROM processed_actions
+       WHERE organization_id = $1 AND user_id = $2
+         AND client_action_id = $3 AND operation_key = $4
+         AND status = 'completed' AND response_body IS NOT NULL`,
+      [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
+    );
+    return result.rows[0]?.response_body ?? null;
+  }
 
   async executeCriticalAction<T>(
     claim: CriticalActionClaim,
@@ -1124,11 +1242,23 @@ implements JobCardRepository, ApprovalQueueItemPort {
       id: string; job_card_id: string; actor_id: string | null; actor_name: string | null;
       event_type: JobCardActivityEvent; old_value: unknown; new_value: unknown; metadata: unknown;
       client_action_id: string | null; created_at: Date;
+      location_outcome: 'CAPTURED' | 'UNAVAILABLE' | null;
+      location_failure_reason: LocationFailureReason | null;
+      location_accuracy_meters: string | null;
+      location_captured_at: Date | null;
+      location_approximate_label: string | null;
     }>(`SELECT a.id, a.job_card_id, a.actor_id, u.name AS actor_name, a.event_type,
-              a.old_value, a.new_value, a.metadata, a.client_action_id, a.created_at
+              a.old_value, a.new_value, a.metadata, a.client_action_id, a.created_at,
+              l.capture_outcome AS location_outcome,
+              l.failure_reason AS location_failure_reason,
+              l.accuracy_meters AS location_accuracy_meters,
+              l.captured_at AS location_captured_at,
+              l.approximate_label AS location_approximate_label
        FROM job_card_activity_logs a
        LEFT JOIN users u
          ON u.organization_id = a.organization_id AND u.id = a.actor_id
+       LEFT JOIN job_action_locations l
+         ON l.organization_id = a.organization_id AND l.activity_id = a.id
        WHERE a.organization_id=$1 AND a.job_card_id=$2
        ORDER BY a.created_at DESC, a.id DESC
        LIMIT $3 OFFSET $4`, [organizationId, jobCardId, page.limit, page.offset]);
@@ -1137,6 +1267,17 @@ implements JobCardRepository, ApprovalQueueItemPort {
         id: row.id, jobCardId: row.job_card_id, actorId: row.actor_id, actorName: row.actor_name,
         eventType: row.event_type, oldValue: row.old_value, newValue: row.new_value,
         metadata: row.metadata, clientActionId: row.client_action_id, createdAt: row.created_at,
+        startLocation: row.location_outcome === 'CAPTURED'
+          && row.location_accuracy_meters !== null && row.location_captured_at !== null
+          ? {
+              outcome: 'CAPTURED' as const,
+              approximateLabel: row.location_approximate_label,
+              accuracyMeters: Number(row.location_accuracy_meters),
+              capturedAt: row.location_captured_at,
+            }
+          : row.location_outcome === 'UNAVAILABLE' && row.location_failure_reason !== null
+            ? { outcome: 'UNAVAILABLE' as const, reason: row.location_failure_reason }
+            : null,
       })),
       total: Number(count.rows[0]?.total ?? 0),
       limit: page.limit,

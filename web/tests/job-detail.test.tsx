@@ -82,6 +82,7 @@ function staffContext(
   return contextWith({
     allowedCommands: extras.allowedCommands ?? commandsByStatus[status],
     allowedActions: extras.allowedActions ?? actionsByStatus[status],
+    startLocationCaptureEnabled: extras.startLocationCaptureEnabled ?? false,
     lifecycle: { ...baseLifecycle, ...lifecycle },
     submissionReadiness: extras.submissionReadiness === undefined
       ? (status === 'IN_PROGRESS'
@@ -804,6 +805,144 @@ describe('Staff JobCard detail', () => {
     expect(html).toContain('İşi başlat');
     expect(html).not.toContain('İşi kabul et');
     expect(html.match(/primary-button/g)?.length ?? 0).toBe(1);
+  });
+
+  it('keeps disabled capability on the legacy start payload without browser geolocation', async () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [], startLocationCaptureEnabled: false }),
+    };
+    const updated: JobCard = {
+      ...accepted,
+      status: 'IN_PROGRESS',
+      version: accepted.version + 1,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    const getCurrentPosition = vi.fn();
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    const startBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/start') && init?.method === 'POST') {
+        startBodies.push(JSON.parse(String(init.body)));
+        return Response.json(updated);
+      }
+      if (url.endsWith(`/api/job-cards/${accepted.id}`)) return Response.json(accepted);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(accepted, staffUser, fetch);
+
+    expect(host.textContent).not.toContain('cihazınızdan bir kez yaklaşık konum');
+    await act(async () => {
+      buttonByName(host, 'İşi başlat')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getCurrentPosition).not.toHaveBeenCalled();
+    expect(startBodies).toHaveLength(1);
+    expect(startBodies[0]).toEqual(expect.objectContaining({ expectedVersion: accepted.version }));
+    expect(startBodies[0]).not.toHaveProperty('locationCapture');
+  });
+
+  it('captures once and reuses the same envelope and action id on transport retry', async () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [], startLocationCaptureEnabled: true }),
+    };
+    const updated: JobCard = {
+      ...accepted,
+      status: 'IN_PROGRESS',
+      version: accepted.version + 1,
+      workflowContext: staffContext('IN_PROGRESS', {
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    const getCurrentPosition = vi.fn((success: PositionCallback) => success({
+      coords: { latitude: 39.92077, longitude: 32.85411, accuracy: 24.5 },
+    } as GeolocationPosition));
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    const startBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/start') && init?.method === 'POST') {
+        startBodies.push(JSON.parse(String(init.body)));
+        if (startBodies.length === 1) throw new TypeError('offline');
+        return Response.json(updated);
+      }
+      if (url.endsWith(`/api/job-cards/${accepted.id}`)) return Response.json(accepted);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderScreen(accepted, staffUser, fetch);
+
+    expect(host.textContent).toContain('cihazınızdan bir kez yaklaşık konum');
+    await act(async () => {
+      const start = buttonByName(host, 'İşi başlat');
+      start?.click();
+      start?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('Sunucuya ulaşılamadı');
+    await act(async () => {
+      buttonByName(host, 'İşi başlat')?.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+    expect(startBodies).toHaveLength(2);
+    expect(startBodies[1]).toEqual(startBodies[0]);
+    expect(startBodies[0]).toMatchObject({
+      expectedVersion: accepted.version,
+      locationCapture: {
+        outcome: 'captured', latitude: 39.92077, longitude: 32.85411,
+        accuracyMeters: 24.5,
+      },
+    });
+  });
+
+  it('locks the start action synchronously and announces the capture phase', async () => {
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [], startLocationCaptureEnabled: true }),
+    };
+    let succeed: PositionCallback | undefined;
+    const getCurrentPosition = vi.fn((success: PositionCallback) => { succeed = success; });
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    await renderScreen(accepted);
+
+    act(() => {
+      const start = buttonByName(host, 'İşi başlat');
+      start?.click();
+      start?.click();
+    });
+
+    const pendingButton = buttonByName(host, 'Konum alınıyor…') as HTMLButtonElement;
+    expect(pendingButton?.disabled).toBe(true);
+    expect(getCurrentPosition).toHaveBeenCalledOnce();
+
+    await act(async () => {
+      succeed?.({ coords: { latitude: 39, longitude: 32, accuracy: 50 } } as GeolocationPosition);
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
   });
 
   it('does not show acceptance action for manager on NEW', () => {

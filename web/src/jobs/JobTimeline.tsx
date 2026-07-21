@@ -14,6 +14,13 @@ const meetingFieldLabels = {
   meetingAt: 'Gerçekleşme zamanı', outcome: 'Sonuç', meetingSummary: 'Görüşme özeti',
   nextFollowUpAt: 'Takip zamanı',
 } as const;
+const locationFailureLabels = {
+  PERMISSION_DENIED: 'Konum izni reddedildi',
+  POSITION_UNAVAILABLE: 'Cihaz konumu belirleyemedi',
+  TIMEOUT: 'Konum isteği zaman aşımına uğradı',
+  UNSUPPORTED: 'Tarayıcı konumu desteklemiyor',
+  UNKNOWN: 'Bilinmeyen konum hatası',
+} as const;
 
 type TimelineState =
   | { kind: 'loading' }
@@ -22,7 +29,15 @@ type TimelineState =
 
 function detailText(details: JobCardActivityDetails) {
   if (details.kind === 'STATUS_TRANSITION') {
-    return `${historicalJobStatusLabels[details.fromStatus]} → ${historicalJobStatusLabels[details.toStatus]}`;
+    const transition = `${historicalJobStatusLabels[details.fromStatus]} → ${historicalJobStatusLabels[details.toStatus]}`;
+    if (!details.startLocation) return transition;
+    if (details.startLocation.outcome === 'UNAVAILABLE') {
+      return `${transition} · Konum alınamadı: ${locationFailureLabels[details.startLocation.reason]}`;
+    }
+    const address = details.startLocation.approximateLabel ?? 'Yaklaşık adres oluşturulamadı';
+    const accuracy = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
+      .format(details.startLocation.accuracyMeters);
+    return `${transition} · Konum: ${address} · Doğruluk: yaklaşık ${accuracy} metre · Yakalama zamanı: ${formatInstant(details.startLocation.capturedAt)}`;
   }
   if (details.kind === 'FIELDS_UPDATED') return details.changedFields.map((field) => fieldLabels[field]).join(', ');
   if (details.kind === 'DELIVERY_ITEM') {
