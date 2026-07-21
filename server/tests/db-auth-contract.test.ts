@@ -58,6 +58,7 @@ describe('pilot DB auth contracts (static)', () => {
 });
 
 const pgUrl = process.env.TEST_DATABASE_URL ?? process.env.DATABASE_URL ?? '';
+const adminPgUrl = process.env.ADMIN_DATABASE_URL ?? pgUrl;
 
 describe.runIf(Boolean(pgUrl))('pilot DB auth contracts (PostgreSQL)', () => {
   it('bootstraps role, accepts correct password, rejects wrong password without argv leak', async () => {
@@ -74,7 +75,7 @@ describe.runIf(Boolean(pgUrl))('pilot DB auth contracts (PostgreSQL)', () => {
       encoding: 'utf8',
       env: {
         ...process.env,
-        ADMIN_DATABASE_URL: pgUrl,
+        ADMIN_DATABASE_URL: adminPgUrl,
         APP_DB_PASSWORD: password,
         APP_DB_ROLE: role,
         APP_DB_NAME: dbName,
@@ -142,7 +143,7 @@ describe.runIf(Boolean(pgUrl))('pilot DB auth contracts (PostgreSQL)', () => {
 
     // Cleanup
     const { default: pg } = await import('pg');
-    const admin = new pg.Client({ connectionString: pgUrl });
+    const admin = new pg.Client({ connectionString: adminPgUrl });
     await admin.connect();
     await admin.query(`DROP DATABASE IF EXISTS ${dbName}`);
     await admin.query(`DROP ROLE IF EXISTS ${role}`);
@@ -160,7 +161,7 @@ describe.runIf(Boolean(pgUrl))('pilot DB auth contracts (PostgreSQL)', () => {
       encoding: 'utf8',
       env: {
         ...process.env,
-        ADMIN_DATABASE_URL: pgUrl,
+        ADMIN_DATABASE_URL: adminPgUrl,
         APP_DB_PASSWORD: special,
         APP_DB_ROLE: role,
         APP_DB_NAME: dbName,
@@ -180,7 +181,7 @@ describe.runIf(Boolean(pgUrl))('pilot DB auth contracts (PostgreSQL)', () => {
     expect(out).toMatch(/ok db-auth/);
 
     const { default: pg } = await import('pg');
-    const admin = new pg.Client({ connectionString: pgUrl });
+    const admin = new pg.Client({ connectionString: adminPgUrl });
     await admin.connect();
     await admin.query(`DROP DATABASE IF EXISTS ${dbName}`);
     await admin.query(`DROP ROLE IF EXISTS ${role}`);
