@@ -1,4 +1,5 @@
 import { createRoot } from 'react-dom/client';
+import { flushSync } from 'react-dom';
 import { MemoryRouter } from 'react-router-dom';
 
 import { NotificationCenter } from '../src/notifications/NotificationCenter';
@@ -24,14 +25,10 @@ window.fetch = async (input) => {
 
 const root = document.getElementById('responsive-notification-center-root');
 if (root) {
-  createRoot(root).render(
-    <MemoryRouter>
-      <div data-smoke-notification-center="true">
-        <NotificationCenter identityKey="org-1:staff-1" mobile={window.innerWidth < 1024} />
-      </div>
-    </MemoryRouter>,
-  );
-  window.setTimeout(() => {
-    root.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')?.click();
-  }, 0);
+  flushSync(() => createRoot(root).render(
+    <MemoryRouter><div data-smoke-notification-center="true">
+      <NotificationCenter identityKey="org-1:staff-1" mobile={window.innerWidth < 1024} />
+    </div></MemoryRouter>,
+  ));
+  root.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')?.click();
 }

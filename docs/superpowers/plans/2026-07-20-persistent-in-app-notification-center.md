@@ -105,15 +105,15 @@ tests, and responsive smoke fixtures only.
 
 - [x] Write tests that a `notifications` invalidation reloads canonical unread
   count and, if open, its list; no SSE payload is rendered as a notification.
-- [ ] Prove reconnect/focus/visibility/online/fallback reconciliation reuses
+- [x] Prove reconnect/focus/visibility/online/fallback reconciliation reuses
   the same guarded loaders and does not duplicate rows or reads. A local
   mark-read reloads immediately; other tabs recover through these mechanisms,
   not a new mark-read SSE event.
-- [ ] Add desktop/mobile parity and keyboard/focus assertions, including Escape
+- [x] Add desktop/mobile parity and keyboard/focus assertions, including Escape
   and trigger focus restoration.
-- [ ] Add real notification-center smoke coverage at 390, 720, 768, 1024, and
+- [x] Add real notification-center smoke coverage at 390, 720, 768, 1024, and
   1440 px plus 200% text and 400% reflow; verify no horizontal overflow.
-- [ ] Run full web test/build/bundle/responsive/audit and full server
+- [x] Run full web test/build/bundle/responsive/audit and full server
   build/migration/test/audit suites.
 
 ## Task 7 — Manual Verification and Handoff
