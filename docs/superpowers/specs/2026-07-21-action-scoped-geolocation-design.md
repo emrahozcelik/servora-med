@@ -1,7 +1,8 @@
 # Servora-Med Action-Scoped Browser Geolocation Design
 
-**Status:** Proposed — runtime implementation is blocked until design review,
-retention wording, and reverse-geocoding provider approval are complete.
+**Status:** Proposed — runtime implementation is blocked until technical design
+review is complete. Production location capture remains disabled until the
+privacy/retention policy and reverse-geocoding provider gates are approved.
 
 **Phase:** Q — action-scoped browser geolocation
 
@@ -48,16 +49,27 @@ the user was at an exact address.
 
 ## 4. User Notice and Permission UX
 
-The Staff action surface shows static informational text near `İşi başlat`:
+The Staff action surface shows an operational notice near `İşi başlat`:
 
-> İşi başlatırken cihazınızdan yaklaşık konum alınmaya çalışılır. Konum
-> alınamazsa iş yine başlatılır.
+> İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır.
+> Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili
+> kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine
+> başlar.
 
-This is a notice, not a consent gate. The button click immediately starts one
+This is an operational notice, not a consent gate or a substitute for the
+legally reviewed employee notice. The button click immediately starts one
 browser request. While location and command work are pending, the existing
 button is disabled and its accessible pending label explains the current step.
 The application does not preflight with the Permissions API because browser
 support differs and preflight does not replace the native prompt.
+
+The employee/user manual, location disclosure, privacy notices, retention
+policy, provider-transfer details, and other governed documents are deferred to
+a dedicated document surface under Settings or the user profile. That surface
+must support the approved document text, version, and effective date. It is not
+part of Phase Q and Phase Q must not add a broken placeholder link. Before
+production capture is enabled, the action notice must link to the approved full
+location disclosure in that document surface.
 
 Suggested browser options:
 
@@ -105,12 +117,16 @@ type StartJobCardInput = {
 
 The frontend maps browser error codes; it does not invent coordinates. The
 backend validates finite numeric values, latitude `[-90, 90]`, longitude
-`[-180, 180]`, positive accuracy, canonical ISO capture time, exact fields,
-and the discriminated outcome. Invalid payloads receive `400`; a legitimate
-unavailable outcome remains a valid start command.
+`[-180, 180]`, positive accuracy, a well-formed ISO capture timestamp, exact
+fields, and the discriminated outcome. Invalid payloads receive `400`; a
+legitimate unavailable outcome remains a valid start command.
 
-Browser coordinates are user-device claims. Backend validation protects data
-shape and bounds, not physical truth.
+Browser coordinates and `capturedAt` are user-device claims. Backend validation
+protects data shape and bounds, not physical truth. `capturedAt` is retained as
+client-claimed metadata; the location row `createdAt` and activity `createdAt`
+are authoritative server times. Audit ordering and Timeline ordering always use
+server time. The pilot does not reject an otherwise valid capture solely for
+device clock skew.
 
 ## 6. Accuracy Policy
 
@@ -124,11 +140,13 @@ Doğruluk: yaklaşık 32 metre
 `accuracyMeters` is the Geolocation API's approximately 95% confidence radius;
 it is not a percentage and does not mean the address is 95% correct.
 
-Proposed pilot threshold: coordinates with `accuracyMeters <= 1,000` may be
-reverse-geocoded and used in future area aggregation. Less precise captures are
+Proposed pilot address threshold: coordinates with
+`accuracyMeters <= 1,000` may be reverse-geocoded. Less precise captures are
 still retained with their radius and shown as `Düşük doğruluk`; no approximate
-address is claimed and the JobCard still starts. This threshold requires
-explicit design-review approval before runtime work.
+address is claimed and the JobCard still starts. This threshold controls only
+whether Phase Q requests an approximate address. Eligibility and accuracy
+rules for future geographic reports are a separate report-design decision and
+are not established by Phase Q.
 
 ## 7. Persistence Model
 
@@ -172,6 +190,7 @@ Staff click
   -> one browser getCurrentPosition attempt
   -> normalized captured/unavailable envelope
   -> existing start command and existing clientActionId
+  -> completed-action lookup; return stored result if already committed
   -> optional bounded reverse-geocoding lookup before DB transaction
   -> one DB transaction:
        lock/idempotency claim
@@ -190,10 +209,18 @@ reverse geocoding times out or fails, coordinates are persisted with
 `geocoding_status=FAILED`; the start command continues. An unavailable capture
 skips geocoding.
 
-The same `clientActionId` returns the established completed action result and
-does not create a second activity or location row. A transport retry reuses the
-same capture envelope and does not call browser geolocation again. The UI also
-uses a synchronous pending gate before awaiting geolocation.
+Before calling the reverse geocoder, the service performs a cheap lookup for an
+already completed critical action with the same actor, action kind, and
+`clientActionId`. A completed retry returns its stored result without sending
+coordinates to the provider again. The transaction's existing critical-action
+claim and row locking remain the final concurrency defense; simultaneous first
+requests may both reach the provider, but only one may commit the transition,
+activity, and location row.
+
+The same `clientActionId` therefore does not create a second activity or
+location row. A transport retry reuses the same capture envelope and does not
+call browser geolocation again. The UI also uses a synchronous pending gate
+before awaiting geolocation.
 
 ## 9. Reverse-Geocoding Boundary
 
@@ -202,11 +229,13 @@ browser never contacts the provider and never receives provider credentials.
 Only latitude, longitude, accuracy, and a request correlation identifier may be
 sent; no JobCard, customer, contact, actor, or organization data is included.
 
-The provider, data-processing terms, regional endpoint, timeout, rate limit,
-and production credential storage must be approved before runtime
-implementation. Provider responses are mapped to Servora-owned nullable
-`neighborhood`, `district`, `city`, and `approximateLabel` fields. Raw provider
-responses are not persisted.
+Provider integration and production enablement require approval of the
+provider, regional endpoint, data-processing terms, timeout, rate limit,
+production credential storage, request-log retention, subprocessors,
+cross-border transfer status and mechanism, response storage/licensing and
+cache terms, and deletion/data-subject-request obligations. Provider responses
+are mapped to Servora-owned nullable `neighborhood`, `district`, `city`, and
+`approximateLabel` fields. Raw provider responses are not persisted.
 
 ## 10. Authorization and Presentation
 
@@ -226,15 +255,17 @@ accuracy radius, capture time, and actor. Unavailable locations show
 
 ## 11. Retention and Deletion
 
-Proposed policy: location evidence has the same lifecycle as its JobCard and
-immutable activity history. Phase Q adds no independent TTL, background purge,
-or user self-delete endpoint. Any future organization-level retention/deletion
-workflow must delete location rows through the same audited JobCard policy and
-respect foreign-key order.
+No retention period is approved in Phase Q. A concrete maximum period or an
+exact reference to an approved organizational retention policy is deferred to
+the privacy/documentation work under Settings or the user profile. Phase Q may
+build and test the storage contract with non-production data, but production
+location capture remains disabled until that policy is recorded and its
+deletion consequences are implemented or explicitly covered by an existing
+audited JobCard deletion process.
 
-This inherited-retention wording requires explicit product/privacy approval in
-design review. Production enablement remains blocked until that approval is
-recorded; an unspecified indefinite retention period is not silently assumed.
+The schema remains append-only and tied to JobCard activity; Phase Q does not
+invent a self-delete endpoint or silently treat an unspecified period as
+indefinite retention.
 
 ## 12. Failure Semantics
 
@@ -255,7 +286,8 @@ recorded; an unspecified indefinite retention period is not silently assumed.
 Server tests prove validation, tenant-safe constraints, one-to-one activity
 linkage, Staff-only start authorization, captured/unavailable persistence,
 low-accuracy behavior, geocoder failure fallback, transaction rollback,
-idempotent replay, no public list DTO change, and no location in SSE/logs.
+idempotent replay, no provider call for a completed `clientActionId`, no public
+list DTO change, and no location in SSE/logs.
 
 Web tests prove capture occurs only after the click; allow, deny, timeout,
 unavailable browser, double click, request retry, stale-version refresh,
@@ -273,14 +305,44 @@ no request occurs at login or page load.
 6. Coordinates remain canonical and address metadata is explicitly approximate.
 7. No sensitive location data enters SSE payloads, application logs, list DTOs,
    or browser-to-provider calls.
-8. Retention wording and reverse-geocoding provider are approved before runtime.
+8. Completed-action retries do not call the reverse-geocoding provider again.
+9. Production capture cannot be enabled before the privacy/retention policy and
+   provider/data-transfer review are approved.
 
-## 15. Design Review Gates
+## 15. Design Review and Enablement Gates
 
-Runtime implementation must not start until reviewers explicitly approve:
+Runtime implementation may start only after reviewers approve the technical
+design, including:
 
-- the 1,000 metre reverse-geocoding/report threshold;
-- retention matching JobCard/activity history;
-- the employee-facing notice text;
-- the reverse-geocoding provider, data-processing terms, regional endpoint,
-  timeout, rate limit, and production credential handling.
+- the 1,000 metre threshold solely for requesting an approximate address;
+- authoritative server time versus client-claimed `capturedAt`;
+- the completed-action lookup before reverse geocoding and the transactional
+  claim as the final concurrency defense;
+- non-blocking capture and reverse-geocoder failure behavior.
+
+Production location capture must remain disabled until all of these are
+approved and recorded:
+
+- the full employee/user location disclosure and its link from the action;
+- a concrete maximum retention period or an exact approved policy reference;
+- the reverse-geocoding provider checklist in section 9;
+- any required deletion/export process for the approved policy.
+
+Servora-Med not being publicly accessible does not remove these enablement
+gates: the captured data still concerns identifiable Staff users. Legal basis
+and final wording require review by the organization's authorized privacy/KVKK
+owner; this design does not make that legal determination.
+
+## 16. Deferred Product and Policy Work
+
+A later, separate slice may add a governed documents area under Settings or the
+user profile for:
+
+- the user manual;
+- employee/user notices and location disclosure;
+- privacy and retention texts;
+- other organization-specific policy documents.
+
+That surface is not a generic file store in Phase Q. Its ownership, authorized
+editor, version/effective-date rules, publication workflow, and acknowledgement
+requirements require a separate product design.
