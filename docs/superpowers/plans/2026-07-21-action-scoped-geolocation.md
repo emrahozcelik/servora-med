@@ -43,6 +43,10 @@ Production enablement remains a separate gate after implementation:
   transfer mechanism, response licensing/cache terms, deletion obligations,
   timeout, rate limit, production secret handling, and required deletion/export
   process.
+- [ ] Complete real Safari allow, deny, timeout, background/resume, and focus
+  acceptance on a physical device.
+- [ ] Complete Chrome timeout and retry manual acceptance against the selected
+  production-like provider configuration.
 
 ## Task 2 — Storage and Repository Contracts (TDD)
 
@@ -150,19 +154,13 @@ typed activity presentation, focused web tests, styles, and responsive fixture.
 - [x] Verify existing lifecycle, approval, activity, realtime, notification,
   request-gate, and idempotency contracts remain green.
 
-## Task 7 — Manual Browser Acceptance and Handoff
+## Task 7 — Default-Off MVP Manual Browser Acceptance and Handoff
 
 - [x] Chrome: allow (mocked 50m accuracy, resolved to Çankaya/Ankara), deny
   (PERMISSION_DENIED, UI shows "Konum alınamadı: Konum izni reddedildi"),
   low-accuracy (5000m > 1000m threshold, geocoding skipped, UI shows
   "Yaklaşık adres oluşturulamadı · Doğruluk: yaklaşık 5.000 metre"), and
   double-click (only one location record persisted, idempotent).
-- [ ] Chrome: timeout, retry — intentionally skipped as low priority for MVP;
-  the synchronous 10-second browser timeout is exercised by the adapter unit
-  tests, and retry works by reusing the same envelope.
-- [ ] Real Safari: allow, deny, timeout, background/resume, and focus behavior
-  — cannot test via DevTools tooling; requires physical device. The adapter
-  behavior is verified through unit tests.
 - [x] Confirm login/page load never prompts: verified admin surface shows no
   geolocation disclosure, no permission request, and no start button.
 - [x] Confirm manager/admin action surfaces never request location: admin
@@ -176,7 +174,9 @@ typed activity presentation, focused web tests, styles, and responsive fixture.
   browser results, and merge data in the design Implementation Record.
 - [x] Record the accepted possibility: already documented in Task 3 above;
   the TOCTOU/provender-duplication risk assessment was recorded on 2026-07-21.
-- [x] Move the runtime PR from draft only after all acceptance criteria pass.
+- [x] Move the runtime PR from draft after the default-off MVP acceptance
+  criteria pass and the production-enablement follow-up checks are explicitly
+  recorded above.
 
 ## Required Verification Commands
 
@@ -286,7 +286,8 @@ Completed on 2026-07-21 on branch `feature/action-scoped-geolocation`.
 
 ### Task 6 — Full Regression and Privacy Verification
 
-Completed locally on 2026-07-21; exact-head CI remains required before review.
+Completed locally on 2026-07-21. Exact-head `cae087b` GitHub CI subsequently
+passed both server and web jobs before review.
 
 - Server migration, build, focused PostgreSQL integration, production audit,
   and the full suite excluding only the known local `pg_hba trust` password-
@@ -358,12 +359,16 @@ Completed on 2026-07-21 on branch `feature/action-scoped-geolocation`.
 - Admin can see location history: "Konum: Çankaya/Ankara" for captured,
   "Konum alınamadı: Konum izni reddedildi" for unavailable.
 
-**Not tested (tooling limitation):**
+**Deferred production-enablement acceptance:**
+
 - Chrome timeout: the 10-second timeout is exercised by the adapter unit tests.
 - Chrome retry: works by reusing the same `clientActionId`/envelope.
 - Real Safari: no Safari DevTools tooling available; behavior covered by the
   browser-agnostic adapter unit tests (7 tests) and the same HTML5 Geolocation
   API contract.
+- These manual checks are not claimed as passed. They are intentionally moved
+  to the production-enablement gate because capture remains default-off and no
+  production reverse-geocoding provider is included in this PR.
 
 **Merge data:**
 - Branch: `feature/action-scoped-geolocation`
