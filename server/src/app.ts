@@ -42,6 +42,9 @@ import type {
 import {
   realtimeRoutes,
 } from './modules/realtime/routes.js';
+import type { NotificationRepository } from './modules/notifications/repository.js';
+import { NotificationService } from './modules/notifications/service.js';
+import { notificationRoutes } from './modules/notifications/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -66,6 +69,7 @@ export type AppDependencies = {
   healthReadiness?: HealthReadinessPort;
   realtimeService?: RealtimeService;
   realtimePublisher?: RealtimeEventPublisher;
+  notificationRepository?: NotificationRepository;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
 };
@@ -186,6 +190,13 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       });
       app.addHook('onClose', async () => {
         dependencies.realtimeService!.close();
+      });
+    }
+    if (dependencies.notificationRepository) {
+      await app.register(notificationRoutes, {
+        prefix: '/api/notifications',
+        service: new NotificationService(dependencies.notificationRepository),
+        authenticate: authenticateDomain,
       });
     }
   }

@@ -21,10 +21,16 @@ type NotificationRow = {
   read_at: Date | null;
 };
 
-type NotificationListQuery = Readonly<{
+export type NotificationListQuery = Readonly<{
   limit: number;
   cursor: NotificationCursor | null;
 }>;
+
+export interface NotificationRepository {
+  unreadCount(viewer: NotificationViewer): Promise<number>;
+  list(viewer: NotificationViewer, query: NotificationListQuery): Promise<NotificationPage>;
+  markRead(viewer: NotificationViewer, notificationId: string): Promise<NotificationRecord | null>;
+}
 
 function mapNotification(row: NotificationRow): NotificationRecord {
   return {
@@ -79,7 +85,7 @@ export class PostgresNotificationTransaction {
   }
 }
 
-export class PostgresNotificationRepository {
+export class PostgresNotificationRepository implements NotificationRepository {
   constructor(private readonly pool: Pick<Pool, 'query'>) {}
 
   async unreadCount(viewer: NotificationViewer): Promise<number> {

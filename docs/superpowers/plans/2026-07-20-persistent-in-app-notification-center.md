@@ -57,7 +57,7 @@ realtime mapper/types, dependency wiring, and focused tests.
 - [x] Retain the existing SSE payload shape and audience rules; do not create a
   new mark-read realtime event.
 - [x] Publish only after commit through the established realtime bus path.
-- [ ] Run focused lifecycle/realtime/notification integration tests and server
+- [x] Run focused lifecycle/realtime/notification integration tests and server
   build. Confirm no public JobCard DTO changed.
 
 ## Task 4 — Recipient-Scoped REST API (TDD)
@@ -65,16 +65,16 @@ realtime mapper/types, dependency wiring, and focused tests.
 Allowed source area: notifications module/routes, shared server wiring, API
 tests, and generated API client types only.
 
-- [ ] Write failing route tests for authentication/password-change gate,
+- [x] Write failing route tests for authentication/password-change gate,
   cursor validation, list ordering, unread count, idempotent mark-read, and a
   `404` response for cross-user/cross-organization notification IDs.
-- [ ] Implement `GET /api/notifications/unread-count`.
-- [ ] Implement `GET /api/notifications` with validated `limit` and opaque
+- [x] Implement `GET /api/notifications/unread-count`.
+- [x] Implement `GET /api/notifications` with validated `limit` and opaque
   cursor, newest-first stable pagination, and public semantic DTOs only.
-- [ ] Implement `PATCH /api/notifications/:notificationId/read` with an
+- [x] Implement `PATCH /api/notifications/:notificationId/read` with an
   idempotent response.
-- [ ] Add the web API service parsers without making components call raw fetch.
-- [ ] Run focused API tests, full server build, and migration verification.
+- [x] Add the web API service parsers without making components call raw fetch.
+- [x] Run focused API tests, full server build, and migration verification.
 
 ## Task 5 — Notification Center Web Surface (TDD)
 
