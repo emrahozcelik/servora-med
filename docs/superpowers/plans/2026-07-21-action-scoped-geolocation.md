@@ -106,14 +106,14 @@ tests.
 
 Allowed source area: one web geolocation service/adapter and focused tests.
 
-- [ ] Write failing tests for supported capture, permission denied, unavailable,
+- [x] Write failing tests for supported capture, permission denied, unavailable,
   timeout, unsupported browser, unknown error, and exact browser options.
-- [ ] Add a small `captureStartLocation` adapter around
+- [x] Add a small `captureStartLocation` adapter around
   `navigator.geolocation.getCurrentPosition`; components do not access the raw
   API directly.
-- [ ] Return the exact captured/unavailable API envelope without reverse
+- [x] Return the exact captured/unavailable API envelope without reverse
   geocoding or permission preflight.
-- [ ] Ensure one click causes at most one browser location request.
+- [x] Ensure one click causes at most one browser location request.
 
 ## Task 5 — Start Action and History UI (TDD)
 
@@ -236,3 +236,16 @@ Completed on 2026-07-21 on branch `feature/action-scoped-geolocation`.
   The real PostgreSQL location suite passed 12 tests, including service-level
   commit and completed replay. Full server regression excluding only the known
   local `pg_hba trust` password-auth contract passed 1,062 tests in 89 files.
+
+### Task 4 — Browser Capture Adapter
+
+Completed on 2026-07-21 on branch `feature/action-scoped-geolocation`.
+
+- Added a dependency-free `captureStartLocation` adapter around the single
+  `navigator.geolocation.getCurrentPosition` call with the approved high
+  accuracy, 10-second timeout, and zero-cache options.
+- Normalized success and browser error codes into the exact API envelope,
+  including unsupported and unknown fallbacks. No Permissions API preflight or
+  reverse-geocoding behavior was introduced in the browser.
+- Focused adapter verification passed 7 tests and the production web build
+  passed.
