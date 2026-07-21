@@ -43,6 +43,40 @@ describe('safe JobCard timeline', () => {
     expect(host.textContent).not.toMatch(/JOB_STARTED|oldValue|metadata|clientActionId/);
   });
 
+  it('renders safe captured and unavailable location details without coordinates', async () => {
+    const activities: JobCardActivity[] = [
+      {
+        id: 'captured', jobCardId: 'job-1', eventType: 'JOB_STARTED',
+        actor: { id: 'staff-1', name: 'Ayşe Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'ACCEPTED', toStatus: 'IN_PROGRESS', reason: null,
+          startLocation: {
+            outcome: 'CAPTURED', approximateLabel: 'Kızılay, Çankaya / Ankara',
+            accuracyMeters: 24.5, capturedAt: '2026-07-21T06:15:30.123Z',
+          },
+        },
+        createdAt: '2026-07-21T06:15:32.000Z',
+      },
+      {
+        id: 'unavailable', jobCardId: 'job-2', eventType: 'JOB_STARTED',
+        actor: { id: 'staff-2', name: 'Mehmet Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'ACCEPTED', toStatus: 'IN_PROGRESS', reason: null,
+          startLocation: { outcome: 'UNAVAILABLE', reason: 'PERMISSION_DENIED' },
+        },
+        createdAt: '2026-07-21T06:14:00.000Z',
+      },
+    ];
+    await act(async () => root.render(<JobTimeline jobId="job-1"
+      load={vi.fn().mockResolvedValue(page(activities))} />));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(host.textContent).toContain('Konum: Kızılay, Çankaya / Ankara');
+    expect(host.textContent).toContain('Doğruluk: yaklaşık 24,5 metre');
+    expect(host.textContent).toContain('Konum alınamadı: Konum izni reddedildi');
+    expect(host.textContent).not.toMatch(/39\.92077|32\.85411|latitude|longitude/);
+  });
+
   it('uses a safe unknown-event fallback and only emits a non-sensitive development diagnostic', async () => {
     const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
     const activity: JobCardActivity = {

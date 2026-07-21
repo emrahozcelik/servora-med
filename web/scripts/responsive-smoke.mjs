@@ -93,7 +93,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
           <section class="detail-summary surface"><div id="responsive-descriptions-root"></div></section>
           <section class="delivery-lines"><h2>Teslim bilgileri</h2><p>ProSeal Membran · 2 kutu</p></section>
           <section class="workflow-requirements surface-flat"><h2>Kontrole hazırlık</h2><p>Ürün, amaç, miktar ve teslim zamanı</p></section>
-          <section class="detail-action surface-flat" data-smoke-action><p>Kontrol sırasında kayıtlar salt okunur olur.</p><button class="primary-button">Kontrole gönder</button></section>
+          <section class="detail-action surface-flat" data-smoke-action><p class="start-location-notice">İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır. Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine başlar.</p><button class="primary-button">İşi başlat</button></section>
         </div>
         <section class="job-timeline" data-smoke-timeline><h2>İşlem geçmişi</h2><div id="responsive-timeline-root"></div></section>
       </section>

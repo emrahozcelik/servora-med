@@ -191,6 +191,17 @@ describe.skipIf(!databaseUrl)('013 job action locations PostgreSQL migration', (
         realtimeCount: 1, actionCount: 1,
         approximateLabel: 'Kızılay, Çankaya / Ankara',
       });
+      const history = await service.listActivity(actor, jobCardId, { limit: 50, offset: 0 });
+      expect(history.items[0]?.details).toMatchObject({
+        kind: 'STATUS_TRANSITION',
+        startLocation: {
+          outcome: 'CAPTURED',
+          approximateLabel: 'Kızılay, Çankaya / Ankara',
+          accuracyMeters: 24,
+          capturedAt: '2026-07-21T11:59:58.000Z',
+        },
+      });
+      expect(JSON.stringify(history)).not.toMatch(/latitude|longitude|39\.92077|32\.85411/);
     });
   });
 

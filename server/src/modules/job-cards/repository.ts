@@ -122,6 +122,12 @@ export type ActivityRecord = {
   id: string; jobCardId: string; actorId: string | null; actorName: string | null;
   eventType: JobCardActivityEvent;
   oldValue: unknown; newValue: unknown; metadata: unknown; clientActionId: string | null; createdAt: Date;
+  startLocation: null | {
+    outcome: 'CAPTURED'; approximateLabel: string | null;
+    accuracyMeters: number; capturedAt: Date;
+  } | {
+    outcome: 'UNAVAILABLE'; reason: LocationFailureReason;
+  };
 };
 export type PageQuery = { limit: number; offset: number };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
@@ -1236,11 +1242,23 @@ implements JobCardRepository, ApprovalQueueItemPort {
       id: string; job_card_id: string; actor_id: string | null; actor_name: string | null;
       event_type: JobCardActivityEvent; old_value: unknown; new_value: unknown; metadata: unknown;
       client_action_id: string | null; created_at: Date;
+      location_outcome: 'CAPTURED' | 'UNAVAILABLE' | null;
+      location_failure_reason: LocationFailureReason | null;
+      location_accuracy_meters: string | null;
+      location_captured_at: Date | null;
+      location_approximate_label: string | null;
     }>(`SELECT a.id, a.job_card_id, a.actor_id, u.name AS actor_name, a.event_type,
-              a.old_value, a.new_value, a.metadata, a.client_action_id, a.created_at
+              a.old_value, a.new_value, a.metadata, a.client_action_id, a.created_at,
+              l.capture_outcome AS location_outcome,
+              l.failure_reason AS location_failure_reason,
+              l.accuracy_meters AS location_accuracy_meters,
+              l.captured_at AS location_captured_at,
+              l.approximate_label AS location_approximate_label
        FROM job_card_activity_logs a
        LEFT JOIN users u
          ON u.organization_id = a.organization_id AND u.id = a.actor_id
+       LEFT JOIN job_action_locations l
+         ON l.organization_id = a.organization_id AND l.activity_id = a.id
        WHERE a.organization_id=$1 AND a.job_card_id=$2
        ORDER BY a.created_at DESC, a.id DESC
        LIMIT $3 OFFSET $4`, [organizationId, jobCardId, page.limit, page.offset]);
@@ -1249,6 +1267,17 @@ implements JobCardRepository, ApprovalQueueItemPort {
         id: row.id, jobCardId: row.job_card_id, actorId: row.actor_id, actorName: row.actor_name,
         eventType: row.event_type, oldValue: row.old_value, newValue: row.new_value,
         metadata: row.metadata, clientActionId: row.client_action_id, createdAt: row.created_at,
+        startLocation: row.location_outcome === 'CAPTURED'
+          && row.location_accuracy_meters !== null && row.location_captured_at !== null
+          ? {
+              outcome: 'CAPTURED' as const,
+              approximateLabel: row.location_approximate_label,
+              accuracyMeters: Number(row.location_accuracy_meters),
+              capturedAt: row.location_captured_at,
+            }
+          : row.location_outcome === 'UNAVAILABLE' && row.location_failure_reason !== null
+            ? { outcome: 'UNAVAILABLE' as const, reason: row.location_failure_reason }
+            : null,
       })),
       total: Number(count.rows[0]?.total ?? 0),
       limit: page.limit,

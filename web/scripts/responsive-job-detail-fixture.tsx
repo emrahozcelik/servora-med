@@ -43,8 +43,8 @@ if (timelineRoot) {
         },
         {
           key: 'smoke-activity-2',
-          action: 'Kontrole gönderildi',
-          detail: 'Uygulanıyor → Yönetici kontrolünde',
+          action: 'İş başlatıldı',
+          detail: 'Atandı → Uygulanıyor · Konum: Yukarı Bahçelievler Mahallesi, Çok Uzun Operasyon Bölgesi, Çankaya / Ankara · Doğruluk: yaklaşık 987,6 metre · Yakalama zamanı: 18 Tem 2026 11:30',
           reason: null,
           actor: 'Ayşe Personel',
           occurredAt: '2026-07-18T08:30:00.000Z',

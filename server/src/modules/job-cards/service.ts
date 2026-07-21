@@ -1006,11 +1006,15 @@ export class JobCardService {
     const evaluation = readinessStatuses.includes(job.status)
       ? precomputed ?? await evaluateSubmission(reader, actor, job, evaluatedAt)
       : null;
+    const allowedCommands = getAllowedLifecycleCommands(actor, job);
     return {
       ...job,
       workflowContext: {
-        allowedCommands: getAllowedLifecycleCommands(actor, job),
+        allowedCommands,
         allowedActions: getAllowedJobActions(actor, job),
+        startLocationCaptureEnabled: this.geolocation.enabled
+          && actor.role === 'STAFF'
+          && allowedCommands.includes('START'),
         lifecycle,
         submissionReadiness: evaluation?.readiness ?? null,
       },

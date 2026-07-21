@@ -141,6 +141,7 @@ export type PersistedJobCardDetail = JobCard & {
 export type JobWorkflowContext = {
   allowedCommands: LifecycleCommand[];
   allowedActions: JobWorkflowAction[];
+  startLocationCaptureEnabled: boolean;
   lifecycle: JobLifecycleFacts;
   submissionReadiness: SubmissionReadiness | null;
 };
@@ -296,6 +297,18 @@ export type JobCardActivityDetails =
       fromStatus: JobCardActivityStatus;
       toStatus: JobCardActivityStatus;
       reason: string | null;
+      startLocation?:
+        | {
+            outcome: 'CAPTURED';
+            approximateLabel: string | null;
+            accuracyMeters: number;
+            capturedAt: string;
+          }
+        | {
+            outcome: 'UNAVAILABLE';
+            reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT'
+              | 'UNSUPPORTED' | 'UNKNOWN';
+          };
     }
   | {
       kind: 'FIELDS_UPDATED';

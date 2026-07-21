@@ -295,6 +295,7 @@ describe('JobCard lifecycle commands', () => {
       allowedActions: [
         'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE', 'EDIT_DELIVERY_ACTUAL_TIME',
       ],
+      startLocationCaptureEnabled: false,
       lifecycle: repo.persistedDetail.lifecycle,
       submissionReadiness: {
         evaluatedAt: time.toISOString(),
@@ -316,6 +317,24 @@ describe('JobCard lifecycle commands', () => {
       const result = await new JobCardService(repo, () => time).detail(manager, 'job-1');
       expect(result.workflowContext.submissionReadiness).toBeNull();
     }
+  });
+
+  it('exposes start capture capability only from enabled server truth for assigned Staff', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'ACCEPTED';
+    const enabled = new JobCardService(repo, () => time, undefined, {
+      enabled: true,
+      reverseGeocoder: { reverse: async () => ({
+        neighborhood: null, district: null, city: null, approximateLabel: 'Yaklaşık konum',
+      }) },
+    });
+
+    expect((await enabled.detail(staff, 'job-1')).workflowContext.startLocationCaptureEnabled)
+      .toBe(true);
+    expect((await enabled.detail(manager, 'job-1')).workflowContext.startLocationCaptureEnabled)
+      .toBe(false);
+    expect((await new JobCardService(repo, () => time).detail(staff, 'job-1'))
+      .workflowContext.startLocationCaptureEnabled).toBe(false);
   });
 
   it('returns 404 for another Staff assignment before readiness queries', async () => {

@@ -10,8 +10,12 @@ import {
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
   type DeliveryItem, type JobCard, type LifecycleCommand, type MeetingDetails,
-  type PatchJobCardInput, type PatchMeetingDetailsInput,
+  type PatchJobCardInput, type PatchMeetingDetailsInput, type StartJobCardInput,
 } from './jobs/jobs-api';
+import {
+  captureStartLocation,
+  type StartLocationCapture,
+} from './jobs/start-location-capture';
 import {
   deriveJobWorkflowPresentation,
   type JobWorkflowPresentation,
@@ -309,11 +313,13 @@ export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, children,
+  pendingLabel,
 }: {
   job: JobCard;
   items: DeliveryItem[];
   user: CurrentUser;
   pending: boolean;
+  pendingLabel?: string;
   message: string;
   messageIsError?: boolean;
   feedbackRef?: Ref<HTMLDivElement>;
@@ -448,6 +454,8 @@ export function JobDetailPanel({
         secondary={presentation.secondaryTransitions}
         recordEditAction={presentation.recordEditAction}
         pending={pending}
+        pendingLabel={pendingLabel}
+        startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
         onCommand={onCommand}
         onRecordEdit={onRecordEdit}
       />
@@ -498,7 +506,7 @@ async function loadJobDetail(jobId: string) {
 async function executeLifecycleCommand(
   jobId: string,
   command: LifecycleCommand,
-  input: { clientActionId: string; expectedVersion: number },
+  input: StartJobCardInput,
   reason: string,
 ): Promise<JobCard> {
   switch (command) {
@@ -533,6 +541,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
 }) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
   const [pending, setPending] = useState(false);
+  const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
   const [message, setMessage] = useState('');
   const [messageIsError, setMessageIsError] = useState(false);
   const [meetingSubmissionError, setMeetingSubmissionError] = useState<ApiError | null>(null);
@@ -542,6 +551,10 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const mutationInFlight = useRef(false);
   const actionIds = useRef<Partial<Record<PendingInteraction, string>>>({});
+  const startCapture = useRef<{
+    clientActionId: string;
+    capture: StartLocationCapture;
+  } | null>(null);
   const feedbackRef = useRef<HTMLDivElement>(null);
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
@@ -625,7 +638,19 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     const input = { clientActionId: actionIds.current[command]!, expectedVersion: state.detail.job.version };
     const presentation = presentationFor(state.detail);
     try {
-      const updated = await executeLifecycleCommand(jobId, command, input, reason);
+      let commandInput: StartJobCardInput = input;
+      if (command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
+        if (startCapture.current?.clientActionId !== input.clientActionId) {
+          setStartPendingPhase('capturing');
+          startCapture.current = {
+            clientActionId: input.clientActionId,
+            capture: await captureStartLocation(),
+          };
+        }
+        setStartPendingPhase('submitting');
+        commandInput = { ...input, locationCapture: startCapture.current.capture };
+      }
+      const updated = await executeLifecycleCommand(jobId, command, commandInput, reason);
       if (state.detail.kind === 'SALES_MEETING' && command === 'START') {
         await refreshTruth();
       } else {
@@ -643,6 +668,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
         });
       }
       delete actionIds.current[command];
+      if (command === 'START') startCapture.current = null;
       setTimelineKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) setDialog(null);
@@ -653,12 +679,16 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     } catch (caught) {
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT' || caught.code === 'INVALID_TRANSITION')) {
         delete actionIds.current[command];
+        if (command === 'START') startCapture.current = null;
         try { await refreshTruth(); setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.'); }
         catch { setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); setMessageIsError(true); }
         setDialog(null);
         setFeedbackFocusRequest((value) => value + 1);
       } else {
-        if (!(caught instanceof ApiError) || !caught.retryable) delete actionIds.current[command];
+        if (!(caught instanceof ApiError) || !caught.retryable) {
+          delete actionIds.current[command];
+          if (command === 'START') startCapture.current = null;
+        }
         setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
         setMessageIsError(true);
         if (caught instanceof ApiError && caught.code === 'MEETING_NOT_READY') {
@@ -666,7 +696,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
         }
         setFeedbackFocusRequest((value) => value + 1);
       }
-    } finally { mutationInFlight.current = false; setPending(false); }
+    } finally {
+      mutationInFlight.current = false;
+      setPending(false);
+      setStartPendingPhase(null);
+    }
   }
   async function saveMeeting(input: PatchMeetingDetailsInput) {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
@@ -928,6 +962,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     items={detail.kind === 'PRODUCT_DELIVERY' ? detail.deliveryItems : []}
     user={user}
     pending={pending}
+    pendingLabel={startPendingPhase === 'capturing'
+      ? 'Konum alınıyor…'
+      : startPendingPhase === 'submitting'
+        ? 'İş başlatılıyor…'
+        : undefined}
     message={message}
     messageIsError={messageIsError}
     feedbackRef={feedbackRef}

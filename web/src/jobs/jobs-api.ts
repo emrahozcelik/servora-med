@@ -1,6 +1,7 @@
 import {
-  ApiError, items, json, nullableString, number, object, request, string,
+  ApiError, boolean, items, json, nullableString, number, object, request, string,
 } from '../services/api';
+import type { StartLocationCapture } from './start-location-capture.js';
 
 export const JOB_CARD_STATUSES = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
@@ -78,6 +79,7 @@ export type JobLifecycleFacts = {
 export type JobWorkflowContext = {
   allowedCommands: LifecycleCommand[];
   allowedActions: JobWorkflowAction[];
+  startLocationCaptureEnabled: boolean;
   lifecycle: JobLifecycleFacts;
   submissionReadiness: SubmissionReadiness | null;
 };
@@ -118,7 +120,15 @@ export type JobCardNote = {
   id: string; jobCardId: string; note: string; author: RelatedName; createdAt: string;
 };
 export type JobCardActivityDetails =
-  | { kind: 'STATUS_TRANSITION'; fromStatus: JobCardActivityStatus; toStatus: JobCardActivityStatus; reason: string | null }
+  | {
+      kind: 'STATUS_TRANSITION';
+      fromStatus: JobCardActivityStatus;
+      toStatus: JobCardActivityStatus;
+      reason: string | null;
+      startLocation?:
+        | { outcome: 'CAPTURED'; approximateLabel: string | null; accuracyMeters: number; capturedAt: string }
+        | { outcome: 'UNAVAILABLE'; reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED' | 'UNKNOWN' };
+    }
   | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate'> }
   | { kind: 'DELIVERY_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; purpose: DeliveryPurpose | null; quantity: number | null }
   | { kind: 'NOTE'; noteId: string }
@@ -168,6 +178,7 @@ type DeliveryInput = {
   deliveryNote?: string | null;
 };
 type LifecycleInput = { clientActionId: string; expectedVersion: number };
+export type StartJobCardInput = LifecycleInput & { locationCapture?: StartLocationCapture };
 
 function invalid(field: string): never {
   throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
@@ -279,7 +290,8 @@ function parseReadiness(value: unknown): SubmissionReadiness {
 }
 function parseWorkflowContext(value: unknown): JobWorkflowContext {
   const v = exactObject(value, 'workflowContext', [
-    'allowedCommands', 'allowedActions', 'lifecycle', 'submissionReadiness',
+    'allowedCommands', 'allowedActions', 'startLocationCaptureEnabled',
+    'lifecycle', 'submissionReadiness',
   ]);
   const allowedCommands = uniqueValues(
     array(v.allowedCommands, 'allowedCommands').map((entry) =>
@@ -294,6 +306,9 @@ function parseWorkflowContext(value: unknown): JobWorkflowContext {
   return {
     allowedCommands,
     allowedActions,
+    startLocationCaptureEnabled: v.startLocationCaptureEnabled === undefined
+      ? false
+      : boolean(v.startLocationCaptureEnabled, 'startLocationCaptureEnabled'),
     lifecycle: parseLifecycleFacts(v.lifecycle),
     submissionReadiness: v.submissionReadiness === null
       ? null
@@ -372,12 +387,39 @@ function parseDetails(value: unknown): JobCardActivityDetails {
   const v = object(value); const kind = string(v.kind, 'details.kind');
   if (kind === 'NONE') return { kind };
   if (kind === 'STATUS_TRANSITION') {
-    const detail = exactObject(v, 'details', ['kind', 'fromStatus', 'toStatus', 'reason']);
+    const detail = exactObject(v, 'details', [
+      'kind', 'fromStatus', 'toStatus', 'reason', 'startLocation',
+    ]);
+    let startLocation: Extract<JobCardActivityDetails, { kind: 'STATUS_TRANSITION' }>['startLocation'];
+    if (detail.startLocation !== undefined) {
+      const location = object(detail.startLocation);
+      const outcome = oneOf(location.outcome, 'startLocation.outcome', ['CAPTURED', 'UNAVAILABLE'] as const);
+      if (outcome === 'CAPTURED') {
+        const captured = exactObject(location, 'startLocation', [
+          'outcome', 'approximateLabel', 'accuracyMeters', 'capturedAt',
+        ]);
+        startLocation = {
+          outcome,
+          approximateLabel: nullableString(captured.approximateLabel, 'approximateLabel'),
+          accuracyMeters: positiveFiniteNumber(captured.accuracyMeters, 'accuracyMeters'),
+          capturedAt: canonicalInstant(captured.capturedAt, 'capturedAt'),
+        };
+      } else {
+        const unavailable = exactObject(location, 'startLocation', ['outcome', 'reason']);
+        startLocation = {
+          outcome,
+          reason: oneOf(unavailable.reason, 'reason', [
+            'PERMISSION_DENIED', 'POSITION_UNAVAILABLE', 'TIMEOUT', 'UNSUPPORTED', 'UNKNOWN',
+          ] as const),
+        };
+      }
+    }
     return {
       kind,
       fromStatus: oneOf(detail.fromStatus, 'fromStatus', JOB_CARD_ACTIVITY_STATUSES),
       toStatus: oneOf(detail.toStatus, 'toStatus', JOB_CARD_ACTIVITY_STATUSES),
       reason: nullableString(detail.reason, 'reason'),
+      ...(startLocation ? { startLocation } : {}),
     };
   }
   if (kind === 'FIELDS_UPDATED') return { kind, changedFields: array(v.changedFields, 'changedFields').map((field) =>
@@ -484,7 +526,7 @@ export async function removeDeliveryItem(id: string, itemId: string, expectedVer
 const lifecycle = async (id: string, command: string, input: object) =>
   parseJobCard(await request(`${jobPath(id)}/${command}`, json('POST', input)));
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
-export const startJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'start', input);
+export const startJobCard = (id: string, input: StartJobCardInput) => lifecycle(id, 'start', input);
 export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'submit-for-approval', input);
 export const approveJobCard = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'approve', input);
 export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);

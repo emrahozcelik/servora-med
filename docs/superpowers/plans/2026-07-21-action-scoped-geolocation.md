@@ -120,34 +120,34 @@ Allowed source area: one web geolocation service/adapter and focused tests.
 Allowed source area: existing Staff start surface, JobCard API client/parser,
 typed activity presentation, focused web tests, styles, and responsive fixture.
 
-- [ ] Extend the server-owned JobCard presentation with
+- [x] Extend the server-owned JobCard presentation with
   `startLocationCaptureEnabled`; never derive it from role/status in the web
   application and never add a separate `VITE_*` flag.
-- [ ] Prove absent/false capability renders no notice, makes no browser
+- [x] Prove absent/false capability renders no notice, makes no browser
   geolocation call, and submits the existing location-free start payload.
-- [ ] Add the operational notice from the design beside the existing
+- [x] Add the operational notice from the design beside the existing
   `İşi başlat` action; keep its name and command intent unchanged. Do not add a
   broken legal-document link before the governed documents surface exists.
-- [ ] Add a synchronous pending gate before awaiting browser geolocation and
+- [x] Add a synchronous pending gate before awaiting browser geolocation and
   preserve the existing `clientActionId` across transport retry.
-- [ ] Submit captured or unavailable outcome, then use the existing canonical
+- [x] Submit captured or unavailable outcome, then use the existing canonical
   stale-version refresh behavior.
-- [ ] Render approximate address, accuracy, capture time, or localized failure
+- [x] Render approximate address, accuracy, capture time, or localized failure
   reason in `JOB_STARTED` history without exposing raw provider data.
-- [ ] Preserve mobile action-before-Timeline DOM order, focus behavior, and
+- [x] Preserve mobile action-before-Timeline DOM order, focus behavior, and
   accessible pending/error announcements.
-- [ ] Add 390/720/768/1024/1440, 200% text, and 400% reflow coverage for long
+- [x] Add 390/720/768/1024/1440, 200% text, and 400% reflow coverage for long
   approximate addresses and failure text.
 
 ## Task 6 — Full Regression and Privacy Verification
 
-- [ ] Run full server migration/build/test/audit and web
+- [x] Run full server migration/build/test/audit and web
   test/build/bundle/responsive/audit suites.
-- [ ] Prove the production-like default configuration keeps capture disabled;
+- [x] Prove the production-like default configuration keeps capture disabled;
   prove enabled mode with missing provider configuration fails startup.
-- [ ] Statically and dynamically verify no coordinates, address, accuracy, or
+- [x] Statically and dynamically verify no coordinates, address, accuracy, or
   failure reason appear in SSE envelopes or logs.
-- [ ] Verify existing lifecycle, approval, activity, realtime, notification,
+- [x] Verify existing lifecycle, approval, activity, realtime, notification,
   request-gate, and idempotency contracts remain green.
 
 ## Task 7 — Manual Browser Acceptance and Handoff
@@ -249,3 +249,43 @@ Completed on 2026-07-21 on branch `feature/action-scoped-geolocation`.
   reverse-geocoding behavior was introduced in the browser.
 - Focused adapter verification passed 7 tests and the production web build
   passed.
+
+### Task 5 — Start Action and History UI
+
+Completed on 2026-07-21 on branch `feature/action-scoped-geolocation`.
+
+- Added `startLocationCaptureEnabled` to the server-owned detail presentation.
+  It is true only for enabled, assigned Staff START presentation; the web parser
+  safely normalizes an absent legacy value to false.
+- Kept the existing `İşi başlat` action and added the approved operational
+  notice only when the server capability is true. No consent checkbox,
+  Permissions API preflight, or placeholder legal-document link was added.
+- Added a synchronous mutation gate before browser capture, accessible capture
+  and submit pending labels, and reuse of the same `clientActionId` and capture
+  envelope after a retryable transport failure.
+- Joined location evidence to the authorized activity query and exposed only a
+  typed safe presentation: approximate label, accuracy, client capture time, or
+  normalized failure reason. Raw coordinates remain absent from the activity
+  DTO and Timeline.
+- Focused web detail/API/Timeline/capture verification passed 97 tests. The
+  responsive smoke passed at 390, 720, 768, 1024, and 1440 px plus 200% text
+  and 400% reflow with long location notice/address content; action-before-
+  Timeline DOM order remained intact.
+
+### Task 6 — Full Regression and Privacy Verification
+
+Completed locally on 2026-07-21; exact-head CI remains required before review.
+
+- Server migration, build, focused PostgreSQL integration, production audit,
+  and the full suite excluding only the known local `pg_hba trust` password-
+  rejection contract passed. The full server result was 1,065 tests in 89
+  files; the real location suite passed all 12 tests.
+- Web full tests passed 644 tests in 72 files. Production build, bundle budget,
+  responsive smoke, and production dependency audit passed; the largest chunk
+  remained approximately 179 KB under the 500,000-byte hard budget.
+- Default-off and enabled-without-provider fail-closed behavior are covered by
+  config/startup tests. Realtime envelopes exclude location fields and dynamic
+  logger verification confirms the complete `locationCapture` request field is
+  redacted.
+- No list/board DTO, lifecycle transition, notification policy, SSE payload, or
+  readiness rule was changed. Production capture remains disabled.
