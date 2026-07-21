@@ -14,6 +14,7 @@ export type AppConfig = {
   rateLimitWindowMs: number;
   trustedProxy: TrustedProxy;
   healthSchemaVersion: string | null;
+  actionScopedGeolocationEnabled: boolean;
 };
 
 const NODE_ENVIRONMENTS = new Set<NodeEnvironment>(['development', 'test', 'production']);
@@ -49,6 +50,13 @@ function readPositiveInteger(
     throw new Error(`${name} must be a positive integer`);
   }
   return parsed;
+}
+
+function readBoolean(value: string | undefined, name: string): boolean {
+  const resolved = value?.trim() ?? '';
+  if (!resolved || resolved === 'false') return false;
+  if (resolved === 'true') return true;
+  throw new Error(`${name} must be true or false`);
 }
 
 function readDatabaseUrl(value: string | undefined): string {
@@ -162,5 +170,9 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rateLimitWindowMs: readPositiveInteger(env.RATE_LIMIT_WINDOW_MS, 60_000, 'RATE_LIMIT_WINDOW_MS'),
     trustedProxy: readTrustedProxy(env.TRUSTED_PROXY, typedNodeEnv),
     healthSchemaVersion: readHealthSchemaVersion(env.HEALTH_SCHEMA_VERSION, typedNodeEnv),
+    actionScopedGeolocationEnabled: readBoolean(
+      env.ACTION_SCOPED_GEOLOCATION_ENABLED,
+      'ACTION_SCOPED_GEOLOCATION_ENABLED',
+    ),
   };
 }

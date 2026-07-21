@@ -65,41 +65,41 @@ Allowed source area: existing start route/handler/service, location module,
 reverse-geocoder port/adapter, server config, dependency wiring, and focused
 tests.
 
-- [ ] Write failing config tests proving absent/false is disabled, only exact
+- [x] Write failing config tests proving absent/false is disabled, only exact
   `true` enables, invalid values fail startup, and enabled mode requires every
   selected provider configuration value before the server accepts requests.
-- [ ] Add `ACTION_SCOPED_GEOLOCATION_ENABLED` to the existing server config
+- [x] Add `ACTION_SCOPED_GEOLOCATION_ENABLED` to the existing server config
   loader with a false default; do not add an independent web build flag.
-- [ ] Write failing tests for exact request validation, Staff-only start,
+- [x] Write failing tests for exact request validation, Staff-only start,
   captured and every normalized unavailable outcome.
-- [ ] Extend only the existing start command with the discriminated
+- [x] Extend only the existing start command with the discriminated
   `locationCapture` field; do not add a second endpoint or transition.
-- [ ] Validate coordinate bounds, finite values, positive accuracy, a
+- [x] Validate coordinate bounds, finite values, positive accuracy, a
   well-formed ISO client timestamp, exact fields, and failure enum on the
   backend before any provider I/O.
-- [ ] Keep reverse-geocoder I/O outside the DB transaction with a strict bound;
+- [x] Keep reverse-geocoder I/O outside the DB transaction with a strict bound;
   map only Servora-owned address components and persist no raw response.
-- [ ] Before reverse geocoding, return the stored result for an already
+- [x] Before reverse geocoding, return the stored result for an already
   completed critical action with the same organization, actor, kind, and
   `clientActionId`.
-- [ ] Before reverse geocoding, perform an organization-scoped, non-mutating
+- [x] Before reverse geocoding, perform an organization-scoped, non-mutating
   START preflight for assigned Staff authorization, transition eligibility, and
   obvious `expectedVersion` mismatch; repeat every check inside the transaction.
-- [ ] When disabled, discard any client-supplied `locationCapture` before
+- [x] When disabled, discard any client-supplied `locationCapture` before
   provider/persistence work, execute the legacy start transition, and prove no
   geocoder call or location row occurs.
-- [ ] Append transition, `JOB_STARTED`, location outcome, and existing realtime
+- [x] Append transition, `JOB_STARTED`, location outcome, and existing realtime
   ledger event in one transaction; publish invalidation only after commit.
-- [ ] Prove geocoder timeout/failure and low accuracy do not block start.
-- [ ] Prove completed replay does not call the geocoder again and transaction
+- [x] Prove geocoder timeout/failure and low accuracy do not block start.
+- [x] Prove completed replay does not call the geocoder again and transaction
   rollback/concurrent requests create no duplicate business records.
-- [ ] Prove cross-organization users, unrelated Staff, Admin/Manager START,
+- [x] Prove cross-organization users, unrelated Staff, Admin/Manager START,
   already `IN_PROGRESS` or otherwise ineligible status, obvious stale version,
   and malformed capture payloads never call the geocoder.
-- [ ] Prove a genuine state/version race after successful preflight may call the
+- [x] Prove a genuine state/version race after successful preflight may call the
   provider but commits no business records when the transaction rejects it;
   record this accepted TOCTOU transfer/cost risk in the Implementation Record.
-- [ ] Prove SSE and logs contain no location data and public JobCard list/board
+- [x] Prove SSE and logs contain no location data and public JobCard list/board
   DTOs remain unchanged.
 
 ## Task 4 — Browser Capture Adapter (TDD)
@@ -208,3 +208,31 @@ Completed on 2026-07-21 on branch `feature/action-scoped-geolocation`.
   1,028 of 1,029 tests; its sole failure is the known local `pg_hba` `trust`
   configuration accepting the deliberately wrong password. Location and other
   PostgreSQL suites were not skipped.
+
+### Task 3 — Server Start Integration
+
+Completed on 2026-07-21 on branch `feature/action-scoped-geolocation`.
+
+- Added the exact, discriminated start-location request parser and the
+  server-owned `ACTION_SCOPED_GEOLOCATION_ENABLED` flag. Missing/false stays on
+  the unchanged legacy start path; invalid boolean values fail configuration.
+- Added fail-closed application wiring: enabled mode cannot start without an
+  injected `ReverseGeocoder`. No production provider adapter or credential was
+  selected, so production enablement remains blocked by the separate policy
+  and provider gates.
+- Added a completed-action lookup and organization-scoped START preflight before
+  provider I/O. Authorization, assignment, transition, and version checks are
+  repeated inside the critical-action transaction.
+- Bounded reverse-geocoder I/O outside the transaction. Unavailable, low
+  accuracy, timeout, and provider-failure outcomes remain non-blocking.
+- Persisted transition, `JOB_STARTED` activity, one location outcome, and the
+  existing realtime ledger event atomically. Location payloads remain absent
+  from realtime envelopes and the request-body location field is logger-redacted.
+- Proved the accepted TOCTOU boundary: a state race after successful preflight
+  may consume one provider call, while the transaction commits no business
+  records. Concurrent first requests may similarly incur bounded duplicate
+  provider cost; the critical-action claim still permits only one commit.
+- Focused parser/config/startup/route/service/logger verification passed 137 tests.
+  The real PostgreSQL location suite passed 12 tests, including service-level
+  commit and completed replay. Full server regression excluding only the known
+  local `pg_hba trust` password-auth contract passed 1,062 tests in 89 files.

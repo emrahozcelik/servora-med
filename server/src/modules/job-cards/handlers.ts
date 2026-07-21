@@ -50,6 +50,7 @@ const PATCH_FIELDS = [
 ];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
+const START_FIELDS = [...LIFECYCLE_FIELDS, 'locationCapture'] as const;
 const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
 
 export function createJobCardHandlers(service: JobCardService) {
@@ -82,7 +83,7 @@ export function createJobCardHandlers(service: JobCardService) {
     accept: async (request: FastifyRequest<{ Params: Params }>) =>
       service.acceptAssignment(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     start: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.start(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
+      service.start(actor(request), request.params.id, body(request, START_FIELDS) as never),
     submit: async (request: FastifyRequest<{ Params: Params }>) =>
       service.submitForApproval(actor(request), request.params.id, body(request, LIFECYCLE_NOTE_FIELDS) as never),
     approve: async (request: FastifyRequest<{ Params: Params }>) =>

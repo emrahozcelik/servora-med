@@ -204,6 +204,9 @@ export type CriticalActionResult<T> =
   | { kind: 'processing' };
 
 export interface JobCardRepository extends SubmissionReader {
+  findCompletedCriticalAction<T>(
+    claim: CriticalActionClaim,
+  ): Promise<T | null>;
   executeCriticalAction<T>(
     claim: CriticalActionClaim,
     work: (
@@ -959,6 +962,18 @@ class PostgresJobCardTransaction implements JobCardTransaction {
 export class PostgresJobCardRepository
 implements JobCardRepository, ApprovalQueueItemPort {
   constructor(private readonly pool: Pool) {}
+
+  async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
+    const result = await this.pool.query<{ response_body: T }>(
+      `SELECT response_body
+       FROM processed_actions
+       WHERE organization_id = $1 AND user_id = $2
+         AND client_action_id = $3 AND operation_key = $4
+         AND status = 'completed' AND response_body IS NOT NULL`,
+      [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
+    );
+    return result.rows[0]?.response_body ?? null;
+  }
 
   async executeCriticalAction<T>(
     claim: CriticalActionClaim,

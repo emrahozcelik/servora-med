@@ -47,6 +47,7 @@ describe('logger security defaults', () => {
         'req.body.temporaryPassword',
         'req.body.token',
         'req.body.sessionToken',
+        'req.body.locationCapture',
       ]),
     );
   });

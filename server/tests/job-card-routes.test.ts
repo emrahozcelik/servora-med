@@ -291,6 +291,30 @@ describe('JobCard routes', () => {
     expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
   });
 
+  it('forwards the exact location capture envelope only on start', async () => {
+    const { app, service } = await createApp();
+    const payload = {
+      clientActionId: 'start-location-1',
+      expectedVersion: 1,
+      locationCapture: {
+        outcome: 'captured',
+        latitude: 39.92077,
+        longitude: 32.85411,
+        accuracyMeters: 24,
+        capturedAt: '2026-07-21T06:15:30.000Z',
+      },
+    };
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/job-1/start',
+      payload,
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.start).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
+  });
+
   it.each([
     ['accept', { clientActionId: 'x1', expectedVersion: 1, note: 'forbidden' }],
     ['start', { clientActionId: 'x2', expectedVersion: 1, revisionReason: 'forbidden' }],

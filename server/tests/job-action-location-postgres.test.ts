@@ -6,6 +6,7 @@ import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import { JobCardService } from '../src/modules/job-cards/service.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrations = [
@@ -85,6 +86,22 @@ async function createStartedJob(
   )).rows[0]!.id;
 }
 
+async function createAcceptedJob(
+  pool: Pool,
+  organizationId: string,
+  actorUserId: string,
+) {
+  return (await pool.query<{ id: string }>(
+    `INSERT INTO job_cards
+       (organization_id, type, status, title, assigned_to, created_by,
+        accepted_at, accepted_by)
+     VALUES ($1, 'GENERAL_TASK', 'ACCEPTED', 'Location start integration',
+             $2, $2, '2026-07-21T11:55:00.000Z', $2)
+     RETURNING id`,
+    [organizationId, actorUserId],
+  )).rows[0]!.id;
+}
+
 async function createActivity(
   pool: Pool,
   organizationId: string,
@@ -102,6 +119,81 @@ async function createActivity(
 }
 
 describe.skipIf(!databaseUrl)('013 job action locations PostgreSQL migration', () => {
+  it('atomically starts, stores location, emits realtime, and replays without geocoding', async () => {
+    await withMigratedDatabase(async (pool) => {
+      const organizationId = await createOrganization(pool);
+      const actorUserId = await createUser(pool, organizationId);
+      const jobCardId = await createAcceptedJob(pool, organizationId, actorUserId);
+      let reverseCalls = 0;
+      const service = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => new Date('2026-07-21T12:00:00.000Z'),
+        undefined,
+        {
+          enabled: true,
+          reverseGeocoder: {
+            reverse: async () => {
+              reverseCalls += 1;
+              return {
+                neighborhood: 'Kızılay', district: 'Çankaya', city: 'Ankara',
+                approximateLabel: 'Kızılay, Çankaya / Ankara',
+              };
+            },
+          },
+        },
+      );
+      const actor = { id: actorUserId, organizationId, role: 'STAFF' as const };
+      const request = {
+        clientActionId: randomUUID(),
+        expectedVersion: 1,
+        locationCapture: {
+          outcome: 'captured' as const,
+          latitude: 39.92077,
+          longitude: 32.85411,
+          accuracyMeters: 24,
+          capturedAt: '2026-07-21T11:59:58.000Z',
+        },
+      };
+
+      const first = await service.start(actor, jobCardId, request);
+      const replay = await service.start(actor, jobCardId, request);
+
+      expect(replay).toEqual(first);
+      expect(reverseCalls).toBe(1);
+      const persisted = await pool.query<{
+        status: string;
+        version: number;
+        activityCount: number;
+        locationCount: number;
+        realtimeCount: number;
+        actionCount: number;
+        approximateLabel: string;
+      }>(
+        `SELECT j.status, j.version,
+           (SELECT COUNT(*)::int FROM job_card_activity_logs a
+             WHERE a.organization_id = j.organization_id AND a.job_card_id = j.id
+               AND a.event_type = 'JOB_STARTED') AS "activityCount",
+           (SELECT COUNT(*)::int FROM job_action_locations l
+             WHERE l.organization_id = j.organization_id AND l.job_card_id = j.id) AS "locationCount",
+           (SELECT COUNT(*)::int FROM realtime_events r
+             WHERE r.organization_id = j.organization_id AND r.entity_id = j.id
+               AND r.event_type = 'job.started') AS "realtimeCount",
+           (SELECT COUNT(*)::int FROM processed_actions p
+             WHERE p.organization_id = j.organization_id AND p.user_id = $3
+               AND p.client_action_id = $2) AS "actionCount",
+           (SELECT l.approximate_label FROM job_action_locations l
+             WHERE l.organization_id = j.organization_id AND l.job_card_id = j.id) AS "approximateLabel"
+         FROM job_cards j WHERE j.organization_id = $1 AND j.id = $4`,
+        [organizationId, request.clientActionId, actorUserId, jobCardId],
+      );
+      expect(persisted.rows[0]).toEqual({
+        status: 'IN_PROGRESS', version: 2, activityCount: 1, locationCount: 1,
+        realtimeCount: 1, actionCount: 1,
+        approximateLabel: 'Kızılay, Çankaya / Ankara',
+      });
+    });
+  });
+
   it('stores a captured location for its JOB_STARTED activity', async () => {
     await withMigratedDatabase(async (pool) => {
       const organizationId = await createOrganization(pool);

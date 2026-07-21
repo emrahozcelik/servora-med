@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
 import type {
   CriticalActionClaim,
@@ -12,6 +12,7 @@ import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.j
 import type { RealtimeEventRecord } from '../src/modules/realtime/types.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActivityEvent, JobCardActor } from '../src/modules/job-cards/types.js';
+import type { AppendJobActionLocationInput } from '../src/modules/job-cards/location-types.js';
 
 type Activity = { event: JobCardActivityEvent; jobCardId: string; actorId: string; clientActionId: string };
 
@@ -29,6 +30,18 @@ class MemoryJobCardRepository implements JobCardRepository {
   completed = new Map<string, unknown>();
   processing = new Set<string>();
   failActivity = false;
+  failLocation = false;
+  beforeCriticalWork?: () => void;
+  locationAppends: AppendJobActionLocationInput[] = [];
+
+  async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
+    const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
+    return (this.completed.get(key) as T | undefined) ?? null;
+  }
+
+  async findJobCard(organizationId: string, id: string) {
+    return this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null;
+  }
 
   async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<CriticalActionWorkResult<T>>) {
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
@@ -37,6 +50,7 @@ class MemoryJobCardRepository implements JobCardRepository {
     this.processing.add(key);
     const jobBefore = { ...this.job };
     const activityCount = this.activities.length;
+    const locationCount = this.locationAppends.length;
     const tx: JobCardTransaction = {
       getJobForUpdate: async (organizationId, id) =>
         this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null,
@@ -77,6 +91,11 @@ class MemoryJobCardRepository implements JobCardRepository {
         this.activities.push({ event: input.event, jobCardId: input.jobCardId, actorId: input.actorId, clientActionId: input.clientActionId });
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
+      appendJobActionLocation: async (location) => {
+        if (this.failLocation) throw new Error('location failed');
+        this.locationAppends.push(location);
+        return { ...location, id: `location-${this.locationAppends.length}`, createdAt: new Date() };
+      },
       appendRealtimeEvent: async (input) => {
         const record: RealtimeEventRecord = { ...input, id: BigInt(this.realtimeEvents.length + 1) };
         this.realtimeEvents.push(record);
@@ -101,6 +120,7 @@ class MemoryJobCardRepository implements JobCardRepository {
       getSubmissionDeliveryItems: async () => [],
     };
     try {
+      this.beforeCriticalWork?.();
       const workResult = await work(tx);
       this.completed.set(key, workResult.response);
       if (this.nextCriticalResult === 'replay') {
@@ -110,6 +130,7 @@ class MemoryJobCardRepository implements JobCardRepository {
     } catch (error) {
       this.job = jobBefore;
       this.activities.splice(activityCount);
+      this.locationAppends.splice(locationCount);
       throw error;
     } finally { this.processing.delete(key); }
   }
@@ -163,6 +184,174 @@ describe('JobCardService critical command foundation', () => {
     const repository = new MemoryJobCardRepository();
     await expect(new JobCardService(repository).start({ ...staff, organizationId: 'org-2' }, 'job-1', input))
       .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+  });
+});
+
+describe('JobCardService action-scoped start location', () => {
+  const captured = {
+    outcome: 'captured' as const,
+    latitude: 39.92077,
+    longitude: 32.85411,
+    accuracyMeters: 24,
+    capturedAt: '2026-07-21T09:15:30+03:00',
+  };
+
+  function enabledService(repository = new MemoryJobCardRepository()) {
+    const reverse = vi.fn().mockResolvedValue({
+      neighborhood: 'Kızılay',
+      district: 'Çankaya',
+      city: 'Ankara',
+      approximateLabel: 'Kızılay, Çankaya / Ankara',
+    });
+    const service = new JobCardService(repository, undefined, undefined, {
+      enabled: true,
+      reverseGeocoder: { reverse },
+    });
+    return { repository, reverse, service };
+  }
+
+  it('preflights, geocodes, and appends the captured outcome beside JOB_STARTED', async () => {
+    const { repository, reverse, service } = enabledService();
+    await service.start(staff, 'job-1', { ...input, locationCapture: captured });
+
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toEqual([
+      expect.objectContaining({
+        jobCardId: 'job-1',
+        activityId: 'activity-1',
+        actorUserId: 'staff-1',
+        action: 'JOB_STARTED',
+        capture: expect.objectContaining({
+          outcome: 'CAPTURED',
+          geocodingStatus: 'RESOLVED',
+          approximateLabel: 'Kızılay, Çankaya / Ankara',
+        }),
+      }),
+    ]);
+    const publicRealtimeEnvelope = JSON.stringify(
+      repository.realtimeEvents,
+      (_key, value) => typeof value === 'bigint' ? value.toString() : value,
+    );
+    expect(publicRealtimeEnvelope).not.toContain('39.92077');
+    expect(publicRealtimeEnvelope).not.toContain('Kızılay');
+    expect(publicRealtimeEnvelope).not.toContain('accuracyMeters');
+  });
+
+  it('persists unavailable capture without provider I/O', async () => {
+    const { repository, reverse, service } = enabledService();
+    await service.start(staff, 'job-1', {
+      ...input,
+      locationCapture: { outcome: 'unavailable', reason: 'PERMISSION_DENIED' },
+    });
+
+    expect(reverse).not.toHaveBeenCalled();
+    expect(repository.locationAppends[0]?.capture)
+      .toEqual({ outcome: 'UNAVAILABLE', reason: 'PERMISSION_DENIED' });
+  });
+
+  it('does not call provider for malformed, stale, unauthorized, or ineligible requests', async () => {
+    const scenarios: Array<{ actor: JobCardActor; version: number; status?: JobCard['status']; capture: unknown }> = [
+      { actor: staff, version: 1, capture: { ...captured, latitude: 91 } },
+      { actor: staff, version: 9, capture: captured },
+      { actor: { ...staff, id: 'staff-2' }, version: 1, capture: captured },
+      { actor: { ...staff, role: 'MANAGER' }, version: 1, capture: captured },
+      { actor: staff, version: 1, status: 'IN_PROGRESS', capture: captured },
+      { actor: { ...staff, organizationId: 'org-2' }, version: 1, capture: captured },
+    ];
+
+    for (const scenario of scenarios) {
+      const { repository, reverse, service } = enabledService();
+      if (scenario.status) repository.job = { ...repository.job, status: scenario.status };
+      await expect(service.start(scenario.actor, 'job-1', {
+        expectedVersion: scenario.version,
+        clientActionId: `action-${scenario.actor.id}-${scenario.version}`,
+        locationCapture: scenario.capture,
+      })).rejects.toBeDefined();
+      expect(reverse).not.toHaveBeenCalled();
+      expect(repository.locationAppends).toEqual([]);
+    }
+  });
+
+  it('returns a completed replay before calling provider again', async () => {
+    const { repository, reverse, service } = enabledService();
+    const request = { ...input, locationCapture: captured };
+    const first = await service.start(staff, 'job-1', request);
+    const replay = await service.start(staff, 'job-1', request);
+
+    expect(replay).toEqual(first);
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends).toHaveLength(1);
+  });
+
+  it('keeps the legacy path location-free while the capability is disabled', async () => {
+    const repository = new MemoryJobCardRepository();
+    const reverse = vi.fn();
+    const service = new JobCardService(repository, undefined, undefined, {
+      enabled: false,
+      reverseGeocoder: { reverse },
+    });
+    await service.start(staff, 'job-1', { ...input, locationCapture: captured });
+
+    expect(reverse).not.toHaveBeenCalled();
+    expect(repository.locationAppends).toEqual([]);
+  });
+
+  it('continues start with FAILED geocoding and skips low-accuracy address lookup', async () => {
+    const failed = enabledService();
+    failed.reverse.mockRejectedValueOnce(new Error('provider timeout'));
+    await failed.service.start(staff, 'job-1', { ...input, locationCapture: captured });
+    expect(failed.repository.locationAppends[0]?.capture)
+      .toMatchObject({ outcome: 'CAPTURED', geocodingStatus: 'FAILED' });
+
+    const lowAccuracy = enabledService();
+    await lowAccuracy.service.start(staff, 'job-1', {
+      ...input,
+      clientActionId: 'low-accuracy',
+      locationCapture: { ...captured, accuracyMeters: 1_001 },
+    });
+    expect(lowAccuracy.reverse).not.toHaveBeenCalled();
+    expect(lowAccuracy.repository.locationAppends[0]?.capture)
+      .toMatchObject({ outcome: 'CAPTURED', geocodingStatus: 'NOT_REQUESTED' });
+  });
+
+  it('bounds a hanging reverse geocoder and continues the start command', async () => {
+    const repository = new MemoryJobCardRepository();
+    const reverse = vi.fn(() => new Promise<never>(() => undefined));
+    const service = new JobCardService(repository, undefined, undefined, {
+      enabled: true,
+      reverseGeocoder: { reverse },
+      reverseGeocoderTimeoutMs: 1,
+    });
+
+    await service.start(staff, 'job-1', { ...input, locationCapture: captured });
+
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.locationAppends[0]?.capture)
+      .toMatchObject({ outcome: 'CAPTURED', geocodingStatus: 'FAILED' });
+  });
+
+  it('rolls back transition and activity when location append fails', async () => {
+    const { repository, service } = enabledService();
+    repository.failLocation = true;
+
+    await expect(service.start(staff, 'job-1', { ...input, locationCapture: captured }))
+      .rejects.toThrow('location failed');
+    expect(repository.job).toMatchObject({ status: 'ACCEPTED', version: 1 });
+    expect(repository.activities).toEqual([]);
+    expect(repository.locationAppends).toEqual([]);
+  });
+
+  it('may call provider after preflight but commits nothing on a transaction race', async () => {
+    const { repository, reverse, service } = enabledService();
+    repository.beforeCriticalWork = () => {
+      repository.job = { ...repository.job, version: 2, status: 'IN_PROGRESS' };
+    };
+
+    await expect(service.start(staff, 'job-1', { ...input, locationCapture: captured }))
+      .rejects.toMatchObject({ code: 'VERSION_CONFLICT' });
+    expect(reverse).toHaveBeenCalledOnce();
+    expect(repository.activities).toEqual([]);
+    expect(repository.locationAppends).toEqual([]);
   });
 });
 
