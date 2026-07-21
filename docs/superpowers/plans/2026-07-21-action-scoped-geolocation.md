@@ -31,7 +31,8 @@ Allowed source area: only this plan and the paired design spec.
 - [x] Defer the full employee/user disclosure and retention decision to a
   governed Settings/profile documents slice; keep production capture disabled
   until those decisions are approved.
-- [ ] Complete design review before runtime code.
+- [x] Complete technical design review before runtime code (`9623938`,
+  approved 2026-07-21).
 
 Production enablement remains a separate gate after implementation:
 

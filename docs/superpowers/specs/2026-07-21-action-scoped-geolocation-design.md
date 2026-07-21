@@ -1,7 +1,7 @@
 # Servora-Med Action-Scoped Browser Geolocation Design
 
-**Status:** Proposed — runtime implementation is blocked until technical design
-review is complete. Production location capture remains disabled until the
+**Status:** Technical design approved on 2026-07-21. Runtime implementation may
+proceed default-off. Production location capture remains disabled until the
 privacy/retention policy and reverse-geocoding provider gates are approved.
 
 **Phase:** Q — action-scoped browser geolocation
