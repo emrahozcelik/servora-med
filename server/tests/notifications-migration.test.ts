@@ -5,6 +5,10 @@ import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 
+import {
+  PostgresNotificationRepository,
+  PostgresNotificationTransaction,
+} from '../src/modules/notifications/repository.js';
 const migrationUrl = new URL(
   '../src/db/migrations/012_create_in_app_notifications.sql',
   import.meta.url,
@@ -89,7 +93,7 @@ async function createSourceEvent(
 }
 
 describe.skipIf(!databaseUrl)('012 in-app notifications PostgreSQL migration', () => {
-  it('rejects cross-organization source events and unsupported kinds', async () => {
+  it('enforces storage constraints and executes the recipient repository contract', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `notifications_${randomUUID().replaceAll('-', '')}`;
     let pool: Pool | null = null;
@@ -117,8 +121,21 @@ describe.skipIf(!databaseUrl)('012 in-app notifications PostgreSQL migration', (
          VALUES ($1, 'Two', $2, 'unused-test-hash', 'STAFF') RETURNING id`,
         [organizationTwo, `${randomUUID()}@test.local`],
       )).rows[0]!.id;
+      const userThree = (await pool.query<{ id: string }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Three', $2, 'unused-test-hash', 'STAFF') RETURNING id`,
+        [organizationOne, `${randomUUID()}@test.local`],
+      )).rows[0]!.id;
       const sourceOne = await createSourceEvent(pool, organizationOne, userOne);
       const sourceTwo = await createSourceEvent(pool, organizationTwo, userTwo);
+
+      await expect(pool.query(
+        `INSERT INTO in_app_notifications
+           (organization_id, recipient_user_id, source_realtime_event_id, kind,
+            entity_type, entity_id)
+         VALUES ($1, $2, $3, 'job.approved', 'job-card', $4)`,
+        [organizationOne, userTwo, sourceOne.eventId, sourceOne.jobCardId],
+      )).rejects.toMatchObject({ code: '23503' });
 
       await pool.query(
         `INSERT INTO in_app_notifications
@@ -127,6 +144,13 @@ describe.skipIf(!databaseUrl)('012 in-app notifications PostgreSQL migration', (
          VALUES ($1, $2, $3, 'job.approved', 'job-card', $4)`,
         [organizationOne, userOne, sourceOne.eventId, sourceOne.jobCardId],
       );
+      await expect(pool.query(
+        `INSERT INTO in_app_notifications
+           (organization_id, recipient_user_id, source_realtime_event_id, kind,
+            entity_type, entity_id)
+         VALUES ($1, $2, $3, 'job.approved', 'job-card', $4)`,
+        [organizationOne, userOne, sourceOne.eventId, sourceOne.jobCardId],
+      )).rejects.toMatchObject({ code: '23505' });
 
       await expect(pool.query(
         `INSERT INTO in_app_notifications
@@ -142,6 +166,121 @@ describe.skipIf(!databaseUrl)('012 in-app notifications PostgreSQL migration', (
          VALUES ($1, $2, $3, 'job.unknown', 'job-card', $4)`,
         [organizationOne, userOne, sourceOne.eventId, sourceOne.jobCardId],
       )).rejects.toMatchObject({ code: '23514' });
+
+      const sourceThree = await createSourceEvent(pool, organizationOne, userOne);
+      const sourceFour = await createSourceEvent(pool, organizationOne, userOne);
+      const sourceFive = await createSourceEvent(pool, organizationOne, userOne);
+      const transaction = new PostgresNotificationTransaction(pool as never);
+      const repository = new PostgresNotificationRepository(pool);
+      const firstAppend = await transaction.append({
+        organizationId: organizationOne,
+        sourceRealtimeEventId: BigInt(sourceThree.eventId),
+        createdAt: new Date('2026-07-21T10:00:00.000Z'),
+        drafts: [
+          {
+            recipientUserId: userOne,
+            kind: 'job.approved',
+            entityType: 'job-card',
+            entityId: sourceThree.jobCardId,
+          },
+          {
+            recipientUserId: userThree,
+            kind: 'job.approved',
+            entityType: 'job-card',
+            entityId: sourceThree.jobCardId,
+          },
+        ],
+      });
+      expect(firstAppend).toHaveLength(2);
+      await expect(transaction.append({
+        organizationId: organizationOne,
+        sourceRealtimeEventId: BigInt(sourceThree.eventId),
+        createdAt: new Date('2026-07-21T10:00:00.000Z'),
+        drafts: [
+          {
+            recipientUserId: userOne,
+            kind: 'job.approved',
+            entityType: 'job-card',
+            entityId: sourceThree.jobCardId,
+          },
+          {
+            recipientUserId: userThree,
+            kind: 'job.approved',
+            entityType: 'job-card',
+            entityId: sourceThree.jobCardId,
+          },
+        ],
+      })).resolves.toEqual([]);
+      const sourceThreeCount = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count
+           FROM in_app_notifications
+          WHERE organization_id = $1 AND source_realtime_event_id = $2`,
+        [organizationOne, sourceThree.eventId],
+      );
+      expect(sourceThreeCount.rows[0]?.count).toBe(2);
+
+      for (const source of [sourceFour, sourceFive]) {
+        await transaction.append({
+          organizationId: organizationOne,
+          sourceRealtimeEventId: BigInt(source.eventId),
+          createdAt: new Date('2026-07-21T09:00:00.000Z'),
+          drafts: [{
+            recipientUserId: userOne,
+            kind: 'job.approved',
+            entityType: 'job-card',
+            entityId: source.jobCardId,
+          }],
+        });
+      }
+
+      await expect(repository.unreadCount({
+        organizationId: organizationOne,
+        userId: userOne,
+      })).resolves.toBe(4);
+      const expectedRows = await pool.query<{ id: string }>(
+        `SELECT id FROM in_app_notifications
+          WHERE organization_id = $1 AND recipient_user_id = $2
+          ORDER BY created_at DESC, id DESC`,
+        [organizationOne, userOne],
+      );
+      const listedIds: string[] = [];
+      let cursor: { createdAt: Date; id: string } | null = null;
+      do {
+        const page = await repository.list({
+          organizationId: organizationOne,
+          userId: userOne,
+        }, { limit: 2, cursor });
+        listedIds.push(...page.items.map((item) => item.id));
+        cursor = page.nextCursor;
+      } while (cursor);
+      expect(listedIds).toEqual(expectedRows.rows.map((row) => row.id));
+      expect(new Set(listedIds).size).toBe(listedIds.length);
+
+      const firstRead = await repository.markRead({
+        organizationId: organizationOne,
+        userId: userOne,
+      }, listedIds[0]!);
+      const secondRead = await repository.markRead({
+        organizationId: organizationOne,
+        userId: userOne,
+      }, listedIds[0]!);
+      expect(firstRead?.readAt).toBeInstanceOf(Date);
+      expect(secondRead?.readAt).toEqual(firstRead?.readAt);
+      await expect(repository.unreadCount({
+        organizationId: organizationOne,
+        userId: userOne,
+      })).resolves.toBe(3);
+
+      const indexes = await pool.query<{ indexname: string }>(
+        `SELECT indexname FROM pg_indexes
+          WHERE schemaname = current_schema()
+            AND tablename = 'in_app_notifications'`,
+      );
+      expect(indexes.rows.map((row) => row.indexname)).toEqual(expect.arrayContaining([
+        'in_app_notifications_recipient_unread_idx',
+        'in_app_notifications_recipient_created_idx',
+        'in_app_notifications_source_event_idx',
+      ]));
     } finally {
       if (pool) await pool.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
