@@ -16,6 +16,7 @@ import { PostgresReportsRepository } from './modules/reports/repository.js';
 import { InMemoryRealtimeEventBus } from './modules/realtime/event-bus.js';
 import { PostgresRealtimeEventRepository } from './modules/realtime/repository.js';
 import { RealtimeService } from './modules/realtime/service.js';
+import { PostgresNotificationRepository } from './modules/notifications/repository.js';
 import { createShutdown } from './shutdown.js';
 
 async function main() {
@@ -53,6 +54,7 @@ async function main() {
       healthReadiness: createPostgresReadiness(database.pool, config.healthSchemaVersion),
       realtimeService,
       realtimePublisher: realtimeBus,
+      notificationRepository: new PostgresNotificationRepository(database.pool),
     });
 
     const shutdown = createShutdown({

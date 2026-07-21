@@ -1,4 +1,4 @@
-import type { RefObject } from 'react';
+import type { ReactNode, RefObject } from 'react';
 import { Link } from 'react-router-dom';
 
 export function MobileTopBar({
@@ -8,6 +8,7 @@ export function MobileTopBar({
   menuControlsId,
   onOpenMenu,
   menuTriggerRef,
+  notifications,
 }: {
   title: string;
   backTo: string | null;
@@ -15,6 +16,7 @@ export function MobileTopBar({
   menuControlsId: string;
   onOpenMenu: (opener: HTMLElement) => void;
   menuTriggerRef: RefObject<HTMLButtonElement | null>;
+  notifications?: ReactNode;
 }) {
   return (
     <header className="compact-shell-header mobile-top-bar">
@@ -26,18 +28,21 @@ export function MobileTopBar({
         )}
         <p className="mobile-shell-title">{title}</p>
       </div>
-      <button
-        ref={menuTriggerRef}
-        className="shell-menu-button"
-        type="button"
-        aria-label="Menüyü aç"
-        aria-haspopup="dialog"
-        aria-expanded={menuExpanded}
-        aria-controls={menuControlsId}
-        onClick={(event) => onOpenMenu(event.currentTarget)}
-      >
-        Menü
-      </button>
+      <div className="mobile-top-bar-actions">
+        {notifications}
+        <button
+          ref={menuTriggerRef}
+          className="shell-menu-button"
+          type="button"
+          aria-label="Menüyü aç"
+          aria-haspopup="dialog"
+          aria-expanded={menuExpanded}
+          aria-controls={menuControlsId}
+          onClick={(event) => onOpenMenu(event.currentTarget)}
+        >
+          Menü
+        </button>
+      </div>
     </header>
   );
 }

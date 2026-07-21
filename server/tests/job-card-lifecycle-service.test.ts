@@ -121,6 +121,8 @@ class LifecycleRepository implements JobCardRepository {
         return { id: `activity-${this.events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
+      listActiveManagementRecipients: async () => [],
+      appendNotifications: async () => [],
       getAssignee: async () => {
         this.submissionReads.push('assignee');
         return this.assignee;
@@ -245,6 +247,8 @@ function twoJobRepository() {
           return { id: `activity-${events.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
         },
         appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
+        listActiveManagementRecipients: async () => [],
+        appendNotifications: async () => [],
         getAssignee: async () => ({
           id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
         }),

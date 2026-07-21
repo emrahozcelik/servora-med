@@ -31,6 +31,13 @@ import type {
 import {
   PostgresRealtimeEventTransaction,
 } from '../realtime/repository.js';
+import {
+  PostgresNotificationTransaction,
+} from '../notifications/repository.js';
+import type {
+  NotificationAppendInput,
+  NotificationRecord,
+} from '../notifications/types.js';
 
 export type AppendedActivity = {
   id: string;
@@ -113,6 +120,11 @@ export type ActivityRecord = {
 export type PageQuery = { limit: number; offset: number };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
+export type ActiveManagementRecipient = {
+  id: string;
+  role: 'ADMIN' | 'MANAGER';
+  isActive: boolean;
+};
 export type SubmissionCustomer = JobCustomerReference & { organizationId: string };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
 
@@ -141,6 +153,12 @@ export interface JobCardTransaction extends SubmissionReader {
   appendRealtimeEvent(
     input: RealtimeEventInput,
   ): Promise<RealtimeEventRecord>;
+  listActiveManagementRecipients(
+    organizationId: string,
+  ): Promise<readonly ActiveManagementRecipient[]>;
+  appendNotifications(
+    input: NotificationAppendInput,
+  ): Promise<readonly NotificationRecord[]>;
   createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
   getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
@@ -529,9 +547,11 @@ function workspaceWhere(
 
 class PostgresJobCardTransaction implements JobCardTransaction {
   private readonly realtime: PostgresRealtimeEventTransaction;
+  private readonly notifications: PostgresNotificationTransaction;
 
   constructor(private readonly client: PoolClient) {
     this.realtime = new PostgresRealtimeEventTransaction(client);
+    this.notifications = new PostgresNotificationTransaction(client);
   }
 
   async getJob(organizationId: string, jobCardId: string) {
@@ -607,6 +627,23 @@ class PostgresJobCardTransaction implements JobCardTransaction {
 
   appendRealtimeEvent(input: RealtimeEventInput) {
     return this.realtime.append(input);
+  }
+
+  async listActiveManagementRecipients(organizationId: string) {
+    const result = await this.client.query<ActiveManagementRecipient>(
+      `SELECT id, role, is_active AS "isActive"
+         FROM users
+        WHERE organization_id = $1
+          AND is_active = TRUE
+          AND role IN ('ADMIN', 'MANAGER')
+        ORDER BY id ASC`,
+      [organizationId],
+    );
+    return result.rows;
+  }
+
+  appendNotifications(input: NotificationAppendInput) {
+    return this.notifications.append(input);
   }
 
   async createNote(input: CreateNoteRecord) {

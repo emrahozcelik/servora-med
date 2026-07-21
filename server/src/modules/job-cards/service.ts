@@ -62,6 +62,9 @@ import {
   mapJobCardActivityToRealtime,
 } from '../realtime/event-mapper.js';
 import {
+  createJobCardNotificationDrafts,
+} from '../notifications/policy.js';
+import {
   NOOP_REALTIME_EVENT_PUBLISHER,
   type RealtimeEventPublisher,
 } from '../realtime/event-bus.js';
@@ -197,7 +200,33 @@ export class JobCardService {
       beforeAssigneeId: input.beforeAssigneeId,
       afterAssigneeId: input.afterAssigneeId,
     });
-    return mapped ? [await transaction.appendRealtimeEvent(mapped)] : [];
+    if (!mapped) return [];
+
+    const managementRecipients = input.event === 'JOB_SUBMITTED_FOR_APPROVAL'
+      ? await transaction.listActiveManagementRecipients(input.organizationId)
+      : [];
+    const drafts = createJobCardNotificationDrafts({
+      event: input.event,
+      actorUserId: input.actorUserId,
+      afterAssigneeId: input.afterAssigneeId,
+      jobCardId: input.jobCardId,
+      managementRecipients,
+    });
+    const realtimeEvent = await transaction.appendRealtimeEvent({
+      ...mapped,
+      resourceKeys: drafts.length > 0
+        ? [...new Set([...mapped.resourceKeys, 'notifications'])].sort()
+        : mapped.resourceKeys,
+    });
+    if (drafts.length > 0) {
+      await transaction.appendNotifications({
+        organizationId: input.organizationId,
+        sourceRealtimeEventId: realtimeEvent.id,
+        createdAt: input.activity.createdAt,
+        drafts,
+      });
+    }
+    return [realtimeEvent];
   }
 
   async listNotes(actor: JobCardActor, jobCardId: string, page: PageQuery) {

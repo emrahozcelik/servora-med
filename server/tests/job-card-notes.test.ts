@@ -63,6 +63,8 @@ class NotesRepository {
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
       appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
+      listActiveManagementRecipients: async () => [],
+      appendNotifications: async () => [],
     } as JobCardTransaction;
   }
 

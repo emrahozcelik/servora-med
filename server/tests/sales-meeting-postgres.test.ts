@@ -19,7 +19,7 @@ async function applyMigrations(pool: Pool) {
     '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
     '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
     '009_job_acceptance_and_scheduling.sql', '010_entity_delete_audit.sql',
-    '011_create_realtime_events.sql',
+    '011_create_realtime_events.sql', '012_create_in_app_notifications.sql',
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(path, 'utf8'));

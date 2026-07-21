@@ -28,13 +28,15 @@ const MIGRATIONS = [
   '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
   '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
   '009_job_acceptance_and_scheduling.sql', '010_entity_delete_audit.sql',
-  '011_create_realtime_events.sql',
+  '011_create_realtime_events.sql', '012_create_in_app_notifications.sql',
 ] as const;
 
 type Fixture = {
   pool: Pool;
   organizationId: string;
   managerUserId: string;
+  adminUserId: string;
+  inactiveManagerUserId: string;
   assignedStaffUserId: string;
   unrelatedStaffUserId: string;
   jobCardId: string;
@@ -66,6 +68,16 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
        VALUES ($1, 'Manager', $2, 'unused-test-hash', 'MANAGER') RETURNING id`,
       [organizationId, `${randomUUID()}@test.local`],
     )).rows[0]!.id;
+    const adminUserId = (await pool.query<{ id: string }>(
+      `INSERT INTO users (organization_id, name, email, password_hash, role)
+       VALUES ($1, 'Admin', $2, 'unused-test-hash', 'ADMIN') RETURNING id`,
+      [organizationId, `${randomUUID()}@test.local`],
+    )).rows[0]!.id;
+    const inactiveManagerUserId = (await pool.query<{ id: string }>(
+      `INSERT INTO users (organization_id, name, email, password_hash, role, is_active)
+       VALUES ($1, 'Inactive manager', $2, 'unused-test-hash', 'MANAGER', FALSE) RETURNING id`,
+      [organizationId, `${randomUUID()}@test.local`],
+    )).rows[0]!.id;
     const assignedStaffUserId = (await pool.query<{ id: string }>(
       `INSERT INTO users (organization_id, name, email, password_hash, role)
        VALUES ($1, 'Staff', $2, 'unused-test-hash', 'STAFF') RETURNING id`,
@@ -89,6 +101,8 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       pool,
       organizationId,
       managerUserId,
+      adminUserId,
+      inactiveManagerUserId,
       assignedStaffUserId,
       unrelatedStaffUserId,
       jobCardId: job.id,
@@ -332,6 +346,127 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
         assignedSub.close();
         unrelatedSub.close();
       }
+    });
+  });
+
+  it('projects approval submission notifications before publishing the realtime event', async () => {
+    await withFixture(async ({
+      pool, organizationId, managerUserId, adminUserId, inactiveManagerUserId,
+      assignedStaffUserId, jobCardId, jobVersion,
+    }) => {
+      const { published, publisher } = capturingPublisher();
+      const jobCards = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => new Date('2026-07-20T10:00:00.000Z'),
+        publisher,
+      );
+      const staff = jobCardActor(organizationId, assignedStaffUserId, 'STAFF');
+
+      await jobCards.start(staff, jobCardId, {
+        expectedVersion: jobVersion,
+        clientActionId: randomUUID(),
+      });
+      const submitActionId = randomUUID();
+      await jobCards.submitForApproval(staff, jobCardId, {
+        expectedVersion: jobVersion + 1,
+        clientActionId: submitActionId,
+        note: 'Teslim tamamlandı.',
+      });
+      await jobCards.submitForApproval(staff, jobCardId, {
+        expectedVersion: jobVersion + 1,
+        clientActionId: submitActionId,
+        note: 'Teslim tamamlandı.',
+      });
+
+      const notification = await pool.query<{
+        recipient_user_id: string;
+        kind: string;
+        source_realtime_event_id: string;
+      }>(
+        `SELECT recipient_user_id, kind, source_realtime_event_id
+           FROM in_app_notifications
+          WHERE organization_id = $1`,
+        [organizationId],
+      );
+      expect(notification.rows.map((row) => row.recipient_user_id).sort()).toEqual(
+        [managerUserId, adminUserId].sort(),
+      );
+      expect(notification.rows).toEqual(expect.arrayContaining([
+        expect.objectContaining({ kind: 'job.awaiting_approval' }),
+      ]));
+      expect(notification.rows.map((row) => row.recipient_user_id))
+        .not.toContain(inactiveManagerUserId);
+
+      const submittedEvent = published.find((event) => event.type === 'job.submitted_for_approval');
+      expect(submittedEvent).toBeDefined();
+      expect(published.filter((event) => event.type === 'job.submitted_for_approval')).toHaveLength(1);
+      expect(submittedEvent!.resourceKeys).toContain('notifications');
+      expect(notification.rows.every(
+        (row) => row.source_realtime_event_id === submittedEvent!.id.toString(),
+      )).toBe(true);
+    });
+  });
+
+  it('rolls back the JobCard mutation, activity, and realtime event when notification append fails', async () => {
+    await withFixture(async ({
+      pool, organizationId, assignedStaffUserId, jobCardId, jobVersion,
+    }) => {
+      const { published, publisher } = capturingPublisher();
+      const jobCards = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => new Date('2026-07-20T10:00:00.000Z'),
+        publisher,
+      );
+      const staff = jobCardActor(organizationId, assignedStaffUserId, 'STAFF');
+
+      await jobCards.start(staff, jobCardId, {
+        expectedVersion: jobVersion,
+        clientActionId: randomUUID(),
+      });
+      await pool.query(
+        `CREATE FUNCTION reject_notification_append() RETURNS trigger LANGUAGE plpgsql AS $$
+           BEGIN
+             RAISE EXCEPTION 'notification append failed';
+           END;
+         $$`,
+      );
+      await pool.query(
+        `CREATE TRIGGER reject_notification_append
+           BEFORE INSERT ON in_app_notifications
+           FOR EACH ROW EXECUTE FUNCTION reject_notification_append()`,
+      );
+
+      await expect(jobCards.submitForApproval(staff, jobCardId, {
+        expectedVersion: jobVersion + 1,
+        clientActionId: randomUUID(),
+        note: 'Teslim tamamlandı.',
+      })).rejects.toThrow('notification append failed');
+
+      const job = await pool.query<{ status: string; version: number }>(
+        `SELECT status, version FROM job_cards WHERE id = $1`,
+        [jobCardId],
+      );
+      expect(job.rows[0]).toMatchObject({ status: 'IN_PROGRESS', version: jobVersion + 1 });
+
+      const activity = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count
+           FROM job_card_activity_logs
+          WHERE job_card_id = $1 AND event_type = 'JOB_SUBMITTED_FOR_APPROVAL'`,
+        [jobCardId],
+      );
+      const events = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count
+           FROM realtime_events
+          WHERE entity_id = $1 AND event_type = 'job.submitted_for_approval'`,
+        [jobCardId],
+      );
+      const notifications = await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM in_app_notifications`,
+      );
+      expect(activity.rows[0]!.count).toBe(0);
+      expect(events.rows[0]!.count).toBe(0);
+      expect(notifications.rows[0]!.count).toBe(0);
+      expect(published.filter((event) => event.type === 'job.submitted_for_approval')).toEqual([]);
     });
   });
 
