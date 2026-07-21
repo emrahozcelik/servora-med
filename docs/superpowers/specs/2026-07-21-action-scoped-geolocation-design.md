@@ -47,7 +47,50 @@ the user was at an exact address.
 - geographic report UI or formulas in the first runtime slice;
 - a client-side reverse-geocoding provider call.
 
-## 4. User Notice and Permission UX
+## 4. Default-Off Enablement and Server Enforcement
+
+`ACTION_SCOPED_GEOLOCATION_ENABLED` is a server-owned boolean configuration
+value. Absence and the exact value `false` resolve to disabled. The exact value
+`true` is the only enabled state; every other non-empty value fails startup
+configuration validation.
+
+The server exposes the resolved state through the existing JobCard detail
+presentation as `startLocationCaptureEnabled`; the web application does not
+define an independent `VITE_*` flag or infer enablement from role, status, or
+browser support. The presentation value can be true only when the authenticated
+user has the existing Staff `START` action. The server configuration remains
+the authoritative enforcement point regardless of the presentation value.
+
+Disabled behavior is fail-closed for location data while preserving the legacy
+business command:
+
+- the web application does not call `navigator.geolocation`;
+- the operational location notice is not rendered;
+- the start request omits `locationCapture` and follows the existing payload;
+- if a modified or stale client sends `locationCapture`, the server discards
+  that field without parsing it as capture evidence, before any provider,
+  persistence, or activity-location work, and continues the existing start
+  transition;
+- no reverse-geocoder call or `job_action_locations` row can occur.
+
+When enabled, startup configuration validation requires a selected supported
+provider adapter and every credential/endpoint value required by that adapter.
+Missing, empty, unsupported, or incompatible provider configuration prevents
+the server from starting; it cannot silently fall back to an enabled mode
+without reverse-geocoding policy enforcement. This validation completes before
+the application begins accepting requests.
+
+The flag may be enabled only after the production gates in section 16 are
+approved. Turning it off again immediately restores the legacy start behavior;
+historical authorized location records remain governed by their retention
+policy and are not deleted by a configuration change.
+
+Storage, domain ports, browser adapters, and disabled-mode UI/server wiring may
+be implemented and merged while the flag remains false. A provider-specific
+adapter and production enablement cannot be completed until the provider gate
+is approved.
+
+## 5. User Notice and Permission UX
 
 The Staff action surface shows an operational notice near `İşi başlat`:
 
@@ -85,9 +128,10 @@ No automatic permission request occurs before the click. Retry after a denied
 permission does not repeatedly prompt; it submits the normalized unavailable
 outcome and continues the workflow.
 
-## 5. Capture Contract
+## 6. Capture Contract
 
-The existing start request gains exactly one discriminated field:
+When the server capability is enabled, the existing start request gains exactly
+one discriminated field:
 
 ```ts
 type StartLocationCapture =
@@ -128,7 +172,7 @@ are authoritative server times. Audit ordering and Timeline ordering always use
 server time. The pilot does not reject an otherwise valid capture solely for
 device clock skew.
 
-## 6. Accuracy Policy
+## 7. Accuracy Policy
 
 The UI displays the browser-reported radius, for example:
 
@@ -148,7 +192,7 @@ whether Phase Q requests an approximate address. Eligibility and accuracy
 rules for future geographic reports are a separate report-design decision and
 are not established by Phase Q.
 
-## 7. Persistence Model
+## 8. Persistence Model
 
 Add an append-only JobCard child record associated with exactly one persisted
 `JOB_STARTED` activity:
@@ -183,7 +227,7 @@ rows. Coordinates use fixed precision and never appear in logs or SSE payloads.
 The location row is not a mutable column on `job_cards`; it is evidence tied to
 the action that produced it. Public JobCard summary/list DTOs remain unchanged.
 
-## 8. Transaction and Idempotency Boundary
+## 9. Transaction and Idempotency Boundary
 
 ```text
 Staff click
@@ -220,9 +264,13 @@ activity, and location row.
 The same `clientActionId` therefore does not create a second activity or
 location row. A transport retry reuses the same capture envelope and does not
 call browser geolocation again. The UI also uses a synchronous pending gate
-before awaiting geolocation.
+before awaiting geolocation. The accepted pilot tradeoff is that two truly
+concurrent first requests may each incur one provider call before the
+transaction claim selects the single committing request. Provider rate-limit
+and cost review must account for this bounded duplication risk, and the final
+Implementation Record must state it explicitly.
 
-## 9. Reverse-Geocoding Boundary
+## 10. Reverse-Geocoding Boundary
 
 Reverse geocoding is server-owned behind a narrow `ReverseGeocoder` port. The
 browser never contacts the provider and never receives provider credentials.
@@ -237,7 +285,7 @@ cache terms, and deletion/data-subject-request obligations. Provider responses
 are mapped to Servora-owned nullable `neighborhood`, `district`, `city`, and
 `approximateLabel` fields. Raw provider responses are not persisted.
 
-## 10. Authorization and Presentation
+## 11. Authorization and Presentation
 
 - Write: only the existing backend-authorized Staff `START` command path.
 - Read: only users already authorized to read that JobCard's activity history.
@@ -253,7 +301,7 @@ The activity presenter gains a typed location presentation attached to
 accuracy radius, capture time, and actor. Unavailable locations show
 `Konum alınamadı` plus a Turkish presentation of the normalized reason.
 
-## 11. Retention and Deletion
+## 12. Retention and Deletion
 
 No retention period is approved in Phase Q. A concrete maximum period or an
 exact reference to an approved organizational retention policy is deferred to
@@ -267,7 +315,7 @@ The schema remains append-only and tied to JobCard activity; Phase Q does not
 invent a self-delete endpoint or silently treat an unspecified period as
 indefinite retention.
 
-## 12. Failure Semantics
+## 13. Failure Semantics
 
 | Condition | Stored outcome | Job starts? |
 | --- | --- | --- |
@@ -281,25 +329,29 @@ indefinite retention.
 | Invalid/tampered payload | `400 VALIDATION_ERROR` | No |
 | Version/transition conflict | existing canonical error/refresh | No |
 
-## 13. Test Contract
+## 14. Test Contract
 
-Server tests prove validation, tenant-safe constraints, one-to-one activity
-linkage, Staff-only start authorization, captured/unavailable persistence,
-low-accuracy behavior, geocoder failure fallback, transaction rollback,
-idempotent replay, no provider call for a completed `clientActionId`, no public
-list DTO change, and no location in SSE/logs.
+Server tests prove absent/false/invalid/true configuration behavior, enabled
+provider-config startup validation, disabled request enforcement, validation,
+tenant-safe constraints, one-to-one activity linkage, Staff-only start
+authorization, captured/unavailable persistence, low-accuracy behavior,
+geocoder failure fallback, transaction rollback, idempotent replay, no provider
+call for a completed `clientActionId`, no public list DTO change, and no
+location in SSE/logs.
 
-Web tests prove capture occurs only after the click; allow, deny, timeout,
-unavailable browser, double click, request retry, stale-version refresh,
-pending labels, notice text, and history presentation. Browser/manual testing
-covers current Chrome and real Safari for allow/deny/timeout and verifies that
-no request occurs at login or page load.
+Web tests prove disabled capability causes no notice, location call, or location
+request field; enabled capture occurs only after the click; allow, deny,
+timeout, unavailable browser, double click, request retry, stale-version
+refresh, pending labels, notice text, and history presentation. Browser/manual
+testing covers current Chrome and real Safari for allow/deny/timeout and
+verifies that no request occurs at login or page load.
 
-## 14. Acceptance Criteria
+## 15. Acceptance Criteria
 
 1. Only an assigned Staff user's explicit `İşi başlat` click attempts capture.
 2. Location failure cannot deadlock a valid start transition.
-3. One committed start activity has exactly one captured or unavailable outcome.
+3. When enabled, one committed start activity has exactly one captured or
+   unavailable outcome.
 4. Retry and duplicate clicks create no duplicate transition, activity, or row.
 5. Location is visible only through existing authorized JobCard history.
 6. Coordinates remain canonical and address metadata is explicitly approximate.
@@ -308,8 +360,12 @@ no request occurs at login or page load.
 8. Completed-action retries do not call the reverse-geocoding provider again.
 9. Production capture cannot be enabled before the privacy/retention policy and
    provider/data-transfer review are approved.
+10. Absent or false enablement preserves the legacy start payload and creates no
+    browser request, provider call, or location row, even for a modified client.
+11. Enabled mode with missing required provider configuration fails before the
+    server accepts requests.
 
-## 15. Design Review and Enablement Gates
+## 16. Design Review and Enablement Gates
 
 Runtime implementation may start only after reviewers approve the technical
 design, including:
@@ -319,13 +375,15 @@ design, including:
 - the completed-action lookup before reverse geocoding and the transactional
   claim as the final concurrency defense;
 - non-blocking capture and reverse-geocoder failure behavior.
+- default-off server configuration, server-enforced disabled behavior, and
+  fail-closed startup validation for enabled provider configuration.
 
 Production location capture must remain disabled until all of these are
 approved and recorded:
 
 - the full employee/user location disclosure and its link from the action;
 - a concrete maximum retention period or an exact approved policy reference;
-- the reverse-geocoding provider checklist in section 9;
+- the reverse-geocoding provider checklist in section 10;
 - any required deletion/export process for the approved policy.
 
 Servora-Med not being publicly accessible does not remove these enablement
@@ -333,7 +391,7 @@ gates: the captured data still concerns identifiable Staff users. Legal basis
 and final wording require review by the organization's authorized privacy/KVKK
 owner; this design does not make that legal determination.
 
-## 16. Deferred Product and Policy Work
+## 17. Deferred Product and Policy Work
 
 A later, separate slice may add a governed documents area under Settings or the
 user profile for:

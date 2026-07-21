@@ -3,7 +3,7 @@
 > **Execution gate:** This is a docs-only Phase Q plan. Do not add migrations,
 > runtime code, dependencies, provider credentials, or UI changes until the
 > paired technical design is explicitly approved. Runtime development and
-> production enablement have separate gates in design section 15.
+> production enablement have separate gates in design section 16.
 
 **Goal:** Attach one optional, auditable browser-location outcome to the
 existing Staff `İşi başlat` action without blocking the workflow when location
@@ -26,21 +26,22 @@ Allowed source area: only this plan and the paired design spec.
   authoritative for audit and Timeline ordering.
 - [x] Require completed-action short-circuit before reverse geocoding while
   retaining the transaction claim as the final concurrency defense.
+- [x] Define `ACTION_SCOPED_GEOLOCATION_ENABLED` as a server-owned, default-off
+  gate exposed through JobCard presentation and enforced again by the server.
 - [x] Defer the full employee/user disclosure and retention decision to a
   governed Settings/profile documents slice; keep production capture disabled
   until those decisions are approved.
-- [ ] Select and approve the reverse-geocoding provider, regional endpoint,
-  data-processing terms, request-log retention, subprocessors, cross-border
-  transfer mechanism, response licensing/cache terms, deletion obligations,
-  timeout, rate limit, and production secret handling.
 - [ ] Complete design review before runtime code.
 
 Production enablement remains a separate gate after implementation:
 
 - [ ] Publish and link the approved full location disclosure.
 - [ ] Record a concrete maximum retention period or exact approved policy.
-- [ ] Complete the provider/data-transfer review and required deletion/export
-  handling.
+- [ ] Select and approve the reverse-geocoding provider, regional endpoint,
+  data-processing terms, request-log retention, subprocessors, cross-border
+  transfer mechanism, response licensing/cache terms, deletion obligations,
+  timeout, rate limit, production secret handling, and required deletion/export
+  process.
 
 ## Task 2 — Storage and Repository Contracts (TDD)
 
@@ -60,8 +61,14 @@ focused PostgreSQL tests.
 ## Task 3 — Server Start Integration (TDD)
 
 Allowed source area: existing start route/handler/service, location module,
-reverse-geocoder port/adapter, dependency wiring, and focused tests.
+reverse-geocoder port/adapter, server config, dependency wiring, and focused
+tests.
 
+- [ ] Write failing config tests proving absent/false is disabled, only exact
+  `true` enables, invalid values fail startup, and enabled mode requires every
+  selected provider configuration value before the server accepts requests.
+- [ ] Add `ACTION_SCOPED_GEOLOCATION_ENABLED` to the existing server config
+  loader with a false default; do not add an independent web build flag.
 - [ ] Write failing tests for exact request validation, Staff-only start,
   captured and every normalized unavailable outcome.
 - [ ] Extend only the existing start command with the discriminated
@@ -72,6 +79,9 @@ reverse-geocoder port/adapter, dependency wiring, and focused tests.
   map only Servora-owned address components and persist no raw response.
 - [ ] Before reverse geocoding, return the stored result for an already
   completed critical action with the same actor, kind, and `clientActionId`.
+- [ ] When disabled, discard any client-supplied `locationCapture` before
+  provider/persistence work, execute the legacy start transition, and prove no
+  geocoder call or location row occurs.
 - [ ] Append transition, `JOB_STARTED`, location outcome, and existing realtime
   ledger event in one transaction; publish invalidation only after commit.
 - [ ] Prove geocoder timeout/failure and low accuracy do not block start.
@@ -98,6 +108,11 @@ Allowed source area: one web geolocation service/adapter and focused tests.
 Allowed source area: existing Staff start surface, JobCard API client/parser,
 typed activity presentation, focused web tests, styles, and responsive fixture.
 
+- [ ] Extend the server-owned JobCard presentation with
+  `startLocationCaptureEnabled`; never derive it from role/status in the web
+  application and never add a separate `VITE_*` flag.
+- [ ] Prove absent/false capability renders no notice, makes no browser
+  geolocation call, and submits the existing location-free start payload.
 - [ ] Add the operational notice from the design beside the existing
   `İşi başlat` action; keep its name and command intent unchanged. Do not add a
   broken legal-document link before the governed documents surface exists.
@@ -116,6 +131,8 @@ typed activity presentation, focused web tests, styles, and responsive fixture.
 
 - [ ] Run full server migration/build/test/audit and web
   test/build/bundle/responsive/audit suites.
+- [ ] Prove the production-like default configuration keeps capture disabled;
+  prove enabled mode with missing provider configuration fails startup.
 - [ ] Statically and dynamically verify no coordinates, address, accuracy, or
   failure reason appear in SSE envelopes or logs.
 - [ ] Verify existing lifecycle, approval, activity, realtime, notification,
@@ -132,6 +149,9 @@ typed activity presentation, focused web tests, styles, and responsive fixture.
   JobCard viewers in the same organization.
 - [ ] Record exact provider/config, production-enablement status, commands, CI,
   browser results, and merge data in the design Implementation Record.
+- [ ] Record the accepted possibility that simultaneous first requests may each
+  call the provider while the transaction still permits only one business
+  commit; include the assessed rate-limit and cost impact.
 - [ ] Move the runtime PR from draft only after all acceptance criteria pass.
 
 ## Required Verification Commands
