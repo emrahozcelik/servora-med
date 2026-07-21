@@ -22,6 +22,20 @@ const notification = {
   createdAt: '2026-07-21T10:00:00.000Z', readAt: null,
 };
 
+class FakeEventSource implements RealtimeEventSource {
+  readonly listeners = new Map<string, Set<EventListener>>();
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+    listeners.add(listener); this.listeners.set(type, listeners);
+  }
+  removeEventListener(type: string, listener: EventListener) { this.listeners.get(type)?.delete(listener); }
+  close() {}
+  emit(type: string, data?: string) {
+    const event = data === undefined ? new Event(type) : new MessageEvent(type, { data });
+    this.listeners.get(type)?.forEach((listener) => listener(event));
+  }
+}
+
 describe('NotificationCenter', () => {
   let container: HTMLDivElement; let root: Root;
   beforeEach(() => {
@@ -31,12 +45,12 @@ describe('NotificationCenter', () => {
     api.markNotificationRead.mockResolvedValue({ ...notification, readAt: '2026-07-21T11:00:00.000Z' });
   });
   afterEach(async () => {
-    await act(async () => root.unmount()); container.remove(); vi.clearAllMocks();
+    await act(async () => root.unmount()); container.remove(); vi.clearAllMocks(); vi.useRealTimers();
   });
 
-  async function render(identityKey = 'org-1:staff-1') {
+  async function render(identityKey = 'org-1:staff-1', mobile = false) {
     await act(async () => root.render(
-      <MemoryRouter><NotificationCenter identityKey={identityKey} mobile={false} /></MemoryRouter>,
+      <MemoryRouter><NotificationCenter identityKey={identityKey} mobile={mobile} /></MemoryRouter>,
     ));
   }
 
@@ -116,6 +130,31 @@ describe('NotificationCenter', () => {
     expect(document.activeElement).toBe(trigger);
   });
 
+  it.each([false, true])('keeps keyboard focus within the %s panel and cleans up after close', async (mobile) => {
+    await render('org-1:staff-1', mobile);
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    trigger.focus();
+    await act(async () => trigger.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(trigger.getAttribute('aria-expanded')).toBe('true');
+    expect(trigger.getAttribute('aria-controls')).toBe(dialog.id);
+    expect(dialog.getAttribute('aria-labelledby')).toBeTruthy();
+    const focusable = Array.from(dialog.querySelectorAll<HTMLButtonElement>('button:not([disabled])'));
+    const first = focusable[0]!; const last = focusable.at(-1)!;
+    last.focus();
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', bubbles: true })));
+    expect(document.activeElement).toBe(first);
+    first.focus();
+    await act(async () => dialog.dispatchEvent(new KeyboardEvent('keydown', { key: 'Tab', shiftKey: true, bubbles: true })));
+    expect(document.activeElement).toBe(last);
+    const outside = document.createElement('button'); document.body.append(outside); outside.focus();
+    expect(dialog.contains(document.activeElement)).toBe(true);
+    outside.remove();
+    await act(async () => first.click());
+    expect(document.body.style.overflow).toBe('');
+    expect(document.activeElement).toBe(trigger);
+  });
+
   it('clears recipient-scoped panel state before loading a different identity', async () => {
     await render();
     const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
@@ -153,5 +192,63 @@ describe('NotificationCenter', () => {
     })));
     expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
     expect(api.listNotifications).toHaveBeenCalledTimes(2);
+  });
+
+  it('uses the same guarded loaders for recovery, and loads the list only while open', async () => {
+    vi.useFakeTimers();
+    const source = new FakeEventSource();
+    await act(async () => root.render(
+      <MemoryRouter>
+        <RealtimeProvider eventSourceFactory={() => source}>
+          <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+        </RealtimeProvider>
+      </MemoryRouter>,
+    ));
+    await act(async () => {
+      source.emit('open');
+      window.dispatchEvent(new Event('focus'));
+      window.dispatchEvent(new Event('online'));
+      document.dispatchEvent(new Event('visibilitychange'));
+      await Promise.resolve();
+    });
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
+    expect(api.listNotifications).not.toHaveBeenCalled();
+
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    await act(async () => { source.emit('error'); await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(3);
+    expect(api.listNotifications).toHaveBeenCalledTimes(2);
+
+    await act(async () => { source.emit('open'); await Promise.resolve(); });
+    await act(async () => { await vi.advanceTimersByTimeAsync(60_000); });
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(4);
+    expect(api.listNotifications).toHaveBeenCalledTimes(3);
+  });
+
+  it('does not let an older list response overwrite a newer invalidation reload', async () => {
+    let resolveFirst: ((page: { items: typeof notification[]; nextCursor: null }) => void) | undefined;
+    let resolveSecond: ((page: { items: typeof notification[]; nextCursor: null }) => void) | undefined;
+    api.listNotifications.mockReset()
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockImplementationOnce(() => new Promise((resolve) => { resolveSecond = resolve; }));
+    const source = new FakeEventSource();
+    await act(async () => root.render(
+      <MemoryRouter><RealtimeProvider eventSourceFactory={() => source}>
+        <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+      </RealtimeProvider></MemoryRouter>,
+    ));
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    await act(async () => source.emit('servora.change', JSON.stringify({
+      id: '1', type: 'job.approved', entity: { type: 'job-card', id: 'job-1' },
+      resourceKeys: ['notifications'], occurredAt: '2026-07-21T12:00:00.000Z',
+    })));
+    const newer = { ...notification, title: 'Yeni canonical kayıt' };
+    await act(async () => resolveSecond!({ items: [newer], nextCursor: null }));
+    await act(async () => resolveFirst!({ items: [notification], nextCursor: null }));
+    expect(container.textContent).toContain('Yeni canonical kayıt');
+    expect(container.textContent).not.toContain('Yeni iş atandı');
   });
 });

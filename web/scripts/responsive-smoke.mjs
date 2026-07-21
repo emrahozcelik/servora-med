@@ -71,6 +71,9 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <section class="report-workspace" aria-label="Chart bileşenleri responsive fixture" data-smoke-charts>
         <div id="responsive-chart-fixture-root"></div>
       </section>
+      <section class="report-workspace" aria-label="Bildirim merkezi responsive fixture" data-smoke-notification>
+        <div id="responsive-notification-center-root"></div>
+      </section>
       <section class="job-board" aria-label="Aktif iş panosu">
         <div class="workflow-board">
           <section class="workflow-lane"><header class="workflow-lane-heading"><h2>Hazırlanıyor</h2><a class="workflow-lane-link" href="#">Tümünü gör</a></header>
@@ -140,6 +143,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <script type="module" src="/scripts/responsive-staff-report-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-state-adapters-fixture.tsx"></script>
 <script type="module" src="/scripts/responsive-chart-fixture.tsx"></script>
+<script type="module" src="/scripts/responsive-notification-center-fixture.tsx"></script>
 </body></html>`;
 
 const viewports = [
@@ -215,6 +219,13 @@ async function measure(page) {
       });
     }
     const laneCards = document.querySelector('.workflow-lane-cards');
+    const notificationSection = document.querySelector('[data-smoke-notification]');
+    const notificationPanel = notificationSection?.querySelector('[role="dialog"]');
+    const notificationPanelRect = notificationPanel?.getBoundingClientRect();
+    const notificationOverflow = Boolean(notificationPanelRect && (
+      notificationPanelRect.left < -2 || notificationPanelRect.right > window.innerWidth + 2
+      || notificationPanelRect.top < -2 || notificationPanelRect.bottom > window.innerHeight + 2
+    ));
     let laneCardCols = 0;
     let visiblePreviewCards = 0;
     if (laneCards) {
@@ -527,6 +538,12 @@ async function measure(page) {
       segmentedPresent: Boolean(segmentedEl),
       segmentedOverflow,
       legendOverflow,
+      notificationPresent: Boolean(notificationPanel),
+      notificationOverflow,
+      notificationItems: notificationSection?.querySelectorAll('[data-notification-id]').length ?? 0,
+      notificationLoadMore: Boolean(notificationSection?.querySelector('.notification-center-more')),
+      notificationBadge: notificationSection?.querySelector('.notification-center-badge')?.textContent ?? '',
+      notificationMobile: notificationPanel?.classList.contains('notification-center-panel--mobile') ?? false,
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
     };
@@ -586,6 +603,7 @@ try {
     await page.waitForSelector('.servora-ant-timeline');
     await page.waitForSelector('[data-servora-operational-table="true"]');
     await waitForChartFixtures(page);
+    await page.waitForSelector('[data-smoke-notification] [role="dialog"]');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: vp.name, ...m }));
@@ -705,6 +723,11 @@ try {
         );
       }
     }
+    if (!m.notificationPresent || m.notificationOverflow || m.notificationItems !== 2
+      || !m.notificationLoadMore || m.notificationBadge !== '123'
+      || m.notificationMobile !== (vp.width < 1024)) {
+      failures.push(`${vp.name}: notification center responsive contract failure`);
+    }
     await page.close();
   }
 
@@ -714,6 +737,7 @@ try {
     await page.waitForSelector('.servora-ant-timeline');
     await page.waitForSelector('[data-servora-operational-table="true"]');
     await waitForChartFixtures(page);
+    await page.waitForSelector('[data-smoke-notification] [role="dialog"]');
     await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
@@ -741,6 +765,9 @@ try {
       failures.push('200% text: shared state adapter reflow failure');
     }
     if (chartContractFailed(m)) failures.push('200% text: chart component contract failure');
+    if (!m.notificationPresent || m.notificationOverflow || !m.notificationMobile) {
+      failures.push('200% text: notification center reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
     }
@@ -755,6 +782,7 @@ try {
     await page.waitForSelector('.servora-ant-timeline');
     await page.waitForSelector('[data-servora-operational-table="true"]');
     await waitForChartFixtures(page);
+    await page.waitForSelector('[data-smoke-notification] [role="dialog"]');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
     const m = await measure(page);
     console.log(JSON.stringify({ viewport: '320-wcag-400pct-reflow', ...m }));
@@ -781,6 +809,10 @@ try {
       failures.push('400% reflow: shared state adapter reflow failure');
     }
     if (chartContractFailed(m)) failures.push('400% reflow: chart component contract failure');
+    if (!m.notificationPresent || m.notificationOverflow || !m.notificationMobile
+      || m.notificationItems !== 2 || !m.notificationLoadMore) {
+      failures.push('400% reflow: notification center reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {
         failures.push(`400% reflow: ${r.sel} layout failure`);
