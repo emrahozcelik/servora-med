@@ -40,6 +40,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const unreadRequest = useRef(0);
   const listRequest = useRef(0);
   const openRef = useRef(false);
+  const pendingIdRef = useRef<string | null>(null);
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [items, setItems] = useState<readonly InAppNotification[]>([]);
@@ -85,6 +86,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     setLoading(false);
     setLoadError('');
     setPendingId(null);
+    pendingIdRef.current = null;
     setActionError('');
     void loadUnread();
   }, [identityKey]);
@@ -133,7 +135,8 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   }
 
   async function activate(notification: InAppNotification) {
-    if (pendingId) return;
+    if (pendingIdRef.current) return;
+    pendingIdRef.current = notification.id;
     setPendingId(notification.id);
     setActionError('');
     try {
@@ -144,6 +147,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     } catch (caught) {
       setActionError(message(caught, 'Bildirim açılamadı. Lütfen tekrar deneyin.'));
     } finally {
+      pendingIdRef.current = null;
       setPendingId(null);
     }
   }

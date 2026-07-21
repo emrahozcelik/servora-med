@@ -74,7 +74,9 @@ describe('NotificationCenter', () => {
     await act(async () => trigger.click());
     const action = container.querySelector<HTMLButtonElement>('[data-notification-id]')!;
     await act(async () => action.click());
+    await act(async () => action.click());
     expect(action.disabled).toBe(true);
+    expect(api.markNotificationRead).toHaveBeenCalledTimes(1);
     expect(api.markNotificationRead).toHaveBeenCalledWith(notification.id);
     await act(async () => resolveMark!({ ...notification, readAt: '2026-07-21T11:00:00.000Z' }));
     expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
