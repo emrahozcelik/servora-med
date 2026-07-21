@@ -49,15 +49,15 @@ Production enablement remains a separate gate after implementation:
 Allowed source area: one new migration, JobCard repository/location types, and
 focused PostgreSQL tests.
 
-- [ ] Write failing PostgreSQL tests for tenant-safe JobCard/activity/actor
+- [x] Write failing PostgreSQL tests for tenant-safe JobCard/activity/actor
   links, exact captured/unavailable checks, unique activity linkage, precision,
   and indexes.
-- [ ] Add an append-only `job_action_locations` migration without changing an
+- [x] Add an append-only `job_action_locations` migration without changing an
   already-applied migration.
-- [ ] Add a transaction port that appends exactly one location outcome beside
+- [x] Add a transaction port that appends exactly one location outcome beside
   the persisted `JOB_STARTED` activity.
-- [ ] Prove duplicate append rejection and full rollback with the activity.
-- [ ] Run migration, focused PostgreSQL tests, and server build.
+- [x] Prove duplicate append rejection and full rollback with the activity.
+- [x] Run migration, focused PostgreSQL tests, and server build.
 
 ## Task 3 — Server Start Integration (TDD)
 
@@ -182,3 +182,29 @@ npm run bundle:check
 npm run smoke:responsive
 npm audit --omit=dev
 ```
+
+## Implementation Record
+
+### Task 2 — Storage and Repository Contracts
+
+Completed on 2026-07-21 on branch `feature/action-scoped-geolocation`.
+
+- Added migration `013_create_job_action_locations` with an append-only,
+  tenant-safe activity/JobCard/actor link, exact outcome and geocoding checks,
+  one-location-per-activity uniqueness, fixed coordinate precision, and the
+  authorized JobCard-history index.
+- Added a typed `appendJobActionLocation` transaction port for captured and
+  unavailable outcomes.
+- Verified captured/unavailable persistence, invalid field combinations,
+  numeric bounds, vocabulary, cross-organization/wrong-job/non-start links,
+  duplicate rejection, and activity/location/action-claim rollback against the
+  local PostgreSQL 16 `servora_med_test` database.
+- Applied migrations through `013_create_job_action_locations` to the local
+  test database.
+- Focused PostgreSQL and migration-upgrade verification passed: 3 files and 17
+  tests. The dedicated location suite passed 11 tests.
+- Full server regression with `TEST_DATABASE_URL` passed 1,024 tests in 87 files
+  when excluding only `db-auth-contract.test.ts`. The unfiltered run passed
+  1,028 of 1,029 tests; its sole failure is the known local `pg_hba` `trust`
+  configuration accepting the deliberately wrong password. Location and other
+  PostgreSQL suites were not skipped.

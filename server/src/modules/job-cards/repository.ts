@@ -38,6 +38,12 @@ import type {
   NotificationAppendInput,
   NotificationRecord,
 } from '../notifications/types.js';
+import type {
+  AppendJobActionLocationInput,
+  JobActionLocationRecord,
+  LocationFailureReason,
+  LocationGeocodingStatus,
+} from './location-types.js';
 
 export type AppendedActivity = {
   id: string;
@@ -150,6 +156,9 @@ export interface JobCardTransaction extends SubmissionReader {
   getJobDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
   appendActivity(input: ActivityInput): Promise<AppendedActivity>;
+  appendJobActionLocation(
+    input: AppendJobActionLocationInput,
+  ): Promise<JobActionLocationRecord>;
   appendRealtimeEvent(
     input: RealtimeEventInput,
   ): Promise<RealtimeEventRecord>;
@@ -311,6 +320,26 @@ type MeetingDetailsRow = {
   meeting_summary: string | null;
   next_follow_up_at: Date | null;
 };
+type JobActionLocationRow = {
+  id: string;
+  organization_id: string;
+  job_card_id: string;
+  activity_id: string;
+  actor_user_id: string;
+  action: 'JOB_STARTED';
+  capture_outcome: JobActionLocationRecord['capture']['outcome'];
+  failure_reason: LocationFailureReason | null;
+  latitude: string | null;
+  longitude: string | null;
+  accuracy_meters: string | null;
+  captured_at: Date | null;
+  geocoding_status: LocationGeocodingStatus;
+  neighborhood: string | null;
+  district: string | null;
+  city: string | null;
+  approximate_label: string | null;
+  created_at: Date;
+};
 
 function mapMeetingDetails(row: MeetingDetailsRow): MeetingDetailsCandidate {
   return {
@@ -318,6 +347,35 @@ function mapMeetingDetails(row: MeetingDetailsRow): MeetingDetailsCandidate {
     outcome: row.outcome,
     meetingSummary: row.meeting_summary,
     nextFollowUpAt: row.next_follow_up_at?.toISOString() ?? null,
+  };
+}
+function mapJobActionLocation(row: JobActionLocationRow): JobActionLocationRecord {
+  const capture: JobActionLocationRecord['capture'] = row.capture_outcome === 'UNAVAILABLE'
+    ? {
+        outcome: 'UNAVAILABLE',
+        reason: row.failure_reason!,
+      }
+    : {
+        outcome: 'CAPTURED',
+        latitude: Number(row.latitude),
+        longitude: Number(row.longitude),
+        accuracyMeters: Number(row.accuracy_meters),
+        capturedAt: row.captured_at!,
+        geocodingStatus: row.geocoding_status,
+        neighborhood: row.neighborhood,
+        district: row.district,
+        city: row.city,
+        approximateLabel: row.approximate_label,
+      };
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    jobCardId: row.job_card_id,
+    activityId: row.activity_id,
+    actorUserId: row.actor_user_id,
+    action: row.action,
+    capture,
+    createdAt: row.created_at,
   };
 }
 function mapNote(row: NoteRow): JobCardNoteDto {
@@ -623,6 +681,45 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         input.clientActionId ?? null],
     );
     return { id: result.rows[0]!.id, createdAt: result.rows[0]!.created_at };
+  }
+
+  async appendJobActionLocation(
+    input: AppendJobActionLocationInput,
+  ): Promise<JobActionLocationRecord> {
+    const capture = input.capture;
+    const captured = capture.outcome === 'CAPTURED' ? capture : null;
+    const result = await this.client.query<JobActionLocationRow>(
+      `INSERT INTO job_action_locations
+         (organization_id, job_card_id, activity_id, actor_user_id, action,
+          capture_outcome, failure_reason, latitude, longitude, accuracy_meters,
+          captured_at, geocoding_status, neighborhood, district, city,
+          approximate_label)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
+               $14, $15, $16)
+       RETURNING id, organization_id, job_card_id, activity_id, actor_user_id,
+                 action, capture_outcome, failure_reason, latitude, longitude,
+                 accuracy_meters, captured_at, geocoding_status, neighborhood,
+                 district, city, approximate_label, created_at`,
+      [
+        input.organizationId,
+        input.jobCardId,
+        input.activityId,
+        input.actorUserId,
+        input.action,
+        capture.outcome,
+        capture.outcome === 'UNAVAILABLE' ? capture.reason : null,
+        captured?.latitude ?? null,
+        captured?.longitude ?? null,
+        captured?.accuracyMeters ?? null,
+        captured?.capturedAt ?? null,
+        captured?.geocodingStatus ?? 'NOT_REQUESTED',
+        captured?.neighborhood ?? null,
+        captured?.district ?? null,
+        captured?.city ?? null,
+        captured?.approximateLabel ?? null,
+      ],
+    );
+    return mapJobActionLocation(result.rows[0]!);
   }
 
   appendRealtimeEvent(input: RealtimeEventInput) {
