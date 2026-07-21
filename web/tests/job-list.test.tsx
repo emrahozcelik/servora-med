@@ -141,14 +141,20 @@ describe('structured JobCard list', () => {
   });
 
   it('prefers scheduledAt over dueDate on list cards', () => {
-    const html = renderList({ kind: 'ready', page: page([{
-      ...item,
-      scheduledAt: '2026-07-21T09:30:00.000Z',
-      dueDate: '2026-07-25',
-    }]) });
-    expect(html).toContain('Planlanan teslim');
-    expect(html).toContain('dateTime="2026-07-21T09:30:00.000Z"');
-    expect(html).not.toContain('<dt>Termin</dt>');
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-20T12:00:00.000Z'));
+    try {
+      const html = renderList({ kind: 'ready', page: page([{
+        ...item,
+        scheduledAt: '2026-07-21T09:30:00.000Z',
+        dueDate: '2026-07-25',
+      }]) });
+      expect(html).toContain('Planlanan teslim');
+      expect(html).toContain('dateTime="2026-07-21T09:30:00.000Z"');
+      expect(html).not.toContain('<dt>Termin</dt>');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('renders the server page range and explicit previous/next actions', () => {
