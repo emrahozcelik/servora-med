@@ -152,6 +152,8 @@ class CrudMemoryRepository implements JobCardRepository {
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
+      listActiveManagementRecipients: async () => [],
+      appendNotifications: async () => [],
     };
     try {
       const completed = await work(tx); this.completed.set(key, completed.response);
@@ -225,6 +227,8 @@ class CrudMemoryRepository implements JobCardRepository {
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
+      listActiveManagementRecipients: async () => [],
+      appendNotifications: async () => [],
     };
     try { return await work(tx); } catch (error) { this.jobs = before; this.activities.splice(eventCount); throw error; }
   }

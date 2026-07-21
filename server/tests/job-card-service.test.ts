@@ -5,7 +5,9 @@ import type {
   CriticalActionWorkResult,
   JobCardRepository,
   JobCardTransaction,
+  ActiveManagementRecipient,
 } from '../src/modules/job-cards/repository.js';
+import type { NotificationAppendInput } from '../src/modules/notifications/types.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
 import type { RealtimeEventRecord } from '../src/modules/realtime/types.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
@@ -22,6 +24,7 @@ class MemoryJobCardRepository implements JobCardRepository {
   };
   activities: Activity[] = [];
   realtimeEvents: RealtimeEventRecord[] = [];
+  notificationAppends: NotificationAppendInput[] = [];
   nextCriticalResult: 'completed' | 'replay' = 'completed';
   completed = new Map<string, unknown>();
   processing = new Set<string>();
@@ -78,6 +81,15 @@ class MemoryJobCardRepository implements JobCardRepository {
         const record: RealtimeEventRecord = { ...input, id: BigInt(this.realtimeEvents.length + 1) };
         this.realtimeEvents.push(record);
         return record;
+      },
+      listActiveManagementRecipients: async (): Promise<readonly ActiveManagementRecipient[]> => [
+        { id: 'manager-1', role: 'MANAGER', isActive: true },
+        { id: 'admin-1', role: 'ADMIN', isActive: true },
+        { id: 'inactive-manager', role: 'MANAGER', isActive: false },
+      ],
+      appendNotifications: async (input) => {
+        this.notificationAppends.push(input);
+        return [];
       },
       getAssignee: async () => ({
         id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
@@ -202,5 +214,40 @@ describe('JobCardService realtime event emission', () => {
 
     expect(repository.realtimeEvents).toEqual([]);
     expect(published).toEqual([]);
+  });
+
+  it('persists notification drafts before publishing an approval submission event', async () => {
+    const { repository, published, service } = withPublisher();
+    repository.job = {
+      ...repository.job,
+      type: 'GENERAL_TASK',
+      customerId: null,
+    };
+
+    await service.start(staff, 'job-1', input);
+    await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-action',
+      note: 'Görev tamamlandı.',
+    });
+
+    expect(repository.notificationAppends).toEqual([
+      expect.objectContaining({
+        organizationId: 'org-1',
+        sourceRealtimeEventId: 2n,
+        drafts: expect.arrayContaining([
+          expect.objectContaining({
+            recipientUserId: 'admin-1',
+            kind: 'job.awaiting_approval',
+          }),
+          expect.objectContaining({
+            recipientUserId: 'manager-1',
+            kind: 'job.awaiting_approval',
+          }),
+        ]),
+      }),
+    ]);
+    const submitted = published.find((event) => event.type === 'job.submitted_for_approval');
+    expect(submitted?.resourceKeys).toContain('notifications');
   });
 });

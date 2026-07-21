@@ -45,18 +45,18 @@ tests, and dependency wiring only.
 Allowed source area: Task 2 files, JobCard transaction/service integration,
 realtime mapper/types, dependency wiring, and focused tests.
 
-- [ ] Write failing tests covering each approved source activity, exact active
+- [x] Write failing tests covering each approved source activity, exact active
   recipient set, actor exclusion, inactive manager exclusion, rollback, and
   idempotent command replay.
-- [ ] Implement a pure notification policy that maps only the approved
+- [x] Implement a pure notification policy that maps only the approved
   high-signal JobCard activities to semantic notification kinds and recipient
   drafts before any realtime event is inserted.
-- [ ] Append the realtime event with `notifications` only when those drafts
+- [x] Append the realtime event with `notifications` only when those drafts
   exist, then insert rows using its persisted source event ID in the same
   transaction.
-- [ ] Retain the existing SSE payload shape and audience rules; do not create a
+- [x] Retain the existing SSE payload shape and audience rules; do not create a
   new mark-read realtime event.
-- [ ] Publish only after commit through the established realtime bus path.
+- [x] Publish only after commit through the established realtime bus path.
 - [ ] Run focused lifecycle/realtime/notification integration tests and server
   build. Confirm no public JobCard DTO changed.
 
