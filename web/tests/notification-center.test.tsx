@@ -5,6 +5,10 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NotificationCenter } from '../src/notifications/NotificationCenter';
+import {
+  createInstallOpportunityController,
+  InstallOpportunityProvider,
+} from '../src/install/InstallOpportunity';
 import { RealtimeProvider, type RealtimeEventSource } from '../src/realtime/RealtimeProvider';
 
 const api = vi.hoisted(() => ({
@@ -45,7 +49,11 @@ describe('NotificationCenter', () => {
     api.markNotificationRead.mockResolvedValue({ ...notification, readAt: '2026-07-21T11:00:00.000Z' });
   });
   afterEach(async () => {
-    await act(async () => root.unmount()); container.remove(); vi.clearAllMocks(); vi.useRealTimers();
+    await act(async () => root.unmount());
+    container.remove();
+    vi.clearAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   async function render(identityKey = 'org-1:staff-1', mobile = false) {
@@ -67,6 +75,69 @@ describe('NotificationCenter', () => {
     expect(dialog.textContent).toContain('Size yeni bir iş atandı.');
     expect(dialog.textContent).toContain('Okunmadı');
     expect(document.activeElement).toBe(dialog.querySelector('button'));
+  });
+
+  it('offers a retained install prompt only from the explicit settings action', async () => {
+    const controller = createInstallOpportunityController(window);
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const event = new Event('beforeinstallprompt', { cancelable: true });
+    Object.assign(event, {
+      prompt,
+      userChoice: Promise.resolve({ outcome: 'accepted', platform: '' }),
+    });
+    controller.start();
+    window.dispatchEvent(event);
+
+    await act(async () => root.render(
+      <MemoryRouter>
+        <InstallOpportunityProvider controller={controller}>
+          <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+        </InstallOpportunityProvider>
+      </MemoryRouter>,
+    ));
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const settings = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
+    await act(async () => settings.click());
+    const install = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Uygulamayı yükle')!;
+
+    expect(prompt).not.toHaveBeenCalled();
+    await act(async () => install.click());
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('Uygulama bu cihaza yüklendi.');
+    controller.stop();
+  });
+
+  it('shows manual install guidance and returns focus without touching notification APIs', async () => {
+    const requestPermission = vi.fn();
+    const register = vi.fn();
+    vi.stubGlobal('Notification', { requestPermission });
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: { register },
+    });
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const settings = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
+    settings.focus();
+    await act(async () => settings.click());
+
+    expect(container.textContent).toContain('Paylaş → Ana Ekrana Ekle');
+    expect(container.textContent).toContain('Cihaz bildirimleri şu anda kullanıma kapalıdır.');
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+    const back = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Bildirimlere dön')!;
+    expect(document.activeElement).toBe(back);
+    await act(async () => back.click());
+    const restoredSettings = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
+    expect(document.activeElement).toBe(restoredSettings);
+    delete (navigator as Navigator & { serviceWorker?: unknown }).serviceWorker;
   });
 
   it('shows an empty state and supports retry after a list failure', async () => {

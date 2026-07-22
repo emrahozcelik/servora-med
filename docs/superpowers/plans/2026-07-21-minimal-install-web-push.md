@@ -43,10 +43,10 @@ Allowed source area: only this plan and the paired design spec.
 - [x] Record default-off enablement, manifest/install UX, permission states,
   subscription/session model, durable outbox, dispatcher, privacy payload,
   service-worker, deep-link, operations, and browser contracts.
-- [ ] Obtain explicit design review approval before runtime implementation.
-- [ ] Keep the design PR docs-only and draft until the review findings and
+- [x] Obtain explicit design review approval before runtime implementation.
+- [x] Keep the design PR docs-only and draft until the review findings and
   exact-head CI are resolved.
-- [ ] After design merge, create a fresh runtime branch from updated `main`;
+- [x] After design merge, create a fresh runtime branch from updated `main`;
   never continue runtime work on the docs branch.
 
 ## Task 2 — Manifest, Icons, and Install Surface (Vertical TDD)
@@ -55,24 +55,24 @@ Allowed source area: web manifest/icon assets, root HTML, one install adapter,
 the existing NotificationCenter settings composition, styles, focused tests,
 and responsive fixture only.
 
-- [ ] RED→GREEN: prove the root HTML references the manifest and Apple touch
+- [x] RED→GREEN: prove the root HTML references the manifest and Apple touch
   icon; add the minimum links only.
-- [ ] RED→GREEN: prove required manifest identity, `/jobs` start URL, root
+- [x] RED→GREEN: prove required manifest identity, `/jobs` start URL, root
   scope, standalone display, colors, Turkish language, and no related native
   app preference; add the manifest.
-- [ ] RED→GREEN one asset at a time: verify 192, 512, maskable 512, Apple 180,
+- [x] RED→GREEN one asset at a time: verify 192, 512, maskable 512, Apple 180,
   and monochrome badge dimensions/content/path; add approved Servora assets.
-- [ ] RED→GREEN: capture `beforeinstallprompt` in a root-level listener early
+- [x] RED→GREEN: capture `beforeinstallprompt` in a root-level listener early
   enough to retain an event fired before authentication settles; expose install
   only after the event and invoke its single-use prompt only from the explicit
   button.
-- [ ] RED→GREEN: handle accepted, dismissed, `appinstalled`, and standalone
+- [x] RED→GREEN: handle accepted, dismissed, `appinstalled`, and standalone
   states without repeated prompting.
-- [ ] RED→GREEN: when no install event exists, show non-blocking browser-menu
+- [x] RED→GREEN: when no install event exists, show non-blocking browser-menu
   and Share → Add to Home Screen guidance without user-agent authorization.
-- [ ] RED→GREEN: place the accessible `Kurulum ve cihaz bildirimleri` subview
+- [x] RED→GREEN: place the accessible `Kurulum ve cihaz bildirimleri` subview
   inside the existing notification dialog and prove focus/back behavior.
-- [ ] Run focused web tests and production build; commit only this install
+- [x] Run focused web tests and production build; commit only this install
   tracer slice.
 
 ## Task 3 — Server Gate and Subscription Storage (Vertical TDD)
@@ -347,6 +347,32 @@ recorded:
 
 ## Implementation Record
 
-Runtime implementation has not started. Populate this section task by task only
-with commands actually run, exact test counts/results, CI head, manual browser
-evidence, dependency version/audit result, and accepted residual risks.
+### Task 2 — Minimal install surface
+
+- Runtime branch: `feature/minimal-install-web-push`, created from `f6d9365`;
+  the independent `stash@{0}` was not applied.
+- Root HTML now references the manifest and Apple touch icon. The manifest uses
+  the approved `/jobs` online start route, root scope, standalone display, and
+  Servora identity.
+- Verified PNG assets: 192×192, 512×512, maskable 512×512, Apple 180×180, and
+  monochrome notification badge 96×96.
+- A root-started install controller retains `beforeinstallprompt` before auth
+  settles, but invokes it only from the explicit settings action. Accepted,
+  dismissed, `appinstalled`, standalone, manual guidance, and focus restoration
+  behavior are covered.
+- The settings subview performs no service-worker registration or notification
+  permission request. Web Push remains default-off and Task 5 owns that later
+  server-capability-driven behavior.
+- Focused tests: 43 passed. Full web suite: 659 passed.
+- Web production build, bundle budget, responsive smoke at the established
+  viewports/200%/400%, and production audit passed; audit reported zero
+  vulnerabilities.
+- Manual install/browser acceptance and exact-head CI remain pending for Task
+  10. No offline `fetch` handler, cache, service worker, or push runtime was
+  added in this slice.
+- Server build and production audit passed with zero vulnerabilities. The local
+  full server suite reached 1,067 passing tests and three environment-specific
+  failures: local password authentication accepted the intentionally wrong
+  password, and the local application role lacked `job_action_locations`
+  grants in two PostgreSQL acceptance tests. No server source changed in Task 2;
+  exact-head CI remains the clean-environment regression authority.

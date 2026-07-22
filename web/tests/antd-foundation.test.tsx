@@ -282,7 +282,7 @@ describe('Servora Ant Design foundation', () => {
 
     expect(mainSource).toContain("import { ServoraAntProvider } from './ui/antd/ServoraAntProvider';");
     expect(mainSource).toMatch(
-      /<StrictMode>\s*<ServoraAntProvider>\s*<BrowserRouter>\s*<App \/>\s*<\/BrowserRouter>\s*<\/ServoraAntProvider>\s*<\/StrictMode>/,
+      /<StrictMode>\s*<InstallOpportunityProvider[^>]*>\s*<ServoraAntProvider>\s*<BrowserRouter>\s*<App \/>\s*<\/BrowserRouter>\s*<\/ServoraAntProvider>\s*<\/InstallOpportunityProvider>\s*<\/StrictMode>/,
     );
   });
 });

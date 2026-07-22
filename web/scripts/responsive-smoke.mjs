@@ -587,6 +587,14 @@ async function measure(page) {
       notificationBadge: notificationSection?.querySelector('.notification-center-badge')?.textContent ?? '',
       notificationMobile: notificationPanel?.classList.contains('notification-center-panel--mobile') ?? false,
       topbarContract,
+      notificationSettingsPresent: Boolean(notificationSection?.querySelector('.notification-settings')),
+      notificationManualGuidance: (() => {
+        const text = notificationSection?.textContent ?? '';
+        return text.includes('Siteyi yükle')
+          && text.includes('Ana Ekrana Ekle')
+          && (text.includes('iPhone') || text.includes('iPad'));
+      })(),
+      notificationPushDisabled: notificationSection?.textContent?.includes('Cihaz bildirimleri şu anda kullanıma kapalıdır.') ?? false,
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
     };
@@ -773,6 +781,13 @@ try {
     }
     if (!m.topbarContract) failures.push(`${vp.name}: branding topbar contract failure`);
     if (!m.sidebarBrandFitted) failures.push(`${vp.name}: sidebar brand fit failure`);
+    await page.click('[data-smoke-notification] .notification-settings-trigger');
+    await page.waitForSelector('[data-smoke-notification] .notification-settings');
+    const settings = await measure(page);
+    if (!settings.notificationSettingsPresent || settings.notificationOverflow
+      || !settings.notificationManualGuidance || !settings.notificationPushDisabled) {
+      failures.push(`${vp.name}: install settings responsive contract failure`);
+    }
     await page.close();
   }
 
@@ -814,6 +829,13 @@ try {
       failures.push('200% text: notification center reflow failure');
     }
     if (!m.topbarContract) failures.push('200% text: branding topbar reflow failure');
+    await page.click('[data-smoke-notification] .notification-settings-trigger');
+    await page.waitForSelector('[data-smoke-notification] .notification-settings');
+    const settings = await measure(page);
+    if (!settings.notificationSettingsPresent || settings.notificationOverflow
+      || !settings.notificationManualGuidance || !settings.notificationPushDisabled) {
+      failures.push('200% text: install settings reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
     }
@@ -860,6 +882,13 @@ try {
       failures.push('400% reflow: notification center reflow failure');
     }
     if (!m.topbarContract) failures.push('400% reflow: branding topbar reflow failure');
+    await page.click('[data-smoke-notification] .notification-settings-trigger');
+    await page.waitForSelector('[data-smoke-notification] .notification-settings');
+    const settings = await measure(page);
+    if (!settings.notificationSettingsPresent || settings.notificationOverflow
+      || !settings.notificationManualGuidance || !settings.notificationPushDisabled) {
+      failures.push('400% reflow: install settings reflow failure');
+    }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {
         failures.push(`400% reflow: ${r.sel} layout failure`);
