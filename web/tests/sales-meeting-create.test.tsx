@@ -208,6 +208,12 @@ describe('Sales Meeting planning flow', () => {
     expect(container.querySelector('[href="/customers/new?source=meeting"]')).not.toBeNull();
   });
 
+  it('keeps the create-customer link available when customers already exist', async () => {
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    expect(container.querySelector('[href="/customers/new?source=meeting"]')).not.toBeNull();
+  });
+
   it('locks double submit and reuses the action ID after a retryable error', async () => {
     const pending = deferred<never>(); jobs.createJobCard.mockReturnValueOnce(pending.promise)
       .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi', true));

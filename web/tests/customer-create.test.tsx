@@ -93,4 +93,12 @@ describe('CustomerCreateScreen redirect', () => {
     await act(async () => cancel.click());
     expect(navigate).toHaveBeenCalledWith('/jobs/new-meeting');
   });
+
+  it('navigates back to new-task on cancel when source=task', async () => {
+    searchParams.set('source', 'task');
+    await act(async () => root.render(<CustomerCreateScreen user={staff} />));
+    await settle();
+    await act(async () => Array.from(container.querySelectorAll('button')).find((btn) => btn.textContent === 'Vazgeç')!.click());
+    expect(navigate).toHaveBeenCalledWith('/jobs/new-task');
+  });
 });

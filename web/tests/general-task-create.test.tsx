@@ -294,6 +294,14 @@ describe('General Task quick create', () => {
     expect(container.querySelector('[href="/customers/new?source=task"]')).not.toBeNull();
   });
 
+  it('keeps the create-customer link available when customers already exist', async () => {
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    const details = container.querySelector('details')!; details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await settle();
+    expect(container.querySelector('[href="/customers/new?source=task"]')).not.toBeNull();
+  });
+
   it('locks duplicate submit and retains action ID, values, and error focus for retry', async () => {
     const pending = deferred<never>(); jobs.createJobCard.mockReturnValueOnce(pending.promise)
       .mockRejectedValueOnce(Object.assign(new Error('Bağlantı kesildi'), { retryable: true }))
