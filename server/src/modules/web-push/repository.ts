@@ -138,6 +138,12 @@ export interface WebPushRepository {
     reason: WebPushDisabledReason,
     at: Date,
   ): Promise<WebPushSubscriptionRecord | null>;
+  cleanupDueDeliveries(at: Date): Promise<number>;
+  claimDueDeliveries(input: ClaimDueWebPushDeliveriesInput): Promise<readonly ClaimedWebPushDelivery[]>;
+  recordDelivered(input: RecordDeliveredInput): Promise<boolean>;
+  recordRetry(input: RecordRetryInput): Promise<boolean>;
+  recordAbandoned(input: RecordAbandonedInput): Promise<boolean>;
+  recordProviderStale(input: RecordProviderStaleInput): Promise<boolean>;
 }
 
 export type AppendWebPushDeliveriesInput = Readonly<{
@@ -443,4 +449,380 @@ export class PostgresWebPushRepository implements WebPushRepository {
     );
     await this.abandonDeliveries(client, subscriptionIds, reason, at);
   }
+
+  // ── Dispatch port ──────────────────────────────────────────────────────
+
+  async cleanupDueDeliveries(at: Date): Promise<number> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const result = await client.query<{ id: string }>(
+        `UPDATE web_push_deliveries delivery
+            SET state = 'ABANDONED',
+                lease_token = NULL,
+                lease_until = NULL,
+                abandoned_at = $1,
+                updated_at = $1,
+                last_error_code = CASE
+                  WHEN notification.read_at IS NOT NULL THEN 'READ'
+                  WHEN subscription.disabled_at IS NOT NULL THEN 'SUBSCRIPTION_DISABLED'
+                  WHEN recipient.is_active = FALSE THEN 'SESSION_INACTIVE'
+                  WHEN session_record.revoked_at IS NOT NULL OR session_record.expires_at <= $1 THEN 'SESSION_INACTIVE'
+                  WHEN subscription.expiration_time IS NOT NULL AND subscription.expiration_time <= $1 THEN 'EXPIRED'
+                  WHEN delivery.created_at <= $1 - INTERVAL '24 hours' THEN 'EXPIRED'
+                  WHEN delivery.attempt_count >= 6 THEN 'MAX_ATTEMPTS'
+                  ELSE 'UNKNOWN'
+                END
+           FROM in_app_notifications notification
+           JOIN web_push_subscriptions subscription ON subscription.id = delivery.subscription_id
+           JOIN users recipient ON recipient.id = subscription.recipient_user_id
+           JOIN sessions session_record ON session_record.id = subscription.session_id
+          WHERE delivery.state IN ('PENDING', 'CLAIMED')
+            AND (
+              (delivery.state = 'CLAIMED' AND delivery.lease_until > $1)
+              OR delivery.id IS NOT NULL
+            )
+            AND (
+              notification.read_at IS NOT NULL
+              OR subscription.disabled_at IS NOT NULL
+              OR recipient.is_active = FALSE
+              OR session_record.revoked_at IS NOT NULL
+              OR session_record.expires_at <= $1
+              OR (subscription.expiration_time IS NOT NULL AND subscription.expiration_time <= $1)
+              OR delivery.created_at <= $1 - INTERVAL '24 hours'
+              OR delivery.attempt_count >= 6
+            )
+            AND delivery.id = delivery.id
+          RETURNING delivery.id`,
+        [at],
+      );
+      await client.query('COMMIT');
+      return result.rows.length;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async claimDueDeliveries(
+    input: ClaimDueWebPushDeliveriesInput,
+  ): Promise<readonly ClaimedWebPushDelivery[]> {
+    if (input.limit <= 0) return [];
+
+    const client = await this.pool.connect();
+    try {
+      const result = await client.query<WebPushClaimedDeliveryRow>(
+        `WITH eligible AS (
+          SELECT delivery.id, delivery.notification_id, delivery.subscription_id
+            FROM web_push_deliveries delivery
+            JOIN in_app_notifications notification
+              ON notification.id = delivery.notification_id
+             AND notification.read_at IS NULL
+            JOIN web_push_subscriptions subscription
+              ON subscription.id = delivery.subscription_id
+             AND subscription.disabled_at IS NULL
+             AND (
+               subscription.expiration_time IS NULL
+               OR subscription.expiration_time > $1
+             )
+            JOIN users recipient
+              ON recipient.id = subscription.recipient_user_id
+             AND recipient.is_active = TRUE
+            JOIN sessions session_record
+              ON session_record.id = subscription.session_id
+             AND session_record.revoked_at IS NULL
+             AND session_record.expires_at > $1
+           WHERE delivery.state IN ('PENDING', 'CLAIMED')
+             AND (
+               (delivery.state = 'PENDING' AND delivery.next_attempt_at <= $1)
+               OR (delivery.state = 'CLAIMED' AND delivery.lease_until <= $1)
+             )
+             AND delivery.attempt_count < 6
+             AND delivery.created_at > $1 - INTERVAL '24 hours'
+           ORDER BY delivery.next_attempt_at ASC, delivery.id ASC
+           LIMIT $2
+           FOR UPDATE OF delivery SKIP LOCKED
+        ),
+        updated AS (
+          UPDATE web_push_deliveries delivery
+             SET state = 'CLAIMED',
+                 attempt_count = delivery.attempt_count + 1,
+                 lease_token = gen_random_uuid(),
+                 lease_until = $1 + INTERVAL '30 seconds',
+                 updated_at = $1
+            FROM eligible
+           WHERE delivery.id = eligible.id
+          RETURNING delivery.id AS delivery_id,
+                    delivery.lease_token,
+                    delivery.attempt_count,
+                    delivery.notification_id,
+                    delivery.subscription_id
+        )
+        SELECT updated.delivery_id,
+               updated.lease_token::text,
+               updated.attempt_count,
+               updated.notification_id,
+               notification.id AS n_id,
+               notification.organization_id,
+               notification.recipient_user_id,
+               notification.source_realtime_event_id,
+               notification.kind,
+               notification.entity_type,
+               notification.entity_id,
+               notification.created_at,
+               notification.read_at,
+               subscription.endpoint,
+               subscription.p256dh,
+               subscription.auth,
+               subscription.id AS subscription_pk
+          FROM updated
+          JOIN in_app_notifications notification
+            ON notification.id = updated.notification_id
+          JOIN web_push_subscriptions subscription
+            ON subscription.id = updated.subscription_id`,
+        [input.at, input.limit],
+      );
+      return result.rows.map(mapClaimedDelivery);
+    } finally {
+      client.release();
+    }
+  }
+
+  async recordDelivered(input: RecordDeliveredInput): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE web_push_deliveries
+          SET state = 'DELIVERED',
+              lease_token = NULL,
+              lease_until = NULL,
+              delivered_at = $3,
+              last_error_code = NULL,
+              updated_at = $3
+        WHERE id = $1
+          AND state = 'CLAIMED'
+          AND lease_token = $2`,
+      [input.deliveryId, input.leaseToken, input.at],
+    );
+    if (result.rowCount === 0) return false;
+
+    const subResult = await this.pool.query(
+      `UPDATE web_push_subscriptions
+          SET consecutive_failures = 0,
+              last_success_at = $2,
+              last_failure_at = NULL,
+              updated_at = $2
+        WHERE id = $1`,
+      [input.subscriptionId, input.at],
+    );
+    return subResult.rowCount !== null && subResult.rowCount > 0;
+  }
+
+  async recordRetry(input: RecordRetryInput): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE web_push_deliveries
+          SET state = 'PENDING',
+              lease_token = NULL,
+              lease_until = NULL,
+              next_attempt_at = $4,
+              last_error_code = $5,
+              updated_at = $3
+        WHERE id = $1
+          AND state = 'CLAIMED'
+          AND lease_token = $2`,
+      [input.deliveryId, input.leaseToken, input.at, input.nextAttemptAt, input.errorCode],
+    );
+    if (result.rowCount === 0) return false;
+
+    await this.pool.query(
+      `UPDATE web_push_subscriptions
+          SET consecutive_failures = consecutive_failures + 1,
+              last_failure_at = $2,
+              updated_at = $2
+        WHERE id = $1`,
+      [input.subscriptionId, input.at],
+    );
+    return true;
+  }
+
+  async recordAbandoned(input: RecordAbandonedInput): Promise<boolean> {
+    const result = await this.pool.query(
+      `UPDATE web_push_deliveries
+          SET state = 'ABANDONED',
+              lease_token = NULL,
+              lease_until = NULL,
+              abandoned_at = $3,
+              last_error_code = $4,
+              updated_at = $3
+        WHERE id = $1
+          AND state = 'CLAIMED'
+          AND lease_token = $2`,
+      [input.deliveryId, input.leaseToken, input.at, input.errorCode],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async recordProviderStale(input: RecordProviderStaleInput): Promise<boolean> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const deliveryResult = await client.query(
+        `UPDATE web_push_deliveries
+            SET state = 'ABANDONED',
+                lease_token = NULL,
+                lease_until = NULL,
+                abandoned_at = $3,
+                last_error_code = $4,
+                updated_at = $3
+          WHERE id = $1
+            AND state = 'CLAIMED'
+            AND lease_token = $2
+        RETURNING subscription_id`,
+        [input.deliveryId, input.leaseToken, input.at, input.errorCode],
+      );
+
+      if (deliveryResult.rowCount === 0 || !deliveryResult.rows[0]) {
+        await client.query('ROLLBACK');
+        return false;
+      }
+
+      const subscriptionId = deliveryResult.rows[0]!.subscription_id;
+      await client.query(
+        `UPDATE web_push_subscriptions
+            SET disabled_at = $2,
+                disabled_reason = 'PROVIDER_STALE',
+                consecutive_failures = consecutive_failures + 1,
+                last_failure_at = $2,
+                updated_at = $2
+          WHERE id = $1
+            AND disabled_at IS NULL`,
+        [subscriptionId, input.at],
+      );
+
+      await client.query(
+        `UPDATE web_push_deliveries
+            SET state = 'ABANDONED',
+                lease_token = NULL,
+                lease_until = NULL,
+                abandoned_at = $2,
+                updated_at = $2,
+                last_error_code = 'SUBSCRIPTION_DISABLED'
+          WHERE subscription_id = $1
+            AND state IN ('PENDING', 'CLAIMED')
+            AND (state != 'CLAIMED' OR lease_until <= $2)`,
+        [subscriptionId, input.at],
+      );
+
+      await client.query('COMMIT');
+      return true;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+}
+
+// ── Dispatch types ──────────────────────────────────────────────────────
+
+export type ClaimedWebPushDelivery = Readonly<{
+  deliveryId: string;
+  leaseToken: string;
+  attemptCount: number;
+  notification: Readonly<{
+    id: string;
+    organizationId: string;
+    recipientUserId: string;
+    kind: string;
+    entityType: string;
+    entityId: string;
+    createdAt: Date;
+    readAt: Date | null;
+  }>;
+  subscription: Readonly<{
+    id: string;
+    endpoint: string;
+    p256dh: string;
+    auth: string;
+  }>;
+}>;
+
+export type ClaimDueWebPushDeliveriesInput = Readonly<{
+  limit: number;
+  at: Date;
+}>;
+
+export type RecordDeliveredInput = Readonly<{
+  deliveryId: string;
+  leaseToken: string;
+  subscriptionId: string;
+  at: Date;
+}>;
+
+export type RecordRetryInput = Readonly<{
+  deliveryId: string;
+  leaseToken: string;
+  subscriptionId: string;
+  at: Date;
+  nextAttemptAt: Date;
+  errorCode: string;
+}>;
+
+export type RecordAbandonedInput = Readonly<{
+  deliveryId: string;
+  leaseToken: string;
+  at: Date;
+  errorCode: string;
+}>;
+
+export type RecordProviderStaleInput = Readonly<{
+  deliveryId: string;
+  leaseToken: string;
+  at: Date;
+  errorCode: string;
+}>;
+
+type WebPushClaimedDeliveryRow = {
+  delivery_id: string;
+  lease_token: string;
+  attempt_count: number;
+  notification_id: string;
+  n_id: string;
+  organization_id: string;
+  recipient_user_id: string;
+  source_realtime_event_id: string;
+  kind: string;
+  entity_type: string;
+  entity_id: string;
+  created_at: Date;
+  read_at: Date | null;
+  endpoint: string;
+  p256dh: string;
+  auth: string;
+  subscription_pk: string;
+};
+
+function mapClaimedDelivery(row: WebPushClaimedDeliveryRow): ClaimedWebPushDelivery {
+  return {
+    deliveryId: row.delivery_id,
+    leaseToken: row.lease_token,
+    attemptCount: row.attempt_count,
+    notification: {
+      id: row.n_id,
+      organizationId: row.organization_id,
+      recipientUserId: row.recipient_user_id,
+      kind: row.kind,
+      entityType: row.entity_type,
+      entityId: row.entity_id,
+      createdAt: row.created_at,
+      readAt: row.read_at,
+    },
+    subscription: {
+      id: row.subscription_pk,
+      endpoint: row.endpoint,
+      p256dh: row.p256dh,
+      auth: row.auth,
+    },
+  };
 }

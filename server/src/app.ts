@@ -49,6 +49,10 @@ import type { ReverseGeocoder } from './modules/job-cards/reverse-geocoder.js';
 import type { WebPushRepository } from './modules/web-push/repository.js';
 import { WebPushService } from './modules/web-push/service.js';
 import { webPushRoutes } from './modules/web-push/routes.js';
+import type { WebPushDispatcher } from './modules/web-push/dispatcher.js';
+import { createDispatcher } from './modules/web-push/dispatcher.js';
+import { createWebPushSender } from './modules/web-push/sender.js';
+import { buildPushPayload, buildPushTopic } from './modules/web-push/payload.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -89,6 +93,7 @@ export type AppDependencies = {
   notificationRepository?: NotificationRepository;
   reverseGeocoder?: ReverseGeocoder;
   webPushRepository?: WebPushRepository;
+  webPushDispatcher?: WebPushDispatcher;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
 };
@@ -235,6 +240,31 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: new WebPushService(config.webPush, dependencies.webPushRepository),
         authenticate: authenticateDomain,
       });
+
+      if (config.webPush.enabled || dependencies.webPushDispatcher) {
+        const wd =
+          dependencies.webPushDispatcher ??
+          createDispatcher(
+            {},
+            {
+              repository: dependencies.webPushRepository,
+              sender: createWebPushSender({
+                subject: config.webPush.vapidSubject!,
+                publicKey: config.webPush.vapidPublicKey!,
+                privateKey: config.webPush.vapidPrivateKey!,
+              }),
+              buildPayload: buildPushPayload,
+              topicBuilder: buildPushTopic,
+            },
+          );
+
+        app.addHook('onReady', () => {
+          wd.start();
+        });
+        app.addHook('onClose', async () => {
+          await wd.stop();
+        });
+      }
     }
   }
 

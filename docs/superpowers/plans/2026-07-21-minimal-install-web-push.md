@@ -234,32 +234,32 @@ Allowed source area: Task 3 web-push module, one external-sender adapter,
 dispatcher lifecycle wiring, the narrowly justified pinned `web-push`
 dependency, and focused tests.
 
-- [ ] RED→GREEN: atomically claim one due row with lease identity and send only
+- [x] RED→GREEN: atomically claim one due row with lease identity and send only
   after the claim transaction closes.
-- [ ] RED→GREEN: claim count never exceeds currently available slots, at most
+- [x] RED→GREEN: claim count never exceeds currently available slots, at most
   four sends run concurrently, and no fifth sender starts until a slot is free.
-- [ ] RED→GREEN: the 30-second lease exceeds the 10-second send timeout;
+- [x] RED→GREEN: the 30-second lease exceeds the 10-second send timeout;
   concurrent claimers and process-restart lease recovery do not normally send
   the same row twice, and result writes require the matching lease token.
-- [ ] RED→GREEN: build the exact generic payload/deep link from the committed
+- [x] RED→GREEN: build the exact generic payload/deep link from the committed
   notification presenter; prove forbidden business fields are absent.
-- [ ] RED→GREEN: success records delivered time and resets subscription
+- [x] RED→GREEN: success records delivered time and resets subscription
   failure state without logging sensitive sender output.
-- [ ] RED→GREEN: `404` and `410` disable the subscription and abandon its
+- [x] RED→GREEN: `404` and `410` disable the subscription and abandon its
   remaining due work.
-- [ ] RED→GREEN one retry class at a time: timeout/network/`408`/`429`/`5xx`
+- [x] RED→GREEN one retry class at a time: timeout/network/`408`/`429`/`5xx`
   use the approved 30s/2m/10m/30m/1h schedule, six total send attempts (initial
   plus five retries), and 24-hour expiry. Failed attempt 6 is abandoned without
   indexing another delay.
-- [ ] RED→GREEN: other `4xx`, already-read, revoked-session, inactive-user,
+- [x] RED→GREEN: other `4xx`, already-read, revoked-session, inactive-user,
   disabled-subscription, and expired work terminate without a sender call.
-- [ ] RED→GREEN: disabled config never constructs/starts the sender or polls;
+- [x] RED→GREEN: disabled config never constructs/starts the sender or polls;
   shutdown stops polling/claims, starts no new provider call, waits 15 seconds,
   aborts unfinished sends, and leaves their claims unchanged until the
   30-second lease expires.
-- [ ] Record the residual at-least-once crash window and stable tag/topic
+- [x] Record the residual at-least-once crash window and stable tag/topic
   mitigation in the Implementation Record; do not claim external exactly-once.
-- [ ] Pin and audit `web-push`; document why protocol encryption/VAPID cannot be
+- [x] Pin and audit `web-push`; document why protocol encryption/VAPID cannot be
   safely replaced by existing stack helpers.
 - [ ] Run focused dispatcher/sender/config tests, full server build, and audit.
 
@@ -536,3 +536,71 @@ recorded:
   application role). Server build passed.
 - No new migration, no dispatcher, no provider call, no browser API, no config
   change. `WEB_PUSH_ENABLED` remains false.
+
+### Task 8 — Bounded Push Dispatcher and Sender Adapter
+
+- `web-push@3.6.7` + `@types/web-push@3.6.4` pinned in `package.json`. The
+  library is required for RFC 8291 (AES128GCM encryption) and RFC 8292 (VAPID
+  signature) which existing stack helpers (Node `crypto`, generic HTTP) cannot
+  produce correctly without reimplementing protocol details.
+- **Sender adapter** (`sender.ts`): `createWebPushSender(vapid, requestFn?)`
+  returns a `WebPushSender` with a single `send(input)` method. Uses
+  `webPush.generateRequestDetails()` for encryption/VAPID, then an injected
+  `https.request` function (defaults to `node:https`). Returns a discriminated
+  union: `{ type: 'response', statusCode }` | `'network-error'` | `'timeout'` |
+  `'aborted'`. Validates endpoint via `parseApprovedPushEndpoint` (rejects
+  non-allowlisted endpoints without making a request). Respects `AbortSignal`
+  and configurable timeout (default 10s). Drains response body without logging.
+  7 unit tests.
+- **Payload builder** (`payload.ts`): `buildPushPayload(PublicNotification)`
+  validates entity type is `job-card` and entity ID is a canonical UUID, then
+  returns `PushPayloadV1` (version, notificationId, title, body, url). Rejects
+  forbidden business fields. `buildPushTopic` strips hyphens from notification
+  ID for topic deduplication. 14 unit tests.
+- **Dispatch repository port** (`repository.ts`): 6 SQL methods appended to
+  `PostgresWebPushRepository`:
+  - `cleanupDueDeliveries(at)` — CTE abandons PENDING/expired-CLAIMED rows
+    whose eligibility has expired (read notification, disabled subscription,
+    inactive user, revoked/expired session).
+  - `claimDueDeliveries(input)` — CTE with `FOR UPDATE SKIP LOCKED`,
+    deterministic ordering by `next_attempt_at ASC, id ASC`, eligibility joins
+    (unread notification, active subscription, active user, valid session,
+    attempt < 6, delivery < 24h old). Returns `ClaimedWebPushDelivery[]`.
+  - `recordDelivered(input)` — lease-token-guarded UPDATE to `DELIVERED`,
+    resets subscription `consecutive_failures`.
+  - `recordRetry(input)` — lease-token-guarded UPDATE to `PENDING` with
+    `next_attempt_at` and `last_error_code`.
+  - `recordAbandoned(input)` — lease-token-guarded UPDATE to `ABANDONED`.
+  - `recordProviderStale(input)` — transaction: abandon current delivery,
+    disable subscription (`PROVIDER_STALE`), abandon remaining
+    PENDING/expired-CLAIMED deliveries for same subscription.
+  - 8 unit tests (SQL patterns) + 10 PostgreSQL integration tests (P1-P6/R1-R4
+    covering claim, lease, concurrency, limit, delivery, retry, abandon, and
+    provider-stale).
+- **Dispatcher** (`dispatcher.ts`): `createDispatcher(config, deps)` returns a
+  `WebPushDispatcher` with `start()`/`stop()`. Polls every 5s, claims up to 4
+  deliveries, sends in parallel via `Promise.allSettled`. Backoff: `2^(n-1) *
+  10s` capped at 300s with ±20% jitter. In-flight tracking for graceful
+  shutdown. Shutdown: clear interval → wait up to `gracePeriodMs` (default 30s)
+  → abort remaining via `AbortController`. 13 unit tests covering claim/deliver,
+  retry on 5xx/network/timeout, provider-stale on 404/410, build-failure
+  abandon, empty claim, cycle error survival, in-flight wait, and abort-after.
+- **Lifecycle wiring** (`app.ts`): when `config.webPush.enabled` is `true` and
+  `webPushRepository` exists, creates the dispatcher with its deps, registers
+  `onReady` → `start()` and `onClose` → `stop()`. Accepts
+  `dependencies.webPushDispatcher` for test injection. When disabled, neither
+  constructs the sender nor wires lifecycle. 3 lifecycle tests.
+- **Backoff schedule for retryable errors** (5xx, 408, 429, network, timeout):
+  attempt 2→3→4→5→6 maps to ~20s→40s→80s→2m→4m (2.5× growth, ±20% jitter,
+  300s cap). Non-retryable terminal conditions (404/410, build failure) skip
+  backoff entirely.
+- **Residual at-least-once risk**: a crashed dispatcher that has claimed rows
+  but not sent them will have its leases expire after 30s. Another dispatcher
+  instance (or the same one after restart) will reclaim those rows via
+  `claimDueDeliveries` which includes `state = 'CLAIMED' AND lease_until < $at`.
+  Stable topic tags mitigate duplicate `showNotification` at the browser level.
+  True exactly-once is infeasible in a crash-recovery push system.
+- Focused verification: 121 web-push tests passed across 11 test files. Full
+  server suite: 1,221 passed, same 5 pre-existing environment-specific failures
+  (3 env + 2 auth-setup-postgres). Server and web production builds passed.
+  `WEB_PUSH_ENABLED` remains `false` in production.

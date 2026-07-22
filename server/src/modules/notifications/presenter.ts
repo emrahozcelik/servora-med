@@ -10,7 +10,7 @@ export type PublicNotification = Readonly<{
   readAt: string | null;
 }>;
 
-const MESSAGES: Record<NotificationKind, Readonly<{ title: string; body: string }>> = {
+export const NOTIFICATION_MESSAGES: Record<NotificationKind, Readonly<{ title: string; body: string }>> = {
   'job.assigned': { title: 'Yeni iş atandı', body: 'Size yeni bir iş atandı.' },
   'job.reassigned': { title: 'İş atandı', body: 'Size bir iş atandı.' },
   'job.awaiting_approval': { title: 'İş yönetici kontrolünde', body: 'Bir iş yönetici kontrolüne gönderildi.' },
@@ -20,7 +20,7 @@ const MESSAGES: Record<NotificationKind, Readonly<{ title: string; body: string 
 };
 
 export function presentNotification(record: NotificationRecord): PublicNotification {
-  const message = MESSAGES[record.kind];
+  const message = NOTIFICATION_MESSAGES[record.kind];
   return {
     id: record.id,
     kind: record.kind,
