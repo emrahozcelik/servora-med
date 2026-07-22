@@ -27,8 +27,14 @@ button:disabled { cursor: wait; opacity: 0.65; }
 :focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
-.brand-lockup { display: inline-flex; align-items: center; gap: 0.7rem; font-weight: 720; letter-spacing: -0.015em; }
-.brand-mark { display: grid; place-items: center; width: 2rem; height: 2rem; border-radius: 0.55rem; color: var(--paper); background: var(--accent); font-size: 0.95rem; }
+.brand-lockup { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; }
+.dunya-dental-brand { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; color: var(--muted); font-size: 0.68rem; font-weight: 700; }
+.dunya-dental-brand img { display: block; width: auto; max-width: 100%; object-fit: contain; }
+.dunya-dental-brand--login img { height: 4rem; max-width: 12rem; }
+.dunya-dental-brand--sidebar img { height: 7rem; max-width: 10rem; }
+.dunya-dental-brand--topbar img { height: 2.25rem; max-width: 7rem; }
+.dunya-dental-brand__fallback { max-width: 100%; overflow-wrap: anywhere; }
+.shell-copyright { display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.65rem; color: var(--muted); font-size: 0.6rem; }
 .eyebrow { margin: 0 0 0.85rem; color: var(--accent); font-size: 0.8125rem; font-weight: 720; letter-spacing: 0.035em; text-transform: uppercase; overflow-wrap: anywhere; }
 
 .login-layout { display: grid; grid-template-columns: minmax(19rem, 0.82fr) minmax(26rem, 1.18fr); min-height: 100vh; }
@@ -335,7 +341,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 
 .authenticated-shell { min-width: 0; min-height: 100vh; }
 .shell-content { min-width: 0; }
-.compact-shell-header { display: flex; position: sticky; z-index: 10; top: 0; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 1rem; min-height: 4.5rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--rule); background: var(--canvas); }
+.compact-shell-header { display: flex; position: sticky; z-index: 10; top: 0; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 0.75rem; min-height: 4.5rem; padding: 0.75rem 1rem; border-bottom: 1px solid var(--rule); background: var(--canvas); }
 .mobile-top-bar-start { display: flex; align-items: center; gap: 0.65rem; min-width: 0; flex: 1 1 auto; }
 .mobile-shell-title {
   margin: 0;
@@ -555,11 +561,12 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .drawer-heading h2 { margin: 0; font-size: 1.125rem; }
 .shell-drawer .shell-nav { margin-top: 1rem; }
 .shell-drawer .shell-account { margin-top: auto; }
-.mobile-top-bar-actions { display: flex; align-items: center; gap: 0.5rem; }
-.notification-center { min-width: 0; }
-.shell-notification-trigger { position: relative; display: inline-flex; align-items: center; justify-content: center; min-width: 2.75rem; min-height: 2.75rem; padding: 0.65rem 0.85rem; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); font-weight: 700; }
+.mobile-top-bar-actions { display: flex; flex: 0 0 auto; align-items: center; gap: 0.5rem; margin-left: auto; }
+.notification-center { min-width: 0; padding: 0.3rem; }
+.shell-notification-trigger { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 2.75rem; width: 2.75rem; min-width: 2.75rem; min-height: 2.75rem; padding: 0; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); }
+.shell-notification-icon { width: 1.2rem; height: 1.2rem; }
 .shell-notification-trigger:hover { border-color: oklch(72% 0.018 240deg); background: var(--canvas); }
-.notification-center-badge { display: inline-flex; min-width: 1.2rem; min-height: 1.2rem; align-items: center; justify-content: center; margin-left: 0.35rem; padding-inline: 0.25rem; border-radius: 999px; color: white; background: var(--accent-hover); font-size: 0.7rem; line-height: 1; }
+.notification-center-badge { display: inline-flex; position: absolute; top: -0.4rem; right: -0.45rem; min-width: 1.2rem; min-height: 1.2rem; align-items: center; justify-content: center; margin: 0; padding-inline: 0.25rem; border: 2px solid var(--canvas); border-radius: 999px; color: white; background: var(--accent-hover); font-size: 0.65rem; line-height: 1; }
 .notification-center-desktop-layer, .notification-center-backdrop { position: fixed; z-index: 40; inset: 0; }
 .notification-center-desktop-layer { pointer-events: none; }
 .notification-center-backdrop { display: flex; justify-content: flex-end; background: oklch(26% 0.016 246deg / 48%); }
@@ -1520,8 +1527,10 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 
 @media (min-width: 64rem) {
-  .authenticated-shell { display: grid; grid-template-columns: minmax(15rem, 17rem) minmax(0, 1fr); }
-  .shell-sidebar { display: flex; position: sticky; top: 0; align-self: start; flex-direction: column; block-size: 100dvh; max-block-size: 100vh; overflow-x: hidden; overflow-y: auto; }
+  .authenticated-shell { display: grid; grid-template-columns: minmax(15rem, 17rem) minmax(0, 1fr); grid-template-rows: 4.75rem minmax(0, 1fr); }
+  .shell-sidebar { display: flex; grid-row: 1 / -1; position: sticky; top: 0; align-self: start; flex-direction: column; block-size: 100dvh; max-block-size: 100vh; overflow-x: hidden; overflow-y: auto; }
+  .desktop-shell-topbar { display: flex; grid-column: 2; grid-row: 1; align-items: center; justify-content: flex-end; gap: 1rem; min-width: 0; padding: 0.75rem clamp(1rem, 3vw, 2.5rem); border-bottom: 1px solid var(--rule); background: var(--canvas); }
+  .shell-content { grid-column: 2; grid-row: 2; }
   .shell-sidebar .shell-nav { margin-top: 2.5rem; }
   .shell-sidebar .shell-account { margin-top: auto; }
 }

@@ -1,5 +1,6 @@
 import type { ReactNode, RefObject } from 'react';
 import { Link } from 'react-router-dom';
+import { DunyaDentalBrand } from './DunyaDentalBrand';
 
 export function MobileTopBar({
   title,
@@ -21,6 +22,7 @@ export function MobileTopBar({
   return (
     <header className="compact-shell-header mobile-top-bar">
       <div className="mobile-top-bar-start">
+        <DunyaDentalBrand variant="topbar" />
         {backTo ? (
           <Link className="mobile-top-back" to={backTo}>Geri</Link>
         ) : (

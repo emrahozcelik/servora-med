@@ -16,7 +16,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <body>
 <div class="authenticated-shell authenticated-shell--desktop" id="shell">
   <aside class="shell-sidebar" style="display:none" id="sidebar">
-    <div class="brand-lockup"><span class="brand-mark">S</span><span>Servora-Med</span></div>
+    <div class="brand-lockup"><span class="dunya-dental-brand dunya-dental-brand--sidebar" aria-label="Dünya Dental"><img alt="" src="/branding/dunya-dental.png"></span></div>
     <nav class="shell-nav" aria-label="Ana navigasyon">
       <a href="/jobs" aria-current="page">İşler</a>
       <a href="/customers">Müşteriler</a>
@@ -25,6 +25,19 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <a href="/staff">Personel</a>
     </nav>
   </aside>
+  <header class="desktop-shell-topbar" style="display:none" id="desktop-topbar">
+    <button class="shell-notification-trigger" type="button" aria-label="Bildirimler"><svg class="shell-notification-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /></svg></button>
+  </header>
+  <header class="compact-shell-header mobile-top-bar" style="display:none" id="mobile-topbar">
+    <div class="mobile-top-bar-start">
+      <span class="dunya-dental-brand dunya-dental-brand--topbar" aria-label="Dünya Dental"><img alt="" src="/branding/dunya-dental.png"></span>
+      <p class="mobile-shell-title">İşlerim</p>
+    </div>
+    <div class="mobile-top-bar-actions">
+      <button class="shell-notification-trigger" type="button" aria-label="Bildirimler"><svg class="shell-notification-icon" aria-hidden="true" viewBox="0 0 24 24"><path d="M18 8a6 6 0 0 0-12 0c0 7-3 7-3 9h18c0-2-3-2-3-9" /></svg></button>
+      <button class="shell-menu-button" type="button">Menü</button>
+    </div>
+  </header>
   <div class="shell-content">
     <main class="workspace" style="width:min(100% - 2rem,68rem);margin:1rem auto;">
       <div class="filter-region">
@@ -116,18 +129,24 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
     const desktop = w >= 1024; // 64rem at 16px
     const shell = document.getElementById('shell');
     const sidebar = document.getElementById('sidebar');
+    const desktopTopbar = document.getElementById('desktop-topbar');
+    const mobileTopbar = document.getElementById('mobile-topbar');
     const sticky = document.getElementById('sticky-create');
     const panel = document.getElementById('sticky-panel');
     if (desktop) {
       shell.classList.add('authenticated-shell--desktop');
       shell.classList.remove('authenticated-shell--mobile');
       sidebar.style.display = 'flex';
+      desktopTopbar.style.display = 'flex';
+      mobileTopbar.style.display = 'none';
       sticky.style.display = 'none';
       panel.style.display = 'none';
     } else {
       shell.classList.remove('authenticated-shell--desktop');
       shell.classList.add('authenticated-shell--mobile');
       sidebar.style.display = 'none';
+      desktopTopbar.style.display = 'none';
+      mobileTopbar.style.display = 'flex';
       sticky.style.display = 'flex';
       // sticky always uses sheet presentation when open in product; open for measure at tablet
       if (w >= 641 && w < 1024) panel.style.display = 'grid';
@@ -226,6 +245,22 @@ async function measure(page) {
       notificationPanelRect.left < -2 || notificationPanelRect.right > window.innerWidth + 2
       || notificationPanelRect.top < -2 || notificationPanelRect.bottom > window.innerHeight + 2
     ));
+    const desktopTopbar = document.getElementById('desktop-topbar');
+    const mobileTopbar = document.getElementById('mobile-topbar');
+    const activeTopbar = getComputedStyle(desktopTopbar).display !== 'none' ? desktopTopbar : mobileTopbar;
+    const topbarRect = activeTopbar?.getBoundingClientRect();
+    const topbarBrand = activeTopbar?.querySelector('.dunya-dental-brand');
+    const topbarAction = activeTopbar?.querySelector('[aria-label="Bildirimler"]');
+    const topbarActionRect = topbarAction?.getBoundingClientRect();
+    const topbarIconRect = topbarAction?.querySelector('.shell-notification-icon')?.getBoundingClientRect();
+    const topbarBrandRequired = activeTopbar === mobileTopbar;
+    const topbarContract = Boolean(topbarRect && (!topbarBrandRequired || topbarBrand) && topbarActionRect
+      && topbarRect.left >= -2 && topbarRect.right <= window.innerWidth + 2
+      && topbarActionRect.right <= window.innerWidth + 2
+      && topbarActionRect.left >= topbarRect.left - 2
+      && topbarIconRect
+      && Math.abs((topbarIconRect.left + topbarIconRect.width / 2)
+        - (topbarActionRect.left + topbarActionRect.width / 2)) <= 2);
     let laneCardCols = 0;
     let visiblePreviewCards = 0;
     if (laneCards) {
@@ -288,6 +323,12 @@ async function measure(page) {
     }
     const sidebar = document.getElementById('sidebar');
     const sidebarVisible = sidebar && getComputedStyle(sidebar).display !== 'none';
+    const sidebarRect = sidebar?.getBoundingClientRect();
+    const sidebarBrandRect = sidebar?.querySelector('.dunya-dental-brand--sidebar img')?.getBoundingClientRect();
+    const sidebarBrandFitted = !sidebarVisible || Boolean(sidebarRect && sidebarBrandRect
+      && sidebarBrandRect.width >= 140
+      && sidebarBrandRect.left >= sidebarRect.left - 2
+      && sidebarBrandRect.right <= sidebarRect.right + 2);
     const reportRoot = document.querySelector('[data-servora-operational-table="true"]');
     const reportSection = document.querySelector('[data-smoke-report]');
     const desktopTable = reportRoot?.querySelector('.servora-operational-table__desktop');
@@ -478,6 +519,7 @@ async function measure(page) {
       stickyVisible,
       stickyInViewport,
       sidebarVisible,
+      sidebarBrandFitted,
       reportPresent: Boolean(reportRoot),
       desktopVisible,
       mobileVisible,
@@ -544,6 +586,7 @@ async function measure(page) {
       notificationLoadMore: Boolean(notificationSection?.querySelector('.notification-center-more')),
       notificationBadge: notificationSection?.querySelector('.notification-center-badge')?.textContent ?? '',
       notificationMobile: notificationPanel?.classList.contains('notification-center-panel--mobile') ?? false,
+      topbarContract,
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
     };
@@ -728,6 +771,8 @@ try {
       || m.notificationMobile !== (vp.width < 1024)) {
       failures.push(`${vp.name}: notification center responsive contract failure`);
     }
+    if (!m.topbarContract) failures.push(`${vp.name}: branding topbar contract failure`);
+    if (!m.sidebarBrandFitted) failures.push(`${vp.name}: sidebar brand fit failure`);
     await page.close();
   }
 
@@ -768,6 +813,7 @@ try {
     if (!m.notificationPresent || m.notificationOverflow || !m.notificationMobile) {
       failures.push('200% text: notification center reflow failure');
     }
+    if (!m.topbarContract) failures.push('200% text: branding topbar reflow failure');
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
     }
@@ -813,6 +859,7 @@ try {
       || m.notificationItems !== 2 || !m.notificationLoadMore) {
       failures.push('400% reflow: notification center reflow failure');
     }
+    if (!m.topbarContract) failures.push('400% reflow: branding topbar reflow failure');
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {
         failures.push(`400% reflow: ${r.sel} layout failure`);

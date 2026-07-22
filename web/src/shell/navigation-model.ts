@@ -99,7 +99,7 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
   if (/^\/staff\/[^/]+/.test(pathname)) return role === 'STAFF' ? 'Profilim' : 'Personel profili';
   if (pathname.startsWith('/staff') && role === 'STAFF') return 'Profilim';
   if (pathname.startsWith('/staff')) return 'Personel';
-  return 'Servora-Med';
+  return 'Dünya Dental';
 }
 
 /** Parent path for nested routes; null on top-level sections. */

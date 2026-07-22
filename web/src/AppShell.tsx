@@ -6,6 +6,7 @@ import { paths } from './paths';
 import type { CurrentUser } from './services/api';
 import { MobileBottomNav } from './shell/MobileBottomNav';
 import { MobileTopBar } from './shell/MobileTopBar';
+import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { NotificationCenter } from './notifications/NotificationCenter';
 import {
   buildNavigationModel,
@@ -24,10 +25,6 @@ export type AppShellProps = {
 
 const desktopQuery = '(min-width: 64rem)';
 const roleLabels = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
-
-export function BrandMark() {
-  return <span className="brand-mark" aria-hidden="true">S</span>;
-}
 
 function useDesktopLayout() {
   const [desktop, setDesktop] = useState(() => typeof window === 'undefined' || window.matchMedia(desktopQuery).matches);
@@ -179,12 +176,17 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   return (
     <div className={`authenticated-shell${desktop ? ' authenticated-shell--desktop' : ' authenticated-shell--mobile'}`}>
       {desktop ? (
-        <aside className="shell-sidebar">
-          <div className="brand-lockup"><BrandMark /><span>Servora-Med</span></div>
-          <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
-          <DestinationNav destinations={model.destinations} />
-          <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
-        </aside>
+        <>
+          <aside className="shell-sidebar">
+            <div className="brand-lockup"><DunyaDentalBrand variant="sidebar" /></div>
+            <DestinationNav destinations={model.destinations} />
+            <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
+            <small className="shell-copyright">© {new Date().getFullYear()} Dünya Dental</small>
+          </aside>
+          <header className="desktop-shell-topbar">
+            <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
+          </header>
+        </>
       ) : (
         <MobileTopBar
           title={title}
