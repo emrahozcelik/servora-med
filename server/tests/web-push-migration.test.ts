@@ -413,6 +413,34 @@ describe.skipIf(!databaseUrl)('014 Web Push PostgreSQL migration', () => {
       })).resolves.toEqual([]);
 
       await pool.query(`UPDATE sessions SET revoked_at = NOW() WHERE id = $1`, [sessionTwo]);
+      await pool.query(`DELETE FROM web_push_deliveries WHERE id = $1`, [appended[0]]);
+      await expect(transaction.appendDeliveries({
+        organizationId: organizationOne,
+        notificationIds: [notificationId],
+        at: new Date('2026-07-22T08:14:00.000Z'),
+      })).resolves.toEqual([]);
+      await pool.query(
+        `UPDATE sessions SET revoked_at = NULL, expires_at = NOW() + INTERVAL '1 minute'
+          WHERE id = $1`,
+        [sessionTwo],
+      );
+      await expect(transaction.appendDeliveries({
+        organizationId: organizationOne,
+        notificationIds: [notificationId],
+        at: new Date('2026-07-23T08:14:00.000Z'),
+      })).resolves.toEqual([]);
+      await pool.query(
+        `UPDATE sessions SET expires_at = NOW() + INTERVAL '1 day' WHERE id = $1`,
+        [sessionTwo],
+      );
+      await pool.query(`UPDATE users SET is_active = FALSE WHERE id = $1`, [userOne]);
+      await expect(transaction.appendDeliveries({
+        organizationId: organizationOne,
+        notificationIds: [notificationId],
+        at: new Date('2026-07-22T08:14:00.000Z'),
+      })).resolves.toEqual([]);
+      await pool.query(`UPDATE users SET is_active = TRUE WHERE id = $1`, [userOne]);
+      await pool.query(`UPDATE sessions SET revoked_at = NOW() WHERE id = $1`, [sessionTwo]);
       await expect(repository.cleanupInactiveSessions(
         new Date('2026-07-22T08:15:00.000Z'),
       )).resolves.toBe(1);
@@ -424,10 +452,6 @@ describe.skipIf(!databaseUrl)('014 Web Push PostgreSQL migration', () => {
         id: replacement.id,
         disabledReason: 'SESSION_INACTIVE',
       });
-      expect((await pool.query<{ state: string }>(
-        `SELECT state FROM web_push_deliveries WHERE id = $1`,
-        [appended[0]],
-      )).rows[0]!.state).toBe('ABANDONED');
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

@@ -134,10 +134,10 @@ and focused tests.
   other-session disable returns `404`; current-session disable is idempotent.
 - [x] RED→GREEN: add focused mutation rate limits and preserve the existing
   production Origin check/password-change gate.
-- [ ] RED→GREEN: session revocation, expiry, inactive user, password change,
+- [x] RED→GREEN: session revocation, expiry, inactive user, password change,
   and logout make a stored subscription ineligible for delivery even when
   browser unsubscribe fails.
-- [ ] Add strict web response/request parsers; components do not call raw
+- [x] Add strict web response/request parsers; components do not call raw
   endpoints.
 - [ ] Run focused route/session/API tests and server/web builds.
 
