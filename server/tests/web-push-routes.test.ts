@@ -236,4 +236,39 @@ describe('Web Push HTTP routes', () => {
       headers: { cookie },
     })).statusCode).toBe(400);
   });
+
+  it('rate-limits mutations per session without charging status reads', async () => {
+    const { app, cookie } = await createApp();
+    const payload = {
+      endpoint: 'https://fcm.googleapis.com/push/example',
+      expirationTime: null,
+      keys: {
+        p256dh: Buffer.alloc(65, 4).toString('base64url'),
+        auth: Buffer.alloc(16, 7).toString('base64url'),
+      },
+    };
+
+    for (let attempt = 0; attempt < 6; attempt += 1) {
+      expect((await app.inject({
+        method: 'POST',
+        url: '/api/web-push/subscriptions',
+        headers: { cookie },
+        payload,
+      })).statusCode).toBe(409);
+      expect((await app.inject({
+        method: 'GET',
+        url: '/api/web-push/status',
+        headers: { cookie },
+      })).statusCode).toBe(200);
+    }
+
+    const limited = await app.inject({
+      method: 'POST',
+      url: '/api/web-push/subscriptions',
+      headers: { cookie },
+      payload,
+    });
+    expect(limited.statusCode).toBe(429);
+    expect(limited.json()).toMatchObject({ code: 'RATE_LIMIT_EXCEEDED' });
+  });
 });

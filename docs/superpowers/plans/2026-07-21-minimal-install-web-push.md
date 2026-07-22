@@ -132,7 +132,7 @@ and focused tests.
   `409 PUSH_SUBSCRIPTION_CONFLICT` and can never acquire that row.
 - [x] RED→GREEN: disabled create performs no row write; cross-user/tenant or
   other-session disable returns `404`; current-session disable is idempotent.
-- [ ] RED→GREEN: add focused mutation rate limits and preserve the existing
+- [x] RED→GREEN: add focused mutation rate limits and preserve the existing
   production Origin check/password-change gate.
 - [ ] RED→GREEN: session revocation, expiry, inactive user, password change,
   and logout make a stored subscription ineligible for delivery even when
