@@ -488,6 +488,110 @@ describe('WebPushController', () => {
     expect(controller.getSnapshot()).toMatchObject({ enabled: false });
   });
 
+  it('starts B recovery without waiting for unresolved A recovery, and stale A cannot mutate B', async () => {
+    type Status = {
+      enabled: true;
+      vapidPublicKey: string;
+      renewalRequired: false;
+      subscription: { id: string; createdAt: string; fingerprint: string };
+    };
+    const statusGates: Array<(value: Status) => void> = [];
+    const statusA: Status = {
+      enabled: true,
+      vapidPublicKey: 'AQID',
+      renewalRequired: false,
+      subscription: {
+        id: 'sub-a',
+        createdAt: '2026-07-22T10:00:00.000Z',
+        fingerprint: 'a'.repeat(64),
+      },
+    };
+    const statusB: Status = {
+      enabled: true,
+      vapidPublicKey: 'AQID',
+      renewalRequired: false,
+      subscription: {
+        id: 'sub-b',
+        createdAt: '2026-07-22T11:00:00.000Z',
+        fingerprint: 'b'.repeat(64),
+      },
+    };
+    const statusBAfter: Status = {
+      ...statusB,
+      subscription: { ...statusB.subscription, fingerprint: 'c'.repeat(64) },
+    };
+
+    const service = api({
+      getStatus: vi.fn().mockImplementation(() =>
+        new Promise<Status>((resolve) => { statusGates.push(resolve); }),
+      ),
+      createSubscription: vi.fn().mockResolvedValue({
+        id: 'sub-b', createdAt: '2026-07-22T11:00:00.000Z', fingerprint: 'c'.repeat(64),
+      }),
+      disableSubscription: vi.fn(),
+    });
+
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockResolvedValue({
+        endpoint: 'https://fcm.googleapis.com/push/b',
+        expirationTime: null,
+        keys: { p256dh: 'bp', auth: 'ba' },
+        unsubscribe: vi.fn().mockResolvedValue(true),
+      }),
+      fingerprint: vi.fn().mockResolvedValue('c'.repeat(64)),
+    });
+
+    const controller = createWebPushController({
+      api: service, browser: adapter, target: window,
+    });
+
+    const startA = controller.start('org-1:user-A');
+    await vi.waitFor(() => expect(statusGates.length).toBe(1));
+    // setIdentity A
+    statusGates[0]!(statusA);
+    // recover A hangs on second getStatus
+    await vi.waitFor(() => expect(statusGates.length).toBe(2));
+    const resolveStaleA = statusGates[1]!;
+
+    // Switch to B while A recovery is still unresolved.
+    const setB = controller.setIdentity('org-2:user-B');
+    await vi.waitFor(() => expect(statusGates.length).toBe(3));
+    statusGates[2]!(statusB);
+    await setB;
+    expect(controller.getSnapshot().status?.subscription?.id).toBe('sub-b');
+
+    // B recovery must start independently (not blocked by A).
+    const recoverB = controller.recover();
+    await vi.waitFor(() => expect(statusGates.length).toBe(4));
+    statusGates[3]!(statusB);
+    // post-create refreshStatus
+    await vi.waitFor(() => expect(statusGates.length).toBe(5));
+    statusGates[4]!(statusBAfter);
+    await recoverB;
+
+    expect(service.createSubscription).toHaveBeenCalledTimes(1);
+    expect(service.createSubscription).toHaveBeenCalledWith({
+      endpoint: 'https://fcm.googleapis.com/push/b',
+      expirationTime: null,
+      keys: { p256dh: 'bp', auth: 'ba' },
+    });
+    expect(controller.getSnapshot().status?.subscription?.id).toBe('sub-b');
+
+    // Resolve stale A recovery — must not mutate B or create/disable for A.
+    const createCalls = service.createSubscription.mock.calls.length;
+    const disableCalls = service.disableSubscription.mock.calls.length;
+    resolveStaleA(statusA);
+    await startA;
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(service.createSubscription).toHaveBeenCalledTimes(createCalls);
+    expect(service.disableSubscription).toHaveBeenCalledTimes(disableCalls);
+    expect(controller.getSnapshot().status?.subscription?.id).toBe('sub-b');
+    expect(controller.getSnapshot().enabled).toBe(true);
+  });
+
   it('isolates two controller profiles on separate service-worker targets', async () => {
     const targetA = makeServiceWorkerTarget();
     const targetB = makeServiceWorkerTarget();

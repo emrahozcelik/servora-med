@@ -153,4 +153,46 @@ describe('worker source code static analysis', () => {
   it('does not contain localStorage', () => {
     expect(source.includes('localStorage')).toBe(false);
   });
+
+  it('does not call fetch or contain mark-read notification endpoints', () => {
+    expect(source).not.toMatch(/\bfetch\s*\(/);
+    expect(source).not.toMatch(/\/api\/notifications/);
+    expect(source).not.toMatch(/markNotificationRead|mark-read|mark_read/i);
+    expect(source).not.toMatch(/notification\.read-from-push|web-push\.delivered|push\.received/);
+  });
+});
+
+describe('notificationclick has no mark-read side effects', () => {
+  let harness: ServiceWorkerHarness;
+
+  beforeEach(() => {
+    harness = createServiceWorkerHarness();
+  });
+
+  it('focuses the job route without postMessage mark-read or extra network hooks', async () => {
+    const targetUrl = '/jobs/550e8400-e29b-41d4-a716-446655440000';
+    const client: MockWindowClient = {
+      id: 'client-1',
+      url: targetUrl,
+      focus: vi.fn().mockResolvedValue(undefined),
+      navigate: vi.fn(),
+      postMessage: vi.fn(),
+    };
+    harness.clients.matchAll.mockResolvedValue([client]);
+
+    const event = harness.makeNotificationClickEvent({
+      data: {
+        notificationId: '550e8400-e29b-41d4-a716-446655440000',
+        url: targetUrl,
+      },
+    });
+    await harness.fireEvent('notificationclick', event);
+    await harness.settleWaitUntil();
+
+    expect(event.notification.close).toHaveBeenCalledTimes(1);
+    expect(client.focus).toHaveBeenCalledTimes(1);
+    expect(client.navigate).not.toHaveBeenCalled();
+    expect(client.postMessage).not.toHaveBeenCalled();
+    expect(harness.clients.openWindow).not.toHaveBeenCalled();
+  });
 });

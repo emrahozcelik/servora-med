@@ -121,13 +121,18 @@ export function createWebPushController({
   target?: RecoveryTarget;
   serviceWorkerTarget?: ServiceWorkerMessageTarget;
 }>): WebPushController {
+  type RecoveryState = Readonly<{
+    generation: number;
+    promise: Promise<void>;
+  }>;
+
   const listeners = new Set<() => void>();
   let snapshot = emptySnapshot;
   let identityKey: string | null = null;
   let generation = 0;
   let started = false;
   let operation: Promise<void> | null = null;
-  let recovery: Promise<void> | null = null;
+  let recovery: RecoveryState | null = null;
 
   const publish = (next: WebPushSnapshot) => {
     snapshot = next;
@@ -161,9 +166,12 @@ export function createWebPushController({
   };
 
   const recover = async () => {
-    if (recovery) return recovery;
     const expectedGeneration = generation;
-    recovery = (async () => {
+    if (recovery?.generation === expectedGeneration) {
+      return recovery.promise;
+    }
+
+    const promise = (async () => {
       const status = await refreshStatus(expectedGeneration);
       if (!status || expectedGeneration !== generation || !status.enabled || !status.subscription || status.renewalRequired) return;
       const state = browserState();
@@ -180,9 +188,18 @@ export function createWebPushController({
       await api.createSubscription(asCreateWebPushSubscription(subscription));
       await refreshStatus(expectedGeneration);
     })().catch((error) => {
-      if (expectedGeneration === generation) settle(snapshot.status, errorMessage(error, 'Cihaz bildirimi mutabakatı tamamlanamadı.'));
-    }).finally(() => { recovery = null; });
-    return recovery;
+      if (expectedGeneration === generation) {
+        settle(snapshot.status, errorMessage(error, 'Cihaz bildirimi mutabakatı tamamlanamadı.'));
+      }
+    }).finally(() => {
+      // Only clear if this promise is still the active generation-scoped recovery.
+      if (recovery?.promise === promise) {
+        recovery = null;
+      }
+    });
+
+    recovery = { generation: expectedGeneration, promise };
+    return promise;
   };
 
   const onRecoverySignal = () => { void recover(); };

@@ -268,21 +268,29 @@ dependency, and focused tests.
 Allowed source area: completed Phase R files, existing notification-center
 tests/fixtures, responsive smoke, and operations verification only.
 
-- [x] RED→GREEN: a committed notification passes through outbox/sender payload
-  into the worker display once in the normal path, then click loads the existing
-  authorized JobCard route.
-- [x] RED→GREEN: destination not-found/authorization behavior remains canonical
-  and no push payload bypasses REST permissions.
+- [x] RED→GREEN: real JobCard lifecycle projects a PENDING delivery; claim +
+  presenter/payload + fake sender capture + matching-lease `recordDelivered` +
+  real service-worker harness showNotification/click once in the normal path.
+- [x] RED→GREEN: destination not-found/authorization remains canonical REST
+  (opaque JOB_CARD_NOT_FOUND); push title/body is not used as JobCard UI data.
 - [x] RED→GREEN: logout/account switch and two authenticated browser profiles
-  cannot cross-deliver or expose another recipient's subscription state.
+  cannot cross-deliver or expose another recipient's subscription state;
+  recovery state is generation-scoped so B is not blocked by unresolved A.
 - [x] RED→GREEN: notification-center invalidation/read behavior remains
-  unchanged; push does not invent a new mark-read SSE event.
+  unchanged; push does not invent a mark-read SSE event; SW click does not
+  call fetch/mark-read/`postMessage` mark-read.
 - [x] Add real settings/long-copy/loading/error/pending states to responsive
   smoke at 390, 720, 768, 1024, and 1440 px plus 200% text and 400% reflow.
 - [x] Verify install/push controls, dialog focus/back restoration, unsupported
   state, denied state, and long errors without horizontal overflow.
-- [x] Verify production-like default-off runtime, manifest/icons/worker HTTP
-  behavior, backups/restores, migration, shutdown, and safe observability.
+- Production-like ops evidence (split):
+  - [x] Default-off runtime (`WEB_PUSH_ENABLED` false)
+  - [x] Manifest / service-worker build output (no SPA HTML in worker)
+  - [x] Caddy / tunnel Caddy / systemd scripts present in CI workflow
+  - [x] Migration runner contract (`npm run migrate` / CI migrate step)
+  - [x] Backup script is full `pg_dump` (no web_push table exclusion)
+  - [ ] Backup/restore production-like acceptance rehearsal (Task 10/enablement)
+  - [x] Safe observability: dispatcher/sender do not log endpoint/keys/payload
 
 ## Task 10 — Full Regression, Manual Browser Acceptance, and Handoff
 
@@ -688,10 +696,15 @@ recorded:
   `{ type: 'push-subscription-changed' }` (single key). Invalid shapes are
   ignored. Handler only calls existing `recover()` — no permission prompt,
   auto-subscribe, auto-renewal, or cross-account rebind.
+- **Generation-scoped recovery**: recovery state is
+  `{ generation, promise }`. Same-generation focus/online/visibility/SW signals
+  share one promise; a new identity generation starts independent recovery and
+  is not blocked by an unresolved prior generation. Stale A `finally` cannot
+  clear B’s active recovery; stale A results never mutate B snapshot or run
+  mutations. Covered by deterministic gate tests in
+  `web-push-controller.test.ts`.
 - **Listener lifecycle**: message listener registers once on first `start()`,
   is removed on `stop()`, and is optional when `serviceWorkerTarget` is absent.
-  Concurrent focus/online/visibility/SW signals share the existing `recovery`
-  promise gate.
 - **Identity isolation**: generation guards reject stale recovery mutations
   after logout/`clearLocalSubscription` and account switch. Two independent
   controller instances with separate SW targets do not cross-call APIs.
@@ -699,16 +712,31 @@ recorded:
   `Cihaz bildirimi durumu yükleniyor…` (`role="status"`) while `enabled === null`;
   enable/disable buttons stay hidden. Pending actions use disabled buttons with
   `aria-busy`. Long errors keep `role="alert"` and `overflow-wrap: anywhere`.
-- **Responsive smoke**: fixture accepts `?pushState=` for loading/disabled/
-  denied/install-required/enabled-not-subscribed/enabled-subscribed/
-  pending-enable/pending-disable/long-error/renewal-required. Measure metrics
-  cover settings overflow, action disabled, loading/error/denied/renewal
-  visibility, long-copy fit, and focus-inside-dialog. Matrix runs at 390/720/
-  768/1024/1440 plus 200% and 400% reflow samples.
-- **Integrated normal path**: server test composes real
-  `presentNotification` + `buildPushPayload` + real `service-worker.js` harness;
-  one `showNotification`, click focuses `/jobs/<UUID>`, no mark-read side effect.
-- **Default-off / ops**: production `WEB_PUSH_ENABLED` remains false. Caddy /
-  tunnel Caddy / systemd verify scripts remain the ops contract; branding PR #47
-  is still Draft so a post-merge `main` rebase may be required later.
+- **Responsive smoke**: fixture accepts `?pushState=` matrix; runs at 390/720/
+  768/1024/1440 plus 200% and 400% reflow samples (`npm run smoke:responsive`).
+- **Integrated normal path (PostgreSQL)**:
+  `server/tests/web-push-integrated-normal-path.test.ts` uses real
+  `JobCardService.submitForApproval` (webPush enabled) →
+  `in_app_notifications` + `web_push_deliveries` PENDING →
+  `PostgresWebPushRepository.claimDueDeliveries` →
+  `presentNotification` + `buildPushPayload` → fake sender capture →
+  `recordDelivered` matching lease → real `service-worker.js` harness
+  `showNotification` once → `notificationclick` focus `/jobs/<UUID>` with no
+  mark-read/`fetch`/`postMessage` mark-read side effects.
+- **Mark-read proof**: worker source static analysis (no `fetch`, no
+  `/api/notifications`, no mark-read event types); click harness asserts no
+  `client.postMessage`; NotificationCenter + real controller assert SW message
+  does not call `markNotificationRead` / list / unread APIs. Canonical
+  notification SSE invalidation still refreshes list/unread.
+- **Authorization**: `web/tests/job-detail.test.tsx` covers authorized REST
+  load, opaque not-found UI, and cross-tenant-as-not-found without using push
+  payload as job data. Server route tests keep `JOB_CARD_NOT_FOUND` for
+  malformed IDs.
+- **Ops evidence**:
+  - Local Docker/`systemd-analyze` may be missing; scripts are exercised in
+    GitHub CI (`ops/ci/verify-caddyfile.sh`, tunnel Caddy, systemd).
+  - Backup is full-database `pg_dump` (no table exclusion list for web_push).
+  - Production-like restore rehearsal remains an enablement/Task 10 gap.
+  - Dispatcher/sender have no console logging of endpoint/keys/payload.
+- Branding PR #47 remains Draft; post-merge `main` rebase may be required.
 - Task 10 (real device acceptance / production enablement) is **not** started.

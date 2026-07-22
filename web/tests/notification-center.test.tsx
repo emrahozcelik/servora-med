@@ -424,6 +424,79 @@ describe('NotificationCenter', () => {
     expect(api.listNotifications).toHaveBeenCalledTimes(2);
   });
 
+  it('does not mark-read or refresh notification APIs for push-subscription-changed recovery', async () => {
+    const { createWebPushController } = await import('../src/web-push/WebPushController');
+    const swListeners = new Set<(event: Event) => void>();
+    const serviceWorkerTarget = {
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === 'message') swListeners.add(listener as (event: Event) => void);
+      }),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === 'message') swListeners.delete(listener as (event: Event) => void);
+      }),
+    };
+    const getStatus = vi.fn().mockResolvedValue({
+      enabled: true,
+      vapidPublicKey: 'AQID',
+      renewalRequired: false,
+      subscription: {
+        id: 'sub-1',
+        createdAt: '2026-07-22T10:00:00.000Z',
+        fingerprint: 'a'.repeat(64),
+      },
+    });
+    const controller = createWebPushController({
+      api: {
+        getStatus,
+        createSubscription: vi.fn(),
+        disableSubscription: vi.fn(),
+      },
+      browser: {
+        capability: () => 'supported' as const,
+        permission: () => 'granted' as const,
+        isStandalone: () => true,
+        requestPermission: vi.fn(),
+        currentSubscription: vi.fn().mockResolvedValue({
+          endpoint: 'https://fcm.googleapis.com/push/example',
+          expirationTime: null,
+          keys: { p256dh: 'p', auth: 'a' },
+          unsubscribe: vi.fn().mockResolvedValue(true),
+        }),
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        fingerprint: vi.fn().mockResolvedValue('a'.repeat(64)),
+      },
+      target: window,
+      serviceWorkerTarget,
+    });
+
+    await act(async () => root.render(
+      <MemoryRouter>
+        <WebPushProvider identityKey="org-1:staff-1" controller={controller}>
+          <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+        </WebPushProvider>
+      </MemoryRouter>,
+    ));
+
+    const listCallsBefore = api.listNotifications.mock.calls.length;
+    const unreadBefore = api.getUnreadNotificationCount.mock.calls.length;
+    const markBefore = api.markNotificationRead.mock.calls.length;
+    const statusBefore = getStatus.mock.calls.length;
+
+    await act(async () => {
+      for (const listener of swListeners) {
+        listener(new MessageEvent('message', { data: { type: 'push-subscription-changed' } }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getStatus.mock.calls.length).toBeGreaterThan(statusBefore);
+    expect(api.markNotificationRead).toHaveBeenCalledTimes(markBefore);
+    expect(api.listNotifications).toHaveBeenCalledTimes(listCallsBefore);
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(unreadBefore);
+  });
+
   it('uses the same guarded loaders for recovery, and loads the list only while open', async () => {
     vi.useFakeTimers();
     const source = new FakeEventSource();
