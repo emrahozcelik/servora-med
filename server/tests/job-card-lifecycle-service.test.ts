@@ -123,6 +123,7 @@ class LifecycleRepository implements JobCardRepository {
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
+      appendWebPushDeliveries: async () => [],
       getAssignee: async () => {
         this.submissionReads.push('assignee');
         return this.assignee;
@@ -249,6 +250,7 @@ function twoJobRepository() {
         appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
         listActiveManagementRecipients: async () => [],
         appendNotifications: async () => [],
+        appendWebPushDeliveries: async () => [],
         getAssignee: async () => ({
           id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
         }),

@@ -110,6 +110,7 @@ class MemoryJobCardRepository implements JobCardRepository {
         this.notificationAppends.push(input);
         return [];
       },
+      appendWebPushDeliveries: async () => [],
       getAssignee: async () => ({
         id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
       }),

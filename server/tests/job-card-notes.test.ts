@@ -65,6 +65,7 @@ class NotesRepository {
       appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
+      appendWebPushDeliveries: async () => [],
     } as JobCardTransaction;
   }
 

@@ -164,6 +164,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           enabled: config.actionScopedGeolocationEnabled,
           reverseGeocoder: dependencies.reverseGeocoder,
         },
+        { enabled: config.webPush.enabled },
       );
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',

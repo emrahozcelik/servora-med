@@ -72,6 +72,7 @@ import type {
   RealtimeEventRecord,
 } from '../realtime/types.js';
 import type { AppendedActivity } from './repository.js';
+import type { AppendWebPushDeliveriesInput } from '../web-push/repository.js';
 import type { ReverseGeocoder } from './reverse-geocoder.js';
 import {
   parseStartLocationCapture,
@@ -188,6 +189,9 @@ export class JobCardService {
       reverseGeocoder?: ReverseGeocoder;
       reverseGeocoderTimeoutMs?: number;
     }> = { enabled: false },
+    private readonly webPush: Readonly<{
+      enabled: boolean;
+    }> = { enabled: false },
   ) { this.notesService = new JobCardNotesService(repository); }
 
   private publishRealtime(events: readonly RealtimeEventRecord[]) {
@@ -237,12 +241,19 @@ export class JobCardService {
         : mapped.resourceKeys,
     });
     if (drafts.length > 0) {
-      await transaction.appendNotifications({
+      const notifications = await transaction.appendNotifications({
         organizationId: input.organizationId,
         sourceRealtimeEventId: realtimeEvent.id,
         createdAt: input.activity.createdAt,
         drafts,
       });
+      if (this.webPush.enabled && notifications.length > 0) {
+        await transaction.appendWebPushDeliveries({
+          organizationId: input.organizationId,
+          notificationIds: notifications.map((n) => n.id),
+          at: input.activity.createdAt,
+        });
+      }
     }
     return [realtimeEvent];
   }

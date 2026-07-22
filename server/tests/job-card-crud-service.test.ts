@@ -153,7 +153,8 @@ class CrudMemoryRepository implements JobCardRepository {
       },
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       listActiveManagementRecipients: async () => [],
-      appendNotifications: async () => [],
+        appendNotifications: async () => [],
+        appendWebPushDeliveries: async () => [],
     };
     try {
       const completed = await work(tx); this.completed.set(key, completed.response);
@@ -228,7 +229,8 @@ class CrudMemoryRepository implements JobCardRepository {
       },
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       listActiveManagementRecipients: async () => [],
-      appendNotifications: async () => [],
+              appendNotifications: async () => [],
+        appendWebPushDeliveries: async () => [],
     };
     try { return await work(tx); } catch (error) { this.jobs = before; this.activities.splice(eventCount); throw error; }
   }

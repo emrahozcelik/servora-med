@@ -51,6 +51,7 @@ const migrations = [
   '010_entity_delete_audit.sql',
   '011_create_realtime_events.sql',
   '012_create_in_app_notifications.sql',
+  '014_create_web_push.sql',
 ] as const;
 
 async function applyMigrations(pool: Pool) {

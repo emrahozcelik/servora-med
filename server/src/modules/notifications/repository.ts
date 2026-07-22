@@ -143,13 +143,31 @@ export class PostgresNotificationRepository implements NotificationRepository {
     notificationId: string,
   ): Promise<NotificationRecord | null> {
     const result = await this.pool.query<NotificationRow>(
-      `UPDATE in_app_notifications
-          SET read_at = COALESCE(read_at, NOW())
-        WHERE organization_id = $1
-          AND recipient_user_id = $2
-          AND id = $3
-      RETURNING id, organization_id, recipient_user_id, source_realtime_event_id,
-                kind, entity_type, entity_id, created_at, read_at`,
+      `WITH updated AS (
+         UPDATE in_app_notifications
+            SET read_at = COALESCE(read_at, NOW())
+          WHERE organization_id = $1
+            AND recipient_user_id = $2
+            AND id = $3
+         RETURNING id, organization_id, recipient_user_id, source_realtime_event_id,
+                   kind, entity_type, entity_id, created_at, read_at
+       ),
+       abandoned AS (
+         UPDATE web_push_deliveries
+            SET state = 'ABANDONED',
+                lease_token = NULL,
+                lease_until = NULL,
+                last_error_code = 'READ',
+                abandoned_at = NOW(),
+                updated_at = NOW()
+           FROM updated
+          WHERE web_push_deliveries.organization_id = updated.organization_id
+            AND web_push_deliveries.notification_id = updated.id
+            AND web_push_deliveries.state = 'PENDING'
+       )
+       SELECT id, organization_id, recipient_user_id, source_realtime_event_id,
+              kind, entity_type, entity_id, created_at, read_at
+         FROM updated`,
       [viewer.organizationId, viewer.userId, notificationId],
     );
     const row = result.rows[0];

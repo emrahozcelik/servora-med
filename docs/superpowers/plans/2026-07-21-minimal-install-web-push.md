@@ -211,22 +211,22 @@ Allowed source area: JobCard notification orchestration, notification/web-push
 transaction ports, Task 3 repository, and focused real-PostgreSQL integration
 tests. No provider call or web UI.
 
-- [ ] RED→GREEN: one committed persistent notification plus one active
+- [x] RED→GREEN: one committed persistent notification plus one active
   recipient subscription creates exactly one delivery in the same transaction.
-- [ ] RED→GREEN: multiple current recipient subscriptions create one unique
+- [x] RED→GREEN: multiple current recipient subscriptions create one unique
   delivery each; unrelated, disabled, expired-session, inactive-user, or
   cross-tenant subscriptions create none.
-- [ ] RED→GREEN: notification transaction rollback produces no delivery;
+- [x] RED→GREEN: notification transaction rollback produces no delivery;
   idempotent JobCard replay produces no duplicate.
-- [ ] RED→GREEN: push disabled mode creates the unchanged persistent in-app
+- [x] RED→GREEN: push disabled mode creates the unchanged persistent in-app
   notification but no delivery.
-- [ ] RED→GREEN: subscribing after notification commit does not backfill old
+- [x] RED→GREEN: subscribing after notification commit does not backfill old
   notification deliveries.
-- [ ] RED→GREEN: mark-read abandons unclaimed pending work; the accepted
+- [x] RED→GREEN: mark-read abandons unclaimed pending work; the accepted
   post-claim race remains recorded rather than hidden.
-- [ ] Confirm public notification/JobCard/realtime DTOs and semantic recipient
+- [x] Confirm public notification/JobCard/realtime DTOs and semantic recipient
   policy are unchanged.
-- [ ] Run focused lifecycle/notification/PostgreSQL tests and server build.
+- [x] Run focused lifecycle/notification/PostgreSQL tests and server build.
 
 ## Task 8 — Bounded Push Dispatcher and Sender Adapter (Vertical TDD)
 
@@ -505,3 +505,34 @@ recorded:
 - `WEB_PUSH_ENABLED` remains false. Foreground worker-message integration in
   `WebPushController` is deferred to Task 9. Real device testing belongs to
   Task 10.
+
+### Task 7 — Notification-to-Outbox Projection
+
+- `AppendWebPushDeliveriesInput` and `appendWebPushDeliveries()` added to
+  `JobCardTransaction` interface; `PostgresJobCardTransaction` delegates to
+  `PostgresWebPushTransaction.appendDeliveries`.
+- `JobCardService` accepts a 5th constructor parameter `{ enabled: boolean }`
+  for web push. In `appendRealtimeForActivity`, after
+  `transaction.appendNotifications()` returns records, calls
+  `transaction.appendWebPushDeliveries()` when
+  `this.webPush.enabled && notifications.length > 0`.
+- Wired `{ enabled: config.webPush.enabled }` from `app.ts` to `JobCardService`.
+- `PostgresNotificationRepository.markRead` uses a data-modifying CTE:
+  `WITH updated AS (...), abandoned AS (UPDATE web_push_deliveries SET state='ABANDONED', last_error_code='READ' FROM updated WHERE state='PENDING') SELECT ... FROM updated`.
+- All 6 mock `JobCardTransaction` instances in server test files received
+  `appendWebPushDeliveries: async () => []`.
+- Migration `014_create_web_push.sql` added to the migration list in
+  `notifications-migration.test.ts`.
+- 14 PostgreSQL integration tests in
+  `server/tests/notification-delivery-projection.test.ts` covering:
+  single-subscription delivery, multiple-subscription dedup, disabled subscription,
+  expired auth-session, inactive user, cross-tenant isolation, basic and
+  disabled JobCardService wiring, rollback, idempotent dedup, no-backfill for
+  post-commit subscriptions, and mark-read abandoning PENDING deliveries
+  (including double-mark and non-PENDING safety).
+- Focused verification: 14 tests passed. Full server suite: 1,168 passed and
+  the same 3 pre-existing environment-specific failures (local auth accepting
+  wrong password, two `job_action_locations` grants missing for the local
+  application role). Server build passed.
+- No new migration, no dispatcher, no provider call, no browser API, no config
+  change. `WEB_PUSH_ENABLED` remains false.
