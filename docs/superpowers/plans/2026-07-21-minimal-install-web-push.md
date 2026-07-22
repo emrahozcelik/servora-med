@@ -289,32 +289,43 @@ tests/fixtures, responsive smoke, and operations verification only.
   - [x] Caddy / tunnel Caddy / systemd scripts present in CI workflow
   - [x] Migration runner contract (`npm run migrate` / CI migrate step)
   - [x] Backup script is full `pg_dump` (no web_push table exclusion)
-  - [ ] Backup/restore production-like acceptance rehearsal (Task 10/enablement)
+  - [x] Backup/restore production-like acceptance rehearsal (Task 10A/B clean PG)
   - [x] Safe observability: dispatcher/sender do not log endpoint/keys/payload
 
 ## Task 10 — Full Regression, Manual Browser Acceptance, and Handoff
 
-- [ ] Run all required server and web commands below with the real local test
-  PostgreSQL database; do not treat conditional skips as execution.
-- [ ] Confirm exact-head GitHub CI server and web jobs pass.
-- [ ] Chrome desktop and Android: install, allow, deny, foreground/background,
-  duplicate/retry, click, logout, and stale-endpoint cases.
-- [ ] Firefox desktop: install where supported, allow/deny,
-  foreground/background, Mozilla endpoint, click, logout, refresh, and stale
-  endpoint cases.
-- [ ] Safari macOS: Add to Dock, allow/deny, closed-browser delivery, and click.
-- [ ] Real iOS/iPadOS Home Screen app: install, explicit permission, background
-  delivery, click, Focus behavior awareness, logout/account switch, and
-  non-installed guidance.
-- [ ] Confirm lock-screen text contains no customer, contact, JobCard title,
-  note, delivery, actor, or location data.
-- [ ] Confirm provider logs/application logs/access logs contain no endpoint,
-  keys, payload, deep-link entity ID, or VAPID secret.
-- [ ] Record exact config (without secrets), browser/OS versions, provider
-  endpoint families, command results, known at-least-once risk, CI run, merge
-  SHA, and branch cleanup in the design Implementation Record.
-- [ ] Keep runtime PR draft until all acceptance criteria, real-device gates,
-  review, and exact-head CI pass.
+Automated regression (Task 10A/B):
+
+- [x] Clean disposable PostgreSQL (scram-sha-256) with migrations 001–014;
+  full server suite 1267 passed / 0 failed (no conditional skip of required
+  PG contracts).
+- [x] Full web suite 752 passed / 0 failed; build; bundle budget; responsive
+  smoke; audits 0 vulns.
+- [x] Service worker dist artifact: JS only, install/activate/push/click/
+  pushsubscriptionchange listeners only; no fetch/CacheStorage/IndexedDB.
+- [x] Backup/restore rehearsal includes web_push_subscriptions +
+  web_push_deliveries row counts and FK presence; artifacts deleted.
+- [x] Exact-head GitHub CI at Task 9 close (`bfb27c8`) server + web SUCCESS.
+- [ ] Local Caddy/tunnel/systemd validate (blocked: no docker/caddy/
+  systemd-analyze on agent host); scripts wired in CI workflow.
+
+Real-device acceptance (Task 10C — operator / physical devices):
+
+- [ ] Chrome desktop matrix (install/allow/deny/fg/bg/closed/click/logout/
+  retry/duplicate/stale).
+- [ ] Chrome Android physical device matrix.
+- [ ] Firefox desktop matrix (Mozilla endpoint family).
+- [ ] Safari macOS Add to Dock / closed-browser matrix.
+- [ ] Real iOS/iPadOS Home Screen matrix (permission/background/Focus).
+- [ ] Lock-screen privacy content review (no business PII).
+- [ ] Application/access/provider log review (no endpoint/keys/payload).
+- [ ] HTTPS staging with operator-provisioned VAPID (not agent-generated).
+- [ ] Branding PR #47 merge + Phase R rebase + re-verification.
+- [ ] Production enablement approval; `WEB_PUSH_ENABLED` stays false until then.
+- [ ] Keep PR #45 Draft until all acceptance criteria and review pass.
+
+Acceptance case log:
+`docs/superpowers/plans/2026-07-22-minimal-install-web-push-acceptance.md`
 
 ## Required Verification Commands
 
@@ -739,4 +750,33 @@ recorded:
   - Production-like restore rehearsal remains an enablement/Task 10 gap.
   - Dispatcher/sender have no console logging of endpoint/keys/payload.
 - Branding PR #47 remains Draft; post-merge `main` rebase may be required.
-- Task 10 (real device acceptance / production enablement) is **not** started.
+- Task 10 (real device acceptance / production enablement) is **partial**.
+
+### Task 10 — Automated regression + blocked device acceptance (partial)
+
+- **Clean PostgreSQL regression**: ephemeral Postgres 16 on `127.0.0.1:55432`
+  with `scram-sha-256` host auth (`postgres`/`postgres`), empty
+  `servora_med_test`, migrations 001–014 applied. Local trust-auth Homebrew
+  cluster is **not** used for Task 10A (it cannot fail wrong-password checks
+  and had grant drift on `job_action_locations`).
+- **Server tests**: 1267 passed / 0 failed / 103 files.
+- **Web tests**: 752 passed / 0 failed / 80 files.
+- **Build/bundle/smoke/audit**: web+server build OK; bundle budget OK;
+  responsive smoke OK; `npm audit --omit=dev` 0 vulns both packages.
+- **Ops local**: `verify-caddyfile.sh` / tunnel / systemd exit 1 without
+  docker/caddy/systemd-analyze; same scripts run in GitHub CI
+  (`.github/workflows/ci.yml`).
+- **Backup/restore**: full `pg_dump` + restore-rehearsal with synthetic
+  subscription/notification/delivery; restore counts
+  `subs=1,dels=1,notifs=1,migrations=14,fk=6`; dump deleted after run.
+- **Staging / VAPID**: agent did **not** generate VAPID keys or enable public
+  HTTPS staging. Production `WEB_PUSH_ENABLED` remains false.
+- **Device acceptance**: blocked — Chrome/Android/Firefox/Safari/iOS matrices
+  require operator + physical devices. Case log scaffold:
+  `docs/superpowers/plans/2026-07-22-minimal-install-web-push-acceptance.md`.
+- **Exact-head SHA**: `bfb27c8c5ee219f7cd891b7902a8f34a91d7b580`
+- **CI run IDs (Task 9 close / current head)**:
+  server `29943672288/job/89003581379` SUCCESS;
+  web `29943672288/job/89003581334` SUCCESS.
+- **Merge SHA**: pending explicit review and merge.
+- **Known risk**: at-least-once crash window on claimed deliveries (lease reclaim).
