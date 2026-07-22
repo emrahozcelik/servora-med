@@ -311,30 +311,29 @@ Automated regression (Task 10A/B):
 
 Real-device acceptance (Task 10C — operator / physical devices):
 
-- [x] Desktop multi-browser **delivery** sub-gate: staff↔manager traffic
-  PASS on Chrome + Firefox + Safari (operator 2026-07-22).
+- [x] Desktop multi-browser **push** sub-gate **CLOSED PASS** (operator 2026-07-22
+  + readiness fix `69b1688`):
+  - Chrome Desktop: PASS
+  - Firefox Desktop: PASS
+  - Safari macOS: PASS
+- [x] Cross-browser subscription setup: SW ready + timeout + explicit-enable
+  fallback (SW display path and server dispatcher unchanged).
 - [x] Local Chrome allow/subscribe/disable + dispatcher DELIVERED path
   (agent-assisted + operator).
-- [ ] Desktop **lifecycle/security** gates (required, not optional):
-  - [x] Chrome deny (no enable CTA / no re-prompt surface)
-  - [x] Chrome logout isolation (browser clear; revoked session not claimed)
-  - [x] Chrome relogin no auto-rebind of prior session subscription
-  - [x] Chrome logged-out deep-link → login wall, no JobCard leak
-  - [ ] Chrome closed-browser OS banner + safe deep-link (operator eyeball)
-  - [ ] Firefox deny + closed-browser (operator)
-  - [ ] Safari deny + closed-browser (operator)
-- [ ] Chrome Android physical device matrix (after HTTPS staging).
-- [ ] Real iOS/iPadOS Home Screen matrix (after HTTPS staging).
-- [ ] Lock-screen privacy content review on physical devices.
-- [ ] Application/access/provider log review (no endpoint/keys/payload).
+- [x] Chrome lifecycle samples: deny / logout isolation / no auto-rebind /
+  logged-out deep-link (agent CDP).
+- Residual optional desktop edge cases (closed-browser eyeball, multi-browser
+  deny) do **not** block desktop push close; may re-open under Phase S if needed.
+- [ ] **Phase S** — Chrome Android physical device matrix (HTTPS staging).
+- [ ] **Phase S** — iPhone/iPad Home Screen Web Push matrix.
+- [ ] **Phase S** — Lock-screen privacy, mobile logout/account-switch, Focus/DND.
+- [ ] **Phase S** — Production HTTPS/VAPID, metadata/retention, final enablement.
 - [ ] Branding PR #47 merge + Phase R rebase + full suite + exact-head CI.
-- [ ] Production enablement approval; `WEB_PUSH_ENABLED` stays false until then.
-- [ ] Keep PR #45 Draft until acceptance criteria and review pass.
+- [ ] Keep PR #45 Draft until merge decision; `WEB_PUSH_ENABLED` stays false.
 
-Desktop-only production is allowed **only** as an explicit product scope
-decision documenting Chrome/Firefox/Safari desktop as in-scope and Android/iOS
-as not production-approved — and still requires lifecycle/security + branding
-rebase + final CI before any production flag enablement.
+Desktop push acceptance is closed. Mobile and production flag enablement are
+**Phase S**. Merging PR #45 with `WEB_PUSH_ENABLED=false` does not enable push
+in production.
 
 Acceptance case log:
 `docs/superpowers/plans/2026-07-22-minimal-install-web-push-acceptance.md`
@@ -761,10 +760,11 @@ recorded:
   - Backup is full-database `pg_dump` (no table exclusion list for web_push).
   - Production-like restore rehearsal remains an enablement/Task 10 gap.
   - Dispatcher/sender have no console logging of endpoint/keys/payload.
-- Branding PR #47 remains Draft; post-merge `main` rebase may be required.
-- Task 10 (real device acceptance / production enablement) is **partial**.
+- Branding PR #47 merge + Phase R rebase may still be required before PR #45 merge.
+- Task 10 overall is **partial**: desktop push **PASS/closed**; mobile + production
+  enablement deferred to **Phase S**.
 
-### Task 10 — Automated regression + blocked device acceptance (partial)
+### Task 10 — Desktop push closed; mobile deferred (partial)
 
 - **Clean PostgreSQL regression**: ephemeral Postgres 16 on `127.0.0.1:55432`
   with `scram-sha-256` host auth (`postgres`/`postgres`), empty
@@ -783,12 +783,12 @@ recorded:
   `subs=1,dels=1,notifs=1,migrations=14,fk=6`; dump deleted after run.
 - **Staging / VAPID**: agent did **not** generate VAPID keys or enable public
   HTTPS staging. Production `WEB_PUSH_ENABLED` remains false.
-- **Device acceptance**: blocked — Chrome/Android/Firefox/Safari/iOS matrices
-  require operator + physical devices. Case log scaffold:
+- **Desktop device acceptance**: Chrome + Firefox + Safari push **PASS** (operator);
+  subscription readiness fix `69b1688`. Case log:
   `docs/superpowers/plans/2026-07-22-minimal-install-web-push-acceptance.md`.
-- **Exact-head SHA**: `bfb27c8c5ee219f7cd891b7902a8f34a91d7b580`
-- **CI run IDs (Task 9 close / current head)**:
-  server `29943672288/job/89003581379` SUCCESS;
-  web `29943672288/job/89003581334` SUCCESS.
-- **Merge SHA**: pending explicit review and merge.
+- **Mobile / production enablement**: **Phase S** (Android, iOS Home Screen,
+  lock-screen privacy, HTTPS/VAPID, flag enablement).
+- **Exact-head SHA (desktop push close)**: `69b16885d6acb60ca66d2a94564b73e2087a0ba8`
+  (Task 10A start was `bfb27c8…`).
+- **Merge SHA**: pending branding rebase + green CI + explicit merge decision.
 - **Known risk**: at-least-once crash window on claimed deliveries (lease reclaim).

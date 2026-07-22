@@ -591,6 +591,7 @@ async function measure(page) {
       notificationSettingsPresent: Boolean(notificationSection?.querySelector('.notification-settings')),
       notificationManualGuidance: (() => {
         const text = notificationSection?.textContent ?? '';
+        // Desktop/Firefox/Safari manual install + iOS Home Screen note (no beforeinstallprompt).
         return text.includes('Siteyi yükle')
           && text.includes('Ana Ekrana Ekle')
           && (text.includes('iPhone') || text.includes('iPad'));

@@ -1,10 +1,22 @@
 # Phase R Task 10 — Manual Browser/Device Acceptance Log
 
-**Status:** PARTIAL — desktop **delivery PASS**; desktop **lifecycle/security pending**; mobile open; Task 10 not closed
+**Status:** PARTIAL — **desktop cross-browser push CLOSED (PASS)**; mobile/production enablement deferred to **Phase S**; Task 10 overall not closed
 **Branch:** `feature/minimal-install-web-push`
+**Exact head at desktop push close:** `69b16885d6acb60ca66d2a94564b73e2087a0ba8` (+ smoke contract follow-up if present)
 **Exact head at Task 10A start:** `bfb27c8c5ee219f7cd891b7902a8f34a91d7b580`
 **PR:** #45 Draft
 **Timezone:** Europe/Istanbul
+
+```text
+Chrome Desktop push: PASS (operator)
+Firefox Desktop push: PASS (operator)
+Safari macOS push: PASS (operator)
+Cross-browser subscription setup: COMPLETED (69b1688 readiness + enable fallback)
+Android physical acceptance: deferred → Phase S
+iPhone/iPad Home Screen acceptance: deferred → Phase S
+Task 10 overall: PARTIAL
+Production WEB_PUSH_ENABLED: false
+```
 
 ## Safety
 
@@ -157,15 +169,24 @@ DB snapshot after session (counts only):
 | Firefox desktop | Allow + live traffic | PASS (operator) |
 | Safari macOS | Allow + live traffic | PASS (operator) |
 
-**Sub-gate:** `desktop multi-browser push delivery = PASS`
+**Sub-gate:** `desktop multi-browser push delivery = PASS` — **CLOSED**
 
-**Not complete desktop acceptance.** The following are **required lifecycle/security
-gates** (not optional edge cases) before desktop can be production-approved:
+### Desktop cross-browser push matrix (operator closeout 2026-07-22)
+
+| Browser | Install UI | Device push enable + OS notification | Result |
+|---------|------------|--------------------------------------|--------|
+| Chrome Desktop | Chromium install button where available | PASS (operator) | **PASS** |
+| Firefox Desktop | Manual install guidance (no beforeinstallprompt) | PASS (operator) | **PASS** |
+| Safari macOS | Manual install guidance (File → Add to Dock) | PASS (operator) | **PASS** |
+
+Cross-browser subscription setup fix: `69b1688` (bounded SW ready, Turkish errors, explicit-enable fallback). Service worker display path and server dispatcher unchanged.
+
+**Residual (not blocking desktop push close; production still gated):**
 
 | Gate | Chrome | Firefox | Safari |
 |------|--------|---------|--------|
-| Permission deny → no re-prompt / no enable CTA | PASS (agent CDP) | pending operator | pending operator |
-| Closed-browser notification + safe deep-link | PARTIAL (SW show path) | pending operator | pending operator |
+| Permission deny → no re-prompt / no enable CTA | PASS (agent CDP) | optional residual | optional residual |
+| Closed-browser notification + safe deep-link | PARTIAL (SW show path) | optional residual | optional residual |
 | Logout → browser sub cleared; revoked session not claimed | PASS (agent) | — | — |
 | Relogin / session change → no auto server sub without enable | PASS (agent) | — | — |
 | Logged-out deep-link → login wall, no JobCard leak | PASS (agent) | — | — |
@@ -198,32 +219,48 @@ Closed-browser:
 - Real OS closed-browser receive still needs operator eyeball
 ```
 
-Until remaining Firefox/Safari deny+closed-browser and optional product edge
-cases pass: PR #45 Draft, production `WEB_PUSH_ENABLED=false`, Task 10 `partial`.
+Desktop cross-browser **push** acceptance is **closed PASS**. Mobile and production
+enablement move to **Phase S**. PR #45 remains Draft until branding rebase + CI +
+merge decision; production `WEB_PUSH_ENABLED=false`; Task 10 overall **partial**.
 
-## Chrome Android (physical device)
+## Chrome Android (physical device) — Phase S
 
 | Case ID | Scenario | Result |
 |---------|----------|--------|
-| AC-CA-01 … AC-CA-n | Install / allow / deny / bg / lock-screen / click | BLOCKED — physical device + HTTPS staging required |
+| AC-CA-01 … AC-CA-n | Install / allow / deny / bg / lock-screen / click | **Deferred — Phase S** (physical device + HTTPS staging) |
 
 ## Firefox desktop
 
 | Case ID | Scenario | Result |
 |---------|----------|--------|
-| AC-FF-core | Staff↔manager instant notification traffic | PASS (operator, all browsers note) |
+| AC-FF-core | Staff↔manager + device OS notification | **PASS** (operator) |
+| AC-FF-enable | Explicit enable after readiness fix `69b1688` | **PASS** (operator) |
 
 ## Safari macOS
 
 | Case ID | Scenario | Result |
 |---------|----------|--------|
-| AC-SF-core | Staff↔manager instant notification traffic | PASS (operator, all browsers note) |
+| AC-SF-core | Staff↔manager + device OS notification | **PASS** (operator) |
+| AC-SF-install-guidance | Manual install copy (no Chromium install button) | **PASS** (operator) |
 
-## iOS / iPadOS Home Screen
+## iOS / iPadOS Home Screen — Phase S
 
 | Case ID | Scenario | Result |
 |---------|----------|--------|
-| AC-IOS-01 … | Home Screen install / permission / background / Focus | BLOCKED — physical device + HTTPS staging required |
+| AC-IOS-01 … | Home Screen install / permission / background / Focus | **Deferred — Phase S** |
+
+## Phase S — Mobile Web Push Acceptance and Production Enablement
+
+Deferred from desktop closeout (not required for desktop push PASS):
+
+- Chrome Android physical-device acceptance
+- iPhone/iPad Home Screen Web Push acceptance
+- Lock-screen privacy review
+- Mobile logout / account-switch
+- Focus / Do Not Disturb behavior
+- Production HTTPS / VAPID approval
+- Metadata / retention approval
+- Final production enablement (`WEB_PUSH_ENABLED`)
 
 ---
 
