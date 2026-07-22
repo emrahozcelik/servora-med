@@ -582,6 +582,19 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .notification-center-item-title { font-weight: 740; }
 .notification-center-item-meta { display: flex; justify-content: space-between; gap: 0.75rem; color: var(--muted); font-size: 0.78rem; }
 .notification-center-more { width: 100%; }
+.notification-settings-trigger { width: 100%; }
+.notification-settings { display: grid; gap: 1rem; min-width: 0; }
+.notification-settings section { min-width: 0; padding-top: 1rem; border-top: 1px solid var(--rule); }
+.notification-settings h3 { margin: 0; font-size: 1rem; }
+.notification-settings p { margin: 0.65rem 0 0; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
+.notification-settings .primary-button,
+.notification-settings .secondary-button { margin-top: 0.9rem; max-width: 100%; }
+.notification-settings-back { justify-self: start; }
+.notification-device-push { min-width: 0; }
+.notification-device-push-error,
+.notification-device-push-copy,
+.notification-device-push-loading { min-width: 0; overflow-wrap: anywhere; }
+.notification-device-push-action { width: 100%; max-width: 100%; }
 .workspace-empty { width: min(100% - 2rem, 52rem); margin: clamp(3rem, 12vh, 7rem) auto; }
 .workspace-empty > p:not(.eyebrow) { max-width: 55ch; color: var(--muted); line-height: 1.6; }
 

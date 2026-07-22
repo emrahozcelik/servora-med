@@ -157,6 +157,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '011_create_realtime_events',
           '012_create_in_app_notifications',
           '013_create_job_action_locations',
+          '014_create_web_push',
         ],
       });
 

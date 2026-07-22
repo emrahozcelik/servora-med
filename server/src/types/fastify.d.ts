@@ -5,5 +5,6 @@ declare module 'fastify' {
   interface FastifyRequest {
     currentUser?: SafeUser;
     sessionTokenHash?: string;
+    currentSessionId?: string;
   }
 }

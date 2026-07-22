@@ -69,7 +69,7 @@ export class AuthService {
       throw UNAUTHENTICATED;
     }
 
-    return { user: toSafeUser(result.user), tokenHash };
+    return { user: toSafeUser(result.user), tokenHash, sessionId: result.session.id };
   }
 
   async logout(rawToken: string): Promise<void> {

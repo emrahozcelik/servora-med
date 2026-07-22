@@ -34,6 +34,9 @@ import {
 import {
   PostgresNotificationTransaction,
 } from '../notifications/repository.js';
+import {
+  PostgresWebPushTransaction,
+} from '../web-push/repository.js';
 import type {
   NotificationAppendInput,
   NotificationRecord,
@@ -44,6 +47,7 @@ import type {
   LocationFailureReason,
   LocationGeocodingStatus,
 } from './location-types.js';
+import type { AppendWebPushDeliveriesInput } from '../web-push/repository.js';
 
 export type AppendedActivity = {
   id: string;
@@ -174,6 +178,9 @@ export interface JobCardTransaction extends SubmissionReader {
   appendNotifications(
     input: NotificationAppendInput,
   ): Promise<readonly NotificationRecord[]>;
+  appendWebPushDeliveries(
+    input: AppendWebPushDeliveriesInput,
+  ): Promise<readonly string[]>;
   createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
   getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
@@ -615,10 +622,12 @@ function workspaceWhere(
 class PostgresJobCardTransaction implements JobCardTransaction {
   private readonly realtime: PostgresRealtimeEventTransaction;
   private readonly notifications: PostgresNotificationTransaction;
+  private readonly webPush: PostgresWebPushTransaction;
 
   constructor(private readonly client: PoolClient) {
     this.realtime = new PostgresRealtimeEventTransaction(client);
     this.notifications = new PostgresNotificationTransaction(client);
+    this.webPush = new PostgresWebPushTransaction(client);
   }
 
   async getJob(organizationId: string, jobCardId: string) {
@@ -750,6 +759,10 @@ class PostgresJobCardTransaction implements JobCardTransaction {
 
   appendNotifications(input: NotificationAppendInput) {
     return this.notifications.append(input);
+  }
+
+  appendWebPushDeliveries(input: AppendWebPushDeliveriesInput) {
+    return this.webPush.appendDeliveries(input);
   }
 
   async createNote(input: CreateNoteRecord) {

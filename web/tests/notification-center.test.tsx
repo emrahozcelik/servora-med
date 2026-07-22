@@ -5,7 +5,13 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NotificationCenter } from '../src/notifications/NotificationCenter';
+import {
+  createInstallOpportunityController,
+  InstallOpportunityProvider,
+} from '../src/install/InstallOpportunity';
 import { RealtimeProvider, type RealtimeEventSource } from '../src/realtime/RealtimeProvider';
+import { WebPushProvider } from '../src/web-push/WebPushProvider';
+import type { WebPushController } from '../src/web-push/WebPushController';
 
 const api = vi.hoisted(() => ({
   getUnreadNotificationCount: vi.fn(),
@@ -45,7 +51,11 @@ describe('NotificationCenter', () => {
     api.markNotificationRead.mockResolvedValue({ ...notification, readAt: '2026-07-21T11:00:00.000Z' });
   });
   afterEach(async () => {
-    await act(async () => root.unmount()); container.remove(); vi.clearAllMocks(); vi.useRealTimers();
+    await act(async () => root.unmount());
+    container.remove();
+    vi.clearAllMocks();
+    vi.useRealTimers();
+    vi.unstubAllGlobals();
   });
 
   async function render(identityKey = 'org-1:staff-1', mobile = false) {
@@ -67,6 +77,229 @@ describe('NotificationCenter', () => {
     expect(dialog.textContent).toContain('Size yeni bir iş atandı.');
     expect(dialog.textContent).toContain('Okunmadı');
     expect(document.activeElement).toBe(dialog.querySelector('button'));
+  });
+
+  it('offers a retained install prompt only from the explicit settings action', async () => {
+    const controller = createInstallOpportunityController(window);
+    const prompt = vi.fn().mockResolvedValue(undefined);
+    const event = new Event('beforeinstallprompt', { cancelable: true });
+    Object.assign(event, {
+      prompt,
+      userChoice: Promise.resolve({ outcome: 'accepted', platform: '' }),
+    });
+    controller.start();
+    window.dispatchEvent(event);
+
+    await act(async () => root.render(
+      <MemoryRouter>
+        <InstallOpportunityProvider controller={controller}>
+          <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+        </InstallOpportunityProvider>
+      </MemoryRouter>,
+    ));
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const settings = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
+    await act(async () => settings.click());
+    const install = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Uygulamayı yükle')!;
+
+    expect(prompt).not.toHaveBeenCalled();
+    await act(async () => install.click());
+    expect(prompt).toHaveBeenCalledTimes(1);
+    expect(container.textContent).toContain('Uygulama bu cihaza yüklendi.');
+    controller.stop();
+  });
+
+  it('shows manual install guidance and returns focus without touching notification APIs', async () => {
+    const requestPermission = vi.fn();
+    const register = vi.fn();
+    vi.stubGlobal('Notification', { requestPermission });
+    Object.defineProperty(navigator, 'serviceWorker', {
+      configurable: true,
+      value: { register },
+    });
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const settings = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
+    settings.focus();
+    await act(async () => settings.click());
+
+    expect(container.textContent).toContain('Siteyi yükle');
+    expect(container.textContent).toContain('Dock’a Ekle');
+    expect(container.textContent).toContain('Ana Ekrana Ekle');
+    expect(container.textContent).toContain('iPhone veya iPad');
+    expect(container.textContent).toContain('Cihaz bildirimleri şu anda kullanıma kapalıdır.');
+    expect(requestPermission).not.toHaveBeenCalled();
+    expect(register).not.toHaveBeenCalled();
+    const back = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Bildirimlere dön')!;
+    expect(document.activeElement).toBe(back);
+    await act(async () => back.click());
+    const restoredSettings = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
+    expect(document.activeElement).toBe(restoredSettings);
+    delete (navigator as Navigator & { serviceWorker?: unknown }).serviceWorker;
+  });
+
+  function fakeWebPush(
+    snapshot: ReturnType<WebPushController['getSnapshot']>,
+    handlers: { enable?: () => Promise<void>; disable?: () => Promise<void> } = {},
+  ): WebPushController {
+    return {
+      start: async () => {},
+      stop: () => {},
+      setIdentity: async () => {},
+      subscribe: () => () => {},
+      getSnapshot: () => snapshot,
+      enable: handlers.enable ?? (async () => {}),
+      disable: handlers.disable ?? (async () => {}),
+      recover: async () => {},
+      clearLocalSubscription: async () => {},
+    };
+  }
+
+  async function openSettingsWithWebPush(webPush: WebPushController) {
+    await act(async () => root.render(
+      <MemoryRouter>
+        <WebPushProvider identityKey="org-1:staff-1" controller={webPush}>
+          <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+        </WebPushProvider>
+      </MemoryRouter>,
+    ));
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const settings = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
+    await act(async () => settings.click());
+  }
+
+  it('renders the enabled device-notification action from the owned controller state', async () => {
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const webPush = fakeWebPush({
+      enabled: true,
+      status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+      capability: 'supported', permission: 'default', guidance: 'none', pending: null, error: '',
+    }, { enable });
+    await openSettingsWithWebPush(webPush);
+    const action = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Cihaz bildirimlerini aç')!;
+
+    expect(container.textContent).toContain('müşteri, not, teslimat veya konum bilgisi yer almaz');
+    await act(async () => action.click());
+    expect(enable).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an accessible loading status while device notification state is unknown', async () => {
+    await openSettingsWithWebPush(fakeWebPush({
+      enabled: null, status: null, capability: 'supported', permission: 'default',
+      guidance: 'none', pending: null, error: '',
+    }));
+    const loading = container.querySelector('.notification-device-push [role="status"]');
+    expect(loading?.textContent).toContain('Cihaz bildirimi durumu yükleniyor…');
+    const actionButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) =>
+        button.textContent === 'Cihaz bildirimlerini aç'
+        || button.textContent === 'Cihaz bildirimlerini kapat',
+      );
+    expect(actionButton).toBeUndefined();
+  });
+
+  it.each([
+    {
+      name: 'disabled',
+      snapshot: {
+        enabled: false as boolean | null,
+        status: { enabled: false, vapidPublicKey: null, renewalRequired: false, subscription: null },
+        capability: 'supported' as const, permission: 'default' as const,
+        guidance: 'disabled' as const, pending: null, error: '',
+      },
+      text: 'Cihaz bildirimleri şu anda kullanıma kapalıdır.',
+      action: null as string | null,
+    },
+    {
+      name: 'denied',
+      snapshot: {
+        enabled: true as boolean | null,
+        status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+        capability: 'supported' as const, permission: 'denied' as const,
+        guidance: 'denied' as const, pending: null, error: '',
+      },
+      text: 'Bildirim izni kapalı',
+      action: null,
+    },
+    {
+      name: 'install-required',
+      snapshot: {
+        enabled: true as boolean | null,
+        status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+        capability: 'unsupported' as const, permission: 'unsupported' as const,
+        guidance: 'install-required' as const, pending: null, error: '',
+      },
+      text: 'Ana Ekrana ekleyip',
+      action: null,
+    },
+    {
+      name: 'renewal-required',
+      snapshot: {
+        enabled: true as boolean | null,
+        status: {
+          enabled: true, vapidPublicKey: 'AQID', renewalRequired: true,
+          subscription: { id: 's1', createdAt: '2026-07-22T10:00:00.000Z', fingerprint: 'a'.repeat(64) },
+        },
+        capability: 'supported' as const, permission: 'granted' as const,
+        guidance: 'renewal-required' as const, pending: null, error: '',
+      },
+      text: 'aboneliği yenilenmeli',
+      action: 'Cihaz bildirimlerini yenile',
+    },
+    {
+      name: 'long-error',
+      snapshot: {
+        enabled: true as boolean | null,
+        status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+        capability: 'supported' as const, permission: 'default' as const,
+        guidance: 'none' as const, pending: null,
+        error: 'Cihaz bildirimi durumu şu anda doğrulanamadı. İnternet bağlantınızı kontrol edip bu ekranı kapatmadan yeniden deneyin.',
+      },
+      text: 'Cihaz bildirimi durumu şu anda doğrulanamadı',
+      action: 'Cihaz bildirimlerini aç',
+    },
+  ])('renders device notification $name guidance without inventing push SSE events', async ({ snapshot, text, action }) => {
+    await openSettingsWithWebPush(fakeWebPush(snapshot));
+    expect(container.textContent).toContain(text);
+    const actionButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) =>
+        button.textContent === 'Cihaz bildirimlerini aç'
+        || button.textContent === 'Cihaz bildirimlerini kapat'
+        || button.textContent === 'Cihaz bildirimlerini yenile'
+        || button.textContent === 'Açılıyor…'
+        || button.textContent === 'Kapatılıyor…'
+        || button.textContent === 'Yenileniyor…',
+      );
+    if (action) {
+      expect(actionButton?.textContent).toBe(action);
+    } else {
+      expect(actionButton).toBeUndefined();
+    }
+    const alert = container.querySelector('[role="alert"]');
+    if (snapshot.error) expect(alert?.textContent).toContain(snapshot.error.slice(0, 20));
+  });
+
+  it('disables pending enable action and marks the section busy', async () => {
+    await openSettingsWithWebPush(fakeWebPush({
+      enabled: true,
+      status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+      capability: 'supported', permission: 'default', guidance: 'none', pending: 'enable', error: '',
+    }));
+    const action = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Açılıyor…')!;
+    expect(action.disabled).toBe(true);
+    expect(action.getAttribute('aria-busy')).toBe('true');
+    expect(container.querySelector('.notification-device-push')?.getAttribute('aria-busy')).toBe('true');
   });
 
   it('shows an empty state and supports retry after a list failure', async () => {
@@ -192,6 +425,79 @@ describe('NotificationCenter', () => {
     })));
     expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
     expect(api.listNotifications).toHaveBeenCalledTimes(2);
+  });
+
+  it('does not mark-read or refresh notification APIs for push-subscription-changed recovery', async () => {
+    const { createWebPushController } = await import('../src/web-push/WebPushController');
+    const swListeners = new Set<(event: Event) => void>();
+    const serviceWorkerTarget = {
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === 'message') swListeners.add(listener as (event: Event) => void);
+      }),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === 'message') swListeners.delete(listener as (event: Event) => void);
+      }),
+    };
+    const getStatus = vi.fn().mockResolvedValue({
+      enabled: true,
+      vapidPublicKey: 'AQID',
+      renewalRequired: false,
+      subscription: {
+        id: 'sub-1',
+        createdAt: '2026-07-22T10:00:00.000Z',
+        fingerprint: 'a'.repeat(64),
+      },
+    });
+    const controller = createWebPushController({
+      api: {
+        getStatus,
+        createSubscription: vi.fn(),
+        disableSubscription: vi.fn(),
+      },
+      browser: {
+        capability: () => 'supported' as const,
+        permission: () => 'granted' as const,
+        isStandalone: () => true,
+        requestPermission: vi.fn(),
+        currentSubscription: vi.fn().mockResolvedValue({
+          endpoint: 'https://fcm.googleapis.com/push/example',
+          expirationTime: null,
+          keys: { p256dh: 'p', auth: 'a' },
+          unsubscribe: vi.fn().mockResolvedValue(true),
+        }),
+        subscribe: vi.fn(),
+        unsubscribe: vi.fn(),
+        fingerprint: vi.fn().mockResolvedValue('a'.repeat(64)),
+      },
+      target: window,
+      serviceWorkerTarget,
+    });
+
+    await act(async () => root.render(
+      <MemoryRouter>
+        <WebPushProvider identityKey="org-1:staff-1" controller={controller}>
+          <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+        </WebPushProvider>
+      </MemoryRouter>,
+    ));
+
+    const listCallsBefore = api.listNotifications.mock.calls.length;
+    const unreadBefore = api.getUnreadNotificationCount.mock.calls.length;
+    const markBefore = api.markNotificationRead.mock.calls.length;
+    const statusBefore = getStatus.mock.calls.length;
+
+    await act(async () => {
+      for (const listener of swListeners) {
+        listener(new MessageEvent('message', { data: { type: 'push-subscription-changed' } }));
+      }
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    expect(getStatus.mock.calls.length).toBeGreaterThan(statusBefore);
+    expect(api.markNotificationRead).toHaveBeenCalledTimes(markBefore);
+    expect(api.listNotifications).toHaveBeenCalledTimes(listCallsBefore);
+    expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(unreadBefore);
   });
 
   it('uses the same guarded loaders for recovery, and loads the list only while open', async () => {

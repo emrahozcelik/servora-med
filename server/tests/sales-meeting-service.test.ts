@@ -154,6 +154,7 @@ class SalesMeetingRepository implements JobCardRepository {
       appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
+      appendWebPushDeliveries: async () => [],
       getJobDetail: async (organizationId: string, jobCardId: string) => {
         const job = this.jobs.find(
           (candidate) => candidate.organizationId === organizationId && candidate.id === jobCardId,

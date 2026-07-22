@@ -109,6 +109,7 @@ describe('AuthService', () => {
     expect(result.user.email).toBe('admin@example.com');
     expect(result.user).not.toHaveProperty('passwordHash');
     expect(result.tokenHash).toBe(hashSessionToken(login.rawToken));
+    expect(result.sessionId).toBe('session-1');
   });
 
   it('logs out idempotently', async () => {

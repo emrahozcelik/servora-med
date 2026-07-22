@@ -1,3 +1,5 @@
+import { createECDH } from 'node:crypto';
+
 import { describe, expect, it } from 'vitest';
 
 import { loadConfig } from '../src/config.js';
@@ -13,6 +15,17 @@ const productionBase = {
   CORS_ORIGIN: 'https://app.example.com',
   TRUSTED_PROXY: 'loopback',
   HEALTH_SCHEMA_VERSION: '007_sales_meeting',
+};
+
+const webPushPrivateKeyBytes = Buffer.alloc(32, 0);
+webPushPrivateKeyBytes[31] = 1;
+const webPushEcdh = createECDH('prime256v1');
+webPushEcdh.setPrivateKey(webPushPrivateKeyBytes);
+const validWebPushEnvironment = {
+  WEB_PUSH_ENABLED: 'true',
+  WEB_PUSH_VAPID_SUBJECT: 'mailto:operations@example.com',
+  WEB_PUSH_VAPID_PUBLIC_KEY: webPushEcdh.getPublicKey().toString('base64url'),
+  WEB_PUSH_VAPID_PRIVATE_KEY: webPushPrivateKeyBytes.toString('base64url'),
 };
 
 describe('loadConfig', () => {
@@ -44,6 +57,12 @@ describe('loadConfig', () => {
       trustedProxy: '127.0.0.1',
       healthSchemaVersion: '007_sales_meeting',
       actionScopedGeolocationEnabled: false,
+      webPush: {
+        enabled: false,
+        vapidSubject: null,
+        vapidPublicKey: null,
+        vapidPrivateKey: null,
+      },
     });
   });
 
@@ -61,7 +80,103 @@ describe('loadConfig', () => {
       trustedProxy: 'loopback',
       healthSchemaVersion: null,
       actionScopedGeolocationEnabled: false,
+      webPush: {
+        enabled: false,
+        vapidSubject: null,
+        vapidPublicKey: null,
+        vapidPrivateKey: null,
+      },
     });
+  });
+
+  it.each([undefined, '', 'false'])(
+    'keeps Web Push disabled for %s without requiring VAPID values',
+    (value) => {
+      expect(loadConfig({
+        ...validEnvironment,
+        WEB_PUSH_ENABLED: value,
+      }).webPush).toEqual({
+        enabled: false,
+        vapidSubject: null,
+        vapidPublicKey: null,
+        vapidPrivateKey: null,
+      });
+    },
+  );
+
+  it.each(['TRUE', '1', 'yes', 'enabled'])(
+    'rejects invalid Web Push value %s',
+    (value) => {
+      expect(() => loadConfig({
+        ...validEnvironment,
+        WEB_PUSH_ENABLED: value,
+      })).toThrow('WEB_PUSH_ENABLED must be true or false');
+    },
+  );
+
+  it('enables Web Push with a valid, compatible VAPID configuration', () => {
+    expect(loadConfig({
+      ...validEnvironment,
+      ...validWebPushEnvironment,
+    }).webPush).toEqual({
+      enabled: true,
+      vapidSubject: validWebPushEnvironment.WEB_PUSH_VAPID_SUBJECT,
+      vapidPublicKey: validWebPushEnvironment.WEB_PUSH_VAPID_PUBLIC_KEY,
+      vapidPrivateKey: validWebPushEnvironment.WEB_PUSH_VAPID_PRIVATE_KEY,
+    });
+  });
+
+  it.each([
+    ['WEB_PUSH_VAPID_SUBJECT', 'WEB_PUSH_VAPID_SUBJECT'],
+    ['WEB_PUSH_VAPID_PUBLIC_KEY', 'WEB_PUSH_VAPID_PUBLIC_KEY'],
+    ['WEB_PUSH_VAPID_PRIVATE_KEY', 'WEB_PUSH_VAPID_PRIVATE_KEY'],
+  ] as const)(
+    'requires %s when Web Push is enabled',
+    (key, label) => {
+      expect(() => loadConfig({
+        ...validEnvironment,
+        ...validWebPushEnvironment,
+        [key]: '',
+      })).toThrow(`${label} is required when WEB_PUSH_ENABLED=true`);
+    },
+  );
+
+  it.each([
+    'mailto:not-an-address',
+    'http://example.com/push',
+    'https://localhost/push',
+    'https://127.0.0.1/push',
+    'not-a-contact',
+  ])('rejects malformed Web Push VAPID subject %s', (subject) => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...validWebPushEnvironment,
+      WEB_PUSH_VAPID_SUBJECT: subject,
+    })).toThrow('WEB_PUSH_VAPID_SUBJECT must be a public https URL or mailto address');
+  });
+
+  it.each([
+    ['WEB_PUSH_VAPID_PUBLIC_KEY', 'not-base64url'],
+    ['WEB_PUSH_VAPID_PUBLIC_KEY', 'YQ=='],
+    ['WEB_PUSH_VAPID_PRIVATE_KEY', 'not-base64url'],
+    ['WEB_PUSH_VAPID_PRIVATE_KEY', 'YQ=='],
+  ] as const)('rejects malformed %s', (key, value) => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...validWebPushEnvironment,
+      [key]: value,
+    })).toThrow(`${key} must be a URL-safe Base64 P-256 key`);
+  });
+
+  it('rejects mutually incompatible VAPID keys', () => {
+    const otherPrivateKey = Buffer.alloc(32, 0);
+    otherPrivateKey[31] = 2;
+
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...validWebPushEnvironment,
+      WEB_PUSH_VAPID_PRIVATE_KEY: otherPrivateKey.toString('base64url'),
+    })).toThrow('WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY must be compatible');
   });
 
   it('enables action-scoped geolocation only for exact true', () => {

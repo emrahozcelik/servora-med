@@ -289,6 +289,72 @@ describe('Staff JobCard detail', () => {
     return fetch;
   }
 
+  it('loads authorized JobCard detail via canonical REST and does not use push payload as job data', async () => {
+    const fetch = await renderScreen(job);
+    expect(host.textContent).toContain(job.title);
+    expect(fetch.mock.calls.some(([input]) => String(input).endsWith(`/api/job-cards/${job.id}`))).toBe(true);
+    expect(host.textContent).not.toContain('Size yeni bir iş atandı.');
+  });
+
+  it('shows canonical not-found error without rendering push title/body as job content', async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/job-cards/')) {
+        return new Response(JSON.stringify({
+          code: 'JOB_CARD_NOT_FOUND',
+          error: 'JobCard bulunamadı.',
+        }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new Error(`Unexpected request: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(
+        <JobDetailScreen
+          jobId="22222222-2222-4222-8222-222222222222"
+          user={staffUser}
+          onBack={() => {}}
+          onChanged={() => {}}
+        />,
+      );
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('İş yüklenemedi');
+    expect(host.textContent).toContain('JobCard bulunamadı.');
+    expect(host.textContent).not.toContain('Yeni iş atandı');
+    expect(host.textContent).not.toContain('Size yeni bir iş atandı.');
+    expect(host.querySelector('.job-detail-content')).toBeNull();
+  });
+
+  it('treats unauthorized/cross-tenant JobCard responses as opaque not-found without job data', async () => {
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/api/job-cards/')) {
+        // Backend uses opaque not-found for unauthorized/cross-tenant access.
+        return new Response(JSON.stringify({
+          code: 'JOB_CARD_NOT_FOUND',
+          error: 'JobCard bulunamadı.',
+        }), { status: 404, headers: { 'Content-Type': 'application/json' } });
+      }
+      throw new Error(`Unexpected request: ${input}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(
+        <JobDetailScreen
+          jobId="33333333-3333-4333-8333-333333333333"
+          user={staffUser}
+          onBack={() => {}}
+          onChanged={() => {}}
+        />,
+      );
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('İş yüklenemedi');
+    expect(host.textContent).not.toContain('ABC Klinik ürün teslimi');
+    expect(host.querySelector('.job-detail-content')).toBeNull();
+  });
+
   async function renderRealtimeScreen(card: JobCard, source: FakeRealtimeEventSource, fetch = mockDetailFetch(card)) {
     vi.stubGlobal('fetch', fetch);
     await act(async () => {

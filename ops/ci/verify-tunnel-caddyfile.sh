@@ -13,6 +13,8 @@ grep -F 'header_up X-Forwarded-For {http.request.header.CF-Connecting-IP}' "$CON
 grep -F 'header_up X-Forwarded-Proto https' "$CONFIG" >/dev/null
 grep -F 'Cache-Control "no-store"' "$CONFIG" >/dev/null
 grep -F 'Cache-Control "no-cache"' "$CONFIG" >/dev/null
+grep -F 'handle /service-worker.js' "$CONFIG" >/dev/null
+grep -A5 'handle /service-worker.js' "$CONFIG" | grep -Fq 'Cache-Control "no-cache"'
 
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker required for Caddy tunnel validate" >&2

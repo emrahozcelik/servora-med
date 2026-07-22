@@ -1,6 +1,15 @@
+import { createECDH } from 'node:crypto';
+
 export type NodeEnvironment = 'development' | 'test' | 'production';
 
 export type TrustedProxy = 'loopback' | '127.0.0.1' | '::1';
+
+export type WebPushConfig = {
+  enabled: boolean;
+  vapidSubject: string | null;
+  vapidPublicKey: string | null;
+  vapidPrivateKey: string | null;
+};
 
 export type AppConfig = {
   nodeEnv: NodeEnvironment;
@@ -15,6 +24,7 @@ export type AppConfig = {
   trustedProxy: TrustedProxy;
   healthSchemaVersion: string | null;
   actionScopedGeolocationEnabled: boolean;
+  webPush: WebPushConfig;
 };
 
 const NODE_ENVIRONMENTS = new Set<NodeEnvironment>(['development', 'test', 'production']);
@@ -142,6 +152,117 @@ function readHealthSchemaVersion(
   return resolved || null;
 }
 
+function readRequiredWebPushValue(
+  value: string | undefined,
+  name: string,
+): string {
+  const resolved = value?.trim();
+  if (!resolved) {
+    throw new Error(`${name} is required when WEB_PUSH_ENABLED=true`);
+  }
+  return resolved;
+}
+
+function readVapidSubject(value: string | undefined): string {
+  const subject = readRequiredWebPushValue(value, 'WEB_PUSH_VAPID_SUBJECT');
+
+  try {
+    const url = new URL(subject);
+    if (
+      url.protocol === 'mailto:'
+      && /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(url.pathname)
+      && !url.search
+      && !url.hash
+    ) {
+      return subject;
+    }
+
+    const hostname = url.hostname.toLowerCase();
+    const isLocalHost = hostname === 'localhost'
+      || hostname.endsWith('.localhost')
+      || hostname === '127.0.0.1'
+      || hostname === '::1'
+      || hostname === '0.0.0.0';
+    if (
+      url.protocol === 'https:'
+      && !url.username
+      && !url.password
+      && !isLocalHost
+    ) {
+      return subject;
+    }
+  } catch {
+    // Normalize every malformed contact value to the public config contract.
+  }
+
+  throw new Error('WEB_PUSH_VAPID_SUBJECT must be a public https URL or mailto address');
+}
+
+function readVapidKey(
+  value: string | undefined,
+  name: 'WEB_PUSH_VAPID_PUBLIC_KEY' | 'WEB_PUSH_VAPID_PRIVATE_KEY',
+  expectedLength: number,
+): { encoded: string; decoded: Buffer } {
+  const encoded = readRequiredWebPushValue(value, name);
+  if (!/^[A-Za-z0-9_-]+$/.test(encoded)) {
+    throw new Error(`${name} must be a URL-safe Base64 P-256 key`);
+  }
+
+  const decoded = Buffer.from(encoded, 'base64url');
+  if (
+    decoded.length !== expectedLength
+    || decoded.toString('base64url') !== encoded
+    || (name === 'WEB_PUSH_VAPID_PUBLIC_KEY' && decoded[0] !== 4)
+  ) {
+    throw new Error(`${name} must be a URL-safe Base64 P-256 key`);
+  }
+
+  return { encoded, decoded };
+}
+
+function readWebPushConfig(env: NodeJS.ProcessEnv): WebPushConfig {
+  const enabled = readBoolean(env.WEB_PUSH_ENABLED, 'WEB_PUSH_ENABLED');
+  if (!enabled) {
+    return {
+      enabled: false,
+      vapidSubject: null,
+      vapidPublicKey: null,
+      vapidPrivateKey: null,
+    };
+  }
+
+  const vapidSubject = readVapidSubject(env.WEB_PUSH_VAPID_SUBJECT);
+  const vapidPublicKey = readVapidKey(
+    env.WEB_PUSH_VAPID_PUBLIC_KEY,
+    'WEB_PUSH_VAPID_PUBLIC_KEY',
+    65,
+  );
+  const vapidPrivateKey = readVapidKey(
+    env.WEB_PUSH_VAPID_PRIVATE_KEY,
+    'WEB_PUSH_VAPID_PRIVATE_KEY',
+    32,
+  );
+
+  try {
+    const ecdh = createECDH('prime256v1');
+    ecdh.setPrivateKey(vapidPrivateKey.decoded);
+    if (!ecdh.getPublicKey().equals(vapidPublicKey.decoded)) {
+      throw new Error('incompatible');
+    }
+  } catch {
+    throw new Error(
+      'WEB_PUSH_VAPID_PUBLIC_KEY and WEB_PUSH_VAPID_PRIVATE_KEY must be compatible',
+    );
+  }
+
+  return {
+    enabled: true,
+    vapidSubject,
+    vapidPublicKey: vapidPublicKey.encoded,
+    vapidPrivateKey: vapidPrivateKey.encoded,
+  };
+}
+
 /** Fastify trustProxy option derived from validated config. Never "true" for all peers. */
 export function resolveTrustProxyOption(trustedProxy: TrustedProxy): boolean | string {
   if (trustedProxy === 'loopback') return 'loopback';
@@ -174,5 +295,6 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       env.ACTION_SCOPED_GEOLOCATION_ENABLED,
       'ACTION_SCOPED_GEOLOCATION_ENABLED',
     ),
+    webPush: readWebPushConfig(env),
   };
 }

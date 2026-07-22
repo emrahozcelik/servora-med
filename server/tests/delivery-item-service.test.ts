@@ -31,6 +31,7 @@ class DeliveryRepository implements JobCardRepository {
     appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
     listActiveManagementRecipients: async () => [],
     appendNotifications: async () => [],
+    appendWebPushDeliveries: async () => [],
     getAssignee: async () => null, customerExists: async () => false, createJobCard: async () => { throw new Error('unused'); },
     updateFieldsWithVersion: async () => null,
     getProduct: async (org, id) => {

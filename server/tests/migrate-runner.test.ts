@@ -47,7 +47,7 @@ class MemoryMigrationStore implements MigrationStore {
 }
 
 describe('runMigrations', () => {
-  it('ships the complete ordered migration set through job action locations', async () => {
+  it('ships the complete ordered migration set through Web Push storage', async () => {
     const migrationsDirectory = fileURLToPath(
       new URL('../src/db/migrations', import.meta.url),
     );
@@ -73,9 +73,10 @@ describe('runMigrations', () => {
       '011_create_realtime_events.sql',
       '012_create_in_app_notifications.sql',
       '013_create_job_action_locations.sql',
+      '014_create_web_push.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('013_create_job_action_locations.sql');
-    expect(expectedSchemaVersion).toBe(13);
+    expect(migrations.at(-1)?.name).toBe('014_create_web_push.sql');
+    expect(expectedSchemaVersion).toBe(14);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

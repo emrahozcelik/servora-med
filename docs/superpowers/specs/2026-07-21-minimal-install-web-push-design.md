@@ -99,6 +99,8 @@ When disabled:
 - the web does not register the push service worker, request notification
   permission, call `PushManager.subscribe`, or submit subscription material;
 - subscription creation is rejected without inserting or reactivating a row;
+- authenticated current-session deletion remains available as a cleanup-only
+  operation and cannot enable delivery;
 - notification projection creates no push delivery rows;
 - no dispatcher starts and no push-service HTTP request occurs;
 - the manifest and install guidance may still be served because installing the
@@ -275,7 +277,8 @@ type CreateWebPushSubscription = Readonly<{
 ```
 
 Validation requires exact fields, bounded lengths, URL-safe Base64 key
-material, and an HTTPS endpoint with no credentials, non-default port, IP
+material, and an HTTPS endpoint with no credentials, explicit port (including
+`:443`), IP
 literal, fragment, or unsupported push-service host. The first pilot endpoint
 allowlist is deliberately server-owned and SSRF-safe:
 

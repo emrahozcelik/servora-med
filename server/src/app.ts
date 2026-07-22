@@ -46,6 +46,13 @@ import type { NotificationRepository } from './modules/notifications/repository.
 import { NotificationService } from './modules/notifications/service.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
 import type { ReverseGeocoder } from './modules/job-cards/reverse-geocoder.js';
+import type { WebPushRepository } from './modules/web-push/repository.js';
+import { WebPushService } from './modules/web-push/service.js';
+import { webPushRoutes } from './modules/web-push/routes.js';
+import type { WebPushDispatcher } from './modules/web-push/dispatcher.js';
+import { createDispatcher } from './modules/web-push/dispatcher.js';
+import { createWebPushSender } from './modules/web-push/sender.js';
+import { buildPushPayload, buildPushTopic } from './modules/web-push/payload.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -58,6 +65,18 @@ export const LOGGER_REDACT_PATHS = [
   'req.body.token',
   'req.body.sessionToken',
   'req.body.locationCapture',
+  'req.body.endpoint',
+  'req.body.keys',
+  'req.body.payload',
+  'req.body.vapidSubject',
+  'req.body.vapidPublicKey',
+  'req.body.vapidPrivateKey',
+  'webPush.endpoint',
+  'webPush.keys',
+  'webPush.payload',
+  'webPush.vapidSubject',
+  'webPush.vapidPublicKey',
+  'webPush.vapidPrivateKey',
 ];
 
 export type AppDependencies = {
@@ -73,6 +92,8 @@ export type AppDependencies = {
   realtimePublisher?: RealtimeEventPublisher;
   notificationRepository?: NotificationRepository;
   reverseGeocoder?: ReverseGeocoder;
+  webPushRepository?: WebPushRepository;
+  webPushDispatcher?: WebPushDispatcher;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
 };
@@ -148,6 +169,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           enabled: config.actionScopedGeolocationEnabled,
           reverseGeocoder: dependencies.reverseGeocoder,
         },
+        { enabled: config.webPush.enabled },
       );
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',
@@ -211,6 +233,38 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: new NotificationService(dependencies.notificationRepository),
         authenticate: authenticateDomain,
       });
+    }
+    if (dependencies.webPushRepository) {
+      await app.register(webPushRoutes, {
+        prefix: '/api/web-push',
+        service: new WebPushService(config.webPush, dependencies.webPushRepository),
+        authenticate: authenticateDomain,
+      });
+
+      if (config.webPush.enabled) {
+        const wd =
+          dependencies.webPushDispatcher ??
+          createDispatcher(
+            {},
+            {
+              repository: dependencies.webPushRepository,
+              sender: createWebPushSender({
+                subject: config.webPush.vapidSubject!,
+                publicKey: config.webPush.vapidPublicKey!,
+                privateKey: config.webPush.vapidPrivateKey!,
+              }),
+              buildPayload: buildPushPayload,
+              topicBuilder: buildPushTopic,
+            },
+          );
+
+        app.addHook('onReady', () => {
+          wd.start();
+        });
+        app.addHook('onClose', async () => {
+          await wd.stop();
+        });
+      }
     }
   }
 
