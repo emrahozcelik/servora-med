@@ -1,6 +1,6 @@
 # Phase R Task 10 — Manual Browser/Device Acceptance Log
 
-**Status:** PARTIAL — desktop multi-browser staff↔manager traffic PASS; physical mobile (Android/iOS) still open
+**Status:** PARTIAL — desktop **delivery PASS**; desktop **lifecycle/security pending**; mobile open; Task 10 not closed
 **Branch:** `feature/minimal-install-web-push`
 **Exact head at Task 10A start:** `bfb27c8c5ee219f7cd891b7902a8f34a91d7b580`
 **PR:** #45 Draft
@@ -99,15 +99,17 @@ WEB_PUSH_ENABLED: true (local gitignored .env only; production remains false)
 |---------|----------|--------|----------|
 | AC-CD-01 | Install / manual guidance | PASS (local) | Settings shows “Uygulamayı yükle” when canPrompt; privacy copy present; login does not auto-prompt notifications |
 | AC-CD-02 | Permission allow + subscribe | PASS (local) | Explicit “Cihaz bildirimlerini aç” → SW register `/service-worker.js`, browser sub + server sub present; UI → “Cihaz bildirimlerini kapat” |
-| AC-CD-03 | Permission deny | BLOCKED | Needs fresh browser profile with denied permission (operator) |
+| AC-CD-03 | Permission deny | PASS (agent CDP) | denied → guidance only, no enable CTA, no server sub, no re-prompt surface |
 | AC-CD-04 | Foreground provider delivery | PASS (local backend) | Synthetic delivery rows moved PENDING→DELIVERED via live dispatcher; no secrets logged |
 | AC-CD-05 | Background delivery UI | PASS (operator) | Operator confirmed staff↔manager instant notification traffic works on Chrome |
-| AC-CD-06 | Closed browser delivery | BLOCKED | Operator/device |
-| AC-CD-07 | Exact open client click | PARTIAL | SW `showNotification` + click harness previously proven in automated tests; local OS click TBD |
+| AC-CD-06 | Closed browser delivery | PARTIAL | SW showNotification path OK; real closed-browser OS banner needs operator |
+| AC-CD-07 | Exact open client click | PARTIAL | SW harness + local showNotification; operator OS click TBD |
 | AC-CD-08 | Different open client click | BLOCKED | Operator |
 | AC-CD-09 | No client click | BLOCKED | Operator |
-| AC-CD-10 | Logged-out click | BLOCKED | Operator |
+| AC-CD-10 | Logged-out click / deep-link | PASS (agent) | Unauthenticated /jobs/:id → login wall, no JobCard data |
 | AC-CD-11 | Disable / re-enable | PASS (local) | Disable clears server+browser sub; re-enable recreates both |
+| AC-CD-11b | Logout isolation | PASS (agent) | Session revoke + browser clear; post-logout delivery stays PENDING |
+| AC-CD-11c | Relogin no auto-rebind | PASS (agent) | New session does not auto-expose prior session subscription |
 | AC-CD-12 | Retry schedule | BLOCKED | Needs controlled outbound block |
 | AC-CD-13 | Duplicate/tag coalescing | BLOCKED | Operator/staging |
 | AC-CD-14 | Stale endpoint | BLOCKED | Operator/staging |
@@ -118,15 +120,15 @@ WEB_PUSH_ENABLED: true (local gitignored .env only; production remains false)
 |---------|----------|--------|
 | AC-CD-01 | Install / manual guidance | PASS (local Chromium) |
 | AC-CD-02 | Permission allow | PASS (local Chromium) |
-| AC-CD-03 | Permission deny | BLOCKED — operator fresh profile |
+| AC-CD-03 | Permission deny | PASS (Chrome agent) |
 | AC-CD-04 | Foreground delivery | PASS (DELIVERED via dispatcher + operator) |
 | AC-CD-05 | Background delivery | PASS (operator) |
-| AC-CD-06 | Closed browser delivery | BLOCKED |
-| AC-CD-07 | Exact open client click | PARTIAL — automated SW harness + local showNotification |
+| AC-CD-06 | Closed browser delivery | PARTIAL — operator closed-browser eyeball still needed |
+| AC-CD-07 | Exact open client click | PARTIAL — SW path proven |
 | AC-CD-08 | Different open client click | BLOCKED |
 | AC-CD-09 | No client click | BLOCKED |
-| AC-CD-10 | Logged-out click | BLOCKED |
-| AC-CD-11 | Logout / account switch | BLOCKED (disable/re-enable PASS separately) |
+| AC-CD-10 | Logged-out click | PASS (Chrome agent) |
+| AC-CD-11 | Logout / rebind isolation | PASS (Chrome agent) |
 | AC-CD-12 | Retry schedule (controlled outbound) | BLOCKED |
 | AC-CD-13 | Duplicate/tag coalescing | BLOCKED |
 | AC-CD-14 | Stale endpoint 404/410 | BLOCKED |
@@ -147,7 +149,7 @@ DB snapshot after session (counts only):
 - active subscriptions >= 1
 ```
 
-### Desktop browser matrix (operator)
+### Desktop browser matrix — delivery gate (operator)
 
 | Browser | Staff↔manager instant traffic | Result |
 |---------|-------------------------------|--------|
@@ -155,8 +157,49 @@ DB snapshot after session (counts only):
 | Firefox desktop | Allow + live traffic | PASS (operator) |
 | Safari macOS | Allow + live traffic | PASS (operator) |
 
-Remaining desktop edge cases (deny profile, closed-browser, logout click,
-retry/stale) are optional hardening unless product gate requires them.
+**Sub-gate:** `desktop multi-browser push delivery = PASS`
+
+**Not complete desktop acceptance.** The following are **required lifecycle/security
+gates** (not optional edge cases) before desktop can be production-approved:
+
+| Gate | Chrome | Firefox | Safari |
+|------|--------|---------|--------|
+| Permission deny → no re-prompt / no enable CTA | PASS (agent CDP) | pending operator | pending operator |
+| Closed-browser notification + safe deep-link | PARTIAL (SW show path) | pending operator | pending operator |
+| Logout → browser sub cleared; revoked session not claimed | PASS (agent) | — | — |
+| Relogin / session change → no auto server sub without enable | PASS (agent) | — | — |
+| Logged-out deep-link → login wall, no JobCard leak | PASS (agent) | — | — |
+
+#### Chrome lifecycle/security evidence (2026-07-22)
+
+```text
+AC-CD-03 deny:
+- Notification.permission=denied
+- UI shows “Bildirim izni kapalı…” only
+- enable button hidden → no re-prompt surface
+- hasServerSub=false (starting from unsubscribed)
+
+Logout isolation:
+- After Oturumu kapat: /api/auth/me → 401, login UI shown
+- browser PushSubscription cleared
+- Delivery forced to latest sub with revoked session stayed PENDING
+  (dispatcher did not claim/send)
+
+Account/session rebind:
+- After re-login without explicit enable: hasServerSub=false
+  (prior session-bound sub not exposed as current)
+
+Logged-out deep-link:
+- Navigate /jobs/<uuid> without session → login wall
+- no job detail, no customer-like data leak
+
+Closed-browser:
+- SW showNotification synthetic path OK
+- Real OS closed-browser receive still needs operator eyeball
+```
+
+Until remaining Firefox/Safari deny+closed-browser and optional product edge
+cases pass: PR #45 Draft, production `WEB_PUSH_ENABLED=false`, Task 10 `partial`.
 
 ## Chrome Android (physical device)
 

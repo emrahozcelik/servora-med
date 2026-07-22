@@ -311,21 +311,30 @@ Automated regression (Task 10A/B):
 
 Real-device acceptance (Task 10C — operator / physical devices):
 
-- [x] Desktop multi-browser staff↔manager instant notification traffic
-  (Chrome + Firefox + Safari; operator confirmed 2026-07-22).
+- [x] Desktop multi-browser **delivery** sub-gate: staff↔manager traffic
+  PASS on Chrome + Firefox + Safari (operator 2026-07-22).
 - [x] Local Chrome allow/subscribe/disable + dispatcher DELIVERED path
   (agent-assisted + operator).
-- [ ] Chrome desktop edge matrix (deny profile / closed-browser / logout
-  click / retry / stale) if required by product gate.
-- [ ] Chrome Android physical device matrix.
-- [ ] Real iOS/iPadOS Home Screen matrix (permission/background/Focus).
+- [ ] Desktop **lifecycle/security** gates (required, not optional):
+  - [x] Chrome deny (no enable CTA / no re-prompt surface)
+  - [x] Chrome logout isolation (browser clear; revoked session not claimed)
+  - [x] Chrome relogin no auto-rebind of prior session subscription
+  - [x] Chrome logged-out deep-link → login wall, no JobCard leak
+  - [ ] Chrome closed-browser OS banner + safe deep-link (operator eyeball)
+  - [ ] Firefox deny + closed-browser (operator)
+  - [ ] Safari deny + closed-browser (operator)
+- [ ] Chrome Android physical device matrix (after HTTPS staging).
+- [ ] Real iOS/iPadOS Home Screen matrix (after HTTPS staging).
 - [ ] Lock-screen privacy content review on physical devices.
 - [ ] Application/access/provider log review (no endpoint/keys/payload).
-- [ ] HTTPS staging with operator-provisioned VAPID (not agent-generated)
-  for non-localhost mobile acceptance.
-- [ ] Branding PR #47 merge + Phase R rebase + re-verification.
+- [ ] Branding PR #47 merge + Phase R rebase + full suite + exact-head CI.
 - [ ] Production enablement approval; `WEB_PUSH_ENABLED` stays false until then.
-- [ ] Keep PR #45 Draft until all acceptance criteria and review pass.
+- [ ] Keep PR #45 Draft until acceptance criteria and review pass.
+
+Desktop-only production is allowed **only** as an explicit product scope
+decision documenting Chrome/Firefox/Safari desktop as in-scope and Android/iOS
+as not production-approved — and still requires lifecycle/security + branding
+rebase + final CI before any production flag enablement.
 
 Acceptance case log:
 `docs/superpowers/plans/2026-07-22-minimal-install-web-push-acceptance.md`
