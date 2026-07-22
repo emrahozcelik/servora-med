@@ -277,32 +277,73 @@ describe('read-only JobCard board', () => {
   });
 
   it('prefers scheduledAt over dueDate on board cards', () => {
-    const withSchedule: JobCardBoard = {
-      ...board,
-      columns: {
-        ...board.columns,
-        NEW: {
-          items: [{
-            ...baseItem,
-            id: 'job-scheduled',
-            scheduledAt: '2026-07-22T14:00:00.000Z',
-            dueDate: '2026-07-30',
-          }],
-          count: 1,
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-20T09:00:00.000Z'));
+
+    try {
+      const withSchedule: JobCardBoard = {
+        ...board,
+        columns: {
+          ...board.columns,
+          NEW: {
+            items: [{
+              ...baseItem,
+              id: 'job-scheduled',
+              scheduledAt: '2026-07-22T14:00:00.000Z',
+              dueDate: '2026-07-30',
+            }],
+            count: 1,
+          },
         },
-      },
-    };
-    const html = renderToStaticMarkup(
-      <MemoryRouter><JobBoard board={withSchedule} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
-    );
-    const card = html.includes('data-board-card="job-scheduled"')
-      ? html.slice(html.indexOf('data-board-card="job-scheduled"'))
-      : html;
-    expect(card).toContain('Planlanan teslim');
-    expect(card).toContain('dateTime="2026-07-22T14:00:00.000Z"');
-    // Only assert on the scheduled card fragment, not other columns' Termin fallbacks.
-    const scheduledFragment = card.slice(0, card.indexOf('</article>') + '</article>'.length);
-    expect(scheduledFragment).not.toContain('<dt>Termin</dt>');
+      };
+
+      const html = renderToStaticMarkup(
+        <MemoryRouter><JobBoard board={withSchedule} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
+      );
+      const card = html.includes('data-board-card="job-scheduled"')
+        ? html.slice(html.indexOf('data-board-card="job-scheduled"'))
+        : html;
+      expect(card).toContain('Planlanan teslim');
+      expect(card).toContain('dateTime="2026-07-22T14:00:00.000Z"');
+      const scheduledFragment = card.slice(0, card.indexOf('</article>') + '</article>'.length);
+      expect(scheduledFragment).not.toContain('<dt>Termin</dt>');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('labels a scheduled job as today when its scheduled date is today', () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-22T09:00:00.000Z'));
+
+    try {
+      const withSchedule: JobCardBoard = {
+        ...board,
+        columns: {
+          ...board.columns,
+          NEW: {
+            items: [{
+              ...baseItem,
+              id: 'job-scheduled',
+              scheduledAt: '2026-07-22T14:00:00.000Z',
+              dueDate: '2026-07-30',
+            }],
+            count: 1,
+          },
+        },
+      };
+
+      const html = renderToStaticMarkup(
+        <MemoryRouter><JobBoard board={withSchedule} user={manager} params={new URLSearchParams()} /></MemoryRouter>,
+      );
+      const card = html.includes('data-board-card="job-scheduled"')
+        ? html.slice(html.indexOf('data-board-card="job-scheduled"'))
+        : html;
+      expect(card).toContain('Bugün');
+      expect(card).not.toContain('Planlanan teslim');
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });
 
