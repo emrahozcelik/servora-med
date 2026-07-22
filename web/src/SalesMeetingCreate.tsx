@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import { createJobCard, type JobCardPriority } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
@@ -126,7 +127,8 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
     {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
       <button data-retry-customers className="inline-action" type="button" onClick={() => void loadCustomers()}>Tekrar dene</button></p>}
-    {customerState === 'ready' && customers.length === 0 && <p className="field-error" role="status">Görüşme planlamak için aktif veya aday müşteri gereklidir.</p>}
+    {customerState === 'ready' && customers.length === 0 && <p className="field-error" role="status">Görüşme planlamak için aktif veya aday müşteri gereklidir.{' '}
+      <Link className="inline-action" to="/customers/new?source=meeting">Yeni müşteri ekle</Link></p>}
     <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending}>
       <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
         <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}

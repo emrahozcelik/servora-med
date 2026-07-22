@@ -1,6 +1,7 @@
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
@@ -174,6 +175,37 @@ describe('Sales Meeting planning flow', () => {
       contactId: null,
       scheduledAt: localDateTimeToIso('2025-01-01T09:00'),
           }));
+  });
+
+  it('auto-selects Customer and loads Contacts when initialCustomerId matches a loaded customer', async () => {
+    crm.listCustomers.mockResolvedValue({
+      items: [customer('c1', 'A Klinik'), customer('c2', 'B Klinik')], total: 2, limit: 200, offset: 0,
+    });
+    crm.listContacts.mockResolvedValue({
+      items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0,
+    });
+    await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c1" />));
+    await settle();
+    expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('c1');
+    expect(container.querySelector('#meeting-contact')?.textContent).toContain('Dr. Ayşe');
+  });
+
+  it('resets Customer when initialCustomerId does not match any loaded customer', async () => {
+    crm.listCustomers.mockResolvedValue({
+      items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0,
+    });
+    crm.listContacts.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c404" />));
+    await settle();
+    expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('');
+    expect(crm.listContacts).not.toHaveBeenCalled();
+  });
+
+  it('shows a link to create a new Customer when the customer list is empty', async () => {
+    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    expect(container.querySelector('[href="/customers/new?source=meeting"]')).not.toBeNull();
   });
 
   it('locks double submit and reuses the action ID after a retryable error', async () => {

@@ -2,6 +2,7 @@
 import { readFileSync } from 'node:fs';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { GeneralTaskCreateScreen } from '../src/GeneralTaskCreate';
@@ -267,6 +268,30 @@ describe('General Task quick create', () => {
     change(container.querySelector('#task-title') as HTMLInputElement, 'Takip et');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({ customerId: null, contactId: null }));
+  });
+
+  it('auto-selects Customer and loads Contacts when initialCustomerId matches a loaded customer', async () => {
+    crm.listCustomers.mockResolvedValue({
+      items: [customer('c1', 'A Klinik'), customer('c2', 'B Klinik')], total: 2, limit: 200, offset: 0,
+    });
+    crm.listContacts.mockResolvedValue({
+      items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0,
+    });
+    await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c1" />));
+    const details = container.querySelector('details')!; details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await settle();
+    expect((container.querySelector('#task-customer') as HTMLSelectElement).value).toBe('c1');
+    expect(container.querySelector('#task-contact')?.textContent).toContain('Dr. Ayşe');
+  });
+
+  it('shows a create-customer link when the customer list is empty', async () => {
+    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    const details = container.querySelector('details')!; details.open = true;
+    await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
+    await settle();
+    expect(container.querySelector('[href="/customers/new?source=task"]')).not.toBeNull();
   });
 
   it('locks duplicate submit and retains action ID, values, and error focus for retry', async () => {

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type SyntheticEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import { createJobCard, type JobCardPriority } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
@@ -224,6 +225,8 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
               {customerState === 'loading' && <span className="field-status" role="status">Müşteriler yükleniyor…</span>}
               {customerState === 'error' && <span className="field-error" role="alert">Müşteriler yüklenemedi. Görevi müşterisiz kaydedebilirsiniz.{' '}
                 <button className="inline-action" type="button" onClick={() => void loadActiveCustomers()}>Tekrar dene</button></span>}
+              {customerState === 'ready' && customers.length === 0 && <span className="field-status">Henüz müşteri yok.{' '}
+                <Link className="inline-action" to="/customers/new?source=task">Yeni müşteri ekle</Link></span>}
             </div>
             <div className="field-group"><label htmlFor="task-contact">İlgili kişi (isteğe bağlı)</label>
               <select id="task-contact" value={contactId}
