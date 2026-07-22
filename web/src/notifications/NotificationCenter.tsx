@@ -239,40 +239,76 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
               )}
               {installError && <p className="form-error" role="alert">{installError}</p>}
             </section>
-            <section aria-labelledby={`${titleId}-push`}>
+            <section
+              aria-labelledby={`${titleId}-push`}
+              className="notification-device-push"
+              aria-busy={webPush.pending !== null || webPush.enabled === null}
+            >
               <h3 id={`${titleId}-push`}>Cihaz bildirimleri</h3>
-              <p>
+              <p className="notification-device-push-copy">
                 Cihaz bildirimlerini açarsanız size atanan veya onayınızı bekleyen işler için Servora-Med
                 kapalıyken de genel bir bildirim gösterilebilir. Bildirimlerde müşteri, not, teslimat veya
                 konum bilgisi yer almaz.
               </p>
-              {webPush.guidance === 'disabled' ? <p>Cihaz bildirimleri şu anda kullanıma kapalıdır.</p> : null}
-              {webPush.guidance === 'unsupported' ? <p>Bu tarayıcı cihaz bildirimlerini desteklemiyor.</p> : null}
+              {webPush.enabled === null && !webPush.error ? (
+                <p role="status" aria-live="polite" className="notification-device-push-loading">
+                  Cihaz bildirimi durumu yükleniyor…
+                </p>
+              ) : null}
+              {webPush.guidance === 'disabled' ? (
+                <p className="notification-device-push-disabled">Cihaz bildirimleri şu anda kullanıma kapalıdır.</p>
+              ) : null}
+              {webPush.guidance === 'unsupported' ? (
+                <p className="notification-device-push-unsupported">Bu tarayıcı cihaz bildirimlerini desteklemiyor.</p>
+              ) : null}
               {webPush.guidance === 'install-required' ? (
-                <p>Bu cihazda bildirimler için uygulamayı Ana Ekrana ekleyip yüklü uygulama olarak açın.</p>
+                <p className="notification-device-push-unsupported">
+                  Bu cihazda bildirimler için uygulamayı Ana Ekrana ekleyip yüklü uygulama olarak açın.
+                </p>
               ) : null}
               {webPush.guidance === 'denied' ? (
-                <p>Bildirim izni kapalı. Tarayıcı veya işletim sistemi ayarlarından izin verebilirsiniz.</p>
+                <p className="notification-device-push-denied">
+                  Bildirim izni kapalı. Tarayıcı veya işletim sistemi ayarlarından izin verebilirsiniz.
+                </p>
               ) : null}
               {webPush.guidance === 'renewal-required' ? (
-                <p>Cihaz bildirimi aboneliği yenilenmeli. Yenileme yalnız aşağıdaki açık komutla yapılır.</p>
+                <p className="notification-device-push-renewal">
+                  Cihaz bildirimi aboneliği yenilenmeli. Yenileme yalnız aşağıdaki açık komutla yapılır.
+                </p>
               ) : null}
-              {webPush.error ? <p className="form-error" role="alert">{webPush.error}</p> : null}
+              {webPush.error ? (
+                <p className="form-error notification-device-push-error" role="alert">{webPush.error}</p>
+              ) : null}
               {webPush.enabled === true && webPush.guidance === 'none' ? (
                 webPush.status?.subscription ? (
-                  <button type="button" className="secondary-button" disabled={webPush.pending !== null}
-                    onClick={() => void webPush.disable()}>
+                  <button
+                    type="button"
+                    className="secondary-button notification-device-push-action"
+                    disabled={webPush.pending !== null}
+                    aria-busy={webPush.pending === 'disable'}
+                    onClick={() => void webPush.disable()}
+                  >
                     {webPush.pending === 'disable' ? 'Kapatılıyor…' : 'Cihaz bildirimlerini kapat'}
                   </button>
                 ) : (
-                  <button type="button" className="primary-button" disabled={webPush.pending !== null}
-                    onClick={() => void webPush.enable()}>
+                  <button
+                    type="button"
+                    className="primary-button notification-device-push-action"
+                    disabled={webPush.pending !== null}
+                    aria-busy={webPush.pending === 'enable'}
+                    onClick={() => void webPush.enable()}
+                  >
                     {webPush.pending === 'enable' ? 'Açılıyor…' : 'Cihaz bildirimlerini aç'}
                   </button>
                 )
               ) : webPush.enabled === true && webPush.guidance === 'renewal-required' ? (
-                <button type="button" className="primary-button" disabled={webPush.pending !== null}
-                  onClick={() => void webPush.enable()}>
+                <button
+                  type="button"
+                  className="primary-button notification-device-push-action"
+                  disabled={webPush.pending !== null}
+                  aria-busy={webPush.pending === 'enable'}
+                  onClick={() => void webPush.enable()}
+                >
                   {webPush.pending === 'enable' ? 'Yenileniyor…' : 'Cihaz bildirimlerini yenile'}
                 </button>
               ) : null}

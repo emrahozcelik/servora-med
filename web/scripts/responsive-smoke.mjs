@@ -183,7 +183,8 @@ async function startServer() {
   });
   return new Promise((resolveServer) => {
     const server = createServer((req, res) => {
-      if (req.url === '/') {
+      const pathOnly = (req.url ?? '/').split('?')[0];
+      if (pathOnly === '/' || pathOnly === '') {
         res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
         res.end(fixture);
         return;
@@ -595,10 +596,119 @@ async function measure(page) {
           && (text.includes('iPhone') || text.includes('iPad'));
       })(),
       notificationPushDisabled: notificationSection?.textContent?.includes('Cihaz bildirimleri şu anda kullanıma kapalıdır.') ?? false,
+      notificationSettingsOverflow: (() => {
+        const settings = notificationSection?.querySelector('.notification-settings');
+        if (!settings) return false;
+        return settings.scrollWidth > settings.clientWidth + 1;
+      })(),
+      notificationSettingsHeadingVisible: Boolean(
+        notificationSection?.querySelector('.notification-settings h3')
+          && (() => {
+            const h = notificationSection.querySelector('.notification-settings h3');
+            const r = h?.getBoundingClientRect();
+            return Boolean(r && r.height > 0 && r.width > 0);
+          })(),
+      ),
+      notificationLoadingVisible: notificationSection?.textContent?.includes('Cihaz bildirimi durumu yükleniyor…') ?? false,
+      notificationErrorVisible: Boolean(notificationSection?.querySelector('.notification-device-push-error, .form-error[role="alert"]')),
+      notificationErrorOverflow: (() => {
+        const err = notificationSection?.querySelector('.notification-device-push-error, .notification-device-push .form-error');
+        if (!err) return false;
+        return err.scrollWidth > err.clientWidth + 1;
+      })(),
+      notificationActionVisible: Boolean(notificationSection?.querySelector('.notification-device-push-action')),
+      notificationActionDisabled: Boolean(
+        notificationSection?.querySelector('.notification-device-push-action')?.hasAttribute('disabled'),
+      ),
+      notificationDeniedVisible: notificationSection?.textContent?.includes('Bildirim izni kapalı') ?? false,
+      notificationUnsupportedVisible:
+        (notificationSection?.textContent?.includes('Bu tarayıcı cihaz bildirimlerini desteklemiyor')
+          || notificationSection?.textContent?.includes('Ana Ekrana ekleyip')) ?? false,
+      notificationRenewalVisible: notificationSection?.textContent?.includes('aboneliği yenilenmeli') ?? false,
+      notificationLongCopyFits: (() => {
+        const section = notificationSection?.querySelector('.notification-device-push');
+        const copy = section?.querySelector('.notification-device-push-copy')
+          ?? section?.querySelector('p');
+        const panel = notificationSection?.querySelector('[role="dialog"]');
+        if (!copy || !panel) return true;
+        const c = copy.getBoundingClientRect();
+        const p = panel.getBoundingClientRect();
+        // Bounds must remain inside the dialog panel (scrollWidth can exceed
+        // clientWidth slightly under large text zoom even when CSS wraps).
+        return c.left >= p.left - 2
+          && c.right <= p.right + 2
+          && c.width > 0
+          && c.height > 0;
+      })(),
+      notificationFocusInsideDialog: (() => {
+        const dialog = notificationSection?.querySelector('[role="dialog"]');
+        const active = document.activeElement;
+        return Boolean(dialog && active && dialog.contains(active));
+      })(),
       clientWidth: root.clientWidth,
       scrollWidth: root.scrollWidth,
     };
   });
+}
+
+const PUSH_STATES = [
+  'loading',
+  'disabled',
+  'denied',
+  'install-required',
+  'enabled-not-subscribed',
+  'enabled-subscribed',
+  'pending-enable',
+  'pending-disable',
+  'long-error',
+  'renewal-required',
+];
+
+function pushStateContractFailed(state, m) {
+  if (!m.notificationSettingsPresent || m.notificationOverflow || m.notificationSettingsOverflow) return true;
+  if (!m.notificationSettingsHeadingVisible || !m.notificationLongCopyFits) return true;
+  if (!m.notificationFocusInsideDialog) return true;
+  switch (state) {
+    case 'loading':
+      return !m.notificationLoadingVisible || m.notificationActionVisible;
+    case 'disabled':
+      return !m.notificationPushDisabled || m.notificationActionVisible;
+    case 'denied':
+      return !m.notificationDeniedVisible || m.notificationActionVisible;
+    case 'install-required':
+    case 'unsupported':
+      return !m.notificationUnsupportedVisible || m.notificationActionVisible;
+    case 'enabled-not-subscribed':
+      return !m.notificationActionVisible || m.notificationActionDisabled;
+    case 'enabled-subscribed':
+      return !m.notificationActionVisible || m.notificationActionDisabled;
+    case 'pending-enable':
+    case 'pending-disable':
+      return !m.notificationActionVisible || !m.notificationActionDisabled;
+    case 'long-error':
+      return !m.notificationErrorVisible || m.notificationErrorOverflow;
+    case 'renewal-required':
+      return !m.notificationRenewalVisible || !m.notificationActionVisible;
+    default:
+      return false;
+  }
+}
+
+async function openNotificationSettings(page) {
+  await page.waitForSelector('[data-smoke-notification] [role="dialog"]');
+  const hasSettings = await page.$('[data-smoke-notification] .notification-settings');
+  if (!hasSettings) {
+    await page.click('[data-smoke-notification] .notification-settings-trigger');
+    await page.waitForSelector('[data-smoke-notification] .notification-settings');
+  }
+}
+
+async function measurePushState(page, baseUrl, state) {
+  const sep = baseUrl.includes('?') ? '&' : '?';
+  await page.goto(`${baseUrl}${sep}pushState=${state}`, { waitUntil: 'load' });
+  await page.waitForSelector('[data-smoke-notification-center]');
+  await openNotificationSettings(page);
+  return measure(page);
 }
 
 const { server, vite, url } = await startServer();
@@ -788,6 +898,13 @@ try {
       || !settings.notificationManualGuidance || !settings.notificationPushDisabled) {
       failures.push(`${vp.name}: install settings responsive contract failure`);
     }
+    for (const state of PUSH_STATES) {
+      const stateMeasure = await measurePushState(page, url, state);
+      console.log(JSON.stringify({ viewport: vp.name, pushState: state, ...stateMeasure }));
+      if (pushStateContractFailed(state, stateMeasure) || stateMeasure.overflowX) {
+        failures.push(`${vp.name}: push settings state ${state} contract failure`);
+      }
+    }
     await page.close();
   }
 
@@ -835,6 +952,27 @@ try {
     if (!settings.notificationSettingsPresent || settings.notificationOverflow
       || !settings.notificationManualGuidance || !settings.notificationPushDisabled) {
       failures.push('200% text: install settings reflow failure');
+    }
+    for (const state of ['long-error', 'denied', 'pending-enable']) {
+      const sep = url.includes('?') ? '&' : '?';
+      await page.goto(`${url}${sep}pushState=${state}`, { waitUntil: 'load' });
+      await page.waitForSelector('[data-smoke-notification-center]');
+      await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
+      await openNotificationSettings(page);
+      const rem = await measure(page);
+      console.log(JSON.stringify({ viewport: '390-200pct-font', pushState: state, ...rem }));
+      if (
+        rem.overflowX
+        || rem.notificationOverflow
+        || rem.notificationSettingsOverflow
+        || rem.notificationErrorOverflow
+        || !rem.notificationSettingsPresent
+        || (state === 'long-error' && !rem.notificationErrorVisible)
+        || (state === 'denied' && !rem.notificationDeniedVisible)
+        || (state === 'pending-enable' && (!rem.notificationActionVisible || !rem.notificationActionDisabled))
+      ) {
+        failures.push(`200% text: push state ${state} reflow failure`);
+      }
     }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) failures.push(`200% text: ${r.sel} layout failure`);
@@ -888,6 +1026,13 @@ try {
     if (!settings.notificationSettingsPresent || settings.notificationOverflow
       || !settings.notificationManualGuidance || !settings.notificationPushDisabled) {
       failures.push('400% reflow: install settings reflow failure');
+    }
+    for (const state of ['long-error', 'install-required', 'pending-enable']) {
+      const rem = await measurePushState(page, url, state);
+      if (pushStateContractFailed(state, rem) || rem.overflowX || rem.notificationSettingsOverflow) {
+        failures.push(`400% reflow: push state ${state} failure`);
+      }
+      console.log(JSON.stringify({ viewport: '320-wcag-400pct-reflow', pushState: state, ...rem }));
     }
     for (const r of m.results) {
       if (r.filterOverflow || r.sameRowIntersect) {

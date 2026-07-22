@@ -305,4 +305,243 @@ describe('WebPushController', () => {
 
     expect(controller.getSnapshot()).toMatchObject({ enabled: false, status: { enabled: false } });
   });
+
+  function makeServiceWorkerTarget() {
+    const listeners = new Set<(event: Event) => void>();
+    return {
+      addEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === 'message') listeners.add(listener as (event: Event) => void);
+      }),
+      removeEventListener: vi.fn((type: string, listener: EventListener) => {
+        if (type === 'message') listeners.delete(listener as (event: Event) => void);
+      }),
+      dispatch(data: unknown) {
+        const event = new MessageEvent('message', { data });
+        for (const listener of listeners) listener(event);
+      },
+      listenerCount: () => listeners.size,
+    };
+  }
+
+  it('recovers only on the exact push-subscription-changed message', async () => {
+    const serviceWorkerTarget = makeServiceWorkerTarget();
+    const service = api({
+      getStatus: vi.fn().mockResolvedValue({
+        ...status,
+        subscription: { id: 'subscription-1', createdAt: '2026-07-22T10:00:00.000Z', fingerprint: 'a'.repeat(64) },
+      }),
+    });
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockResolvedValue({
+        endpoint: 'https://fcm.googleapis.com/push/example', expirationTime: null,
+        keys: { p256dh: 'p256dh', auth: 'auth' }, unsubscribe: vi.fn().mockResolvedValue(true),
+      }),
+      fingerprint: vi.fn().mockResolvedValue('a'.repeat(64)),
+    });
+    const controller = createWebPushController({
+      api: service, browser: adapter, target: window, serviceWorkerTarget,
+    });
+
+    await controller.start('org-1:user-1');
+    const afterStart = service.getStatus.mock.calls.length;
+
+    for (const invalid of [
+      null, undefined, 'push-subscription-changed', [], {},
+      { type: 'other' },
+      { type: 'push-subscription-changed', endpoint: 'x' },
+      { type: 'push-subscription-changed', userId: 'u' },
+      { type: 'push-subscription-changed', data: {} },
+    ]) {
+      serviceWorkerTarget.dispatch(invalid);
+    }
+    await Promise.resolve();
+    expect(service.getStatus).toHaveBeenCalledTimes(afterStart);
+
+    serviceWorkerTarget.dispatch({ type: 'push-subscription-changed' });
+    await Promise.resolve();
+    await Promise.resolve();
+    expect(service.getStatus.mock.calls.length).toBeGreaterThan(afterStart);
+  });
+
+  it('deduplicates concurrent recovery signals including service-worker message', async () => {
+    let resolveStatus: ((value: typeof status) => void) | undefined;
+    const service = api({
+      getStatus: vi.fn()
+        .mockResolvedValueOnce(status) // setIdentity
+        .mockResolvedValueOnce(status) // start → recover
+        .mockImplementation(() => new Promise((resolve) => { resolveStatus = resolve; })),
+    });
+    const serviceWorkerTarget = makeServiceWorkerTarget();
+    const controller = createWebPushController({
+      api: service, browser: browser(), target: window, serviceWorkerTarget,
+    });
+
+    await controller.start('org-1:user-1');
+    const afterStart = service.getStatus.mock.calls.length;
+
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    serviceWorkerTarget.dispatch({ type: 'push-subscription-changed' });
+    await Promise.resolve();
+    expect(service.getStatus).toHaveBeenCalledTimes(afterStart + 1);
+
+    resolveStatus!(status);
+    await Promise.resolve();
+    await Promise.resolve();
+  });
+
+  it('does not register a second service-worker listener for the same identity start', async () => {
+    const serviceWorkerTarget = makeServiceWorkerTarget();
+    const controller = createWebPushController({
+      api: api(), browser: browser(), target: window, serviceWorkerTarget,
+    });
+
+    await controller.start('org-1:user-1');
+    await controller.start('org-1:user-1');
+    expect(serviceWorkerTarget.addEventListener).toHaveBeenCalledTimes(1);
+    expect(serviceWorkerTarget.listenerCount()).toBe(1);
+  });
+
+  it('removes the service-worker listener on stop and ignores later messages', async () => {
+    const serviceWorkerTarget = makeServiceWorkerTarget();
+    const service = api();
+    const controller = createWebPushController({
+      api: service, browser: browser(), target: window, serviceWorkerTarget,
+    });
+
+    await controller.start('org-1:user-1');
+    controller.stop();
+    expect(serviceWorkerTarget.removeEventListener).toHaveBeenCalled();
+    expect(serviceWorkerTarget.listenerCount()).toBe(0);
+
+    const calls = service.getStatus.mock.calls.length;
+    serviceWorkerTarget.dispatch({ type: 'push-subscription-changed' });
+    await Promise.resolve();
+    expect(service.getStatus).toHaveBeenCalledTimes(calls);
+  });
+
+  it('starts without serviceWorkerTarget and still recovers from focus', async () => {
+    const service = api();
+    const controller = createWebPushController({
+      api: service, browser: browser(), target: window, serviceWorkerTarget: undefined,
+    });
+
+    await controller.start('org-1:user-1');
+    expect(controller.getSnapshot().enabled).toBe(true);
+    window.dispatchEvent(new Event('focus'));
+    await Promise.resolve();
+    expect(service.getStatus.mock.calls.length).toBeGreaterThanOrEqual(1);
+  });
+
+  it('service-worker recovery does not auto-enable when server has no subscription', async () => {
+    const serviceWorkerTarget = makeServiceWorkerTarget();
+    const adapter = browser({ permission: () => 'granted' as const });
+    const service = api({ getStatus: vi.fn().mockResolvedValue(status) });
+    const controller = createWebPushController({
+      api: service, browser: adapter, target: window, serviceWorkerTarget,
+    });
+
+    await controller.start('org-1:user-1');
+    serviceWorkerTarget.dispatch({ type: 'push-subscription-changed' });
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(adapter.subscribe).not.toHaveBeenCalled();
+    expect(adapter.requestPermission).not.toHaveBeenCalled();
+    expect(service.createSubscription).not.toHaveBeenCalled();
+  });
+
+  it('does not apply a stale recovery mutation after identity switch', async () => {
+    const serviceWorkerTarget = makeServiceWorkerTarget();
+    let resolveStatusA: ((value: typeof status) => void) | undefined;
+    const service = api({
+      getStatus: vi.fn()
+        .mockImplementationOnce(() => new Promise((resolve) => { resolveStatusA = resolve; }))
+        .mockResolvedValue({ enabled: false, vapidPublicKey: null, renewalRequired: false, subscription: null }),
+      createSubscription: vi.fn(),
+      disableSubscription: vi.fn(),
+    });
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockResolvedValue({
+        endpoint: 'https://fcm.googleapis.com/push/a', expirationTime: null,
+        keys: { p256dh: 'a', auth: 'a' }, unsubscribe: vi.fn().mockResolvedValue(true),
+      }),
+      fingerprint: vi.fn().mockResolvedValue('b'.repeat(64)),
+    });
+    const controller = createWebPushController({
+      api: service, browser: adapter, target: window, serviceWorkerTarget,
+    });
+
+    const startA = controller.start('org-1:user-A');
+    await Promise.resolve();
+    serviceWorkerTarget.dispatch({ type: 'push-subscription-changed' });
+    await controller.setIdentity('org-2:user-B');
+    resolveStatusA!({
+      ...status,
+      subscription: { id: 'sub-a', createdAt: '2026-07-22T10:00:00.000Z', fingerprint: 'a'.repeat(64) },
+    });
+    await startA;
+
+    expect(service.createSubscription).not.toHaveBeenCalled();
+    expect(controller.getSnapshot()).toMatchObject({ enabled: false });
+  });
+
+  it('isolates two controller profiles on separate service-worker targets', async () => {
+    const targetA = makeServiceWorkerTarget();
+    const targetB = makeServiceWorkerTarget();
+    const apiA = api({ getStatus: vi.fn().mockResolvedValue(status) });
+    const apiB = api({ getStatus: vi.fn().mockResolvedValue({
+      enabled: false, vapidPublicKey: null, renewalRequired: false, subscription: null,
+    }) });
+    const browserA = browser();
+    const browserB = browser();
+    const controllerA = createWebPushController({
+      api: apiA, browser: browserA, target: window, serviceWorkerTarget: targetA,
+    });
+    const controllerB = createWebPushController({
+      api: apiB, browser: browserB, target: {
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        document: { visibilityState: 'visible', addEventListener: () => {}, removeEventListener: () => {} },
+      }, serviceWorkerTarget: targetB,
+    });
+
+    await controllerA.start('org-1:user-A');
+    await controllerB.start('org-1:user-B');
+    const callsA = apiA.getStatus.mock.calls.length;
+    const callsB = apiB.getStatus.mock.calls.length;
+
+    targetA.dispatch({ type: 'push-subscription-changed' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiA.getStatus.mock.calls.length).toBeGreaterThan(callsA);
+    expect(apiB.getStatus).toHaveBeenCalledTimes(callsB);
+
+    controllerA.stop();
+    const afterStopA = apiA.getStatus.mock.calls.length;
+    targetA.dispatch({ type: 'push-subscription-changed' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiA.getStatus).toHaveBeenCalledTimes(afterStopA);
+
+    targetB.dispatch({ type: 'push-subscription-changed' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(apiB.getStatus.mock.calls.length).toBeGreaterThan(callsB);
+  });
+
+  it('ignores worker messages after clearLocalSubscription logout', async () => {
+    const serviceWorkerTarget = makeServiceWorkerTarget();
+    const service = api();
+    const controller = createWebPushController({
+      api: service, browser: browser(), target: window, serviceWorkerTarget,
+    });
+
+    await controller.start('org-1:user-1');
+    await controller.clearLocalSubscription();
+    const calls = service.getStatus.mock.calls.length;
+    serviceWorkerTarget.dispatch({ type: 'push-subscription-changed' });
+    await new Promise((r) => setTimeout(r, 0));
+    expect(service.getStatus).toHaveBeenCalledTimes(calls);
+    expect(controller.getSnapshot().status).toBeNull();
+  });
 });

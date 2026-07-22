@@ -142,18 +142,24 @@ describe('NotificationCenter', () => {
     delete (navigator as Navigator & { serviceWorker?: unknown }).serviceWorker;
   });
 
-  it('renders the enabled device-notification action from the owned controller state', async () => {
-    const enable = vi.fn().mockResolvedValue(undefined);
-    const snapshot = {
-      enabled: true,
-      status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
-      capability: 'supported' as const, permission: 'default' as const, guidance: 'none' as const, pending: null, error: '',
-    };
-    const webPush: WebPushController = {
-      start: async () => {}, stop: () => {}, setIdentity: async () => {}, subscribe: () => () => {},
+  function fakeWebPush(
+    snapshot: ReturnType<WebPushController['getSnapshot']>,
+    handlers: { enable?: () => Promise<void>; disable?: () => Promise<void> } = {},
+  ): WebPushController {
+    return {
+      start: async () => {},
+      stop: () => {},
+      setIdentity: async () => {},
+      subscribe: () => () => {},
       getSnapshot: () => snapshot,
-      enable, disable: async () => {}, recover: async () => {}, clearLocalSubscription: async () => {},
+      enable: handlers.enable ?? (async () => {}),
+      disable: handlers.disable ?? (async () => {}),
+      recover: async () => {},
+      clearLocalSubscription: async () => {},
     };
+  }
+
+  async function openSettingsWithWebPush(webPush: WebPushController) {
     await act(async () => root.render(
       <MemoryRouter>
         <WebPushProvider identityKey="org-1:staff-1" controller={webPush}>
@@ -166,12 +172,131 @@ describe('NotificationCenter', () => {
     const settings = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
     await act(async () => settings.click());
+  }
+
+  it('renders the enabled device-notification action from the owned controller state', async () => {
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const webPush = fakeWebPush({
+      enabled: true,
+      status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+      capability: 'supported', permission: 'default', guidance: 'none', pending: null, error: '',
+    }, { enable });
+    await openSettingsWithWebPush(webPush);
     const action = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
       .find((button) => button.textContent === 'Cihaz bildirimlerini aç')!;
 
     expect(container.textContent).toContain('müşteri, not, teslimat veya konum bilgisi yer almaz');
     await act(async () => action.click());
     expect(enable).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows an accessible loading status while device notification state is unknown', async () => {
+    await openSettingsWithWebPush(fakeWebPush({
+      enabled: null, status: null, capability: 'supported', permission: 'default',
+      guidance: 'none', pending: null, error: '',
+    }));
+    const loading = container.querySelector('.notification-device-push [role="status"]');
+    expect(loading?.textContent).toContain('Cihaz bildirimi durumu yükleniyor…');
+    const actionButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) =>
+        button.textContent === 'Cihaz bildirimlerini aç'
+        || button.textContent === 'Cihaz bildirimlerini kapat',
+      );
+    expect(actionButton).toBeUndefined();
+  });
+
+  it.each([
+    {
+      name: 'disabled',
+      snapshot: {
+        enabled: false as boolean | null,
+        status: { enabled: false, vapidPublicKey: null, renewalRequired: false, subscription: null },
+        capability: 'supported' as const, permission: 'default' as const,
+        guidance: 'disabled' as const, pending: null, error: '',
+      },
+      text: 'Cihaz bildirimleri şu anda kullanıma kapalıdır.',
+      action: null as string | null,
+    },
+    {
+      name: 'denied',
+      snapshot: {
+        enabled: true as boolean | null,
+        status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+        capability: 'supported' as const, permission: 'denied' as const,
+        guidance: 'denied' as const, pending: null, error: '',
+      },
+      text: 'Bildirim izni kapalı',
+      action: null,
+    },
+    {
+      name: 'install-required',
+      snapshot: {
+        enabled: true as boolean | null,
+        status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+        capability: 'unsupported' as const, permission: 'unsupported' as const,
+        guidance: 'install-required' as const, pending: null, error: '',
+      },
+      text: 'Ana Ekrana ekleyip',
+      action: null,
+    },
+    {
+      name: 'renewal-required',
+      snapshot: {
+        enabled: true as boolean | null,
+        status: {
+          enabled: true, vapidPublicKey: 'AQID', renewalRequired: true,
+          subscription: { id: 's1', createdAt: '2026-07-22T10:00:00.000Z', fingerprint: 'a'.repeat(64) },
+        },
+        capability: 'supported' as const, permission: 'granted' as const,
+        guidance: 'renewal-required' as const, pending: null, error: '',
+      },
+      text: 'aboneliği yenilenmeli',
+      action: 'Cihaz bildirimlerini yenile',
+    },
+    {
+      name: 'long-error',
+      snapshot: {
+        enabled: true as boolean | null,
+        status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+        capability: 'supported' as const, permission: 'default' as const,
+        guidance: 'none' as const, pending: null,
+        error: 'Cihaz bildirimi durumu şu anda doğrulanamadı. İnternet bağlantınızı kontrol edip bu ekranı kapatmadan yeniden deneyin.',
+      },
+      text: 'Cihaz bildirimi durumu şu anda doğrulanamadı',
+      action: 'Cihaz bildirimlerini aç',
+    },
+  ])('renders device notification $name guidance without inventing push SSE events', async ({ snapshot, text, action }) => {
+    await openSettingsWithWebPush(fakeWebPush(snapshot));
+    expect(container.textContent).toContain(text);
+    const actionButton = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) =>
+        button.textContent === 'Cihaz bildirimlerini aç'
+        || button.textContent === 'Cihaz bildirimlerini kapat'
+        || button.textContent === 'Cihaz bildirimlerini yenile'
+        || button.textContent === 'Açılıyor…'
+        || button.textContent === 'Kapatılıyor…'
+        || button.textContent === 'Yenileniyor…',
+      );
+    if (action) {
+      expect(actionButton?.textContent).toBe(action);
+    } else {
+      expect(actionButton).toBeUndefined();
+    }
+    const alert = container.querySelector('[role="alert"]');
+    if (snapshot.error) expect(alert?.textContent).toContain(snapshot.error.slice(0, 20));
+  });
+
+  it('disables pending enable action and marks the section busy', async () => {
+    await openSettingsWithWebPush(fakeWebPush({
+      enabled: true,
+      status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+      capability: 'supported', permission: 'default', guidance: 'none', pending: 'enable', error: '',
+    }));
+    const action = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Açılıyor…')!;
+    expect(action.disabled).toBe(true);
+    expect(action.getAttribute('aria-busy')).toBe('true');
+    expect(container.querySelector('.notification-device-push')?.getAttribute('aria-busy')).toBe('true');
   });
 
   it('shows an empty state and supports retry after a list failure', async () => {

@@ -35,6 +35,25 @@ type RecoveryTarget = Pick<Window, 'addEventListener' | 'removeEventListener'> &
   document?: Pick<Document, 'visibilityState' | 'addEventListener' | 'removeEventListener'>;
 };
 
+export type ServiceWorkerMessageTarget = Pick<
+  ServiceWorkerContainer,
+  'addEventListener' | 'removeEventListener'
+>;
+
+type PushSubscriptionChangedMessage = Readonly<{
+  type: 'push-subscription-changed';
+}>;
+
+function isPushSubscriptionChangedMessage(
+  value: unknown,
+): value is PushSubscriptionChangedMessage {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) {
+    return false;
+  }
+  const record = value as Record<string, unknown>;
+  return Object.keys(record).length === 1 && record.type === 'push-subscription-changed';
+}
+
 const inertTarget: RecoveryTarget = {
   addEventListener: () => {},
   removeEventListener: () => {},
@@ -95,7 +114,13 @@ export function createWebPushController({
   },
   browser,
   target = typeof window === 'undefined' ? inertTarget : window,
-}: Readonly<{ api?: WebPushApi; browser: BrowserWebPushAdapter; target?: RecoveryTarget }>): WebPushController {
+  serviceWorkerTarget = typeof navigator === 'undefined' ? undefined : navigator.serviceWorker,
+}: Readonly<{
+  api?: WebPushApi;
+  browser: BrowserWebPushAdapter;
+  target?: RecoveryTarget;
+  serviceWorkerTarget?: ServiceWorkerMessageTarget;
+}>): WebPushController {
   const listeners = new Set<() => void>();
   let snapshot = emptySnapshot;
   let identityKey: string | null = null;
@@ -163,6 +188,11 @@ export function createWebPushController({
   const onRecoverySignal = () => { void recover(); };
   const onVisibility = () => {
     if (target.document?.visibilityState !== 'hidden') void recover();
+  };
+  const onServiceWorkerMessage = (event: Event) => {
+    const messageEvent = event as MessageEvent<unknown>;
+    if (!isPushSubscriptionChangedMessage(messageEvent.data)) return;
+    void recover();
   };
 
   const enable = async () => {
@@ -249,6 +279,7 @@ export function createWebPushController({
         target.addEventListener('focus', onRecoverySignal);
         target.addEventListener('online', onRecoverySignal);
         (target.document ?? target).addEventListener('visibilitychange', onVisibility);
+        serviceWorkerTarget?.addEventListener('message', onServiceWorkerMessage);
       }
       await this.setIdentity(nextIdentityKey);
       await recover();
@@ -258,6 +289,7 @@ export function createWebPushController({
       target.removeEventListener('focus', onRecoverySignal);
       target.removeEventListener('online', onRecoverySignal);
       (target.document ?? target).removeEventListener('visibilitychange', onVisibility);
+      serviceWorkerTarget?.removeEventListener('message', onServiceWorkerMessage);
       started = false;
       identityKey = null;
       generation += 1;

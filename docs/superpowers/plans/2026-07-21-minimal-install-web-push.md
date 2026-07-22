@@ -268,20 +268,20 @@ dependency, and focused tests.
 Allowed source area: completed Phase R files, existing notification-center
 tests/fixtures, responsive smoke, and operations verification only.
 
-- [ ] RED→GREEN: a committed notification passes through outbox/sender payload
+- [x] RED→GREEN: a committed notification passes through outbox/sender payload
   into the worker display once in the normal path, then click loads the existing
   authorized JobCard route.
-- [ ] RED→GREEN: destination not-found/authorization behavior remains canonical
+- [x] RED→GREEN: destination not-found/authorization behavior remains canonical
   and no push payload bypasses REST permissions.
-- [ ] RED→GREEN: logout/account switch and two authenticated browser profiles
+- [x] RED→GREEN: logout/account switch and two authenticated browser profiles
   cannot cross-deliver or expose another recipient's subscription state.
-- [ ] RED→GREEN: notification-center invalidation/read behavior remains
+- [x] RED→GREEN: notification-center invalidation/read behavior remains
   unchanged; push does not invent a new mark-read SSE event.
-- [ ] Add real settings/long-copy/loading/error/pending states to responsive
+- [x] Add real settings/long-copy/loading/error/pending states to responsive
   smoke at 390, 720, 768, 1024, and 1440 px plus 200% text and 400% reflow.
-- [ ] Verify install/push controls, dialog focus/back restoration, unsupported
+- [x] Verify install/push controls, dialog focus/back restoration, unsupported
   state, denied state, and long errors without horizontal overflow.
-- [ ] Verify production-like default-off runtime, manifest/icons/worker HTTP
+- [x] Verify production-like default-off runtime, manifest/icons/worker HTTP
   behavior, backups/restores, migration, shutdown, and safe observability.
 
 ## Task 10 — Full Regression, Manual Browser Acceptance, and Handoff
@@ -680,3 +680,35 @@ recorded:
   Full server suite: 1,253 passed, same 5 pre-existing environment-specific
   failures (3 env + 2 auth-setup-postgres). Server and web production builds
   passed. `WEB_PUSH_ENABLED` remains `false` in production.
+
+### Task 9 — Integrated UI, Recovery, and Responsive Verification
+
+- **Foreground `pushsubscriptionchange` recovery**: `WebPushController` listens
+  on an injectable `serviceWorkerTarget` for the exact fixed message
+  `{ type: 'push-subscription-changed' }` (single key). Invalid shapes are
+  ignored. Handler only calls existing `recover()` — no permission prompt,
+  auto-subscribe, auto-renewal, or cross-account rebind.
+- **Listener lifecycle**: message listener registers once on first `start()`,
+  is removed on `stop()`, and is optional when `serviceWorkerTarget` is absent.
+  Concurrent focus/online/visibility/SW signals share the existing `recovery`
+  promise gate.
+- **Identity isolation**: generation guards reject stale recovery mutations
+  after logout/`clearLocalSubscription` and account switch. Two independent
+  controller instances with separate SW targets do not cross-call APIs.
+- **UI loading/pending**: settings show
+  `Cihaz bildirimi durumu yükleniyor…` (`role="status"`) while `enabled === null`;
+  enable/disable buttons stay hidden. Pending actions use disabled buttons with
+  `aria-busy`. Long errors keep `role="alert"` and `overflow-wrap: anywhere`.
+- **Responsive smoke**: fixture accepts `?pushState=` for loading/disabled/
+  denied/install-required/enabled-not-subscribed/enabled-subscribed/
+  pending-enable/pending-disable/long-error/renewal-required. Measure metrics
+  cover settings overflow, action disabled, loading/error/denied/renewal
+  visibility, long-copy fit, and focus-inside-dialog. Matrix runs at 390/720/
+  768/1024/1440 plus 200% and 400% reflow samples.
+- **Integrated normal path**: server test composes real
+  `presentNotification` + `buildPushPayload` + real `service-worker.js` harness;
+  one `showNotification`, click focuses `/jobs/<UUID>`, no mark-read side effect.
+- **Default-off / ops**: production `WEB_PUSH_ENABLED` remains false. Caddy /
+  tunnel Caddy / systemd verify scripts remain the ops contract; branding PR #47
+  is still Draft so a post-merge `main` rebase may be required later.
+- Task 10 (real device acceptance / production enablement) is **not** started.
