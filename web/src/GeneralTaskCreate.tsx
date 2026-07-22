@@ -19,7 +19,7 @@ async function loadAllCustomers() {
   const all: CustomerSummary[] = [];
   let offset = 0;
   while (true) {
-    const page = await listCustomers({ status: 'active', limit: 200, offset });
+    const page = await listCustomers({ limit: 200, offset });
     all.push(...page.items);
     if (all.length >= page.total || page.items.length === 0) return all;
     offset += page.items.length;
@@ -37,10 +37,11 @@ async function loadAllContacts(customerId: string) {
   }
 }
 
-export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
+export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCustomerId = '' }: {
   user: CurrentUser;
   onCancel: () => void;
   onCreated: (jobCardId: string) => void;
+  initialCustomerId?: string;
 }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -53,7 +54,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
   const [staffState, setStaffState] = useState<LoadState>(user.role === 'STAFF' ? 'ready' : 'loading');
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [customerState, setCustomerState] = useState<LoadState>('idle');
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(initialCustomerId);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactState, setContactState] = useState<LoadState>('idle');
   const [contactId, setContactId] = useState('');
@@ -88,7 +89,13 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
   async function loadActiveCustomers() {
     setCustomerState('loading');
     try {
-      setCustomers(await loadAllCustomers()); setCustomerState('ready');
+      const next = await loadAllCustomers(); setCustomers(next); setCustomerState('ready');
+      if (initialCustomerId && next.some((item) => item.id === initialCustomerId)) {
+        setCustomerId(initialCustomerId);
+        void changeCustomer(initialCustomerId);
+      } else if (initialCustomerId) {
+        setCustomerId('');
+      }
     } catch {
       setCustomers([]); setCustomerId(''); setContacts([]); setContactId('');
       setContactState('idle'); setCustomerState('error');

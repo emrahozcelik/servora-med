@@ -13,7 +13,7 @@ type FieldErrors = { title?: string; customerId?: string; scheduledAt?: string; 
 async function loadAllCustomers() {
   const result: CustomerSummary[] = []; let offset = 0;
   while (true) {
-    const page = await listCustomers({ status: 'active', limit: 200, offset });
+    const page = await listCustomers({ limit: 200, offset });
     result.push(...page.items);
     if (result.length >= page.total || page.items.length === 0) return result;
     offset += page.items.length;
@@ -30,8 +30,9 @@ async function loadAllContacts(customerId: string) {
   }
 }
 
-export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
+export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCustomerId = '' }: {
   user: CurrentUser; onCancel: () => void; onCreated: (jobCardId: string) => void;
+  initialCustomerId?: string;
 }) {
   const [title, setTitle] = useState(''); const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<JobCardPriority>('normal');
@@ -39,7 +40,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
     () => defaultScheduledLocalValue(new Date()),
   );
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
-  const [customerState, setCustomerState] = useState<LoadState>('loading'); const [customerId, setCustomerId] = useState('');
+  const [customerState, setCustomerState] = useState<LoadState>('loading'); const [customerId, setCustomerId] = useState(initialCustomerId);
   const [contacts, setContacts] = useState<Contact[]>([]); const [contactId, setContactId] = useState('');
   const [contactState, setContactState] = useState<'idle' | LoadState>('idle');
   const [staff, setStaff] = useState<StaffProfile[]>([]);
@@ -55,8 +56,15 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
 
   async function loadCustomers() {
     setCustomerState('loading');
-    try { setCustomers(await loadAllCustomers()); setCustomerState('ready'); }
-    catch { setCustomers([]); setCustomerId(''); setContactId(''); setContacts([]); setCustomerState('error'); }
+    try {
+      const next = await loadAllCustomers(); setCustomers(next); setCustomerState('ready');
+      if (initialCustomerId && next.some((item) => item.id === initialCustomerId)) {
+        setCustomerId(initialCustomerId);
+        void loadContacts(initialCustomerId);
+      } else if (initialCustomerId) {
+        setCustomerId('');
+      }
+    } catch { setCustomers([]); setCustomerId(''); setContactId(''); setContacts([]); setCustomerState('error'); }
   }
   async function loadActiveStaff() {
     setStaffState('loading');
@@ -87,7 +95,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
     const trimmedTitle = title.trim(); const selectedAssignee = user.role === 'STAFF' ? user.id : assignedTo;
     const nextErrors: FieldErrors = {};
     if (!trimmedTitle || Array.from(trimmedTitle).length > 255) nextErrors.title = 'Başlık 1 ile 255 karakter arasında olmalıdır.';
-    if (!customerId) nextErrors.customerId = 'Aktif bir müşteri seçin.';
+    if (!customerId) nextErrors.customerId = 'Aktif veya aday bir müşteri seçin.';
     if (!scheduledLocal) nextErrors.scheduledAt = 'Planlanan görüşme zamanını seçin.';
     if (!selectedAssignee) nextErrors.assignedTo = 'Aktif bir sorumlu personel seçin.';
     setFieldErrors(nextErrors);
@@ -118,7 +126,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated }: {
     {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
     {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
       <button data-retry-customers className="inline-action" type="button" onClick={() => void loadCustomers()}>Tekrar dene</button></p>}
-    {customerState === 'ready' && customers.length === 0 && <p className="field-error" role="status">Görüşme planlamak için aktif müşteri gereklidir.</p>}
+    {customerState === 'ready' && customers.length === 0 && <p className="field-error" role="status">Görüşme planlamak için aktif veya aday müşteri gereklidir.</p>}
     <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending}>
       <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
         <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}

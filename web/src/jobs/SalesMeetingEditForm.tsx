@@ -12,7 +12,7 @@ type FieldErrors = Partial<Record<'title' | 'customerId' | 'assignedTo', string>
 async function loadAllCustomers() {
   const result: CustomerSummary[] = []; let offset = 0;
   while (true) {
-    const page = await listCustomers({ status: 'active', limit: 200, offset });
+    const page = await listCustomers({ limit: 200, offset });
     result.push(...page.items);
     if (result.length >= page.total || page.items.length === 0) return result;
     offset += page.items.length;
