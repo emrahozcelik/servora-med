@@ -18,6 +18,7 @@ import { PostgresRealtimeEventRepository } from './modules/realtime/repository.j
 import { RealtimeService } from './modules/realtime/service.js';
 import { PostgresNotificationRepository } from './modules/notifications/repository.js';
 import { createShutdown } from './shutdown.js';
+import { PostgresWebPushRepository } from './modules/web-push/repository.js';
 
 async function main() {
   const config = loadConfig();
@@ -55,6 +56,7 @@ async function main() {
       realtimeService,
       realtimePublisher: realtimeBus,
       notificationRepository: new PostgresNotificationRepository(database.pool),
+      webPushRepository: new PostgresWebPushRepository(database.pool),
     });
 
     const shutdown = createShutdown({

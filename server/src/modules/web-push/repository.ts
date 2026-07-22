@@ -129,6 +129,10 @@ function mapSubscription(row: WebPushSubscriptionRow): WebPushSubscriptionRecord
 
 type WebPushPool = Pick<Pool, 'query' | 'connect'>;
 
+export interface WebPushRepository {
+  findCurrentSession(identity: WebPushIdentity): Promise<WebPushSubscriptionRecord | null>;
+}
+
 export type AppendWebPushDeliveriesInput = Readonly<{
   organizationId: string;
   notificationIds: readonly string[];
@@ -180,7 +184,7 @@ export class PostgresWebPushTransaction {
   }
 }
 
-export class PostgresWebPushRepository {
+export class PostgresWebPushRepository implements WebPushRepository {
   constructor(private readonly pool: WebPushPool) {}
 
   async findCurrentSession(

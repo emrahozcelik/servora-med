@@ -14,6 +14,7 @@ export function requireAuthentication(authService: AuthService) {
     const authenticated = await authService.authenticateSession(rawToken);
     request.currentUser = authenticated.user;
     request.sessionTokenHash = authenticated.tokenHash;
+    request.currentSessionId = authenticated.sessionId;
   };
 }
 

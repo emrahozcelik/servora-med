@@ -112,9 +112,9 @@ Allowed source area: Task 3 module, auth request/session presentation needed to
 identify the current session, web-push routes/handlers/service, web API adapter,
 and focused tests.
 
-- [ ] RED→GREEN: authenticated status returns disabled/null values while the
+- [x] RED→GREEN: authenticated status returns disabled/null values while the
   flag is false and never returns endpoint or keys.
-- [ ] RED→GREEN: enabled status returns only the public VAPID key, safe
+- [x] RED→GREEN: enabled status returns only the public VAPID key, safe
   subscription fingerprint/current-session metadata, and exact
   `renewalRequired` state.
 - [ ] RED→GREEN one validator at a time: exact request shape, bounded

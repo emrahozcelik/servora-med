@@ -46,6 +46,9 @@ import type { NotificationRepository } from './modules/notifications/repository.
 import { NotificationService } from './modules/notifications/service.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
 import type { ReverseGeocoder } from './modules/job-cards/reverse-geocoder.js';
+import type { WebPushRepository } from './modules/web-push/repository.js';
+import { WebPushService } from './modules/web-push/service.js';
+import { webPushRoutes } from './modules/web-push/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -85,6 +88,7 @@ export type AppDependencies = {
   realtimePublisher?: RealtimeEventPublisher;
   notificationRepository?: NotificationRepository;
   reverseGeocoder?: ReverseGeocoder;
+  webPushRepository?: WebPushRepository;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
 };
@@ -221,6 +225,13 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
       await app.register(notificationRoutes, {
         prefix: '/api/notifications',
         service: new NotificationService(dependencies.notificationRepository),
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.webPushRepository) {
+      await app.register(webPushRoutes, {
+        prefix: '/api/web-push',
+        service: new WebPushService(config.webPush, dependencies.webPushRepository),
         authenticate: authenticateDomain,
       });
     }
