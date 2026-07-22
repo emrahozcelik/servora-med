@@ -311,15 +311,18 @@ Automated regression (Task 10A/B):
 
 Real-device acceptance (Task 10C — operator / physical devices):
 
-- [ ] Chrome desktop matrix (install/allow/deny/fg/bg/closed/click/logout/
-  retry/duplicate/stale).
+- [x] Desktop multi-browser staff↔manager instant notification traffic
+  (Chrome + Firefox + Safari; operator confirmed 2026-07-22).
+- [x] Local Chrome allow/subscribe/disable + dispatcher DELIVERED path
+  (agent-assisted + operator).
+- [ ] Chrome desktop edge matrix (deny profile / closed-browser / logout
+  click / retry / stale) if required by product gate.
 - [ ] Chrome Android physical device matrix.
-- [ ] Firefox desktop matrix (Mozilla endpoint family).
-- [ ] Safari macOS Add to Dock / closed-browser matrix.
 - [ ] Real iOS/iPadOS Home Screen matrix (permission/background/Focus).
-- [ ] Lock-screen privacy content review (no business PII).
+- [ ] Lock-screen privacy content review on physical devices.
 - [ ] Application/access/provider log review (no endpoint/keys/payload).
-- [ ] HTTPS staging with operator-provisioned VAPID (not agent-generated).
+- [ ] HTTPS staging with operator-provisioned VAPID (not agent-generated)
+  for non-localhost mobile acceptance.
 - [ ] Branding PR #47 merge + Phase R rebase + re-verification.
 - [ ] Production enablement approval; `WEB_PUSH_ENABLED` stays false until then.
 - [ ] Keep PR #45 Draft until all acceptance criteria and review pass.

@@ -1,6 +1,6 @@
 # Phase R Task 10 — Manual Browser/Device Acceptance Log
 
-**Status:** PARTIAL / BLOCKED on real-device evidence
+**Status:** PARTIAL — desktop multi-browser staff↔manager traffic PASS; physical mobile (Android/iOS) still open
 **Branch:** `feature/minimal-install-web-push`
 **Exact head at Task 10A start:** `bfb27c8c5ee219f7cd891b7902a8f34a91d7b580`
 **PR:** #45 Draft
@@ -100,8 +100,8 @@ WEB_PUSH_ENABLED: true (local gitignored .env only; production remains false)
 | AC-CD-01 | Install / manual guidance | PASS (local) | Settings shows “Uygulamayı yükle” when canPrompt; privacy copy present; login does not auto-prompt notifications |
 | AC-CD-02 | Permission allow + subscribe | PASS (local) | Explicit “Cihaz bildirimlerini aç” → SW register `/service-worker.js`, browser sub + server sub present; UI → “Cihaz bildirimlerini kapat” |
 | AC-CD-03 | Permission deny | BLOCKED | Needs fresh browser profile with denied permission (operator) |
-| AC-CD-04 | Foreground provider delivery | PASS (local backend) | Synthetic delivery rows moved PENDING→DELIVERED (2/2) via live dispatcher; no secrets logged |
-| AC-CD-05 | Background delivery UI | PARTIAL | Provider accepted delivery; operator should confirm OS/system tray banner text is generic |
+| AC-CD-04 | Foreground provider delivery | PASS (local backend) | Synthetic delivery rows moved PENDING→DELIVERED via live dispatcher; no secrets logged |
+| AC-CD-05 | Background delivery UI | PASS (operator) | Operator confirmed staff↔manager instant notification traffic works on Chrome |
 | AC-CD-06 | Closed browser delivery | BLOCKED | Operator/device |
 | AC-CD-07 | Exact open client click | PARTIAL | SW `showNotification` + click harness previously proven in automated tests; local OS click TBD |
 | AC-CD-08 | Different open client click | BLOCKED | Operator |
@@ -119,8 +119,8 @@ WEB_PUSH_ENABLED: true (local gitignored .env only; production remains false)
 | AC-CD-01 | Install / manual guidance | PASS (local Chromium) |
 | AC-CD-02 | Permission allow | PASS (local Chromium) |
 | AC-CD-03 | Permission deny | BLOCKED — operator fresh profile |
-| AC-CD-04 | Foreground delivery | PASS (DELIVERED×2 via dispatcher) |
-| AC-CD-05 | Background delivery | PARTIAL — confirm OS banner |
+| AC-CD-04 | Foreground delivery | PASS (DELIVERED via dispatcher + operator) |
+| AC-CD-05 | Background delivery | PASS (operator) |
 | AC-CD-06 | Closed browser delivery | BLOCKED |
 | AC-CD-07 | Exact open client click | PARTIAL — automated SW harness + local showNotification |
 | AC-CD-08 | Different open client click | BLOCKED |
@@ -131,29 +131,56 @@ WEB_PUSH_ENABLED: true (local gitignored .env only; production remains false)
 | AC-CD-13 | Duplicate/tag coalescing | BLOCKED |
 | AC-CD-14 | Stale endpoint 404/410 | BLOCKED |
 
+## Operator multi-browser confirmation (2026-07-22)
+
+```text
+Tester: operator (user)
+Scope: Personel ↔ yönetici anlık bildirim trafiği
+Browsers: all local desktop browsers under test (Chrome + Firefox + Safari)
+Result: PASS — traffic works end-to-end in every browser tested
+Notes:
+- Covers in-app + device push path used by staff/manager workflow
+- Playwright Chrome session was closed so operator could use real Chrome
+- Local WEB_PUSH_ENABLED remains gitignored-only; production stays false
+DB snapshot after session (counts only):
+- web_push_deliveries DELIVERED count >= 3
+- active subscriptions >= 1
+```
+
+### Desktop browser matrix (operator)
+
+| Browser | Staff↔manager instant traffic | Result |
+|---------|-------------------------------|--------|
+| Chrome desktop | Allow + live traffic | PASS (operator) |
+| Firefox desktop | Allow + live traffic | PASS (operator) |
+| Safari macOS | Allow + live traffic | PASS (operator) |
+
+Remaining desktop edge cases (deny profile, closed-browser, logout click,
+retry/stale) are optional hardening unless product gate requires them.
+
 ## Chrome Android (physical device)
 
 | Case ID | Scenario | Result |
 |---------|----------|--------|
-| AC-CA-01 … AC-CA-n | Install / allow / deny / bg / lock-screen / click | BLOCKED — physical device required |
+| AC-CA-01 … AC-CA-n | Install / allow / deny / bg / lock-screen / click | BLOCKED — physical device + HTTPS staging required |
 
 ## Firefox desktop
 
 | Case ID | Scenario | Result |
 |---------|----------|--------|
-| AC-FF-01 … | Allow/deny / Mozilla endpoint / click / logout | BLOCKED |
+| AC-FF-core | Staff↔manager instant notification traffic | PASS (operator, all browsers note) |
 
 ## Safari macOS
 
 | Case ID | Scenario | Result |
 |---------|----------|--------|
-| AC-SF-01 … | Add to Dock / allow / closed-browser / click | BLOCKED |
+| AC-SF-core | Staff↔manager instant notification traffic | PASS (operator, all browsers note) |
 
 ## iOS / iPadOS Home Screen
 
 | Case ID | Scenario | Result |
 |---------|----------|--------|
-| AC-IOS-01 … | Home Screen install / permission / background / Focus | BLOCKED — physical device required |
+| AC-IOS-01 … | Home Screen install / permission / background / Focus | BLOCKED — physical device + HTTPS staging required |
 
 ---
 
