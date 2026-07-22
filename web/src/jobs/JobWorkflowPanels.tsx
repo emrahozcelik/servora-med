@@ -65,6 +65,9 @@ export function RequirementsChecklist(props: {
   return (
     <section className="workflow-requirements surface-flat" aria-labelledby="workflow-requirements-title">
       <h2 id="workflow-requirements-title">Kontrole hazırlık</h2>
+      <p className="workflow-requirements-help">
+        Eksik maddeleri tamamladığınızda iş yöneticinin kontrolüne gönderilebilir.
+      </p>
       <ul className="workflow-requirements-list">
         {requirements.map((item) => (
           <li

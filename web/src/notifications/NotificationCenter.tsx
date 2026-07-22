@@ -192,7 +192,12 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   }
 
   const panel = open ? (
-    <div className={mobile ? 'notification-center-backdrop' : 'notification-center-desktop-layer'}>
+    <div
+      className={mobile ? 'notification-center-backdrop' : 'notification-center-desktop-layer'}
+      onPointerDown={(event) => {
+        if (event.target === event.currentTarget) close();
+      }}
+    >
       {mobile && <button type="button" className="notification-center-backdrop-button" aria-label="Bildirimleri kapat" onClick={close} />}
       <div
         ref={panelRef}

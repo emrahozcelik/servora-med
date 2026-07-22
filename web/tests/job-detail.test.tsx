@@ -477,7 +477,7 @@ describe('Staff JobCard detail', () => {
       .toBeTruthy();
   });
 
-  it('keeps requirements and the primary action before Timeline in mobile-first DOM order', async () => {
+  it('keeps requirements, decision, notes, then timeline in mobile-first DOM order', async () => {
     await act(async () => {
       root.render(<JobDetailPanel
         job={inProgressMeeting()}
@@ -487,17 +487,22 @@ describe('Staff JobCard detail', () => {
         message=""
         onBack={() => {}}
         onCommand={() => {}}
-      >
-        <section className="job-timeline" data-test-timeline>Timeline</section>
-      </JobDetailPanel>);
+        notes={<section className="job-notes" data-test-notes>Notlar</section>}
+        timeline={<section className="job-timeline" data-test-timeline>Timeline</section>}
+      />);
     });
     const requirements = host.querySelector('.workflow-requirements')!;
     const action = host.querySelector('[data-job-decision-panel="true"]')!;
+    const notes = host.querySelector('[data-test-notes]')!;
     const timeline = host.querySelector('[data-test-timeline]')!;
+    expect(host.querySelector('.job-detail-workflow-layout')).not.toBeNull();
     expect(requirements.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
-    expect(action.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(action.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
+    expect(notes.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING)
+      .toBeTruthy();
+    expect(host.textContent).toContain('Eksik maddeleri tamamladığınızda');
   });
 
   it('does not mount meeting result resources in new and accepted states', async () => {

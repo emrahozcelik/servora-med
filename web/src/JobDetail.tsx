@@ -312,7 +312,7 @@ function JobScheduleEditForm({
 export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
-  meetingDetails = null, records, realtimeStaleNotice, children,
+  meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
   pendingLabel,
 }: {
   job: JobCard;
@@ -333,6 +333,8 @@ export function JobDetailPanel({
   meetingDetails?: MeetingDetails | null;
   records?: ReactNode;
   realtimeStaleNotice?: ReactNode;
+  notes?: ReactNode;
+  timeline?: ReactNode;
   children?: ReactNode;
 }) {
   const presentation = deriveJobWorkflowPresentation({
@@ -444,22 +446,57 @@ export function JobDetailPanel({
       )}
 
       {records && <div className="job-detail-records">{records}</div>}
-
-      {!managementReview && presentation.terminalState === null && (
-        <RequirementsChecklist requirements={presentation.requirements} />
-      )}
-
-      <JobDecisionPanel
-        primary={presentation.primaryTransition}
-        secondary={presentation.secondaryTransitions}
-        recordEditAction={presentation.recordEditAction}
-        pending={pending}
-        pendingLabel={pendingLabel}
-        startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
-        onCommand={onCommand}
-        onRecordEdit={onRecordEdit}
-      />
     </div>
+
+    {(() => {
+      const showRequirements = !managementReview
+        && presentation.terminalState === null
+        && presentation.requirements.length > 0;
+      const hasDecision = Boolean(
+        presentation.primaryTransition
+        || presentation.secondaryTransitions.length > 0
+        || presentation.recordEditAction,
+      );
+      const requirements = showRequirements
+        ? <RequirementsChecklist requirements={presentation.requirements} />
+        : null;
+      const decision = hasDecision ? (
+        <JobDecisionPanel
+          primary={presentation.primaryTransition}
+          secondary={presentation.secondaryTransitions}
+          recordEditAction={presentation.recordEditAction}
+          pending={pending}
+          pendingLabel={pendingLabel}
+          startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
+          onCommand={onCommand}
+          onRecordEdit={onRecordEdit}
+        />
+      ) : null;
+      const hasWorkflowMain = Boolean(requirements || decision);
+      if (!hasWorkflowMain && !notes) return null;
+      if (notes && hasWorkflowMain) {
+        return (
+          <div className="job-detail-workflow-layout">
+            <div className="job-detail-workflow-main">
+              {requirements}
+              {decision}
+            </div>
+            <div className="job-detail-workflow-notes">{notes}</div>
+          </div>
+        );
+      }
+      if (hasWorkflowMain) {
+        return (
+          <div className="job-detail-workflow-main job-detail-workflow-main--full">
+            {requirements}
+            {decision}
+          </div>
+        );
+      }
+      return <div className="job-detail-workflow-notes job-detail-workflow-notes--full">{notes}</div>;
+    })()}
+
+    {timeline && <div className="job-detail-timeline">{timeline}</div>}
 
     {children}
   </main>;
@@ -984,16 +1021,16 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     onSaveSchedule={saveSchedule}
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
     records={recordContent}
-  >
-    <div className="job-detail-sections">
-      {viewNotes && <JobNotes
+    notes={viewNotes ? (
+      <JobNotes
         jobId={jobId}
         canAdd={addNote}
         hideWhenEmpty={detail.job.status === 'CANCELLED'}
         onAdded={() => setTimelineKey((value) => value + 1)}
-      />}
-      <JobTimeline jobId={jobId} refreshKey={timelineKey} />
-    </div>
+      />
+    ) : undefined}
+    timeline={<JobTimeline jobId={jobId} refreshKey={timelineKey} />}
+  >
     {dialog && <JobWorkflowDialog
       dialog={dialog}
       pending={pending}

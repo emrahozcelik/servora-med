@@ -65,6 +65,28 @@ describe('Customer list and creation', () => {
     expect(html).not.toContain('Kaydı aç');
   });
 
+  it('renders customer headings without a CRM eyebrow label', () => {
+    const listHtml = list({ kind: 'ready', customers: [] });
+    expect(listHtml).toContain('Müşteriler');
+    expect(listHtml).not.toContain('>CRM<');
+    expect(listHtml).not.toContain('eyebrow">CRM');
+
+    const createHtml = renderToStaticMarkup(
+      <MemoryRouter>
+        <CustomerCreateForm
+          staff={[profile]}
+          pending={false}
+          similarCustomers={[]}
+          onCancel={() => {}}
+          onSubmit={(event) => event.preventDefault()}
+        />
+      </MemoryRouter>,
+    );
+    expect(createHtml).toContain('Yeni müşteri');
+    expect(createHtml).not.toContain('>CRM<');
+    expect(createHtml).not.toContain('eyebrow">CRM');
+  });
+
   it('allows all roles to create but keeps edit and delete for Manager only', () => {
     expect(list({ kind: 'ready', customers: [] }, staffUser)).toContain('Yeni müşteri');
     expect(list({ kind: 'ready', customers: [] }, manager)).toContain('Yeni müşteri');

@@ -79,6 +79,50 @@ describe('NotificationCenter', () => {
     expect(document.activeElement).toBe(dialog.querySelector('button'));
   });
 
+  it('closes the desktop panel on outside pointer down and keeps it open for panel clicks', async () => {
+    await render('org-1:staff-1', false);
+    await act(async () => {});
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    trigger.focus();
+    await act(async () => trigger.click());
+    const layer = container.querySelector('.notification-center-desktop-layer')!;
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog).not.toBeNull();
+
+    await act(async () => {
+      dialog.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    });
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+
+    const settings = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
+    await act(async () => settings.click());
+    expect(container.textContent).toContain('Kurulum ve cihaz bildirimleri');
+
+    await act(async () => {
+      layer.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true }));
+    });
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+    await act(async () => {});
+    expect(document.activeElement).toBe(trigger);
+
+    await act(async () => trigger.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it('closes the mobile panel from the backdrop control without double-close issues', async () => {
+    await render('org-1:staff-1', true);
+    await act(async () => {});
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+    const backdrop = container.querySelector<HTMLButtonElement>(
+      '.notification-center-backdrop-button',
+    )!;
+    await act(async () => backdrop.click());
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+  });
+
   it('offers a retained install prompt only from the explicit settings action', async () => {
     const controller = createInstallOpportunityController(window);
     const prompt = vi.fn().mockResolvedValue(undefined);
