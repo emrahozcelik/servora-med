@@ -85,6 +85,7 @@ describe('JobCard create input', () => {
       priority: 'normal',
       dueDate: null,
       scheduledAt: SCHEDULED_AT,
+      engagementKind: 'SALES_MEETING',
     });
     expect(parseJobCardCreateInput({
       clientActionId: 'meeting-create-2',
@@ -93,7 +94,55 @@ describe('JobCard create input', () => {
       customerId: CUSTOMER_ID,
       assignedTo: STAFF_ID,
       scheduledAt: SCHEDULED_AT,
-    })).toMatchObject({ dueDate: null, scheduledAt: SCHEDULED_AT });
+    })).toMatchObject({ dueDate: null, scheduledAt: SCHEDULED_AT, engagementKind: 'SALES_MEETING' });
+  });
+
+  it('accepts explicit engagement kinds for Sales Meeting and defaults omitted values', () => {
+    expect(parseJobCardCreateInput({
+      clientActionId: 'meeting-visit-1',
+      type: 'SALES_MEETING',
+      title: 'Kurum ziyareti',
+      customerId: CUSTOMER_ID,
+      assignedTo: STAFF_ID,
+      scheduledAt: SCHEDULED_AT,
+      engagementKind: 'CUSTOMER_VISIT',
+    })).toMatchObject({ engagementKind: 'CUSTOMER_VISIT' });
+    expect(parseJobCardCreateInput({
+      clientActionId: 'meeting-default-1',
+      type: 'SALES_MEETING',
+      title: 'Varsayılan görüşme',
+      customerId: CUSTOMER_ID,
+      assignedTo: STAFF_ID,
+      scheduledAt: SCHEDULED_AT,
+    })).toMatchObject({ engagementKind: 'SALES_MEETING' });
+  });
+
+  it('rejects engagementKind on non-meeting creates and invalid enums', () => {
+    expect(() => parseJobCardCreateInput({
+      clientActionId: 'task-1',
+      type: 'GENERAL_TASK',
+      title: 'Görev',
+      assignedTo: STAFF_ID,
+      engagementKind: 'CUSTOMER_VISIT',
+    })).toThrowError(validationError);
+    expect(() => parseJobCardCreateInput({
+      clientActionId: 'delivery-1',
+      type: 'PRODUCT_DELIVERY',
+      title: 'Teslim',
+      customerId: CUSTOMER_ID,
+      assignedTo: STAFF_ID,
+      scheduledAt: SCHEDULED_AT,
+      engagementKind: 'SALES_MEETING',
+    })).toThrowError(validationError);
+    expect(() => parseJobCardCreateInput({
+      clientActionId: 'meeting-bad',
+      type: 'SALES_MEETING',
+      title: 'Görüşme',
+      customerId: CUSTOMER_ID,
+      assignedTo: STAFF_ID,
+      scheduledAt: SCHEDULED_AT,
+      engagementKind: 'CLINIC_VISIT',
+    })).toThrowError(validationError);
   });
 
   it.each([

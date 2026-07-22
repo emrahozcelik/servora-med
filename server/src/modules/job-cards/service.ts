@@ -22,6 +22,7 @@ import type {
 } from './repository.js';
 import {
   DELIVERY_PURPOSES,
+  JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
   type DeliveryPurpose,
   type JobCard,
@@ -30,6 +31,7 @@ import {
   type JobCardBoardQuery,
   type JobCardActivityEvent,
   type JobCardDetail,
+  type JobCardEngagementKind,
   type JobCardListItem,
   type JobCardListQuery,
   type JobCardStatus,
@@ -84,6 +86,7 @@ type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
   customerId?: string; contactId?: string | null; assignedTo?: string; priority?: JobCardPriority;
   dueDate?: string | null; scheduledAt?: string | null;
+  engagementKind?: JobCardEngagementKind;
 };
 type DeliveryInput = {
   expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
@@ -291,6 +294,7 @@ export class JobCardService {
         assertCanCreateForAssignee(actor, assignee);
         await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId);
         const selfAccepted = actor.role === 'STAFF' && actor.id === input.assignedTo;
+        const engagementKind = input.type === 'SALES_MEETING' ? input.engagementKind : null;
         const job = await transaction.createJobCard({
           organizationId: actor.organizationId, type: input.type,
           status: selfAccepted ? 'ACCEPTED' : 'NEW',
@@ -300,6 +304,7 @@ export class JobCardService {
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
           dueDate: input.dueDate,
           scheduledAt: input.scheduledAt,
+          engagementKind,
           acceptedAt: selfAccepted ? requestTime : null,
           acceptedBy: selfAccepted ? actor.id : null,
         });
@@ -317,6 +322,7 @@ export class JobCardService {
           createdValue.acceptedBy = actor.id;
         }
         if (job.scheduledAt !== null) createdValue.scheduledAt = job.scheduledAt;
+        if (job.engagementKind !== null) createdValue.engagementKind = job.engagementKind;
         const activity = await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
           event: 'JOB_CREATED', clientActionId: input.clientActionId,
@@ -537,12 +543,19 @@ export class JobCardService {
     if (fields.scheduledAt !== undefined && fields.scheduledAt !== null) {
       fields.scheduledAt = isoInstant(fields.scheduledAt, 'scheduledAt');
     }
+    if (fields.engagementKind !== undefined
+      && !JOB_CARD_ENGAGEMENT_KINDS.includes(fields.engagementKind)) {
+      throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
+    }
 
     return this.repository.executeTransaction(async (transaction) => {
       const snapshot = await transaction.getJob(actor.organizationId, jobCardId);
       if (!snapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       if (snapshot.version !== input.expectedVersion) {
         throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+      }
+      if (fields.engagementKind !== undefined && snapshot.type !== 'SALES_MEETING') {
+        throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
       }
       if (fields.assignedTo !== undefined && fields.assignedTo !== snapshot.assignedTo) {
         const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, fields.assignedTo);

@@ -226,7 +226,8 @@ class SalesMeetingRepository implements JobCardRepository {
       status: input.status ?? 'IN_PROGRESS', version: input.version ?? 2,
       title: 'Klinik görüşmesi', description: null, customerId: 'customer-1', contactId: null,
       assignedTo: input.assignedTo ?? 'staff-1', createdBy: 'staff-1', priority: 'normal',
-      dueDate: '2026-07-20',
+      dueDate: '2026-07-20', scheduledAt: '2026-07-20T10:00:00.000Z',
+      engagementKind: 'SALES_MEETING',
     };
     this.jobs.push(job);
     this.meetingDetails.push({
@@ -252,6 +253,7 @@ const input: NormalizedJobCardCreateInput = {
   priority: 'normal',
   dueDate: '2026-07-20',
   scheduledAt: '2026-07-20T10:00:00.000Z',
+  engagementKind: 'SALES_MEETING',
 };
 
 describe('Sales Meeting create transaction', () => {

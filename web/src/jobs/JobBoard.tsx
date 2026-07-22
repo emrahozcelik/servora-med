@@ -5,7 +5,7 @@ import type { CurrentUser } from '../services/api';
 import { PriorityChip } from '../ui/PriorityChip';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
 import type { JobCardBoard, JobCardListItem } from './jobs-api';
-import { jobTypeLabels } from './job-labels';
+import { jobEngagementLabel, jobTypeLabels } from './job-labels';
 import { deriveCompactWorkflowSummary } from './job-workflow-presentation';
 import { selectStatus } from './job-search';
 import { cardScheduleFact } from './scheduling';
@@ -24,7 +24,9 @@ function BoardCard({ job, user }: { job: JobCardListItem; user: CurrentUser }) {
   return <article className="job-board-card" data-board-card={job.id}>
     <Link to={paths.job(job.id)}>
       <strong>{job.title}</strong>
-      <span className="job-board-type">{jobTypeLabels[job.type]}</span>
+      <span className="job-board-type">{
+        job.type === 'SALES_MEETING' ? jobEngagementLabel(job.engagementKind) : jobTypeLabels[job.type]
+      }</span>
       <PriorityChip priority={job.priority} longLabel />
       <dl>
         <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>

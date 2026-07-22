@@ -51,6 +51,7 @@ const waitingContext = contextWith(
 
 const job: JobCard = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 4,
+  engagementKind: null,
   title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1',
   priority: 'normal', dueDate: null, scheduledAt: null,
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'Klinik' }, contact: null,
@@ -277,6 +278,7 @@ describe('Manager review', () => {
     const meeting: JobCard = {
       ...job,
       type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
       assignedTo: staff.id,
       assignee: { id: staff.id, name: staff.name },
       dueDate: '2026-07-20',
@@ -453,6 +455,7 @@ describe('Manager review', () => {
     const meeting: JobCard = {
       ...job,
       type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
       assignedTo: staff.id,
       assignee: { id: staff.id, name: staff.name },
       workflowContext: contextWith(
@@ -472,6 +475,7 @@ describe('Manager review', () => {
     const meeting: JobCard = {
       ...job,
       type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
       assignedTo: staff.id,
       assignee: { id: staff.id, name: staff.name },
       dueDate: '2026-07-20',
@@ -564,6 +568,7 @@ describe('Manager review', () => {
     const initialTask: JobCard = {
       ...job,
       type: 'GENERAL_TASK',
+      engagementKind: null,
       status: 'ACCEPTED',
       title: 'Klinik dönüşünü takip et',
       description: 'Sonucu karta yaz.',
@@ -630,6 +635,7 @@ describe('Manager review', () => {
     const meeting: JobCard = {
       ...job,
       type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
       status: 'IN_PROGRESS',
       title: 'Satış görüşmesi',
       dueDate: '2026-07-20',
@@ -673,6 +679,7 @@ describe('Manager review', () => {
       const meeting: JobCard = {
         ...job,
         type: 'SALES_MEETING',
+        engagementKind: 'SALES_MEETING',
         status,
         title: 'Planlanan görüşme',
         dueDate: '2026-07-20',
@@ -715,6 +722,7 @@ describe('Manager review', () => {
     const meeting: JobCard = {
       ...job,
       type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
       status: 'IN_PROGRESS',
       title: 'Satış görüşmesi',
       dueDate: '2026-07-20',
@@ -783,6 +791,7 @@ describe('Manager review', () => {
     const meeting: JobCard = {
       ...job,
       type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
       status: 'IN_PROGRESS',
       title: 'Satış görüşmesi',
       dueDate: '2026-07-20',

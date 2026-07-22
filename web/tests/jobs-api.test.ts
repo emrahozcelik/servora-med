@@ -15,6 +15,7 @@ afterEach(() => vi.unstubAllGlobals());
 const related = (id: string, name: string) => ({ id, name });
 const listItem = {
   id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 7,
+  engagementKind: null,
   title: 'Klinik teslimi', priority: 'urgent', dueDate: '2026-07-20',
   scheduledAt: '2026-07-20T09:00:00.000Z',
   createdAt: '2026-07-10T10:00:00.000Z', updatedAt: '2026-07-13T10:00:00.000Z',
@@ -24,6 +25,7 @@ const listItem = {
 };
 const job = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 7,
+  engagementKind: null,
   title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: 'ct1',
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
   scheduledAt: '2026-07-20T09:00:00.000Z',
@@ -153,18 +155,19 @@ describe('JobCard workspace transport', () => {
 
     const generalTaskDetail = {
       ...job, type: 'GENERAL_TASK', customerId: null, contactId: null,
+      engagementKind: null,
       customer: null, contact: null,
     };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(generalTaskDetail)));
     await expect(getJobCard('job-1')).resolves.toEqual(generalTaskDetail);
 
-    const meeting = { ...listItem, type: 'SALES_MEETING', deliveryItemCount: 0 };
+    const meeting = { ...listItem, type: 'SALES_MEETING', engagementKind: 'SALES_MEETING', deliveryItemCount: 0 };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
       items: [meeting], total: 1, limit: 25, offset: 0,
     })));
     await expect(listJobCards()).resolves.toMatchObject({ items: [meeting] });
 
-    const meetingDetail = { ...job, type: 'SALES_MEETING', dueDate: '2026-07-20' };
+    const meetingDetail = { ...job, type: 'SALES_MEETING', engagementKind: 'SALES_MEETING', dueDate: '2026-07-20' };
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(meetingDetail)));
     await expect(getJobCard('job-1')).resolves.toEqual(meetingDetail);
   });
@@ -471,6 +474,7 @@ describe('JobCard workspace transport', () => {
     [{
       clientActionId: 'delivery-create', type: 'PRODUCT_DELIVERY' as const, title: 'Teslim',
       customerId: 'customer-1', assignedTo: 'staff-1',
+      scheduledAt: '2026-07-20T09:00:00.000Z',
     }],
     [{
       clientActionId: 'task-create', type: 'GENERAL_TASK' as const, title: 'Doktoru ara',
@@ -479,14 +483,19 @@ describe('JobCard workspace transport', () => {
     }],
     [{
       clientActionId: 'meeting-create', type: 'SALES_MEETING' as const,
+      engagementKind: 'SALES_MEETING' as const,
       title: 'Yeni ürün görüşmesi', customerId: 'customer-1', assignedTo: 'staff-1',
       contactId: 'contact-1', priority: 'high' as const, dueDate: '2026-07-20',
+      scheduledAt: '2026-07-20T10:00:00.000Z',
     }],
   ])('sends an exact discriminated create body %#', async (input) => {
     const response = input.type === 'GENERAL_TASK'
-      ? { ...job, type: 'GENERAL_TASK', title: input.title, customerId: null, contactId: null }
+      ? { ...job, type: 'GENERAL_TASK', engagementKind: null, title: input.title, customerId: null, contactId: null }
       : input.type === 'SALES_MEETING'
-        ? { ...job, type: 'SALES_MEETING', title: input.title, dueDate: input.dueDate }
+        ? {
+          ...job, type: 'SALES_MEETING', engagementKind: 'SALES_MEETING',
+          title: input.title, dueDate: input.dueDate,
+        }
         : job;
     const fetch = vi.fn().mockResolvedValue(json(response, 201));
     vi.stubGlobal('fetch', fetch);

@@ -29,6 +29,8 @@ const MIGRATIONS = [
   '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
   '009_job_acceptance_and_scheduling.sql', '010_entity_delete_audit.sql',
   '011_create_realtime_events.sql', '012_create_in_app_notifications.sql',
+  '013_create_job_action_locations.sql', '014_create_web_push.sql',
+  '015_job_card_engagement_kind.sql',
 ] as const;
 
 type Fixture = {

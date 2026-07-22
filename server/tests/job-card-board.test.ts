@@ -30,6 +30,8 @@ function itemRow(id: string, status: 'NEW' | 'ACCEPTED', updated = updatedAt) {
     title: `${status} Klinik teslimi`,
     priority: 'high',
     due_date: '2026-07-20',
+    scheduled_at: null,
+    engagement_kind: null,
     created_at: createdAt,
     updated_at: updated,
     staff_completed_at: null,

@@ -12,6 +12,14 @@ export const JOB_CARD_ACTIVITY_STATUSES = [...JOB_CARD_STATUSES, 'PLANNED'] as c
 export const JOB_CARD_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 export const DELIVERY_PURPOSES = ['SALE', 'SAMPLE', 'CONSIGNMENT', 'RETURN', 'OTHER'] as const;
 export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
+export const JOB_CARD_ENGAGEMENT_KINDS = [
+  'SALES_MEETING',
+  'CUSTOMER_VISIT',
+  'PRODUCT_DEMO',
+  'TRAINING',
+  'FOLLOW_UP',
+  'OTHER',
+] as const;
 export const MEETING_OUTCOMES = [
   'POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED',
 ] as const;
@@ -43,6 +51,7 @@ export type JobCardStatusFilter = (typeof JOB_CARD_STATUS_FILTERS)[number];
 export type JobCardPriority = (typeof JOB_CARD_PRIORITIES)[number];
 export type DeliveryPurpose = (typeof DELIVERY_PURPOSES)[number];
 export type JobCardType = (typeof JOB_CARD_TYPES)[number];
+export type JobCardEngagementKind = (typeof JOB_CARD_ENGAGEMENT_KINDS)[number];
 export type MeetingOutcome = (typeof MEETING_OUTCOMES)[number];
 export type MeetingDetailField = (typeof MEETING_DETAIL_FIELDS)[number];
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
@@ -87,7 +96,9 @@ export type JobCard = {
   id: string; organizationId: string; type: JobCardType; status: JobCardStatus;
   version: number; title: string; description: string | null; customerId: string | null;
   contactId: string | null; assignedTo: string; createdBy: string; priority: JobCardPriority;
-  dueDate: string | null; scheduledAt: string | null; assignee: RelatedName;
+  dueDate: string | null; scheduledAt: string | null;
+  engagementKind: JobCardEngagementKind | null;
+  assignee: RelatedName;
   customer: RelatedName | null; contact: RelatedName | null; workflowContext: JobWorkflowContext;
 };
 export type JobCardCreateInput =
@@ -98,11 +109,13 @@ export type JobCardCreateInput =
     description?: string | null; customerId?: string | null; contactId?: string | null;
     priority?: JobCardPriority; dueDate?: string | null; scheduledAt?: string | null }
   | { clientActionId: string; type: 'SALES_MEETING'; title: string; customerId: string;
-    assignedTo: string; scheduledAt: string; dueDate?: string | null; description?: string | null;
+    assignedTo: string; scheduledAt: string; engagementKind: JobCardEngagementKind;
+    dueDate?: string | null; description?: string | null;
     contactId?: string | null; priority?: JobCardPriority };
 export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; scheduledAt: string | null;
+  engagementKind: JobCardEngagementKind | null;
   createdAt: string; updatedAt: string; staffCompletedAt: string | null;
   customer: RelatedName | null; contact: RelatedName | null; assignee: RelatedName;
   deliveryItemCount: number;
@@ -129,7 +142,7 @@ export type JobCardActivityDetails =
         | { outcome: 'CAPTURED'; approximateLabel: string | null; accuracyMeters: number; capturedAt: string }
         | { outcome: 'UNAVAILABLE'; reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED' | 'UNKNOWN' };
     }
-  | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate'> }
+  | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate' | 'engagementKind'> }
   | { kind: 'DELIVERY_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; purpose: DeliveryPurpose | null; quantity: number | null }
   | { kind: 'NOTE'; noteId: string }
   | { kind: 'MEETING_DETAILS'; changedFields: MeetingDetailField[] }
@@ -163,6 +176,7 @@ export type PatchJobCardInput = {
   priority?: JobCardPriority;
   dueDate?: string | null;
   scheduledAt?: string | null;
+  engagementKind?: JobCardEngagementKind;
 };
 
 export type JobCardListFilters = Partial<{
@@ -315,17 +329,28 @@ function parseWorkflowContext(value: unknown): JobWorkflowContext {
       : parseReadiness(v.submissionReadiness),
   };
 }
+function parseEngagementKind(value: unknown, type: JobCardType): JobCardEngagementKind | null {
+  if (type === 'SALES_MEETING') {
+    return oneOf(value, 'engagementKind', JOB_CARD_ENGAGEMENT_KINDS);
+  }
+  if (value !== null && value !== undefined) {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Yanıtta engagementKind alanı geçersiz.');
+  }
+  return null;
+}
 function parseJobCard(value: unknown): JobCard {
   const v = object(value);
+  const type = oneOf(v.type, 'type', JOB_CARD_TYPES);
   return {
     id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
-    type: oneOf(v.type, 'type', JOB_CARD_TYPES),
+    type,
     status: oneOf(v.status, 'status', JOB_CARD_STATUSES), version: positiveCount(v.version, 'version'),
     title: string(v.title, 'title'), description: nullableString(v.description, 'description'),
     customerId: nullableString(v.customerId, 'customerId'), contactId: nullableString(v.contactId, 'contactId'),
     assignedTo: string(v.assignedTo, 'assignedTo'), createdBy: string(v.createdBy, 'createdBy'),
     priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES), dueDate: nullableString(v.dueDate, 'dueDate'),
     scheduledAt: nullableCanonicalInstant(v.scheduledAt, 'scheduledAt'),
+    engagementKind: parseEngagementKind(v.engagementKind, type),
     assignee: related(v.assignee, 'assignee'), customer: nullableRelated(v.customer, 'customer'),
     contact: nullableRelated(v.contact, 'contact'),
     workflowContext: parseWorkflowContext(v.workflowContext),
@@ -333,12 +358,14 @@ function parseJobCard(value: unknown): JobCard {
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
   const v = object(value);
+  const type = oneOf(v.type, 'type', JOB_CARD_TYPES);
   return {
-    id: string(v.id, 'id'), type: oneOf(v.type, 'type', JOB_CARD_TYPES),
+    id: string(v.id, 'id'), type,
     status: oneOf(v.status, 'status', JOB_CARD_STATUSES), version: positiveCount(v.version, 'version'),
     title: string(v.title, 'title'), priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES),
     dueDate: nullableString(v.dueDate, 'dueDate'),
     scheduledAt: nullableCanonicalInstant(v.scheduledAt, 'scheduledAt'),
+    engagementKind: parseEngagementKind(v.engagementKind, type),
     createdAt: string(v.createdAt, 'createdAt'),
     updatedAt: string(v.updatedAt, 'updatedAt'), staffCompletedAt: nullableString(v.staffCompletedAt, 'staffCompletedAt'),
     customer: nullableRelated(v.customer, 'customer'), contact: nullableRelated(v.contact, 'contact'),
@@ -423,7 +450,7 @@ function parseDetails(value: unknown): JobCardActivityDetails {
     };
   }
   if (kind === 'FIELDS_UPDATED') return { kind, changedFields: array(v.changedFields, 'changedFields').map((field) =>
-    oneOf(field, 'changedFields', ['title', 'description', 'customer', 'contact', 'assignee', 'priority', 'dueDate'] as const)) };
+    oneOf(field, 'changedFields', ['title', 'description', 'customer', 'contact', 'assignee', 'priority', 'dueDate', 'engagementKind'] as const)) };
   if (kind === 'DELIVERY_ITEM') return { kind,
     operation: oneOf(v.operation, 'operation', ['ADDED', 'UPDATED', 'REMOVED'] as const),
     itemId: string(v.itemId, 'itemId'),

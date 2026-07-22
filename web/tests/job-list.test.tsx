@@ -16,6 +16,7 @@ const staff: CurrentUser = { id: '11111111-1111-4111-8111-111111111111', organiz
 const manager: CurrentUser = { ...staff, id: '22222222-2222-4222-8222-222222222222', name: 'Murat Yönetici', role: 'MANAGER' };
 const item: JobCardListItem = {
   id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 7,
+  engagementKind: null,
   title: 'ABC Klinik teslimi', priority: 'urgent', dueDate: '2026-07-20',
   scheduledAt: null,
   createdAt: '2026-07-10T10:00:00.000Z', updatedAt: '2026-07-13T10:00:00.000Z',
@@ -126,6 +127,7 @@ describe('structured JobCard list', () => {
   it('does not fabricate delivery facts for General Task rows', () => {
     const html = renderList({ kind: 'ready', page: page([{
       ...item, type: 'GENERAL_TASK', title: 'Teklif dönüşünü takip et', deliveryItemCount: 0,
+      engagementKind: null,
     }]) });
 
     expect(html).not.toContain('<dt>Teslim</dt>');
@@ -135,6 +137,7 @@ describe('structured JobCard list', () => {
   it('labels Sales Meeting rows with planned day and no delivery fact', () => {
     const html = renderList({ kind: 'ready', page: page([{
       ...item, type: 'SALES_MEETING', title: 'İmplant görüşmesi', deliveryItemCount: 0,
+      engagementKind: 'SALES_MEETING',
     }]) });
     expect(html).toContain('Satış görüşmesi'); expect(html).toContain('Planlanan görüşme günü');
     expect(html).not.toContain('ürün kalemi');
@@ -453,6 +456,7 @@ describe('routed JobCard workspace', () => {
   it('shows the canonical General Task type on the card without an expand step', async () => {
     const load = vi.fn().mockResolvedValue(page([{
       ...item, type: 'GENERAL_TASK', title: 'Klinik dönüşünü takip et', deliveryItemCount: 0,
+      engagementKind: null,
     }]));
     await mount('/jobs', load);
     await act(async () => { await Promise.resolve(); });

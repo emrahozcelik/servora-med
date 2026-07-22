@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
-import { jobTypeLabels } from '../jobs/job-labels';
+import { jobEngagementLabel, jobTypeLabels } from '../jobs/job-labels';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import {
@@ -37,7 +37,9 @@ function approvalQueueRows(items: readonly ApprovalItem[]): OperationalTableRow[
   return items.map((item) => ({
     key: item.id,
     cells: {
-      type: jobTypeLabels[item.type],
+      type: item.type === 'SALES_MEETING'
+        ? jobEngagementLabel(item.engagementKind)
+        : jobTypeLabels[item.type],
       title: (
         <Link
           to={paths.job(item.id)}

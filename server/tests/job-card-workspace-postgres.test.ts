@@ -31,6 +31,8 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
         '009_job_acceptance_and_scheduling.sql', '010_entity_delete_audit.sql',
         '011_create_realtime_events.sql', '012_create_in_app_notifications.sql',
+        '013_create_job_action_locations.sql', '014_create_web_push.sql',
+        '015_job_card_engagement_kind.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await pool.query(await readFile(path, 'utf8'));
@@ -175,6 +177,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         customerId, contactId: null, assignedTo: staffId,
         priority: 'normal', dueDate: '2026-07-14',
         scheduledAt: '2026-07-14T10:00:00.000Z',
+        engagementKind: 'SALES_MEETING',
       });
       expect(salesMeeting).toMatchObject({
         type: 'SALES_MEETING', status: 'ACCEPTED', version: 1,

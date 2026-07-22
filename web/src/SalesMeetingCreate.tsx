@@ -1,7 +1,13 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link } from 'react-router-dom';
 
-import { createJobCard, type JobCardPriority } from './jobs/jobs-api';
+import {
+  createJobCard,
+  JOB_CARD_ENGAGEMENT_KINDS,
+  type JobCardEngagementKind,
+  type JobCardPriority,
+} from './jobs/jobs-api';
+import { JOB_CARD_ENGAGEMENT_LABELS } from './jobs/job-labels';
 import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
 import { ApiError, type CurrentUser } from './services/api';
 import { listContacts, listCustomers, type Contact, type CustomerSummary } from './services/crm-api';
@@ -9,7 +15,13 @@ import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 
 type LoadState = 'loading' | 'ready' | 'error';
-type FieldErrors = { title?: string; customerId?: string; scheduledAt?: string; assignedTo?: string };
+type FieldErrors = {
+  title?: string;
+  customerId?: string;
+  scheduledAt?: string;
+  assignedTo?: string;
+  engagementKind?: string;
+};
 
 async function loadAllCustomers() {
   const result: CustomerSummary[] = []; let offset = 0;
@@ -31,12 +43,19 @@ async function loadAllContacts(customerId: string) {
   }
 }
 
+function contactOptionLabel(contact: Contact): string {
+  const title = contact.title?.trim();
+  const base = title ? `${contact.name} — ${title}` : contact.name;
+  return contact.isPrimary ? `${base} · Birincil kişi` : base;
+}
+
 export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCustomerId = '' }: {
   user: CurrentUser; onCancel: () => void; onCreated: (jobCardId: string) => void;
   initialCustomerId?: string;
 }) {
   const [title, setTitle] = useState(''); const [description, setDescription] = useState('');
   const [priority, setPriority] = useState<JobCardPriority>('normal');
+  const [engagementKind, setEngagementKind] = useState<JobCardEngagementKind | ''>('');
   const [scheduledLocal, setScheduledLocal] = useState(
     () => defaultScheduledLocalValue(new Date()),
   );
@@ -96,15 +115,22 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     const trimmedTitle = title.trim(); const selectedAssignee = user.role === 'STAFF' ? user.id : assignedTo;
     const nextErrors: FieldErrors = {};
     if (!trimmedTitle || Array.from(trimmedTitle).length > 255) nextErrors.title = 'Başlık 1 ile 255 karakter arasında olmalıdır.';
+    if (!engagementKind) nextErrors.engagementKind = 'Görüşme veya ziyaret türünü seçin.';
     if (!customerId) nextErrors.customerId = 'Aktif veya aday bir müşteri seçin.';
     if (!scheduledLocal) nextErrors.scheduledAt = 'Planlanan görüşme zamanını seçin.';
     if (!selectedAssignee) nextErrors.assignedTo = 'Aktif bir sorumlu personel seçin.';
     setFieldErrors(nextErrors);
-    if (Object.keys(nextErrors).length > 0) { setError('Görüşmeyi planlamadan önce işaretli alanları düzeltin.'); return; }
+    if (Object.keys(nextErrors).length > 0) {
+      setError('Görüşme veya ziyareti planlamadan önce işaretli alanları düzeltin.');
+      return;
+    }
     setPending(true); setError(''); actionIdRef.current ??= crypto.randomUUID();
     try {
       const job = await createJobCard({
-        clientActionId: actionIdRef.current, type: 'SALES_MEETING', title: trimmedTitle,
+        clientActionId: actionIdRef.current,
+        type: 'SALES_MEETING',
+        engagementKind: engagementKind as JobCardEngagementKind,
+        title: trimmedTitle,
         customerId, assignedTo: selectedAssignee,
         scheduledAt: localDateTimeToIso(scheduledLocal),
         description: description.trim() || null, contactId: contactId || null, priority,
@@ -112,7 +138,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       onCreated(job.id);
     } catch (caught) {
       if (caught instanceof ApiError && !caught.retryable) actionIdRef.current = null;
-      setError(caught instanceof Error ? caught.message : 'Görüşme planlanamadı. Tekrar deneyin.');
+      setError(caught instanceof Error ? caught.message : 'Görüşme veya ziyaret planlanamadı. Tekrar deneyin.');
       setPending(false);
     }
   }
@@ -120,9 +146,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const referencesUnavailable = customerState !== 'ready' || customers.length === 0
     || (user.role !== 'STAFF' && staffState !== 'ready');
   return <main className="task-create meeting-create">
-    <div className="delivery-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Satış görüşmesi planla</h1></div>
+    <div className="delivery-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Görüşme / ziyaret planla</h1></div>
       <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
-    <p className="form-intro">Planlanan zamanı ve görüşmenin sorumlusunu belirleyin. Görüşme sonucu daha sonra kaydedilir.</p>
+    <p className="form-intro">
+      Görüşme türünü, planlanan zamanı, müşteriyi ve sorumlu personeli belirleyin.
+      Görüşme veya ziyaret sonucu daha sonra kaydedilir.
+    </p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
     {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
@@ -133,6 +162,28 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
           aria-describedby={fieldErrors.title ? 'meeting-title-error' : undefined} onChange={(event) => setTitle(event.target.value)} />
         {fieldErrors.title && <span id="meeting-title-error" className="field-error">{fieldErrors.title}</span>}</div>
+      <div className="field-group">
+        <label htmlFor="meeting-engagement-kind">Görüşme / ziyaret türü</label>
+        <select
+          id="meeting-engagement-kind"
+          required
+          value={engagementKind}
+          aria-invalid={fieldErrors.engagementKind ? true : undefined}
+          aria-describedby={fieldErrors.engagementKind ? 'meeting-engagement-kind-error meeting-engagement-kind-help' : 'meeting-engagement-kind-help'}
+          onChange={(event) => setEngagementKind(event.target.value as JobCardEngagementKind | '')}
+        >
+          <option value="">Tür seçin</option>
+          {JOB_CARD_ENGAGEMENT_KINDS.map((kind) => (
+            <option key={kind} value={kind}>{JOB_CARD_ENGAGEMENT_LABELS[kind]}</option>
+          ))}
+        </select>
+        <p id="meeting-engagement-kind-help" className="form-help">
+          Görüşmenin veya ziyaretin ana amacını seçin. Bu bilgi liste ve raporlarda gösterilir.
+        </p>
+        {fieldErrors.engagementKind && (
+          <span id="meeting-engagement-kind-error" className="field-error">{fieldErrors.engagementKind}</span>
+        )}
+      </div>
       <div className="task-field-pair">
         <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><Link className="inline-action" to="/customers/new?source=meeting">Yeni müşteri ekle</Link></div>
           <select id="meeting-customer" required value={customerId} disabled={customerState !== 'ready'}
@@ -158,18 +209,39 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           {staffState === 'loading' && <span className="field-status" role="status">Personel listesi yükleniyor…</span>}
           {staffState === 'error' && <span className="field-error" role="alert">Personel listesi yüklenemedi.{' '}<button className="inline-action" type="button" onClick={() => void loadActiveStaff()}>Tekrar dene</button></span>}
           {fieldErrors.assignedTo && <span id="meeting-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}</div>}
-      <div className="field-group"><label htmlFor="meeting-contact">İlgili kişi (isteğe bağlı)</label>
-        <select id="meeting-contact" value={contactId} disabled={!customerId || contactState !== 'ready'} onChange={(event) => setContactId(event.target.value)}>
-          <option value="">İlgili kişi seçilmedi</option>{contacts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
+      <div className="field-group">
+        <label htmlFor="meeting-contact">Görüşülecek kişi (isteğe bağlı)</label>
+        <select
+          id="meeting-contact"
+          value={contactId}
+          disabled={!customerId || contactState !== 'ready'}
+          aria-describedby="meeting-contact-help"
+          onChange={(event) => setContactId(event.target.value)}
+        >
+          <option value="">Kişi seçilmedi</option>
+          {contacts.map((item) => (
+            <option key={item.id} value={item.id}>{contactOptionLabel(item)}</option>
+          ))}
+        </select>
+        <p id="meeting-contact-help" className="form-help">
+          Seçilen müşteride kayıtlı kişilerden, görüşme veya ziyarette muhatap
+          olunacak kişiyi seçin. Belirli bir kişi yoksa boş bırakabilirsiniz.
+        </p>
         {contactState === 'loading' && <span className="field-status" role="status">İlgili kişiler yükleniyor…</span>}
         {contactState === 'error' && <span className="field-error" role="alert">İlgili kişiler yüklenemedi.{' '}
-          <button data-retry-contacts className="inline-action" type="button" onClick={() => void loadContacts(customerId)}>Tekrar dene</button></span>}</div>
+          <button data-retry-contacts className="inline-action" type="button" onClick={() => void loadContacts(customerId)}>Tekrar dene</button></span>}
+        {contactState === 'ready' && contacts.length === 0 && (
+          <p className="field-status" role="status">
+            Bu müşteri için aktif kişi kaydı bulunmuyor. Kişi seçmeden devam edebilirsiniz.
+          </p>
+        )}
+      </div>
       <div className="field-group"><label htmlFor="meeting-description">Açıklama (isteğe bağlı)</label>
         <textarea id="meeting-description" rows={4} value={description} onChange={(event) => setDescription(event.target.value)} /></div>
       <div className="field-group"><label htmlFor="meeting-priority">Öncelik</label>
         <select id="meeting-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
           <option value="low">Düşük</option><option value="normal">Normal</option><option value="high">Yüksek</option><option value="urgent">Acil</option></select></div>
     </fieldset><button className="primary-button" type="submit" disabled={pending || referencesUnavailable}>
-      {pending ? 'Görüşme planlanıyor…' : 'Görüşmeyi planla'}</button></form>
+      {pending ? 'Planlanıyor…' : 'Görüşme / ziyareti planla'}</button></form>
   </main>;
 }

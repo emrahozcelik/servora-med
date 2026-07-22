@@ -8,6 +8,16 @@ export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
 export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
 export type JobCardType = (typeof JOB_CARD_TYPES)[number];
 
+export const JOB_CARD_ENGAGEMENT_KINDS = [
+  'SALES_MEETING',
+  'CUSTOMER_VISIT',
+  'PRODUCT_DEMO',
+  'TRAINING',
+  'FOLLOW_UP',
+  'OTHER',
+] as const;
+export type JobCardEngagementKind = (typeof JOB_CARD_ENGAGEMENT_KINDS)[number];
+
 export const MEETING_OUTCOMES = [
   'POSITIVE', 'FOLLOW_UP_REQUIRED', 'NO_DECISION', 'NOT_INTERESTED',
 ] as const;
@@ -46,6 +56,7 @@ export type JobCard = {
   priority: JobCardPriority;
   dueDate: string | null;
   scheduledAt: string | null;
+  engagementKind: JobCardEngagementKind | null;
 };
 
 export type JobCardCreateInput =
@@ -65,7 +76,7 @@ export type JobCardCreateInput =
     clientActionId: string; type: 'SALES_MEETING'; title: string;
     description?: string | null; customerId: string; contactId?: string | null;
     assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
-    scheduledAt: string;
+    scheduledAt: string; engagementKind?: JobCardEngagementKind;
   };
 
 type NormalizedCommonCreateInput = {
@@ -79,6 +90,7 @@ export type NormalizedJobCardCreateInput =
   | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null }
   | NormalizedCommonCreateInput & {
       type: 'SALES_MEETING'; customerId: string; scheduledAt: string;
+      engagementKind: JobCardEngagementKind;
     };
 
 export type MeetingDetails = {
@@ -228,6 +240,7 @@ export type JobCardBoardQuery = JobCardBaseFilters & { limit: number };
 export type PersistedJobCardListItem = {
   id: string;
   type: JobCardType;
+  engagementKind: JobCardEngagementKind | null;
   status: JobCardStatus;
   version: number;
   title: string;
@@ -314,7 +327,7 @@ export type JobCardActivityDetails =
       kind: 'FIELDS_UPDATED';
       changedFields: Array<
         'title' | 'description' | 'customer' | 'contact' |
-        'assignee' | 'priority' | 'dueDate'
+        'assignee' | 'priority' | 'dueDate' | 'engagementKind'
       >;
     }
   | {

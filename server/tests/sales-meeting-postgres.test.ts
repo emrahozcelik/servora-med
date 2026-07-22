@@ -20,6 +20,8 @@ async function applyMigrations(pool: Pool) {
     '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
     '009_job_acceptance_and_scheduling.sql', '010_entity_delete_audit.sql',
     '011_create_realtime_events.sql', '012_create_in_app_notifications.sql',
+    '013_create_job_action_locations.sql', '014_create_web_push.sql',
+    '015_job_card_engagement_kind.sql',
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(path, 'utf8'));
@@ -82,6 +84,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         title: 'İmplant değerlendirme görüşmesi', description: null,
         customerId, contactId, assignedTo: staffId, priority: 'normal' as const,
         dueDate: '2026-07-15', scheduledAt: SCHEDULED_AT,
+        engagementKind: 'SALES_MEETING' as const,
       };
       let meeting = await service.create(staff, createInput);
       expect(meeting).toMatchObject({
@@ -335,7 +338,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         clientActionId: 'race-edit-cancel-create', type: 'SALES_MEETING',
         title: 'Düzenleme ve iptal yarışı', description: null, customerId, contactId,
         assignedTo: staffId, priority: 'normal', dueDate: '2026-07-15',
-        scheduledAt: SCHEDULED_AT,
+        scheduledAt: SCHEDULED_AT, engagementKind: 'SALES_MEETING',
       });
       editCancelRace = await service.start(staff, editCancelRace.id, {
         clientActionId: 'race-edit-cancel-start', expectedVersion: editCancelRace.version,

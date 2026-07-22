@@ -74,9 +74,10 @@ describe('runMigrations', () => {
       '012_create_in_app_notifications.sql',
       '013_create_job_action_locations.sql',
       '014_create_web_push.sql',
+      '015_job_card_engagement_kind.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('014_create_web_push.sql');
-    expect(expectedSchemaVersion).toBe(14);
+    expect(migrations.at(-1)?.name).toBe('015_job_card_engagement_kind.sql');
+    expect(expectedSchemaVersion).toBe(15);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

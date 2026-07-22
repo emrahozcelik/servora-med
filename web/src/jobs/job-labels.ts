@@ -1,4 +1,9 @@
-import type { JobCardActivityStatus, JobCardStatus, JobCardType } from './jobs-api';
+import type {
+  JobCardActivityStatus,
+  JobCardEngagementKind,
+  JobCardStatus,
+  JobCardType,
+} from './jobs-api';
 import { activeWorkflowPresentation } from './job-status-presentation';
 
 export const jobTypeLabels: Record<JobCardType, string> = {
@@ -6,6 +11,20 @@ export const jobTypeLabels: Record<JobCardType, string> = {
   GENERAL_TASK: 'Genel görev',
   SALES_MEETING: 'Satış görüşmesi',
 };
+
+export const JOB_CARD_ENGAGEMENT_LABELS = {
+  SALES_MEETING: 'Satış görüşmesi',
+  CUSTOMER_VISIT: 'Müşteri / kurum ziyareti',
+  PRODUCT_DEMO: 'Ürün tanıtımı',
+  TRAINING: 'Eğitim',
+  FOLLOW_UP: 'Takip görüşmesi',
+  OTHER: 'Diğer',
+} satisfies Record<JobCardEngagementKind, string>;
+
+export function jobEngagementLabel(kind: JobCardEngagementKind | null | undefined): string {
+  if (!kind) return jobTypeLabels.SALES_MEETING;
+  return JOB_CARD_ENGAGEMENT_LABELS[kind];
+}
 
 /** Current JobCard presentation labels; PLANNED remains readable for legacy data only. */
 export const jobStatusLabels: Record<JobCardActivityStatus, string> = {

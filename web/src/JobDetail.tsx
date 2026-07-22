@@ -44,7 +44,7 @@ import { SalesMeetingEditForm } from './jobs/SalesMeetingEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
-import { jobTypeLabels } from './jobs/job-labels';
+import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
 import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
@@ -369,12 +369,27 @@ export function JobDetailPanel({
       content: job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi',
     }]),
     { key: 'customer', label: 'Müşteri', content: job.customer?.name ?? 'Belirtilmedi' },
-    { key: 'contact', label: 'İlgili kişi', content: job.contact?.name ?? 'Belirtilmedi' },
+    ...(job.type === 'SALES_MEETING' ? [
+      {
+        key: 'engagement',
+        label: 'Görüşme türü',
+        content: jobEngagementLabel(job.engagementKind),
+      },
+      {
+        key: 'contact',
+        label: 'Görüşülecek kişi',
+        content: job.contact?.name ?? 'Belirtilmedi',
+      },
+    ] : [
+      { key: 'contact', label: 'İlgili kişi', content: job.contact?.name ?? 'Belirtilmedi' },
+    ]),
     { key: 'description', label: 'Açıklama', content: job.description ?? 'Belirtilmedi', wide: true },
   ];
 
   return <main className="job-detail">
-    <div className="detail-heading"><div><p className="eyebrow">{jobTypeLabels[job.type]}</p><h1>{job.title}</h1></div>
+    <div className="detail-heading"><div><p className="eyebrow">{
+      job.type === 'SALES_MEETING' ? jobEngagementLabel(job.engagementKind) : jobTypeLabels[job.type]
+    }</p><h1>{job.title}</h1></div>
       <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
     {message && <div ref={feedbackRef} className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
       role={messageIsError ? 'alert' : 'status'} tabIndex={-1}>{message}</div>}

@@ -19,6 +19,7 @@ const manager: CurrentUser = {
 };
 const baseItem: JobCardListItem = {
   id: 'job-new', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2, title: 'ABC Klinik teslimi',
+  engagementKind: null,
   priority: 'urgent', dueDate: '2026-07-20', scheduledAt: null,
   createdAt: '2026-07-10T10:00:00.000Z',
   updatedAt: '2026-07-13T10:00:00.000Z', staffCompletedAt: null,
@@ -248,6 +249,7 @@ describe('read-only JobCard board', () => {
   it('labels General Task cards without delivery facts or empty delivery state', () => {
     const generalTask = {
       ...baseItem, id: 'task-1', type: 'GENERAL_TASK' as const,
+      engagementKind: null,
       title: 'Teklif dönüşünü takip et', deliveryItemCount: 0,
     };
     const mixedBoard: JobCardBoard = {
@@ -267,6 +269,7 @@ describe('read-only JobCard board', () => {
 
   it('labels Sales Meeting cards and omits delivery facts', () => {
     const meeting = { ...baseItem, id: 'meeting-1', type: 'SALES_MEETING' as const,
+    engagementKind: 'SALES_MEETING',
       title: 'İmplant görüşmesi', deliveryItemCount: 0 };
     const meetingBoard = { ...board, columns: { ...board.columns,
       NEW: { items: [meeting], count: 1 } } };
