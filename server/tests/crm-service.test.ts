@@ -94,7 +94,7 @@ describe('CRM service policy', () => {
     })).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND' });
   });
 
-  it('keeps Staff CRM access read-only', async () => {
+  it('allows Staff to create a prospect assigned to themselves while keeping other CRM mutations forbidden', async () => {
     const { service } = fixture();
     const createCustomerInput = {
       name: 'Klinik', customerType: 'clinic', status: 'prospect', taxNumber: null,
@@ -105,7 +105,6 @@ describe('CRM service policy', () => {
     const createContactInput = { name: 'Dr. Ayşe', title: null, phone: null, email: null };
     const updateContactInput = { ...createContactInput, expectedVersion: 1 };
     const mutations = [
-      () => service.createCustomer(staff, createCustomerInput),
       () => service.updateCustomer(staff, 'customer-1', updateCustomerInput),
       () => service.activateCustomer(staff, 'customer-1', 1),
       () => service.deactivateCustomer(staff, 'customer-1', 1),
@@ -119,6 +118,12 @@ describe('CRM service policy', () => {
     for (const mutate of mutations) {
       await expect(Promise.resolve().then(mutate)).rejects.toMatchObject({ code: 'FORBIDDEN' });
     }
+
+    await expect(service.createCustomer(staff, {
+      ...createCustomerInput, status: 'active', assignedStaffUserId: 'someone-else',
+    })).resolves.toMatchObject({
+      organizationId: 'org-1', assignedStaffUserId: 'staff-1', status: 'prospect',
+    });
   });
 
   it('conceals a cross-organization Customer as not found', async () => {

@@ -37,6 +37,10 @@ function requireWriter(actor: CrmActor) {
   if (actor.role !== 'ADMIN' && actor.role !== 'MANAGER') throw forbidden();
 }
 
+function requireCustomerCreator(actor: CrmActor) {
+  if (actor.role !== 'ADMIN' && actor.role !== 'MANAGER' && actor.role !== 'STAFF') throw forbidden();
+}
+
 function required(value: string, label: string) {
   const cleaned = value.trim();
   if (!cleaned) throw new AppError('VALIDATION_ERROR', 400, `${label} alanı zorunludur.`);
@@ -77,20 +81,22 @@ export class CrmService {
   }
 
   async createCustomer(actor: CrmActor, input: CreateCustomerInput) {
-    requireWriter(actor);
-    const status = input.status ?? 'prospect';
+    requireCustomerCreator(actor);
+    const staffCreated = actor.role === 'STAFF';
+    const status = staffCreated ? 'prospect' : input.status ?? 'prospect';
     if (status !== 'prospect' && status !== 'active') {
       throw new AppError('VALIDATION_ERROR', 400, 'Başlangıç müşteri durumu prospect veya active olmalıdır.');
     }
     try {
       return await this.repository.execute(async (tx) => {
-        if (input.assignedStaffUserId) await this.requireEligibleStaff(tx, actor, input.assignedStaffUserId);
+        const assignedStaffUserId = staffCreated ? actor.id : input.assignedStaffUserId;
+        if (assignedStaffUserId) await this.requireEligibleStaff(tx, actor, assignedStaffUserId);
         const created = await tx.createCustomer({
           organizationId: actor.organizationId, name: required(input.name, 'name'),
           customerType: input.customerType, taxNumber: normalizeTaxNumber(input.taxNumber),
           phone: optional(input.phone), email: optional(input.email)?.toLowerCase() ?? null,
           city: optional(input.city), district: optional(input.district), address: optional(input.address),
-          assignedStaffUserId: input.assignedStaffUserId, status,
+          assignedStaffUserId, status,
         });
         await tx.appendAudit(audit(actor, 'CUSTOMER', created.id, 'CUSTOMER_CREATED', null,
           { customerType: created.customerType, status: created.status,
