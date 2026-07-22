@@ -89,12 +89,14 @@ describe('Sales Meeting planning flow', () => {
     expect(container.querySelector('#meeting-assignee')).toBeNull();
     expect(container.textContent).toContain('Planlanan görüşme zamanı');
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-17T14:30');
+    expect(container.textContent).toContain('Görüşme / ziyaret planla');
     change(container.querySelector('#meeting-title')!, '  İmplant değerlendirme görüşmesi  ');
+    change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
     change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).toHaveBeenCalledWith({
-      clientActionId: 'action-1', type: 'SALES_MEETING',
+      clientActionId: 'action-1', type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT',
       title: 'İmplant değerlendirme görüşmesi', customerId: 'c1', assignedTo: 'staff-1',
       scheduledAt: localDateTimeToIso('2026-07-01T10:00'),
       description: null, contactId: null, priority: 'normal',
@@ -169,12 +171,14 @@ describe('Sales Meeting planning flow', () => {
     expect(container.textContent).toContain('İlgili kişiler yüklenemedi');
     expect(container.querySelector('[data-retry-contacts]')).not.toBeNull();
     change(container.querySelector('#meeting-title')!, 'Görüşme');
+    change(container.querySelector('#meeting-engagement-kind')!, 'SALES_MEETING');
     change(container.querySelector('#meeting-scheduled-at')!, '2025-01-01T09:00');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
       contactId: null,
+      engagementKind: 'SALES_MEETING',
       scheduledAt: localDateTimeToIso('2025-01-01T09:00'),
-          }));
+    }));
   });
 
   it('auto-selects Customer and loads Contacts when initialCustomerId matches a loaded customer', async () => {
@@ -219,6 +223,7 @@ describe('Sales Meeting planning flow', () => {
       .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi', true));
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle(); change(container.querySelector('#meeting-title')!, 'Görüşme');
+    change(container.querySelector('#meeting-engagement-kind')!, 'PRODUCT_DEMO');
     await act(async () => change(container.querySelector('#meeting-customer')!, 'c1')); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-15T11:00');
     const form = container.querySelector('form') as HTMLFormElement;

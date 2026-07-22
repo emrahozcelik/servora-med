@@ -4,10 +4,17 @@ import { listContacts, listCustomers, type Contact, type CustomerSummary } from 
 import { listStaff, type StaffProfile } from '../services/people-api';
 import type { CurrentUser } from '../services/api';
 import { createRequestGate } from '../services/request-gate';
-import type { JobCard, JobCardPriority, PatchJobCardInput } from './jobs-api';
+import {
+  JOB_CARD_ENGAGEMENT_KINDS,
+  type JobCard,
+  type JobCardEngagementKind,
+  type JobCardPriority,
+  type PatchJobCardInput,
+} from './jobs-api';
+import { JOB_CARD_ENGAGEMENT_LABELS } from './job-labels';
 
 type LoadState = 'loading' | 'ready' | 'error';
-type FieldErrors = Partial<Record<'title' | 'customerId' | 'assignedTo', string>>;
+type FieldErrors = Partial<Record<'title' | 'customerId' | 'assignedTo' | 'engagementKind', string>>;
 
 async function loadAllCustomers() {
   const result: CustomerSummary[] = []; let offset = 0;
@@ -29,6 +36,12 @@ async function loadAllContacts(customerId: string) {
   }
 }
 
+function contactOptionLabel(contact: Contact): string {
+  const title = contact.title?.trim();
+  const base = title ? `${contact.name} — ${title}` : contact.name;
+  return contact.isPrimary ? `${base} · Birincil kişi` : base;
+}
+
 export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
   job: JobCard & { type: 'SALES_MEETING' }; user: CurrentUser; pending: boolean;
   onCancel: () => void; onSave: (input: PatchJobCardInput) => Promise<void>;
@@ -36,6 +49,9 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
   const [title, setTitle] = useState(job.title);
   const [description, setDescription] = useState(job.description ?? '');
   const [priority, setPriority] = useState<JobCardPriority>(job.priority);
+  const [engagementKind, setEngagementKind] = useState<JobCardEngagementKind>(
+    job.engagementKind ?? 'SALES_MEETING',
+  );
   const [customerId, setCustomerId] = useState(job.customerId ?? '');
   const [contactId, setContactId] = useState(job.contactId ?? '');
   const [assignedTo, setAssignedTo] = useState(job.assignedTo);
@@ -95,11 +111,12 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
     if (!normalizedTitle || Array.from(normalizedTitle).length > 255) {
       nextErrors.title = 'Başlık 1 ile 255 karakter arasında olmalıdır.';
     }
+    if (!engagementKind) nextErrors.engagementKind = 'Görüşme veya ziyaret türünü seçin.';
     if (!customerId) nextErrors.customerId = 'Aktif bir müşteri seçin.';
     if (user.role !== 'STAFF' && !assignedTo) nextErrors.assignedTo = 'Aktif bir sorumlu personel seçin.';
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
-      setError('Görüşmeyi kaydetmeden önce işaretli alanları düzeltin.'); return;
+      setError('Görüşme veya ziyareti kaydetmeden önce işaretli alanları düzeltin.'); return;
     }
     setError('');
     await onSave({
@@ -107,16 +124,17 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
       description: description.trim() || null, customerId, contactId: contactId || null,
       assignedTo: user.role === 'STAFF' ? job.assignedTo : assignedTo,
       priority,
+      engagementKind,
     });
   }
 
   const referencesLoading = customerState !== 'ready'
     || contactState === 'loading' || (user.role !== 'STAFF' && staffState !== 'ready');
   return <section className="meeting-details" aria-labelledby="meeting-edit-title-heading">
-    <h2 id="meeting-edit-title-heading">Görüşmeyi düzenle</h2>
+    <h2 id="meeting-edit-title-heading">Görüşme / ziyareti düzenle</h2>
     {error && <div ref={errorRef} className="form-error" role="alert" tabIndex={-1}>{error}</div>}
     {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.</p>}
-    {contactState === 'error' && <p className="field-error" role="alert">İlgili kişiler yüklenemedi.</p>}
+    {contactState === 'error' && <p className="field-error" role="alert">Kişiler yüklenemedi.</p>}
     {staffState === 'error' && <p className="field-error" role="alert">Personel listesi yüklenemedi.</p>}
     <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending}>
       <div className="field-group"><label htmlFor="meeting-edit-title">Başlık</label>
@@ -128,6 +146,30 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
       <div className="field-group"><label htmlFor="meeting-edit-description">Açıklama (isteğe bağlı)</label>
         <textarea id="meeting-edit-description" rows={4} value={description}
           onChange={(event) => setDescription(event.target.value)} /></div>
+      <div className="field-group">
+        <label htmlFor="meeting-edit-engagement-kind">Görüşme / ziyaret türü</label>
+        <select
+          id="meeting-edit-engagement-kind"
+          value={engagementKind}
+          aria-invalid={fieldErrors.engagementKind ? true : undefined}
+          aria-describedby={fieldErrors.engagementKind
+            ? 'meeting-edit-engagement-kind-error meeting-edit-engagement-kind-help'
+            : 'meeting-edit-engagement-kind-help'}
+          onChange={(event) => setEngagementKind(event.target.value as JobCardEngagementKind)}
+        >
+          {JOB_CARD_ENGAGEMENT_KINDS.map((kind) => (
+            <option key={kind} value={kind}>{JOB_CARD_ENGAGEMENT_LABELS[kind]}</option>
+          ))}
+        </select>
+        <p id="meeting-edit-engagement-kind-help" className="form-help">
+          Görüşmenin veya ziyaretin ana amacını seçin. Bu bilgi liste ve raporlarda gösterilir.
+        </p>
+        {fieldErrors.engagementKind && (
+          <span id="meeting-edit-engagement-kind-error" className="field-error">
+            {fieldErrors.engagementKind}
+          </span>
+        )}
+      </div>
       <div className="field-group"><label htmlFor="meeting-edit-customer">Müşteri</label>
         <select id="meeting-edit-customer" value={customerId} disabled={customerState !== 'ready'}
           aria-invalid={fieldErrors.customerId ? true : undefined}
@@ -135,10 +177,20 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
           onChange={(event) => changeCustomer(event.target.value)}>
           <option value="">Seçin</option>{customers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select>
         {fieldErrors.customerId && <span id="meeting-edit-customer-error" className="field-error">{fieldErrors.customerId}</span>}</div>
-      <div className="field-group"><label htmlFor="meeting-edit-contact">İlgili kişi (isteğe bağlı)</label>
+      <div className="field-group"><label htmlFor="meeting-edit-contact">Görüşülecek kişi (isteğe bağlı)</label>
         <select id="meeting-edit-contact" value={contactId} disabled={!customerId || contactState !== 'ready'}
           onChange={(event) => setContactId(event.target.value)}>
-          <option value="">İlgili kişi seçilmedi</option>{contacts.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}</select></div>
+          <option value="">Kişi seçilmedi</option>
+          {contacts.map((item) => (
+            <option key={item.id} value={item.id}>{contactOptionLabel(item)}</option>
+          ))}
+        </select>
+        {customerId && contactState === 'ready' && contacts.length === 0 && (
+          <p className="form-help">
+            Bu müşteri için aktif kişi kaydı bulunmuyor. Kişi seçmeden devam edebilirsiniz.
+          </p>
+        )}
+      </div>
       {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="meeting-edit-assignee">Sorumlu personel</label>
         <select id="meeting-edit-assignee" value={assignedTo} disabled={staffState !== 'ready'}
           aria-invalid={fieldErrors.assignedTo ? true : undefined}

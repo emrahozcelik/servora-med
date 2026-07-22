@@ -122,8 +122,8 @@ async function createOrganizationAndStaff(pool: Pool, label: string) {
 
 async function createSalesMeeting(pool: Pool, organizationId: string, staffUserId: string) {
   const result = await pool.query<{ id: string }>(
-    `INSERT INTO job_cards (organization_id, type, title, assigned_to, created_by)
-     VALUES ($1, 'SALES_MEETING', 'Structured sales meeting', $2, $2)
+    `INSERT INTO job_cards (organization_id, type, title, assigned_to, created_by, engagement_kind)
+     VALUES ($1, 'SALES_MEETING', 'Structured sales meeting', $2, $2, 'SALES_MEETING')
      RETURNING id`,
     [organizationId, staffUserId],
   );
@@ -141,14 +141,14 @@ async function expectConstraintViolation(
 }
 
 describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
-  it('runs clean 001-014, preserves exact vocabularies and does not reapply', async () => {
+  it('runs clean 001-015, preserves exact vocabularies and does not reapply', async () => {
     await withIsolatedDatabase(async (pool, store) => {
       const firstRun = await runMigrations({
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(14);
-      expect(firstRun.appliedVersions.at(-1)).toBe('014_create_web_push');
+      expect(firstRun.appliedVersions).toHaveLength(15);
+      expect(firstRun.appliedVersions.at(-1)).toBe('015_job_card_engagement_kind');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -188,6 +188,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '012_create_in_app_notifications',
           '013_create_job_action_locations',
           '014_create_web_push',
+          '015_job_card_engagement_kind',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
@@ -311,6 +312,77 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
       expect(index.rows).toHaveLength(1);
       expect(index.rows[0]!.indexdef).toContain('(organization_id, meeting_at, job_card_id)');
       expect(index.rows[0]!.indexdef).toContain('WHERE (meeting_at IS NOT NULL)');
+    });
+  });
+
+  it('backfills sales meeting engagement_kind and enforces the type constraint', async () => {
+    await withIsolatedDatabase(async (pool, store) => {
+      await runMigrations({ migrationsDirectory: MIGRATIONS_DIRECTORY, store });
+      const { organizationId, staffUserId } = await createOrganizationAndStaff(
+        pool,
+        'Engagement Kind',
+      );
+
+      const backfilled = await pool.query<{ engagement_kind: string | null }>(
+        `SELECT engagement_kind FROM job_cards
+          WHERE organization_id = $1 AND type = 'SALES_MEETING'`,
+        [organizationId],
+      );
+      expect(backfilled.rows.every((row) => row.engagement_kind === 'SALES_MEETING'
+        || row.engagement_kind === null)).toBe(true);
+
+      const meetingId = await createSalesMeeting(pool, organizationId, staffUserId);
+      const meeting = await pool.query<{ engagement_kind: string | null }>(
+        'SELECT engagement_kind FROM job_cards WHERE id = $1',
+        [meetingId],
+      );
+      expect(meeting.rows[0]!.engagement_kind).toBe('SALES_MEETING');
+
+      await expectConstraintViolation(
+        pool,
+        'null_engagement_on_sales_meeting',
+        `INSERT INTO job_cards
+           (organization_id, type, title, assigned_to, created_by, engagement_kind)
+         VALUES ($1, 'SALES_MEETING', 'Null engagement', $2, $2, NULL)`,
+        [organizationId, staffUserId],
+      );
+      await expectConstraintViolation(
+        pool,
+        'invalid_engagement_enum',
+        `INSERT INTO job_cards
+           (organization_id, type, title, assigned_to, created_by, engagement_kind)
+         VALUES ($1, 'SALES_MEETING', 'Invalid engagement', $2, $2, 'CLINIC_VISIT')`,
+        [organizationId, staffUserId],
+      );
+      await expectConstraintViolation(
+        pool,
+        'engagement_on_general_task',
+        `INSERT INTO job_cards
+           (organization_id, type, title, assigned_to, created_by, engagement_kind)
+         VALUES ($1, 'GENERAL_TASK', 'Bad general', $2, $2, 'SALES_MEETING')`,
+        [organizationId, staffUserId],
+      );
+      await expectConstraintViolation(
+        pool,
+        'engagement_on_product_delivery',
+        `INSERT INTO job_cards
+           (organization_id, type, title, assigned_to, created_by, engagement_kind)
+         VALUES ($1, 'PRODUCT_DELIVERY', 'Bad delivery', $2, $2, 'CUSTOMER_VISIT')`,
+        [organizationId, staffUserId],
+      );
+
+      await expect(pool.query(
+        `INSERT INTO job_cards
+           (organization_id, type, title, assigned_to, created_by, engagement_kind)
+         VALUES ($1, 'GENERAL_TASK', 'Ok general', $2, $2, NULL)`,
+        [organizationId, staffUserId],
+      )).resolves.toMatchObject({ rowCount: 1 });
+      await expect(pool.query(
+        `INSERT INTO job_cards
+           (organization_id, type, title, assigned_to, created_by, engagement_kind)
+         VALUES ($1, 'SALES_MEETING', 'Visit', $2, $2, 'CUSTOMER_VISIT')`,
+        [organizationId, staffUserId],
+      )).resolves.toMatchObject({ rowCount: 1 });
     });
   });
 });

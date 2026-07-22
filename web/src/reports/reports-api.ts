@@ -32,6 +32,7 @@ const DELIVERY_GROUPS = ['day', 'purpose', 'product', 'staff'] as const;
 const PAGE_KEYS = ['groupBy', 'items', 'range', 'total', 'limit', 'offset'] as const;
 const LIST_ITEM_KEYS = [
   'id', 'type', 'status', 'version', 'title', 'priority', 'dueDate', 'scheduledAt',
+  'engagementKind',
   'createdAt', 'updatedAt', 'staffCompletedAt', 'customer', 'contact', 'assignee',
   'deliveryItemCount', 'waitingMinutes',
 ] as const;

@@ -25,6 +25,8 @@ if (root) {
           title: 'Klinik kontrolü',
           priority: 'normal',
           dueDate: '2026-07-20',
+          scheduledAt: null,
+          engagementKind: null,
           createdAt: '2026-07-17T08:00:00.000Z',
           updatedAt: '2026-07-18T09:00:00.000Z',
           staffCompletedAt: '2026-07-17T10:00:00.000Z',

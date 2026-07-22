@@ -102,6 +102,7 @@ function staffContext(
 
 const job: JobCard = {
   id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 2,
+  engagementKind: null,
   title: 'ABC Klinik ürün teslimi', description: null, customerId: 'c1', contactId: null,
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
   scheduledAt: '2026-07-20T09:00:00.000Z',
@@ -120,6 +121,7 @@ const item: DeliveryItem = {
 };
 const generalTask: JobCard = {
   ...job, type: 'GENERAL_TASK', title: 'Teklif dönüşünü takip et',
+  engagementKind: null,
   description: 'Doktorun kararını öğren ve sonucu karta yaz.', priority: 'high',
   dueDate: '2026-07-20', customerId: 'c1', contactId: 'contact-1',
   assignee: { id: 's1', name: 'Ayşe Personel' },
@@ -131,6 +133,7 @@ function inProgressMeeting(lifecycle: Partial<JobLifecycleFacts> = {}): JobCard 
   return {
     ...job,
     type: 'SALES_MEETING',
+    engagementKind: 'SALES_MEETING',
     status: 'IN_PROGRESS',
     version: 3,
     title: 'Satış görüşmesi detayı',
@@ -148,6 +151,7 @@ function revisionRequestedJob(opts: { revisionReason: string }): JobCard {
   return {
     ...job,
     type: 'SALES_MEETING',
+    engagementKind: 'SALES_MEETING',
     status: 'REVISION_REQUESTED',
     version: 4,
     title: 'Düzeltme bekleyen görüşme',
@@ -516,6 +520,7 @@ describe('Staff JobCard detail', () => {
       const newMeetingJob: JobCard = {
         ...job,
         type: 'SALES_MEETING',
+        engagementKind: 'SALES_MEETING',
         status,
         title: `Planlanan görüşme ${status}`,
         dueDate: '2026-07-20',
@@ -544,6 +549,7 @@ describe('Staff JobCard detail', () => {
       const card: JobCard = {
         ...job,
         type: 'SALES_MEETING',
+        engagementKind: 'SALES_MEETING',
         status,
         title: `Atama aşaması ${status}`,
         dueDate: '2026-07-20',
@@ -569,6 +575,7 @@ describe('Staff JobCard detail', () => {
     const card: JobCard = {
       ...job,
       type: 'PRODUCT_DELIVERY',
+      engagementKind: null,
       status: 'IN_PROGRESS',
       assignedTo: staffUser.id,
       workflowContext: staffContext('IN_PROGRESS', {
@@ -587,6 +594,7 @@ describe('Staff JobCard detail', () => {
     const card: JobCard = {
       ...job,
       type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
       status: 'NEW',
       title: 'Başka personele kapalı iş',
       dueDate: '2026-07-20',
@@ -731,6 +739,7 @@ describe('Staff JobCard detail', () => {
     await renderDetail({
       ...job,
       type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
       status: 'WAITING_APPROVAL',
       workflowContext: waitingCtx,
     });
@@ -747,6 +756,7 @@ describe('Staff JobCard detail', () => {
     await renderDetail({
       ...job,
       type: 'SALES_MEETING',
+      engagementKind: 'SALES_MEETING',
       status: 'WAITING_APPROVAL',
       workflowContext: missingCtx,
     });
@@ -777,6 +787,7 @@ describe('Staff JobCard detail', () => {
   it('withdraws a waiting Sales Meeting before edit mode opens', async () => {
     const waiting = {
       ...job, type: 'SALES_MEETING' as const, status: 'WAITING_APPROVAL' as const, version: 5,
+      engagementKind: 'SALES_MEETING',
     };
     const withdraw = vi.fn().mockResolvedValue({ ...waiting, status: 'IN_PROGRESS', version: 6 });
     await expect(prepareMeetingEdit(waiting, 'edit-action-1', withdraw)).resolves.toMatchObject({

@@ -135,6 +135,7 @@ class CrudMemoryRepository implements JobCardRepository {
           priority: input.priority,
           dueDate: input.dueDate,
           scheduledAt: input.scheduledAt,
+          engagementKind: input.engagementKind,
         };
         this.jobs.push(job);
         if (input.acceptedAt && input.acceptedBy) {
@@ -650,6 +651,7 @@ describe('JobCardService create and reads', () => {
       priority: 'normal',
       dueDate: '2026-07-20',
       scheduledAt: SCHEDULED_AT,
+      engagementKind: 'SALES_MEETING',
     });
     await expect(service.patch(staff, meeting.id, {
       expectedVersion: 1, scheduledAt: null,

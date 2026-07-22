@@ -1,6 +1,6 @@
 import type { ReactNode } from 'react';
 
-import { jobTypeLabels } from './job-labels';
+import { jobEngagementLabel, jobTypeLabels } from './job-labels';
 import type { JobWorkflowPresentation } from './job-workflow-presentation';
 import type { JobCard, JobLifecycleFacts, SubmissionRequirement } from './jobs-api';
 
@@ -57,7 +57,9 @@ export function JobApprovalReviewPanel(props: {
       </p>
       <div className="approval-review-summary">
         <p>
-          <span className="approval-review-type">{jobTypeLabels[job.type]}</span>
+          <span className="approval-review-type">{
+            job.type === 'SALES_MEETING' ? jobEngagementLabel(job.engagementKind) : jobTypeLabels[job.type]
+          }</span>
           {' · '}
           {typeAwareSummary(job)}
         </p>

@@ -1,6 +1,7 @@
 import type { ActivityRecord } from './repository.js';
 import {
   DELIVERY_PURPOSES,
+  JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
   JOB_CARD_STATUSES,
   MEETING_DETAIL_FIELDS,
@@ -8,6 +9,7 @@ import {
   type JobCardActivityDetails,
   type JobCardActivityDto,
   type JobCardActivityStatus,
+  type JobCardEngagementKind,
   type JobCardPriority,
 } from './types.js';
 
@@ -55,6 +57,7 @@ const FIELD_MAPPINGS = [
   ['assignedTo', 'assignee'],
   ['priority', 'priority'],
   ['dueDate', 'dueDate'],
+  ['engagementKind', 'engagementKind'],
 ] as const;
 
 function jsonRecord(value: unknown): JsonRecord | null {
@@ -69,6 +72,9 @@ function isStatus(value: unknown): value is JobCardActivityStatus {
 
 function validFieldValue(field: string, value: unknown) {
   if (field === 'priority') return JOB_CARD_PRIORITIES.includes(value as JobCardPriority);
+  if (field === 'engagementKind') {
+    return JOB_CARD_ENGAGEMENT_KINDS.includes(value as JobCardEngagementKind);
+  }
   if (field === 'description' || field === 'customerId' || field === 'contactId'
     || field === 'dueDate') return value === null || typeof value === 'string';
   return typeof value === 'string';

@@ -7,8 +7,8 @@ import { listActivity, type JobCardActivity, type JobCardActivityDetails, type P
 
 const PAGE_SIZE = 50;
 const fieldLabels = {
-  title: 'Başlık', description: 'Açıklama', customer: 'Müşteri', contact: 'İlgili kişi',
-  assignee: 'Sorumlu', priority: 'Öncelik', dueDate: 'Termin',
+  title: 'Başlık', description: 'Açıklama', customer: 'Müşteri', contact: 'Görüşülecek kişi',
+  assignee: 'Sorumlu', priority: 'Öncelik', dueDate: 'Termin', engagementKind: 'Görüşme türü',
 } as const;
 const meetingFieldLabels = {
   meetingAt: 'Gerçekleşme zamanı', outcome: 'Sonuç', meetingSummary: 'Görüşme özeti',

@@ -1,6 +1,8 @@
 import {
+  JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
   type JobCardCreateInput,
+  type JobCardEngagementKind,
   type JobCardPriority,
   type NormalizedJobCardCreateInput,
 } from './types.js';
@@ -21,7 +23,7 @@ const COMMON_CREATE_FIELDS = [
 const CREATE_FIELDS_BY_TYPE = {
   PRODUCT_DELIVERY: COMMON_CREATE_FIELDS,
   GENERAL_TASK: COMMON_CREATE_FIELDS,
-  SALES_MEETING: COMMON_CREATE_FIELDS,
+  SALES_MEETING: [...COMMON_CREATE_FIELDS, 'engagementKind'] as const,
 } as const;
 
 type CreateType = keyof typeof CREATE_FIELDS_BY_TYPE;
@@ -70,6 +72,14 @@ function requiredScheduledAt(value: unknown) {
   return isoInstant(value, 'scheduledAt');
 }
 
+function parseEngagementKind(value: unknown): JobCardEngagementKind {
+  if (value === undefined) return 'SALES_MEETING';
+  if (!JOB_CARD_ENGAGEMENT_KINDS.includes(value as JobCardEngagementKind)) {
+    throw validation('engagementKind');
+  }
+  return value as JobCardEngagementKind;
+}
+
 export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreateInput {
   const input = exactRecord(value);
   const common = {
@@ -97,6 +107,7 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
       customerId: uuidString(input.customerId, 'customerId'),
       dueDate: null,
       scheduledAt: requiredScheduledAt(input.scheduledAt),
+      engagementKind: parseEngagementKind(input.engagementKind),
     };
   }
   return {

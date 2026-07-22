@@ -27,7 +27,9 @@ const job: JobCard = {
   id: 'job-1', organizationId: 'org-1', type: 'SALES_MEETING', status: 'IN_PROGRESS', version: 5,
   title: 'Dizayn ile görüşme', description: 'İmplant sunumu', customerId: 'customer-1',
   contactId: 'contact-1', assignedTo: 'staff-1', createdBy: 'manager-1', priority: 'high',
-  dueDate: '2026-07-17', assignee: { id: 'staff-1', name: 'Sezer Dener' },
+  dueDate: '2026-07-17', scheduledAt: '2026-07-17T10:00:00.000Z',
+  engagementKind: 'SALES_MEETING',
+  assignee: { id: 'staff-1', name: 'Sezer Dener' },
   customer: { id: 'customer-1', name: 'A Klinik' }, contact: { id: 'contact-1', name: 'Dr. A' },
   workflowContext,
 };
@@ -101,7 +103,7 @@ describe('SalesMeetingEditForm', () => {
     expect(onSave).toHaveBeenCalledWith({
       expectedVersion: 5, title: 'Güncel başlık', description: 'Güncel açıklama',
       customerId: 'customer-2', contactId: 'contact-2', assignedTo: 'staff-2',
-      priority: 'urgent',
+      priority: 'urgent', engagementKind: 'SALES_MEETING',
     });
   });
 

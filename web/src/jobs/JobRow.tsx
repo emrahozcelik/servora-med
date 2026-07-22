@@ -6,7 +6,7 @@ import { PriorityChip } from '../ui/PriorityChip';
 import { StatusChip } from '../ui/StatusChip';
 import { CompactWorkflowSummary } from './CompactWorkflowSummary';
 import type { JobCardListItem, LifecycleCommand } from './jobs-api';
-import { jobTypeLabels } from './job-labels';
+import { jobEngagementLabel, jobTypeLabels } from './job-labels';
 import {
   deriveCompactWorkflowSummary,
   expectedRoleForStatus,
@@ -97,7 +97,9 @@ export function JobRow({ job, user, onCommand }: {
       <div className="job-row-signals">
         <StatusChip status={job.status} />
         <PriorityChip priority={job.priority} longLabel />
-        <span className="job-row-type">{jobTypeLabels[job.type]}</span>
+        <span className="job-row-type">{
+          job.type === 'SALES_MEETING' ? jobEngagementLabel(job.engagementKind) : jobTypeLabels[job.type]
+        }</span>
       </div>
       <h2>
         <Link className="job-row-title-link" to={paths.job(job.id)}>{job.title}</Link>

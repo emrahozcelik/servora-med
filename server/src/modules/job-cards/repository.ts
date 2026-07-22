@@ -94,6 +94,7 @@ export type CreateJobCardRecord = {
   title: string; description: string | null;
   customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string;
   priority: JobCardPriority; dueDate: string | null; scheduledAt: string | null;
+  engagementKind: JobCard['engagementKind'];
   acceptedAt: Date | null; acceptedBy: string | null;
 };
 export type MeetingDetailsRecord = MeetingDetailsCandidate & {
@@ -105,7 +106,7 @@ export type JobCardReadScope = { organizationId: string; assignedTo: string | nu
 export type UpdateJobCardFields = Partial<Pick<
   JobCard,
   'title' | 'description' | 'customerId' | 'contactId' | 'assignedTo' | 'priority' | 'dueDate'
-  | 'scheduledAt' | 'status'
+  | 'scheduledAt' | 'status' | 'engagementKind'
 >> & {
   clearAcceptance?: boolean;
 };
@@ -270,6 +271,7 @@ type JobCardRow = {
   assigned_to: string; created_by: string; priority: JobCardPriority;
   due_date: string | Date | null;
   scheduled_at: Date | null;
+  engagement_kind: JobCard['engagementKind'];
 };
 type JobCardDetailRow = JobCardRow & {
   assignee_id: string; assignee_name: string;
@@ -307,6 +309,7 @@ type JobCardListRow = {
   priority: JobCardPriority;
   due_date: string | Date | null;
   scheduled_at: Date | null;
+  engagement_kind: JobCard['engagementKind'];
   created_at: Date;
   updated_at: Date;
   staff_completed_at: Date | null;
@@ -418,6 +421,7 @@ function mapJobCard(row: JobCardRow): JobCard {
     customerId: row.customer_id, contactId: row.contact_id, assignedTo: row.assigned_to, createdBy: row.created_by,
     priority: row.priority, dueDate: mapCalendarDate(row.due_date),
     scheduledAt: mapInstant(row.scheduled_at),
+    engagementKind: row.engagement_kind,
   };
 }
 
@@ -431,7 +435,7 @@ function mapCalendarDate(value: string | Date | null) {
 
 const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
        j.title, j.description, j.customer_id, j.contact_id, j.assigned_to, j.created_by,
-       j.priority, j.due_date, j.scheduled_at,
+       j.priority, j.due_date, j.scheduled_at, j.engagement_kind,
        j.created_at, j.accepted_at, j.started_at,
        j.staff_completed_at, j.staff_completion_note,
        j.manager_approved_at, j.manager_approval_note,
@@ -533,6 +537,7 @@ function mapJobCardListItem(row: JobCardListRow): PersistedJobCardListItem {
   return {
     id: row.id,
     type: row.type,
+    engagementKind: row.engagement_kind,
     status: row.status,
     version: row.version,
     title: row.title,
@@ -566,7 +571,7 @@ const WORKSPACE_JOINS = `FROM job_cards j
     ON ct.organization_id = j.organization_id AND ct.id = j.contact_id`;
 
 const JOB_CARD_LIST_COLUMNS = `j.id, j.type, j.status, j.version, j.title, j.priority, j.due_date,
-  j.scheduled_at, j.created_at, j.updated_at, j.staff_completed_at,
+  j.scheduled_at, j.engagement_kind, j.created_at, j.updated_at, j.staff_completed_at,
   c.id AS customer_id, c.name AS customer_name,
   ct.id AS contact_id, ct.name AS contact_name,
   u.id AS assignee_id, u.name AS assignee_name,
@@ -633,7 +638,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   async getJob(organizationId: string, jobCardId: string) {
     const result = await this.client.query<JobCardRow>(
       `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date, scheduled_at
+              assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind
        FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
@@ -642,7 +647,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   async getJobForUpdate(organizationId: string, jobCardId: string) {
     const result = await this.client.query<JobCardRow>(
       `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date, scheduled_at
+              assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind
        FROM job_cards WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
       [organizationId, jobCardId],
     );
@@ -680,7 +685,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
            updated_at = $5
        WHERE organization_id = $1 AND id = $2 AND version = $3
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at`,
+                 assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind`,
       [input.organizationId, input.jobCardId, input.expectedVersion, input.status, input.occurredAt,
         input.actorId ?? null, input.note ?? null, input.revisionReason ?? null,
         input.cancelReason ?? null, input.command],
@@ -845,13 +850,13 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const result = await this.client.query<JobCardRow>(
       `INSERT INTO job_cards
          (organization_id, type, status, title, description, customer_id, contact_id,
-          assigned_to, created_by, priority, due_date, scheduled_at, accepted_at, accepted_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+          assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind, accepted_at, accepted_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at`,
+                 assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind`,
       [input.organizationId, input.type, input.status, input.title, input.description,
         input.customerId, input.contactId, input.assignedTo, input.createdBy, input.priority,
-        input.dueDate, input.scheduledAt, input.acceptedAt, input.acceptedBy],
+        input.dueDate, input.scheduledAt, input.engagementKind, input.acceptedAt, input.acceptedBy],
     );
     return mapJobCard(result.rows[0]!);
   }
@@ -890,7 +895,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const columns: Record<string, string> = {
       title: 'title', description: 'description', customerId: 'customer_id', contactId: 'contact_id',
       assignedTo: 'assigned_to', priority: 'priority', dueDate: 'due_date',
-      scheduledAt: 'scheduled_at', status: 'status',
+      scheduledAt: 'scheduled_at', status: 'status', engagementKind: 'engagement_kind',
     };
     const values: unknown[] = [input.organizationId, input.jobCardId, input.expectedVersion];
     const assignments: string[] = [];
@@ -909,7 +914,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `UPDATE job_cards SET ${assignments.join(', ')}, version = version + 1, updated_at = NOW()
        WHERE organization_id = $1 AND id = $2 AND version = $3
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at`, values,
+                 assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind`, values,
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
@@ -965,7 +970,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `UPDATE job_cards SET version=version+1, updated_at=NOW()
        WHERE organization_id=$1 AND id=$2 AND version=$3
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at`, [organizationId, jobCardId, expectedVersion]);
+                 assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind`, [organizationId, jobCardId, expectedVersion]);
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
 
@@ -1156,7 +1161,7 @@ implements JobCardRepository, ApprovalQueueItemPort {
   async findJobCard(organizationId: string, jobCardId: string) {
     const result = await this.pool.query<JobCardRow>(
       `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date, scheduled_at
+              assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind
        FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;

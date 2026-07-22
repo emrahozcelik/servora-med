@@ -72,6 +72,7 @@ const migrations = [
   '012_create_in_app_notifications.sql',
   '013_create_job_action_locations.sql',
   '014_create_web_push.sql',
+  '015_job_card_engagement_kind.sql',
 ] as const;
 
 async function applyMigrations(pool: Pool) {
