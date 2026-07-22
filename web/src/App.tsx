@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { AppRouter } from './AppRouter';
-import { AppShell, BrandMark } from './AppShell';
+import { AppShell } from './AppShell';
+import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { PasswordChangeScreen } from './PasswordChange';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { getCurrentUser, login, logout, type CurrentUser } from './services/api';
@@ -55,7 +56,7 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
   return (
     <main className="login-layout">
       <section className="login-introduction" aria-labelledby="product-title">
-        <div className="brand-lockup"><BrandMark /><span>Servora-Med</span></div>
+        <DunyaDentalBrand />
         <div className="login-context">
           <p className="eyebrow">Saha operasyonları</p>
           <h2 id="product-title">İşler net, süreçler izlenebilir.</h2>

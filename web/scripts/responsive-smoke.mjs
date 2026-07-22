@@ -16,7 +16,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <body>
 <div class="authenticated-shell authenticated-shell--desktop" id="shell">
   <aside class="shell-sidebar" style="display:none" id="sidebar">
-    <div class="brand-lockup"><span class="brand-mark">S</span><span>Servora-Med</span></div>
+    <div class="brand-lockup"><span class="dunya-dental-brand" aria-label="Dünya Dental"><img alt="" src="/branding/dunya-dental.png"></span></div>
     <nav class="shell-nav" aria-label="Ana navigasyon">
       <a href="/jobs" aria-current="page">İşler</a>
       <a href="/customers">Müşteriler</a>
