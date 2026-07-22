@@ -83,21 +83,50 @@ Notes:
 
 ---
 
-## Chrome desktop
+## Local Chrome acceptance session (2026-07-22, Europe/Istanbul)
+
+```text
+Tester: agent + operator-assisted
+Browser: Chromium via Playwright MCP (local Chrome profile family)
+Origin: http://localhost:5173 (secure context for SW)
+Account: sezer.dener@dunyadental.com (STAFF, synthetic session)
+Provider family: Google (FCM-style endpoint)
+VAPID public SHA-256: d44eca69edffda62796ab385501d85e30c86950d1670860d762a178678eff4a5
+WEB_PUSH_ENABLED: true (local gitignored .env only; production remains false)
+```
+
+| Case ID | Scenario | Result | Observed |
+|---------|----------|--------|----------|
+| AC-CD-01 | Install / manual guidance | PASS (local) | Settings shows “Uygulamayı yükle” when canPrompt; privacy copy present; login does not auto-prompt notifications |
+| AC-CD-02 | Permission allow + subscribe | PASS (local) | Explicit “Cihaz bildirimlerini aç” → SW register `/service-worker.js`, browser sub + server sub present; UI → “Cihaz bildirimlerini kapat” |
+| AC-CD-03 | Permission deny | BLOCKED | Needs fresh browser profile with denied permission (operator) |
+| AC-CD-04 | Foreground provider delivery | PASS (local backend) | Synthetic delivery rows moved PENDING→DELIVERED (2/2) via live dispatcher; no secrets logged |
+| AC-CD-05 | Background delivery UI | PARTIAL | Provider accepted delivery; operator should confirm OS/system tray banner text is generic |
+| AC-CD-06 | Closed browser delivery | BLOCKED | Operator/device |
+| AC-CD-07 | Exact open client click | PARTIAL | SW `showNotification` + click harness previously proven in automated tests; local OS click TBD |
+| AC-CD-08 | Different open client click | BLOCKED | Operator |
+| AC-CD-09 | No client click | BLOCKED | Operator |
+| AC-CD-10 | Logged-out click | BLOCKED | Operator |
+| AC-CD-11 | Disable / re-enable | PASS (local) | Disable clears server+browser sub; re-enable recreates both |
+| AC-CD-12 | Retry schedule | BLOCKED | Needs controlled outbound block |
+| AC-CD-13 | Duplicate/tag coalescing | BLOCKED | Operator/staging |
+| AC-CD-14 | Stale endpoint | BLOCKED | Operator/staging |
+
+### Chrome desktop matrix (summary)
 
 | Case ID | Scenario | Result |
 |---------|----------|--------|
-| AC-CD-01 | Install / manual guidance | BLOCKED — no operator device run |
-| AC-CD-02 | Permission allow | BLOCKED |
-| AC-CD-03 | Permission deny | BLOCKED |
-| AC-CD-04 | Foreground delivery | BLOCKED |
-| AC-CD-05 | Background delivery | BLOCKED |
+| AC-CD-01 | Install / manual guidance | PASS (local Chromium) |
+| AC-CD-02 | Permission allow | PASS (local Chromium) |
+| AC-CD-03 | Permission deny | BLOCKED — operator fresh profile |
+| AC-CD-04 | Foreground delivery | PASS (DELIVERED×2 via dispatcher) |
+| AC-CD-05 | Background delivery | PARTIAL — confirm OS banner |
 | AC-CD-06 | Closed browser delivery | BLOCKED |
-| AC-CD-07 | Exact open client click | BLOCKED |
+| AC-CD-07 | Exact open client click | PARTIAL — automated SW harness + local showNotification |
 | AC-CD-08 | Different open client click | BLOCKED |
 | AC-CD-09 | No client click | BLOCKED |
 | AC-CD-10 | Logged-out click | BLOCKED |
-| AC-CD-11 | Logout / account switch | BLOCKED |
+| AC-CD-11 | Logout / account switch | BLOCKED (disable/re-enable PASS separately) |
 | AC-CD-12 | Retry schedule (controlled outbound) | BLOCKED |
 | AC-CD-13 | Duplicate/tag coalescing | BLOCKED |
 | AC-CD-14 | Stale endpoint 404/410 | BLOCKED |
