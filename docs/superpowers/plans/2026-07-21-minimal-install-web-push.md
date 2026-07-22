@@ -123,12 +123,12 @@ and focused tests.
   approved Chrome/Mozilla/Apple endpoint hosts.
 - [x] RED→GREEN: prove arbitrary/private/cross-origin-style endpoints cannot
   turn the server into an SSRF client.
-- [ ] RED→GREEN: explicit create is idempotent for the same current identity
+- [x] RED→GREEN: explicit create is idempotent for the same current identity
   and returns the same public record on retry.
-- [ ] RED→GREEN: the same user can explicitly rebind a retained browser
+- [x] RED→GREEN: the same user can explicitly rebind a retained browser
   endpoint to a later session; login/status loading never rebinds it and old
   pending work is abandoned.
-- [ ] RED→GREEN: a different user/organization receives ownership-opaque
+- [x] RED→GREEN: a different user/organization receives ownership-opaque
   `409 PUSH_SUBSCRIPTION_CONFLICT` and can never acquire that row.
 - [ ] RED→GREEN: disabled create performs no row write; cross-user/tenant or
   other-session disable returns `404`; current-session disable is idempotent.

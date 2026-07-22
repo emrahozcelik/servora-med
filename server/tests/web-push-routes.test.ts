@@ -1,9 +1,24 @@
+import { createECDH } from 'node:crypto';
+
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { buildApp } from '../src/app.js';
 import { hashPassword } from '../src/modules/auth/crypto.js';
 import type { AuthRepository } from '../src/modules/auth/repository.js';
 import type { AuthUserRecord, SessionRecord } from '../src/modules/auth/types.js';
+import { fingerprintVapidPublicKey } from '../src/modules/web-push/repository.js';
+
+const vapidPrivateKey = Buffer.alloc(32, 0);
+vapidPrivateKey[31] = 1;
+const vapidEcdh = createECDH('prime256v1');
+vapidEcdh.setPrivateKey(vapidPrivateKey);
+const vapidPublicKey = vapidEcdh.getPublicKey().toString('base64url');
+const enabledWebPush = {
+  enabled: true,
+  vapidSubject: 'mailto:operations@example.com',
+  vapidPublicKey,
+  vapidPrivateKey: vapidPrivateKey.toString('base64url'),
+} as const;
 
 const config = {
   nodeEnv: 'test' as const,
@@ -51,7 +66,10 @@ class MemoryAuthRepository implements AuthRepository {
 
 const apps: Awaited<ReturnType<typeof buildApp>>[] = [];
 
-async function createApp(mustChangePassword = false) {
+async function createApp(
+  mustChangePassword = false,
+  webPush: typeof config.webPush | typeof enabledWebPush = config.webPush,
+) {
   const authRepository = new MemoryAuthRepository({
     id: 'user-1',
     organizationId: 'organization-1',
@@ -63,8 +81,31 @@ async function createApp(mustChangePassword = false) {
     isActive: true,
     version: 1,
   });
-  const webPushRepository = { findCurrentSession: vi.fn() };
-  const app = await buildApp(config, { authRepository, webPushRepository });
+  const webPushRepository = {
+    findCurrentSession: vi.fn(),
+    upsert: vi.fn().mockImplementation(async (input) => ({
+      id: 'subscription-1',
+      organizationId: input.organizationId,
+      recipientUserId: input.userId,
+      sessionId: input.sessionId,
+      endpoint: input.endpoint,
+      endpointHash: 'a'.repeat(64),
+      p256dh: input.p256dh,
+      auth: input.auth,
+      expirationTime: input.expirationTime,
+      vapidPublicKeyFingerprint: fingerprintVapidPublicKey(vapidPublicKey),
+      subscriptionFingerprint: 'c'.repeat(64),
+      createdAt: new Date('2026-07-22T08:00:00.000Z'),
+      updatedAt: input.now,
+      disabledAt: null,
+      disabledReason: null,
+      lastSuccessAt: null,
+      lastFailureAt: null,
+      consecutiveFailures: 0,
+    })),
+    disable: vi.fn(),
+  };
+  const app = await buildApp({ ...config, webPush }, { authRepository, webPushRepository });
   apps.push(app);
   const login = await app.inject({
     method: 'POST',
@@ -116,5 +157,56 @@ describe('Web Push HTTP routes', () => {
       subscription: null,
     });
     expect(webPushRepository.findCurrentSession).not.toHaveBeenCalled();
+  });
+
+  it('rejects create while disabled without writing subscription storage', async () => {
+    const { app, cookie, webPushRepository } = await createApp();
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/web-push/subscriptions',
+      headers: { cookie },
+      payload: {
+        endpoint: 'https://fcm.googleapis.com/push/example',
+        expirationTime: null,
+        keys: {
+          p256dh: Buffer.alloc(65, 4).toString('base64url'),
+          auth: Buffer.alloc(16, 7).toString('base64url'),
+        },
+      },
+    });
+
+    expect(response.statusCode).toBe(409);
+    expect(response.json()).toMatchObject({ code: 'WEB_PUSH_DISABLED' });
+    expect(webPushRepository.upsert).not.toHaveBeenCalled();
+  });
+
+  it('creates for the authenticated current session and returns safe metadata', async () => {
+    const { app, cookie, webPushRepository } = await createApp(false, enabledWebPush);
+    const endpoint = 'https://fcm.googleapis.com/push/example';
+    const p256dh = Buffer.alloc(65, 4).toString('base64url');
+    const auth = Buffer.alloc(16, 7).toString('base64url');
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/web-push/subscriptions',
+      headers: { cookie },
+      payload: { endpoint, expirationTime: null, keys: { p256dh, auth } },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toEqual({
+      id: 'subscription-1',
+      createdAt: '2026-07-22T08:00:00.000Z',
+      fingerprint: 'c'.repeat(64),
+    });
+    expect(webPushRepository.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      organizationId: 'organization-1',
+      userId: 'user-1',
+      sessionId: 'session-1',
+    }));
+    expect(response.body).not.toContain(endpoint);
+    expect(response.body).not.toContain(p256dh);
+    expect(response.body).not.toContain(auth);
   });
 });

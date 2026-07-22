@@ -2,7 +2,10 @@ import { createECDH } from 'node:crypto';
 
 import { describe, expect, it, vi } from 'vitest';
 
-import { fingerprintVapidPublicKey } from '../src/modules/web-push/repository.js';
+import {
+  fingerprintVapidPublicKey,
+  WebPushOwnershipConflictError,
+} from '../src/modules/web-push/repository.js';
 import { WebPushService } from '../src/modules/web-push/service.js';
 
 const privateKey = Buffer.alloc(32, 0);
@@ -122,4 +125,63 @@ describe('WebPushService status', () => {
       });
     },
   );
+});
+
+describe('WebPushService create', () => {
+  const input = {
+    endpoint: activeSubscription.endpoint,
+    expirationTime: null,
+    keys: {
+      p256dh: activeSubscription.p256dh,
+      auth: activeSubscription.auth,
+    },
+  };
+
+  it('rejects disabled create without touching storage', async () => {
+    const repository = { upsert: vi.fn() };
+    const service = new WebPushService(disabledConfig, repository as never);
+
+    await expect(service.create(identity, input)).rejects.toMatchObject({
+      code: 'WEB_PUSH_DISABLED',
+      statusCode: 409,
+    });
+    expect(repository.upsert).not.toHaveBeenCalled();
+  });
+
+  it('creates through current-session identity and returns only safe metadata', async () => {
+    const repository = { upsert: vi.fn().mockResolvedValue(activeSubscription) };
+    const service = new WebPushService(enabledConfig, repository as never);
+
+    const created = await service.create(identity, input);
+
+    expect(repository.upsert).toHaveBeenCalledWith(expect.objectContaining({
+      ...identity,
+      endpoint: input.endpoint,
+      p256dh: input.keys.p256dh,
+      auth: input.keys.auth,
+      expirationTime: null,
+      vapidPublicKeyFingerprint: fingerprintVapidPublicKey(publicKey),
+    }));
+    expect(created).toEqual({
+      id: activeSubscription.id,
+      createdAt: activeSubscription.createdAt.toISOString(),
+      fingerprint: activeSubscription.subscriptionFingerprint,
+    });
+    expect(JSON.stringify(created)).not.toContain(input.endpoint);
+    expect(JSON.stringify(created)).not.toContain(input.keys.p256dh);
+    expect(JSON.stringify(created)).not.toContain(input.keys.auth);
+  });
+
+  it('maps endpoint ownership conflicts without revealing the existing owner', async () => {
+    const repository = {
+      upsert: vi.fn().mockRejectedValue(new WebPushOwnershipConflictError()),
+    };
+    const service = new WebPushService(enabledConfig, repository as never);
+
+    await expect(service.create(identity, input)).rejects.toMatchObject({
+      code: 'PUSH_SUBSCRIPTION_CONFLICT',
+      statusCode: 409,
+      details: null,
+    });
+  });
 });

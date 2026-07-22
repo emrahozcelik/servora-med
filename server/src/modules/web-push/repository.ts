@@ -131,6 +131,13 @@ type WebPushPool = Pick<Pool, 'query' | 'connect'>;
 
 export interface WebPushRepository {
   findCurrentSession(identity: WebPushIdentity): Promise<WebPushSubscriptionRecord | null>;
+  upsert(input: UpsertWebPushSubscriptionInput): Promise<WebPushSubscriptionRecord>;
+  disable(
+    identity: WebPushIdentity,
+    subscriptionId: string,
+    reason: WebPushDisabledReason,
+    at: Date,
+  ): Promise<WebPushSubscriptionRecord | null>;
 }
 
 export type AppendWebPushDeliveriesInput = Readonly<{

@@ -1,9 +1,12 @@
 import type { WebPushConfig } from '../../config.js';
+import { AppError } from '../../errors/index.js';
 import {
   fingerprintVapidPublicKey,
+  WebPushOwnershipConflictError,
   type WebPushIdentity,
   type WebPushRepository,
 } from './repository.js';
+import type { CreateWebPushSubscription } from './validation.js';
 
 export type WebPushStatus = Readonly<{
   enabled: boolean;
@@ -55,6 +58,47 @@ export class WebPushService {
           fingerprint: subscription.subscriptionFingerprint,
         }
         : null,
+    };
+  }
+
+  async create(identity: WebPushIdentity, input: CreateWebPushSubscription) {
+    if (!this.config.enabled) {
+      throw new AppError(
+        'WEB_PUSH_DISABLED',
+        409,
+        'Cihaz bildirimleri şu anda etkin değil.',
+      );
+    }
+
+    let subscription;
+    try {
+      subscription = await this.repository.upsert({
+        ...identity,
+        endpoint: input.endpoint,
+        p256dh: input.keys.p256dh,
+        auth: input.keys.auth,
+        expirationTime: input.expirationTime === null
+          ? null
+          : new Date(input.expirationTime),
+        vapidPublicKeyFingerprint: fingerprintVapidPublicKey(
+          this.config.vapidPublicKey!,
+        ),
+        now: new Date(),
+      });
+    } catch (error) {
+      if (error instanceof WebPushOwnershipConflictError) {
+        throw new AppError(
+          'PUSH_SUBSCRIPTION_CONFLICT',
+          409,
+          'Bu cihaz bildirimi başka bir hesapla ilişkilendirilmiş.',
+        );
+      }
+      throw error;
+    }
+    return {
+      id: subscription.id,
+      createdAt: subscription.createdAt.toISOString(),
+      fingerprint: subscription.subscriptionFingerprint,
     };
   }
 }
