@@ -1,4 +1,8 @@
-import { describe, expect, it, vi } from 'vitest';
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   createDispatcher,
@@ -7,6 +11,7 @@ import {
   WEB_PUSH_SHUTDOWN_GRACE_MS,
   WEB_PUSH_DISPATCH_CONCURRENCY,
 } from '../src/modules/web-push/dispatcher.js';
+import { buildPushPayload } from '../src/modules/web-push/payload.js';
 
 function makeDelivery(overrides?: Record<string, unknown>) {
   const id = 'del-1';
@@ -534,20 +539,34 @@ function abortAwarePending() {
 
   it('active sends from different cycles are all aborted on stop', async () => {
     const deps = makeDeps();
-    deps.sender.send = abortAwarePending();
+    const signals: AbortSignal[] = [];
+    deps.sender.send = vi.fn().mockImplementation(({ signal }: { signal: AbortSignal }) => {
+      signals.push(signal);
+      return new Promise((resolve) => {
+        signal.addEventListener('abort', () => resolve({ type: 'aborted' }), { once: true });
+      });
+    });
     deps.repository.claimDueDeliveries
-      .mockResolvedValueOnce([makeDelivery({ deliveryId: 'a' })])
-      .mockResolvedValueOnce([makeDelivery({ deliveryId: 'b' })])
+      .mockResolvedValueOnce([
+        makeDelivery({ deliveryId: 'a' }),
+        makeDelivery({ deliveryId: 'b' }),
+      ])
+      .mockResolvedValueOnce([makeDelivery({ deliveryId: 'c' })])
       .mockResolvedValue([]);
 
-    const dispatcher = createDispatcher({ pollIntervalMs: 50, gracePeriodMs: 100 }, deps);
+    const dispatcher = createDispatcher({ pollIntervalMs: 50, gracePeriodMs: 40 }, deps);
 
     dispatcher.start();
-    await new Promise((r) => setTimeout(r, 120));
-    // Two cycles may have run, two active sends
+    await new Promise((r) => setTimeout(r, 130));
+    expect(signals.length).toBeGreaterThanOrEqual(3);
 
     await dispatcher.stop();
-    // Should not hang - abort kills all active
+
+    expect(signals.every((s) => s.aborted)).toBe(true);
+    expect(deps.repository.recordDelivered).not.toHaveBeenCalled();
+    expect(deps.repository.recordRetry).not.toHaveBeenCalled();
+    expect(deps.repository.recordAbandoned).not.toHaveBeenCalled();
+    expect(deps.repository.recordProviderStale).not.toHaveBeenCalled();
   });
 
   it('stop does not start new claims', async () => {
@@ -564,9 +583,242 @@ function abortAwarePending() {
     expect(deps.repository.claimDueDeliveries.mock.calls.length).toBe(callsAfterStop);
   });
 
-  // === Default-off gate ===
-
   it('default grace period is 15 seconds', () => {
     expect(WEB_PUSH_SHUTDOWN_GRACE_MS).toBe(15_000);
   });
+
+  // === Concurrency: full slots skip claim ===
+
+  it('does not claim while four sends are unresolved', async () => {
+    const deps = makeDeps();
+    let concurrent = 0;
+    let maxConcurrent = 0;
+    deps.sender.send = vi.fn().mockImplementation(({ signal }: { signal: AbortSignal }) => {
+      concurrent += 1;
+      maxConcurrent = Math.max(maxConcurrent, concurrent);
+      return new Promise((resolve) => {
+        signal.addEventListener(
+          'abort',
+          () => {
+            concurrent -= 1;
+            resolve({ type: 'aborted' });
+          },
+          { once: true },
+        );
+      });
+    });
+
+    let pollCount = 0;
+    deps.repository.claimDueDeliveries.mockImplementation(async ({ limit }) => {
+      pollCount += 1;
+      if (pollCount === 1) {
+        expect(limit).toBe(WEB_PUSH_DISPATCH_CONCURRENCY);
+        return Array.from({ length: 4 }, (_, i) =>
+          makeDelivery({ deliveryId: `full-${i}`, leaseToken: `tok-${i}` }),
+        );
+      }
+      throw new Error('claimDueDeliveries must not run while four sends are active');
+    });
+
+    const dispatcher = createDispatcher({ pollIntervalMs: 40, gracePeriodMs: 80 }, deps);
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 50));
+    expect(deps.repository.claimDueDeliveries).toHaveBeenCalledTimes(1);
+    expect(deps.sender.send).toHaveBeenCalledTimes(4);
+
+    await new Promise((r) => setTimeout(r, 100));
+    expect(deps.repository.claimDueDeliveries).toHaveBeenCalledTimes(1);
+    expect(deps.sender.send).toHaveBeenCalledTimes(4);
+    expect(maxConcurrent).toBeLessThanOrEqual(4);
+
+    await dispatcher.stop();
+  });
+
+  it('claims limit 1 after one of four active sends completes', async () => {
+    const deps = makeDeps();
+    const resolvers: Array<(value: { type: 'response'; statusCode: number } | { type: 'aborted' }) => void> = [];
+    deps.sender.send = vi.fn().mockImplementation(({ signal }: { signal: AbortSignal }) =>
+      new Promise((resolve) => {
+        resolvers.push(resolve);
+        signal.addEventListener('abort', () => resolve({ type: 'aborted' }), { once: true });
+      }),
+    );
+
+    const claimLimits: number[] = [];
+    let pollCount = 0;
+    deps.repository.claimDueDeliveries.mockImplementation(async ({ limit }) => {
+      claimLimits.push(limit);
+      pollCount += 1;
+      if (pollCount === 1) {
+        return Array.from({ length: 4 }, (_, i) =>
+          makeDelivery({ deliveryId: `slot-${i}`, leaseToken: `tok-${i}` }),
+        );
+      }
+      if (pollCount === 2) {
+        expect(limit).toBe(1);
+        return [makeDelivery({ deliveryId: 'slot-new', leaseToken: 'tok-new' })];
+      }
+      return [];
+    });
+
+    const dispatcher = createDispatcher({ pollIntervalMs: 50, gracePeriodMs: 80 }, deps);
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 70));
+    expect(resolvers).toHaveLength(4);
+
+    resolvers[0]!({ type: 'response', statusCode: 201 });
+    await new Promise((r) => setTimeout(r, 100));
+
+    expect(claimLimits).toContain(1);
+    // 4 initial unresolved + 1 new after a slot frees (3 still active + 1 = 4)
+    expect(deps.sender.send).toHaveBeenCalledTimes(5);
+    expect(claimLimits.filter((l) => l === 1).length).toBeGreaterThanOrEqual(1);
+
+    await dispatcher.stop();
+  });
+
+  // === Exact production grace boundary with fake timers ===
+
+  it('aborts only after exactly 15_000 ms production grace', async () => {
+    vi.useFakeTimers();
+    try {
+      const deps = makeDeps();
+      const signals: AbortSignal[] = [];
+      deps.sender.send = vi.fn().mockImplementation(({ signal }: { signal: AbortSignal }) => {
+        signals.push(signal);
+        return new Promise((resolve) => {
+          signal.addEventListener('abort', () => resolve({ type: 'aborted' }), { once: true });
+        });
+      });
+      deps.repository.claimDueDeliveries.mockResolvedValue([
+        makeDelivery({ deliveryId: 'g1' }),
+        makeDelivery({ deliveryId: 'g2' }),
+      ]);
+
+      // Use production default grace (omit gracePeriodMs).
+      const dispatcher = createDispatcher({ pollIntervalMs: 1_000 }, deps);
+      dispatcher.start();
+      await vi.advanceTimersByTimeAsync(1_000);
+      expect(signals).toHaveLength(2);
+      expect(signals.every((s) => !s.aborted)).toBe(true);
+
+      const stopPromise = dispatcher.stop();
+      await vi.advanceTimersByTimeAsync(14_999);
+      expect(signals.every((s) => !s.aborted)).toBe(true);
+
+      await vi.advanceTimersByTimeAsync(1);
+      expect(signals.every((s) => s.aborted)).toBe(true);
+
+      await stopPromise;
+      expect(deps.repository.recordDelivered).not.toHaveBeenCalled();
+      expect(deps.repository.recordRetry).not.toHaveBeenCalled();
+      expect(deps.repository.recordAbandoned).not.toHaveBeenCalled();
+      expect(deps.repository.recordProviderStale).not.toHaveBeenCalled();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  // === Unknown kind via real presenter path ===
+
+  it('abandons unknown notification kind via real presenter without calling sender', async () => {
+    const deps = makeDeps();
+    deps.buildPayload = buildPushPayload;
+    const base = makeDelivery();
+    deps.repository.claimDueDeliveries.mockResolvedValue([
+      {
+        ...base,
+        notification: {
+          ...base.notification,
+          kind: 'not.a.real.kind',
+        },
+      },
+    ]);
+
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    expect(deps.sender.send).not.toHaveBeenCalled();
+    expect(deps.repository.recordAbandoned).toHaveBeenCalledTimes(1);
+    const arg = deps.repository.recordAbandoned.mock.calls[0]![0];
+    expect(arg.errorCode).toBe('INVALID_PAYLOAD');
+    expect(arg.deliveryId).toBe(base.deliveryId);
+    expect(arg.leaseToken).toBe(base.leaseToken);
+    expect(deps.repository.recordDelivered).not.toHaveBeenCalled();
+    expect(deps.repository.recordRetry).not.toHaveBeenCalled();
+  });
+
+  // === Clock injection ===
+
+  it('uses result-time clock for delivered timestamps, not send-start time', async () => {
+    const t1 = new Date('2026-07-22T10:00:00.000Z');
+    const t2 = new Date('2026-07-22T10:00:05.000Z');
+    let clockPhase: 'poll' | 'result' = 'poll';
+    const clock = vi.fn(() => (clockPhase === 'poll' ? t1 : t2));
+
+    const deps = makeDeps();
+    deps.clock = clock;
+    deps.repository.claimDueDeliveries.mockResolvedValue([makeDelivery()]);
+    deps.sender.send.mockImplementation(async () => {
+      clockPhase = 'result';
+      return { type: 'response' as const, statusCode: 201 };
+    });
+
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    expect(deps.repository.recordDelivered).toHaveBeenCalled();
+    const arg = deps.repository.recordDelivered.mock.calls[0]![0];
+    expect(arg.at).toBe(t2);
+    expect(arg.at).not.toBe(t1);
+  });
+
+  it('uses result-time clock for retry nextAttemptAt', async () => {
+    const t1 = new Date('2026-07-22T12:00:00.000Z');
+    const t2 = new Date('2026-07-22T12:00:10.000Z');
+    let clockPhase: 'poll' | 'result' = 'poll';
+    const clock = vi.fn(() => (clockPhase === 'poll' ? t1 : t2));
+
+    const deps = makeDeps();
+    deps.clock = clock;
+    deps.repository.claimDueDeliveries.mockResolvedValue([makeDelivery({ attemptCount: 1 })]);
+    deps.sender.send.mockImplementation(async () => {
+      clockPhase = 'result';
+      return { type: 'response' as const, statusCode: 503 };
+    });
+
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    const arg = deps.repository.recordRetry.mock.calls[0]![0];
+    expect(arg.at).toBe(t2);
+    expect(arg.nextAttemptAt.getTime()).toBe(t2.getTime() + 30_000);
+  });
+
+  // === Static contract: no jitter / exponential / 300s cap ===
+
+  it('dispatcher source has no Math.random, exponential backoff, or 300s retry cap', () => {
+    const sourcePath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      '../src/modules/web-push/dispatcher.ts',
+    );
+    const source = readFileSync(sourcePath, 'utf8');
+
+    expect(source).not.toMatch(/Math\.random/);
+    expect(source).not.toMatch(/Math\.pow\s*\(\s*2/);
+    expect(source).not.toMatch(/2\s*\*\*\s*/);
+    expect(source).not.toMatch(/300_000|300000/);
+    expect(source).toContain('WEB_PUSH_RETRY_DELAYS_MS');
+    expect(source).toContain('retryDelayForAttempt');
+  });
+});
+
+afterEach(() => {
+  vi.useRealTimers();
 });

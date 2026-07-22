@@ -602,8 +602,10 @@ recorded:
     `AbortController`. On `stop()`, ALL active controllers are aborted after
     the grace period, not just the most recent cycle's.
   - **Shutdown/claim race guard**: `stopping` is checked AFTER
-    `claimDueDeliveries` returns — if shutdown commenced while the claim was
-    in-flight, the claimed deliveries are abandoned (no sender call starts).
+    `claimDueDeliveries` returns. If shutdown started while the claim was
+    in-flight, provider sends are not started. Delivery rows remain `CLAIMED`
+    with lease fields unchanged; after the 30-second lease expires they may be
+    reclaimed by another dispatcher or process restart.
   - **HTTP classification** (`classifyResponse`): maps HTTP status to
     `DispatchOutcome` — `DELIVERED` (2xx), `PROVIDER_STALE` (404/410),
     `RETRYABLE` (408/429/5xx), `TERMINAL` (3xx/other 4xx/0).
@@ -622,24 +624,36 @@ recorded:
     `waitForActive` vs 15s timeout. If timeout wins, abort ALL active
     controllers, then wait for completion. Aborted results
     (`result.type === 'aborted'`) skip all repository writes.
-  - 45 unit tests covering: retry schedule ×7, claim/deliver, claim limit = 4,
-    concurrency ≤4, available-slots-based claim, 5xx/network/timeout retry,
-    404/410 provider-stale, build-failure abandon, empty claim, error survival,
-    in-flight wait, shutdown abort after grace, HTTP mapping (11 table-driven
-    cases), attempt 6 abandon (retryable/network/timeout), poll overlap
-    protection, shutdown/claim race (no sender after stop), multi-cycle abort,
-    no post-stop claims, 15s default grace period.
+  - Unit tests covering: retry schedule, claim/deliver, claim limit = 4,
+    concurrency ≤4, no claim while four unresolved, claim limit 1 after a slot
+    frees, available-slots-based claim, 5xx/network/timeout retry, 404/410
+    provider-stale, build-failure and unknown-kind abandon (real presenter path),
+    empty claim, error survival, in-flight wait, exact 14_999/15_000 ms grace
+    abort boundary, HTTP mapping table, attempt 6 abandon, poll overlap,
+    shutdown/claim race (no sender after stop; rows stay CLAIMED), multi-cycle
+    abort of all active controllers, no post-stop claims, clock injection for
+    result timestamps, static source guard against jitter/exponential/300s cap.
 - **Lifecycle wiring** (`app.ts`): when `config.webPush.enabled` is `true` and
   `webPushRepository` exists, creates the dispatcher with its deps, registers
   `onReady` → `start()` and `onClose` → `stop()`. Accepts
   `dependencies.webPushDispatcher` for test injection. When disabled, neither
-  constructs the sender nor wires lifecycle. The gate is `config.webPush.enabled`
-  only (not `|| dependencies.webPushDispatcher`). 3 lifecycle tests.
-- **Fixed retry schedule** (design spec compliance): attempt 2→30s, 3→2m,
-  4→10m, 5→30m, 6→1h. No jitter, no exponential backoff, no 300s cap. Attempt
-  6 (after the 5th retry delay) is immediately abandoned via `recordAbandoned`
-  with `MAX_ATTEMPTS` error code. The previous implementation used `2^(n-1)*10s`
-  with ±20% jitter and 300s cap.
+  constructs the sender nor wires lifecycle — even if an injected dispatcher is
+  provided. The gate is `config.webPush.enabled` only
+  (not `|| dependencies.webPushDispatcher`). Lifecycle tests cover enabled
+  injection, disabled without injection, and disabled with injection.
+- **Fixed retry schedule** (design spec compliance):
+  failed attempt 1 → 30 seconds,
+  failed attempt 2 → 2 minutes,
+  failed attempt 3 → 10 minutes,
+  failed attempt 4 → 30 minutes,
+  failed attempt 5 → 1 hour,
+  failed attempt 6 → immediate `MAX_ATTEMPTS` abandonment via `recordAbandoned`
+  (no further delay indexing). No jitter, no exponential backoff, no 300s cap.
+  The previous implementation used `2^(n-1)*10s` with ±20% jitter and 300s cap.
+- **Clock injection**: optional `DispatcherClock` (`() => Date`) on dispatcher
+  deps; production default is `() => new Date()`. Result timestamps
+  (`delivered_at` / `abandoned_at` / `last_failure_at` / `next_attempt_at`)
+  are taken after the provider returns, not at send start.
 - **Dispatcher removed**: `batchSize` from `DispatcherConfig`; concurrency is
   now a constant. `computeBackoff` removed; replaced by `retryDelayForAttempt`.
   Removed inline `NOTIFICATION_MESSAGES` map; uses canonical

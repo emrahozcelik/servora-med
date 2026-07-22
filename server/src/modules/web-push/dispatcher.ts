@@ -32,6 +32,8 @@ export function retryDelayForAttempt(attemptCount: number): number | null {
   return WEB_PUSH_RETRY_DELAYS_MS[attemptCount - 1] ?? null;
 }
 
+export type DispatcherClock = () => Date;
+
 export type DispatcherConfig = Readonly<{
   pollIntervalMs: number;
   gracePeriodMs: number;
@@ -77,6 +79,7 @@ export type DispatcherDeps = Readonly<{
   sender: WebPushSender;
   buildPayload: (notification: PublicNotification) => PushPayloadV1;
   topicBuilder: (notificationId: string) => string;
+  clock?: DispatcherClock;
 }>;
 
 export interface WebPushDispatcher {
@@ -89,6 +92,8 @@ const DEFAULT_CONFIG: DispatcherConfig = {
   gracePeriodMs: WEB_PUSH_SHUTDOWN_GRACE_MS,
 };
 
+const defaultClock: DispatcherClock = () => new Date();
+
 export function createDispatcher(
   config: Partial<DispatcherConfig>,
   deps: DispatcherDeps,
@@ -97,6 +102,7 @@ export function createDispatcher(
     pollIntervalMs: config.pollIntervalMs ?? DEFAULT_CONFIG.pollIntervalMs,
     gracePeriodMs: config.gracePeriodMs ?? DEFAULT_CONFIG.gracePeriodMs,
   };
+  const now = deps.clock ?? defaultClock;
 
   let intervalHandle: ReturnType<typeof setInterval> | null = null;
   let stopping = false;
@@ -134,14 +140,21 @@ export function createDispatcher(
       payload = deps.buildPayload(publicNotification);
     } catch {
       await deps.repository.recordAbandoned({
-        deliveryId, leaseToken, at: new Date(), errorCode: 'INVALID_PAYLOAD',
+        deliveryId, leaseToken, at: now(), errorCode: 'INVALID_PAYLOAD',
       } satisfies RecordAbandonedInput);
       return;
     }
 
     const controller = new AbortController();
 
-    const sendPromise = (async () => {
+    // Track the slot before any provider call so concurrent polls cannot oversell.
+    let resolveTracked!: () => void;
+    const trackedPromise = new Promise<void>((resolve) => {
+      resolveTracked = resolve;
+    });
+    activeSends.set(deliveryId, { controller, promise: trackedPromise });
+
+    try {
       const topic = deps.topicBuilder(notification.id);
 
       const result: WebPushSendResult = await deps.sender.send({
@@ -157,7 +170,8 @@ export function createDispatcher(
 
       if (result.type === 'aborted') return;
 
-      const resultAt = new Date();
+      // Capture result timestamp only after the provider returns.
+      const resultAt = now();
 
       if (result.type === 'response') {
         const outcome = classifyResponse(result.statusCode);
@@ -213,14 +227,9 @@ export function createDispatcher(
           } satisfies RecordRetryInput);
         }
       }
-    })();
-
-    activeSends.set(deliveryId, { controller, promise: sendPromise });
-
-    try {
-      await sendPromise;
     } finally {
       activeSends.delete(deliveryId);
+      resolveTracked();
     }
   }
 
@@ -228,7 +237,7 @@ export function createDispatcher(
     if (stopping || pollInFlight) return;
     pollInFlight = true;
     try {
-      const at = new Date();
+      const at = now();
 
       try {
         await deps.repository.cleanupDueDeliveries(at);
