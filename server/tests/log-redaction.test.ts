@@ -34,6 +34,12 @@ describe('buildApp serialized logger redaction', () => {
       trustedProxy: 'loopback',
       healthSchemaVersion: null,
       actionScopedGeolocationEnabled: false,
+      webPush: {
+        enabled: false,
+        vapidSubject: null,
+        vapidPublicKey: null,
+        vapidPrivateKey: null,
+      },
     };
 
     const app = await buildApp(config, { loggerDestination: stream });
