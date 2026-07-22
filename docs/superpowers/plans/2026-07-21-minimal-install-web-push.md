@@ -146,38 +146,38 @@ and focused tests.
 Allowed source area: one browser adapter/controller, Task 2 settings subview,
 Task 4 API adapter, styles, focused tests, and responsive fixture.
 
-- [ ] RED→GREEN: server `enabled: false` causes no service-worker registration,
+- [x] RED→GREEN: server `enabled: false` causes no service-worker registration,
   permission request, Push API call, or subscription request.
-- [ ] RED→GREEN: unsupported service worker, PushManager, or Notifications API
+- [x] RED→GREEN: unsupported service worker, PushManager, or Notifications API
   shows guidance and preserves normal application behavior.
-- [ ] RED→GREEN: `default` requests permission exactly once and only from the
+- [x] RED→GREEN: `default` requests permission exactly once and only from the
   explicit `Cihaz bildirimlerini aç` click.
-- [ ] RED→GREEN: `denied` never re-prompts and shows browser/OS settings
+- [x] RED→GREEN: `denied` never re-prompts and shows browser/OS settings
   guidance; `granted` proceeds without another prompt.
-- [ ] RED→GREEN: register fixed `/service-worker.js`, root scope, and
+- [x] RED→GREEN: register fixed `/service-worker.js`, root scope, and
   `updateViaCache: 'none'`; no user/server value supplies the script URL.
-- [ ] RED→GREEN: subscribe with exact `userVisibleOnly: true` and decoded
+- [x] RED→GREEN: subscribe with exact `userVisibleOnly: true` and decoded
   server public key.
-- [ ] RED→GREEN: a synchronous gate prevents duplicate subscribe/disable;
+- [x] RED→GREEN: a synchronous gate prevents duplicate subscribe/disable;
   server-save retry reuses the same browser subscription.
-- [ ] RED→GREEN: explicit disable completes server disable before best-effort
+- [x] RED→GREEN: explicit disable completes server disable before best-effort
   browser unsubscribe and then reloads canonical status.
-- [ ] RED→GREEN: logout best-effort unsubscribes locally after authoritative
+- [x] RED→GREEN: logout best-effort unsubscribes locally after authoritative
   server session revocation; identity/account changes clear all controller
   state and never auto-associate an old endpoint.
-- [ ] RED→GREEN: after cross-account `409`, explicit enable unsubscribes,
+- [x] RED→GREEN: after cross-account `409`, explicit enable unsubscribes,
   creates a fresh browser subscription, and retries create exactly once; a
   second conflict stops without a loop.
-- [ ] RED→GREEN: on authenticated mount/focus/visibility/online recovery,
+- [x] RED→GREEN: on authenticated mount/focus/visibility/online recovery,
   compare browser and safe server fingerprints only when the current session
   already has an active server record; equal state writes nothing and changed
   endpoint/keys refresh that opted-in record.
-- [ ] RED→GREEN: a missing browser subscription disables the server record;
+- [x] RED→GREEN: a missing browser subscription disables the server record;
   provider-stale or changed-VAPID `renewalRequired` rotates only after a new
   explicit enable action.
-- [ ] RED→GREEN: Home Screen guidance precedes push enablement when required
+- [x] RED→GREEN: Home Screen guidance precedes push enablement when required
   capabilities are unavailable in a non-installed context.
-- [ ] Run focused browser-adapter/controller/UI tests and web build.
+- [x] Run focused browser-adapter/controller/UI tests and web build.
 
 ## Task 6 — Minimal Service Worker Push and Click Contract (Vertical TDD)
 
@@ -433,3 +433,29 @@ recorded:
 - Focused verification: 71 server tests and 9 web API tests passed; server and
   web production builds, the 500,000-byte bundle budget, and both production
   dependency audits passed with zero vulnerabilities.
+
+### Task 5 — Browser permission and subscription controller
+
+- `BrowserWebPushAdapter` is the only web module that accesses Notification,
+  service-worker, PushManager, standalone-display, and PushSubscription browser
+  APIs. It registers only `/service-worker.js` with root scope and
+  `updateViaCache: 'none'`; Task 5 does not add worker event behavior.
+- `WebPushController` receives the server-owned status capability, never prompts
+  on mount or recovery, and permits permission/subscription work only through
+  the explicit device-notification action. Disabled and unsupported states do
+  not register a worker or call Push APIs.
+- Enable/disable commands share a synchronous gate. Server-save retry retains
+  the browser subscription, cross-owner conflict rotates once only after an
+  explicit command, and server disablement precedes best-effort browser cleanup.
+- Identity reset and logout clear recipient-scoped state; logout performs local
+  best-effort unsubscribe only after the authoritative server logout succeeds.
+  Mount/focus/visibility/online recovery reconciles only an already-active
+  current-session record and ignores stale identity responses.
+- The existing notification settings dialog now presents enabled, disabled,
+  unsupported/Home Screen, denied, and renewal-required guidance without raw
+  HTTP or browser API use in the component.
+- Focused adapter/controller/settings tests: 33 passed. Full web suite: 682
+  passed. Web production build, bundle budget, responsive smoke at the
+  established viewports/200%/400%, and production audit passed with zero
+  vulnerabilities. Production `WEB_PUSH_ENABLED` remains false; service-worker
+  push and click handling remain Task 6 work.

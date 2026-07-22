@@ -6,6 +6,9 @@ import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { PasswordChangeScreen } from './PasswordChange';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
 import { getCurrentUser, login, logout, type CurrentUser } from './services/api';
+import { createBrowserWebPushAdapter } from './web-push/BrowserWebPushAdapter';
+import { createWebPushController, type WebPushController } from './web-push/WebPushController';
+import { WebPushProvider } from './web-push/WebPushProvider';
 
 type AppProps = { initialUser?: CurrentUser | null };
 
@@ -98,20 +101,31 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const clearNotice = useCallback(() => setNotice(''), []);
+  const webPushController = useRef<WebPushController | null>(null);
+  if (!webPushController.current) {
+    webPushController.current = createWebPushController({ browser: createBrowserWebPushAdapter() });
+  }
+  const resolvedWebPushController = webPushController.current;
   useAutoDismissNotice(notice, clearNotice);
   async function signOut() {
     setPending(true); setError('');
-    try { await logout(); onSignedOut(); }
+    try {
+      await logout();
+      await resolvedWebPushController.clearLocalSubscription();
+      onSignedOut();
+    }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Oturum kapatılamadı.'); setPending(false); }
   }
   return (
     <RealtimeProvider>
-      <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
-        <AppRouter user={user}
-          notice={notice} onClearNotice={clearNotice}
-          onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')} />
-        {error && <div className="shell-error form-error" role="alert">{error}</div>}
-      </AppShell>
+      <WebPushProvider identityKey={`${user.organizationId}:${user.id}`} controller={resolvedWebPushController}>
+        <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
+          <AppRouter user={user}
+            notice={notice} onClearNotice={clearNotice}
+            onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')} />
+          {error && <div className="shell-error form-error" role="alert">{error}</div>}
+        </AppShell>
+      </WebPushProvider>
     </RealtimeProvider>
   );
 }

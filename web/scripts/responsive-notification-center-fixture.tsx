@@ -16,6 +16,11 @@ const notification = {
 
 window.fetch = async (input) => {
   const path = String(input);
+  if (path.includes('/api/web-push/status')) {
+    return new Response(JSON.stringify({
+      enabled: false, vapidPublicKey: null, renewalRequired: false, subscription: null,
+    }), { status: 200 });
+  }
   if (path.includes('/unread-count')) return new Response(JSON.stringify({ unreadCount: 123 }), { status: 200 });
   if (path.includes('/api/notifications?')) {
     return new Response(JSON.stringify({ items: [notification, { ...notification, id: '33333333-3333-4333-8333-333333333333', readAt: '2026-07-21T11:00:00.000Z' }], nextCursor: 'next-page' }), { status: 200 });

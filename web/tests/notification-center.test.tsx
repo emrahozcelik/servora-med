@@ -10,6 +10,8 @@ import {
   InstallOpportunityProvider,
 } from '../src/install/InstallOpportunity';
 import { RealtimeProvider, type RealtimeEventSource } from '../src/realtime/RealtimeProvider';
+import { WebPushProvider } from '../src/web-push/WebPushProvider';
+import type { WebPushController } from '../src/web-push/WebPushController';
 
 const api = vi.hoisted(() => ({
   getUnreadNotificationCount: vi.fn(),
@@ -138,6 +140,38 @@ describe('NotificationCenter', () => {
       .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
     expect(document.activeElement).toBe(restoredSettings);
     delete (navigator as Navigator & { serviceWorker?: unknown }).serviceWorker;
+  });
+
+  it('renders the enabled device-notification action from the owned controller state', async () => {
+    const enable = vi.fn().mockResolvedValue(undefined);
+    const snapshot = {
+      enabled: true,
+      status: { enabled: true, vapidPublicKey: 'AQID', renewalRequired: false, subscription: null },
+      capability: 'supported' as const, permission: 'default' as const, guidance: 'none' as const, pending: null, error: '',
+    };
+    const webPush: WebPushController = {
+      start: async () => {}, stop: () => {}, setIdentity: async () => {}, subscribe: () => () => {},
+      getSnapshot: () => snapshot,
+      enable, disable: async () => {}, recover: async () => {}, clearLocalSubscription: async () => {},
+    };
+    await act(async () => root.render(
+      <MemoryRouter>
+        <WebPushProvider identityKey="org-1:staff-1" controller={webPush}>
+          <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+        </WebPushProvider>
+      </MemoryRouter>,
+    ));
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const settings = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Kurulum ve cihaz bildirimleri')!;
+    await act(async () => settings.click());
+    const action = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Cihaz bildirimlerini aç')!;
+
+    expect(container.textContent).toContain('müşteri, not, teslimat veya konum bilgisi yer almaz');
+    await act(async () => action.click());
+    expect(enable).toHaveBeenCalledTimes(1);
   });
 
   it('shows an empty state and supports retry after a list failure', async () => {

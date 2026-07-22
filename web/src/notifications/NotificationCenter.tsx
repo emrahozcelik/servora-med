@@ -16,6 +16,7 @@ import {
 } from '../services/notifications-api';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { restoreFocus, trapTabKey } from '../ui/antd/overlay-focus';
+import { useWebPush } from '../web-push/WebPushProvider';
 
 type NotificationCenterProps = Readonly<{
   identityKey: string;
@@ -57,6 +58,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const [installPending, setInstallPending] = useState(false);
   const [installError, setInstallError] = useState('');
   const install = useInstallOpportunity();
+  const webPush = useWebPush();
 
   async function loadUnread() {
     const request = ++unreadRequest.current;
@@ -239,7 +241,41 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
             </section>
             <section aria-labelledby={`${titleId}-push`}>
               <h3 id={`${titleId}-push`}>Cihaz bildirimleri</h3>
-              <p>Cihaz bildirimleri şu anda kullanıma kapalıdır.</p>
+              <p>
+                Cihaz bildirimlerini açarsanız size atanan veya onayınızı bekleyen işler için Servora-Med
+                kapalıyken de genel bir bildirim gösterilebilir. Bildirimlerde müşteri, not, teslimat veya
+                konum bilgisi yer almaz.
+              </p>
+              {webPush.guidance === 'disabled' ? <p>Cihaz bildirimleri şu anda kullanıma kapalıdır.</p> : null}
+              {webPush.guidance === 'unsupported' ? <p>Bu tarayıcı cihaz bildirimlerini desteklemiyor.</p> : null}
+              {webPush.guidance === 'install-required' ? (
+                <p>Bu cihazda bildirimler için uygulamayı Ana Ekrana ekleyip yüklü uygulama olarak açın.</p>
+              ) : null}
+              {webPush.guidance === 'denied' ? (
+                <p>Bildirim izni kapalı. Tarayıcı veya işletim sistemi ayarlarından izin verebilirsiniz.</p>
+              ) : null}
+              {webPush.guidance === 'renewal-required' ? (
+                <p>Cihaz bildirimi aboneliği yenilenmeli. Yenileme yalnız aşağıdaki açık komutla yapılır.</p>
+              ) : null}
+              {webPush.error ? <p className="form-error" role="alert">{webPush.error}</p> : null}
+              {webPush.enabled === true && webPush.guidance === 'none' ? (
+                webPush.status?.subscription ? (
+                  <button type="button" className="secondary-button" disabled={webPush.pending !== null}
+                    onClick={() => void webPush.disable()}>
+                    {webPush.pending === 'disable' ? 'Kapatılıyor…' : 'Cihaz bildirimlerini kapat'}
+                  </button>
+                ) : (
+                  <button type="button" className="primary-button" disabled={webPush.pending !== null}
+                    onClick={() => void webPush.enable()}>
+                    {webPush.pending === 'enable' ? 'Açılıyor…' : 'Cihaz bildirimlerini aç'}
+                  </button>
+                )
+              ) : webPush.enabled === true && webPush.guidance === 'renewal-required' ? (
+                <button type="button" className="primary-button" disabled={webPush.pending !== null}
+                  onClick={() => void webPush.enable()}>
+                  {webPush.pending === 'enable' ? 'Yenileniyor…' : 'Cihaz bildirimlerini yenile'}
+                </button>
+              ) : null}
             </section>
           </div>
         ) : (
