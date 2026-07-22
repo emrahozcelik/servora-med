@@ -65,8 +65,8 @@ describe('Customer list and creation', () => {
     expect(html).not.toContain('Kaydı aç');
   });
 
-  it('keeps Staff read-only while Manager can create, edit, and delete', () => {
-    expect(list({ kind: 'ready', customers: [] }, staffUser)).not.toContain('Yeni müşteri');
+  it('allows all roles to create but keeps edit and delete for Manager only', () => {
+    expect(list({ kind: 'ready', customers: [] }, staffUser)).toContain('Yeni müşteri');
     expect(list({ kind: 'ready', customers: [] }, manager)).toContain('Yeni müşteri');
     const staffHtml = list({ kind: 'ready', customers: [customer] }, staffUser);
     expect(staffHtml).not.toContain('müşterisini düzenle');

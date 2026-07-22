@@ -198,16 +198,43 @@ describe('CRM HTTP routes', () => {
     );
   });
 
-  it('allows Staff reads while preserving service 403 mutations and 404 concealment', async () => {
+  it('allows Staff to create customers while blocking mutations and concealing cross-org', async () => {
     const staff = { ...manager, id: 'staff-1', role: 'STAFF' as const };
     const { app, service } = await createApp(staff);
     expect((await app.inject({ method: 'GET', url: '/api/customers' })).statusCode).toBe(200);
     expect((await app.inject({ method: 'GET', url: '/api/customers/customer-1/contacts/contact-1' })).statusCode).toBe(200);
-    service.createCustomer.mockRejectedValueOnce(new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz yok.'));
+
     expect((await app.inject({ method: 'POST', url: '/api/customers', payload: {
       name: 'Klinik', customerType: 'clinic', taxNumber: null, phone: null, email: null,
       city: null, district: null, address: null, assignedStaffUserId: null,
-    } })).statusCode).toBe(403);
+    } })).statusCode).toBe(201);
+
+    const forbidPayload = { expectedVersion: 1, name: 'Klinik', customerType: 'clinic',
+      taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+      assignedStaffUserId: null };
+    const forbidPayloadVersions = [
+      ['PATCH', '/api/customers/customer-1', 'updateCustomer'],
+      ['DELETE', '/api/customers/customer-1', 'deleteCustomer'],
+      ['POST', '/api/customers/customer-1/activate', 'activateCustomer'],
+      ['POST', '/api/customers/customer-1/deactivate', 'deactivateCustomer'],
+      ['POST', '/api/customers/customer-1/contacts', 'createContact'],
+      ['PATCH', '/api/customers/customer-1/contacts/contact-1', 'updateContact'],
+      ['POST', '/api/customers/customer-1/contacts/contact-1/activate', 'activateContact'],
+      ['POST', '/api/customers/customer-1/contacts/contact-1/deactivate', 'deactivateContact'],
+      ['POST', '/api/customers/customer-1/contacts/contact-1/make-primary', 'makePrimary'],
+    ] as const;
+    for (const [method, url, methodName] of forbidPayloadVersions) {
+      service[methodName].mockRejectedValueOnce(new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz yok.'));
+      const payload = method === 'DELETE' ? { expectedVersion: 1 }
+        : methodName === 'createContact' ? { name: 'Dr. Ayşe', title: null, phone: null, email: null }
+        : methodName === 'updateContact' ? { expectedVersion: 1, name: 'Dr. Ayşe', title: null, phone: null, email: null }
+        : methodName === 'activateCustomer' || methodName === 'deactivateCustomer' || methodName === 'activateContact' || methodName === 'deactivateContact' || methodName === 'makePrimary'
+        ? { expectedVersion: 1 }
+        : forbidPayload;
+      const response = await app.inject({ method, url, payload });
+      expect(response.statusCode, `${method} ${url}`).toBe(403);
+    }
+
     service.getCustomer.mockRejectedValueOnce(new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.'));
     const concealed = await app.inject({ method: 'GET', url: '/api/customers/cross-org' });
     expect(concealed.statusCode).toBe(404);

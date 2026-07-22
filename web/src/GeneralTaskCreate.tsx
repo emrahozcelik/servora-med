@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent, type SyntheticEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import { createJobCard, type JobCardPriority } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
@@ -19,7 +20,7 @@ async function loadAllCustomers() {
   const all: CustomerSummary[] = [];
   let offset = 0;
   while (true) {
-    const page = await listCustomers({ status: 'active', limit: 200, offset });
+    const page = await listCustomers({ limit: 200, offset });
     all.push(...page.items);
     if (all.length >= page.total || page.items.length === 0) return all;
     offset += page.items.length;
@@ -37,10 +38,11 @@ async function loadAllContacts(customerId: string) {
   }
 }
 
-export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
+export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCustomerId = '' }: {
   user: CurrentUser;
   onCancel: () => void;
   onCreated: (jobCardId: string) => void;
+  initialCustomerId?: string;
 }) {
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
@@ -53,7 +55,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
   const [staffState, setStaffState] = useState<LoadState>(user.role === 'STAFF' ? 'ready' : 'loading');
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [customerState, setCustomerState] = useState<LoadState>('idle');
-  const [customerId, setCustomerId] = useState('');
+  const [customerId, setCustomerId] = useState(initialCustomerId);
   const [contacts, setContacts] = useState<Contact[]>([]);
   const [contactState, setContactState] = useState<LoadState>('idle');
   const [contactId, setContactId] = useState('');
@@ -88,7 +90,13 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
   async function loadActiveCustomers() {
     setCustomerState('loading');
     try {
-      setCustomers(await loadAllCustomers()); setCustomerState('ready');
+      const next = await loadAllCustomers(); setCustomers(next); setCustomerState('ready');
+      if (initialCustomerId && next.some((item) => item.id === initialCustomerId)) {
+        setCustomerId(initialCustomerId);
+        void changeCustomer(initialCustomerId);
+      } else if (initialCustomerId) {
+        setCustomerId('');
+      }
     } catch {
       setCustomers([]); setCustomerId(''); setContacts([]); setContactId('');
       setContactState('idle'); setCustomerState('error');
@@ -208,7 +216,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
                 <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
                   onChange={(event) => setScheduledLocal(event.target.value)} /></div>
             </div>
-            <div className="field-group"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label>
+            <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><Link className="inline-action" to="/customers/new?source=task">Yeni müşteri ekle</Link></div>
               <select id="task-customer" value={customerId} disabled={customerState !== 'ready'}
                 onChange={(event) => void changeCustomer(event.target.value)}>
                 <option value="">Müşteri seçilmedi</option>
@@ -217,6 +225,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated }: {
               {customerState === 'loading' && <span className="field-status" role="status">Müşteriler yükleniyor…</span>}
               {customerState === 'error' && <span className="field-error" role="alert">Müşteriler yüklenemedi. Görevi müşterisiz kaydedebilirsiniz.{' '}
                 <button className="inline-action" type="button" onClick={() => void loadActiveCustomers()}>Tekrar dene</button></span>}
+              {customerState === 'ready' && customers.length === 0 && <span className="field-status">Henüz müşteri yok.</span>}
             </div>
             <div className="field-group"><label htmlFor="task-contact">İlgili kişi (isteğe bağlı)</label>
               <select id="task-contact" value={contactId}

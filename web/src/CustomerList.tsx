@@ -256,7 +256,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
 
   return <main className="workspace customer-workspace">
     <div className="workspace-heading"><div><p className="eyebrow">CRM</p><h1>Müşteriler</h1></div>
-      {canManage && <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>}
+      <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>
     </div>
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
     <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
@@ -287,7 +287,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
 
 export type CustomerFieldErrors = Partial<Record<'name' | 'customerType' | 'email', string>>;
 
-export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErrors = {}, error = '', errorRef, onCancel, onSubmit, onNameChange }: {
+export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErrors = {}, error = '', errorRef, onCancel, onSubmit, onNameChange, staffMode = false, currentUserName = '' }: {
   staff: StaffProfile[];
   pending: boolean;
   similarCustomers: CustomerSummary[];
@@ -297,6 +297,8 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
   onCancel: () => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => void;
   onNameChange?: (name: string) => void;
+  staffMode?: boolean;
+  currentUserName?: string;
 }) {
   return <main className="customer-create"><div className="detail-heading"><div><p className="eyebrow">CRM</p><h1>Yeni müşteri</h1></div>
     <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
@@ -320,8 +322,10 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
       <div className="customer-form-pair"><label className="field-group" htmlFor="customer-create-city">Şehir<input id="customer-create-city" name="city" disabled={pending} /></label>
         <label className="field-group" htmlFor="customer-district">İlçe<input id="customer-district" name="district" disabled={pending} /></label></div>
       <label className="field-group" htmlFor="customer-address">Adres<textarea id="customer-address" name="address" rows={3} disabled={pending} /></label>
-      <label className="field-group" htmlFor="customer-assignee">Sorumlu personel<select id="customer-assignee" name="assignedStaffUserId" disabled={pending}><option value="">Atanmadı</option>
-        {staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}</select></label>
+      {staffMode
+        ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{currentUserName}</p></div>
+        : <label className="field-group" htmlFor="customer-assignee">Sorumlu personel<select id="customer-assignee" name="assignedStaffUserId" disabled={pending}><option value="">Atanmadı</option>
+          {staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}</select></label>}
       <div className="form-actions"><button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
         <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'Oluşturuluyor…' : 'Müşteriyi oluştur'}</button></div>
     </form>
@@ -452,13 +456,16 @@ export function CustomerListScreen({ user, load = listCustomers, remove = delete
 
 export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
   const navigate = useNavigate();
+  const [params] = useSearchParams();
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [similar, setSimilar] = useState<CustomerSummary[]>([]);
   const [pending, setPending] = useState(false);
   const [fieldErrors, setFieldErrors] = useState<CustomerFieldErrors>({});
   const [error, setError] = useState('');
   const errorRef = useRef<HTMLDivElement>(null);
-  useEffect(() => { void listStaff('active').then(setStaff).catch(() => setStaff([])); }, []);
+  const staffMode = user.role === 'STAFF';
+  const source = params.get('source');
+  useEffect(() => { if (!staffMode) void listStaff('active').then(setStaff).catch(() => setStaff([])); }, [staffMode]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const similarRequestGate = useRef(createRequestGate());
@@ -473,9 +480,15 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
         .catch(() => { if (similarRequestGate.current.isCurrent(requestGeneration)) setSimilar([]); });
     }, 250);
   }
+  function redirectAfterCreate(customerId: string) {
+    if (source === 'meeting') navigate(paths.newMeeting + `?customerId=${customerId}`);
+    else if (source === 'task') navigate(paths.newTask + `?customerId=${customerId}`);
+    else navigate(paths.customer(customerId));
+  }
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault(); setError(''); setFieldErrors({});
     const data = new FormData(event.currentTarget); const input = customerInputFromFormData(data); const { name, email } = input;
+    if (staffMode) input.assignedStaffUserId = null;
     const errors: CustomerFieldErrors = {};
     if (!name) errors.name = 'Müşteri adı zorunludur.';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Geçerli bir e-posta adresi yazın.';
@@ -488,12 +501,16 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
     setPending(true);
     try {
       const result = await createCustomerWithRecovery(input);
-      if (result.customer) navigate(paths.customer(result.customer.id));
+      if (result.customer) redirectAfterCreate(result.customer.id);
       else { setSimilar(result.matches); setError('Kayıt isteğinin sonucu doğrulanamadı. Benzer kayıtları kontrol edip gerekirse yeniden deneyin.'); }
     } catch (caught) { setError(caught instanceof Error ? caught.message : 'Müşteri oluşturulamadı. Tekrar deneyin.'); }
     finally { setPending(false); }
   }
-  if (user.role === 'STAFF') return null;
   return <CustomerCreateForm staff={staff} pending={pending} similarCustomers={similar} fieldErrors={fieldErrors} error={error} errorRef={errorRef}
-    onCancel={() => navigate(paths.customers)} onSubmit={(event) => void submit(event)} onNameChange={nameChanged} />;
+    onCancel={() => {
+      if (source === 'meeting') navigate(paths.newMeeting);
+      else if (source === 'task') navigate(paths.newTask);
+      else navigate(paths.customers);
+    }} onSubmit={(event) => void submit(event)} onNameChange={nameChanged}
+    staffMode={staffMode} currentUserName={user.name} />;
 }

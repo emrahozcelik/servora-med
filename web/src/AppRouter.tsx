@@ -1,5 +1,5 @@
 import { lazy, Suspense } from 'react';
-import { Link, Navigate, Route, Routes, useNavigate, useParams } from 'react-router-dom';
+import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 
 import { JobWorkspace } from './jobs/JobWorkspace';
 import { paths } from './paths';
@@ -200,6 +200,20 @@ function RouteLoading() {
   );
 }
 
+function GeneralTaskCreateRoute({ user, navigate }: { user: CurrentUser; navigate: (path: string) => void }) {
+  const [sp] = useSearchParams();
+  return <GeneralTaskCreateScreen user={user}
+    initialCustomerId={sp.get('customerId') ?? undefined}
+    onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />;
+}
+
+function SalesMeetingCreateRoute({ user, navigate }: { user: CurrentUser; navigate: (path: string) => void }) {
+  const [sp] = useSearchParams();
+  return <SalesMeetingCreateScreen user={user}
+    initialCustomerId={sp.get('customerId') ?? undefined}
+    onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />;
+}
+
 export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated }: AppRouterProps) {
   const navigate = useNavigate();
   return (
@@ -214,10 +228,10 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated }: Ap
           onCommand={(intent) => navigate(paths.job(intent.jobId))} />} />
         <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} onCancel={() => navigate(paths.jobs)}
           onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />} />
-        <Route path={paths.newTask} element={<GeneralTaskCreateScreen user={user}
-          onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />} />
-        <Route path={paths.newMeeting} element={<SalesMeetingCreateScreen user={user}
-          onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />} />
+        <Route path={paths.newTask} element={<GeneralTaskCreateRoute user={user}
+          navigate={navigate} />} />
+        <Route path={paths.newMeeting} element={<SalesMeetingCreateRoute user={user}
+          navigate={navigate} />} />
         <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
         <Route path={paths.users} element={user.role === 'ADMIN' ? <UserListScreen /> : <ForbiddenView />} />
         <Route path={paths.newUser} element={user.role === 'ADMIN' ? <UserCreateScreen /> : <ForbiddenView />} />
@@ -229,7 +243,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated }: Ap
         <Route path={paths.deliveryReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <DeliveryReport user={user} />} />
         <Route path={paths.approvalReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <ApprovalReport />} />
         <Route path={paths.customers} element={<CustomerListScreen user={user} />} />
-        <Route path={paths.newCustomer} element={user.role === 'STAFF' ? <ForbiddenView /> : <CustomerCreateScreen user={user} />} />
+        <Route path={paths.newCustomer} element={<CustomerCreateScreen user={user} />} />
         <Route path="/customers/:customerId" element={<CustomerRoute user={user} />} />
         <Route path="/customers/:customerId/contacts/:contactId" element={<ContactRoute user={user} />} />
         <Route path={paths.products} element={<ProductListScreen user={user} />} />
