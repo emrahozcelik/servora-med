@@ -25,6 +25,13 @@
 		file_server
 	}
 
+	# Service worker — never SPA fallback, always revalidate.
+	handle /service-worker.js {
+		root * /opt/servora-med/current/web/dist
+		header Cache-Control "no-cache"
+		file_server
+	}
+
 	# SPA app shell + client routes: always revalidate (no long-lived cache).
 	handle {
 		root * /opt/servora-med/current/web/dist

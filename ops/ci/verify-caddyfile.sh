@@ -18,6 +18,16 @@ if ! grep -F 'path /assets/*' "$CONFIG" >/dev/null && ! grep -F 'handle /assets/
   exit 1
 fi
 
+if ! grep -F 'handle /service-worker.js' "$CONFIG" >/dev/null; then
+  echo "Caddyfile missing /service-worker.js dedicated handler" >&2
+  exit 1
+fi
+
+grep -A5 'handle /service-worker.js' "$CONFIG" | grep -Fq 'Cache-Control "no-cache"' || {
+  echo "Caddyfile /service-worker.js handler missing no-cache" >&2
+  exit 1
+}
+
 if ! command -v docker >/dev/null 2>&1; then
   echo "docker is required to validate Caddyfile with pinned caddy image" >&2
   exit 1

@@ -185,25 +185,25 @@ Allowed source area: one root service-worker asset, a focused worker harness,
 manifest assets, Caddy examples/checks, and focused tests. No feature component
 or business API changes.
 
-- [ ] RED→GREEN: a valid version-1 payload produces one visible notification
+- [x] RED→GREEN: a valid version-1 payload produces one visible notification
   with generic title/body, stable notification tag, icon/badge, and safe data.
-- [ ] RED→GREEN: missing, malformed, or unsupported payload still produces a
+- [x] RED→GREEN: missing, malformed, or unsupported payload still produces a
   generic visible notification linked only to `/jobs`.
-- [ ] RED→GREEN one rejection at a time: disallow cross-origin, credentials,
+- [x] RED→GREEN one rejection at a time: disallow cross-origin, credentials,
   query/hash, backslashes, encoded slashes, non-Job paths, and malformed UUIDs.
-- [ ] RED→GREEN: click closes the notification and focuses an exact open target
+- [x] RED→GREEN: click closes the notification and focuses an exact open target
   client before navigating another same-origin client or opening a new window.
-- [ ] RED→GREEN: install/activate replaces the prior worker without creating or
+- [x] RED→GREEN: install/activate replaces the prior worker without creating or
   deleting business caches.
-- [ ] RED→GREEN: `pushsubscriptionchange` performs no fetch/API mutation and
+- [x] RED→GREEN: `pushsubscriptionchange` performs no fetch/API mutation and
   posts only a fixed, data-free refresh signal to currently open same-origin
   clients; no open client is a safe no-op.
-- [ ] Add a source/static contract test proving there is no `fetch`, sync,
+- [x] Add a source/static contract test proving there is no `fetch`, sync,
   periodic-sync, geolocation, CacheStorage, IndexedDB, or mutation behavior.
-- [ ] Update Caddy examples and behavior tests so worker JS is never SPA HTML,
+- [x] Update Caddy examples and behavior tests so worker JS is never SPA HTML,
   uses JavaScript MIME and `no-cache`; manifest revalidates and versioned icons
   may be immutable.
-- [ ] Run focused worker/ops tests and web build.
+- [x] Run focused worker/ops tests and web build.
 
 ## Task 7 — Notification-to-Outbox Projection (Vertical TDD)
 
@@ -459,3 +459,49 @@ recorded:
   established viewports/200%/400%, and production audit passed with zero
   vulnerabilities. Production `WEB_PUSH_ENABLED` remains false; service-worker
   push and click handling remain Task 6 work.
+
+### Task 6 — Minimal Service Worker Push and Click Contract
+
+- `web/public/service-worker.js` is a plain JavaScript file (no bundler) served
+  at `/service-worker.js` with root scope and `updateViaCache: 'none'`.
+- **push**: Valid V1 payload (version, notificationId, title, body, url) produces
+  one `showNotification` with correct title/body/tag/icon/badge/safe data.
+  Missing, malformed, unsupported, array, extra-field, or oversized payloads
+  produce a generic `Servora-Med` / `Bekleyen işleriniz var.` notification
+  linked to `/jobs`. No parse error becomes an unhandled rejection.
+- **Payload validation**: exact 5-field contract; canonical UUID for
+  `notificationId`; non-empty bounded title (≤120) and body (≤240);
+  allowlist-based `/jobs/<UUID>` deep link; blocks cross-origin, query, hash,
+  backslash, encoded-slash, and non-JobCard paths. Extra or sensitive fields
+  (customerName, endpoint, p256dh, etc.) force generic fallback.
+- **notificationclick**: closes notification; re-validates data URL via same
+  allowlist; sorts `matchAll` results deterministically (exact URL match first,
+  then client id); focuses exact target without navigating; navigates and
+  focuses another same-origin client; opens window when no client exists;
+  cross-origin/invalid URL falls back to `/jobs`.
+- **install/activate**: `skipWaiting()` and `clients.claim()` only; no cache
+  creation or migration.
+- **pushsubscriptionchange**: posts fixed `{ type: 'push-subscription-changed' }`
+  to open same-origin window clients; no fetch, mutation, or subscription
+  material; no open client is a safe no-op.
+- **Boundary enforcement**: worker has no `fetch`, sync, periodicsync,
+  CacheStorage, IndexedDB, geolocation, or localStorage. Static analysis and
+  runtime listener checks confirm this.
+- **Caddy**: both `Caddyfile.example` and `Caddyfile.tunnel.example` add a
+  dedicated `handle /service-worker.js` before the SPA catch-all so the worker
+  is never served as `index.html`. Verification scripts check for the dedicated
+  handler and `Cache-Control: no-cache`.
+- **Test harness** (`tests/helpers/service-worker-harness.ts`): reads the real
+  worker from disk via `node:fs`, runs it in `node:vm` isolation, captures
+  `addEventListener` registrations, `showNotification` calls, and `waitUntil`
+  promises. Does not duplicate parser or validation logic.
+- Focused test files: `service-worker-push.test.ts` (20 tests),
+  `service-worker-click.test.ts` (8 tests), `service-worker-boundary.test.ts`
+  (19 tests) — all 47 pass. Full web suite: 729 passed. Web production build,
+  bundle budget, responsive smoke, and `npm audit --omit=dev` passed.
+- Added `clearNotifications()` to harness to support table-driven tests.
+- No `server/` code, `web/src/` feature component, manifest, or branding file
+  was changed. Worker registration path/scope/update policy matches Task 5.
+- `WEB_PUSH_ENABLED` remains false. Foreground worker-message integration in
+  `WebPushController` is deferred to Task 9. Real device testing belongs to
+  Task 10.
