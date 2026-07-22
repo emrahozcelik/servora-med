@@ -185,3 +185,29 @@ describe('WebPushService create', () => {
     });
   });
 });
+
+describe('WebPushService disable', () => {
+  it('allows idempotent current-session cleanup even while Web Push is disabled', async () => {
+    const repository = { disable: vi.fn().mockResolvedValue(activeSubscription) };
+    const service = new WebPushService(disabledConfig, repository as never);
+
+    await expect(service.disable(identity, activeSubscription.id)).resolves.toBeUndefined();
+    expect(repository.disable).toHaveBeenCalledWith(
+      identity,
+      activeSubscription.id,
+      'USER_DISABLED',
+      expect.any(Date),
+    );
+  });
+
+  it('returns ownership-opaque not-found outside current-session scope', async () => {
+    const repository = { disable: vi.fn().mockResolvedValue(null) };
+    const service = new WebPushService(enabledConfig, repository as never);
+
+    await expect(service.disable(identity, 'missing-subscription')).rejects.toMatchObject({
+      code: 'WEB_PUSH_SUBSCRIPTION_NOT_FOUND',
+      statusCode: 404,
+      details: null,
+    });
+  });
+});

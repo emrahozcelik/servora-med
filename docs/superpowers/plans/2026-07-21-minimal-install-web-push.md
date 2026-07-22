@@ -130,7 +130,7 @@ and focused tests.
   pending work is abandoned.
 - [x] RED→GREEN: a different user/organization receives ownership-opaque
   `409 PUSH_SUBSCRIPTION_CONFLICT` and can never acquire that row.
-- [ ] RED→GREEN: disabled create performs no row write; cross-user/tenant or
+- [x] RED→GREEN: disabled create performs no row write; cross-user/tenant or
   other-session disable returns `404`; current-session disable is idempotent.
 - [ ] RED→GREEN: add focused mutation rate limits and preserve the existing
   production Origin check/password-change gate.

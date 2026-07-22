@@ -101,4 +101,20 @@ export class WebPushService {
       fingerprint: subscription.subscriptionFingerprint,
     };
   }
+
+  async disable(identity: WebPushIdentity, subscriptionId: string): Promise<void> {
+    const disabled = await this.repository.disable(
+      identity,
+      subscriptionId,
+      'USER_DISABLED',
+      new Date(),
+    );
+    if (!disabled) {
+      throw new AppError(
+        'WEB_PUSH_SUBSCRIPTION_NOT_FOUND',
+        404,
+        'Cihaz bildirimi bulunamadı.',
+      );
+    }
+  }
 }

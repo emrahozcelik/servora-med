@@ -209,4 +209,31 @@ describe('Web Push HTTP routes', () => {
     expect(response.body).not.toContain(p256dh);
     expect(response.body).not.toContain(auth);
   });
+
+  it('disables idempotently in current-session scope and hides other scopes', async () => {
+    const { app, cookie, webPushRepository } = await createApp();
+    const subscriptionId = '11111111-1111-4111-8111-111111111111';
+    webPushRepository.disable.mockResolvedValue({ id: subscriptionId });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const response = await app.inject({
+        method: 'DELETE',
+        url: `/api/web-push/subscriptions/${subscriptionId}`,
+        headers: { cookie },
+      });
+      expect(response.statusCode).toBe(204);
+    }
+
+    webPushRepository.disable.mockResolvedValueOnce(null);
+    expect((await app.inject({
+      method: 'DELETE',
+      url: `/api/web-push/subscriptions/${subscriptionId}`,
+      headers: { cookie },
+    })).statusCode).toBe(404);
+    expect((await app.inject({
+      method: 'DELETE',
+      url: '/api/web-push/subscriptions/not-a-uuid',
+      headers: { cookie },
+    })).statusCode).toBe(400);
+  });
 });

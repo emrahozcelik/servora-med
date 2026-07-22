@@ -99,6 +99,8 @@ When disabled:
 - the web does not register the push service worker, request notification
   permission, call `PushManager.subscribe`, or submit subscription material;
 - subscription creation is rejected without inserting or reactivating a row;
+- authenticated current-session deletion remains available as a cleanup-only
+  operation and cannot enable delivery;
 - notification projection creates no push delivery rows;
 - no dispatcher starts and no push-service HTTP request occurs;
 - the manifest and install guidance may still be served because installing the
