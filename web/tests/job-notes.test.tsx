@@ -31,6 +31,17 @@ describe('JobCard operational notes', () => {
     host.remove();
   });
 
+  it('shows helper copy that notes do not change job status', async () => {
+    const load = vi.fn().mockResolvedValue(emptyPage);
+    const add = vi.fn();
+    await act(async () => root.render(
+      <JobNotes jobId="job-1" load={load} add={add} createActionId={() => 'action-1'} />,
+    ));
+    await act(async () => {});
+    expect(host.textContent).toContain('Notlar iş durumunu değiştirmez');
+    expect(host.textContent).toContain('Henüz iş notu yok');
+  });
+
   async function renderNotes(overrides: Partial<ComponentProps<typeof JobNotes>> = {}) {
     const load = vi.fn().mockResolvedValueOnce(emptyPage).mockResolvedValue({
       items: [savedNote], total: 1, limit: 25, offset: 0,

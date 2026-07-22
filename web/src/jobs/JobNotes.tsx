@@ -90,9 +90,12 @@ export function JobNotes({
 
   const remaining = 4000 - codePointLength(draft);
   if (hideWhenEmpty && state.kind === 'ready' && state.page.items.length === 0) return null;
-  return <section className="job-notes" aria-labelledby="job-notes-title">
+  return <section className="job-notes surface" aria-labelledby="job-notes-title">
     <div className="detail-section-heading"><h2 id="job-notes-title">Notlar</h2>
       {canAdd && <span aria-live="polite">{remaining} karakter kaldı</span>}</div>
+    <p className="job-notes-help">
+      Notlar iş durumunu değiştirmez. Ek bilgi ve yapılan hazırlıkları ekip için burada paylaşabilirsiniz.
+    </p>
     {canAdd && <form onSubmit={submit} noValidate>
       <div className="field-group">
         <label htmlFor="job-note">İş notu</label>

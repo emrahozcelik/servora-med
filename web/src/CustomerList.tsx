@@ -255,7 +255,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   const canManage = user.role !== 'STAFF';
 
   return <main className="workspace customer-workspace">
-    <div className="workspace-heading"><div><p className="eyebrow">CRM</p><h1>Müşteriler</h1></div>
+    <div className="workspace-heading"><div><h1>Müşteriler</h1></div>
       <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>
     </div>
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
@@ -300,7 +300,7 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
   staffMode?: boolean;
   currentUserName?: string;
 }) {
-  return <main className="customer-create"><div className="detail-heading"><div><p className="eyebrow">CRM</p><h1>Yeni müşteri</h1></div>
+  return <main className="customer-create"><div className="detail-heading"><div><h1>Yeni müşteri</h1></div>
     <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
     <p className="form-intro">Klinik veya firma kaydını oluşturun. İlgili kişiler müşteri kaydından sonra eklenir.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}

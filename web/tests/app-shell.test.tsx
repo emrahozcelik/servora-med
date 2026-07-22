@@ -72,7 +72,10 @@ describe('responsive authenticated AppShell', () => {
     expect(aside.querySelector('.dunya-dental-brand--sidebar')).not.toBeNull();
     expect(aside.querySelector('.notification-center')).toBeNull();
     expect(aside.querySelector('.shell-copyright img')).toBeNull();
-    expect(aside.querySelector('.shell-copyright')?.textContent).toContain('Dünya Dental');
+    const copyright = aside.querySelector('.shell-copyright');
+    expect(copyright?.textContent).toContain('Dünya Dental');
+    expect(getComputedStyle(copyright!).textAlign === 'center'
+      || copyright!.className.includes('shell-copyright')).toBe(true);
     const topbar = container.querySelector('.desktop-shell-topbar')!;
     expect(topbar.querySelector('.dunya-dental-brand')).toBeNull();
     expect(topbar.querySelector('[aria-label="Bildirimler"] svg')).not.toBeNull();

@@ -34,7 +34,16 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .dunya-dental-brand--sidebar img { height: 7rem; max-width: 10rem; }
 .dunya-dental-brand--topbar img { height: 2.25rem; max-width: 7rem; }
 .dunya-dental-brand__fallback { max-width: 100%; overflow-wrap: anywhere; }
-.shell-copyright { display: inline-flex; align-items: center; gap: 0.25rem; margin-top: 0.65rem; color: var(--muted); font-size: 0.6rem; }
+.shell-copyright {
+  display: flex;
+  width: 100%;
+  justify-content: center;
+  align-items: center;
+  text-align: center;
+  margin-top: 0.65rem;
+  color: var(--muted);
+  font-size: 0.6rem;
+}
 .eyebrow { margin: 0 0 0.85rem; color: var(--accent); font-size: 0.8125rem; font-weight: 720; letter-spacing: 0.035em; text-transform: uppercase; overflow-wrap: anywhere; }
 
 .login-layout { display: grid; grid-template-columns: minmax(19rem, 0.82fr) minmax(26rem, 1.18fr); min-height: 100vh; }
@@ -568,7 +577,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .shell-notification-trigger:hover { border-color: oklch(72% 0.018 240deg); background: var(--canvas); }
 .notification-center-badge { display: inline-flex; position: absolute; top: -0.4rem; right: -0.45rem; min-width: 1.2rem; min-height: 1.2rem; align-items: center; justify-content: center; margin: 0; padding-inline: 0.25rem; border: 2px solid var(--canvas); border-radius: 999px; color: white; background: var(--accent-hover); font-size: 0.65rem; line-height: 1; }
 .notification-center-desktop-layer, .notification-center-backdrop { position: fixed; z-index: 40; inset: 0; }
-.notification-center-desktop-layer { pointer-events: none; }
+/* Desktop outside-click layer must receive pointer events; the panel re-enables them. */
+.notification-center-desktop-layer { pointer-events: auto; }
 .notification-center-backdrop { display: flex; justify-content: flex-end; background: oklch(26% 0.016 246deg / 48%); }
 .notification-center-backdrop-button { position: absolute; inset: 0; border: 0; background: transparent; }
 .notification-center-panel { position: absolute; pointer-events: auto; top: 1rem; right: 1rem; display: grid; gap: 1rem; width: min(calc(100vw - 2rem), 28rem); max-height: min(42rem, calc(100dvh - 2rem)); overflow: auto; padding: 1rem; border: 1px solid var(--rule); border-radius: 0.75rem; background: var(--paper); box-shadow: 0 1rem 2.5rem oklch(26% 0.016 246deg / 22%); }
@@ -865,11 +875,52 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .new-job-menu { width: 100%; }
   .new-job-menu-trigger { width: 100%; }
 }
-.delivery-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem; }
+.delivery-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
 .delivery-heading h1 { margin: 0; font-size: 1.75rem; letter-spacing: -0.025em; }
-.delivery-form { margin-top: 1.5rem; }
+.delivery-form { margin-top: 0; }
 .delivery-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8rem, 0.45fr); gap: 1rem; }
 .job-detail { width: min(100% - 2rem, 72rem); margin: clamp(2rem, 6vh, 4rem) auto; }
+.job-detail-workflow-layout {
+  display: grid;
+  grid-template-columns: 1fr;
+  gap: 1rem;
+  align-items: start;
+  margin-top: 1.5rem;
+}
+.job-detail-workflow-main {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.job-detail-workflow-main--full,
+.job-detail-workflow-notes--full {
+  margin-top: 1.5rem;
+}
+.job-detail-workflow-main .detail-action {
+  margin-top: 0;
+}
+.job-detail-workflow-main .detail-action.surface-flat {
+  margin-top: 0;
+}
+.job-detail-workflow-notes {
+  min-width: 0;
+}
+.job-detail-workflow-notes .job-notes {
+  margin-top: 0;
+}
+.job-notes-help,
+.workflow-requirements-help {
+  margin: 0 0 0.85rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+}
+.job-detail-timeline {
+  margin-top: 1.5rem;
+}
+.job-detail-timeline .job-timeline {
+  margin-top: 0;
+}
 .job-detail-content {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -903,7 +954,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.detail-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem; }
+.detail-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
 .detail-heading > div { min-width: 0; }
 .detail-heading h1 { max-width: 24ch; margin: 0; font-size: 1.75rem; line-height: 1.2; letter-spacing: -0.025em; overflow-wrap: anywhere; }
 .detail-feedback { margin-top: 1.25rem; padding: 0.8rem 0.9rem; border: 1px solid oklch(78% 0.055 238deg); border-radius: 0.6rem; color: var(--accent-hover); background: var(--accent-soft); }
@@ -1411,9 +1462,10 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .job-detail-content > .job-schedule-edit,
   .job-detail-content > .delivery-lines,
   .job-detail-content > .job-detail-records { grid-column: 1; }
-  .job-detail-content > .approval-review,
-  .job-detail-content > .workflow-requirements,
-  .job-detail-content > .detail-action { grid-column: 2; }
+  .job-detail-content > .approval-review { grid-column: 2; }
+  .job-detail-workflow-layout {
+    grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
+  }
 }
 
 @media (max-width: 20rem) {
