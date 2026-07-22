@@ -139,7 +139,7 @@ and focused tests.
   browser unsubscribe fails.
 - [x] Add strict web response/request parsers; components do not call raw
   endpoints.
-- [ ] Run focused route/session/API tests and server/web builds.
+- [x] Run focused route/session/API tests and server/web builds.
 
 ## Task 5 — Browser Permission and Subscription Controller (Vertical TDD)
 
@@ -409,3 +409,27 @@ recorded:
   lacks `job_action_locations` grants in two acceptance tests. Phase R focused
   PostgreSQL tests do not skip and all pass; exact-head CI remains the clean
   environment regression authority.
+
+### Task 4 — Authenticated subscription API and session safety
+
+- Canonical request validation accepts only the exact PushSubscription shape,
+  bounded URL-safe Base64 keys, finite non-negative expiration, and approved
+  Chrome, Mozilla, or Apple HTTPS endpoints. Credentials, query, fragment,
+  backslash authority, IP representations, misleading suffixes, and every
+  explicit port including `:443` are rejected.
+- Authenticated status exposes only the public VAPID key and safe current-session
+  metadata. Create is default-off, idempotent, supports explicit same-user
+  session rebind, and maps cross-owner conflicts to opaque
+  `PUSH_SUBSCRIPTION_CONFLICT`.
+- Delete is current-session scoped and idempotent. It remains available while
+  Web Push is disabled as a cleanup-only operation; malformed IDs return `400`
+  and every other owner/session scope receives the same `404`.
+- POST and DELETE share a six-per-minute session-token-hash rate-limit group;
+  status reads do not consume it. Existing authentication, forced-password,
+  Origin, revoked/expired session, and inactive-user boundaries remain in
+  force.
+- The strict web API adapter is not consumed by UI components; Task 5 owns the
+  permission/subscription controller.
+- Focused verification: 71 server tests and 9 web API tests passed; server and
+  web production builds, the 500,000-byte bundle budget, and both production
+  dependency audits passed with zero vulnerabilities.
