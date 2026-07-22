@@ -8,6 +8,7 @@ import {
 } from '../services/web-push-api';
 import {
   asCreateWebPushSubscription,
+  isRecoverableSubscriptionReadError,
   type BrowserWebPushAdapter,
   type BrowserWebPushCapability,
   type BrowserWebPushPermission,
@@ -230,7 +231,15 @@ export function createWebPushController({
         return;
       }
       settle(status, '', 'enable');
-      let subscription = await browser.currentSubscription();
+      // Explicit enable only: recoverable getSubscription failures may fall
+      // through to one subscribe(). Recovery paths must not use this fallback.
+      let subscription: BrowserPushSubscription | null;
+      try {
+        subscription = await browser.currentSubscription();
+      } catch (error) {
+        if (!isRecoverableSubscriptionReadError(error)) throw error;
+        subscription = null;
+      }
       if (status.renewalRequired && subscription) {
         await browser.unsubscribe(subscription);
         subscription = null;

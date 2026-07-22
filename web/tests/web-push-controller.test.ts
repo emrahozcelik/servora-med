@@ -81,6 +81,195 @@ describe('WebPushController', () => {
     });
   });
 
+  it('explicit enable: recoverable AbortError on currentSubscription falls through once (C1)', async () => {
+    const subscription = {
+      endpoint: 'https://updates.push.services.mozilla.com/push/example',
+      expirationTime: null,
+      keys: { p256dh: 'p256dh', auth: 'auth' },
+      unsubscribe: vi.fn().mockResolvedValue(true),
+    };
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockRejectedValue(
+        Object.assign(new Error('Cihaz bildirimi aboneliği alınamadı. Sayfayı yenileyip yeniden deneyin.'), {
+          name: 'AbortError',
+        }),
+      ),
+      subscribe: vi.fn().mockResolvedValue(subscription),
+    });
+    const bound = {
+      id: 'subscription-1', createdAt: '2026-07-22T10:00:00.000Z', fingerprint: 'a'.repeat(64),
+    };
+    let serverHasSubscription = false;
+    const service = api({
+      createSubscription: vi.fn().mockImplementation(async () => {
+        serverHasSubscription = true;
+        return bound;
+      }),
+      getStatus: vi.fn().mockImplementation(async () => (
+        serverHasSubscription ? { ...status, subscription: bound } : status
+      )),
+    });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+    expect(adapter.currentSubscription).not.toHaveBeenCalled();
+    await controller.enable();
+
+    expect(adapter.currentSubscription).toHaveBeenCalledTimes(1);
+    expect(adapter.subscribe).toHaveBeenCalledTimes(1);
+    expect(adapter.subscribe).toHaveBeenCalledWith('AQID');
+    expect(service.createSubscription).toHaveBeenCalledTimes(1);
+    expect(service.disableSubscription).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().error).toBe('');
+    expect(controller.getSnapshot().pending).toBeNull();
+    expect(controller.getSnapshot().status?.subscription).toMatchObject({ id: 'subscription-1' });
+  });
+
+  it('explicit enable: non-recoverable read error does not subscribe (C2)', async () => {
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockRejectedValue(
+        Object.assign(new Error('Cihaz bildirimi aboneliği alınamadı. Sayfayı yenileyip yeniden deneyin.'), {
+          name: 'NotAllowedError',
+        }),
+      ),
+      subscribe: vi.fn(),
+    });
+    const service = api({ getStatus: vi.fn().mockResolvedValue(status) });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+    await controller.enable();
+
+    expect(adapter.subscribe).not.toHaveBeenCalled();
+    expect(service.createSubscription).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().pending).toBeNull();
+    expect(controller.getSnapshot().error).toMatch(/aboneliği alınamadı|açılamadı/);
+    expect(controller.getSnapshot().error).not.toMatch(/Error retrieving push subscription/i);
+  });
+
+  it('recovery read error never disables server or auto-subscribes (C3)', async () => {
+    const serviceWorkerTarget = makeServiceWorkerTarget();
+    const serverSub = {
+      id: 'subscription-1',
+      createdAt: '2026-07-22T10:00:00.000Z',
+      fingerprint: 'a'.repeat(64),
+    };
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockRejectedValue(
+        Object.assign(new Error('Cihaz bildirimi aboneliği alınamadı. Sayfayı yenileyip yeniden deneyin.'), {
+          name: 'AbortError',
+        }),
+      ),
+    });
+    const service = api({
+      getStatus: vi.fn().mockResolvedValue({ ...status, subscription: serverSub }),
+    });
+    const controller = createWebPushController({
+      api: service, browser: adapter, target: window, serviceWorkerTarget,
+    });
+
+    await controller.start('org-1:user-1');
+    window.dispatchEvent(new Event('focus'));
+    window.dispatchEvent(new Event('online'));
+    document.dispatchEvent(new Event('visibilitychange'));
+    serviceWorkerTarget.dispatch({ type: 'push-subscription-changed' });
+    await new Promise((r) => setTimeout(r, 0));
+    await new Promise((r) => setTimeout(r, 0));
+
+    expect(adapter.subscribe).not.toHaveBeenCalled();
+    expect(service.createSubscription).not.toHaveBeenCalled();
+    expect(service.disableSubscription).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().pending).toBeNull();
+  });
+
+  it('recovery true-null browser subscription disables server record (C4)', async () => {
+    const serverSub = {
+      id: 'subscription-1',
+      createdAt: '2026-07-22T10:00:00.000Z',
+      fingerprint: 'a'.repeat(64),
+    };
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockResolvedValue(null),
+    });
+    const service = api({
+      getStatus: vi.fn()
+        .mockResolvedValueOnce({ ...status, subscription: serverSub })
+        .mockResolvedValueOnce({ ...status, subscription: serverSub })
+        .mockResolvedValue({ ...status, subscription: null }),
+      disableSubscription: vi.fn().mockResolvedValue(undefined),
+    });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+    await controller.recover();
+
+    expect(service.disableSubscription).toHaveBeenCalledWith('subscription-1');
+    expect(adapter.subscribe).not.toHaveBeenCalled();
+  });
+
+  it('explicit enable does not loop when subscribe fails after recoverable read (C5)', async () => {
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockRejectedValue(
+        Object.assign(new Error('Cihaz bildirimi aboneliği alınamadı. Sayfayı yenileyip yeniden deneyin.'), {
+          name: 'AbortError',
+        }),
+      ),
+      subscribe: vi.fn().mockRejectedValue(
+        new Error('Cihaz bildirimi aboneliği oluşturulamadı. Sayfayı yenileyip yeniden deneyin.'),
+      ),
+    });
+    const service = api({ getStatus: vi.fn().mockResolvedValue(status) });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+    await controller.enable();
+
+    expect(adapter.subscribe).toHaveBeenCalledTimes(1);
+    expect(service.createSubscription).not.toHaveBeenCalled();
+    expect(controller.getSnapshot().pending).toBeNull();
+    expect(controller.getSnapshot().error.length).toBeGreaterThan(0);
+  });
+
+  it('Chrome happy path: null currentSubscription → subscribe once → create once (C6)', async () => {
+    const subscription = {
+      endpoint: 'https://fcm.googleapis.com/fcm/send/example',
+      expirationTime: null,
+      keys: { p256dh: 'p256dh', auth: 'auth' },
+      unsubscribe: vi.fn().mockResolvedValue(true),
+    };
+    const adapter = browser({
+      permission: () => 'granted' as const,
+      currentSubscription: vi.fn().mockResolvedValue(null),
+      subscribe: vi.fn().mockResolvedValue(subscription),
+    });
+    const bound = {
+      id: 'subscription-1', createdAt: '2026-07-22T10:00:00.000Z', fingerprint: 'a'.repeat(64),
+    };
+    let serverHasSubscription = false;
+    const service = api({
+      createSubscription: vi.fn().mockImplementation(async () => {
+        serverHasSubscription = true;
+        return bound;
+      }),
+      getStatus: vi.fn().mockImplementation(async () => (
+        serverHasSubscription ? { ...status, subscription: bound } : status
+      )),
+    });
+    const controller = createWebPushController({ api: service, browser: adapter, target: window });
+
+    await controller.start('org-1:user-1');
+    await controller.enable();
+
+    expect(adapter.subscribe).toHaveBeenCalledTimes(1);
+    expect(service.createSubscription).toHaveBeenCalledTimes(1);
+    expect(controller.getSnapshot().error).toBe('');
+  });
+
   it('does not prompt denied permissions or register a subscription', async () => {
     const adapter = browser({ permission: () => 'denied' as const });
     const controller = createWebPushController({ api: api(), browser: adapter, target: window });

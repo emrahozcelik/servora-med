@@ -128,7 +128,10 @@ describe('NotificationCenter', () => {
     settings.focus();
     await act(async () => settings.click());
 
-    expect(container.textContent).toContain('Paylaş → Ana Ekrana Ekle');
+    expect(container.textContent).toContain('Siteyi yükle');
+    expect(container.textContent).toContain('Dock’a Ekle');
+    expect(container.textContent).toContain('Ana Ekrana Ekle');
+    expect(container.textContent).toContain('iPhone veya iPad');
     expect(container.textContent).toContain('Cihaz bildirimleri şu anda kullanıma kapalıdır.');
     expect(requestPermission).not.toHaveBeenCalled();
     expect(register).not.toHaveBeenCalled();

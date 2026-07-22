@@ -17,16 +17,23 @@ type BrowserPushManager = Readonly<{
 
 type BrowserRegistration = Readonly<{ pushManager: BrowserPushManager }>;
 
+type BrowserServiceWorkerContainer = Readonly<{
+  register: (scriptURL: string, options: RegistrationOptions) => Promise<BrowserRegistration>;
+  ready: Promise<BrowserRegistration>;
+}>;
+
 export type BrowserWebPushEnvironment = Readonly<{
   Notification?: typeof Notification;
   PushManager?: unknown;
   navigator: Readonly<{
     standalone?: boolean;
-    serviceWorker?: Readonly<{
-      register: (scriptURL: string, options: RegistrationOptions) => Promise<BrowserRegistration>;
-    }>;
+    serviceWorker?: BrowserServiceWorkerContainer;
   }>;
   matchMedia?: (query: string) => Pick<MediaQueryList, 'matches'>;
+}>;
+
+export type BrowserWebPushAdapterOptions = Readonly<{
+  readyTimeoutMs?: number;
 }>;
 
 export type BrowserWebPushAdapter = Readonly<{
@@ -39,6 +46,17 @@ export type BrowserWebPushAdapter = Readonly<{
   unsubscribe: (subscription: BrowserPushSubscription) => Promise<boolean>;
   fingerprint: (subscription: BrowserPushSubscription) => Promise<string>;
 }>;
+
+/** `navigator.serviceWorker.ready` never rejects; bound waits so enable cannot hang forever. */
+export const SERVICE_WORKER_READY_TIMEOUT_MS = 10_000;
+export const SERVICE_WORKER_READY_TIMEOUT_CODE = 'SERVICE_WORKER_READY_TIMEOUT';
+
+export const SERVICE_WORKER_READY_TIMEOUT_MESSAGE =
+  'Cihaz bildirimi servisi hazırlanamadı. Sayfayı yenileyip yeniden deneyin.';
+export const SUBSCRIPTION_READ_ERROR_MESSAGE =
+  'Cihaz bildirimi aboneliği alınamadı. Sayfayı yenileyip yeniden deneyin.';
+export const SUBSCRIPTION_CREATE_ERROR_MESSAGE =
+  'Cihaz bildirimi aboneliği oluşturulamadı. Sayfayı yenileyip yeniden deneyin.';
 
 function required<T>(value: T | undefined, message: string): T {
   if (value === undefined) throw new Error(message);
@@ -68,6 +86,95 @@ export function decodeWebPushVapidKey(value: string): Uint8Array {
   return Uint8Array.from(binary, (character) => character.charCodeAt(0));
 }
 
+/** Clean ArrayBuffer-backed key for PushManager.subscribe (Firefox/Chrome). */
+export function applicationServerKeyFromVapid(value: string): Uint8Array<ArrayBuffer> {
+  const decoded = decodeWebPushVapidKey(value);
+  return Uint8Array.from(decoded) as Uint8Array<ArrayBuffer>;
+}
+
+/**
+ * Transient worker readiness failures only — explicit enable may fall through to subscribe().
+ * Ready timeout, permission, and validation errors are not recoverable here.
+ */
+export function isRecoverableSubscriptionReadError(error: unknown): boolean {
+  if (!(error instanceof Error)) return false;
+  return error.name === 'AbortError' || error.name === 'InvalidStateError';
+}
+
+function isReadyTimeoutError(error: unknown): boolean {
+  return error instanceof Error && (
+    error.message === SERVICE_WORKER_READY_TIMEOUT_CODE
+    || error.message === SERVICE_WORKER_READY_TIMEOUT_MESSAGE
+  );
+}
+
+function withPreservedName(message: string, error: unknown): Error {
+  const next = new Error(message);
+  if (error instanceof Error && error.name) next.name = error.name;
+  return next;
+}
+
+function normalizeReadyOrReadError(error: unknown): Error {
+  if (isReadyTimeoutError(error)) {
+    return new Error(SERVICE_WORKER_READY_TIMEOUT_MESSAGE);
+  }
+  if (error instanceof Error && error.message === SUBSCRIPTION_READ_ERROR_MESSAGE) return error;
+  if (error instanceof Error && error.message === SUBSCRIPTION_CREATE_ERROR_MESSAGE) return error;
+  if (error instanceof Error && error.message === SERVICE_WORKER_READY_TIMEOUT_MESSAGE) return error;
+  return withPreservedName(SUBSCRIPTION_READ_ERROR_MESSAGE, error);
+}
+
+function normalizeReadyOrCreateError(error: unknown): Error {
+  if (isReadyTimeoutError(error)) {
+    return new Error(SERVICE_WORKER_READY_TIMEOUT_MESSAGE);
+  }
+  if (error instanceof Error && error.message === SUBSCRIPTION_CREATE_ERROR_MESSAGE) return error;
+  if (error instanceof Error && error.message === SERVICE_WORKER_READY_TIMEOUT_MESSAGE) return error;
+  return withPreservedName(SUBSCRIPTION_CREATE_ERROR_MESSAGE, error);
+}
+
+/**
+ * Register fixed SW, then wait (bounded) for an active registration via ready.
+ * Late ready resolution after timeout does not drive push mutations — callers
+ * only observe the race winner.
+ */
+export async function waitForReadyRegistration(
+  serviceWorker: BrowserServiceWorkerContainer,
+  timeoutMs: number = SERVICE_WORKER_READY_TIMEOUT_MS,
+): Promise<BrowserRegistration> {
+  await serviceWorker.register('/service-worker.js', {
+    scope: '/',
+    updateViaCache: 'none',
+  });
+
+  let timeoutId: ReturnType<typeof setTimeout> | undefined;
+  let settled = false;
+  try {
+    return await new Promise<BrowserRegistration>((resolve, reject) => {
+      timeoutId = setTimeout(() => {
+        if (settled) return;
+        settled = true;
+        reject(new Error(SERVICE_WORKER_READY_TIMEOUT_CODE));
+      }, timeoutMs);
+
+      void serviceWorker.ready.then(
+        (registration) => {
+          if (settled) return;
+          settled = true;
+          resolve(registration);
+        },
+        (error: unknown) => {
+          if (settled) return;
+          settled = true;
+          reject(error instanceof Error ? error : new Error(String(error)));
+        },
+      );
+    });
+  } finally {
+    if (timeoutId !== undefined) clearTimeout(timeoutId);
+  }
+}
+
 export function asCreateWebPushSubscription(
   subscription: BrowserPushSubscription,
 ): CreateWebPushSubscriptionRequest {
@@ -86,15 +193,23 @@ export async function fingerprintBrowserWebPushSubscription(subscription: Browse
 
 export function createBrowserWebPushAdapter(
   environment: BrowserWebPushEnvironment | undefined = typeof window === 'undefined' ? undefined : window,
+  options: BrowserWebPushAdapterOptions = {},
 ): BrowserWebPushAdapter {
   const resolvedEnvironment = environment ?? { navigator: {} };
+  const readyTimeoutMs = options.readyTimeoutMs ?? SERVICE_WORKER_READY_TIMEOUT_MS;
   const supported = () => Boolean(
     resolvedEnvironment.Notification
     && resolvedEnvironment.PushManager
     && resolvedEnvironment.navigator.serviceWorker,
   );
-  const registration = async () => required(resolvedEnvironment.navigator.serviceWorker, 'Service worker desteklenmiyor.')
-    .register('/service-worker.js', { scope: '/', updateViaCache: 'none' });
+
+  const activeRegistration = async (): Promise<BrowserRegistration> => {
+    const serviceWorker = required(
+      resolvedEnvironment.navigator.serviceWorker,
+      'Service worker desteklenmiyor.',
+    );
+    return waitForReadyRegistration(serviceWorker, readyTimeoutMs);
+  };
 
   return {
     capability: () => supported() ? 'supported' : 'unsupported',
@@ -107,17 +222,26 @@ export function createBrowserWebPushAdapter(
       .requestPermission(),
     async currentSubscription() {
       if (!supported()) return null;
-      const current = await (await registration()).pushManager.getSubscription();
-      return current ? subscriptionFrom(current) : null;
+      try {
+        const current = await (await activeRegistration()).pushManager.getSubscription();
+        return current ? subscriptionFrom(current) : null;
+      } catch (error) {
+        // Never map failures to null — recovery would wrongly disable a server record.
+        throw normalizeReadyOrReadError(error);
+      }
     },
     async subscribe(vapidPublicKey) {
       if (!supported()) throw new Error('Cihaz bildirimleri bu tarayıcıda desteklenmiyor.');
-      const applicationServerKey = new Uint8Array(decodeWebPushVapidKey(vapidPublicKey)) as Uint8Array<ArrayBuffer>;
-      const created = await (await registration()).pushManager.subscribe({
-        userVisibleOnly: true,
-        applicationServerKey,
-      });
-      return subscriptionFrom(created);
+      try {
+        const applicationServerKey = applicationServerKeyFromVapid(vapidPublicKey);
+        const created = await (await activeRegistration()).pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey,
+        });
+        return subscriptionFrom(created);
+      } catch (error) {
+        throw normalizeReadyOrCreateError(error);
+      }
     },
     unsubscribe: (subscription) => subscription.unsubscribe(),
     fingerprint: fingerprintBrowserWebPushSubscription,

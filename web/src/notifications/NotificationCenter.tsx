@@ -233,8 +233,9 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
                 </>
               ) : (
                 <p>
-                  Tarayıcı menüsündeki yükleme veya Dock’a ekleme seçeneğini kullanın. iPhone ve iPad’de
-                  Paylaş → Ana Ekrana Ekle yolunu izleyin.
+                  Tarayıcı menüsünden “Siteyi yükle”, “Dock’a Ekle” veya “Ana Ekrana Ekle” seçeneğini
+                  kullanabilirsiniz. iPhone veya iPad’de Safari paylaş menüsünden “Ana Ekrana Ekle”yi
+                  seçin.
                 </p>
               )}
               {installError && <p className="form-error" role="alert">{installError}</p>}
