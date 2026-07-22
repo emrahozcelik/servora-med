@@ -25,14 +25,15 @@ Included:
 - a Web App Manifest, install-safe application icons, and standalone launch;
 - explicit Chromium install prompting when `beforeinstallprompt` is available;
 - manual Add to Home Screen/Add to Dock guidance when no install event exists;
-- a minimal root-scoped service worker for `push` and `notificationclick`;
+- a minimal root-scoped service worker for `push`, `notificationclick`, and
+  foreground notification of `pushsubscriptionchange`;
 - an explicit, user-initiated browser notification permission flow;
 - VAPID-backed Push API subscriptions;
 - tenant-, recipient-, and auth-session-scoped subscription storage;
 - a durable delivery outbox derived from committed persistent notifications;
 - bounded delivery retries and stale endpoint cleanup;
 - privacy-safe notification payloads and allowlisted relative deep links;
-- current Chrome and real Safari/iOS manual acceptance.
+- current Chrome, Firefox desktop, and real Safari/iOS manual acceptance.
 
 Excluded:
 
@@ -233,16 +234,31 @@ Status response:
 type WebPushStatus = Readonly<{
   enabled: boolean;
   vapidPublicKey: string | null;
+  renewalRequired: boolean;
   subscription: null | Readonly<{
     id: string;
     createdAt: string;
+    fingerprint: string;
   }>;
 }>;
 ```
 
 Only a subscription belonging to the authenticated organization, user, and
-current auth session is returned. Endpoint and encryption keys never appear in
-any response.
+current auth session is returned. `fingerprint` is a server-generated SHA-256
+digest of the canonical endpoint and encryption-key tuple; it lets the browser
+detect changed subscription material without returning those secrets.
+`renewalRequired` is true when the current-session endpoint was disabled as
+stale or its stored VAPID public-key fingerprint no longer matches current
+configuration. Endpoint and encryption keys never appear in any response.
+
+Fingerprint encoding is deterministic across browser and server:
+
+```text
+subscription fingerprint = lowercase hex SHA-256(
+  UTF-8(endpoint + "\n" + p256dh + "\n" + auth)
+)
+VAPID public-key fingerprint = lowercase hex SHA-256(decoded public-key bytes)
+```
 
 Creation accepts the exact browser `PushSubscription` data required for
 delivery:
@@ -270,11 +286,39 @@ allowlist is deliberately server-owned and SSRF-safe:
 Adding another push service is an explicit server configuration/code review,
 not a client-provided escape hatch.
 
-Creation is idempotent for the same endpoint and current identity/session. An
-endpoint already owned by another user or organization is not silently
-transferred; the client must unsubscribe/rotate it after an explicit action.
-Deletion is scoped by organization, recipient, and current session and returns
-`404` outside that scope.
+Firefox desktop is part of the Phase R pilot. This is a bounded standards-based
+acceptance target, not a commitment to broad browser compatibility. Including
+it avoids prompting a feature-capable Firefox user and only then rejecting the
+Mozilla endpoint without any product validation.
+
+Creation is idempotent for the same endpoint and current identity/session.
+Because a browser subscription belongs to the service-worker registration
+rather than an auth session, explicit creation applies this locked rebind
+protocol:
+
+1. Lock any row with the same global endpoint hash.
+2. If it belongs to the same organization and user, an explicit
+   `Cihaz bildirimlerini aç` action may atomically rebind it to the current
+   session, refresh endpoint/key/VAPID fingerprints, clear stale/disabled
+   state, and abandon the row's older non-terminal deliveries. Login or status
+   loading never performs this rebind automatically.
+3. If it belongs to another user or organization, never transfer or reveal the
+   owner. Return an ownership-opaque `409 PUSH_SUBSCRIPTION_CONFLICT`.
+4. After that `409`, the browser may unsubscribe its local subscription,
+   create a fresh one, and retry the server create exactly once. A second
+   conflict stops with an actionable error; it never loops.
+
+This also permits disabled rows to be safely reactivated by the same user after
+logout/login without weakening global endpoint uniqueness. Account switching
+never auto-associates the prior account's endpoint. Deletion is scoped by
+organization, recipient, and current session and returns `404` outside that
+scope.
+
+When an already-opted-in current session presents a genuinely new endpoint,
+the same transaction first proves that the new global hash has no other owner,
+then disables the session's older row, abandons its non-terminal deliveries,
+and inserts the replacement. A conflict rolls back without disabling the
+currently working row.
 
 Subscription creation and deletion receive focused rate limits. Request-body
 redaction covers the entire endpoint and key object.
@@ -295,6 +339,7 @@ web_push_subscriptions
   p256dh
   auth
   expiration_time nullable
+  vapid_public_key_fingerprint
   created_at
   updated_at
   disabled_at nullable
@@ -330,7 +375,36 @@ Expired/revoked-session subscriptions are disabled during dispatcher cleanup.
 On explicit logout the web performs best-effort local browser unsubscription
 after the authoritative server logout. On account change, push UI state is
 cleared. A new account must click enable explicitly; an old endpoint is never
-auto-associated during login.
+auto-associated during login. The same user may explicitly rebind the retained
+browser endpoint to a later session through the protocol in section 7.
+
+### 8.1 Browser refresh and VAPID rotation
+
+The browser may replace a subscription endpoint or key material independently.
+The worker's `pushsubscriptionchange` handler performs no authenticated fetch
+or API mutation. It only posts a fixed, data-free
+`push-subscription-changed` message to currently open same-origin clients.
+
+The foreground controller reconciles on authenticated mount, focus,
+visibility, online recovery, and that worker message:
+
+- it first loads canonical server status;
+- only when the server says the current session already has an active
+  subscription does it call `getSubscription()` for comparison;
+- equal browser/server fingerprints require no write;
+- changed endpoint or keys are posted to the idempotent create endpoint to
+  refresh the already-opted-in current-session record;
+- a missing browser subscription disables the current server record and moves
+  the UI to explicit re-enable;
+- provider `404/410` produces `renewalRequired`, so the next explicit enable
+  action performs one unsubscribe → subscribe → create rotation;
+- a changed VAPID public key also produces `renewalRequired`; old-key records
+  receive no new deliveries and rotation requires an explicit user action.
+
+No permission prompt or cross-session rebind occurs during foreground
+reconciliation. A closed app catches up the next time it becomes foreground;
+subscription refresh does not justify background API credentials in the
+worker.
 
 ## 9. Durable Delivery Outbox
 
@@ -378,23 +452,43 @@ lease keeps the design safe if a future deployment briefly runs two processes.
 
 When enabled, the dispatcher:
 
-1. atomically claims a bounded due batch with `FOR UPDATE SKIP LOCKED` and a
-   lease token;
+1. computes available capacity and atomically claims no more than that many due
+   rows with `FOR UPDATE SKIP LOCKED`, a lease token, and a 30-second lease;
 2. commits the claim;
-3. sends each push outside a database transaction through a narrow
-   `WebPushSender` port;
+3. sends at most four pushes concurrently, outside a database transaction,
+   through a narrow `WebPushSender` port;
 4. records success, retry, stale endpoint, terminal failure, or expiry in a
-   separate short transaction;
-5. stops accepting new work and awaits bounded active sends during shutdown.
+   separate short transaction guarded by the same lease token;
+5. stops accepting new work and applies the shutdown contract below.
 
 Initial bounded policy:
 
-- batch size: 20;
+- maximum concurrent sends: 4;
+- maximum claim count per poll: currently available concurrency slots, never
+  more than 4;
 - polling interval: 5 seconds;
 - send timeout: 10 seconds;
+- lease duration: 30 seconds;
+- shutdown wait deadline: 15 seconds;
 - push-service TTL and delivery expiry: 24 hours;
 - retry delays: 30 seconds, 2 minutes, 10 minutes, 30 minutes, 1 hour;
-- maximum attempts: 5.
+- maximum send attempts: 6, defined as the initial send plus five retries.
+
+Retry indexing is exact: failed attempts 1–5 schedule the five delays in order;
+a failed attempt 6 becomes abandoned and indexes no delay. Database checks,
+dispatcher constants, and tests use this same total-attempt definition.
+
+The 30-second lease is longer than the 10-second sender timeout plus bounded
+result persistence. A result update must match the delivery ID, `CLAIMED`
+state, and lease token so a late owner cannot overwrite a later claim.
+
+On shutdown:
+
+- stop the polling timer and make no new claim or provider call;
+- wait up to 15 seconds for active sends and their result writes;
+- abort any still-active sender request at the deadline;
+- leave unfinished rows `CLAIMED` without inventing a retry result;
+- let those rows become claimable only after their 30-second lease expires.
 
 These are code-owned constants for the first VPS pilot, not speculative env
 configuration. A later operations finding may justify making them configurable.
@@ -464,7 +558,9 @@ The worker has only:
 - install/activate lifecycle needed to replace the previous version cleanly;
 - a `push` listener that always calls `showNotification`;
 - a `notificationclick` listener that closes, focuses/navigates an existing
-  same-origin window, or opens one.
+  same-origin window, or opens one;
+- a `pushsubscriptionchange` listener that performs no fetch or mutation and
+  only posts a fixed refresh signal to already-open same-origin clients.
 
 There is no `fetch`, sync, periodic-sync, geolocation, cache-storage, IndexedDB,
 business API, or mutation handler.
@@ -561,8 +657,8 @@ Production operations must:
 
 - generate one VAPID key pair once and keep the private key outside Git;
 - use an approved `mailto:` or public HTTPS contact subject;
-- permit outbound HTTPS to the approved push-service hosts, including Apple
-  push subdomains for Safari;
+- permit outbound HTTPS to approved Google, Mozilla, and Apple push-service
+  hosts, including Apple push subdomains for Safari;
 - include both new tables in backup/restore and migration rehearsal;
 - monitor sustained retry/expiry rates;
 - document key rotation, which invalidates/requires renewal of subscriptions.
@@ -578,6 +674,10 @@ Production operations must:
 | Browser subscribed, server save fails | Keep local subscription; explicit retry reuses it |
 | Logout/password change/session expiry | Server delivery stops via session join |
 | Provider `404/410` | Disable subscription; abandon queued work |
+| Browser refreshes endpoint/keys | Foreground fingerprint reconciliation updates only an already-active current-session record |
+| VAPID public key changes | No old-key delivery; explicit unsubscribe/subscribe renewal required |
+| Same user logs in with a new session | Explicit enable may atomically rebind the same endpoint and abandon old pending work |
+| Different account owns local endpoint | Opaque `409`; unsubscribe/subscribe and one create retry, never transfer |
 | Provider `429/5xx` or network timeout | Bounded exponential retry |
 | Notification already read before claim | Abandon pending delivery |
 | Dispatcher/process restart | Expired leases become claimable; no outbox loss |
@@ -594,12 +694,16 @@ Server tests must prove:
 - endpoint allowlist/SSRF rejection and input length/Base64 validation;
 - authenticated status, idempotent create, scoped delete, cross-user/tenant
   `404`, and disabled-mode no-write behavior;
+- same-user new-session explicit rebind, cross-user/tenant opaque conflict,
+  single rotation retry contract, and abandonment of pre-rebind pending work;
 - logout, password change, expired session, inactive user, and account switch
   cannot receive delivery;
 - committed notification creates one delivery per active subscription in the
   same transaction; rollback/replay creates none or no duplicate;
 - already-read notifications are skipped;
 - lease claim/reclaim, retry schedule, expiry, and normal duplicate prevention;
+- four-send concurrency, claim-at-capacity, 30-second lease, lease-token result
+  guard, six-attempt semantics, and 15-second shutdown behavior;
 - `404/410` stale cleanup and safe handling of retryable/terminal results;
 - payload exactness/privacy and no endpoint/key/payload/VAPID material in logs;
 - dispatcher shutdown and disabled mode make no sender call.
@@ -615,8 +719,11 @@ Web tests must prove:
 - exact `userVisibleOnly` and VAPID public-key subscription options;
 - duplicate click gate, save failure retry, disable ordering, and identity
   cleanup;
+- same-user session rebind, cross-account unsubscribe/rotate, foreground
+  fingerprint refresh, provider-stale renewal, and VAPID-key rotation;
 - service-worker registration fixed path/scope/update policy;
 - push event always shows a notification; exact and malformed payload behavior;
+- `pushsubscriptionchange` performs no API call and signals only open clients;
 - click allowlist, existing-client focus/navigation, new-window behavior, and
   rejection of cross-origin or malformed URLs;
 - worker contains no `fetch` handler or business caching;
@@ -630,6 +737,9 @@ Manual acceptance covers:
 
 - Chrome desktop and Android: install, allow, deny, foreground/background
   delivery, duplicate/retry behavior, click navigation, logout, and stale
+  endpoint cleanup;
+- Firefox desktop: install where supported, allow/deny, foreground/background
+  delivery, Mozilla endpoint acceptance, click navigation, logout, and stale
   endpoint cleanup;
 - Safari macOS: Add to Dock/install, allow/deny, closed-browser delivery, and
   click navigation;
@@ -660,7 +770,8 @@ Manual acceptance covers:
     mutation, or geolocation behavior.
 11. Existing notification center, SSE, lifecycle, idempotency, bundle,
     responsive, backup, and security contracts remain green.
-12. Real Chrome and Safari/iOS acceptance passes before production enablement.
+12. Real Chrome, Firefox desktop, and Safari/iOS acceptance passes before
+    production enablement.
 
 ## 19. Alternatives Rejected
 
@@ -682,8 +793,8 @@ rows provide the required durability without Redis/Kafka/another service.
 ### Firebase-specific client SDK
 
 Rejected because standards-based Push API, Service Workers, VAPID, and a narrow
-server sender support the Chrome/Safari pilot without making Firebase another
-application platform.
+server sender support the Chrome/Firefox/Safari pilot without making Firebase
+another application platform.
 
 ### Broad PWA/offline plugin
 

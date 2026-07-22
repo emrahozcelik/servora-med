@@ -94,8 +94,11 @@ focused repository tests.
   state/lease/attempt checks, and due-work indexes.
 - [ ] RED→GREEN: append, find-current-session, idempotent same-identity upsert,
   scoped disable, and inactive-session cleanup repository behavior.
-- [ ] RED→GREEN: reject cross-user/organization endpoint transfer; do not
-  reveal the prior owner.
+- [ ] RED→GREEN: store the VAPID public-key fingerprint and expose only a
+  SHA-256 subscription fingerprint, never endpoint/key material.
+- [ ] RED→GREEN: under an endpoint-row lock, allow explicit same-user
+  new-session rebind while abandoning older non-terminal deliveries; reject
+  cross-user/organization transfer without revealing the prior owner.
 - [ ] RED→GREEN: logger redaction covers endpoint, `p256dh`, `auth`, payload,
   and VAPID values dynamically, not only through a static path assertion.
 - [ ] Update environment examples with false default and secret-handling notes;
@@ -111,8 +114,9 @@ and focused tests.
 
 - [ ] RED→GREEN: authenticated status returns disabled/null values while the
   flag is false and never returns endpoint or keys.
-- [ ] RED→GREEN: enabled status returns only the public VAPID key and the
-  current organization/user/session subscription metadata.
+- [ ] RED→GREEN: enabled status returns only the public VAPID key, safe
+  subscription fingerprint/current-session metadata, and exact
+  `renewalRequired` state.
 - [ ] RED→GREEN one validator at a time: exact request shape, bounded
   URL-safe-Base64 keys, expiration, HTTPS URL, no credentials/port/IP, and the
   approved Chrome/Mozilla/Apple endpoint hosts.
@@ -120,6 +124,11 @@ and focused tests.
   turn the server into an SSRF client.
 - [ ] RED→GREEN: explicit create is idempotent for the same current identity
   and returns the same public record on retry.
+- [ ] RED→GREEN: the same user can explicitly rebind a retained browser
+  endpoint to a later session; login/status loading never rebinds it and old
+  pending work is abandoned.
+- [ ] RED→GREEN: a different user/organization receives ownership-opaque
+  `409 PUSH_SUBSCRIPTION_CONFLICT` and can never acquire that row.
 - [ ] RED→GREEN: disabled create performs no row write; cross-user/tenant or
   other-session disable returns `404`; current-session disable is idempotent.
 - [ ] RED→GREEN: add focused mutation rate limits and preserve the existing
@@ -155,6 +164,16 @@ Task 4 API adapter, styles, focused tests, and responsive fixture.
 - [ ] RED→GREEN: logout best-effort unsubscribes locally after authoritative
   server session revocation; identity/account changes clear all controller
   state and never auto-associate an old endpoint.
+- [ ] RED→GREEN: after cross-account `409`, explicit enable unsubscribes,
+  creates a fresh browser subscription, and retries create exactly once; a
+  second conflict stops without a loop.
+- [ ] RED→GREEN: on authenticated mount/focus/visibility/online recovery,
+  compare browser and safe server fingerprints only when the current session
+  already has an active server record; equal state writes nothing and changed
+  endpoint/keys refresh that opted-in record.
+- [ ] RED→GREEN: a missing browser subscription disables the server record;
+  provider-stale or changed-VAPID `renewalRequired` rotates only after a new
+  explicit enable action.
 - [ ] RED→GREEN: Home Screen guidance precedes push enablement when required
   capabilities are unavailable in a non-installed context.
 - [ ] Run focused browser-adapter/controller/UI tests and web build.
@@ -175,6 +194,9 @@ or business API changes.
   client before navigating another same-origin client or opening a new window.
 - [ ] RED→GREEN: install/activate replaces the prior worker without creating or
   deleting business caches.
+- [ ] RED→GREEN: `pushsubscriptionchange` performs no fetch/API mutation and
+  posts only a fixed, data-free refresh signal to currently open same-origin
+  clients; no open client is a safe no-op.
 - [ ] Add a source/static contract test proving there is no `fetch`, sync,
   periodic-sync, geolocation, CacheStorage, IndexedDB, or mutation behavior.
 - [ ] Update Caddy examples and behavior tests so worker JS is never SPA HTML,
@@ -213,8 +235,11 @@ dependency, and focused tests.
 
 - [ ] RED→GREEN: atomically claim one due row with lease identity and send only
   after the claim transaction closes.
-- [ ] RED→GREEN: concurrent claimers and process-restart lease recovery do not
-  normally send the same row twice.
+- [ ] RED→GREEN: claim count never exceeds currently available slots, at most
+  four sends run concurrently, and no fifth sender starts until a slot is free.
+- [ ] RED→GREEN: the 30-second lease exceeds the 10-second send timeout;
+  concurrent claimers and process-restart lease recovery do not normally send
+  the same row twice, and result writes require the matching lease token.
 - [ ] RED→GREEN: build the exact generic payload/deep link from the committed
   notification presenter; prove forbidden business fields are absent.
 - [ ] RED→GREEN: success records delivered time and resets subscription
@@ -222,12 +247,15 @@ dependency, and focused tests.
 - [ ] RED→GREEN: `404` and `410` disable the subscription and abandon its
   remaining due work.
 - [ ] RED→GREEN one retry class at a time: timeout/network/`408`/`429`/`5xx`
-  use the approved 30s/2m/10m/30m/1h schedule, five-attempt bound, and 24-hour
-  expiry.
+  use the approved 30s/2m/10m/30m/1h schedule, six total send attempts (initial
+  plus five retries), and 24-hour expiry. Failed attempt 6 is abandoned without
+  indexing another delay.
 - [ ] RED→GREEN: other `4xx`, already-read, revoked-session, inactive-user,
   disabled-subscription, and expired work terminate without a sender call.
 - [ ] RED→GREEN: disabled config never constructs/starts the sender or polls;
-  shutdown stops polling and awaits bounded active sends before DB close.
+  shutdown stops polling/claims, starts no new provider call, waits 15 seconds,
+  aborts unfinished sends, and leaves their claims unchanged until the
+  30-second lease expires.
 - [ ] Record the residual at-least-once crash window and stable tag/topic
   mitigation in the Implementation Record; do not claim external exactly-once.
 - [ ] Pin and audit `web-push`; document why protocol encryption/VAPID cannot be
@@ -262,6 +290,9 @@ tests/fixtures, responsive smoke, and operations verification only.
 - [ ] Confirm exact-head GitHub CI server and web jobs pass.
 - [ ] Chrome desktop and Android: install, allow, deny, foreground/background,
   duplicate/retry, click, logout, and stale-endpoint cases.
+- [ ] Firefox desktop: install where supported, allow/deny,
+  foreground/background, Mozilla endpoint, click, logout, refresh, and stale
+  endpoint cases.
 - [ ] Safari macOS: Add to Dock, allow/deny, closed-browser delivery, and click.
 - [ ] Real iOS/iPadOS Home Screen app: install, explicit permission, background
   delivery, click, Focus behavior awareness, logout/account switch, and
@@ -306,10 +337,11 @@ recorded:
 
 - [ ] final user-facing Turkish explanation and settings copy approved;
 - [ ] production VAPID subject and one generated key pair stored outside Git;
-- [ ] outbound HTTPS policy permits approved Chrome/Safari endpoint families;
+- [ ] outbound HTTPS policy permits approved Chrome/Firefox/Safari endpoint
+  families;
 - [ ] subscription/payload metadata exposure and retention reviewed;
 - [ ] stale endpoint cleanup and monitoring verified in production-like staging;
-- [ ] Chrome and real Safari/iOS manual acceptance passed;
+- [ ] Chrome, Firefox desktop, and real Safari/iOS manual acceptance passed;
 - [ ] VAPID rotation and emergency-disable runbooks approved;
 - [ ] exact production flag change receives explicit approval.
 
