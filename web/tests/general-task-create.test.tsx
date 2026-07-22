@@ -88,7 +88,7 @@ describe('General Task quick create', () => {
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
   it('keeps Staff ownership fixed and submits the prefilled planned time', async () => {
-    await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     expect(people.listStaff).not.toHaveBeenCalled();
     expect(container.textContent).toContain('Ayşe Personel');
     expect(container.querySelector('#task-assignee')).toBeNull();
@@ -109,7 +109,7 @@ describe('General Task quick create', () => {
   });
 
   it('allows clearing the prefilled planned time and submits scheduledAt null', async () => {
-    await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     change(container.querySelector('#task-title') as HTMLInputElement, 'Takip et');
     change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
@@ -121,7 +121,7 @@ describe('General Task quick create', () => {
   it('preserves a user-edited planned time across validation errors and staff retry', async () => {
     people.listStaff.mockRejectedValueOnce(new Error('Bağlantı yok'))
       .mockResolvedValueOnce([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
-    await act(async () => root.render(<GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-08-10T08:30');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
@@ -143,7 +143,7 @@ describe('General Task quick create', () => {
   it('loads only active Staff and offers an inline retry after failure', async () => {
     people.listStaff.mockRejectedValueOnce(new Error('Bağlantı yok'))
       .mockResolvedValueOnce([profile('staff-1', 'Ayşe'), profile('inactive', 'Pasif', false)]);
-    await act(async () => root.render(<GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     expect(container.textContent).toContain('Personel listesi yüklenemedi');
 
@@ -165,7 +165,7 @@ describe('General Task quick create', () => {
       items: [contact('c1', 'contact-1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0,
     });
     await act(async () => root.render(
-      <GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} />,
+      <MemoryRouter><GeneralTaskCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
     ));
     await settle();
     const details = container.querySelector('details')!;
@@ -197,7 +197,7 @@ describe('General Task quick create', () => {
   it('offers an explicit cancel action', async () => {
     const onCancel = vi.fn();
     await act(async () => root.render(
-      <GeneralTaskCreateScreen user={staff} onCancel={onCancel} onCreated={onCreated} />,
+      <MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={onCancel} onCreated={onCreated} /></MemoryRouter>,
     ));
     await act(async () => (container.querySelector('[data-cancel-task]') as HTMLButtonElement).click());
     expect(onCancel).toHaveBeenCalledOnce();
@@ -205,7 +205,7 @@ describe('General Task quick create', () => {
 
   it('keeps disclosure labels and moves focus to an associated error summary', async () => {
     await act(async () => root.render(
-      <GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />,
+      <MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>,
     ));
     const disclosure = container.querySelector('details.task-optional')!;
     expect(disclosure.querySelector('summary')?.textContent).toBe('Ek bilgiler');
@@ -237,7 +237,7 @@ describe('General Task quick create', () => {
         ? { items: [contact('c2', 'b1', 'Dr. Bora')], total: 2, limit: 200, offset: 0 }
         : { items: [contact('c2', 'b2', 'Selin')], total: 2, limit: 200, offset: 1 });
     });
-    await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     const details = container.querySelector('details')!; details.open = true;
     await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
     await settle();
@@ -260,7 +260,7 @@ describe('General Task quick create', () => {
 
   it('allows context-free submit after optional CRM loading fails', async () => {
     crm.listCustomers.mockRejectedValue(new Error('CRM yok'));
-    await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     const details = container.querySelector('details')!; details.open = true;
     await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
     await settle();
@@ -277,7 +277,7 @@ describe('General Task quick create', () => {
     crm.listContacts.mockResolvedValue({
       items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0,
     });
-    await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c1" />));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c1" /></MemoryRouter>));
     const details = container.querySelector('details')!; details.open = true;
     await act(async () => details.dispatchEvent(new Event('toggle', { bubbles: true })));
     await settle();
@@ -298,7 +298,7 @@ describe('General Task quick create', () => {
     const pending = deferred<never>(); jobs.createJobCard.mockReturnValueOnce(pending.promise)
       .mockRejectedValueOnce(Object.assign(new Error('Bağlantı kesildi'), { retryable: true }))
       .mockResolvedValueOnce({ id: 'job-task-1', version: 1 });
-    await act(async () => root.render(<GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     change(container.querySelector('#task-title') as HTMLInputElement, 'Değeri koru');
     change(container.querySelector('#task-scheduled-at') as HTMLInputElement, '2026-07-22T13:00');
     const form = container.querySelector('form') as HTMLFormElement;

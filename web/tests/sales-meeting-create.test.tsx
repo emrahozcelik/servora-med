@@ -83,7 +83,7 @@ describe('Sales Meeting planning flow', () => {
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
   it('keeps Staff ownership fixed and submits scheduledAt without dueDate', async () => {
-    await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     expect(people.listStaff).not.toHaveBeenCalled();
     expect(container.querySelector('#meeting-assignee')).toBeNull();
@@ -103,7 +103,7 @@ describe('Sales Meeting planning flow', () => {
   });
 
   it('initializes planned time once and preserves edits across Customer reload and validation', async () => {
-    await act(async () => root.render(<SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
     const scheduled = container.querySelector('#meeting-scheduled-at') as HTMLInputElement;
@@ -119,7 +119,7 @@ describe('Sales Meeting planning flow', () => {
 
   it('blocks on required Customer loading, supports retry, and loads active Staff for managers', async () => {
     crm.listCustomers.mockRejectedValueOnce(new Error('CRM yok'));
-    await act(async () => root.render(<SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     expect(container.textContent).toContain('Müşteriler yüklenemedi');
     expect((container.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
@@ -130,7 +130,7 @@ describe('Sales Meeting planning flow', () => {
   });
 
   it('requires title, Customer, scheduled time, and manager assignee with accessible errors', async () => {
-    await act(async () => root.render(<SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
@@ -151,7 +151,7 @@ describe('Sales Meeting planning flow', () => {
     crm.listContacts.mockImplementation((id: string) => id === 'c1' ? old.promise : Promise.resolve({
       items: [contact('c2', 'ct2', 'Dr. Yeni')], total: 1, limit: 200, offset: 0,
     }));
-    await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     const select = container.querySelector('#meeting-customer') as HTMLSelectElement;
     await act(async () => change(select, 'c1'));
@@ -163,7 +163,7 @@ describe('Sales Meeting planning flow', () => {
 
   it('keeps Contact failure non-blocking and offers an adjacent retry', async () => {
     crm.listContacts.mockRejectedValueOnce(new Error('Kişiler yok'));
-    await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     await act(async () => change(container.querySelector('#meeting-customer')!, 'c1')); await settle();
     expect(container.textContent).toContain('İlgili kişiler yüklenemedi');
@@ -184,7 +184,7 @@ describe('Sales Meeting planning flow', () => {
     crm.listContacts.mockResolvedValue({
       items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0,
     });
-    await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c1" />));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c1" /></MemoryRouter>));
     await settle();
     expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('c1');
     expect(container.querySelector('#meeting-contact')?.textContent).toContain('Dr. Ayşe');
@@ -195,7 +195,7 @@ describe('Sales Meeting planning flow', () => {
       items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0,
     });
     crm.listContacts.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
-    await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c404" />));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c404" /></MemoryRouter>));
     await settle();
     expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('');
     expect(crm.listContacts).not.toHaveBeenCalled();
@@ -211,7 +211,7 @@ describe('Sales Meeting planning flow', () => {
   it('locks double submit and reuses the action ID after a retryable error', async () => {
     const pending = deferred<never>(); jobs.createJobCard.mockReturnValueOnce(pending.promise)
       .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi', true));
-    await act(async () => root.render(<SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} />));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle(); change(container.querySelector('#meeting-title')!, 'Görüşme');
     await act(async () => change(container.querySelector('#meeting-customer')!, 'c1')); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-15T11:00');

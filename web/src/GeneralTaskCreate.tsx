@@ -216,7 +216,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
                 <input id="task-scheduled-at" type="datetime-local" value={scheduledLocal}
                   onChange={(event) => setScheduledLocal(event.target.value)} /></div>
             </div>
-            <div className="field-group"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label>
+            <div className="field-group"><div className="field-label-row"><label htmlFor="task-customer">Müşteri (isteğe bağlı)</label><Link className="inline-action" to="/customers/new?source=task">Yeni müşteri ekle</Link></div>
               <select id="task-customer" value={customerId} disabled={customerState !== 'ready'}
                 onChange={(event) => void changeCustomer(event.target.value)}>
                 <option value="">Müşteri seçilmedi</option>
@@ -225,8 +225,7 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
               {customerState === 'loading' && <span className="field-status" role="status">Müşteriler yükleniyor…</span>}
               {customerState === 'error' && <span className="field-error" role="alert">Müşteriler yüklenemedi. Görevi müşterisiz kaydedebilirsiniz.{' '}
                 <button className="inline-action" type="button" onClick={() => void loadActiveCustomers()}>Tekrar dene</button></span>}
-              {customerState === 'ready' && customers.length === 0 && <span className="field-status">Henüz müşteri yok.{' '}
-                <Link className="inline-action" to="/customers/new?source=task">Yeni müşteri ekle</Link></span>}
+              {customerState === 'ready' && customers.length === 0 && <span className="field-status">Henüz müşteri yok.</span>}
             </div>
             <div className="field-group"><label htmlFor="task-contact">İlgili kişi (isteğe bağlı)</label>
               <select id="task-contact" value={contactId}

@@ -127,15 +127,14 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
     {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
       <button data-retry-customers className="inline-action" type="button" onClick={() => void loadCustomers()}>Tekrar dene</button></p>}
-    {customerState === 'ready' && customers.length === 0 && <p className="field-error" role="status">Görüşme planlamak için aktif veya aday müşteri gereklidir.{' '}
-      <Link className="inline-action" to="/customers/new?source=meeting">Yeni müşteri ekle</Link></p>}
+    {customerState === 'ready' && customers.length === 0 && <p className="field-error" role="status">Görüşme planlamak için aktif veya aday müşteri gereklidir.</p>}
     <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending}>
       <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
         <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
           aria-describedby={fieldErrors.title ? 'meeting-title-error' : undefined} onChange={(event) => setTitle(event.target.value)} />
         {fieldErrors.title && <span id="meeting-title-error" className="field-error">{fieldErrors.title}</span>}</div>
       <div className="task-field-pair">
-        <div className="field-group"><label htmlFor="meeting-customer">Müşteri</label>
+        <div className="field-group"><div className="field-label-row"><label htmlFor="meeting-customer">Müşteri</label><Link className="inline-action" to="/customers/new?source=meeting">Yeni müşteri ekle</Link></div>
           <select id="meeting-customer" required value={customerId} disabled={customerState !== 'ready'}
             aria-invalid={fieldErrors.customerId ? true : undefined}
             aria-describedby={fieldErrors.customerId ? 'meeting-customer-error' : undefined}
