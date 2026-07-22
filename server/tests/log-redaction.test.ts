@@ -52,6 +52,17 @@ describe('buildApp serialized logger redaction', () => {
           body: request.body,
         },
       }, 'probe');
+      const body = request.body as Record<string, unknown>;
+      request.log.info({
+        webPush: {
+          endpoint: body.endpoint,
+          keys: body.keys,
+          payload: body.payload,
+          vapidSubject: body.vapidSubject,
+          vapidPublicKey: body.vapidPublicKey,
+          vapidPrivateKey: body.vapidPrivateKey,
+        },
+      }, 'push-probe');
       return { ok: true };
     });
 
@@ -76,6 +87,15 @@ describe('buildApp serialized logger redaction', () => {
           accuracyMeters: 24.5,
           capturedAt: '2026-07-21T06:15:30.123Z',
         },
+        endpoint: 'https://fcm.googleapis.com/push/raw-endpoint-capability',
+        keys: {
+          p256dh: 'raw-p256dh-key',
+          auth: 'raw-auth-key',
+        },
+        payload: '{"title":"private push payload"}',
+        vapidSubject: 'mailto:private@example.com',
+        vapidPublicKey: 'raw-vapid-public-key',
+        vapidPrivateKey: 'raw-vapid-private-key',
       },
     });
 
@@ -94,6 +114,13 @@ describe('buildApp serialized logger redaction', () => {
       '32.85411',
       '24.5',
       '2026-07-21T06:15:30.123Z',
+      'raw-endpoint-capability',
+      'raw-p256dh-key',
+      'raw-auth-key',
+      'private push payload',
+      'private@example.com',
+      'raw-vapid-public-key',
+      'raw-vapid-private-key',
     ]) {
       expect(joined).not.toContain(secret);
     }

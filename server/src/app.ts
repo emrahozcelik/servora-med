@@ -58,6 +58,18 @@ export const LOGGER_REDACT_PATHS = [
   'req.body.token',
   'req.body.sessionToken',
   'req.body.locationCapture',
+  'req.body.endpoint',
+  'req.body.keys',
+  'req.body.payload',
+  'req.body.vapidSubject',
+  'req.body.vapidPublicKey',
+  'req.body.vapidPrivateKey',
+  'webPush.endpoint',
+  'webPush.keys',
+  'webPush.payload',
+  'webPush.vapidSubject',
+  'webPush.vapidPublicKey',
+  'webPush.vapidPrivateKey',
 ];
 
 export type AppDependencies = {

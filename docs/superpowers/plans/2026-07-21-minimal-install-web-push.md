@@ -81,29 +81,29 @@ Allowed source area: server config, migration `014`, one web-push module,
 dependency wiring interfaces, environment examples, migration tests, and
 focused repository tests.
 
-- [ ] RED→GREEN: absent and exact `false` resolve disabled; exact `true`
+- [x] RED→GREEN: absent and exact `false` resolve disabled; exact `true`
   resolves enabled; every other value fails config validation.
-- [ ] RED→GREEN one required value at a time: enabled mode rejects missing or
+- [x] RED→GREEN one required value at a time: enabled mode rejects missing or
   malformed VAPID subject/public/private key before request handling.
-- [ ] RED→GREEN on real PostgreSQL: add the required composite session/user key
+- [x] RED→GREEN on real PostgreSQL: add the required composite session/user key
   and create tenant-safe, recipient/session-safe `web_push_subscriptions` with
   bounded sensitive fields, global endpoint hash uniqueness, one active
   root-scope subscription per session, checks, and indexes.
-- [ ] RED→GREEN on real PostgreSQL: create `web_push_deliveries` with
+- [x] RED→GREEN on real PostgreSQL: create `web_push_deliveries` with
   tenant-safe notification/subscription links, unique delivery identity,
   state/lease/attempt checks, and due-work indexes.
-- [ ] RED→GREEN: append, find-current-session, idempotent same-identity upsert,
+- [x] RED→GREEN: append, find-current-session, idempotent same-identity upsert,
   scoped disable, and inactive-session cleanup repository behavior.
-- [ ] RED→GREEN: store the VAPID public-key fingerprint and expose only a
+- [x] RED→GREEN: store the VAPID public-key fingerprint and expose only a
   SHA-256 subscription fingerprint, never endpoint/key material.
-- [ ] RED→GREEN: under an endpoint-row lock, allow explicit same-user
+- [x] RED→GREEN: under an endpoint-row lock, allow explicit same-user
   new-session rebind while abandoning older non-terminal deliveries; reject
   cross-user/organization transfer without revealing the prior owner.
-- [ ] RED→GREEN: logger redaction covers endpoint, `p256dh`, `auth`, payload,
+- [x] RED→GREEN: logger redaction covers endpoint, `p256dh`, `auth`, payload,
   and VAPID values dynamically, not only through a static path assertion.
-- [ ] Update environment examples with false default and secret-handling notes;
+- [x] Update environment examples with false default and secret-handling notes;
   no real VAPID key enters Git.
-- [ ] Run migration, focused PostgreSQL/config/redaction tests, server build,
+- [x] Run migration, focused PostgreSQL/config/redaction tests, server build,
   and migration upgrade/backup-restore checks.
 
 ## Task 4 — Authenticated Subscription API and Session Safety (Vertical TDD)
@@ -376,3 +376,35 @@ recorded:
   password, and the local application role lacked `job_action_locations`
   grants in two PostgreSQL acceptance tests. No server source changed in Task 2;
   exact-head CI remains the clean-environment regression authority.
+
+### Task 3 — Server gate and subscription storage
+
+- Added a server-owned, default-off `WEB_PUSH_ENABLED` config. Enabled startup
+  now rejects missing, malformed, local-only, or mutually incompatible VAPID
+  configuration before accepting requests; no generated key material entered
+  Git.
+- Migration `014_create_web_push` adds tenant-safe and auth-session-safe
+  subscription storage plus the constrained durable delivery outbox. Global
+  endpoint ownership, one active root-scope subscription per session, bounded
+  attempts, state/lease fields, and due-work indexes are database-enforced.
+- The repository derives endpoint, subscription, and decoded VAPID SHA-256
+  fingerprints; endpoint/key material remains internal. It supports scoped
+  lookup/disable, idempotent same-identity upsert, explicit same-user session
+  rebind, ownership-opaque conflict, replacement cleanup, inactive-session
+  cleanup, and idempotent delivery projection.
+- Real PostgreSQL tests cover cross-tenant and wrong-session rejection,
+  endpoint/session uniqueness, rebind and cross-owner isolation, abandoned old
+  work, idempotent outbox append, inactive-session cleanup, state constraints,
+  and required indexes.
+- Serialized logger tests verify endpoint, encryption keys, payload, and VAPID
+  values are redacted. Environment examples retain the false default and
+  document root-owned secret handling.
+- Focused Task 3 verification: 76 tests passed across config, redaction,
+  migration, repository, upgrade, JobCard migration compatibility, and
+  backup/restore; server build passed.
+- The full local server suite reached 1,100 passing tests and the same three
+  pre-existing environment failures recorded in Task 2: local PostgreSQL auth
+  accepts the intentionally wrong password, and the local application role
+  lacks `job_action_locations` grants in two acceptance tests. Phase R focused
+  PostgreSQL tests do not skip and all pass; exact-head CI remains the clean
+  environment regression authority.

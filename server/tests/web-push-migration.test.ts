@@ -5,6 +5,12 @@ import { fileURLToPath } from 'node:url';
 import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 
+import {
+  PostgresWebPushRepository,
+  PostgresWebPushTransaction,
+  WebPushOwnershipConflictError,
+} from '../src/modules/web-push/repository.js';
+
 const migrationUrl = new URL(
   '../src/db/migrations/014_create_web_push.sql',
   import.meta.url,
@@ -240,6 +246,188 @@ describe.skipIf(!databaseUrl)('014 Web Push PostgreSQL migration', () => {
         'web_push_deliveries_due_idx',
         'web_push_deliveries_subscription_idx',
       ]));
+    } finally {
+      await pool?.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
+
+  it('executes idempotent create, same-user rebind, opaque conflict, replacement, and cleanup', async () => {
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `web_push_repository_${randomUUID().replaceAll('-', '')}`;
+    let pool: Pool | null = null;
+
+    try {
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      await applyMigrations(pool);
+
+      const organizationOne = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name) VALUES ('Repository one') RETURNING id`,
+      )).rows[0]!.id;
+      const organizationTwo = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name) VALUES ('Repository two') RETURNING id`,
+      )).rows[0]!.id;
+      const userOne = (await pool.query<{ id: string }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Owner', $2, 'unused-test-hash', 'STAFF') RETURNING id`,
+        [organizationOne, `${randomUUID()}@test.local`],
+      )).rows[0]!.id;
+      const userTwo = (await pool.query<{ id: string }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Other owner', $2, 'unused-test-hash', 'STAFF') RETURNING id`,
+        [organizationTwo, `${randomUUID()}@test.local`],
+      )).rows[0]!.id;
+      const sessionOne = (await pool.query<{ id: string }>(
+        `INSERT INTO sessions (user_id, token_hash, expires_at)
+         VALUES ($1, $2, NOW() + INTERVAL '1 day') RETURNING id`,
+        [userOne, '4'.repeat(64)],
+      )).rows[0]!.id;
+      const sessionTwo = (await pool.query<{ id: string }>(
+        `INSERT INTO sessions (user_id, token_hash, expires_at)
+         VALUES ($1, $2, NOW() + INTERVAL '1 day') RETURNING id`,
+        [userOne, '5'.repeat(64)],
+      )).rows[0]!.id;
+      const otherSession = (await pool.query<{ id: string }>(
+        `INSERT INTO sessions (user_id, token_hash, expires_at)
+         VALUES ($1, $2, NOW() + INTERVAL '1 day') RETURNING id`,
+        [userTwo, '6'.repeat(64)],
+      )).rows[0]!.id;
+      const repository = new PostgresWebPushRepository(pool);
+      const endpoint = 'https://fcm.googleapis.com/push/rebind';
+      const baseInput = {
+        organizationId: organizationOne,
+        userId: userOne,
+        sessionId: sessionOne,
+        endpoint,
+        p256dh: 'first-p256dh',
+        auth: 'first-auth',
+        expirationTime: null,
+        vapidPublicKeyFingerprint: 'b'.repeat(64),
+        now: new Date('2026-07-22T08:00:00.000Z'),
+      };
+
+      const [first, retried] = await Promise.all([
+        repository.upsert(baseInput),
+        repository.upsert(baseInput),
+      ]);
+      expect(retried.id).toBe(first.id);
+      expect((await pool.query<{ count: number }>(
+        `SELECT COUNT(*)::int AS count FROM web_push_subscriptions`,
+      )).rows[0]!.count).toBe(1);
+
+      const rebound = await repository.upsert({
+        ...baseInput,
+        sessionId: sessionTwo,
+        p256dh: 'refreshed-p256dh',
+        auth: 'refreshed-auth',
+        now: new Date('2026-07-22T08:05:00.000Z'),
+      });
+      expect(rebound).toMatchObject({ id: first.id, sessionId: sessionTwo });
+
+      await expect(repository.upsert({
+        ...baseInput,
+        organizationId: organizationTwo,
+        userId: userTwo,
+        sessionId: otherSession,
+      })).rejects.toBeInstanceOf(WebPushOwnershipConflictError);
+      expect((await pool.query<{
+        organization_id: string;
+        recipient_user_id: string;
+        session_id: string;
+      }>(
+        `SELECT organization_id, recipient_user_id, session_id
+           FROM web_push_subscriptions WHERE id = $1`,
+        [first.id],
+      )).rows[0]).toEqual({
+        organization_id: organizationOne,
+        recipient_user_id: userOne,
+        session_id: sessionTwo,
+      });
+
+      const jobCardId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (organization_id, type, title, assigned_to, created_by)
+         VALUES ($1, 'GENERAL_TASK', 'Repository delivery', $2, $2) RETURNING id`,
+        [organizationOne, userOne],
+      )).rows[0]!.id;
+      const activityId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_card_activity_logs
+           (organization_id, job_card_id, actor_id, event_type)
+         VALUES ($1, $2, $3, 'JOB_APPROVED') RETURNING id`,
+        [organizationOne, jobCardId, userOne],
+      )).rows[0]!.id;
+      const eventId = (await pool.query<{ id: string }>(
+        `INSERT INTO realtime_events
+           (organization_id, source_activity_id, event_type, entity_type,
+            entity_id, actor_user_id, audience_roles, audience_user_ids, resource_keys)
+         VALUES ($1, $2, 'job.approved', 'job-card', $3, $4,
+                 ARRAY[]::VARCHAR(20)[], ARRAY[$4]::UUID[], ARRAY['notifications'])
+         RETURNING id::text AS id`,
+        [organizationOne, activityId, jobCardId, userOne],
+      )).rows[0]!.id;
+      const notificationId = (await pool.query<{ id: string }>(
+        `INSERT INTO in_app_notifications
+           (organization_id, recipient_user_id, source_realtime_event_id,
+            kind, entity_type, entity_id)
+         VALUES ($1, $2, $3, 'job.approved', 'job-card', $4) RETURNING id`,
+        [organizationOne, userOne, eventId, jobCardId],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO web_push_deliveries
+           (organization_id, notification_id, subscription_id)
+         VALUES ($1, $2, $3)`,
+        [organizationOne, notificationId, first.id],
+      );
+
+      const replacement = await repository.upsert({
+        ...baseInput,
+        sessionId: sessionTwo,
+        endpoint: 'https://fcm.googleapis.com/push/replacement',
+        now: new Date('2026-07-22T08:10:00.000Z'),
+      });
+      expect(replacement.id).not.toBe(first.id);
+      expect((await pool.query<{ disabled_reason: string }>(
+        `SELECT disabled_reason FROM web_push_subscriptions WHERE id = $1`,
+        [first.id],
+      )).rows[0]!.disabled_reason).toBe('REPLACED');
+      expect((await pool.query<{ state: string }>(
+        `SELECT state FROM web_push_deliveries WHERE subscription_id = $1`,
+        [first.id],
+      )).rows[0]!.state).toBe('ABANDONED');
+
+      const transaction = new PostgresWebPushTransaction(pool);
+      const appended = await transaction.appendDeliveries({
+        organizationId: organizationOne,
+        notificationIds: [notificationId],
+        at: new Date('2026-07-22T08:12:00.000Z'),
+      });
+      expect(appended).toHaveLength(1);
+      await expect(transaction.appendDeliveries({
+        organizationId: organizationOne,
+        notificationIds: [notificationId],
+        at: new Date('2026-07-22T08:12:00.000Z'),
+      })).resolves.toEqual([]);
+
+      await pool.query(`UPDATE sessions SET revoked_at = NOW() WHERE id = $1`, [sessionTwo]);
+      await expect(repository.cleanupInactiveSessions(
+        new Date('2026-07-22T08:15:00.000Z'),
+      )).resolves.toBe(1);
+      expect((await repository.findCurrentSession({
+        organizationId: organizationOne,
+        userId: userOne,
+        sessionId: sessionTwo,
+      }))).toMatchObject({
+        id: replacement.id,
+        disabledReason: 'SESSION_INACTIVE',
+      });
+      expect((await pool.query<{ state: string }>(
+        `SELECT state FROM web_push_deliveries WHERE id = $1`,
+        [appended[0]],
+      )).rows[0]!.state).toBe('ABANDONED');
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
