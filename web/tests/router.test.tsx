@@ -72,7 +72,9 @@ describe('application routes', () => {
     ['/staff/staff-1', 'Personel profili', manager],
     ['/staff/staff-1/reports', 'Operasyon raporu yükleniyor', manager],
     ['/customers?status=active', 'Müşteriler', manager],
+    ['/customers/new', 'Yeni müşteri', staff],
     ['/customers/new', 'Yeni müşteri', manager],
+
     ['/customers/customer-1', 'Müşteri detayı', manager],
     ['/customers/customer-1/contacts/contact-1', 'İlgili kişi', manager],
     ['/products', 'Ürünler', staff],
@@ -85,7 +87,6 @@ describe('application routes', () => {
 
   it.each([
     ['/users', staff],
-    ['/customers/new', staff],
     ['/products/new', staff],
     ['/staff/staff-1/reports', staff],
   ] as const)('renders the established forbidden state for unauthorized direct route %s', async (path, user) => {
