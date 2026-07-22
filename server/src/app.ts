@@ -241,7 +241,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         authenticate: authenticateDomain,
       });
 
-      if (config.webPush.enabled || dependencies.webPushDispatcher) {
+      if (config.webPush.enabled) {
         const wd =
           dependencies.webPushDispatcher ??
           createDispatcher(

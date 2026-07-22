@@ -332,10 +332,10 @@ describe('Web Push dispatch — PostgreSQL', () => {
     });
   });
 
-  // R3 — max attempts (attempt 6)
+  // R3 — max attempts (attempt 6 → recordAbandoned)
   it('abandons delivery at attempt 6', async () => {
     await runWithFixture(async (fixture) => {
-      const { pool, deliveryId, at, subscriptionId } = fixture;
+      const { pool, deliveryId, at } = fixture;
       const repo = new PostgresWebPushRepository(pool);
 
       await pool.query(
@@ -347,18 +347,23 @@ describe('Web Push dispatch — PostgreSQL', () => {
       expect(claimed).toHaveLength(1);
       expect(claimed[0]!.attemptCount).toBe(6);
 
-      const nextAt = new Date(at.getTime() + 30_000);
-      const retryOk = await repo.recordRetry({
+      const ok = await repo.recordAbandoned({
         deliveryId: claimed[0]!.deliveryId,
         leaseToken: claimed[0]!.leaseToken,
-        subscriptionId,
-        at,
-        nextAttemptAt: nextAt,
-        errorCode: 'TIMEOUT',
+        at: new Date(at.getTime() + 1000),
+        errorCode: 'MAX_ATTEMPTS',
       });
-      expect(retryOk).toBe(true);
+      expect(ok).toBe(true);
 
-      const reclaim = await repo.claimDueDeliveries({ limit: 4, at: nextAt });
+      const row = await pool.query<{ state: string; abandoned_at: Date | null; last_error_code: string | null }>(
+        `SELECT state, abandoned_at, last_error_code FROM web_push_deliveries WHERE id = $1`,
+        [deliveryId],
+      );
+      expect(row.rows[0]!.state).toBe('ABANDONED');
+      expect(row.rows[0]!.abandoned_at).toBeTruthy();
+      expect(row.rows[0]!.last_error_code).toBe('MAX_ATTEMPTS');
+
+      const reclaim = await repo.claimDueDeliveries({ limit: 4, at: new Date(at.getTime() + 24 * 60 * 60_000) });
       expect(reclaim).toHaveLength(0);
     });
   });

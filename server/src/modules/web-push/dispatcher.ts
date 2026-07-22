@@ -9,13 +9,61 @@ import type {
   RecordRetryInput,
 } from './repository.js';
 import type { PublicNotification } from '../notifications/presenter.js';
-import { NOTIFICATION_MESSAGES } from '../notifications/presenter.js';
+import { presentNotification } from '../notifications/presenter.js';
+import type { NotificationRecord } from '../notifications/types.js';
+
+export const WEB_PUSH_DISPATCH_CONCURRENCY = 4;
+export const WEB_PUSH_POLL_INTERVAL_MS = 5_000;
+export const WEB_PUSH_SEND_TIMEOUT_MS = 10_000;
+export const WEB_PUSH_LEASE_DURATION_MS = 30_000;
+export const WEB_PUSH_SHUTDOWN_GRACE_MS = 15_000;
+export const WEB_PUSH_DELIVERY_TTL_MS = 24 * 60 * 60 * 1_000;
+export const WEB_PUSH_MAX_ATTEMPTS = 6;
+
+export const WEB_PUSH_RETRY_DELAYS_MS = [
+  30_000,
+  2 * 60_000,
+  10 * 60_000,
+  30 * 60_000,
+  60 * 60_000,
+] as const;
+
+export function retryDelayForAttempt(attemptCount: number): number | null {
+  return WEB_PUSH_RETRY_DELAYS_MS[attemptCount - 1] ?? null;
+}
 
 export type DispatcherConfig = Readonly<{
   pollIntervalMs: number;
-  batchSize: number;
   gracePeriodMs: number;
 }>;
+
+type DispatchOutcome =
+  | 'DELIVERED'
+  | 'PROVIDER_STALE'
+  | 'RETRYABLE'
+  | 'TERMINAL';
+
+function classifyResponse(statusCode: number): DispatchOutcome {
+  if (statusCode >= 200 && statusCode < 300) return 'DELIVERED';
+  if (statusCode === 404 || statusCode === 410) return 'PROVIDER_STALE';
+  if (statusCode === 408 || statusCode === 429) return 'RETRYABLE';
+  if (statusCode >= 500 && statusCode < 600) return 'RETRYABLE';
+  if (statusCode >= 300 && statusCode < 400) return 'TERMINAL';
+  if (statusCode >= 400 && statusCode < 500) return 'TERMINAL';
+  return 'TERMINAL';
+}
+
+function errorCodeForStatus(statusCode: number): string {
+  if (statusCode >= 200 && statusCode < 300) return '';
+  if (statusCode === 404) return 'PROVIDER_404';
+  if (statusCode === 408) return 'PROVIDER_408';
+  if (statusCode === 410) return 'PROVIDER_410';
+  if (statusCode === 429) return 'PROVIDER_429';
+  if (statusCode >= 500 && statusCode < 600) return 'PROVIDER_5XX';
+  if (statusCode >= 300 && statusCode < 400) return 'PROVIDER_REDIRECT';
+  if (statusCode >= 400 && statusCode < 500) return 'PROVIDER_4XX';
+  return 'PROVIDER_4XX';
+}
 
 export type DispatcherDeps = Readonly<{
   repository: {
@@ -37,20 +85,9 @@ export interface WebPushDispatcher {
 }
 
 const DEFAULT_CONFIG: DispatcherConfig = {
-  pollIntervalMs: 5_000,
-  batchSize: 4,
-  gracePeriodMs: 30_000,
+  pollIntervalMs: WEB_PUSH_POLL_INTERVAL_MS,
+  gracePeriodMs: WEB_PUSH_SHUTDOWN_GRACE_MS,
 };
-
-function min(a: number, b: number): number {
-  return a < b ? a : b;
-}
-
-function computeBackoff(attemptCount: number): number {
-  const baseDelayMs = min(Math.pow(2, attemptCount - 1) * 10_000, 300_000);
-  const jitter = 0.8 + Math.random() * 0.4;
-  return Math.round(baseDelayMs * jitter);
-}
 
 export function createDispatcher(
   config: Partial<DispatcherConfig>,
@@ -58,140 +95,170 @@ export function createDispatcher(
 ): WebPushDispatcher {
   const cfg: DispatcherConfig = {
     pollIntervalMs: config.pollIntervalMs ?? DEFAULT_CONFIG.pollIntervalMs,
-    batchSize: config.batchSize ?? DEFAULT_CONFIG.batchSize,
     gracePeriodMs: config.gracePeriodMs ?? DEFAULT_CONFIG.gracePeriodMs,
   };
 
   let intervalHandle: ReturnType<typeof setInterval> | null = null;
-  let shutdownRequested = false;
-  let inFlight = new Set<Promise<void>>();
-  let abortController: AbortController | null = null;
+  let stopping = false;
+  let pollInFlight = false;
+  const activeSends = new Map<string, {
+    controller: AbortController;
+    promise: Promise<void>;
+  }>();
 
-  function toPublicNotification(
+  function toNotificationRecord(
     n: ClaimedWebPushDelivery['notification'],
-  ): PublicNotification {
-    const message = NOTIFICATION_MESSAGES[n.kind as keyof typeof NOTIFICATION_MESSAGES] ?? {
-      title: 'Bildirim',
-      body: 'Yeni bir bildiriminiz var.',
-    };
+  ): NotificationRecord {
     return {
       id: n.id,
-      kind: n.kind as PublicNotification['kind'],
-      title: message.title,
-      body: message.body,
-      entity: { type: 'job-card', id: n.entityId },
-      createdAt: n.createdAt.toISOString(),
-      readAt: n.readAt?.toISOString() ?? null,
+      organizationId: n.organizationId,
+      recipientUserId: n.recipientUserId,
+      sourceRealtimeEventId: 0n,
+      kind: n.kind as NotificationRecord['kind'],
+      entityType: 'job-card',
+      entityId: n.entityId,
+      createdAt: n.createdAt,
+      readAt: n.readAt,
     };
   }
 
   async function processDelivery(
     delivery: ClaimedWebPushDelivery,
-    signal: AbortSignal,
   ): Promise<void> {
     const { deliveryId, leaseToken, subscription, notification } = delivery;
-    const at = new Date();
 
     let payload: PushPayloadV1;
     try {
-      payload = deps.buildPayload(toPublicNotification(notification));
+      const record = toNotificationRecord(notification);
+      const publicNotification: PublicNotification = presentNotification(record);
+      payload = deps.buildPayload(publicNotification);
     } catch {
       await deps.repository.recordAbandoned({
-        deliveryId, leaseToken, at, errorCode: 'BUILD_FAILED',
+        deliveryId, leaseToken, at: new Date(), errorCode: 'INVALID_PAYLOAD',
       } satisfies RecordAbandonedInput);
       return;
     }
 
-    const topic = deps.topicBuilder(notification.id);
+    const controller = new AbortController();
 
-    const result: WebPushSendResult = await deps.sender.send({
-      subscription: {
-        endpoint: subscription.endpoint,
-        p256dh: subscription.p256dh,
-        auth: subscription.auth,
-      },
-      payload,
-      topic,
-      signal,
-    });
+    const sendPromise = (async () => {
+      const topic = deps.topicBuilder(notification.id);
 
-    switch (result.type) {
-      case 'response': {
-        const { statusCode } = result;
-        if (statusCode >= 200 && statusCode < 300) {
-          await deps.repository.recordDelivered({
-            deliveryId, leaseToken, subscriptionId: subscription.id, at,
-          } satisfies RecordDeliveredInput);
-        } else if (statusCode === 404 || statusCode === 410) {
-          await deps.repository.recordProviderStale({
-            deliveryId, leaseToken, at, errorCode: `PROVIDER_${statusCode}`,
-          } satisfies RecordProviderStaleInput);
-        } else if (statusCode === 429) {
-          const delayMs = computeBackoff(delivery.attemptCount);
-          await deps.repository.recordRetry({
-            deliveryId, leaseToken, subscriptionId: subscription.id, at,
-            nextAttemptAt: new Date(at.getTime() + delayMs),
-            errorCode: 'RATE_LIMITED',
-          } satisfies RecordRetryInput);
+      const result: WebPushSendResult = await deps.sender.send({
+        subscription: {
+          endpoint: subscription.endpoint,
+          p256dh: subscription.p256dh,
+          auth: subscription.auth,
+        },
+        payload,
+        topic,
+        signal: controller.signal,
+      });
+
+      if (result.type === 'aborted') return;
+
+      const resultAt = new Date();
+
+      if (result.type === 'response') {
+        const outcome = classifyResponse(result.statusCode);
+
+        switch (outcome) {
+          case 'DELIVERED':
+            await deps.repository.recordDelivered({
+              deliveryId, leaseToken, subscriptionId: subscription.id, at: resultAt,
+            } satisfies RecordDeliveredInput);
+            break;
+
+          case 'PROVIDER_STALE':
+            await deps.repository.recordProviderStale({
+              deliveryId, leaseToken, at: resultAt,
+              errorCode: errorCodeForStatus(result.statusCode),
+            } satisfies RecordProviderStaleInput);
+            break;
+
+          case 'RETRYABLE': {
+            const delayMs = retryDelayForAttempt(delivery.attemptCount);
+            if (delayMs === null) {
+              await deps.repository.recordAbandoned({
+                deliveryId, leaseToken, at: resultAt, errorCode: 'MAX_ATTEMPTS',
+              } satisfies RecordAbandonedInput);
+            } else {
+              await deps.repository.recordRetry({
+                deliveryId, leaseToken, subscriptionId: subscription.id, at: resultAt,
+                nextAttemptAt: new Date(resultAt.getTime() + delayMs),
+                errorCode: errorCodeForStatus(result.statusCode),
+              } satisfies RecordRetryInput);
+            }
+            break;
+          }
+
+          case 'TERMINAL':
+            await deps.repository.recordAbandoned({
+              deliveryId, leaseToken, at: resultAt,
+              errorCode: errorCodeForStatus(result.statusCode),
+            } satisfies RecordAbandonedInput);
+            break;
+        }
+      } else {
+        const delayMs = retryDelayForAttempt(delivery.attemptCount);
+        if (delayMs === null) {
+          await deps.repository.recordAbandoned({
+            deliveryId, leaseToken, at: resultAt, errorCode: 'MAX_ATTEMPTS',
+          } satisfies RecordAbandonedInput);
         } else {
-          const delayMs = computeBackoff(delivery.attemptCount);
           await deps.repository.recordRetry({
-            deliveryId, leaseToken, subscriptionId: subscription.id, at,
-            nextAttemptAt: new Date(at.getTime() + delayMs),
-            errorCode: `HTTP_${statusCode}`,
+            deliveryId, leaseToken, subscriptionId: subscription.id, at: resultAt,
+            nextAttemptAt: new Date(resultAt.getTime() + delayMs),
+            errorCode: result.type === 'timeout' ? 'TIMEOUT' : 'NETWORK',
           } satisfies RecordRetryInput);
         }
-        break;
       }
-      case 'network-error':
-      case 'timeout': {
-        const delayMs = computeBackoff(delivery.attemptCount);
-        await deps.repository.recordRetry({
-          deliveryId, leaseToken, subscriptionId: subscription.id, at,
-          nextAttemptAt: new Date(at.getTime() + delayMs),
-          errorCode: result.type === 'timeout' ? 'TIMEOUT' : 'NETWORK_ERROR',
-        } satisfies RecordRetryInput);
-        break;
-      }
-      case 'aborted':
-        break;
+    })();
+
+    activeSends.set(deliveryId, { controller, promise: sendPromise });
+
+    try {
+      await sendPromise;
+    } finally {
+      activeSends.delete(deliveryId);
     }
   }
 
   async function runCycle(): Promise<void> {
-    if (shutdownRequested) return;
-    const at = new Date();
-
+    if (stopping || pollInFlight) return;
+    pollInFlight = true;
     try {
-      await deps.repository.cleanupDueDeliveries(at);
-    } catch {
-      // cleanup failures are non-fatal
-    }
+      const at = new Date();
 
-    let deliveries: readonly ClaimedWebPushDelivery[];
-    try {
-      deliveries = await deps.repository.claimDueDeliveries({
-        limit: cfg.batchSize,
-        at,
-      } satisfies ClaimDueWebPushDeliveriesInput);
-    } catch {
-      return;
-    }
-
-    if (deliveries.length === 0) return;
-
-    const cycleSignal = (abortController = new AbortController()).signal;
-    const tasks = deliveries.map((d) => processDelivery(d, cycleSignal));
-    const wrapped = Promise.allSettled(tasks).then(() => {
-      if (abortController?.signal === cycleSignal) {
-        abortController = null;
+      try {
+        await deps.repository.cleanupDueDeliveries(at);
+      } catch {
+        // cleanup failures are non-fatal
       }
-    });
 
-    inFlight.add(wrapped);
-    void wrapped.finally(() => {
-      inFlight.delete(wrapped);
-    });
+      const availableSlots = WEB_PUSH_DISPATCH_CONCURRENCY - activeSends.size;
+      if (availableSlots <= 0) return;
+
+      let deliveries: readonly ClaimedWebPushDelivery[];
+      try {
+        deliveries = await deps.repository.claimDueDeliveries({
+          limit: availableSlots,
+          at,
+        } satisfies ClaimDueWebPushDeliveriesInput);
+      } catch {
+        return;
+      }
+
+      if (deliveries.length === 0) return;
+
+      if (stopping) return;
+
+      for (const d of deliveries) {
+        void processDelivery(d);
+      }
+    } finally {
+      pollInFlight = false;
+    }
   }
 
   function start(): void {
@@ -202,32 +269,31 @@ export function createDispatcher(
   }
 
   async function stop(): Promise<void> {
-    shutdownRequested = true;
+    stopping = true;
     if (intervalHandle !== null) {
       clearInterval(intervalHandle);
       intervalHandle = null;
     }
 
-    if (inFlight.size === 0) return;
+    if (activeSends.size === 0) return;
 
     const timeout = new Promise<void>((_, reject) =>
       setTimeout(() => reject(new Error('Shutdown timeout')), cfg.gracePeriodMs),
     );
 
-    const waitForInFlight = Promise.all(
-      Array.from(inFlight).map((p) =>
-        p.catch(() => {
-          /* swallow in-flight errors during shutdown */
-        }),
+    const waitForActive = Promise.all(
+      Array.from(activeSends.values()).map((a) =>
+        a.promise.catch(() => undefined),
       ),
     ).then(() => undefined);
 
     try {
-      await Promise.race([waitForInFlight, timeout]);
+      await Promise.race([waitForActive, timeout]);
     } catch {
-      // Grace period expired — abort remaining
-      abortController?.abort();
-      await waitForInFlight;
+      for (const active of activeSends.values()) {
+        active.controller.abort();
+      }
+      await waitForActive;
     }
   }
 

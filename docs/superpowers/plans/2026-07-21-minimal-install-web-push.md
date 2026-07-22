@@ -261,7 +261,7 @@ dependency, and focused tests.
   mitigation in the Implementation Record; do not claim external exactly-once.
 - [x] Pin and audit `web-push`; document why protocol encryption/VAPID cannot be
   safely replaced by existing stack helpers.
-- [ ] Run focused dispatcher/sender/config tests, full server build, and audit.
+- [x] Run focused dispatcher/sender/config tests, full server build, and audit.
 
 ## Task 9 — Integrated UI, Recovery, and Responsive Verification
 
@@ -578,29 +578,91 @@ recorded:
     covering claim, lease, concurrency, limit, delivery, retry, abandon, and
     provider-stale).
 - **Dispatcher** (`dispatcher.ts`): `createDispatcher(config, deps)` returns a
-  `WebPushDispatcher` with `start()`/`stop()`. Polls every 5s, claims up to 4
-  deliveries, sends in parallel via `Promise.allSettled`. Backoff: `2^(n-1) *
-  10s` capped at 300s with ±20% jitter. In-flight tracking for graceful
-  shutdown. Shutdown: clear interval → wait up to `gracePeriodMs` (default 30s)
-  → abort remaining via `AbortController`. 13 unit tests covering claim/deliver,
-  retry on 5xx/network/timeout, provider-stale on 404/410, build-failure
-  abandon, empty claim, cycle error survival, in-flight wait, and abort-after.
+  `WebPushDispatcher` with `start()`/`stop()`.
+  - **Exported constants**:
+    `WEB_PUSH_DISPATCH_CONCURRENCY = 4`,
+    `WEB_PUSH_POLL_INTERVAL_MS = 5_000`,
+    `WEB_PUSH_SEND_TIMEOUT_MS = 10_000`,
+    `WEB_PUSH_LEASE_DURATION_MS = 30_000`,
+    `WEB_PUSH_SHUTDOWN_GRACE_MS = 15_000`,
+    `WEB_PUSH_MAX_ATTEMPTS = 6`,
+    `WEB_PUSH_RETRY_DELAYS_MS = [30s, 2m, 10m, 30m, 1h]`.
+  - **retryDelayForAttempt(attemptCount)**: returns fixed delay from
+    `WEB_PUSH_RETRY_DELAYS_MS` array; attempt 6 (and above) returns `null`
+    (immediate abandon without further delay). No `Math.random()`, jitter, or
+    exponential backoff.
+  - **Global concurrency**: `activeSends` Map keyed by `deliveryId` with
+    `{ controller: AbortController, promise: Promise<void> }`.
+    `availableSlots = WEB_PUSH_DISPATCH_CONCURRENCY - activeSends.size`.
+    Each cycle claims exactly `Math.min(deliveries.length, availableSlots)`
+    deliveries and starts one `processDelivery` per slot.
+  - **Poll overlap guard**: `pollInFlight` boolean prevents a new claim cycle
+    from starting while the previous cleanup+claim is still in progress.
+  - **Per-send AbortController**: each `processDelivery` creates its own
+    `AbortController`. On `stop()`, ALL active controllers are aborted after
+    the grace period, not just the most recent cycle's.
+  - **Shutdown/claim race guard**: `stopping` is checked AFTER
+    `claimDueDeliveries` returns — if shutdown commenced while the claim was
+    in-flight, the claimed deliveries are abandoned (no sender call starts).
+  - **HTTP classification** (`classifyResponse`): maps HTTP status to
+    `DispatchOutcome` — `DELIVERED` (2xx), `PROVIDER_STALE` (404/410),
+    `RETRYABLE` (408/429/5xx), `TERMINAL` (3xx/other 4xx/0).
+  - **Error code normalization** (`errorCodeForStatus`): produces canonical
+    values — `PROVIDER_404`, `PROVIDER_408`, `PROVIDER_410`, `PROVIDER_429`,
+    `PROVIDER_5XX`, `PROVIDER_REDIRECT`, `PROVIDER_4XX`, `NETWORK`, `TIMEOUT`,
+    `MAX_ATTEMPTS`, `INVALID_PAYLOAD`.
+  - **Canonical presenter**: uses `presentNotification(record)` to convert
+    `NotificationRecord` → `PublicNotification` before invoking
+    `buildPayload`. Unknown notification kinds throw → caught as
+    `INVALID_PAYLOAD` abandon (no inline fallback message map).
+  - **resultAt**: captured after the provider response returns, used for
+    ALL result timestamps (delivered/retry/abandon/stale) within that
+    delivery's processing.
+  - **Graceful shutdown**: clear interval → if active sends exist, race
+    `waitForActive` vs 15s timeout. If timeout wins, abort ALL active
+    controllers, then wait for completion. Aborted results
+    (`result.type === 'aborted'`) skip all repository writes.
+  - 45 unit tests covering: retry schedule ×7, claim/deliver, claim limit = 4,
+    concurrency ≤4, available-slots-based claim, 5xx/network/timeout retry,
+    404/410 provider-stale, build-failure abandon, empty claim, error survival,
+    in-flight wait, shutdown abort after grace, HTTP mapping (11 table-driven
+    cases), attempt 6 abandon (retryable/network/timeout), poll overlap
+    protection, shutdown/claim race (no sender after stop), multi-cycle abort,
+    no post-stop claims, 15s default grace period.
 - **Lifecycle wiring** (`app.ts`): when `config.webPush.enabled` is `true` and
   `webPushRepository` exists, creates the dispatcher with its deps, registers
   `onReady` → `start()` and `onClose` → `stop()`. Accepts
   `dependencies.webPushDispatcher` for test injection. When disabled, neither
-  constructs the sender nor wires lifecycle. 3 lifecycle tests.
-- **Backoff schedule for retryable errors** (5xx, 408, 429, network, timeout):
-  attempt 2→3→4→5→6 maps to ~20s→40s→80s→2m→4m (2.5× growth, ±20% jitter,
-  300s cap). Non-retryable terminal conditions (404/410, build failure) skip
-  backoff entirely.
+  constructs the sender nor wires lifecycle. The gate is `config.webPush.enabled`
+  only (not `|| dependencies.webPushDispatcher`). 3 lifecycle tests.
+- **Fixed retry schedule** (design spec compliance): attempt 2→30s, 3→2m,
+  4→10m, 5→30m, 6→1h. No jitter, no exponential backoff, no 300s cap. Attempt
+  6 (after the 5th retry delay) is immediately abandoned via `recordAbandoned`
+  with `MAX_ATTEMPTS` error code. The previous implementation used `2^(n-1)*10s`
+  with ±20% jitter and 300s cap.
+- **Dispatcher removed**: `batchSize` from `DispatcherConfig`; concurrency is
+  now a constant. `computeBackoff` removed; replaced by `retryDelayForAttempt`.
+  Removed inline `NOTIFICATION_MESSAGES` map; uses canonical
+  `presentNotification` from the notifications module.
+- **Default-off gate fix**: `app.ts` line 244 changed from
+  `config.webPush.enabled || dependencies.webPushDispatcher` to
+  `config.webPush.enabled`. Previously an injected dispatcher dependency would
+  start polling even with `WEB_PUSH_ENABLED=false`. Now the gate is strictly
+  the config flag.
+- **PostgreSQL test R3 update**: the attempt-6 test now calls
+  `recordAbandoned` with `MAX_ATTEMPTS` instead of `recordRetry`, matching
+  the dispatcher's behavior. Verifies state is `ABANDONED`, `abandoned_at` is
+  set, and `last_error_code` is `MAX_ATTEMPTS`.
 - **Residual at-least-once risk**: a crashed dispatcher that has claimed rows
   but not sent them will have its leases expire after 30s. Another dispatcher
   instance (or the same one after restart) will reclaim those rows via
   `claimDueDeliveries` which includes `state = 'CLAIMED' AND lease_until < $at`.
   Stable topic tags mitigate duplicate `showNotification` at the browser level.
   True exactly-once is infeasible in a crash-recovery push system.
-- Focused verification: 121 web-push tests passed across 11 test files. Full
-  server suite: 1,221 passed, same 5 pre-existing environment-specific failures
-  (3 env + 2 auth-setup-postgres). Server and web production builds passed.
-  `WEB_PUSH_ENABLED` remains `false` in production.
+- Focused verification: 152 web-push tests passed across 11 test files (45
+  dispatcher unit, 8 sender, 14 payload, 18 repository SQL, 10 dispatch
+  PostgreSQL, 7 sender validation, 10 notification-delivery projection, 14
+  identity-setup-trigger, 8 projection lifecycle, 15 web-adapter, 3 lifecycle).
+  Full server suite: 1,253 passed, same 5 pre-existing environment-specific
+  failures (3 env + 2 auth-setup-postgres). Server and web production builds
+  passed. `WEB_PUSH_ENABLED` remains `false` in production.
