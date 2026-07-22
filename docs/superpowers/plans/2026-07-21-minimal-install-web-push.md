@@ -117,10 +117,11 @@ and focused tests.
 - [x] RED→GREEN: enabled status returns only the public VAPID key, safe
   subscription fingerprint/current-session metadata, and exact
   `renewalRequired` state.
-- [ ] RED→GREEN one validator at a time: exact request shape, bounded
-  URL-safe-Base64 keys, expiration, HTTPS URL, no credentials/port/IP, and the
+- [x] RED→GREEN one validator at a time: exact request shape, bounded
+  URL-safe-Base64 keys, expiration, HTTPS URL, no credentials/explicit port
+  (including `:443`)/IP, and the
   approved Chrome/Mozilla/Apple endpoint hosts.
-- [ ] RED→GREEN: prove arbitrary/private/cross-origin-style endpoints cannot
+- [x] RED→GREEN: prove arbitrary/private/cross-origin-style endpoints cannot
   turn the server into an SSRF client.
 - [ ] RED→GREEN: explicit create is idempotent for the same current identity
   and returns the same public record on retry.

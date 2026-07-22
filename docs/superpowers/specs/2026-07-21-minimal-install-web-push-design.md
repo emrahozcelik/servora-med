@@ -275,7 +275,8 @@ type CreateWebPushSubscription = Readonly<{
 ```
 
 Validation requires exact fields, bounded lengths, URL-safe Base64 key
-material, and an HTTPS endpoint with no credentials, non-default port, IP
+material, and an HTTPS endpoint with no credentials, explicit port (including
+`:443`), IP
 literal, fragment, or unsupported push-service host. The first pilot endpoint
 allowlist is deliberately server-owned and SSRF-safe:
 
