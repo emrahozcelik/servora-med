@@ -69,12 +69,21 @@ describe('responsive authenticated AppShell', () => {
     expect(aside.textContent).toContain(user.name);
     expect(aside.textContent).toContain('Oturumu kapat');
     expect(aside.querySelector('a[href="/jobs"]')?.getAttribute('aria-current')).toBe('page');
+    expect(aside.querySelector('.dunya-dental-brand--sidebar')).not.toBeNull();
+    expect(aside.querySelector('.notification-center')).toBeNull();
+    expect(aside.querySelector('.shell-copyright img')).toBeNull();
+    expect(aside.querySelector('.shell-copyright')?.textContent).toContain('Dünya Dental');
+    const topbar = container.querySelector('.desktop-shell-topbar')!;
+    expect(topbar.querySelector('.dunya-dental-brand')).toBeNull();
+    expect(topbar.querySelector('[aria-label="Bildirimler"] svg')).not.toBeNull();
   });
 
   it('renders only compact structure below 64rem and opens a labelled modal drawer', async () => {
     await render(staff, false);
     expect(container.querySelector('aside')).toBeNull();
     expect(container.querySelector('.compact-shell-header')).not.toBeNull();
+    expect(container.querySelector('.compact-shell-header .dunya-dental-brand--topbar')).not.toBeNull();
+    expect(container.querySelector('.mobile-top-bar-actions [aria-label="Bildirimler"] svg')).not.toBeNull();
     expect(container.querySelector('.mobile-shell-title')?.textContent).toBe('İşlerim');
     expect(container.querySelector('.mobile-bottom-nav')?.textContent).toContain('Profilim');
     expect(container.querySelector('.mobile-bottom-nav')?.textContent).not.toContain('Menü');
@@ -195,4 +204,3 @@ describe('responsive authenticated AppShell', () => {
     expect(drawerRules).not.toMatch(/\b(?:transition|animation)(?:-[\w-]+)?\s*:/);
   });
 });
-

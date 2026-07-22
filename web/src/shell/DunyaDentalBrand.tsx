@@ -1,9 +1,11 @@
 import { useState } from 'react';
 
-export function DunyaDentalBrand({ compact = false }: Readonly<{ compact?: boolean }>) {
+type DunyaDentalBrandVariant = 'login' | 'sidebar' | 'topbar';
+
+export function DunyaDentalBrand({ variant }: Readonly<{ variant: DunyaDentalBrandVariant }>) {
   const [failed, setFailed] = useState(false);
-  return <span className={`dunya-dental-brand${compact ? ' dunya-dental-brand--compact' : ''}`} aria-label="Dünya Dental">
+  return <span className={`dunya-dental-brand dunya-dental-brand--${variant}`} aria-label="Dünya Dental">
     {!failed && <img src="/branding/dunya-dental.png" alt="" onError={() => setFailed(true)} />}
-    {failed && <span>Dünya Dental</span>}
+    {failed && <span className="dunya-dental-brand__fallback">Dünya Dental</span>}
   </span>;
 }

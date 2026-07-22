@@ -22,7 +22,7 @@ export function MobileTopBar({
   return (
     <header className="compact-shell-header mobile-top-bar">
       <div className="mobile-top-bar-start">
-        <DunyaDentalBrand compact />
+        <DunyaDentalBrand variant="topbar" />
         {backTo ? (
           <Link className="mobile-top-back" to={backTo}>Geri</Link>
         ) : (

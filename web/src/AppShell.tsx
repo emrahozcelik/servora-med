@@ -176,13 +176,17 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   return (
     <div className={`authenticated-shell${desktop ? ' authenticated-shell--desktop' : ' authenticated-shell--mobile'}`}>
       {desktop ? (
-        <aside className="shell-sidebar">
-          <div className="brand-lockup"><DunyaDentalBrand /></div>
-          <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
-          <DestinationNav destinations={model.destinations} />
-          <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
-          <small className="shell-copyright"><DunyaDentalBrand /> © {new Date().getFullYear()}</small>
-        </aside>
+        <>
+          <aside className="shell-sidebar">
+            <div className="brand-lockup"><DunyaDentalBrand variant="sidebar" /></div>
+            <DestinationNav destinations={model.destinations} />
+            <Account user={user} pendingSignOut={pendingSignOut} onSignOut={onSignOut} />
+            <small className="shell-copyright">© {new Date().getFullYear()} Dünya Dental</small>
+          </aside>
+          <header className="desktop-shell-topbar">
+            <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
+          </header>
+        </>
       ) : (
         <MobileTopBar
           title={title}
