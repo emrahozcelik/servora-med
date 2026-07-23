@@ -33,7 +33,7 @@ T1 token and shared language: COMPLETE
   T1B shared typography/control/surface adoption: COMPLETE
 T2 AppShell and navigation polish: IN PROGRESS
   T2A desktop shell hierarchy / workspace: COMPLETE
-  T2B mobile chrome / drawer: NOT STARTED
+  T2B mobile chrome / drawer: COMPLETE
   T2C notification shell polish + closeout: NOT STARTED
 T3 Jobs and JobDetail polish: NOT STARTED
 T4 CRM/product/staff/forms polish: NOT STARTED
@@ -188,8 +188,8 @@ Non-work: AppShell/Jobs/CRM redesign, spacing sweep, Ant Form, feature TSX.
 **Status:** IN PROGRESS
 
 ```text
-T2A Desktop shell hierarchy and workspace frame   COMPLETE (this PR)
-T2B Mobile chrome and navigation drawer           NOT STARTED
+T2A Desktop shell hierarchy and workspace frame   COMPLETE
+T2B Mobile chrome and navigation drawer           COMPLETE (this PR)
 T2C Notification Center visual polish + closeout  NOT STARTED
 T2 overall                                        IN PROGRESS
 ```
@@ -208,7 +208,19 @@ Implementation record:
 - **scope isolation:** shared `.shell-nav` / `.shell-account` baseline preserved for mobile drawer; T2A gap/radius/weight/wrap under `.shell-sidebar` only (`@media (min-width: 64rem)`)
 - navigation model, routes, roles, mobile chrome, notifications: unchanged
 
-Non-work (T2B/T2C): mobile top/bottom/drawer polish, Notification Center panel polish, Jobs/board layout.
+### T2B — Mobile chrome and navigation drawer (COMPLETE)
+
+Implementation record:
+
+- mobile top bar: safe-area top, balanced zones, title ellipsis, brand/back/menu/notification targets preserved
+- bottom nav: active + expanded menu weight channel (`font-weight: 760`), label wrap, safe-area bottom
+- sticky create: jobs-list-only unchanged; bottom offset remains clear of bottom nav
+- drawer visual only: paper surface, safe-area **top/left/bottom** padding, heading/account separation, drawer-scoped nav wrap
+- shared `.shell-nav` / `.shell-account` baseline and T2A sidebar-scoped polish preserved
+- drawer interaction: Escape/backdrop/focus trap/restore/body lock unchanged
+- responsive smoke: mobile chrome geometry (menu/title/actions/bottom-nav/sticky) on 390 + 200% text zoom
+
+Non-work (T2C): Notification Center panel polish, Jobs/board layout, synthetic T2 evidence pack.
 
 ---
 
@@ -246,7 +258,7 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T1B | Shared typography/control/surface adoption | **COMPLETE** |
 | T1 | Tokens / visual language (overall) | **COMPLETE** |
 | T2A | Desktop shell hierarchy / workspace | **COMPLETE** |
-| T2B | Mobile chrome / drawer | NOT STARTED |
+| T2B | Mobile chrome / drawer | **COMPLETE** |
 | T2C | Notification shell polish + T2 evidence | NOT STARTED |
 | T2 | AppShell / nav (overall) | **IN PROGRESS** |
 | T3 | Jobs + JobDetail | NOT STARTED |
