@@ -166,9 +166,13 @@ Implementation record:
 
 - shared control-height/radius adoption (`min-height: var(--control-height)`, form/button radii)
 - focus-width CSS bridge (`--focus-width` + `:focus-visible`)
-- shared heading/helper semantic cleanup (labels/helpers/errors/success message)
+- shared heading/helper cleanup:
+  - page headings grouped where values already matched
+  - section: `.drawer-heading h2, .notification-center-heading h2` shared `1.125rem` contract
+  - helper: `.field-hint, .form-help` shared muted/size; diverging margin/line-height kept
+  - form-level error surface remains `.form-error` (`--error` / `--error-soft`)
 - surface-raised canonical radius + `--shadow-raised` (only intentional visual change)
-- semantic literal drift protection (exact canonical OKLCH only inside `:root`)
+- semantic literal drift protection: exact canonical OKLCH only inside `:root`; scan covers stylesheet **before and after** `:root` (`outsideRoot`)
 - destructive-button duplicate consolidation (single paper/outline base + hover)
 - drift tests: `web/tests/shared-visual-language-contract.test.ts`
 

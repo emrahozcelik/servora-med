@@ -14,7 +14,7 @@ function stripCssComments(css: string): string {
   return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
-function extractRootBlock(css: string): { root: string; rest: string } {
+function extractRootBlock(css: string): { root: string; outsideRoot: string } {
   const cleaned = stripCssComments(css);
   const match = cleaned.match(/:root\s*\{/);
   if (!match || match.index === undefined) {
@@ -32,7 +32,8 @@ function extractRootBlock(css: string): { root: string; rest: string } {
       if (started && depth === 0) {
         return {
           root: cleaned.slice(match.index, i + 1),
-          rest: cleaned.slice(i + 1),
+          // Entire stylesheet outside :root (before + after), not only post-root.
+          outsideRoot: cleaned.slice(0, match.index) + cleaned.slice(i + 1),
         };
       }
     }
@@ -66,7 +67,7 @@ function selectorBlockContains(css: string, selector: string, snippet: RegExp): 
 }
 
 describe('shared visual language adoption (T1B)', () => {
-  const { root, rest } = extractRootBlock(stylesCss);
+  const { root, outsideRoot } = extractRootBlock(stylesCss);
 
   it('bridges focus ring width through --focus-width', () => {
     expect(SERVORA_REQUIRED_CSS_VARIABLES).toContain('--focus-width');
@@ -174,18 +175,41 @@ describe('shared visual language adoption (T1B)', () => {
     const canonicalValues = Object.values(servoraVisualTokens.color).map((token) => token.cssValue);
     const offenders: string[] = [];
     for (const value of canonicalValues) {
-      if (rest.includes(value)) {
+      if (outsideRoot.includes(value)) {
         offenders.push(value);
       }
     }
     expect(offenders).toEqual([]);
   });
 
+  it('detects canonical semantic OKLCH literals both before and after :root', () => {
+    const sampleValue = servoraVisualTokens.color.warning.cssValue;
+
+    const onlyInRoot = extractRootBlock(`:root { --warning: ${sampleValue}; }`);
+    expect(onlyInRoot.outsideRoot.includes(sampleValue)).toBe(false);
+
+    const beforeRoot = extractRootBlock(
+      `.before { color: ${sampleValue}; }\n:root { --x: 1; }`,
+    );
+    expect(beforeRoot.outsideRoot.includes(sampleValue)).toBe(true);
+
+    const afterRoot = extractRootBlock(
+      `:root { --x: 1; }\n.after { color: ${sampleValue}; }`,
+    );
+    expect(afterRoot.outsideRoot.includes(sampleValue)).toBe(true);
+
+    const bothSides = extractRootBlock(
+      `.before { color: ${sampleValue}; }\n:root { --warning: ${sampleValue}; }\n.after { color: ${sampleValue}; }`,
+    );
+    expect(bothSides.root.includes(sampleValue)).toBe(true);
+    expect(bothSides.outsideRoot.split(sampleValue).length - 1).toBe(2);
+  });
+
   it('preserves unique feature palette and non-canonical border tints', () => {
-    expect(rest).toMatch(/oklch\(72% 0\.018 240deg\)/);
-    expect(rest).toMatch(/oklch\(78% 0\.07 28deg\)/);
-    expect(rest).toMatch(/oklch\(68% 0\.1 28deg\)/);
-    expect(rest).toMatch(/oklch\(96% 0\.02 70deg\)/); // revision chip soft (not warning-soft)
+    expect(outsideRoot).toMatch(/oklch\(72% 0\.018 240deg\)/);
+    expect(outsideRoot).toMatch(/oklch\(78% 0\.07 28deg\)/);
+    expect(outsideRoot).toMatch(/oklch\(68% 0\.1 28deg\)/);
+    expect(outsideRoot).toMatch(/oklch\(96% 0\.02 70deg\)/); // revision chip soft (not warning-soft)
   });
 
   it('groups shared page-heading geometry without inventing type scale', () => {
@@ -203,10 +227,30 @@ describe('shared visual language adoption (T1B)', () => {
     );
   });
 
+  it('groups shared section-heading contract for drawer and notification headings', () => {
+    expect(stylesCss).toMatch(
+      /\.drawer-heading h2,\s*\.notification-center-heading h2\s*\{[^}]*margin:\s*0;[^}]*font-size:\s*1\.125rem/s,
+    );
+    // Each heading appears once — as members of the shared group, not as separate base blocks.
+    expect((stylesCss.match(/\.drawer-heading h2/g) ?? []).length).toBe(1);
+    expect((stylesCss.match(/\.notification-center-heading h2/g) ?? []).length).toBe(1);
+  });
+
+  it('groups shared helper text contract while preserving diverging layout', () => {
+    expect(stylesCss).toMatch(
+      /\.field-hint,\s*\.form-help\s*\{[^}]*color:\s*var\(--muted\);[^}]*font-size:\s*0\.8125rem/s,
+    );
+    expect(stylesCss).toMatch(
+      /\.field-hint\s*\{[^}]*margin:\s*0;[^}]*line-height:\s*1\.45/s,
+    );
+    expect(stylesCss).toMatch(
+      /\.form-help\s*\{[^}]*margin:\s*1rem 0 0;[^}]*line-height:\s*1\.55;[^}]*overflow-wrap:\s*anywhere/s,
+    );
+  });
+
   it('keeps helper/label/error semantic roles', () => {
     expect(stylesCss).toMatch(/\.field-group label\s*\{[^}]*font-size:\s*0\.9rem/s);
-    expect(stylesCss).toMatch(/\.field-hint[^{]*\{[^}]*color:\s*var\(--muted\)/s);
-    expect(stylesCss).toMatch(/\.form-help[^{]*\{[^}]*color:\s*var\(--muted\)/s);
+    // Shared form-level error surface is .form-error (not a missing field-error contract).
     expect(stylesCss).toMatch(/\.form-error[^{]*\{[^}]*color:\s*var\(--error\)/s);
     expect(stylesCss).toMatch(/\.form-error[^{]*\{[^}]*background:\s*var\(--error-soft\)/s);
     expect(stylesCss).toMatch(/\.success-message[^{]*\{[^}]*color:\s*var\(--success\)/s);
