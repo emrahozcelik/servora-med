@@ -255,6 +255,48 @@ async function measure(page) {
       notificationPanelRect.left < -2 || notificationPanelRect.right > window.innerWidth + 2
       || notificationPanelRect.top < -2 || notificationPanelRect.bottom > window.innerHeight + 2
     ));
+    const notificationHeading = notificationPanel?.querySelector('.notification-center-heading h2');
+    const notificationClose = notificationPanel?.querySelector('.notification-center-heading .drawer-close');
+    const notificationHeadingRect = notificationHeading?.getBoundingClientRect();
+    const notificationCloseRect = notificationClose?.getBoundingClientRect();
+    const notificationItem = notificationPanel?.querySelector('.notification-center-item');
+    const notificationItemRect = notificationItem?.getBoundingClientRect();
+    const notificationRowOverflow = Boolean(notificationItem && (
+      notificationItem.scrollWidth > notificationItem.clientWidth + 1
+      || (notificationItemRect && notificationPanelRect
+        && (notificationItemRect.left < notificationPanelRect.left - 2
+          || notificationItemRect.right > notificationPanelRect.right + 2))
+    ));
+    const notificationPanelHOverflow = Boolean(
+      notificationPanel && notificationPanel.scrollWidth > notificationPanel.clientWidth + 1,
+    );
+    const notificationHeadingCloseClear = Boolean(
+      notificationHeadingRect
+      && notificationCloseRect
+      && !(
+        notificationHeadingRect.right > notificationCloseRect.left + 2
+        && notificationHeadingRect.left < notificationCloseRect.right - 2
+        && notificationHeadingRect.bottom > notificationCloseRect.top + 2
+        && notificationHeadingRect.top < notificationCloseRect.bottom - 2
+      ),
+    );
+    const notificationPanelContract = Boolean(
+      notificationPanelRect
+      && !notificationOverflow
+      && !notificationPanelHOverflow
+      && notificationHeadingRect
+      && notificationHeadingRect.width > 0
+      && notificationCloseRect
+      && notificationCloseRect.left >= -2
+      && notificationCloseRect.right <= window.innerWidth + 2
+      && notificationHeadingCloseClear
+      && !notificationRowOverflow
+      && (
+        notificationPanelRect.width <= window.innerWidth - 8
+        || notificationPanel.classList.contains('notification-center-panel--mobile')
+      )
+      && notificationPanelRect.height <= window.innerHeight + 2,
+    );
     const desktopTopbar = document.getElementById('desktop-topbar');
     const mobileTopbar = document.getElementById('mobile-topbar');
     const activeTopbar = getComputedStyle(desktopTopbar).display !== 'none' ? desktopTopbar : mobileTopbar;
@@ -646,6 +688,11 @@ async function measure(page) {
       legendOverflow,
       notificationPresent: Boolean(notificationPanel),
       notificationOverflow,
+      notificationPanelContract,
+      notificationHeadingWidth: notificationHeadingRect?.width ?? 0,
+      notificationHeadingCloseClear,
+      notificationRowOverflow,
+      notificationPanelHOverflow,
       notificationItems: notificationSection?.querySelectorAll('[data-notification-id]').length ?? 0,
       notificationLoadMore: Boolean(notificationSection?.querySelector('.notification-center-more')),
       notificationBadge: notificationSection?.querySelector('.notification-center-badge')?.textContent ?? '',
@@ -960,6 +1007,15 @@ try {
       || m.notificationMobile !== (vp.width < 1024)) {
       failures.push(`${vp.name}: notification center responsive contract failure`);
     }
+    if ([390, 1024, 1440].includes(vp.width) && !m.notificationPanelContract) {
+      failures.push(
+        `${vp.name}: notification panel geometry failure`
+        + ` hW=${m.notificationHeadingWidth}`
+        + ` closeClear=${m.notificationHeadingCloseClear}`
+        + ` rowOvf=${m.notificationRowOverflow}`
+        + ` panelHOvf=${m.notificationPanelHOverflow}`,
+      );
+    }
     if (!m.topbarContract) failures.push(`${vp.name}: branding topbar contract failure`);
     if (vp.width < 1024 && !m.mobileChromeContract) {
       failures.push(
@@ -1024,6 +1080,14 @@ try {
     if (chartContractFailed(m)) failures.push('200% text: chart component contract failure');
     if (!m.notificationPresent || m.notificationOverflow || !m.notificationMobile) {
       failures.push('200% text: notification center reflow failure');
+    }
+    if (!m.notificationPanelContract || m.notificationHeadingWidth <= 0 || !m.notificationHeadingCloseClear) {
+      failures.push(
+        '200% text: notification panel geometry failure'
+        + ` hW=${m.notificationHeadingWidth}`
+        + ` closeClear=${m.notificationHeadingCloseClear}`
+        + ` rowOvf=${m.notificationRowOverflow}`,
+      );
     }
     if (!m.topbarContract) failures.push('200% text: branding topbar reflow failure');
     if (!m.mobileChromeContract) {

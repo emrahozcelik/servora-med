@@ -213,7 +213,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
           <button ref={closeRef} type="button" className="drawer-close" onClick={close}>Kapat</button>
         </div>
         {view === 'settings' ? (
-          <div className="notification-settings">
+          <div className="notification-settings notification-center-body">
             <button
               ref={settingsBackRef}
               type="button"
@@ -321,40 +321,56 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
             </section>
           </div>
         ) : (
-          <>
+          <div className="notification-center-body">
             <button
               ref={settingsTriggerRef}
               type="button"
-              className="secondary-button notification-settings-trigger"
+              className="secondary-button notification-settings-trigger notification-center-primary-action"
               onClick={() => setView('settings')}
             >
               Kurulum ve cihaz bildirimleri
             </button>
-            {actionError && <p className="form-error" role="alert">{actionError}</p>}
+            {actionError && (
+              <p className="form-error notification-center-state notification-center-state--error" role="alert">
+                {actionError}
+              </p>
+            )}
             {loadError && (
-              <div className="notification-center-message" role="alert">
+              <div className="notification-center-message notification-center-message--error notification-center-state" role="alert">
                 <p>{loadError}</p>
                 <button type="button" className="secondary-button" onClick={() => void loadPage(null, false)} disabled={loading}>Tekrar dene</button>
               </div>
             )}
-            {loading && items.length === 0 && <p className="notification-center-message" role="status">Bildirimler yükleniyor…</p>}
-            {!loading && !loadError && items.length === 0 && <p className="notification-center-message">Henüz bildiriminiz yok.</p>}
+            {loading && items.length === 0 && (
+              <p className="notification-center-message notification-center-message--loading notification-center-state" role="status">
+                Bildirimler yükleniyor…
+              </p>
+            )}
+            {!loading && !loadError && items.length === 0 && (
+              <p className="notification-center-message notification-center-message--empty notification-center-state">
+                Henüz bildiriminiz yok.
+              </p>
+            )}
             {items.length > 0 && (
               <ol className="notification-center-list">
                 {items.map((notification) => {
                   const pending = pendingId === notification.id;
+                  const readState = notification.readAt
+                    ? 'notification-center-item--read'
+                    : 'notification-center-item--unread';
                   return (
                     <li key={notification.id}>
                       <button
                         type="button"
                         data-notification-id={notification.id}
-                        className="notification-center-item"
+                        data-read-state={notification.readAt ? 'read' : 'unread'}
+                        className={`notification-center-item ${readState}`}
                         disabled={pending}
                         aria-label={`${notification.title} bildirimini aç${notification.readAt ? '' : ' ve okundu olarak işaretle'}`}
                         onClick={() => void activate(notification)}
                       >
                         <span className="notification-center-item-title">{notification.title}</span>
-                        <span>{notification.body}</span>
+                        <span className="notification-center-item-body">{notification.body}</span>
                         <span className="notification-center-item-meta">
                           <time dateTime={notification.createdAt}>{new Date(notification.createdAt).toLocaleString('tr-TR')}</time>
                           <span>{notification.readAt ? 'Okundu' : 'Okunmadı'}</span>
@@ -366,12 +382,16 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
               </ol>
             )}
             {nextCursor && (
-              <button type="button" className="secondary-button notification-center-more" disabled={loading}
-                onClick={() => void loadPage(nextCursor, true)}>
+              <button
+                type="button"
+                className="secondary-button notification-center-more notification-center-footer"
+                disabled={loading}
+                onClick={() => void loadPage(nextCursor, true)}
+              >
                 {loading ? 'Yükleniyor…' : 'Daha fazla yükle'}
               </button>
             )}
-          </>
+          </div>
         )}
       </div>
     </div>
