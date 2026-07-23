@@ -35,7 +35,7 @@ T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
 
 P0 defect track:
-RecordDescriptions container reflow: OPEN
+RecordDescriptions container reflow: COMPLETE (fix/web-record-descriptions-reflow)
 
 ACTION_SCOPED_GEOLOCATION: false (unchanged)
 ```
@@ -108,35 +108,33 @@ Full per-file metadata: `docs/ui/screenshots/phase-t-baseline/README.md`.
 
 ## Defect preflight — RecordDescriptions container reflow (P0)
 
-**Status:** OPEN (runtime PR after T0 merge only)
-**Branch (planned):** `fix/web-record-descriptions-reflow`
-**PR title (planned):** `fix(web): make record descriptions container-responsive`
+**Status:** COMPLETE
+**Branch:** `fix/web-record-descriptions-reflow`
+**PR title:** `fix(web): make record descriptions container-responsive`
 
-### Root-cause hypothesis
+### Root cause
 
 ```text
-viewport >= 64rem → adapter sets column = 2
+viewport >= 64rem → adapter set column = 2
 real container (sidebar + padding + nested grid) may be < ~640px
 → crushed / glyph-stacked Descriptions cells
 ```
 
-### Required approach (summary)
+### Fix shipped
 
-- Remove viewport-only column decision from adapter
-- `ResizeObserver` on owned wrapper; threshold `RECORD_DESCRIPTIONS_TWO_COLUMN_MIN_WIDTH_PX = 640`
+- Viewport `matchMedia` column decision removed from `RecordDescriptions`
+- Host wrapper + `ResizeObserver`; threshold `RECORD_DESCRIPTIONS_TWO_COLUMN_MIN_WIDTH_PX = 640`
 - Safe `column=1` before measure / without ResizeObserver
-- `wide` span only in two-column mode
-- Stay in Ant → owned adapter → JobDetail boundary
-- No global Ant selector hacks, no overflow-x hide, no font shrink, no domain changes
+- `wide` span only when `columns === 2`
+- Boundary preserved: Ant Descriptions → owned adapter → JobDetail
+- Evidence: `docs/ui/screenshots/phase-t-p0/`
 
 ### Done when
 
-- [ ] Focused + JobDetail regression tests pass
-- [ ] Responsive smoke 390–1440 + text zoom
-- [ ] After evidence under `docs/ui/screenshots/phase-t-p0/`
-- [ ] This plan’s P0 status → COMPLETE
-
-Full implementation brief lives with the runtime PR; do not expand T0.
+- [x] Focused + JobDetail regression tests pass
+- [x] Responsive smoke 390–1440 + text zoom
+- [x] After evidence under `docs/ui/screenshots/phase-t-p0/`
+- [x] This plan’s P0 status → COMPLETE
 
 ---
 
@@ -185,7 +183,7 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | ID | Slice | Status |
 | --- | --- | --- |
 | T0 | Audit + docs + baseline | **COMPLETE** |
-| P0 | RecordDescriptions container reflow | **OPEN** |
+| P0 | RecordDescriptions container reflow | **COMPLETE** |
 | T1 | Tokens / visual language | NOT STARTED |
 | T2 | AppShell / nav | NOT STARTED |
 | T3 | Jobs + JobDetail | NOT STARTED |

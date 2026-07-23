@@ -27,7 +27,7 @@ T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
 
 P0 defect track:
-RecordDescriptions container reflow: OPEN
+RecordDescriptions container reflow: COMPLETE
 ```
 
 Phase T mevcut Ant/Servora mimarisi üzerinde görsel tutarlılık ve ekran iyileştirmesidir. Toplu Ant migration veya default Ant admin görünümü bu fazın hedefi değildir.
@@ -93,20 +93,13 @@ Defect preflight:
 - Accepts only broken layout, overflow, accessibility, or interaction regressions
 - Each defect ships as its **own narrow PR**
 
-### Open P0 — RecordDescriptions container reflow
+### P0 — RecordDescriptions container reflow
 
-**Status:** OPEN
-**Evidence:** `docs/ui/screenshots/phase-t-baseline/job-detail-1024.png`
+**Status:** COMPLETE
+**Before:** `docs/ui/screenshots/phase-t-baseline/job-detail-1024.png`
+**After:** `docs/ui/screenshots/phase-t-p0/`
 
-Known presentation defect: Job detail `RecordDescriptions` can force two columns from viewport media while the real content container is narrower (AppShell sidebar + padding + nested grid), producing crushed or glyph-stacked text.
-
-Fix direction (separate runtime PR after T0 merge):
-
-- Drop viewport `matchMedia('(min-width: 64rem)')` as the sole column decision
-- Observe adapter wrapper width (`ResizeObserver`)
-- `column=1` below ~640px container width; `column=2` when wider
-- Safe single-column default before measurement / without ResizeObserver
-- Stay inside owned adapter; no JobDetail domain changes; no global Ant hacks
+Job detail `RecordDescriptions` no longer forces two columns from viewport media alone. The owned adapter measures its host with `ResizeObserver` (`RECORD_DESCRIPTIONS_TWO_COLUMN_MIN_WIDTH_PX = 640`), defaults safely to one column, and keeps `wide` span only in two-column mode.
 
 ---
 
@@ -121,7 +114,7 @@ Fix direction (separate runtime PR after T0 merge):
 | `useAppFeedback` | App.useApp | Exported; feature adoption sparse |
 | `WorkflowSteps` | Steps | Job lifecycle presentation |
 | `ActivityTimeline` | Timeline | Audit history |
-| `RecordDescriptions` | Descriptions | **P0 container reflow OPEN** |
+| `RecordDescriptions` | Descriptions | Container-responsive columns (P0 complete) |
 | `ConfirmationAction` | Modal | Confirmations |
 | `CompactConfirmationAction` | Popconfirm | Primary-contact only |
 | `ReasonDialog` | Modal | Revision/cancel reasons |
@@ -234,7 +227,7 @@ Geolocation production enablement stays out of scope (`ACTION_SCOPED_GEOLOCATION
 
 - [x] Official UI docs status lines agree on Ant COMPLETE + Phase T program
 - [x] Phase T screenshot baseline committed (minimum set)
-- [ ] P0 Descriptions container reflow fixed and regression-guarded
+- [x] P0 Descriptions container reflow fixed and regression-guarded
 - [ ] T1 shared visual language applied
 - [ ] T2 shell polish recorded
 - [ ] T3 Jobs + JobDetail consistency improved vs baseline

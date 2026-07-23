@@ -944,7 +944,16 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .servora-workflow-step--skipped .servora-ant-steps-item-title,
 .servora-workflow-step--upcoming .servora-ant-steps-item-title { color: var(--muted); }
 .servora-workflow-step--attention .servora-ant-steps-item-title { color: var(--error); }
-.detail-summary .servora-record-descriptions { width: 100%; min-width: 0; }
+.detail-summary .servora-record-descriptions-host,
+.detail-summary .servora-record-descriptions {
+  width: 100%;
+  min-width: 0;
+}
+.servora-record-descriptions-host {
+  display: block;
+  width: 100%;
+  min-width: 0;
+}
 .servora-record-descriptions .servora-ant-descriptions-item-label {
   color: var(--muted);
   font-size: 0.78rem;
