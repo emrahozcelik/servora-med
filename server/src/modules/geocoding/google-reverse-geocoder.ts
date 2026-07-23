@@ -139,17 +139,23 @@ function mapAddressComponents(
   return { neighborhood, district, city, approximateLabel };
 }
 
+/**
+ * Google may omit `types` on some address components (for example POI names).
+ * Skip incomplete components instead of rejecting the entire response.
+ * Returns null only when `addressComponents` is not an array at all.
+ */
 function parseAddressComponents(value: unknown): AddressComponent[] | null {
   if (!Array.isArray(value)) return null;
   const components: AddressComponent[] = [];
   for (const item of value) {
-    if (!item || typeof item !== 'object' || Array.isArray(item)) return null;
+    if (!item || typeof item !== 'object' || Array.isArray(item)) continue;
     const record = item as Record<string, unknown>;
-    if (typeof record.longText !== 'string') return null;
-    if (record.shortText !== undefined && typeof record.shortText !== 'string') return null;
+    if (typeof record.longText !== 'string') continue;
+    if (record.shortText !== undefined && typeof record.shortText !== 'string') continue;
     if (!Array.isArray(record.types) || !record.types.every((t) => typeof t === 'string')) {
-      return null;
+      continue;
     }
+    if (record.types.length === 0) continue;
     components.push({
       longText: record.longText,
       shortText: typeof record.shortText === 'string' ? record.shortText : undefined,
@@ -157,6 +163,19 @@ function parseAddressComponents(value: unknown): AddressComponent[] | null {
     });
   }
   return components;
+}
+
+function mapResults(results: unknown[]): ReverseGeocodingResult | null {
+  for (const entry of results) {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) continue;
+    const components = parseAddressComponents(
+      (entry as { addressComponents?: unknown }).addressComponents,
+    );
+    if (!components || components.length === 0) continue;
+    const mapped = mapAddressComponents(components);
+    if (mapped) return mapped;
+  }
+  return null;
 }
 
 function mapHttpStatus(status: number): GoogleReverseGeocodingErrorCode {
@@ -253,21 +272,7 @@ export class GoogleReverseGeocoder implements ReverseGeocoder {
         throw new GoogleReverseGeocodingError('ZERO_RESULTS');
       }
 
-      const first = results[0];
-      if (!first || typeof first !== 'object' || Array.isArray(first)) {
-        resultCode = 'INVALID_RESPONSE';
-        throw new GoogleReverseGeocodingError('INVALID_RESPONSE');
-      }
-
-      const components = parseAddressComponents(
-        (first as { addressComponents?: unknown }).addressComponents,
-      );
-      if (!components) {
-        resultCode = 'INVALID_RESPONSE';
-        throw new GoogleReverseGeocodingError('INVALID_RESPONSE');
-      }
-
-      const mapped = mapAddressComponents(components);
+      const mapped = mapResults(results);
       if (!mapped) {
         resultCode = 'ZERO_RESULTS';
         throw new GoogleReverseGeocodingError('ZERO_RESULTS');

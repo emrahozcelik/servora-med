@@ -175,6 +175,45 @@ describe('GoogleReverseGeocoder', () => {
     resolveFetch?.(jsonResponse({ results: [{ addressComponents: kizilayComponents }] }));
   });
 
+  it('skips incomplete address components that omit types instead of failing', async () => {
+    const fetchImpl = vi.fn().mockResolvedValue(jsonResponse({
+      results: [{
+        types: ['establishment', 'point_of_interest'],
+        addressComponents: [
+          // Google may omit types on the place-name component.
+          { longText: 'Public Plaza' },
+          {
+            longText: 'Kızılay Mahallesi',
+            shortText: 'Kızılay',
+            types: ['administrative_area_level_4', 'political'],
+          },
+          {
+            longText: 'Çankaya',
+            shortText: 'Çankaya',
+            types: ['administrative_area_level_2', 'political'],
+          },
+          {
+            longText: 'Ankara',
+            shortText: 'Ankara',
+            types: ['administrative_area_level_1', 'political'],
+          },
+        ],
+      }],
+    }));
+    const geocoder = new GoogleReverseGeocoder({
+      apiKey: TEST_KEY,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+    });
+    await expect(geocoder.reverse({
+      latitude: 1, longitude: 2, accuracyMeters: 10, correlationId: 'c',
+    })).resolves.toEqual({
+      neighborhood: 'Kızılay Mahallesi',
+      district: 'Çankaya',
+      city: 'Ankara',
+      approximateLabel: 'Kızılay Mahallesi, Çankaya / Ankara',
+    });
+  });
+
   it('maps incomplete address components without inventing values', () => {
     expect(mapGoogleAddressComponentsForTests([
       { longText: 'Çankaya', types: ['administrative_area_level_2'] },
