@@ -122,10 +122,11 @@ export const servoraVisualTokens = {
     radiusRaisedCss: '0.75rem',
     radiusChipCss: '999px',
     focusWidthPx: 3,
+    focusWidthCss: '3px',
   },
 
   elevation: {
-    /** Ant bridge + CSS --shadow-raised. Native .surface-raised may still use a local OKLCH shadow until T1B. */
+    /** Shared raised elevation for Ant theme and native `.surface-raised`. */
     raised: '0 8px 24px rgba(30, 37, 43, 0.12)',
   },
 
@@ -145,6 +146,7 @@ export const servoraVisualTokens = {
     radiusRaisedCss: string;
     radiusChipCss: string;
     focusWidthPx: number;
+    focusWidthCss: string;
   };
   elevation: { raised: string };
   typography: { fontFamily: string; bodySizePx: number };
@@ -184,6 +186,7 @@ export const SERVORA_REQUIRED_CSS_VARIABLES = [
   '--accent-hover',
   '--accent-soft',
   '--focus',
+  '--focus-width',
   '--info',
   '--info-soft',
   '--success',

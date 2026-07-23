@@ -113,6 +113,7 @@ describe('Servora visual token contract', () => {
       [color.error.cssVariable, color.error.cssValue],
       [color.errorSoft.cssVariable, color.errorSoft.cssValue],
       ['--control-height', control.heightCss],
+      ['--focus-width', control.focusWidthCss],
       ['--radius-control', control.radiusControlCss],
       ['--radius-button', control.radiusButtonCss],
       ['--radius-raised', control.radiusRaisedCss],
@@ -132,7 +133,7 @@ describe('Servora visual token contract', () => {
       /button,\s*input\s*\{[^}]*min-height:\s*var\(--control-height\)/s,
     );
     expect(stylesCss).toMatch(
-      /:focus-visible\s*\{[^}]*outline:\s*3px\s+solid\s+var\(--focus\)/s,
+      /:focus-visible\s*\{[^}]*outline:\s*var\(--focus-width\)\s+solid\s+var\(--focus\)/s,
     );
     expect(stylesCss).toMatch(
       /:focus-visible\s*\{[^}]*outline-offset:\s*3px/s,

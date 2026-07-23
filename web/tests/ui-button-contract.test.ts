@@ -26,8 +26,8 @@ describe('button CSS contract', () => {
   });
 
   it('keeps list/board open-for-action controls at least 44 CSS px tall', () => {
-    expect(css).toMatch(/\.job-row-mobile-primary\s+(?:\.primary-button|\.secondary-button)[^,{]*[,{][^}]*min-height:\s*2\.75rem/s);
-    expect(css).toMatch(/\.job-row-commands\s+(?:\.primary-button|\.secondary-button)[^,{]*[,{][^}]*min-height:\s*2\.75rem/s);
+    expect(css).toMatch(/\.job-row-mobile-primary\s+(?:\.primary-button|\.secondary-button)[^,{]*[,{][^}]*min-height:\s*var\(--control-height\)/s);
+    expect(css).toMatch(/\.job-row-commands\s+(?:\.primary-button|\.secondary-button)[^,{]*[,{][^}]*min-height:\s*var\(--control-height\)/s);
     expect(css).toMatch(/\.job-row-mobile-primary\s*\{[^}]*display:\s*none/s);
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*56rem\s*\)[\s\S]*\.job-row-mobile-primary\s*\{[^}]*display:\s*block/s);
   });
