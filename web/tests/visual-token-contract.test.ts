@@ -15,36 +15,29 @@ import {
 const stylesPath = resolve(process.cwd(), 'src/styles.css');
 const stylesCss = readFileSync(stylesPath, 'utf8');
 
-/** Extract the first :root { … } block without a CSS parser dependency. */
-function extractRootBlock(css: string): string {
-  const match = css.match(/:root\s*\{/);
-  if (!match || match.index === undefined) {
-    throw new Error('Expected a :root rule in styles.css');
-  }
-  let depth = 0;
-  let started = false;
-  for (let i = match.index; i < css.length; i += 1) {
-    const ch = css[i];
-    if (ch === '{') {
-      depth += 1;
-      started = true;
-    } else if (ch === '}') {
-      depth -= 1;
-      if (started && depth === 0) {
-        return css.slice(match.index, i + 1);
-      }
-    }
-  }
-  throw new Error('Unclosed :root rule in styles.css');
+// Strip block comments so commented tokens are not counted as declarations.
+function stripCssComments(css: string): string {
+  return css.replace(/\/\*[\s\S]*?\*\//g, '');
 }
 
-function declarationsForVariable(rootBlock: string, variable: string): string[] {
-  const pattern = new RegExp(
-    `${variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*:\\s*([^;]+);`,
-    'g',
-  );
+/**
+ * Count real `:root {` rule openings (no CSS parser dependency).
+ * Matches `:root{` / `:root {` only — not class names containing "root".
+ */
+function countRootRuleOpenings(css: string): number {
+  return [...stripCssComments(css).matchAll(/(?:^|[^:\w-]):root\s*\{/g)].length;
+}
+
+/**
+ * Collect custom-property *declarations* (`--token: value;`) across the full sheet.
+ * Does not match `var(--token)` usages (no colon after the variable name).
+ */
+function declarationsForVariable(css: string, variable: string): string[] {
+  const escaped = variable.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  // Boundary: not a longer custom property name (e.g. --ink vs --ink-soft).
+  const pattern = new RegExp(`(?:^|[^\\w-])${escaped}\\s*:\\s*([^;]+);`, 'gm');
   const values: string[] = [];
-  for (const match of rootBlock.matchAll(pattern)) {
+  for (const match of stripCssComments(css).matchAll(pattern)) {
     values.push(match[1]!.trim());
   }
   return values;
@@ -76,14 +69,27 @@ function contrastRatio(foreground: string, background: string) {
 }
 
 describe('Servora visual token contract', () => {
-  const rootBlock = extractRootBlock(stylesCss);
+  it('keeps exactly one :root rule in styles.css', () => {
+    expect(countRootRuleOpenings(stylesCss)).toBe(1);
+  });
 
-  it('declares each required CSS custom property exactly once under :root', () => {
+  it('declares each required CSS custom property exactly once in the full stylesheet', () => {
     for (const variable of SERVORA_REQUIRED_CSS_VARIABLES) {
-      const values = declarationsForVariable(rootBlock, variable);
+      const values = declarationsForVariable(stylesCss, variable);
       expect(values, variable).toHaveLength(1);
       expect(values[0], variable).toBeTruthy();
     }
+  });
+
+  it('does not treat var(--token) usages as custom-property declarations', () => {
+    // Foundation uses var(--ink) / var(--paper) / var(--focus) etc.; those must not
+    // inflate declaration counts (only `--token: value;` counts).
+    expect(stylesCss).toMatch(/var\(--ink\)/);
+    expect(stylesCss).toMatch(/var\(--paper\)/);
+    expect(stylesCss).toMatch(/var\(--focus\)/);
+    expect(declarationsForVariable(stylesCss, '--ink')).toHaveLength(1);
+    expect(declarationsForVariable(stylesCss, '--paper')).toHaveLength(1);
+    expect(declarationsForVariable(stylesCss, '--focus')).toHaveLength(1);
   });
 
   it('keeps CSS values aligned with the TypeScript token contract', () => {
@@ -115,7 +121,7 @@ describe('Servora visual token contract', () => {
     ];
 
     for (const [variable, value] of expected) {
-      expect(declarationsForVariable(rootBlock, variable)[0]).toBe(value);
+      expect(declarationsForVariable(stylesCss, variable)).toEqual([value]);
     }
   });
 
