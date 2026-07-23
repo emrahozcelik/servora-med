@@ -12,12 +12,14 @@ describe('shared accessibility CSS contract', () => {
   it('keeps primary controls at least 44 CSS px tall', () => {
     expect(css).toMatch(/--control-height:\s*2\.75rem;/);
     expect(css).toMatch(/button,\s*input\s*\{[^}]*min-height:\s*var\(--control-height\)/s);
-    expect(css).toMatch(/\.primary-button, \.secondary-button, \.destructive-button, \.ghost-button \{[^}]*display: inline-flex;[^}]*min-height: 2\.75rem;/s);
+    expect(css).toMatch(
+      /\.primary-button,\s*\.secondary-button,\s*\.destructive-button,\s*\.ghost-button\s*\{[^}]*display:\s*inline-flex;[^}]*min-height:\s*var\(--control-height\)/s,
+    );
   });
 
   it('provides a visible focus indicator independent of color fill', () => {
     expect(css).toMatch(
-      /:focus-visible\s*\{[^}]*outline:\s*3px\s+solid\s+var\(--focus\);[^}]*outline-offset:\s*3px;/s,
+      /:focus-visible\s*\{[^}]*outline:\s*var\(--focus-width\)\s+solid\s+var\(--focus\);[^}]*outline-offset:\s*3px;/s,
     );
   });
 
@@ -83,7 +85,7 @@ describe('shared accessibility CSS contract', () => {
   });
 
   it('keeps report controls reachable and report content reflowable', () => {
-    expect(css).toMatch(/\.report-filters button, \.report-filters input, \.report-filters select \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.report-filters button, \.report-filters input, \.report-filters select \{[^}]*min-height: var\(--control-height\);/);
     expect(css).toMatch(/\.report-workspace, \.report-section, \.report-table-wrap \{[^}]*min-width: 0;[^}]*max-width: 100%;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.responsive-report-table thead \{/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.responsive-report-table tr \{[^}]*display: block;/);
@@ -92,7 +94,7 @@ describe('shared accessibility CSS contract', () => {
   it('defines the 64rem shell structure, 44px targets, and no page overflow', () => {
     expect(css).toContain('@media (min-width: 64rem)');
     expect(css).toContain('@media (width < 64rem)');
-    expect(css).toMatch(/\.shell-menu-button, \.shell-nav a, \.shell-signout, \.drawer-close \{[^}]*min-width: 2\.75rem;[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.shell-menu-button, \.shell-nav a, \.shell-signout, \.drawer-close \{[^}]*min-width: 2\.75rem;[^}]*min-height: var\(--control-height\);/);
     expect(css).toMatch(/\.authenticated-shell \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.shell-content \{[^}]*min-width: 0;/);
     expect(css).toMatch(/body \{[^}]*overflow-x: clip;/);
@@ -111,7 +113,7 @@ describe('shared accessibility CSS contract', () => {
   });
 
   it('reflows the structured JobCard list without small targets or horizontal page overflow', () => {
-    expect(css).toMatch(/\.job-quick-views a, \.job-filter-disclosure summary \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.job-quick-views a, \.job-filter-disclosure summary \{[^}]*min-height: var\(--control-height\);/);
     expect(css).not.toMatch(/\.job-expand\s*\{/);
     expect(css).not.toMatch(/\.job-detail-link\s*\{/);
     expect(css).toMatch(/\.structured-job-row \{[^}]*min-width: 0;/);
@@ -137,7 +139,7 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.job-board \{[^}]*min-width: 0;[^}]*max-width: 100%;[^}]*overflow-x: hidden;/);
     expect(css).toMatch(/\.workflow-lane \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.workflow-lane-heading \{[^}]*flex-wrap: wrap;/);
-    expect(css).toMatch(/\.workflow-lane-link \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.workflow-lane-link \{[^}]*min-height: var\(--control-height\);/);
     expect(css).toMatch(/\.workflow-lane-cards \{[^}]*min-width: 0;[^}]*grid-template-columns: minmax\(0, 1fr\);/);
     expect(css).not.toMatch(/\.workflow-lane-cards[^}]*overflow-y|\.workflow-lane[^}]*overflow-y/);
     expect(css).not.toMatch(/\.job-board-card[^}]*box-shadow|\.workflow-lane[^}]*gradient/);
@@ -145,8 +147,8 @@ describe('shared accessibility CSS contract', () => {
   });
 
   it('keeps General Task creation and type cues accessible without color-only meaning', () => {
-    expect(css).toMatch(/\.task-optional summary \{[^}]*min-height: 2\.75rem;/);
-    expect(css).toMatch(/\.inline-action \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.task-optional summary \{[^}]*min-height: var\(--control-height\);/);
+    expect(css).toMatch(/\.inline-action \{[^}]*min-height: var\(--control-height\);/);
     expect(css).toMatch(/\.workspace-create-actions \{[^}]*display: flex;/);
     expect(css).toMatch(/\.job-board-type \{[^}]*font-size:/);
     expect(css).toMatch(/@media \(max-width: 40rem\)[\s\S]*\.workspace-create-actions > \* \{[^}]*flex: 1 1 auto;/);
@@ -162,7 +164,7 @@ describe('shared accessibility CSS contract', () => {
 
   it('keeps the compact view switch outside the filter sheet with reachable controls', () => {
     expect(css).toMatch(/\.job-view-switcher \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
-    expect(css).toMatch(/\.job-view-switcher button \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.job-view-switcher button \{[^}]*min-height: var\(--control-height\);/);
     expect(css).toMatch(/\.job-view-switcher button\[aria-pressed="true"\] \{[^}]*background: var\(--accent-soft\);/);
   });
 
@@ -170,7 +172,7 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.approval-review \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.approval-review h2 \{[^}]*overflow-wrap: anywhere;/);
     expect(css).toMatch(/\.workflow-dialog \{[^}]*width: min\(100%, 34rem\);[^}]*max-height: calc\(100dvh - 2rem\);[^}]*overflow: auto;/);
-    expect(css).toMatch(/\.workflow-dialog \.review-buttons button, \.reason-dialog \.review-buttons button \{[^}]*min-height: 2\.75rem;/);
+    expect(css).toMatch(/\.workflow-dialog \.review-buttons button, \.reason-dialog \.review-buttons button \{[^}]*min-height: var\(--control-height\);/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.approval-review-summary \{[^}]*grid-template-columns: 1fr;/);
   });
 });

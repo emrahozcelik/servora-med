@@ -28,9 +28,9 @@ Ant evaluation/spike: NOT NEEDED
 
 Phase T — Visual Consistency and Screen Polish
 T0 audit/docs/baseline: COMPLETE
-T1 token and shared language: IN PROGRESS
+T1 token and shared language: COMPLETE
   T1A semantic token contract + Ant bridge: COMPLETE
-  T1B shared typography/control/surface adoption: NOT STARTED
+  T1B shared typography/control/surface adoption: COMPLETE
 T2 AppShell and navigation polish: NOT STARTED
 T3 Jobs and JobDetail polish: NOT STARTED
 T4 CRM/product/staff/forms polish: NOT STARTED
@@ -142,13 +142,13 @@ real container (sidebar + padding + nested grid) may be < ~640px
 
 ## T1 — Token and shared visual language
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 Split:
 
 ```text
 T1A Semantic token contract + Ant bridge   COMPLETE
-T1B Shared typography/control/surface adoption   NOT STARTED
+T1B Shared typography/control/surface adoption   COMPLETE
 ```
 
 ### T1A — Semantic token contract + Ant bridge (COMPLETE)
@@ -160,16 +160,23 @@ T1B Shared typography/control/surface adoption   NOT STARTED
 - Feature screens still use CSS variables, not the TS token module
 - Visual values intentionally preserved; no screen redesign
 
-### T1B — Shared typography / control / surface adoption (NOT STARTED)
+### T1B — Shared typography / control / surface adoption (COMPLETE)
 
-Candidates for adopting CSS token variables (audit, not T1A scope):
+Implementation record:
 
-- shared controls (button/input/select border-radius → `--radius-*`)
-- headings and type scale
-- surface contracts (`.surface`, `.surface-raised` local OKLCH shadow → `--shadow-raised` if product accepts)
-- helper/error text
-- button states
-- remaining hardcoded oklch/hex in feature CSS after inventory
+- shared control-height/radius adoption (`min-height: var(--control-height)`, form/button radii)
+- focus-width CSS bridge (`--focus-width` + `:focus-visible`)
+- shared heading/helper cleanup:
+  - page headings grouped where values already matched
+  - section: `.drawer-heading h2, .notification-center-heading h2` shared `1.125rem` contract
+  - helper: `.field-hint, .form-help` shared muted/size; diverging margin/line-height kept
+  - form-level error surface remains `.form-error` (`--error` / `--error-soft`)
+- surface-raised canonical radius + `--shadow-raised` (only intentional visual change)
+- semantic literal drift protection: exact canonical OKLCH only inside `:root`; scan covers stylesheet **before and after** `:root` (`outsideRoot`)
+- destructive-button duplicate consolidation (single paper/outline base + hover)
+- drift tests: `web/tests/shared-visual-language-contract.test.ts`
+
+Non-work: AppShell/Jobs/CRM redesign, spacing sweep, Ant Form, feature TSX.
 
 ---
 
@@ -212,8 +219,8 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T0 | Audit + docs + baseline | **COMPLETE** |
 | P0 | RecordDescriptions container reflow | **COMPLETE** |
 | T1A | Semantic token contract + Ant bridge | **COMPLETE** |
-| T1B | Shared typography/control/surface adoption | NOT STARTED |
-| T1 | Tokens / visual language (overall) | IN PROGRESS |
+| T1B | Shared typography/control/surface adoption | **COMPLETE** |
+| T1 | Tokens / visual language (overall) | **COMPLETE** |
 | T2 | AppShell / nav | NOT STARTED |
 | T3 | Jobs + JobDetail | NOT STARTED |
 | T4 | CRM / product / people / forms | NOT STARTED |
