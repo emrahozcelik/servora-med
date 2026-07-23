@@ -206,4 +206,108 @@ describe('responsive authenticated AppShell', () => {
     // counterpart must be added at the same time — update this test then.
     expect(drawerRules).not.toMatch(/\b(?:transition|animation)(?:-[\w-]+)?\s*:/);
   });
+
+  it('keeps desktop shell hierarchy without mobile chrome', async () => {
+    await render(manager, true);
+    const shell = container.querySelector('.authenticated-shell--desktop');
+    expect(shell).not.toBeNull();
+    expect(container.querySelector('.shell-sidebar')).not.toBeNull();
+    expect(container.querySelector('.desktop-shell-topbar')).not.toBeNull();
+    expect(container.querySelector('.shell-content')).not.toBeNull();
+    expect(container.querySelector('.compact-shell-header')).toBeNull();
+    expect(container.querySelector('.mobile-bottom-nav')).toBeNull();
+    expect(container.querySelector('.sticky-new-job')).toBeNull();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+
+    const aside = container.querySelector('.shell-sidebar')!;
+    expect(aside.querySelector('.shell-sidebar-brand .dunya-dental-brand--sidebar')).not.toBeNull();
+    expect(aside.querySelector('.shell-sidebar-footer .shell-account')).not.toBeNull();
+    expect(aside.querySelector('.shell-sidebar-footer .shell-copyright')).not.toBeNull();
+    expect(aside.querySelector('.shell-identity strong')?.textContent).toBe(manager.name);
+    expect(aside.querySelector('.shell-identity span')?.textContent).toBe('Yönetici');
+    expect(aside.querySelector('.shell-signout')?.textContent).toBe('Oturumu kapat');
+  });
+
+  it('preserves pending sign-out copy on the desktop account control', async () => {
+    setDesktop(true);
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={['/jobs']}>
+        <AppShell user={admin} pendingSignOut onSignOut={() => {}}>
+          <main>İçerik</main>
+        </AppShell>
+      </MemoryRouter>,
+    ));
+    const signOut = container.querySelector<HTMLButtonElement>('.shell-sidebar .shell-signout')!;
+    expect(signOut.disabled).toBe(true);
+    expect(signOut.textContent).toBe('Kapatılıyor…');
+  });
+
+  it('contracts desktop shell CSS hierarchy, active weight, and workspace frame', () => {
+    const css = readFileSync(
+      new URL('../src/styles.css', 'file://' + __dirname + '/'),
+      'utf8',
+    );
+
+    // Exact rule body for a selector line (does not match longer `.shell-sidebar …` prefixes).
+    function exactRuleBody(selector: string): string {
+      const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, '');
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm');
+      const match = cleaned.match(pattern);
+      if (!match?.[1]) throw new Error(`Missing exact CSS rule for ${selector}`);
+      return match[1];
+    }
+
+    // Shared/mobile baseline (drawer uses DestinationNav + Account without .shell-sidebar).
+    expect(exactRuleBody('.shell-nav')).toMatch(/gap:\s*1\.15rem/);
+    expect(exactRuleBody('.shell-nav')).not.toMatch(/gap:\s*1\.35rem/);
+    expect(exactRuleBody('.shell-nav-section')).toMatch(/gap:\s*0\.35rem/);
+    expect(exactRuleBody('.shell-nav-links')).toMatch(/gap:\s*0\.25rem/);
+    expect(exactRuleBody('.shell-nav a')).toMatch(/border-radius:\s*0\.5rem/);
+    expect(exactRuleBody('.shell-nav a')).not.toMatch(/overflow-wrap:\s*anywhere/);
+    expect(exactRuleBody('.shell-nav a[aria-current="page"]')).toMatch(/background:\s*var\(--accent-soft\)/);
+    expect(exactRuleBody('.shell-nav a[aria-current="page"]')).not.toMatch(/font-weight:/);
+    expect(exactRuleBody('.shell-account')).toMatch(/gap:\s*0\.9rem/);
+    expect(exactRuleBody('.shell-identity strong')).toMatch(/font-size:\s*0\.9rem/);
+    expect(exactRuleBody('.shell-identity strong')).not.toMatch(/font-weight:\s*720/);
+    expect(exactRuleBody('.shell-signout')).toMatch(/width:\s*100%/);
+    expect(exactRuleBody('.shell-signout')).not.toMatch(/font-weight:\s*680/);
+
+    // T2A polish is scoped to the desktop sidebar only.
+    expect(exactRuleBody('.shell-sidebar .shell-nav')).toMatch(/gap:\s*1\.35rem/);
+    expect(exactRuleBody('.shell-sidebar .shell-nav a')).toMatch(/border-radius:\s*0\.55rem/);
+    expect(exactRuleBody('.shell-sidebar .shell-nav a')).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(exactRuleBody('.shell-sidebar .shell-nav a[aria-current="page"]')).toMatch(/font-weight:\s*760/);
+    expect(exactRuleBody('.shell-sidebar .shell-account')).toMatch(/gap:\s*0\.75rem/);
+    expect(exactRuleBody('.shell-sidebar .shell-identity strong')).toMatch(/font-weight:\s*720/);
+    expect(exactRuleBody('.shell-sidebar .shell-signout')).toMatch(/font-weight:\s*680/);
+    expect(css).toMatch(/\.shell-sidebar-brand\s*\{/s);
+    expect(css).toMatch(/\.shell-sidebar-footer\s*\{[^}]*margin-top:\s*auto/s);
+    // Default operational workspace stays near 68rem; board gates remain separate.
+    expect(css).toMatch(/\.workspace\s*\{[^}]*width:\s*min\(100% - 2rem,\s*68rem\)/s);
+    expect(css).toMatch(/@container job-board \(min-width: 68rem\)/);
+    // Desktop canvas shell vs paper content frame.
+    expect(css).toMatch(
+      /@media \(min-width: 64rem\)[\s\S]*\.authenticated-shell--desktop\s*\{[^}]*background:\s*var\(--canvas\)/s,
+    );
+    expect(css).toMatch(
+      /@media \(min-width: 64rem\)[\s\S]*\.shell-content\s*\{[^}]*background:\s*var\(--paper\)/s,
+    );
+  });
+
+  it('keeps mobile drawer DestinationNav and Account without adopting desktop polish hooks', async () => {
+    await render(manager, false);
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    await act(async () => trigger.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    expect(dialog).not.toBeNull();
+    // Shared components still render inside the drawer.
+    expect(dialog.querySelector('.shell-nav')).not.toBeNull();
+    expect(dialog.querySelector('.shell-account')).not.toBeNull();
+    expect(dialog.querySelector('.shell-identity strong')?.textContent).toBe(manager.name);
+    // Desktop-only structural hooks must not appear in the mobile drawer.
+    expect(dialog.querySelector('.shell-sidebar-brand')).toBeNull();
+    expect(dialog.querySelector('.shell-sidebar-footer')).toBeNull();
+    expect(dialog.closest('.shell-sidebar')).toBeNull();
+  });
 });
