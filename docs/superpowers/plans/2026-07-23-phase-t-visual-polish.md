@@ -31,7 +31,10 @@ T0 audit/docs/baseline: COMPLETE
 T1 token and shared language: COMPLETE
   T1A semantic token contract + Ant bridge: COMPLETE
   T1B shared typography/control/surface adoption: COMPLETE
-T2 AppShell and navigation polish: NOT STARTED
+T2 AppShell and navigation polish: IN PROGRESS
+  T2A desktop shell hierarchy / workspace: COMPLETE
+  T2B mobile chrome / drawer: NOT STARTED
+  T2C notification shell polish + closeout: NOT STARTED
 T3 Jobs and JobDetail polish: NOT STARTED
 T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
@@ -182,9 +185,29 @@ Non-work: AppShell/Jobs/CRM redesign, spacing sweep, Ant Form, feature TSX.
 
 ## T2 — AppShell and navigation polish
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
 
-Sidebar hierarchy, account/footer, mobile chrome, Notification Center **visual** polish, workspace width — no Ant Layout/Menu; no Ayarlar page.
+```text
+T2A Desktop shell hierarchy and workspace frame   COMPLETE (this PR)
+T2B Mobile chrome and navigation drawer           NOT STARTED
+T2C Notification Center visual polish + closeout  NOT STARTED
+T2 overall                                        IN PROGRESS
+```
+
+No Ant Layout/Menu; no Ayarlar page.
+
+### T2A — Desktop shell hierarchy and workspace frame (COMPLETE)
+
+Implementation record:
+
+- sidebar brand / nav / account-footer density zones (`shell-sidebar-brand`, `shell-sidebar-footer`)
+- section + destination hierarchy; active item uses accent soft + **weight** (not color alone)
+- long Turkish nav/account labels: `overflow-wrap: anywhere`
+- account block: name/role/logout preserved; logout secondary weight; pending copy unchanged
+- desktop canvas shell vs paper content frame; workspace max remains `68rem` (board gates untouched)
+- navigation model, routes, roles, mobile chrome, notifications: unchanged
+
+Non-work (T2B/T2C): mobile top/bottom/drawer polish, Notification Center panel polish, Jobs/board layout.
 
 ---
 
@@ -221,7 +244,10 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T1A | Semantic token contract + Ant bridge | **COMPLETE** |
 | T1B | Shared typography/control/surface adoption | **COMPLETE** |
 | T1 | Tokens / visual language (overall) | **COMPLETE** |
-| T2 | AppShell / nav | NOT STARTED |
+| T2A | Desktop shell hierarchy / workspace | **COMPLETE** |
+| T2B | Mobile chrome / drawer | NOT STARTED |
+| T2C | Notification shell polish + T2 evidence | NOT STARTED |
+| T2 | AppShell / nav (overall) | **IN PROGRESS** |
 | T3 | Jobs + JobDetail | NOT STARTED |
 | T4 | CRM / product / people / forms | NOT STARTED |
 | T5 | States + regression closeout | NOT STARTED |

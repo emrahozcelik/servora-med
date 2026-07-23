@@ -206,4 +206,69 @@ describe('responsive authenticated AppShell', () => {
     // counterpart must be added at the same time — update this test then.
     expect(drawerRules).not.toMatch(/\b(?:transition|animation)(?:-[\w-]+)?\s*:/);
   });
+
+  it('keeps desktop shell hierarchy without mobile chrome', async () => {
+    await render(manager, true);
+    const shell = container.querySelector('.authenticated-shell--desktop');
+    expect(shell).not.toBeNull();
+    expect(container.querySelector('.shell-sidebar')).not.toBeNull();
+    expect(container.querySelector('.desktop-shell-topbar')).not.toBeNull();
+    expect(container.querySelector('.shell-content')).not.toBeNull();
+    expect(container.querySelector('.compact-shell-header')).toBeNull();
+    expect(container.querySelector('.mobile-bottom-nav')).toBeNull();
+    expect(container.querySelector('.sticky-new-job')).toBeNull();
+    expect(container.querySelector('[role="dialog"]')).toBeNull();
+
+    const aside = container.querySelector('.shell-sidebar')!;
+    expect(aside.querySelector('.shell-sidebar-brand .dunya-dental-brand--sidebar')).not.toBeNull();
+    expect(aside.querySelector('.shell-sidebar-footer .shell-account')).not.toBeNull();
+    expect(aside.querySelector('.shell-sidebar-footer .shell-copyright')).not.toBeNull();
+    expect(aside.querySelector('.shell-identity strong')?.textContent).toBe(manager.name);
+    expect(aside.querySelector('.shell-identity span')?.textContent).toBe('Yönetici');
+    expect(aside.querySelector('.shell-signout')?.textContent).toBe('Oturumu kapat');
+  });
+
+  it('preserves pending sign-out copy on the desktop account control', async () => {
+    setDesktop(true);
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={['/jobs']}>
+        <AppShell user={admin} pendingSignOut onSignOut={() => {}}>
+          <main>İçerik</main>
+        </AppShell>
+      </MemoryRouter>,
+    ));
+    const signOut = container.querySelector<HTMLButtonElement>('.shell-sidebar .shell-signout')!;
+    expect(signOut.disabled).toBe(true);
+    expect(signOut.textContent).toBe('Kapatılıyor…');
+  });
+
+  it('contracts desktop shell CSS hierarchy, active weight, and workspace frame', () => {
+    const css = readFileSync(
+      new URL('../src/styles.css', 'file://' + __dirname + '/'),
+      'utf8',
+    );
+
+    // Active destination uses color + background + weight (not color alone).
+    expect(css).toMatch(
+      /\.shell-nav a\[aria-current=["']page["']\]\s*\{[^}]*font-weight:\s*7[4-9]0/s,
+    );
+    expect(css).toMatch(
+      /\.shell-nav a\[aria-current=["']page["']\]\s*\{[^}]*background:\s*var\(--accent-soft\)/s,
+    );
+    // Long Turkish nav labels wrap safely.
+    expect(css).toMatch(/\.shell-nav a\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+    // Sidebar brand/footer density hooks.
+    expect(css).toMatch(/\.shell-sidebar-brand\s*\{/s);
+    expect(css).toMatch(/\.shell-sidebar-footer\s*\{[^}]*margin-top:\s*auto/s);
+    // Default operational workspace stays near 68rem; board gates remain separate.
+    expect(css).toMatch(/\.workspace\s*\{[^}]*width:\s*min\(100% - 2rem,\s*68rem\)/s);
+    expect(css).toMatch(/@container job-board \(min-width: 68rem\)/);
+    // Desktop canvas shell vs paper content frame.
+    expect(css).toMatch(
+      /@media \(min-width: 64rem\)[\s\S]*\.authenticated-shell--desktop\s*\{[^}]*background:\s*var\(--canvas\)/s,
+    );
+    expect(css).toMatch(
+      /@media \(min-width: 64rem\)[\s\S]*\.shell-content\s*\{[^}]*background:\s*var\(--paper\)/s,
+    );
+  });
 });

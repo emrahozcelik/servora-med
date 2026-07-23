@@ -71,6 +71,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   margin-top: 0.65rem;
   color: var(--muted);
   font-size: 0.6rem;
+  font-weight: 500;
+  letter-spacing: 0.01em;
 }
 .eyebrow { margin: 0 0 0.85rem; color: var(--accent); font-size: 0.8125rem; font-weight: 720; letter-spacing: 0.035em; text-transform: uppercase; overflow-wrap: anywhere; }
 
@@ -598,19 +600,86 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .shell-menu-button, .shell-nav a, .shell-signout, .drawer-close { min-width: 2.75rem; min-height: var(--control-height); }
 .shell-menu-button, .shell-signout, .drawer-close { display: inline-flex; align-items: center; justify-content: center; padding: 0.65rem 0.85rem; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); font-weight: 700; }
 .shell-menu-button:hover:not(:disabled), .shell-signout:hover:not(:disabled), .drawer-close:hover:not(:disabled) { border-color: oklch(72% 0.018 240deg); background: var(--canvas); }
-.shell-sidebar { min-height: 100vh; padding: 1.5rem 1rem; border-right: 1px solid var(--rule); background: var(--canvas); }
-.shell-nav { display: grid; gap: 1.15rem; }
-.shell-nav-section { display: grid; gap: 0.35rem; min-width: 0; }
-.shell-nav-section h2 { margin: 0; padding-inline: 0.75rem; color: var(--muted); font-size: 0.7rem; font-weight: 740; letter-spacing: 0.065em; text-transform: uppercase; }
-.shell-nav-links { display: grid; gap: 0.25rem; min-width: 0; }
-.shell-nav a { display: flex; align-items: center; padding: 0.65rem 0.75rem; border-radius: 0.5rem; color: var(--muted); font-size: 0.9rem; font-weight: 680; text-decoration: none; }
+/* Desktop sidebar: calm brand, primary nav focus, separated account/footer. */
+.shell-sidebar {
+  min-height: 100vh;
+  padding: 1.25rem 0.9rem 1rem;
+  border-right: 1px solid var(--rule);
+  background: var(--canvas);
+}
+.shell-sidebar-brand {
+  flex: 0 0 auto;
+  width: 100%;
+  min-width: 0;
+  padding: 0.1rem 0.25rem 0.75rem;
+}
+.shell-nav { display: grid; gap: 1.35rem; min-width: 0; }
+.shell-nav-section { display: grid; gap: 0.4rem; min-width: 0; }
+.shell-nav-section h2 {
+  margin: 0 0 0.1rem;
+  padding-inline: 0.75rem;
+  color: var(--muted);
+  font-size: 0.7rem;
+  font-weight: 740;
+  letter-spacing: 0.065em;
+  text-transform: uppercase;
+}
+.shell-nav-links { display: grid; gap: 0.3rem; min-width: 0; }
+.shell-nav a {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  padding: 0.65rem 0.75rem;
+  border-radius: 0.55rem;
+  color: var(--muted);
+  font-size: 0.9rem;
+  font-weight: 680;
+  text-decoration: none;
+  overflow-wrap: anywhere;
+}
 .shell-nav a:hover { color: var(--ink); background: var(--paper); }
-.shell-nav a[aria-current="page"] { color: var(--accent-hover); background: var(--accent-soft); }
-.shell-account { display: grid; gap: 0.9rem; padding-top: 1rem; border-top: 1px solid var(--rule); }
-.shell-identity { display: grid; gap: 0.2rem; }
-.shell-identity strong { font-size: 0.9rem; }
-.shell-identity span { color: var(--muted); font-size: 0.75rem; }
-.shell-signout { width: 100%; }
+/* Active uses accent soft fill + weight (not color alone). */
+.shell-nav a[aria-current="page"] {
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+  font-weight: 760;
+}
+.shell-sidebar-footer {
+  display: grid;
+  gap: 0.55rem;
+  flex: 0 0 auto;
+  margin-top: auto;
+  min-width: 0;
+  padding-top: 1.15rem;
+}
+.shell-account {
+  display: grid;
+  gap: 0.75rem;
+  min-width: 0;
+  padding-top: 1rem;
+  border-top: 1px solid var(--rule);
+}
+.shell-identity { display: grid; gap: 0.2rem; min-width: 0; }
+.shell-identity strong {
+  min-width: 0;
+  font-size: 0.9rem;
+  font-weight: 720;
+  overflow-wrap: anywhere;
+}
+.shell-identity span {
+  min-width: 0;
+  color: var(--muted);
+  font-size: 0.75rem;
+  overflow-wrap: anywhere;
+}
+/* Logout reachable but secondary to primary nav destinations. */
+.shell-signout {
+  width: 100%;
+  font-weight: 680;
+}
+.shell-sidebar-footer .shell-copyright {
+  margin-top: 0.15rem;
+}
 .shell-drawer-backdrop { position: fixed; z-index: 30; inset: 0; display: flex; background: oklch(26% 0.016 246deg / 48%); }
 .shell-drawer { display: flex; flex-direction: column; width: min(88vw, 22rem); block-size: 100dvh; max-block-size: 100vh; overflow-x: hidden; overflow-y: auto; padding: 1rem; border-right: 1px solid var(--rule); background: var(--paper); box-shadow: 0.75rem 0 2rem oklch(26% 0.016 246deg / 18%); }
 .drawer-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; padding-bottom: 1rem; border-bottom: 1px solid var(--rule); }
@@ -1650,12 +1719,51 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 
 @media (min-width: 64rem) {
-  .authenticated-shell { display: grid; grid-template-columns: minmax(15rem, 17rem) minmax(0, 1fr); grid-template-rows: 4.75rem minmax(0, 1fr); }
-  .shell-sidebar { display: flex; grid-row: 1 / -1; position: sticky; top: 0; align-self: start; flex-direction: column; block-size: 100dvh; max-block-size: 100vh; overflow-x: hidden; overflow-y: auto; }
-  .desktop-shell-topbar { display: flex; grid-column: 2; grid-row: 1; align-items: center; justify-content: flex-end; gap: 1rem; min-width: 0; padding: 0.75rem clamp(1rem, 3vw, 2.5rem); border-bottom: 1px solid var(--rule); background: var(--canvas); }
-  .shell-content { grid-column: 2; grid-row: 2; }
-  .shell-sidebar .shell-nav { margin-top: 2.5rem; }
-  .shell-sidebar .shell-account { margin-top: auto; }
+  .authenticated-shell {
+    display: grid;
+    grid-template-columns: minmax(15rem, 17rem) minmax(0, 1fr);
+    grid-template-rows: 4.75rem minmax(0, 1fr);
+  }
+  /* Quiet canvas shell frame; paper content column is the operational surface. */
+  .authenticated-shell--desktop { background: var(--canvas); }
+  .shell-sidebar {
+    display: flex;
+    grid-row: 1 / -1;
+    position: sticky;
+    top: 0;
+    align-self: start;
+    flex-direction: column;
+    block-size: 100dvh;
+    max-block-size: 100vh;
+    overflow-x: hidden;
+    overflow-y: auto;
+  }
+  .desktop-shell-topbar {
+    display: flex;
+    grid-column: 2;
+    grid-row: 1;
+    align-items: center;
+    justify-content: flex-end;
+    gap: 1rem;
+    min-width: 0;
+    padding: 0.75rem clamp(1rem, 3vw, 2.5rem);
+    border-bottom: 1px solid var(--rule);
+    background: var(--canvas);
+  }
+  .shell-content {
+    grid-column: 2;
+    grid-row: 2;
+    min-width: 0;
+    background: var(--paper);
+  }
+  /* Nav is the primary sidebar focus after a calm brand zone. */
+  .shell-sidebar .shell-nav {
+    flex: 1 1 auto;
+    margin-top: 1.15rem;
+    align-content: start;
+  }
+  /* Footer stack owns bottom placement; account no longer needs margin-top:auto alone. */
+  .shell-sidebar .shell-account { margin-top: 0; }
 }
 
 @media (max-width: 390px) {
