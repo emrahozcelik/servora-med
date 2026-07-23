@@ -108,6 +108,9 @@ function statusDetails(
           approximateLabel: startLocation.approximateLabel,
           accuracyMeters: startLocation.accuracyMeters,
           capturedAt: startLocation.capturedAt.toISOString(),
+          geocodingProvider: startLocation.geocodingProvider === 'GOOGLE'
+            ? 'GOOGLE' as const
+            : null,
         }
       : { outcome: 'UNAVAILABLE' as const, reason: startLocation.reason }
     : undefined;

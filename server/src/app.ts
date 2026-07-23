@@ -46,6 +46,7 @@ import type { NotificationRepository } from './modules/notifications/repository.
 import { NotificationService } from './modules/notifications/service.js';
 import { notificationRoutes } from './modules/notifications/routes.js';
 import type { ReverseGeocoder } from './modules/job-cards/reverse-geocoder.js';
+import type { ReverseGeocodingQuotaGuard } from './modules/geocoding/reverse-geocoding-quota.js';
 import type { WebPushRepository } from './modules/web-push/repository.js';
 import { WebPushService } from './modules/web-push/service.js';
 import { webPushRoutes } from './modules/web-push/routes.js';
@@ -92,6 +93,7 @@ export type AppDependencies = {
   realtimePublisher?: RealtimeEventPublisher;
   notificationRepository?: NotificationRepository;
   reverseGeocoder?: ReverseGeocoder;
+  reverseGeocodingQuotaGuard?: ReverseGeocodingQuotaGuard;
   webPushRepository?: WebPushRepository;
   webPushDispatcher?: WebPushDispatcher;
   /** Optional Pino destination for tests that capture serialized log lines. */
@@ -168,6 +170,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         {
           enabled: config.actionScopedGeolocationEnabled,
           reverseGeocoder: dependencies.reverseGeocoder,
+          quotaGuard: dependencies.reverseGeocodingQuotaGuard,
         },
         { enabled: config.webPush.enabled },
       );

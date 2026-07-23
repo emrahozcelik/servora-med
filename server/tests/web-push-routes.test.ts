@@ -33,6 +33,12 @@ const config = {
   trustedProxy: 'loopback' as const,
   healthSchemaVersion: null,
   actionScopedGeolocationEnabled: false,
+  reverseGeocoderProvider: null,
+  googleGeocodingApiKey: null,
+  reverseGeocoderTimeoutMs: 2000,
+  geocodingUserDailyLimit: 15,
+  geocodingOrganizationDailyLimit: 250,
+  geocodingGlobalMonthlyLimit: 8000,
   webPush: {
     enabled: false,
     vapidSubject: null,

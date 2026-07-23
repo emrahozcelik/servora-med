@@ -25,6 +25,7 @@ const migrations = [
   '013_create_job_action_locations.sql',
   '014_create_web_push.sql',
   '015_job_card_engagement_kind.sql',
+  '016_google_reverse_geocoding.sql',
 ] as const;
 
 async function applyMigrations(pool: Pool) {
@@ -201,8 +202,15 @@ describe.skipIf(!databaseUrl)('013 job action locations PostgreSQL migration', (
           approximateLabel: 'Kızılay, Çankaya / Ankara',
           accuracyMeters: 24,
           capturedAt: '2026-07-21T11:59:58.000Z',
+          geocodingProvider: 'GOOGLE',
         },
       });
+      const provider = await pool.query<{ geocoding_provider: string | null }>(
+        `SELECT geocoding_provider FROM job_action_locations
+          WHERE organization_id = $1 AND job_card_id = $2`,
+        [organizationId, jobCardId],
+      );
+      expect(provider.rows[0]?.geocoding_provider).toBe('GOOGLE');
       expect(JSON.stringify(history)).not.toMatch(/latitude|longitude|39\.92077|32\.85411/);
     });
   });
@@ -576,6 +584,7 @@ describe.skipIf(!databaseUrl)('013 job action locations PostgreSQL migration', (
             accuracyMeters: 32.5,
             capturedAt,
             geocodingStatus: 'RESOLVED',
+            geocodingProvider: 'GOOGLE',
             neighborhood: 'Kızılay',
             district: 'Çankaya',
             city: 'Ankara',
@@ -600,6 +609,7 @@ describe.skipIf(!databaseUrl)('013 job action locations PostgreSQL migration', (
             accuracyMeters: 32.5,
             capturedAt,
             geocodingStatus: 'RESOLVED',
+            geocodingProvider: 'GOOGLE',
             neighborhood: 'Kızılay',
             district: 'Çankaya',
             city: 'Ankara',

@@ -316,6 +316,7 @@ export type JobCardActivityDetails =
             approximateLabel: string | null;
             accuracyMeters: number;
             capturedAt: string;
+            geocodingProvider: 'GOOGLE' | null;
           }
         | {
             outcome: 'UNAVAILABLE';

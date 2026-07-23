@@ -197,24 +197,36 @@ describe('JobCardService action-scoped start location', () => {
     capturedAt: '2026-07-21T09:15:30+03:00',
   };
 
-  function enabledService(repository = new MemoryJobCardRepository()) {
+  function enabledService(
+    repository = new MemoryJobCardRepository(),
+    options: {
+      quota?: { reserve: ReturnType<typeof vi.fn> };
+    } = {},
+  ) {
     const reverse = vi.fn().mockResolvedValue({
       neighborhood: 'Kızılay',
       district: 'Çankaya',
       city: 'Ankara',
       approximateLabel: 'Kızılay, Çankaya / Ankara',
     });
+    const quota = options.quota ?? {
+      reserve: vi.fn().mockResolvedValue({
+        allowed: true, userUsed: 1, organizationUsed: 1, globalUsed: 1,
+      }),
+    };
     const service = new JobCardService(repository, undefined, undefined, {
       enabled: true,
       reverseGeocoder: { reverse },
+      quotaGuard: quota,
     });
-    return { repository, reverse, service };
+    return { repository, reverse, service, quota };
   }
 
   it('preflights, geocodes, and appends the captured outcome beside JOB_STARTED', async () => {
-    const { repository, reverse, service } = enabledService();
+    const { repository, reverse, service, quota } = enabledService();
     await service.start(staff, 'job-1', { ...input, locationCapture: captured });
 
+    expect(quota.reserve).toHaveBeenCalledOnce();
     expect(reverse).toHaveBeenCalledOnce();
     expect(repository.locationAppends).toEqual([
       expect.objectContaining({
@@ -225,6 +237,7 @@ describe('JobCardService action-scoped start location', () => {
         capture: expect.objectContaining({
           outcome: 'CAPTURED',
           geocodingStatus: 'RESOLVED',
+          geocodingProvider: 'GOOGLE',
           approximateLabel: 'Kızılay, Çankaya / Ankara',
         }),
       }),
@@ -238,13 +251,35 @@ describe('JobCardService action-scoped start location', () => {
     expect(publicRealtimeEnvelope).not.toContain('accuracyMeters');
   });
 
+  it('skips provider I/O when quota is denied but still starts the job', async () => {
+    const { repository, reverse, service, quota } = enabledService(undefined, {
+      quota: {
+        reserve: vi.fn().mockResolvedValue({
+          allowed: false, reason: 'USER_DAILY_LIMIT',
+        }),
+      },
+    });
+    await service.start(staff, 'job-1', { ...input, locationCapture: captured });
+
+    expect(quota.reserve).toHaveBeenCalledOnce();
+    expect(reverse).not.toHaveBeenCalled();
+    expect(repository.locationAppends[0]?.capture).toMatchObject({
+      outcome: 'CAPTURED',
+      geocodingStatus: 'FAILED',
+      geocodingProvider: null,
+      approximateLabel: null,
+    });
+    expect(repository.job.status).toBe('IN_PROGRESS');
+  });
+
   it('persists unavailable capture without provider I/O', async () => {
-    const { repository, reverse, service } = enabledService();
+    const { repository, reverse, service, quota } = enabledService();
     await service.start(staff, 'job-1', {
       ...input,
       locationCapture: { outcome: 'unavailable', reason: 'PERMISSION_DENIED' },
     });
 
+    expect(quota.reserve).not.toHaveBeenCalled();
     expect(reverse).not.toHaveBeenCalled();
     expect(repository.locationAppends[0]?.capture)
       .toEqual({ outcome: 'UNAVAILABLE', reason: 'PERMISSION_DENIED' });
@@ -261,26 +296,28 @@ describe('JobCardService action-scoped start location', () => {
     ];
 
     for (const scenario of scenarios) {
-      const { repository, reverse, service } = enabledService();
+      const { repository, reverse, service, quota } = enabledService();
       if (scenario.status) repository.job = { ...repository.job, status: scenario.status };
       await expect(service.start(scenario.actor, 'job-1', {
         expectedVersion: scenario.version,
         clientActionId: `action-${scenario.actor.id}-${scenario.version}`,
         locationCapture: scenario.capture,
       })).rejects.toBeDefined();
+      expect(quota.reserve).not.toHaveBeenCalled();
       expect(reverse).not.toHaveBeenCalled();
       expect(repository.locationAppends).toEqual([]);
     }
   });
 
   it('returns a completed replay before calling provider again', async () => {
-    const { repository, reverse, service } = enabledService();
+    const { repository, reverse, service, quota } = enabledService();
     const request = { ...input, locationCapture: captured };
     const first = await service.start(staff, 'job-1', request);
     const replay = await service.start(staff, 'job-1', request);
 
     expect(replay).toEqual(first);
     expect(reverse).toHaveBeenCalledOnce();
+    expect(quota.reserve).toHaveBeenCalledOnce();
     expect(repository.locationAppends).toHaveLength(1);
   });
 
@@ -302,7 +339,11 @@ describe('JobCardService action-scoped start location', () => {
     failed.reverse.mockRejectedValueOnce(new Error('provider timeout'));
     await failed.service.start(staff, 'job-1', { ...input, locationCapture: captured });
     expect(failed.repository.locationAppends[0]?.capture)
-      .toMatchObject({ outcome: 'CAPTURED', geocodingStatus: 'FAILED' });
+      .toMatchObject({
+        outcome: 'CAPTURED',
+        geocodingStatus: 'FAILED',
+        geocodingProvider: 'GOOGLE',
+      });
 
     const lowAccuracy = enabledService();
     await lowAccuracy.service.start(staff, 'job-1', {
@@ -310,9 +351,14 @@ describe('JobCardService action-scoped start location', () => {
       clientActionId: 'low-accuracy',
       locationCapture: { ...captured, accuracyMeters: 1_001 },
     });
+    expect(lowAccuracy.quota.reserve).not.toHaveBeenCalled();
     expect(lowAccuracy.reverse).not.toHaveBeenCalled();
     expect(lowAccuracy.repository.locationAppends[0]?.capture)
-      .toMatchObject({ outcome: 'CAPTURED', geocodingStatus: 'NOT_REQUESTED' });
+      .toMatchObject({
+        outcome: 'CAPTURED',
+        geocodingStatus: 'NOT_REQUESTED',
+        geocodingProvider: null,
+      });
   });
 
   it('bounds a hanging reverse geocoder and continues the start command', async () => {

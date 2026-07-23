@@ -57,6 +57,12 @@ describe('loadConfig', () => {
       trustedProxy: '127.0.0.1',
       healthSchemaVersion: '007_sales_meeting',
       actionScopedGeolocationEnabled: false,
+      reverseGeocoderProvider: null,
+      googleGeocodingApiKey: null,
+      reverseGeocoderTimeoutMs: 2000,
+      geocodingUserDailyLimit: 15,
+      geocodingOrganizationDailyLimit: 250,
+      geocodingGlobalMonthlyLimit: 8000,
       webPush: {
         enabled: false,
         vapidSubject: null,
@@ -80,6 +86,12 @@ describe('loadConfig', () => {
       trustedProxy: 'loopback',
       healthSchemaVersion: null,
       actionScopedGeolocationEnabled: false,
+      reverseGeocoderProvider: null,
+      googleGeocodingApiKey: null,
+      reverseGeocoderTimeoutMs: 2000,
+      geocodingUserDailyLimit: 15,
+      geocodingOrganizationDailyLimit: 250,
+      geocodingGlobalMonthlyLimit: 8000,
       webPush: {
         enabled: false,
         vapidSubject: null,
@@ -183,6 +195,8 @@ describe('loadConfig', () => {
     expect(loadConfig({
       ...validEnvironment,
       ACTION_SCOPED_GEOLOCATION_ENABLED: 'true',
+      REVERSE_GEOCODER_PROVIDER: 'google',
+      GOOGLE_GEOCODING_API_KEY: 'test-not-a-real-key',
     }).actionScopedGeolocationEnabled).toBe(true);
   });
 
@@ -205,6 +219,138 @@ describe('loadConfig', () => {
       })).toThrow('ACTION_SCOPED_GEOLOCATION_ENABLED must be true or false');
     },
   );
+
+  const completeGoogleGeolocation = {
+    ACTION_SCOPED_GEOLOCATION_ENABLED: 'true',
+    REVERSE_GEOCODER_PROVIDER: 'google',
+    GOOGLE_GEOCODING_API_KEY: 'test-not-a-real-key',
+    REVERSE_GEOCODER_TIMEOUT_MS: '2000',
+    GEOCODING_USER_DAILY_LIMIT: '15',
+    GEOCODING_ORG_DAILY_LIMIT: '250',
+    GEOCODING_GLOBAL_MONTHLY_LIMIT: '8000',
+  } as const;
+
+  it('accepts enabled geolocation with a complete Google provider configuration', () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+    });
+    expect(config.actionScopedGeolocationEnabled).toBe(true);
+    expect(config.reverseGeocoderProvider).toBe('google');
+    expect(config.googleGeocodingApiKey).toBe('test-not-a-real-key');
+    expect(config.reverseGeocoderTimeoutMs).toBe(2000);
+    expect(config.geocodingUserDailyLimit).toBe(15);
+    expect(config.geocodingOrganizationDailyLimit).toBe(250);
+    expect(config.geocodingGlobalMonthlyLimit).toBe(8000);
+  });
+
+  it('does not require Google config when geolocation is disabled', () => {
+    const config = loadConfig({
+      ...validEnvironment,
+      ACTION_SCOPED_GEOLOCATION_ENABLED: 'false',
+      GOOGLE_GEOCODING_API_KEY: 'ignored-when-disabled',
+    });
+    expect(config.actionScopedGeolocationEnabled).toBe(false);
+    expect(config.reverseGeocoderProvider).toBeNull();
+    expect(config.googleGeocodingApiKey).toBeNull();
+  });
+
+  it('requires REVERSE_GEOCODER_PROVIDER when geolocation is enabled', () => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ACTION_SCOPED_GEOLOCATION_ENABLED: 'true',
+      GOOGLE_GEOCODING_API_KEY: 'test-not-a-real-key',
+    })).toThrow(
+      'REVERSE_GEOCODER_PROVIDER is required when ACTION_SCOPED_GEOLOCATION_ENABLED=true',
+    );
+  });
+
+  it('rejects an unsupported reverse geocoder provider', () => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      REVERSE_GEOCODER_PROVIDER: 'mapbox',
+    })).toThrow('REVERSE_GEOCODER_PROVIDER must be google');
+  });
+
+  it.each(['', '   '])('rejects blank Google geocoding API key %j', (key) => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      GOOGLE_GEOCODING_API_KEY: key,
+    })).toThrow(
+      'GOOGLE_GEOCODING_API_KEY is required when ACTION_SCOPED_GEOLOCATION_ENABLED=true',
+    );
+  });
+
+  it('rejects missing Google geocoding API key when enabled', () => {
+    const { GOOGLE_GEOCODING_API_KEY: _omit, ...without } = completeGoogleGeolocation;
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...without,
+    })).toThrow(
+      'GOOGLE_GEOCODING_API_KEY is required when ACTION_SCOPED_GEOLOCATION_ENABLED=true',
+    );
+  });
+
+  it.each(['499', '5001', 'abc', '0'])(
+    'rejects invalid reverse geocoder timeout %s',
+    (value) => {
+      expect(() => loadConfig({
+        ...validEnvironment,
+        ...completeGoogleGeolocation,
+        REVERSE_GEOCODER_TIMEOUT_MS: value,
+      })).toThrow('REVERSE_GEOCODER_TIMEOUT_MS must be an integer between 500 and 5000');
+    },
+  );
+
+  it.each(['0', '101', 'x'])('rejects invalid user daily limit %s', (value) => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      GEOCODING_USER_DAILY_LIMIT: value,
+    })).toThrow('GEOCODING_USER_DAILY_LIMIT must be an integer between 1 and 100');
+  });
+
+  it.each(['0', '2001'])('rejects invalid organization daily limit %s', (value) => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      GEOCODING_ORG_DAILY_LIMIT: value,
+    })).toThrow('GEOCODING_ORG_DAILY_LIMIT must be an integer between 1 and 2000');
+  });
+
+  it.each(['0', '9001', '10000'])('rejects invalid global monthly limit %s', (value) => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      GEOCODING_GLOBAL_MONTHLY_LIMIT: value,
+    })).toThrow('GEOCODING_GLOBAL_MONTHLY_LIMIT must be an integer between 1 and 9000');
+  });
+
+  it('rejects user daily limit greater than organization daily limit', () => {
+    expect(() => loadConfig({
+      ...validEnvironment,
+      ...completeGoogleGeolocation,
+      GEOCODING_USER_DAILY_LIMIT: '20',
+      GEOCODING_ORG_DAILY_LIMIT: '10',
+    })).toThrow('GEOCODING_USER_DAILY_LIMIT must not exceed GEOCODING_ORG_DAILY_LIMIT');
+  });
+
+  it('config error messages never include the API key value', () => {
+    const secret = 'super-secret-key-value-never-echo';
+    try {
+      loadConfig({
+        ...validEnvironment,
+        ...completeGoogleGeolocation,
+        GOOGLE_GEOCODING_API_KEY: secret,
+        GEOCODING_GLOBAL_MONTHLY_LIMIT: '10000',
+      });
+      expect.unreachable('expected config validation to throw');
+    } catch (error) {
+      expect(String(error)).not.toContain(secret);
+    }
+  });
 
   it('accepts production loopback host with https CORS and trusted proxy', () => {
     expect(loadConfig(productionBase)).toMatchObject({

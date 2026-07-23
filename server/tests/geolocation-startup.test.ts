@@ -3,14 +3,29 @@ import { describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import { loadConfig } from '../src/config.js';
 
+const enabledGeolocationEnv = {
+  DATABASE_URL: 'postgresql://unused',
+  NODE_ENV: 'test',
+  LOG_LEVEL: 'silent',
+  ACTION_SCOPED_GEOLOCATION_ENABLED: 'true',
+  REVERSE_GEOCODER_PROVIDER: 'google',
+  GOOGLE_GEOCODING_API_KEY: 'startup-test-key-not-real',
+} as const;
+
 describe('action-scoped geolocation startup gate', () => {
-  it('fails before accepting requests when enabled without a reverse geocoder', async () => {
-    const config = loadConfig({
+  it('fails config load when enabled without Google reverse geocoder settings', () => {
+    expect(() => loadConfig({
       DATABASE_URL: 'postgresql://unused',
       NODE_ENV: 'test',
       LOG_LEVEL: 'silent',
       ACTION_SCOPED_GEOLOCATION_ENABLED: 'true',
-    });
+    })).toThrow(
+      'REVERSE_GEOCODER_PROVIDER is required when ACTION_SCOPED_GEOLOCATION_ENABLED=true',
+    );
+  });
+
+  it('fails before accepting requests when enabled without an injected reverse geocoder', async () => {
+    const config = loadConfig(enabledGeolocationEnv);
 
     await expect(buildApp(config)).rejects.toThrow(
       'ACTION_SCOPED_GEOLOCATION_ENABLED requires a configured reverse geocoder',
@@ -18,12 +33,7 @@ describe('action-scoped geolocation startup gate', () => {
   });
 
   it('accepts enabled mode only with an injected reverse geocoder', async () => {
-    const config = loadConfig({
-      DATABASE_URL: 'postgresql://unused',
-      NODE_ENV: 'test',
-      LOG_LEVEL: 'silent',
-      ACTION_SCOPED_GEOLOCATION_ENABLED: 'true',
-    });
+    const config = loadConfig(enabledGeolocationEnv);
     const app = await buildApp(config, {
       reverseGeocoder: {
         reverse: async () => ({

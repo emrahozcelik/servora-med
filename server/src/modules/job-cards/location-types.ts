@@ -1,4 +1,5 @@
 export type LocationGeocodingStatus = 'NOT_REQUESTED' | 'RESOLVED' | 'FAILED';
+export type LocationGeocodingProvider = 'GOOGLE';
 export type LocationFailureReason =
   | 'PERMISSION_DENIED'
   | 'POSITION_UNAVAILABLE'
@@ -13,6 +14,7 @@ export type CapturedJobActionLocation = Readonly<{
   accuracyMeters: number;
   capturedAt: Date;
   geocodingStatus: LocationGeocodingStatus;
+  geocodingProvider: LocationGeocodingProvider | null;
   neighborhood: string | null;
   district: string | null;
   city: string | null;
