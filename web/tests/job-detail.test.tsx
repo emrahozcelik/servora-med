@@ -419,6 +419,77 @@ describe('Staff JobCard detail', () => {
     }
   });
 
+  it('keeps record description labels, order, and fallbacks across job types in a narrow host', async () => {
+    const longCustomer = 'Çok Uzun İsimli Demo Diş Hastanesi ve Polikliniği';
+    const longStaff = 'Ayşe Çok Uzun Soyadlı Personel';
+
+    const delivery: JobCard = {
+      ...job,
+      title: 'Ürün teslimi kayıt özeti',
+      description: 'Teslim notu: iki kutu örnek ürün',
+      priority: 'high',
+      customer: { id: 'c1', name: longCustomer },
+      assignee: { id: 's1', name: longStaff },
+      contact: null,
+    };
+    const task: JobCard = {
+      ...generalTask,
+      description: 'Doktorun kararını öğren ve sonucu karta yaz.',
+      customer: { id: 'c1', name: longCustomer },
+      assignee: { id: 's1', name: longStaff },
+      contact: { id: 'contact-1', name: 'Dr. Deniz Yılmaz Unvan Test' },
+    };
+    const meeting: JobCard = {
+      ...inProgressMeeting(),
+      engagementKind: 'CUSTOMER_VISIT',
+      description: null,
+      customer: { id: 'c1', name: longCustomer },
+      assignee: { id: 's1', name: longStaff },
+      contact: null,
+      scheduledAt: '2026-07-20T09:00:00.000Z',
+    };
+
+    for (const card of [delivery, task, meeting]) {
+      await renderDetail(card);
+      const hostEl = host.querySelector('.servora-record-descriptions-host');
+      const records = host.querySelector('.servora-record-descriptions[aria-label="İş kayıt bilgileri"]');
+      expect(hostEl).not.toBeNull();
+      expect(hostEl?.getAttribute('data-column-count')).toBe('1');
+      expect(records).not.toBeNull();
+
+      const text = records?.textContent ?? '';
+      expect(text).toContain('Durum');
+      expect(text).toContain('Sorumlu personel');
+      expect(text).toContain(longStaff);
+      expect(text).toContain('Öncelik');
+      expect(text).toContain('Müşteri');
+      expect(text).toContain(longCustomer);
+      expect(text).toContain('Açıklama');
+
+      expect(text.indexOf('Durum')).toBeLessThan(text.indexOf('Sorumlu personel'));
+      expect(text.indexOf('Sorumlu personel')).toBeLessThan(text.indexOf('Öncelik'));
+      expect(text.indexOf('Müşteri')).toBeLessThan(text.indexOf('Açıklama'));
+    }
+
+    await renderDetail(delivery);
+    const deliveryRecords = host.querySelector('.servora-record-descriptions')?.textContent ?? '';
+    expect(deliveryRecords).toContain('Teslim notu: iki kutu örnek ürün');
+    expect(deliveryRecords).toContain('Yüksek');
+
+    await renderDetail(task);
+    const taskRecords = host.querySelector('.servora-record-descriptions')?.textContent ?? '';
+    expect(taskRecords).toContain('Doktorun kararını öğren');
+    expect(taskRecords).toContain('Dr. Deniz Yılmaz Unvan Test');
+    expect(taskRecords).toContain('İlgili kişi');
+
+    await renderDetail(meeting);
+    const meetingRecords = host.querySelector('.servora-record-descriptions')?.textContent ?? '';
+    expect(meetingRecords).toContain('Görüşme türü');
+    expect(meetingRecords).toContain('Görüşülecek kişi');
+    expect(meetingRecords).toContain('Belirtilmedi');
+    expect(meetingRecords).toContain('Müşteri / kurum ziyareti');
+  });
+
   it('refreshes an idle matching detail from canonical REST truth', async () => {
     const source = new FakeRealtimeEventSource();
     const fetch = await renderRealtimeScreen(job, source);

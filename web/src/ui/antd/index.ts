@@ -12,7 +12,10 @@ export { useAppFeedback } from './useAppFeedback';
 export type { AppFeedback } from './useAppFeedback';
 export { WorkflowSteps } from './WorkflowSteps';
 export type { WorkflowStepItem, WorkflowStepState } from './WorkflowSteps';
-export { RecordDescriptions } from './RecordDescriptions';
+export {
+  RECORD_DESCRIPTIONS_TWO_COLUMN_MIN_WIDTH_PX,
+  RecordDescriptions,
+} from './RecordDescriptions';
 export type { RecordDescriptionItem } from './RecordDescriptions';
 export { ActivityTimeline } from './ActivityTimeline';
 export type { ActivityTimelineItem } from './ActivityTimeline';
