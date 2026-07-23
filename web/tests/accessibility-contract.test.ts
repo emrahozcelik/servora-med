@@ -10,16 +10,19 @@ beforeAll(async () => {
 
 describe('shared accessibility CSS contract', () => {
   it('keeps primary controls at least 44 CSS px tall', () => {
-    expect(css).toMatch(/button, input \{ min-height: 2\.75rem; \}/);
+    expect(css).toMatch(/--control-height:\s*2\.75rem;/);
+    expect(css).toMatch(/button,\s*input\s*\{[^}]*min-height:\s*var\(--control-height\)/s);
     expect(css).toMatch(/\.primary-button, \.secondary-button, \.destructive-button, \.ghost-button \{[^}]*display: inline-flex;[^}]*min-height: 2\.75rem;/s);
   });
 
   it('provides a visible focus indicator independent of color fill', () => {
-    expect(css).toMatch(/:focus-visible \{ outline: 3px solid var\(--focus\); outline-offset: 3px; \}/);
+    expect(css).toMatch(
+      /:focus-visible\s*\{[^}]*outline:\s*3px\s+solid\s+var\(--focus\);[^}]*outline-offset:\s*3px;/s,
+    );
   });
 
   it('has a structural mobile breakpoint and single-column detail/form reflow', () => {
-    expect(css).toMatch(/body \{[^}]*min-width: 0;/);
+    expect(css).toMatch(/body\s*\{[^}]*min-width:\s*0;/s);
     expect(css).toContain('@media (max-width: 720px)');
     expect(css).toMatch(/\.compact-shell-header \{[^}]*display: flex;/);
     expect(css).toMatch(/\.detail-heading \{[^}]*flex-wrap: wrap;/);

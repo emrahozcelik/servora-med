@@ -99,4 +99,26 @@ describe('Ant Design ownership boundary', () => {
       "export { CompactConfirmationAction } from './CompactConfirmationAction';",
     );
   });
+
+  it('keeps servoraVisualTokens imports inside ui/antd only', async () => {
+    const sourceFiles = await listSourceFiles(sourceRoot);
+    const tokenImport = /from\s+['"][^'"]*servora-visual-tokens['"]/;
+    const violations: string[] = [];
+
+    for (const path of sourceFiles) {
+      if (isInsideOwnedBoundary(path)) {
+        continue;
+      }
+      // Token module itself is allowed; only feature consumers are restricted.
+      if (path.endsWith(`${sep}servora-visual-tokens.ts`)) {
+        continue;
+      }
+      const source = await readFile(path, 'utf8');
+      if (tokenImport.test(source)) {
+        violations.push(relative(sourceRoot, path));
+      }
+    }
+
+    expect(violations).toEqual([]);
+  });
 });
