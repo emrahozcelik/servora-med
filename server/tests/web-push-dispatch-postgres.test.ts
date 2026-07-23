@@ -56,10 +56,17 @@ async function createUser(pool: Pool, orgId: string): Promise<string> {
 
 async function createSession(pool: Pool, userId: string): Promise<string> {
   const sessionId = randomUUID();
+  // Fixed created/expiry satisfy sessions_check and stay independent of CI wall clock.
   await pool.query(
-    `INSERT INTO sessions (id, user_id, token_hash, expires_at)
-     VALUES ($1, $2, $3, $4)`,
-    [sessionId, userId, hexToken(), new Date('2026-07-23T10:00:00.000Z')],
+    `INSERT INTO sessions (id, user_id, token_hash, expires_at, created_at)
+     VALUES ($1, $2, $3, $4, $5)`,
+    [
+      sessionId,
+      userId,
+      hexToken(),
+      new Date('2099-01-01T00:00:00.000Z'),
+      new Date('2026-07-22T08:00:00.000Z'),
+    ],
   );
   return sessionId;
 }
