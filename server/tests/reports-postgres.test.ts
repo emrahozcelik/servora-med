@@ -32,6 +32,7 @@ const MIGRATIONS = [
   '013_create_job_action_locations.sql',
   '014_create_web_push.sql',
   '015_job_card_engagement_kind.sql',
+  '016_google_reverse_geocoding.sql',
 ] as const;
 
 type ReportFixture = {

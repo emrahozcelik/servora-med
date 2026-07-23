@@ -147,8 +147,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(15);
-      expect(firstRun.appliedVersions.at(-1)).toBe('015_job_card_engagement_kind');
+      expect(firstRun.appliedVersions).toHaveLength(16);
+      expect(firstRun.appliedVersions.at(-1)).toBe('016_google_reverse_geocoding');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -189,6 +189,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '013_create_job_action_locations',
           '014_create_web_push',
           '015_job_card_engagement_kind',
+          '016_google_reverse_geocoding',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
