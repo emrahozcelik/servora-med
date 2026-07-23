@@ -2,7 +2,16 @@
 
 Status: Approved
 Scope: Architecture decision and phased implementation boundary
-Production impact: **PR A–F are merged** on `main` at `0d1ee816212da47b0932492899ba390978b07ffd`. The mandatory Ant Design UI implementation chain is complete. Further UI work is optional backlog (see `docs/ui/SERVORA-IMPLEMENTATION-PLAN.md` Post A–F backlog).
+Production impact: **PR A–F (mandatory Ant chain) and PR G–M (approved optional runtime backlog) are merged.** Historical mandatory-chain tip: `0d1ee816212da47b0932492899ba390978b07ffd`. Ant optional closeout: `b8434d633a40055f3b6f772c3eadfe9bc9e610e5`. Further **product-decision** items remain deferred in `docs/ui/SERVORA-IMPLEMENTATION-PLAN.md`. Active visual program is **Phase T — Visual Consistency and Screen Polish** (`docs/superpowers/plans/2026-07-23-phase-t-visual-polish.md`); T0 audit/docs/baseline is complete. Phase T does not reopen the adapter boundary, rebuild the shell with Ant Layout/Menu/Card, or adopt a default Ant admin look.
+
+```text
+Ant Design foundation: COMPLETE
+Ant runtime migration chain: COMPLETE
+Optional Ant backlog A–M: COMPLETE
+Ant evaluation/spike: NOT NEEDED
+Phase T T0 audit/docs/baseline: COMPLETE
+P0 RecordDescriptions container reflow: OPEN
+```
 
 ## Decision
 
