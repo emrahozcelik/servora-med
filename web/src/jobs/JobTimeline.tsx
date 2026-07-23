@@ -37,7 +37,11 @@ function detailText(details: JobCardActivityDetails) {
     const address = details.startLocation.approximateLabel ?? 'Yaklaşık adres oluşturulamadı';
     const accuracy = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
       .format(details.startLocation.accuracyMeters);
-    return `${transition} · Konum: ${address} · Doğruluk: yaklaşık ${accuracy} metre · Yakalama zamanı: ${formatInstant(details.startLocation.capturedAt)}`;
+    const attribution = details.startLocation.geocodingProvider === 'GOOGLE'
+      && details.startLocation.approximateLabel
+      ? ' · Adres verisi: Google Maps'
+      : '';
+    return `${transition} · Konum: ${address} · Doğruluk: yaklaşık ${accuracy} metre · Yakalama zamanı: ${formatInstant(details.startLocation.capturedAt)}${attribution}`;
   }
   if (details.kind === 'FIELDS_UPDATED') return details.changedFields.map((field) => fieldLabels[field]).join(', ');
   if (details.kind === 'DELIVERY_ITEM') {

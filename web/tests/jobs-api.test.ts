@@ -330,6 +330,7 @@ describe('JobCard workspace transport', () => {
         startLocation: {
           outcome: 'CAPTURED', approximateLabel: 'Kızılay, Çankaya / Ankara',
           accuracyMeters: 24.5, capturedAt: '2026-07-21T06:15:30.123Z',
+          geocodingProvider: 'GOOGLE',
         },
       },
       createdAt: '2026-07-21T06:15:32.000Z',
