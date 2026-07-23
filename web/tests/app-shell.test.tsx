@@ -310,4 +310,81 @@ describe('responsive authenticated AppShell', () => {
     expect(dialog.querySelector('.shell-sidebar-footer')).toBeNull();
     expect(dialog.closest('.shell-sidebar')).toBeNull();
   });
+
+  it('preserves mobile top bar zones on the jobs list with sticky create', async () => {
+    await render(staff, false, '/jobs');
+    expect(container.querySelector('.sticky-new-job')).not.toBeNull();
+    expect(container.querySelector('.mobile-top-bar')).not.toBeNull();
+    expect(container.querySelector('.mobile-top-bar-start .mobile-shell-title')?.textContent).toBe('İşlerim');
+    expect(container.querySelector('.mobile-top-bar-actions .shell-menu-button')).not.toBeNull();
+    expect(container.querySelector('.mobile-top-bar-actions [aria-label="Bildirimler"]')).not.toBeNull();
+  });
+
+  it('hides sticky create outside the jobs list path', async () => {
+    await render(staff, false, '/customers');
+    expect(container.querySelector('.mobile-shell-title')?.textContent).toBe('Müşteriler');
+    expect(container.querySelector('.sticky-new-job')).toBeNull();
+  });
+
+  it('does not close the drawer when the panel itself is clicked', async () => {
+    await render(manager, false);
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
+    await act(async () => trigger.click());
+    const dialog = container.querySelector<HTMLElement>('[role="dialog"]')!;
+    await act(async () => dialog.dispatchEvent(new MouseEvent('click', { bubbles: true })));
+    expect(container.querySelector('[role="dialog"]')).not.toBeNull();
+  });
+
+  it('contracts mobile chrome CSS without changing shared desktop baseline selectors', () => {
+    const css = readFileSync(
+      new URL('../src/styles.css', 'file://' + __dirname + '/'),
+      'utf8',
+    );
+
+    function exactRuleBody(selector: string): string {
+      const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, '');
+      const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+      const pattern = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm');
+      const match = cleaned.match(pattern);
+      if (!match?.[1]) throw new Error(`Missing exact CSS rule for ${selector}`);
+      return match[1];
+    }
+
+    // Top bar: balanced zones + title truncation + safe-area + 44px controls already shared.
+    expect(css).toMatch(/\.compact-shell-header\.mobile-top-bar\s*\{[^}]*safe-area-inset-top/s);
+    expect(exactRuleBody('.mobile-shell-title')).toMatch(/text-overflow:\s*ellipsis/);
+    expect(exactRuleBody('.mobile-shell-title')).toMatch(/white-space:\s*nowrap/);
+    expect(exactRuleBody('.mobile-top-back')).toMatch(/min-height:\s*var\(--control-height\)/);
+    expect(exactRuleBody('.shell-notification-trigger')).toMatch(/min-height:\s*var\(--control-height\)/);
+    expect(exactRuleBody('.shell-notification-trigger')).toMatch(/(?:flex:\s*0\s+0\s+2\.75rem|width:\s*2\.75rem)/);
+
+    // Bottom nav: active uses weight channel; labels can wrap safely.
+    expect(exactRuleBody('.mobile-bottom-nav')).toMatch(/safe-area-inset-bottom/);
+    expect(exactRuleBody('.mobile-bottom-nav-item')).toMatch(/min-height:\s*var\(--control-height\)/);
+    expect(exactRuleBody('.mobile-bottom-nav-item')).toMatch(/overflow-wrap:\s*anywhere/);
+    const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    expect(cleaned).toMatch(
+      /\.mobile-bottom-nav-item--active,\s*\.mobile-bottom-nav a\[aria-current=["']page["']\],\s*\.mobile-bottom-nav-menu\[aria-expanded=["']true["']\]\s*\{[^}]*font-weight:\s*760/s,
+    );
+
+    // Sticky create clears bottom nav via safe-area-aware offset.
+    expect(exactRuleBody('.sticky-new-job')).toMatch(/bottom:\s*calc\(4\.35rem \+ env\(safe-area-inset-bottom/);
+    expect(exactRuleBody('.authenticated-shell--mobile .shell-content')).toMatch(/safe-area-inset-bottom/);
+    expect(css).toMatch(
+      /\.authenticated-shell--mobile\.authenticated-shell:has\(\.sticky-new-job\) \.shell-content\s*\{[^}]*padding-bottom:\s*calc\(8\.75rem/s,
+    );
+
+    // Drawer visual polish is drawer-scoped; shared nav baseline stays T2A isolation values.
+    expect(exactRuleBody('.shell-drawer')).toMatch(/background:\s*var\(--paper\)/);
+    expect(exactRuleBody('.shell-drawer')).toMatch(/safe-area-inset-bottom/);
+    expect(exactRuleBody('.shell-drawer')).toMatch(/box-shadow:/);
+    expect(exactRuleBody('.shell-drawer .shell-nav')).toMatch(/(?:margin-top:\s*1\.15rem|flex:\s*1\s+1\s+auto)/);
+    expect(exactRuleBody('.shell-drawer .shell-account')).toMatch(/margin-top:\s*auto/);
+    expect(exactRuleBody('.shell-nav')).toMatch(/gap:\s*1\.15rem/);
+    expect(exactRuleBody('.shell-nav a')).toMatch(/border-radius:\s*0\.5rem/);
+    expect(exactRuleBody('.shell-nav a[aria-current="page"]')).not.toMatch(/font-weight:/);
+
+    // No Ant Layout/Menu.
+    expect(css).not.toMatch(/ant-layout|ant-menu/);
+  });
 });
