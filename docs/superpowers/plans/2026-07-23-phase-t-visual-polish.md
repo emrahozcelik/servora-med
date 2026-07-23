@@ -202,9 +202,10 @@ Implementation record:
 
 - sidebar brand / nav / account-footer density zones (`shell-sidebar-brand`, `shell-sidebar-footer`)
 - section + destination hierarchy; active item uses accent soft + **weight** (not color alone)
-- long Turkish nav/account labels: `overflow-wrap: anywhere`
+- long Turkish nav/account labels: `overflow-wrap: anywhere` (**sidebar-scoped**)
 - account block: name/role/logout preserved; logout secondary weight; pending copy unchanged
 - desktop canvas shell vs paper content frame; workspace max remains `68rem` (board gates untouched)
+- **scope isolation:** shared `.shell-nav` / `.shell-account` baseline preserved for mobile drawer; T2A gap/radius/weight/wrap under `.shell-sidebar` only (`@media (min-width: 64rem)`)
 - navigation model, routes, roles, mobile chrome, notifications: unchanged
 
 Non-work (T2B/T2C): mobile top/bottom/drawer polish, Notification Center panel polish, Jobs/board layout.
