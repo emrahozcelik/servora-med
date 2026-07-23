@@ -1,9 +1,5 @@
 :root {
-  color: oklch(26% 0.016 246deg);
-  background: oklch(97.5% 0.006 235deg);
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
+  /* Canonical semantic tokens (DESIGN.md / servora-visual-tokens.ts). Feature CSS uses var(--*). */
   --ink: oklch(26% 0.016 246deg);
   --muted: oklch(47% 0.018 246deg);
   --paper: oklch(98.5% 0.004 235deg);
@@ -12,19 +8,50 @@
   --accent: oklch(47% 0.105 238deg);
   --accent-hover: oklch(41% 0.105 238deg);
   --accent-soft: oklch(92% 0.025 238deg);
+  --info: oklch(41% 0.105 238deg);
+  --info-soft: oklch(92% 0.025 238deg);
+  --success: oklch(38% 0.08 150deg);
+  --success-soft: oklch(95% 0.025 150deg);
+  --warning: oklch(39% 0.08 70deg);
+  --warning-soft: oklch(95% 0.025 80deg);
   --error: oklch(44% 0.14 28deg);
   --error-soft: oklch(95% 0.025 28deg);
   --focus: oklch(58% 0.14 238deg);
+  --control-height: 2.75rem;
+  --radius-control: 0.6rem;
+  --radius-button: 0.6rem;
+  --radius-raised: 0.75rem;
+  --radius-chip: 999px;
+  /* Shared raised elevation (Ant bridge). .surface-raised may still use a local OKLCH shadow until T1B. */
+  --shadow-raised: 0 8px 24px rgba(30, 37, 43, 0.12);
+
+  color: var(--ink);
+  /* Document fallback between paper and canvas; body content uses --paper. */
+  background: oklch(97.5% 0.006 235deg);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
 }
 
 * { box-sizing: border-box; }
-body { margin: 0; min-width: 0; min-height: 100vh; overflow-x: clip; background: var(--paper); }
+body {
+  margin: 0;
+  min-width: 0;
+  min-height: 100vh;
+  overflow-x: clip;
+  color: var(--ink);
+  background: var(--paper);
+  font-family: inherit;
+}
 button, input, textarea, select { font: inherit; }
-button, input { min-height: 2.75rem; }
+button, input { min-height: var(--control-height); }
 button { cursor: pointer; }
 button:disabled { cursor: wait; opacity: 0.65; }
 
-:focus-visible { outline: 3px solid var(--focus); outline-offset: 3px; }
+:focus-visible {
+  outline: 3px solid var(--focus);
+  outline-offset: 3px;
+}
 .sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
 
 .brand-lockup { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; }

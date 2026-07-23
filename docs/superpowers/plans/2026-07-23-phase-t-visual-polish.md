@@ -28,14 +28,16 @@ Ant evaluation/spike: NOT NEEDED
 
 Phase T — Visual Consistency and Screen Polish
 T0 audit/docs/baseline: COMPLETE
-T1 token and shared language: NOT STARTED
+T1 token and shared language: IN PROGRESS
+  T1A semantic token contract + Ant bridge: COMPLETE
+  T1B shared typography/control/surface adoption: NOT STARTED
 T2 AppShell and navigation polish: NOT STARTED
 T3 Jobs and JobDetail polish: NOT STARTED
 T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
 
 P0 defect track:
-RecordDescriptions container reflow: COMPLETE (fix/web-record-descriptions-reflow)
+RecordDescriptions container reflow: COMPLETE
 
 ACTION_SCOPED_GEOLOCATION: false (unchanged)
 ```
@@ -140,9 +142,34 @@ real container (sidebar + padding + nested grid) may be < ~640px
 
 ## T1 — Token and shared visual language
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
 
-Typography scale, spacing rhythm, border/radius/shadow, page/section headings, form label/helper/error, button/focus contract drift — without mass component replacement.
+Split:
+
+```text
+T1A Semantic token contract + Ant bridge   COMPLETE
+T1B Shared typography/control/surface adoption   NOT STARTED
+```
+
+### T1A — Semantic token contract + Ant bridge (COMPLETE)
+
+- Canonical machine-readable contract: `web/src/ui/servora-visual-tokens.ts`
+- CSS `:root` semantic variables (including info/success/warning soft pairs, control height, radii, `--shadow-raised`)
+- `servora-ant-theme.ts` imports token contract (no remaining hex hardcodes in theme source)
+- Drift + contrast + feature import boundary tests: `web/tests/visual-token-contract.test.ts`, extended `antd-boundary.test.ts`
+- Feature screens still use CSS variables, not the TS token module
+- Visual values intentionally preserved; no screen redesign
+
+### T1B — Shared typography / control / surface adoption (NOT STARTED)
+
+Candidates for adopting CSS token variables (audit, not T1A scope):
+
+- shared controls (button/input/select border-radius → `--radius-*`)
+- headings and type scale
+- surface contracts (`.surface`, `.surface-raised` local OKLCH shadow → `--shadow-raised` if product accepts)
+- helper/error text
+- button states
+- remaining hardcoded oklch/hex in feature CSS after inventory
 
 ---
 
@@ -184,7 +211,9 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | --- | --- | --- |
 | T0 | Audit + docs + baseline | **COMPLETE** |
 | P0 | RecordDescriptions container reflow | **COMPLETE** |
-| T1 | Tokens / visual language | NOT STARTED |
+| T1A | Semantic token contract + Ant bridge | **COMPLETE** |
+| T1B | Shared typography/control/surface adoption | NOT STARTED |
+| T1 | Tokens / visual language (overall) | IN PROGRESS |
 | T2 | AppShell / nav | NOT STARTED |
 | T3 | Jobs + JobDetail | NOT STARTED |
 | T4 | CRM / product / people / forms | NOT STARTED |
