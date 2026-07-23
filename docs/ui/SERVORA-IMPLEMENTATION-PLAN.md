@@ -1,10 +1,53 @@
 # Servora UI Implementation Plan
 
-Status: **PR A–M merged** — mandatory chain and approved optional UI runtime backlog complete
-Current main (runtime closeout baseline): `b8434d633a40055f3b6f772c3eadfe9bc9e610e5`
-Current phase: **Deferred / product-decision work only**
+Status: **PR A–M merged** — mandatory Ant chain and approved optional UI runtime backlog complete
+Ant optional closeout baseline (historical): `b8434d633a40055f3b6f772c3eadfe9bc9e610e5`
+Phase T code baseline (current main): `e96aaeacce6094c4e36e25e794c55834d7e7f029`
+Current phase: **Phase T — Visual Consistency and Screen Polish** (T0 complete; does **not** rebuild Ant foundation)
 
-The original Ant Design foundation → shell → lifecycle → overlays → reporting table → charts sequence and the approved post-chain runtime slices are finished. Remaining UI work requires an explicit product or design gate and is classified under [Post A–F backlog](#post-af-backlog).
+```text
+Ant Design foundation: COMPLETE
+Ant runtime migration chain: COMPLETE
+Optional Ant backlog A–M: COMPLETE
+Ant evaluation/spike: NOT NEEDED
+
+Phase T — Visual Consistency and Screen Polish
+T0 audit/docs/baseline: COMPLETE
+T1 token and shared language: NOT STARTED
+T2 AppShell and navigation polish: NOT STARTED
+T3 Jobs and JobDetail polish: NOT STARTED
+T4 CRM/product/staff/forms polish: NOT STARTED
+T5 states and visual regression: NOT STARTED
+
+P0 defect track:
+RecordDescriptions container reflow: OPEN
+```
+
+Phase T mevcut Ant/Servora mimarisi üzerinde görsel tutarlılık ve ekran iyileştirmesidir. Toplu Ant migration veya default Ant admin görünümü bu fazın hedefi değildir.
+
+The original Ant Design foundation → shell → lifecycle → overlays → reporting table → charts sequence and the approved post-chain runtime slices are finished. An Ant Design evaluation spike is **not** required. Remaining **product-decision** items stay under [Deferred](#deferred-explicit-productdesign-gate). **Phase T** is a separate visual-quality program on the existing stack:
+
+- Spec: `docs/superpowers/specs/2026-07-23-phase-t-visual-polish-design.md`
+- Plan: `docs/superpowers/plans/2026-07-23-phase-t-visual-polish.md`
+- Baseline screenshots: `docs/ui/screenshots/phase-t-baseline/`
+
+Phase T order: defect preflight (true regressions only) → **T0** (complete) → **T1** tokens → **T2** AppShell → **T3** Jobs/JobDetail → **T4** CRM/product/people/forms → **T5** states/regression. Next runtime work after T0 merge: **P0** `RecordDescriptions` container reflow. Geolocation production enablement remains out of scope (`ACTION_SCOPED_GEOLOCATION_ENABLED=false`).
+
+### Post–A–M product surfaces (current product for Phase T polish)
+
+Shipped after the Ant optional closeout and **not** classified as foreign/legacy:
+
+```text
+Dünya Dental branding ve logo yüzeyleri
+Notification Center
+Minimal install / Web Push settings UI
+JobDetail workflow + notes + timeline yerleşimi
+Görüşme/ziyaret engagement türleri
+Google approximate-address attribution
+Yeni müşteri ve CRM yüzeyleri
+```
+
+Also present: SSE client reconciliation UX; action-scoped job-start geolocation UI (default-off).
 
 ## Entry gate
 

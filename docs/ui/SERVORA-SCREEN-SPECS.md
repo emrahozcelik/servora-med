@@ -1,7 +1,9 @@
 # Servora Screen Specifications
 
-Status: Proposed, awaiting visual approval
-Prototype data: Fictional Turkish medical and dental B2B records
+Status: **Accepted composition target** — structure, lane ordering, and lifecycle document order guided PR B–C and remain the screen-composition SSOT. Pixel-perfect production fidelity and post–A–M product surfaces are refreshed under **Phase T — Visual Consistency and Screen Polish** (`docs/superpowers/plans/2026-07-23-phase-t-visual-polish.md`), not by reopening an Ant foundation program. Phase T T0 baseline is complete.
+Prototype / baseline data: Fictional Turkish medical and dental B2B records only
+Historical prototypes: `docs/ui/prototypes/`, `docs/ui/screenshots/`
+Phase T live baseline: `docs/ui/screenshots/phase-t-baseline/`
 
 ## Shared composition
 
