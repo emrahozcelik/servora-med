@@ -38,6 +38,12 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <button class="shell-menu-button" type="button">Menü</button>
     </div>
   </header>
+  <nav class="mobile-bottom-nav" id="mobile-bottom-nav" style="display:none" aria-label="Mobil ana navigasyon">
+    <a class="mobile-bottom-nav-item mobile-bottom-nav-item--active" href="/jobs" aria-current="page">İşler</a>
+    <a class="mobile-bottom-nav-item" href="/customers">Müşteriler</a>
+    <a class="mobile-bottom-nav-item" href="/products">Ürünler</a>
+    <a class="mobile-bottom-nav-item" href="/staff">Profilim</a>
+  </nav>
   <div class="shell-content">
     <main class="workspace" style="width:min(100% - 2rem,68rem);margin:1rem auto;">
       <div class="filter-region">
@@ -133,12 +139,14 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
     const mobileTopbar = document.getElementById('mobile-topbar');
     const sticky = document.getElementById('sticky-create');
     const panel = document.getElementById('sticky-panel');
+    const bottomNav = document.getElementById('mobile-bottom-nav');
     if (desktop) {
       shell.classList.add('authenticated-shell--desktop');
       shell.classList.remove('authenticated-shell--mobile');
       sidebar.style.display = 'flex';
       desktopTopbar.style.display = 'flex';
       mobileTopbar.style.display = 'none';
+      if (bottomNav) bottomNav.style.display = 'none';
       sticky.style.display = 'none';
       panel.style.display = 'none';
     } else {
@@ -147,6 +155,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       sidebar.style.display = 'none';
       desktopTopbar.style.display = 'none';
       mobileTopbar.style.display = 'flex';
+      if (bottomNav) bottomNav.style.display = 'grid';
       sticky.style.display = 'flex';
       // sticky always uses sheet presentation when open in product; open for measure at tablet
       if (w >= 641 && w < 1024) panel.style.display = 'grid';
@@ -254,14 +263,68 @@ async function measure(page) {
     const topbarAction = activeTopbar?.querySelector('[aria-label="Bildirimler"]');
     const topbarActionRect = topbarAction?.getBoundingClientRect();
     const topbarIconRect = topbarAction?.querySelector('.shell-notification-icon')?.getBoundingClientRect();
+    const topbarMenu = activeTopbar?.querySelector('.shell-menu-button');
+    const topbarMenuRect = topbarMenu?.getBoundingClientRect();
+    const topbarTitle = activeTopbar?.querySelector('.mobile-shell-title');
+    const topbarTitleRect = topbarTitle?.getBoundingClientRect();
+    const topbarActions = activeTopbar?.querySelector('.mobile-top-bar-actions');
+    const topbarActionsRect = topbarActions?.getBoundingClientRect();
     const topbarBrandRequired = activeTopbar === mobileTopbar;
+    const rectsIntersect = (a, b) => Boolean(
+      a && b
+      && a.right > b.left + 2
+      && a.left < b.right - 2
+      && a.bottom > b.top + 2
+      && a.top < b.bottom - 2,
+    );
+    const rectInViewport = (r) => Boolean(
+      r
+      && r.left >= -2
+      && r.right <= window.innerWidth + 2
+      && r.top >= -2
+      && r.bottom <= window.innerHeight + 2,
+    );
     const topbarContract = Boolean(topbarRect && (!topbarBrandRequired || topbarBrand) && topbarActionRect
       && topbarRect.left >= -2 && topbarRect.right <= window.innerWidth + 2
       && topbarActionRect.right <= window.innerWidth + 2
       && topbarActionRect.left >= topbarRect.left - 2
       && topbarIconRect
       && Math.abs((topbarIconRect.left + topbarIconRect.width / 2)
-        - (topbarActionRect.left + topbarActionRect.width / 2)) <= 2);
+        - (topbarActionRect.left + topbarActionRect.width / 2)) <= 2
+      && (
+        activeTopbar !== mobileTopbar
+        || (
+          rectInViewport(topbarMenuRect)
+          && topbarTitleRect
+          && topbarTitleRect.width > 0
+          && topbarActionsRect
+          && !rectsIntersect(topbarTitleRect, topbarActionsRect)
+        )
+      ));
+    const bottomNav = document.getElementById('mobile-bottom-nav');
+    const bottomNavVisible = Boolean(
+      bottomNav
+      && getComputedStyle(bottomNav).display !== 'none'
+      && bottomNav.style.display !== 'none',
+    );
+    const bottomNavRect = bottomNavVisible ? bottomNav.getBoundingClientRect() : null;
+    const stickyCreate = document.getElementById('sticky-create');
+    const stickyCreateVisible = Boolean(
+      stickyCreate
+      && stickyCreate.style.display !== 'none'
+      && getComputedStyle(stickyCreate).display !== 'none',
+    );
+    const stickyCreateRect = stickyCreateVisible ? stickyCreate.getBoundingClientRect() : null;
+    const mobileChromeContract = activeTopbar !== mobileTopbar || Boolean(
+      topbarContract
+      && bottomNavVisible
+      && rectInViewport(bottomNavRect)
+      && (
+        !stickyCreateVisible
+        || (stickyCreateRect && bottomNavRect && stickyCreateRect.bottom <= bottomNavRect.top + 2
+          && !rectsIntersect(stickyCreateRect, bottomNavRect))
+      ),
+    );
     let laneCardCols = 0;
     let visiblePreviewCards = 0;
     if (laneCards) {
@@ -588,6 +651,13 @@ async function measure(page) {
       notificationBadge: notificationSection?.querySelector('.notification-center-badge')?.textContent ?? '',
       notificationMobile: notificationPanel?.classList.contains('notification-center-panel--mobile') ?? false,
       topbarContract,
+      mobileChromeContract,
+      mobileTitleWidth: topbarTitleRect?.width ?? 0,
+      mobileMenuInViewport: activeTopbar !== mobileTopbar || rectInViewport(topbarMenuRect),
+      mobileBottomNavInViewport: activeTopbar !== mobileTopbar || rectInViewport(bottomNavRect),
+      stickyClearOfBottomNav: activeTopbar !== mobileTopbar || !stickyCreateVisible
+        || Boolean(stickyCreateRect && bottomNavRect && stickyCreateRect.bottom <= bottomNavRect.top + 2
+          && !rectsIntersect(stickyCreateRect, bottomNavRect)),
       notificationSettingsPresent: Boolean(notificationSection?.querySelector('.notification-settings')),
       notificationManualGuidance: (() => {
         const text = notificationSection?.textContent ?? '';
@@ -891,6 +961,15 @@ try {
       failures.push(`${vp.name}: notification center responsive contract failure`);
     }
     if (!m.topbarContract) failures.push(`${vp.name}: branding topbar contract failure`);
+    if (vp.width < 1024 && !m.mobileChromeContract) {
+      failures.push(
+        `${vp.name}: mobile chrome geometry failure`
+        + ` titleW=${m.mobileTitleWidth}`
+        + ` menuIn=${m.mobileMenuInViewport}`
+        + ` bottomIn=${m.mobileBottomNavInViewport}`
+        + ` stickyClear=${m.stickyClearOfBottomNav}`,
+      );
+    }
     if (!m.sidebarBrandFitted) failures.push(`${vp.name}: sidebar brand fit failure`);
     await page.click('[data-smoke-notification] .notification-settings-trigger');
     await page.waitForSelector('[data-smoke-notification] .notification-settings');
@@ -947,6 +1026,15 @@ try {
       failures.push('200% text: notification center reflow failure');
     }
     if (!m.topbarContract) failures.push('200% text: branding topbar reflow failure');
+    if (!m.mobileChromeContract) {
+      failures.push(
+        '200% text: mobile chrome geometry failure'
+        + ` titleW=${m.mobileTitleWidth}`
+        + ` menuIn=${m.mobileMenuInViewport}`
+        + ` bottomIn=${m.mobileBottomNavInViewport}`
+        + ` stickyClear=${m.stickyClearOfBottomNav}`,
+      );
+    }
     await page.click('[data-smoke-notification] .notification-settings-trigger');
     await page.waitForSelector('[data-smoke-notification] .notification-settings');
     const settings = await measure(page);

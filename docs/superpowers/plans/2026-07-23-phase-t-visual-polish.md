@@ -215,9 +215,10 @@ Implementation record:
 - mobile top bar: safe-area top, balanced zones, title ellipsis, brand/back/menu/notification targets preserved
 - bottom nav: active + expanded menu weight channel (`font-weight: 760`), label wrap, safe-area bottom
 - sticky create: jobs-list-only unchanged; bottom offset remains clear of bottom nav
-- drawer visual only: paper surface, safe-area padding, heading/account separation, drawer-scoped nav wrap
+- drawer visual only: paper surface, safe-area **top/left/bottom** padding, heading/account separation, drawer-scoped nav wrap
 - shared `.shell-nav` / `.shell-account` baseline and T2A sidebar-scoped polish preserved
 - drawer interaction: Escape/backdrop/focus trap/restore/body lock unchanged
+- responsive smoke: mobile chrome geometry (menu/title/actions/bottom-nav/sticky) on 390 + 200% text zoom
 
 Non-work (T2C): Notification Center panel polish, Jobs/board layout, synthetic T2 evidence pack.
 

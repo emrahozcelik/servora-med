@@ -376,7 +376,9 @@ describe('responsive authenticated AppShell', () => {
 
     // Drawer visual polish is drawer-scoped; shared nav baseline stays T2A isolation values.
     expect(exactRuleBody('.shell-drawer')).toMatch(/background:\s*var\(--paper\)/);
+    expect(exactRuleBody('.shell-drawer')).toMatch(/safe-area-inset-top/);
     expect(exactRuleBody('.shell-drawer')).toMatch(/safe-area-inset-bottom/);
+    expect(exactRuleBody('.shell-drawer')).toMatch(/safe-area-inset-left/);
     expect(exactRuleBody('.shell-drawer')).toMatch(/box-shadow:/);
     expect(exactRuleBody('.shell-drawer .shell-nav')).toMatch(/(?:margin-top:\s*1\.15rem|flex:\s*1\s+1\s+auto)/);
     expect(exactRuleBody('.shell-drawer .shell-account')).toMatch(/margin-top:\s*auto/);
