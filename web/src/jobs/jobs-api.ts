@@ -139,7 +139,13 @@ export type JobCardActivityDetails =
       toStatus: JobCardActivityStatus;
       reason: string | null;
       startLocation?:
-        | { outcome: 'CAPTURED'; approximateLabel: string | null; accuracyMeters: number; capturedAt: string }
+        | {
+            outcome: 'CAPTURED';
+            approximateLabel: string | null;
+            accuracyMeters: number;
+            capturedAt: string;
+            geocodingProvider: 'GOOGLE' | null;
+          }
         | { outcome: 'UNAVAILABLE'; reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED' | 'UNKNOWN' };
     }
   | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate' | 'engagementKind'> }
@@ -423,13 +429,17 @@ function parseDetails(value: unknown): JobCardActivityDetails {
       const outcome = oneOf(location.outcome, 'startLocation.outcome', ['CAPTURED', 'UNAVAILABLE'] as const);
       if (outcome === 'CAPTURED') {
         const captured = exactObject(location, 'startLocation', [
-          'outcome', 'approximateLabel', 'accuracyMeters', 'capturedAt',
+          'outcome', 'approximateLabel', 'accuracyMeters', 'capturedAt', 'geocodingProvider',
         ]);
+        const provider = captured.geocodingProvider === null
+          ? null
+          : oneOf(captured.geocodingProvider, 'geocodingProvider', ['GOOGLE'] as const);
         startLocation = {
           outcome,
           approximateLabel: nullableString(captured.approximateLabel, 'approximateLabel'),
           accuracyMeters: positiveFiniteNumber(captured.accuracyMeters, 'accuracyMeters'),
           capturedAt: canonicalInstant(captured.capturedAt, 'capturedAt'),
+          geocodingProvider: provider,
         };
       } else {
         const unavailable = exactObject(location, 'startLocation', ['outcome', 'reason']);

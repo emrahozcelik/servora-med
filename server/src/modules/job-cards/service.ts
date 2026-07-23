@@ -81,6 +81,7 @@ import {
   type StartLocationCapture,
 } from './start-location-input.js';
 import type { JobActionLocationCapture } from './location-types.js';
+import type { ReverseGeocodingQuotaGuard } from '../geocoding/reverse-geocoding-quota.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
@@ -191,6 +192,7 @@ export class JobCardService {
       enabled: boolean;
       reverseGeocoder?: ReverseGeocoder;
       reverseGeocoderTimeoutMs?: number;
+      quotaGuard?: ReverseGeocodingQuotaGuard;
     }> = { enabled: false },
     private readonly webPush: Readonly<{
       enabled: boolean;
@@ -832,7 +834,12 @@ export class JobCardService {
     }
     assertStaffStartActor(actor);
     assertCanTransition(actor, job, 'START');
-    const resolvedCapture = await this.resolveStartLocation(capture, lifecycleInput.clientActionId);
+    const resolvedCapture = await this.resolveStartLocation({
+      organizationId: actor.organizationId,
+      actorUserId: actor.id,
+      capture,
+      correlationId: lifecycleInput.clientActionId,
+    });
     return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, resolvedCapture);
   }
 
@@ -978,41 +985,80 @@ export class JobCardService {
     };
   }
 
-  private async resolveStartLocation(
-    capture: StartLocationCapture,
-    correlationId: string,
-  ): Promise<JobActionLocationCapture> {
+  private async resolveStartLocation(input: {
+    organizationId: string;
+    actorUserId: string;
+    capture: StartLocationCapture;
+    correlationId: string;
+  }): Promise<JobActionLocationCapture> {
+    const { capture, correlationId, organizationId, actorUserId } = input;
     if (capture.outcome === 'UNAVAILABLE') return capture;
     const base = {
       ...capture,
-      neighborhood: null,
-      district: null,
-      city: null,
-      approximateLabel: null,
+      neighborhood: null as string | null,
+      district: null as string | null,
+      city: null as string | null,
+      approximateLabel: null as string | null,
+      geocodingProvider: null as 'GOOGLE' | null,
     };
     if (capture.accuracyMeters > 1_000) {
       return { ...base, geocodingStatus: 'NOT_REQUESTED' };
     }
+
+    const quotaGuard = this.geolocation.quotaGuard;
+    if (quotaGuard) {
+      const decision = await quotaGuard.reserve({
+        provider: 'GOOGLE',
+        organizationId,
+        actorUserId,
+        now: this.now(),
+      });
+      if (!decision.allowed) {
+        return { ...base, geocodingStatus: 'FAILED' };
+      }
+    }
+
     try {
-      const timeoutMs = this.geolocation.reverseGeocoderTimeoutMs ?? 3_000;
-      let timeoutId: ReturnType<typeof setTimeout> | undefined;
-      const timeout = new Promise<never>((_resolve, reject) => {
-        timeoutId = setTimeout(() => reject(new Error('Reverse geocoder timed out')), timeoutMs);
+      // Google adapter owns AbortController timeout. Optional safety race remains
+      // only when reverseGeocoderTimeoutMs is explicitly provided (unit tests).
+      const timeoutMs = this.geolocation.reverseGeocoderTimeoutMs;
+      const reversePromise = this.geolocation.reverseGeocoder!.reverse({
+        latitude: capture.latitude,
+        longitude: capture.longitude,
+        accuracyMeters: capture.accuracyMeters,
+        correlationId,
       });
-      const address = await Promise.race([
-        this.geolocation.reverseGeocoder!.reverse({
-          latitude: capture.latitude,
-          longitude: capture.longitude,
-          accuracyMeters: capture.accuracyMeters,
-          correlationId,
-        }),
-        timeout,
-      ]).finally(() => {
-        if (timeoutId !== undefined) clearTimeout(timeoutId);
-      });
-      return { ...base, ...address, geocodingStatus: 'RESOLVED' };
+      let address;
+      if (timeoutMs === undefined) {
+        address = await reversePromise;
+      } else {
+        let timeoutId: ReturnType<typeof setTimeout> | undefined;
+        try {
+          address = await Promise.race([
+            reversePromise,
+            new Promise<never>((_resolve, reject) => {
+              timeoutId = setTimeout(
+                () => reject(new Error('Reverse geocoder timed out')),
+                timeoutMs,
+              );
+            }),
+          ]);
+        } finally {
+          if (timeoutId !== undefined) clearTimeout(timeoutId);
+        }
+      }
+      return {
+        ...base,
+        ...address,
+        geocodingStatus: 'RESOLVED',
+        geocodingProvider: 'GOOGLE',
+      };
     } catch {
-      return { ...base, geocodingStatus: 'FAILED' };
+      return {
+        ...base,
+        geocodingStatus: 'FAILED',
+        geocodingProvider: 'GOOGLE',
+      };
     }
   }
 

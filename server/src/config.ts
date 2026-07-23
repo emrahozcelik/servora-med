@@ -11,6 +11,8 @@ export type WebPushConfig = {
   vapidPrivateKey: string | null;
 };
 
+export type ReverseGeocoderProvider = 'google';
+
 export type AppConfig = {
   nodeEnv: NodeEnvironment;
   host: string;
@@ -24,6 +26,12 @@ export type AppConfig = {
   trustedProxy: TrustedProxy;
   healthSchemaVersion: string | null;
   actionScopedGeolocationEnabled: boolean;
+  reverseGeocoderProvider: ReverseGeocoderProvider | null;
+  googleGeocodingApiKey: string | null;
+  reverseGeocoderTimeoutMs: number;
+  geocodingUserDailyLimit: number;
+  geocodingOrganizationDailyLimit: number;
+  geocodingGlobalMonthlyLimit: number;
   webPush: WebPushConfig;
 };
 
@@ -33,6 +41,11 @@ const LOG_LEVELS = new Set([
 ]);
 const TRUSTED_PROXIES = new Set<TrustedProxy>(['loopback', '127.0.0.1', '::1']);
 const PRODUCTION_LOOPBACK_HOSTS = new Set(['127.0.0.1', '::1']);
+
+const DEFAULT_REVERSE_GEOCODER_TIMEOUT_MS = 2_000;
+const DEFAULT_GEOCODING_USER_DAILY_LIMIT = 15;
+const DEFAULT_GEOCODING_ORG_DAILY_LIMIT = 250;
+const DEFAULT_GEOCODING_GLOBAL_MONTHLY_LIMIT = 8_000;
 
 function readNonEmpty(value: string | undefined, fallback: string, name: string): string {
   const resolved = value?.trim() || fallback;
@@ -58,6 +71,20 @@ function readPositiveInteger(
   const parsed = Number(value ?? fallback);
   if (!Number.isInteger(parsed) || parsed < 1) {
     throw new Error(`${name} must be a positive integer`);
+  }
+  return parsed;
+}
+
+function readIntegerInRange(
+  value: string | undefined,
+  fallback: number,
+  name: string,
+  min: number,
+  max: number,
+): number {
+  const parsed = Number(value ?? fallback);
+  if (!Number.isInteger(parsed) || parsed < min || parsed > max) {
+    throw new Error(`${name} must be an integer between ${min} and ${max}`);
   }
   return parsed;
 }
@@ -263,6 +290,88 @@ function readWebPushConfig(env: NodeJS.ProcessEnv): WebPushConfig {
   };
 }
 
+function readGeocodingConfig(env: NodeJS.ProcessEnv, actionScopedGeolocationEnabled: boolean): Pick<
+  AppConfig,
+  | 'reverseGeocoderProvider'
+  | 'googleGeocodingApiKey'
+  | 'reverseGeocoderTimeoutMs'
+  | 'geocodingUserDailyLimit'
+  | 'geocodingOrganizationDailyLimit'
+  | 'geocodingGlobalMonthlyLimit'
+> {
+  if (!actionScopedGeolocationEnabled) {
+    return {
+      reverseGeocoderProvider: null,
+      googleGeocodingApiKey: null,
+      reverseGeocoderTimeoutMs: DEFAULT_REVERSE_GEOCODER_TIMEOUT_MS,
+      geocodingUserDailyLimit: DEFAULT_GEOCODING_USER_DAILY_LIMIT,
+      geocodingOrganizationDailyLimit: DEFAULT_GEOCODING_ORG_DAILY_LIMIT,
+      geocodingGlobalMonthlyLimit: DEFAULT_GEOCODING_GLOBAL_MONTHLY_LIMIT,
+    };
+  }
+
+  const providerRaw = env.REVERSE_GEOCODER_PROVIDER?.trim() ?? '';
+  if (!providerRaw) {
+    throw new Error(
+      'REVERSE_GEOCODER_PROVIDER is required when ACTION_SCOPED_GEOLOCATION_ENABLED=true',
+    );
+  }
+  if (providerRaw !== 'google') {
+    throw new Error('REVERSE_GEOCODER_PROVIDER must be google');
+  }
+
+  const apiKey = env.GOOGLE_GEOCODING_API_KEY?.trim() ?? '';
+  if (!apiKey) {
+    throw new Error(
+      'GOOGLE_GEOCODING_API_KEY is required when ACTION_SCOPED_GEOLOCATION_ENABLED=true',
+    );
+  }
+
+  const reverseGeocoderTimeoutMs = readIntegerInRange(
+    env.REVERSE_GEOCODER_TIMEOUT_MS,
+    DEFAULT_REVERSE_GEOCODER_TIMEOUT_MS,
+    'REVERSE_GEOCODER_TIMEOUT_MS',
+    500,
+    5_000,
+  );
+  const geocodingUserDailyLimit = readIntegerInRange(
+    env.GEOCODING_USER_DAILY_LIMIT,
+    DEFAULT_GEOCODING_USER_DAILY_LIMIT,
+    'GEOCODING_USER_DAILY_LIMIT',
+    1,
+    100,
+  );
+  const geocodingOrganizationDailyLimit = readIntegerInRange(
+    env.GEOCODING_ORG_DAILY_LIMIT,
+    DEFAULT_GEOCODING_ORG_DAILY_LIMIT,
+    'GEOCODING_ORG_DAILY_LIMIT',
+    1,
+    2_000,
+  );
+  const geocodingGlobalMonthlyLimit = readIntegerInRange(
+    env.GEOCODING_GLOBAL_MONTHLY_LIMIT,
+    DEFAULT_GEOCODING_GLOBAL_MONTHLY_LIMIT,
+    'GEOCODING_GLOBAL_MONTHLY_LIMIT',
+    1,
+    9_000,
+  );
+
+  if (geocodingUserDailyLimit > geocodingOrganizationDailyLimit) {
+    throw new Error(
+      'GEOCODING_USER_DAILY_LIMIT must not exceed GEOCODING_ORG_DAILY_LIMIT',
+    );
+  }
+
+  return {
+    reverseGeocoderProvider: 'google',
+    googleGeocodingApiKey: apiKey,
+    reverseGeocoderTimeoutMs,
+    geocodingUserDailyLimit,
+    geocodingOrganizationDailyLimit,
+    geocodingGlobalMonthlyLimit,
+  };
+}
+
 /** Fastify trustProxy option derived from validated config. Never "true" for all peers. */
 export function resolveTrustProxyOption(trustedProxy: TrustedProxy): boolean | string {
   if (trustedProxy === 'loopback') return 'loopback';
@@ -278,6 +387,11 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
   }
 
   const typedNodeEnv = nodeEnv as NodeEnvironment;
+  const actionScopedGeolocationEnabled = readBoolean(
+    env.ACTION_SCOPED_GEOLOCATION_ENABLED,
+    'ACTION_SCOPED_GEOLOCATION_ENABLED',
+  );
+  const geocoding = readGeocodingConfig(env, actionScopedGeolocationEnabled);
 
   return {
     nodeEnv: typedNodeEnv,
@@ -291,10 +405,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     rateLimitWindowMs: readPositiveInteger(env.RATE_LIMIT_WINDOW_MS, 60_000, 'RATE_LIMIT_WINDOW_MS'),
     trustedProxy: readTrustedProxy(env.TRUSTED_PROXY, typedNodeEnv),
     healthSchemaVersion: readHealthSchemaVersion(env.HEALTH_SCHEMA_VERSION, typedNodeEnv),
-    actionScopedGeolocationEnabled: readBoolean(
-      env.ACTION_SCOPED_GEOLOCATION_ENABLED,
-      'ACTION_SCOPED_GEOLOCATION_ENABLED',
-    ),
+    actionScopedGeolocationEnabled,
+    ...geocoding,
     webPush: readWebPushConfig(env),
   };
 }

@@ -53,6 +53,7 @@ describe('safe JobCard timeline', () => {
           startLocation: {
             outcome: 'CAPTURED', approximateLabel: 'Kızılay, Çankaya / Ankara',
             accuracyMeters: 24.5, capturedAt: '2026-07-21T06:15:30.123Z',
+            geocodingProvider: 'GOOGLE',
           },
         },
         createdAt: '2026-07-21T06:15:32.000Z',
@@ -66,6 +67,19 @@ describe('safe JobCard timeline', () => {
         },
         createdAt: '2026-07-21T06:14:00.000Z',
       },
+      {
+        id: 'no-provider', jobCardId: 'job-3', eventType: 'JOB_STARTED',
+        actor: { id: 'staff-3', name: 'Zeynep Personel' },
+        details: {
+          kind: 'STATUS_TRANSITION', fromStatus: 'ACCEPTED', toStatus: 'IN_PROGRESS', reason: null,
+          startLocation: {
+            outcome: 'CAPTURED', approximateLabel: null,
+            accuracyMeters: 40, capturedAt: '2026-07-21T06:13:00.000Z',
+            geocodingProvider: null,
+          },
+        },
+        createdAt: '2026-07-21T06:13:00.000Z',
+      },
     ];
     await act(async () => root.render(<JobTimeline jobId="job-1"
       load={vi.fn().mockResolvedValue(page(activities))} />));
@@ -73,7 +87,11 @@ describe('safe JobCard timeline', () => {
 
     expect(host.textContent).toContain('Konum: Kızılay, Çankaya / Ankara');
     expect(host.textContent).toContain('Doğruluk: yaklaşık 24,5 metre');
+    expect(host.textContent).toContain('Adres verisi: Google Maps');
     expect(host.textContent).toContain('Konum alınamadı: Konum izni reddedildi');
+    expect(host.textContent).toContain('Yaklaşık adres oluşturulamadı');
+    // Attribution must not appear for non-resolved / non-Google captures.
+    expect(host.textContent?.match(/Adres verisi: Google Maps/g)).toHaveLength(1);
     expect(host.textContent).not.toMatch(/39\.92077|32\.85411|latitude|longitude/);
   });
 

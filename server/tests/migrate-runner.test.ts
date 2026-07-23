@@ -75,9 +75,10 @@ describe('runMigrations', () => {
       '013_create_job_action_locations.sql',
       '014_create_web_push.sql',
       '015_job_card_engagement_kind.sql',
+      '016_google_reverse_geocoding.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('015_job_card_engagement_kind.sql');
-    expect(expectedSchemaVersion).toBe(15);
+    expect(migrations.at(-1)?.name).toBe('016_google_reverse_geocoding.sql');
+    expect(expectedSchemaVersion).toBe(16);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

@@ -323,6 +323,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
         '011_create_realtime_events.sql', '012_create_in_app_notifications.sql',
         '013_create_job_action_locations.sql', '014_create_web_push.sql',
         '015_job_card_engagement_kind.sql',
+        '016_google_reverse_geocoding.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await scopedPool.query(await readFile(path, 'utf8'));

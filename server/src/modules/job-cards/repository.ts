@@ -130,6 +130,7 @@ export type ActivityRecord = {
   startLocation: null | {
     outcome: 'CAPTURED'; approximateLabel: string | null;
     accuracyMeters: number; capturedAt: Date;
+    geocodingProvider: 'GOOGLE' | null;
   } | {
     outcome: 'UNAVAILABLE'; reason: LocationFailureReason;
   };
@@ -353,6 +354,7 @@ type JobActionLocationRow = {
   accuracy_meters: string | null;
   captured_at: Date | null;
   geocoding_status: LocationGeocodingStatus;
+  geocoding_provider: 'GOOGLE' | null;
   neighborhood: string | null;
   district: string | null;
   city: string | null;
@@ -381,6 +383,7 @@ function mapJobActionLocation(row: JobActionLocationRow): JobActionLocationRecor
         accuracyMeters: Number(row.accuracy_meters),
         capturedAt: row.captured_at!,
         geocodingStatus: row.geocoding_status,
+        geocodingProvider: row.geocoding_provider,
         neighborhood: row.neighborhood,
         district: row.district,
         city: row.city,
@@ -715,14 +718,15 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `INSERT INTO job_action_locations
          (organization_id, job_card_id, activity_id, actor_user_id, action,
           capture_outcome, failure_reason, latitude, longitude, accuracy_meters,
-          captured_at, geocoding_status, neighborhood, district, city,
-          approximate_label)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13,
-               $14, $15, $16)
+          captured_at, geocoding_status, geocoding_provider, neighborhood,
+          district, city, approximate_label)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14,
+               $15, $16, $17)
        RETURNING id, organization_id, job_card_id, activity_id, actor_user_id,
                  action, capture_outcome, failure_reason, latitude, longitude,
-                 accuracy_meters, captured_at, geocoding_status, neighborhood,
-                 district, city, approximate_label, created_at`,
+                 accuracy_meters, captured_at, geocoding_status,
+                 geocoding_provider, neighborhood, district, city,
+                 approximate_label, created_at`,
       [
         input.organizationId,
         input.jobCardId,
@@ -736,6 +740,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         captured?.accuracyMeters ?? null,
         captured?.capturedAt ?? null,
         captured?.geocodingStatus ?? 'NOT_REQUESTED',
+        captured?.geocodingProvider ?? null,
         captured?.neighborhood ?? null,
         captured?.district ?? null,
         captured?.city ?? null,
@@ -1265,13 +1270,15 @@ implements JobCardRepository, ApprovalQueueItemPort {
       location_accuracy_meters: string | null;
       location_captured_at: Date | null;
       location_approximate_label: string | null;
+      location_geocoding_provider: 'GOOGLE' | null;
     }>(`SELECT a.id, a.job_card_id, a.actor_id, u.name AS actor_name, a.event_type,
               a.old_value, a.new_value, a.metadata, a.client_action_id, a.created_at,
               l.capture_outcome AS location_outcome,
               l.failure_reason AS location_failure_reason,
               l.accuracy_meters AS location_accuracy_meters,
               l.captured_at AS location_captured_at,
-              l.approximate_label AS location_approximate_label
+              l.approximate_label AS location_approximate_label,
+              l.geocoding_provider AS location_geocoding_provider
        FROM job_card_activity_logs a
        LEFT JOIN users u
          ON u.organization_id = a.organization_id AND u.id = a.actor_id
@@ -1292,6 +1299,9 @@ implements JobCardRepository, ApprovalQueueItemPort {
               approximateLabel: row.location_approximate_label,
               accuracyMeters: Number(row.location_accuracy_meters),
               capturedAt: row.location_captured_at,
+              geocodingProvider: row.location_geocoding_provider === 'GOOGLE'
+                ? 'GOOGLE' as const
+                : null,
             }
           : row.location_outcome === 'UNAVAILABLE' && row.location_failure_reason !== null
             ? { outcome: 'UNAVAILABLE' as const, reason: row.location_failure_reason }

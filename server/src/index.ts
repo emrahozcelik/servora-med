@@ -19,6 +19,10 @@ import { RealtimeService } from './modules/realtime/service.js';
 import { PostgresNotificationRepository } from './modules/notifications/repository.js';
 import { createShutdown } from './shutdown.js';
 import { PostgresWebPushRepository } from './modules/web-push/repository.js';
+import { GoogleReverseGeocoder } from './modules/geocoding/google-reverse-geocoder.js';
+import { PostgresReverseGeocodingQuotaGuard } from './modules/geocoding/postgres-reverse-geocoding-quota.js';
+import type { ReverseGeocoder } from './modules/job-cards/reverse-geocoder.js';
+import type { ReverseGeocodingQuotaGuard } from './modules/geocoding/reverse-geocoding-quota.js';
 
 async function main() {
   const config = loadConfig();
@@ -42,6 +46,32 @@ async function main() {
       realtimeRepository,
       realtimeBus,
     );
+
+    let reverseGeocoder: ReverseGeocoder | undefined;
+    let reverseGeocodingQuotaGuard: ReverseGeocodingQuotaGuard | undefined;
+    if (config.actionScopedGeolocationEnabled) {
+      if (
+        config.reverseGeocoderProvider !== 'google'
+        || !config.googleGeocodingApiKey
+      ) {
+        throw new Error(
+          'ACTION_SCOPED_GEOLOCATION_ENABLED requires a configured reverse geocoder',
+        );
+      }
+      reverseGeocodingQuotaGuard = new PostgresReverseGeocodingQuotaGuard(
+        database.pool,
+        {
+          userDailyLimit: config.geocodingUserDailyLimit,
+          organizationDailyLimit: config.geocodingOrganizationDailyLimit,
+          globalMonthlyLimit: config.geocodingGlobalMonthlyLimit,
+        },
+      );
+      reverseGeocoder = new GoogleReverseGeocoder({
+        apiKey: config.googleGeocodingApiKey,
+        timeoutMs: config.reverseGeocoderTimeoutMs,
+      });
+    }
+
     app = await buildApp(config, {
       authRepository: new PostgresAuthRepository(database.pool),
       jobCardRepository: jobCards,
@@ -57,6 +87,8 @@ async function main() {
       realtimePublisher: realtimeBus,
       notificationRepository: new PostgresNotificationRepository(database.pool),
       webPushRepository: new PostgresWebPushRepository(database.pool),
+      reverseGeocoder,
+      reverseGeocodingQuotaGuard,
     });
 
     const shutdown = createShutdown({

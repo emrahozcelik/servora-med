@@ -73,6 +73,7 @@ const migrations = [
   '013_create_job_action_locations.sql',
   '014_create_web_push.sql',
   '015_job_card_engagement_kind.sql',
+  '016_google_reverse_geocoding.sql',
 ] as const;
 
 async function applyMigrations(pool: Pool) {
@@ -283,20 +284,24 @@ describe.skipIf(!databaseUrl)('014 Web Push PostgreSQL migration', () => {
          VALUES ($1, 'Other owner', $2, 'unused-test-hash', 'STAFF') RETURNING id`,
         [organizationTwo, `${randomUUID()}@test.local`],
       )).rows[0]!.id;
+      // Fixed created/expiry pair satisfies sessions_check (expires_at > created_at)
+      // and keeps eligibility independent of the PostgreSQL wall clock.
+      const initialSessionCreatedAt = new Date('2026-07-22T07:00:00.000Z');
+      const initialSessionExpiresAt = new Date('2099-01-01T00:00:00.000Z');
       const sessionOne = (await pool.query<{ id: string }>(
-        `INSERT INTO sessions (user_id, token_hash, expires_at)
-         VALUES ($1, $2, NOW() + INTERVAL '1 day') RETURNING id`,
-        [userOne, '4'.repeat(64)],
+        `INSERT INTO sessions (user_id, token_hash, expires_at, created_at)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [userOne, '4'.repeat(64), initialSessionExpiresAt, initialSessionCreatedAt],
       )).rows[0]!.id;
       const sessionTwo = (await pool.query<{ id: string }>(
-        `INSERT INTO sessions (user_id, token_hash, expires_at)
-         VALUES ($1, $2, NOW() + INTERVAL '1 day') RETURNING id`,
-        [userOne, '5'.repeat(64)],
+        `INSERT INTO sessions (user_id, token_hash, expires_at, created_at)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [userOne, '5'.repeat(64), initialSessionExpiresAt, initialSessionCreatedAt],
       )).rows[0]!.id;
       const otherSession = (await pool.query<{ id: string }>(
-        `INSERT INTO sessions (user_id, token_hash, expires_at)
-         VALUES ($1, $2, NOW() + INTERVAL '1 day') RETURNING id`,
-        [userTwo, '6'.repeat(64)],
+        `INSERT INTO sessions (user_id, token_hash, expires_at, created_at)
+         VALUES ($1, $2, $3, $4) RETURNING id`,
+        [userTwo, '6'.repeat(64), initialSessionExpiresAt, initialSessionCreatedAt],
       )).rows[0]!.id;
       const repository = new PostgresWebPushRepository(pool);
       const endpoint = 'https://fcm.googleapis.com/push/rebind';
@@ -413,7 +418,18 @@ describe.skipIf(!databaseUrl)('014 Web Push PostgreSQL migration', () => {
         at: new Date('2026-07-22T08:12:00.000Z'),
       })).resolves.toEqual([]);
 
-      await pool.query(`UPDATE sessions SET revoked_at = NOW() WHERE id = $1`, [sessionTwo]);
+      // Session eligibility compares expires_at to application `at`, not wall clock.
+      // Keep both timestamps fixed so CI does not depend on the runner date/time.
+      // created_at must remain before expires_at (sessions_check).
+      const sessionExpiredAt = new Date('2026-07-23T08:13:00.000Z');
+      const appendAttemptAt = new Date('2026-07-23T08:14:00.000Z');
+      const sessionValidThrough = new Date('2099-01-01T00:00:00.000Z');
+      const revokedMarkerAt = new Date('2026-07-22T08:13:00.000Z');
+
+      await pool.query(
+        `UPDATE sessions SET revoked_at = $2 WHERE id = $1`,
+        [sessionTwo, revokedMarkerAt],
+      );
       await pool.query(`DELETE FROM web_push_deliveries WHERE id = $1`, [appended[0]]);
       await expect(transaction.appendDeliveries({
         organizationId: organizationOne,
@@ -421,18 +437,20 @@ describe.skipIf(!databaseUrl)('014 Web Push PostgreSQL migration', () => {
         at: new Date('2026-07-22T08:14:00.000Z'),
       })).resolves.toEqual([]);
       await pool.query(
-        `UPDATE sessions SET revoked_at = NULL, expires_at = NOW() + INTERVAL '1 minute'
+        `UPDATE sessions
+            SET revoked_at = NULL,
+                expires_at = $2
           WHERE id = $1`,
-        [sessionTwo],
+        [sessionTwo, sessionExpiredAt],
       );
       await expect(transaction.appendDeliveries({
         organizationId: organizationOne,
         notificationIds: [notificationId],
-        at: new Date('2026-07-23T08:14:00.000Z'),
+        at: appendAttemptAt,
       })).resolves.toEqual([]);
       await pool.query(
-        `UPDATE sessions SET expires_at = NOW() + INTERVAL '1 day' WHERE id = $1`,
-        [sessionTwo],
+        `UPDATE sessions SET expires_at = $2 WHERE id = $1`,
+        [sessionTwo, sessionValidThrough],
       );
       await pool.query(`UPDATE users SET is_active = FALSE WHERE id = $1`, [userOne]);
       await expect(transaction.appendDeliveries({
@@ -441,7 +459,10 @@ describe.skipIf(!databaseUrl)('014 Web Push PostgreSQL migration', () => {
         at: new Date('2026-07-22T08:14:00.000Z'),
       })).resolves.toEqual([]);
       await pool.query(`UPDATE users SET is_active = TRUE WHERE id = $1`, [userOne]);
-      await pool.query(`UPDATE sessions SET revoked_at = NOW() WHERE id = $1`, [sessionTwo]);
+      await pool.query(
+        `UPDATE sessions SET revoked_at = $2 WHERE id = $1`,
+        [sessionTwo, revokedMarkerAt],
+      );
       await expect(repository.cleanupInactiveSessions(
         new Date('2026-07-22T08:15:00.000Z'),
       )).resolves.toBe(1);

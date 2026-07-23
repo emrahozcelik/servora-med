@@ -81,6 +81,7 @@ describe('safe JobCard activity presenter', () => {
         approximateLabel: 'Kızılay, Çankaya / Ankara',
         accuracyMeters: 24.5,
         capturedAt: new Date('2026-07-21T06:15:30.123Z'),
+        geocodingProvider: 'GOOGLE',
       },
     }));
 
@@ -92,9 +93,31 @@ describe('safe JobCard activity presenter', () => {
         approximateLabel: 'Kızılay, Çankaya / Ankara',
         accuracyMeters: 24.5,
         capturedAt: '2026-07-21T06:15:30.123Z',
+        geocodingProvider: 'GOOGLE',
       },
     });
-    expect(JSON.stringify(result)).not.toMatch(/latitude|longitude|provider/);
+    expect(JSON.stringify(result)).not.toMatch(/latitude|longitude|39\.|32\./);
+  });
+
+  it('presents null geocodingProvider when reverse geocoding was not used', () => {
+    const result = presentActivity(baseRecord('JOB_STARTED', {
+      oldValue: { status: 'ACCEPTED' },
+      newValue: { status: 'IN_PROGRESS' },
+      startLocation: {
+        outcome: 'CAPTURED',
+        approximateLabel: null,
+        accuracyMeters: 1200,
+        capturedAt: new Date('2026-07-21T06:15:30.123Z'),
+        geocodingProvider: null,
+      },
+    }));
+    expect(result.details).toMatchObject({
+      startLocation: {
+        outcome: 'CAPTURED',
+        geocodingProvider: null,
+        approximateLabel: null,
+      },
+    });
   });
 
   it('presents a normalized unavailable start location reason', () => {
