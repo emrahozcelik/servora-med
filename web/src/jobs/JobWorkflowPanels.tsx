@@ -30,7 +30,11 @@ export function CurrentResponsibilityPanel(props: {
   const { presentation, assigneeName } = props;
   const { responsibility } = presentation;
   return (
-    <section className="workflow-responsibility surface" aria-labelledby="workflow-responsibility-title">
+    <section
+      className="workflow-responsibility surface job-workflow-panel"
+      aria-labelledby="workflow-responsibility-title"
+      data-job-workflow-panel="responsibility"
+    >
       <h2 id="workflow-responsibility-title">{responsibility.title}</h2>
       <p>{responsibility.description}</p>
       {responsibility.role === 'STAFF' && (
@@ -63,7 +67,11 @@ export function RequirementsChecklist(props: {
   const { requirements } = props;
   if (requirements.length === 0) return null;
   return (
-    <section className="workflow-requirements surface-flat" aria-labelledby="workflow-requirements-title">
+    <section
+      className="workflow-requirements surface-flat job-workflow-panel"
+      aria-labelledby="workflow-requirements-title"
+      data-job-workflow-panel="requirements"
+    >
       <h2 id="workflow-requirements-title">Kontrole hazırlık</h2>
       <p className="workflow-requirements-help">
         Eksik maddeleri tamamladığınızda iş yöneticinin kontrolüne gönderilebilir.
@@ -91,7 +99,11 @@ export function RevisionLoopPanel(props: {
 }): ReactNode {
   const { loop } = props;
   return (
-    <section className="revision-loop surface" aria-labelledby="revision-loop-title">
+    <section
+      className="revision-loop surface job-workflow-panel"
+      aria-labelledby="revision-loop-title"
+      data-job-workflow-panel="revision"
+    >
       <h2 id="revision-loop-title">Düzeltme gerekiyor</h2>
       <p>Yönetici kontrolünden uygulamaya geri gönderildi. Önce düzeltmeye başlayın; tamamladığınızda yeniden kontrole gönderin.</p>
       <p className="revision-loop-reason">
@@ -114,10 +126,11 @@ export function TerminalJobBanner(props: {
   const { details } = props;
   if (details.kind === 'COMPLETED') {
     return <section
-      className="completed-job-banner surface"
+      className="completed-job-banner surface job-workflow-panel"
       role="status"
       aria-labelledby="completed-job-title"
       data-terminal-state="COMPLETED"
+      data-job-workflow-panel="terminal-completed"
     >
       <h2 id="completed-job-title">Tamamlandı</h2>
       <p>İş yönetici kontrolünden geçerek tamamlandı.</p>
@@ -131,8 +144,13 @@ export function TerminalJobBanner(props: {
   }
 
   return (
-    <section className="cancelled-job-banner surface" role="status" aria-labelledby="cancelled-job-title"
-      data-terminal-state="CANCELLED">
+    <section
+      className="cancelled-job-banner surface job-workflow-panel"
+      role="status"
+      aria-labelledby="cancelled-job-title"
+      data-terminal-state="CANCELLED"
+      data-job-workflow-panel="terminal-cancelled"
+    >
       <h2 id="cancelled-job-title">İptal edildi</h2>
       <p>İş iptal edildi ve yeniden açılamaz.</p>
       <dl className="cancelled-job-facts">

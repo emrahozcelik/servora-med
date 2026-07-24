@@ -39,7 +39,7 @@ T3 Jobs and JobDetail polish: IN PROGRESS
   T3A Jobs workspace / filters / state surfaces: COMPLETE
   T3B Job list rows / action hierarchy: COMPLETE
   T3C Job board lanes / responsive geometry: COMPLETE
-  T3D JobDetail information / workflow hierarchy: NOT STARTED
+  T3D JobDetail information / workflow hierarchy: COMPLETE
   T3E Decisions / notes / timeline / T3 closeout: NOT STARTED
 T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
@@ -292,6 +292,21 @@ Non-work for T3B: board lanes (T3C), JobDetail (T3D/E), API/permissions, AppShel
 
 Non-work for T3C: JobDetail (T3D/E), API/permissions, AppShell, Notification Center, drag-drop, Geciken lane.
 
+### T3D — JobDetail information and workflow hierarchy
+
+**Status:** COMPLETE
+**Branch:** `feat/phase-t-job-detail-hierarchy`
+
+- Accessible DOM order: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management-review → actions/notes → timeline
+- Revision loop renders **after** WorkflowSteps (lifecycle-first); terminal after lifecycle; responsibility only when non-terminal
+- Manager review: `data-job-detail-section="management-review"` after record-facts + type blocks, before decision actions
+- Type eyebrow low emphasis; title primary; Listeye dön secondary; status/priority meta in heading
+- Responsibility / revision / terminal / requirements share `job-workflow-panel` grammar
+- RecordDescriptions P0 container-responsive behavior unchanged; delivery flat rule-list
+- DOM-order tests cover staff normal, revision, terminal, manager waiting-approval, delivery/records blocks, notes-only
+
+Non-work for T3D: decision panel visual polish (T3E), notes/timeline API, manager reason dialogs, AppShell, server.
+
 ---
 
 ## T4 — CRM, product, staff/user + forms
@@ -326,7 +341,7 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T3A | Jobs workspace / filters / states | **COMPLETE** |
 | T3B | Job list rows / actions | **COMPLETE** |
 | T3C | Job board lanes / geometry | **COMPLETE** |
-| T3D | JobDetail hierarchy | NOT STARTED |
+| T3D | JobDetail hierarchy | **COMPLETE** |
 | T3E | Decisions / notes / timeline / closeout | NOT STARTED |
 | T3 | Jobs + JobDetail (overall) | **IN PROGRESS** |
 | T4 | CRM / product / people / forms | NOT STARTED |

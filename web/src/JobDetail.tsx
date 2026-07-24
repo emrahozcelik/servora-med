@@ -386,135 +386,218 @@ export function JobDetailPanel({
     { key: 'description', label: 'Açıklama', content: job.description ?? 'Belirtilmedi', wide: true },
   ];
 
-  return <main className="job-detail">
-    <div className="detail-heading"><div><p className="eyebrow">{
-      job.type === 'SALES_MEETING' ? jobEngagementLabel(job.engagementKind) : jobTypeLabels[job.type]
-    }</p><h1>{job.title}</h1></div>
-      <button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button></div>
-    {message && <div ref={feedbackRef} className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
-      role={messageIsError ? 'alert' : 'status'} tabIndex={-1}>{message}</div>}
-    {realtimeStaleNotice}
-    {presentation.revisionLoop && <RevisionLoopPanel loop={presentation.revisionLoop} />}
-    <WorkflowSteps
-      items={presentation.phaseItems.map((item) => ({
-        key: item.phase, label: item.label, state: item.state,
-      }))}
-      currentKey={presentation.currentPhase}
-    />
-    {presentation.terminalDetails && <TerminalJobBanner details={presentation.terminalDetails} />}
-    {presentation.terminalState === null && (
-      <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
-    )}
-    <div className="job-detail-content">
-      <section className="detail-summary surface">
-        <RecordDescriptions ariaLabel="İş kayıt bilgileri" items={descriptionItems} />
-      </section>
+  const typeLabel = job.type === 'SALES_MEETING'
+    ? jobEngagementLabel(job.engagementKind)
+    : jobTypeLabels[job.type];
 
-      {managementReview && (
-        <JobApprovalReviewPanel
-          job={job}
-          lifecycle={job.workflowContext.lifecycle}
-          requirements={presentation.requirements}
-        />
+  return (
+    <main className="job-detail" data-job-detail="true">
+      {/* DOM/keyboard: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management-review → actions/notes → timeline */}
+      <div className="detail-heading" data-job-detail-section="heading">
+        <div className="detail-heading-main">
+          <p className="eyebrow detail-type-eyebrow">{typeLabel}</p>
+          <h1>{job.title}</h1>
+          <div className="detail-heading-meta" data-job-detail-meta="true">
+            <StatusChip status={job.status} />
+            <PriorityChip priority={job.priority} longLabel />
+          </div>
+        </div>
+        <button
+          className="secondary-button detail-back-button"
+          type="button"
+          onClick={onBack}
+          disabled={pending}
+        >
+          Listeye dön
+        </button>
+      </div>
+      {message && (
+        <div
+          ref={feedbackRef}
+          className={`detail-feedback${messageIsError ? ' detail-feedback-error' : ''}`}
+          role={messageIsError ? 'alert' : 'status'}
+          tabIndex={-1}
+          data-job-detail-section="feedback"
+        >
+          {message}
+        </div>
       )}
-
-      {presentation.scheduleEdit && (
-        <JobScheduleEditForm
-          job={job}
-          scheduleEdit={presentation.scheduleEdit}
-          pending={pending}
-          onSave={onSaveSchedule}
+      {realtimeStaleNotice}
+      {/* DOM order: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management review → actions → notes → timeline */}
+      <div data-job-detail-section="lifecycle">
+        <WorkflowSteps
+          items={presentation.phaseItems.map((item) => ({
+            key: item.phase, label: item.label, state: item.state,
+          }))}
+          currentKey={presentation.currentPhase}
         />
+      </div>
+      {presentation.revisionLoop && (
+        <div data-job-detail-section="revision">
+          <RevisionLoopPanel loop={presentation.revisionLoop} />
+        </div>
       )}
+      {presentation.terminalDetails && (
+        <div data-job-detail-section="terminal">
+          <TerminalJobBanner details={presentation.terminalDetails} />
+        </div>
+      )}
+      {presentation.terminalState === null && (
+        <div data-job-detail-section="responsibility">
+          <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
+        </div>
+      )}
+      <div className="job-detail-content">
+        <section
+          className="detail-summary surface-flat"
+          data-job-detail-section="facts"
+          data-job-detail-block="record-facts"
+        >
+          <RecordDescriptions ariaLabel="İş kayıt bilgileri" items={descriptionItems} />
+        </section>
 
-      {job.type === 'PRODUCT_DELIVERY' && (
-      <section className="delivery-lines" aria-labelledby="delivery-lines-title">
-        <h2 id="delivery-lines-title">Teslim bilgileri</h2>
-        <ul>
-          {items.map((entry) => (
-            <li key={entry.id}>
-              <div>
-                <strong>{entry.productNameSnapshot}</strong>
-                <span>{entry.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span>
-              </div>
-              <dl>
-                <div><dt>Amaç</dt><dd>{purposeLabels[entry.deliveryPurpose]}</dd></div>
-                <div><dt>Miktar</dt><dd>{entry.quantity}{entry.unit ? ` ${entry.unit}` : ''}</dd></div>
-                {!canEditDelivery && (
-                  <div>
-                    <dt>Gerçekleşen teslim zamanı</dt>
-                    <dd>{formatDeliveredAt(entry.deliveredAt)}</dd>
+        {presentation.scheduleEdit && (
+          <JobScheduleEditForm
+            job={job}
+            scheduleEdit={presentation.scheduleEdit}
+            pending={pending}
+            onSave={onSaveSchedule}
+          />
+        )}
+
+        {job.type === 'PRODUCT_DELIVERY' && (
+          <section
+            className="delivery-lines"
+            aria-labelledby="delivery-lines-title"
+            data-job-detail-block="delivery"
+          >
+            <h2 id="delivery-lines-title">Teslim bilgileri</h2>
+            <ul className="delivery-lines-list">
+              {items.map((entry) => (
+                <li key={entry.id} className="delivery-line-item">
+                  <div className="delivery-line-product">
+                    <strong>{entry.productNameSnapshot}</strong>
+                    <span>{entry.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span>
                   </div>
-                )}
-              </dl>
-              {canEditDelivery && onSaveDeliveredAt && (
-                <DeliveryItemActualTimeForm
-                  item={entry}
-                  pending={pending}
-                  onSave={onSaveDeliveredAt}
-                />
-              )}
-            </li>
-          ))}
-        </ul>
-      </section>
-      )}
+                  <dl className="delivery-line-facts">
+                    <div><dt>Amaç</dt><dd>{purposeLabels[entry.deliveryPurpose]}</dd></div>
+                    <div>
+                      <dt>Miktar</dt>
+                      <dd>{entry.quantity}{entry.unit ? ` ${entry.unit}` : ''}</dd>
+                    </div>
+                    {!canEditDelivery && (
+                      <div>
+                        <dt>Gerçekleşen teslim zamanı</dt>
+                        <dd>{formatDeliveredAt(entry.deliveredAt)}</dd>
+                      </div>
+                    )}
+                  </dl>
+                  {canEditDelivery && onSaveDeliveredAt && (
+                    <DeliveryItemActualTimeForm
+                      item={entry}
+                      pending={pending}
+                      onSave={onSaveDeliveredAt}
+                    />
+                  )}
+                </li>
+              ))}
+            </ul>
+          </section>
+        )}
 
-      {records && <div className="job-detail-records">{records}</div>}
-    </div>
+        {records && (
+          <div className="job-detail-records" data-job-detail-block="records">
+            {records}
+          </div>
+        )}
 
-    {(() => {
-      const showRequirements = !managementReview
-        && presentation.terminalState === null
-        && presentation.requirements.length > 0;
-      const hasDecision = Boolean(
-        presentation.primaryTransition
-        || presentation.secondaryTransitions.length > 0
-        || presentation.recordEditAction,
-      );
-      const requirements = showRequirements
-        ? <RequirementsChecklist requirements={presentation.requirements} />
-        : null;
-      const decision = hasDecision ? (
-        <JobDecisionPanel
-          primary={presentation.primaryTransition}
-          secondary={presentation.secondaryTransitions}
-          recordEditAction={presentation.recordEditAction}
-          pending={pending}
-          pendingLabel={pendingLabel}
-          startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
-          onCommand={onCommand}
-          onRecordEdit={onRecordEdit}
-        />
-      ) : null;
-      const hasWorkflowMain = Boolean(requirements || decision);
-      if (!hasWorkflowMain && !notes) return null;
-      if (notes && hasWorkflowMain) {
-        return (
-          <div className="job-detail-workflow-layout">
-            <div className="job-detail-workflow-main">
+        {managementReview && (
+          <div
+            className="job-detail-management-review"
+            data-job-detail-section="management-review"
+          >
+            <JobApprovalReviewPanel
+              job={job}
+              lifecycle={job.workflowContext.lifecycle}
+              requirements={presentation.requirements}
+            />
+          </div>
+        )}
+      </div>
+
+      {(() => {
+        const showRequirements = !managementReview
+          && presentation.terminalState === null
+          && presentation.requirements.length > 0;
+        const hasDecision = Boolean(
+          presentation.primaryTransition
+          || presentation.secondaryTransitions.length > 0
+          || presentation.recordEditAction,
+        );
+        const requirements = showRequirements
+          ? <RequirementsChecklist requirements={presentation.requirements} />
+          : null;
+        const decision = hasDecision ? (
+          <JobDecisionPanel
+            primary={presentation.primaryTransition}
+            secondary={presentation.secondaryTransitions}
+            recordEditAction={presentation.recordEditAction}
+            pending={pending}
+            pendingLabel={pendingLabel}
+            startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
+            onCommand={onCommand}
+            onRecordEdit={onRecordEdit}
+          />
+        ) : null;
+        const hasWorkflowMain = Boolean(requirements || decision);
+        if (!hasWorkflowMain && !notes) return null;
+        if (notes && hasWorkflowMain) {
+          return (
+            <div
+              className="job-detail-workflow-layout"
+              data-job-detail-section="actions"
+            >
+              <div className="job-detail-workflow-main">
+                {requirements}
+                {decision}
+              </div>
+              <div className="job-detail-workflow-notes" data-job-detail-block="notes">
+                {notes}
+              </div>
+            </div>
+          );
+        }
+        if (hasWorkflowMain) {
+          return (
+            <div
+              className="job-detail-workflow-main job-detail-workflow-main--full"
+              data-job-detail-section="actions"
+            >
               {requirements}
               {decision}
             </div>
-            <div className="job-detail-workflow-notes">{notes}</div>
-          </div>
-        );
-      }
-      if (hasWorkflowMain) {
+          );
+        }
         return (
-          <div className="job-detail-workflow-main job-detail-workflow-main--full">
-            {requirements}
-            {decision}
+          <div
+            className="job-detail-workflow-notes job-detail-workflow-notes--full"
+            data-job-detail-section="notes"
+            data-job-detail-block="notes"
+          >
+            {notes}
           </div>
         );
-      }
-      return <div className="job-detail-workflow-notes job-detail-workflow-notes--full">{notes}</div>;
-    })()}
+      })()}
 
-    {timeline && <div className="job-detail-timeline">{timeline}</div>}
+      {timeline && (
+        <div className="job-detail-timeline" data-job-detail-section="timeline">
+          {timeline}
+        </div>
+      )}
 
-    {children}
-  </main>;
+      {children}
+    </main>
+  );
 }
 
 export type LoadedJobDetail =

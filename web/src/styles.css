@@ -1509,13 +1509,18 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .delivery-heading h1 { margin: 0; font-size: 1.75rem; letter-spacing: -0.025em; }
 .delivery-form { margin-top: 0; }
 .delivery-pair { display: grid; grid-template-columns: minmax(0, 1fr) minmax(8rem, 0.45fr); gap: 1rem; }
-.job-detail { width: min(100% - 2rem, 72rem); margin: clamp(2rem, 6vh, 4rem) auto; }
+.job-detail {
+  width: min(100% - 2rem, 72rem);
+  margin: clamp(2rem, 6vh, 4rem) auto;
+  min-width: 0;
+}
 .job-detail-workflow-layout {
   display: grid;
   grid-template-columns: 1fr;
   gap: 1rem;
   align-items: start;
   margin-top: 1.5rem;
+  min-width: 0;
 }
 .job-detail-workflow-main {
   display: grid;
@@ -1547,22 +1552,28 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 .job-detail-timeline {
   margin-top: 1.5rem;
+  width: 100%;
+  min-width: 0;
+  grid-column: 1 / -1;
 }
 .job-detail-timeline .job-timeline {
   margin-top: 0;
+  min-width: 0;
 }
 .job-detail-content {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: 1.25rem;
+  gap: 1.15rem;
   min-width: 0;
+  max-width: 100%;
 }
+.job-detail-records { min-width: 0; max-width: 100%; }
 .servora-workflow-steps {
   min-width: 0;
-  margin: 0 0 1.5rem;
+  margin: 0 0 1.25rem;
   padding: 1rem 1.1rem;
   border: 1px solid var(--rule);
-  border-radius: 0.7rem;
+  border-radius: var(--radius-control);
   background: var(--canvas);
 }
 .servora-workflow-steps .servora-ant-steps { min-width: 0; }
@@ -1593,20 +1604,71 @@ button:disabled { cursor: wait; opacity: 0.65; }
   min-width: 0;
   overflow-wrap: anywhere;
 }
-.detail-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.detail-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: 1rem;
+  margin-bottom: 1.1rem;
+  min-width: 0;
+}
 .detail-heading > div { min-width: 0; }
-.detail-heading h1 { max-width: 24ch; margin: 0; font-size: 1.75rem; line-height: 1.2; letter-spacing: -0.025em; overflow-wrap: anywhere; }
-.detail-feedback { margin-top: 1.25rem; padding: 0.8rem 0.9rem; border: 1px solid oklch(78% 0.055 238deg); border-radius: 0.6rem; color: var(--accent-hover); background: var(--accent-soft); }
-.detail-feedback-error { color: var(--error); border-color: oklch(78% 0.07 28deg); background: var(--error-soft); }
+.detail-heading-main { min-width: 0; max-width: 100%; }
+.detail-type-eyebrow {
+  margin: 0 0 0.45rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  overflow-wrap: anywhere;
+}
+.detail-heading h1 {
+  max-width: 24ch;
+  margin: 0;
+  font-size: 1.75rem;
+  font-weight: 760;
+  line-height: 1.2;
+  letter-spacing: -0.025em;
+  overflow-wrap: anywhere;
+}
+.detail-heading-meta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.45rem;
+  margin-top: 0.65rem;
+  min-width: 0;
+}
+.detail-back-button {
+  flex: 0 0 auto;
+  align-self: flex-start;
+}
+.detail-feedback {
+  margin: 0 0 1.15rem;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid oklch(78% 0.055 238deg);
+  border-radius: var(--radius-control);
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+  overflow-wrap: anywhere;
+}
+.detail-feedback-error {
+  color: var(--error);
+  border-color: oklch(78% 0.07 28deg);
+  background: var(--error-soft);
+}
 .detail-summary {
   display: block;
-  margin: 2rem 0;
-  padding-block: 1rem;
-  border-block: 1px solid var(--rule);
+  margin: 0;
+  min-width: 0;
 }
-.detail-summary.surface {
+.detail-summary.surface,
+.detail-summary.surface-flat {
   border-block: 0;
-  padding: 1.15rem 1.25rem;
+  padding: 1rem 1.1rem;
+  box-shadow: none;
 }
 .meeting-details .detail-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem 2rem; }
 .meeting-details .detail-summary > div { display: grid; gap: 0.25rem; }
@@ -1614,13 +1676,61 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .detail-summary dd, .delivery-lines dd { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
 .detail-summary time { overflow-wrap: anywhere; }
 .detail-summary .detail-summary-wide { grid-column: 1 / -1; }
-.delivery-lines h2 { margin: 0 0 1rem; font-size: 1.125rem; }
-.delivery-lines > ul { padding: 0; margin: 0; border-top: 1px solid var(--rule); list-style: none; }
+/* Delivery items: rule + spacing list, not nested raised cards. */
+.delivery-lines {
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+}
+.delivery-lines h2 { margin: 0 0 0.85rem; font-size: 1.125rem; font-weight: 720; }
+.delivery-lines > ul,
+.delivery-lines-list {
+  padding: 0;
+  margin: 0;
+  border-top: 1px solid var(--rule);
+  list-style: none;
+}
 .delivery-lines > ul > li { display: grid; grid-template-columns: minmax(10rem, 0.8fr) minmax(18rem, 1.2fr); gap: 1.5rem; padding-block: 1rem; border-bottom: 1px solid var(--rule); }
-.delivery-lines li > div { display: grid; align-content: start; gap: 0.25rem; }
-.delivery-lines li > div span { color: var(--muted); font-size: 0.8rem; }
-.delivery-lines dl { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; margin: 0; }
-.delivery-lines dl div { display: grid; align-content: start; gap: 0.25rem; }
+.delivery-line-item {
+  display: grid;
+  grid-template-columns: minmax(10rem, 0.8fr) minmax(18rem, 1.2fr);
+  gap: 1.25rem 1.5rem;
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--rule);
+  background: transparent;
+  box-shadow: none;
+  min-width: 0;
+}
+.delivery-lines li > div,
+.delivery-line-product {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.delivery-lines li > div span,
+.delivery-line-product span {
+  color: var(--muted);
+  font-size: 0.8rem;
+  overflow-wrap: anywhere;
+}
+.delivery-line-product strong { overflow-wrap: anywhere; }
+.delivery-lines dl,
+.delivery-line-facts {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0;
+  min-width: 0;
+  font-variant-numeric: tabular-nums;
+}
+.delivery-lines dl div,
+.delivery-line-facts div {
+  display: grid;
+  align-content: start;
+  gap: 0.25rem;
+  min-width: 0;
+}
 .detail-action {
   display: flex;
   align-items: center;
@@ -1687,16 +1797,19 @@ button:disabled { cursor: wait; opacity: 0.65; }
   max-width: 100%;
   overflow-wrap: anywhere;
 }
+/* Shared workflow panel grammar: same surface language for responsibility / revision / terminal / requirements. */
+.job-workflow-panel,
 .workflow-responsibility,
 .revision-loop,
 .completed-job-banner,
 .cancelled-job-banner,
 .workflow-requirements {
-  margin: 0 0 1.25rem;
-  padding: 1.1rem 1.2rem;
+  margin: 0 0 1.15rem;
+  padding: 1.05rem 1.15rem;
   border: 1px solid var(--rule);
-  border-radius: 0.7rem;
+  border-radius: var(--radius-control);
   background: var(--paper);
+  min-width: 0;
 }
 .workflow-responsibility h2,
 .revision-loop h2,
@@ -1705,6 +1818,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .workflow-requirements h2 {
   margin: 0 0 0.55rem;
   font-size: 1.05rem;
+  font-weight: 720;
+  overflow-wrap: anywhere;
 }
 .workflow-responsibility p,
 .revision-loop p,
@@ -2107,7 +2222,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .job-detail-content > .job-schedule-edit,
   .job-detail-content > .delivery-lines,
   .job-detail-content > .job-detail-records { grid-column: 1; }
-  .job-detail-content > .approval-review { grid-column: 2; }
+  .job-detail-content > .approval-review,
+  .job-detail-content > .job-detail-management-review,
+  .job-detail-content > [data-job-detail-section="management-review"] { grid-column: 2; }
   .job-detail-workflow-layout {
     grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
   }
@@ -2163,8 +2280,11 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .detail-heading { align-items: flex-start; }
   .meeting-details .detail-summary { grid-template-columns: 1fr; }
   .delivery-lines > ul > li { grid-template-columns: 1fr; gap: 0.9rem; }
+  .delivery-line-item { grid-template-columns: 1fr; gap: 0.9rem; }
   .delivery-lines dl { grid-template-columns: 1fr 1fr; }
+  .delivery-line-facts { grid-template-columns: 1fr 1fr; }
   .delivery-lines dl div:last-child { grid-column: 1 / -1; }
+  .delivery-line-facts div:last-child { grid-column: 1 / -1; }
   .detail-action { align-items: stretch; flex-direction: column; }
   .detail-action .primary-button { width: 100%; }
   .servora-workflow-steps { padding: 0.9rem; }
