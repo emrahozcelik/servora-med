@@ -40,7 +40,7 @@ T3 Jobs and JobDetail polish: IN PROGRESS
   T3B Job list rows / action hierarchy: COMPLETE
   T3C Job board lanes / responsive geometry: COMPLETE
   T3D JobDetail information / workflow hierarchy: COMPLETE
-  T3E Decisions / notes / timeline / T3 closeout: NOT STARTED
+  T3E Decisions / notes / timeline / T3 closeout: IN PROGRESS
 T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
 
@@ -342,7 +342,8 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T3B | Job list rows / actions | **COMPLETE** |
 | T3C | Job board lanes / geometry | **COMPLETE** |
 | T3D | JobDetail hierarchy | **COMPLETE** |
-| T3E | Decisions / notes / timeline / closeout | NOT STARTED |
+| T3E | Decisions / notes / timeline / closeout | IN PROGRESS |
+| T3E-2A | Revision / terminal grammar + feedback checkpoint | COMPLETE |
 | T3 | Jobs + JobDetail (overall) | **IN PROGRESS** |
 | T4 | CRM / product / people / forms | NOT STARTED |
 | T5 | States + regression closeout | NOT STARTED |
