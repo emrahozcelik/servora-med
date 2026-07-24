@@ -6,8 +6,6 @@ import type {
 } from './job-workflow-presentation';
 import type { LifecycleCommand } from './jobs-api';
 
-const DESTRUCTIVE_COMMANDS: ReadonlySet<LifecycleCommand> = new Set(['CANCEL']);
-
 export function JobDecisionPanel({
   primary,
   secondary,
@@ -33,6 +31,9 @@ export function JobDecisionPanel({
   const hasStart = primary?.command === 'START'
     || secondary.some((transition) => transition.command === 'START');
 
+  const destructiveTransitions = secondary.filter((t) => t.command === 'CANCEL');
+  const secondaryTransitions = secondary.filter((t) => t.command !== 'CANCEL');
+
   return <section
     className="detail-action surface-flat"
     aria-label="İş işlemleri"
@@ -43,7 +44,7 @@ export function JobDecisionPanel({
       Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili
       kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine başlar.
     </p>}
-    {primary?.consequence && <p className="decision-consequence">{primary.consequence}</p>}
+    {primary?.consequence && <p className="detail-action-consequence">{primary.consequence}</p>}
     <div className="review-buttons">
       {primary && <button
         className="primary-button compact-button"
@@ -53,17 +54,18 @@ export function JobDecisionPanel({
       >
         {pending ? (pendingLabel ?? 'İşleniyor…') : primary.label}
       </button>}
-      {recordEditAction && <button
-        className="secondary-button"
+      {secondaryTransitions.map((transition) => <button
+        key={transition.command}
+        className="secondary-button compact-button"
         type="button"
         disabled={pending}
-        onClick={(event) => onRecordEdit?.(recordEditAction.action, event.currentTarget)}
+        onClick={(event) => onCommand(transition.command, event.currentTarget)}
       >
-        {pending ? (pendingLabel ?? 'İşleniyor…') : recordEditAction.label}
-      </button>}
-      {secondary.map((transition) => <button
+        {pending ? (pendingLabel ?? 'İşleniyor…') : transition.label}
+      </button>)}
+      {destructiveTransitions.map((transition) => <button
         key={transition.command}
-        className={DESTRUCTIVE_COMMANDS.has(transition.command) ? 'destructive-button compact-button' : 'secondary-button'}
+        className="destructive-button compact-button"
         type="button"
         disabled={pending}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}
@@ -71,5 +73,17 @@ export function JobDecisionPanel({
         {pending ? (pendingLabel ?? 'İşleniyor…') : transition.label}
       </button>)}
     </div>
+    {recordEditAction && <div className="detail-action-record-edit">
+      <hr className="detail-action-lifecycle-end" role="none" />
+      <p className="detail-action-consequence">{recordEditAction.consequence}</p>
+      <button
+        className="secondary-button compact-button"
+        type="button"
+        disabled={pending}
+        onClick={(event) => onRecordEdit?.(recordEditAction.action, event.currentTarget)}
+      >
+        {pending ? (pendingLabel ?? 'İşleniyor…') : recordEditAction.label}
+      </button>
+    </div>}
   </section>;
 }

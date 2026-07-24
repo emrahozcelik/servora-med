@@ -142,6 +142,23 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .destructive-button:hover:not(:disabled) {
   background: var(--error-soft);
 }
+/* T3E: decision panel scoped destructive hierarchy */
+.review-buttons .destructive-button {
+  background: oklch(97% 0.012 28deg);
+  border-color: oklch(72% 0.12 28deg);
+  font-weight: 700;
+}
+.review-buttons .destructive-button:hover:not(:disabled) {
+  background: var(--error-soft);
+  border-color: oklch(65% 0.14 28deg);
+}
+.destructive-button.compact-button {
+  min-width: 7.5rem;
+  min-height: 2.5rem;
+  padding: 0.55rem 0.85rem;
+  margin-top: 0;
+  width: auto;
+}
 .btn-sm, .compact-button { min-width: 7.5rem; min-height: 2.5rem; padding: 0.55rem 0.85rem; margin-top: 0; width: auto; }
 .btn-md { min-height: var(--control-height); }
 .form-help {
@@ -1745,14 +1762,43 @@ button:disabled { cursor: wait; opacity: 0.65; }
   margin-top: 1.5rem;
 }
 .detail-action p { max-width: 55ch; margin: 0; color: var(--muted); line-height: 1.55; }
-.decision-consequence { margin: 0.5rem 0 0; max-width: 55ch; color: var(--ink); font-size: 0.9rem; line-height: 1.5; }
+.detail-action > p:first-of-type { margin-top: 0; }
 .detail-action .start-location-notice {
   padding: 0.75rem 0.875rem;
   border-left: 3px solid var(--accent);
   background: var(--accent-soft);
   overflow-wrap: anywhere;
 }
-.review-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; }
+.detail-action-consequence {
+  margin: 0 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.detail-action-record-edit {
+  margin-top: 0.75rem;
+}
+.detail-action-lifecycle-end {
+  margin: 0 0 0.85rem;
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+.review-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+.review-buttons .primary-button {
+  order: 0;
+}
+.review-buttons .secondary-button {
+  order: 1;
+}
+.review-buttons .destructive-button {
+  order: 2;
+}
 .compact-workflow {
   display: grid;
   gap: 0.2rem;
@@ -2290,13 +2336,14 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .delivery-line-facts div:last-child { grid-column: 1 / -1; }
   .detail-action { align-items: stretch; flex-direction: column; }
   .detail-action .primary-button { width: 100%; }
+  .detail-action .destructive-button { width: 100%; }
   .servora-workflow-steps { padding: 0.9rem; }
   .cancelled-job-facts { grid-template-columns: 1fr; }
   .revision-loop-facts, .completed-job-facts { grid-template-columns: 1fr; }
   .workflow-requirement { grid-template-columns: 1.35rem minmax(0, 1fr); }
   .workflow-requirement-state { grid-column: 2; }
   .job-note-list li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
-  .review-buttons { align-items: stretch; flex-direction: column-reverse; }
+  .review-buttons { align-items: stretch; flex-direction: column; }
   .review-buttons button { width: 100%; }
   .approval-review-summary { grid-template-columns: 1fr; }
   .people-row { align-items: stretch; flex-direction: column; }
