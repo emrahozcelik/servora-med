@@ -37,7 +37,7 @@ T2 AppShell and navigation polish: COMPLETE
   T2C notification shell polish + closeout: COMPLETE
 T3 Jobs and JobDetail polish: IN PROGRESS
   T3A Jobs workspace / filters / state surfaces: COMPLETE
-  T3B Job list rows / action hierarchy: NOT STARTED
+  T3B Job list rows / action hierarchy: COMPLETE
   T3C Job board lanes / responsive geometry: NOT STARTED
   T3D JobDetail information / workflow hierarchy: NOT STARTED
   T3E Decisions / notes / timeline / T3 closeout: NOT STARTED
@@ -262,6 +262,22 @@ List/board, filters, workflow hierarchy, notes/timeline, approval/revision, Jobs
 
 Non-work for T3A: JobRow density (T3B), board lanes (T3C), JobDetail (T3D/E), API/permissions, AppShell, Notification Center.
 
+### T3B — Job list rows and action hierarchy
+
+**Status:** COMPLETE
+**Branch:** `feat/phase-t-job-list-polish`
+
+- Scannable information order: title → type → customer/contact → workflow → status/priority metadata → facts → actions
+- Desktop rows stay flat (rule + spacing; no raised per-row shadow)
+- Title stronger than metadata; status/priority not color-only (existing chips)
+- Long Turkish title/customer/assignee wrap safely; schedule uses tabular numerals
+- Mobile single-column card layout and ≥ control-height action targets retained
+- Full-row title hit target coexists with z-indexed row commands (no click collision)
+- Only the owned primary open command uses primary button styling; other open commands stay secondary
+- Command set/order/ownership/`allowedCommands` derivation unchanged; no new lifecycle actions
+
+Non-work for T3B: board lanes (T3C), JobDetail (T3D/E), API/permissions, AppShell, Notification Center.
+
 ---
 
 ## T4 — CRM, product, staff/user + forms
@@ -294,7 +310,7 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T2C | Notification shell polish + T2 evidence | **COMPLETE** |
 | T2 | AppShell / nav (overall) | **COMPLETE** |
 | T3A | Jobs workspace / filters / states | **COMPLETE** |
-| T3B | Job list rows / actions | NOT STARTED |
+| T3B | Job list rows / actions | **COMPLETE** |
 | T3C | Job board lanes / geometry | NOT STARTED |
 | T3D | JobDetail hierarchy | NOT STARTED |
 | T3E | Decisions / notes / timeline / closeout | NOT STARTED |
