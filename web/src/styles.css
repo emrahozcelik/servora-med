@@ -2014,7 +2014,6 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .timeline-reason { margin: 0.15rem 0 0; color: var(--ink); font-size: 0.875rem; line-height: 1.4; overflow-wrap: anywhere; }
 .timeline-reason strong { font-weight: 650; }
 .job-note-list time, .servora-activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
-.job-note-list time, .servora-activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .job-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
 .dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(20% 0.02 240deg / 45%); }
 .reason-dialog, .workflow-dialog { width: min(100%, 34rem); max-height: calc(100dvh - 2rem); overflow: auto; padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.8rem; background: var(--paper); box-shadow: 0 1.5rem 4rem oklch(20% 0.02 240deg / 24%); }
