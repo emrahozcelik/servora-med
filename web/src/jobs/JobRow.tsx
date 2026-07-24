@@ -78,8 +78,10 @@ function listOpenCommands(user: CurrentUser, job: JobCardListItem): LifecycleCom
   return [primary, ...presentable.filter((command) => command !== primary)];
 }
 
-function isPrimaryStyle(command: LifecycleCommand) {
-  return command === 'APPROVE' || command === 'SUBMIT_FOR_APPROVAL';
+function typeLabel(job: JobCardListItem): string {
+  return job.type === 'SALES_MEETING'
+    ? jobEngagementLabel(job.engagementKind)
+    : jobTypeLabels[job.type];
 }
 
 export function JobRow({ job, user, onCommand }: {
@@ -92,58 +94,96 @@ export function JobRow({ job, user, onCommand }: {
   const openCommands = listOpenCommands(user, job);
   const schedule = cardScheduleFact(job);
 
-  return <article className="structured-job-row job-list-card" data-job-id={job.id}>
-    <div className="job-row-primary">
-      <div className="job-row-signals">
-        <StatusChip status={job.status} />
-        <PriorityChip priority={job.priority} longLabel />
-        <span className="job-row-type">{
-          job.type === 'SALES_MEETING' ? jobEngagementLabel(job.engagementKind) : jobTypeLabels[job.type]
-        }</span>
+  return (
+    <article
+      className="structured-job-row job-list-card"
+      data-job-id={job.id}
+      data-job-list-card="true"
+    >
+      <div className="job-row-primary">
+        <h2>
+          <Link className="job-row-title-link" to={paths.job(job.id)}>{job.title}</Link>
+        </h2>
+        <p className="job-row-type">{typeLabel(job)}</p>
+        <dl className="job-row-relations">
+          <div>
+            <dt>Müşteri</dt>
+            <dd>{job.customer?.name ?? 'Belirtilmedi'}</dd>
+          </div>
+          {job.contact && (
+            <div>
+              <dt>İlgili kişi</dt>
+              <dd>{job.contact.name}</dd>
+            </div>
+          )}
+        </dl>
+        <CompactWorkflowSummary summary={summary} assigneeName={job.assignee.name} />
+        <div className="job-row-signals" data-job-row-signals="true">
+          <StatusChip status={job.status} />
+          <PriorityChip priority={job.priority} longLabel />
+        </div>
       </div>
-      <h2>
-        <Link className="job-row-title-link" to={paths.job(job.id)}>{job.title}</Link>
-      </h2>
-      <dl className="job-row-relations">
-        <div><dt>Müşteri</dt><dd>{job.customer?.name ?? 'Belirtilmedi'}</dd></div>
-        {job.contact && <div><dt>İlgili kişi</dt><dd>{job.contact.name}</dd></div>}
+      <dl className="job-row-facts">
+        <div>
+          <dt>Sorumlu</dt>
+          <dd>{job.assignee.name}</dd>
+        </div>
+        <div>
+          <dt>{schedule.label}</dt>
+          <dd>
+            {schedule.dateTime
+              ? <time dateTime={schedule.dateTime}>{schedule.text}</time>
+              : schedule.text}
+          </dd>
+        </div>
+        {job.type === 'PRODUCT_DELIVERY' && (
+          <div>
+            <dt>Teslim</dt>
+            <dd>{job.deliveryItemCount} ürün kalemi</dd>
+          </div>
+        )}
       </dl>
-      <CompactWorkflowSummary summary={summary} assigneeName={job.assignee.name} />
-    </div>
-    <dl className="job-row-facts">
-      <div><dt>Sorumlu</dt><dd>{job.assignee.name}</dd></div>
-      <div><dt>{schedule.label}</dt><dd>{schedule.dateTime
-        ? <time dateTime={schedule.dateTime}>{schedule.text}</time>
-        : schedule.text}</dd></div>
-      {job.type === 'PRODUCT_DELIVERY' && <div><dt>Teslim</dt><dd>{job.deliveryItemCount} ürün kalemi</dd></div>}
-    </dl>
-    {primaryCommand && (
-      <div className="job-row-mobile-primary">
-        <button
-          className={isPrimaryStyle(primaryCommand)
-            ? 'primary-button btn-full'
-            : 'secondary-button btn-full'}
-          type="button"
-          onClick={() => onCommand({ name: primaryCommand, jobId: job.id, expectedVersion: job.version })}
-        >
-          {openLabels[primaryCommand]}
-        </button>
+      {primaryCommand && (
+        <div className="job-row-mobile-primary">
+          <button
+            className="primary-button btn-full job-row-command-primary"
+            type="button"
+            data-job-command={primaryCommand}
+            data-job-command-priority="primary"
+            onClick={() => onCommand({
+              name: primaryCommand,
+              jobId: job.id,
+              expectedVersion: job.version,
+            })}
+          >
+            {openLabels[primaryCommand]}
+          </button>
+        </div>
+      )}
+      <div className="job-row-commands" data-job-row-commands="true">
+        {openCommands.map((command) => {
+          const isPrimary = command === primaryCommand;
+          return (
+            <button
+              key={command}
+              className={[
+                isPrimary ? 'primary-button' : 'secondary-button',
+                isPrimary ? 'job-row-command-primary' : 'job-row-command-secondary',
+              ].filter(Boolean).join(' ')}
+              type="button"
+              data-job-command={command}
+              data-job-command-priority={isPrimary ? 'primary' : 'secondary'}
+              onClick={() => onCommand({
+                name: command,
+                jobId: job.id,
+                expectedVersion: job.version,
+              })}
+            >
+              {openLabels[command]}
+            </button>
+          );
+        })}
       </div>
-    )}
-    <div className="job-row-commands">
-      {openCommands.map((command) => (
-        <button
-          key={command}
-          className={[
-            isPrimaryStyle(command) ? 'primary-button' : 'secondary-button',
-            command === primaryCommand ? 'job-row-command-primary' : '',
-          ].filter(Boolean).join(' ')}
-          type="button"
-          onClick={() => onCommand({ name: command, jobId: job.id, expectedVersion: job.version })}
-        >
-          {openLabels[command]}
-        </button>
-      ))}
-    </div>
-  </article>;
+    </article>
+  );
 }

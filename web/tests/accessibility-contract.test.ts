@@ -175,6 +175,12 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.job-filters\.surface-flat \{[^}]*box-shadow: none;/);
   });
 
+  it('keeps desktop job list rows flat without raised card shadow', () => {
+    expect(css).toMatch(/\.structured-job-row \{[^}]*box-shadow: none;/);
+    expect(css).toMatch(/\.job-row-primary h2 \{[^}]*font-weight: 720;/);
+    expect(css).toMatch(/\.job-row-commands \.primary-button,\s*\.job-row-commands \.secondary-button \{[^}]*min-height: var\(--control-height\);/);
+  });
+
   it('keeps manager approval review and workflow dialogs reflowable with reachable targets', () => {
     expect(css).toMatch(/\.approval-review \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.approval-review h2 \{[^}]*overflow-wrap: anywhere;/);

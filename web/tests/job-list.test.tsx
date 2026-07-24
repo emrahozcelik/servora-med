@@ -136,6 +136,32 @@ describe('structured JobCard list', () => {
     expect(html).not.toContain('Kontrolden geri çek');
     expect(html).not.toContain('Özeti aç');
     expect(html).not.toContain('Tüm iş detaylarını aç');
+    expect(html).toContain('data-job-command="APPROVE"');
+    expect(html).toContain('data-job-command-priority="primary"');
+    expect(html).toContain('data-job-command="REQUEST_REVISION"');
+    expect(html).toContain('data-job-command-priority="secondary"');
+    // Only the owned primary command uses primary fill; REQUEST_REVISION stays secondary.
+    expect(html).toMatch(/class="[^"]*primary-button[^"]*"[^>]*data-job-command="APPROVE"/);
+    expect(html).toMatch(/class="[^"]*secondary-button[^"]*"[^>]*data-job-command="REQUEST_REVISION"/);
+  });
+
+  it('keeps scannable information order: title, type, customer, then metadata and actions', () => {
+    const html = renderListJob(listJob({
+      status: 'WAITING_APPROVAL',
+      allowedCommands: ['APPROVE', 'REQUEST_REVISION'],
+    }), manager);
+    const titleAt = html.indexOf('ABC Klinik teslimi');
+    const typeAt = html.indexOf('Ürün teslimi');
+    const customerAt = html.indexOf('<dt>Müşteri</dt>');
+    const signalsAt = html.indexOf('data-job-row-signals="true"');
+    const commandsAt = html.indexOf('data-job-row-commands="true"');
+    expect(titleAt).toBeGreaterThan(-1);
+    expect(typeAt).toBeGreaterThan(titleAt);
+    expect(customerAt).toBeGreaterThan(typeAt);
+    expect(signalsAt).toBeGreaterThan(customerAt);
+    expect(commandsAt).toBeGreaterThan(signalsAt);
+    expect(html).toContain('data-job-list-card="true"');
+    expect(html).not.toContain('box-shadow');
   });
 
   it('does not fabricate delivery facts for General Task rows', () => {
