@@ -297,16 +297,15 @@ Non-work for T3C: JobDetail (T3D/E), API/permissions, AppShell, Notification Cen
 **Status:** COMPLETE
 **Branch:** `feat/phase-t-job-detail-hierarchy`
 
-- Accessible DOM order: heading → lifecycle → responsibility → facts → type content → requirements/decision → notes → timeline
-- Type eyebrow low emphasis; title primary; Listeye dön secondary; status/priority meta in heading (chips, not color alone)
-- Feedback remains between heading and body, focusable
+- Accessible DOM order: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management-review → actions/notes → timeline
+- Revision loop renders **after** WorkflowSteps (lifecycle-first); terminal after lifecycle; responsibility only when non-terminal
+- Manager review: `data-job-detail-section="management-review"` after record-facts + type blocks, before decision actions
+- Type eyebrow low emphasis; title primary; Listeye dön secondary; status/priority meta in heading
 - Responsibility / revision / terminal / requirements share `job-workflow-panel` grammar
-- RecordDescriptions P0 container-responsive behavior unchanged
-- Delivery items flat rule-list (no nested raised cards)
-- Desktop CSS grid two-column placement without DOM reorder; mobile single column
-- Timeline full-width after actions
+- RecordDescriptions P0 container-responsive behavior unchanged; delivery flat rule-list
+- DOM-order tests cover staff normal, revision, terminal, manager waiting-approval, delivery/records blocks, notes-only
 
-Non-work for T3D: decision panel behavior (T3E closeout polish), notes/timeline API, manager reason dialogs, AppShell, server.
+Non-work for T3D: decision panel visual polish (T3E), notes/timeline API, manager reason dialogs, AppShell, server.
 
 ---
 

@@ -392,7 +392,7 @@ export function JobDetailPanel({
 
   return (
     <main className="job-detail" data-job-detail="true">
-      {/* DOM/keyboard order: title → lifecycle → responsibility → facts → type content → requirements → decision → timeline */}
+      {/* DOM/keyboard: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management-review → actions/notes → timeline */}
       <div className="detail-heading" data-job-detail-section="heading">
         <div className="detail-heading-main">
           <p className="eyebrow detail-type-eyebrow">{typeLabel}</p>
@@ -423,11 +423,7 @@ export function JobDetailPanel({
         </div>
       )}
       {realtimeStaleNotice}
-      {presentation.revisionLoop && (
-        <div data-job-detail-section="revision">
-          <RevisionLoopPanel loop={presentation.revisionLoop} />
-        </div>
-      )}
+      {/* DOM order: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management review → actions → notes → timeline */}
       <div data-job-detail-section="lifecycle">
         <WorkflowSteps
           items={presentation.phaseItems.map((item) => ({
@@ -436,6 +432,11 @@ export function JobDetailPanel({
           currentKey={presentation.currentPhase}
         />
       </div>
+      {presentation.revisionLoop && (
+        <div data-job-detail-section="revision">
+          <RevisionLoopPanel loop={presentation.revisionLoop} />
+        </div>
+      )}
       {presentation.terminalDetails && (
         <div data-job-detail-section="terminal">
           <TerminalJobBanner details={presentation.terminalDetails} />
@@ -446,18 +447,14 @@ export function JobDetailPanel({
           <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
         </div>
       )}
-      <div className="job-detail-content" data-job-detail-section="facts">
-        <section className="detail-summary surface-flat" data-job-detail-block="record-facts">
+      <div className="job-detail-content">
+        <section
+          className="detail-summary surface-flat"
+          data-job-detail-section="facts"
+          data-job-detail-block="record-facts"
+        >
           <RecordDescriptions ariaLabel="İş kayıt bilgileri" items={descriptionItems} />
         </section>
-
-        {managementReview && (
-          <JobApprovalReviewPanel
-            job={job}
-            lifecycle={job.workflowContext.lifecycle}
-            requirements={presentation.requirements}
-          />
-        )}
 
         {presentation.scheduleEdit && (
           <JobScheduleEditForm
@@ -511,6 +508,19 @@ export function JobDetailPanel({
         {records && (
           <div className="job-detail-records" data-job-detail-block="records">
             {records}
+          </div>
+        )}
+
+        {managementReview && (
+          <div
+            className="job-detail-management-review"
+            data-job-detail-section="management-review"
+          >
+            <JobApprovalReviewPanel
+              job={job}
+              lifecycle={job.workflowContext.lifecycle}
+              requirements={presentation.requirements}
+            />
           </div>
         )}
       </div>

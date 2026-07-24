@@ -546,11 +546,24 @@ describe('Staff JobCard detail', () => {
     const revision = host.querySelector('.revision-loop')!;
     const lifecycle = host.querySelector('.servora-workflow-steps')!;
     const responsibility = host.querySelector('.workflow-responsibility')!;
-    expect(revision.compareDocumentPosition(lifecycle) & Node.DOCUMENT_POSITION_FOLLOWING)
+    // Lifecycle first; revision context follows steps, then responsibility.
+    expect(lifecycle.compareDocumentPosition(revision) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
-    expect(lifecycle.compareDocumentPosition(responsibility) & Node.DOCUMENT_POSITION_FOLLOWING)
+    expect(revision.compareDocumentPosition(responsibility) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
   });
+
+  function section(name: string) {
+    return host.querySelector(`[data-job-detail-section="${name}"]`);
+  }
+
+  function block(name: string) {
+    return host.querySelector(`[data-job-detail-block="${name}"]`);
+  }
+
+  function precedes(earlier: Element, later: Element) {
+    return Boolean(earlier.compareDocumentPosition(later) & Node.DOCUMENT_POSITION_FOLLOWING);
+  }
 
   it('keeps requirements, decision, notes, then timeline in mobile-first DOM order', async () => {
     await act(async () => {
@@ -571,29 +584,181 @@ describe('Staff JobCard detail', () => {
     const notes = host.querySelector('[data-test-notes]')!;
     const timeline = host.querySelector('[data-test-timeline]')!;
     expect(host.querySelector('.job-detail-workflow-layout')).not.toBeNull();
-    expect(requirements.compareDocumentPosition(action) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBeTruthy();
-    expect(action.compareDocumentPosition(notes) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBeTruthy();
-    expect(notes.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING)
-      .toBeTruthy();
+    expect(precedes(requirements, action)).toBe(true);
+    expect(precedes(action, notes)).toBe(true);
+    expect(precedes(notes, timeline)).toBe(true);
     expect(host.textContent).toContain('Eksik maddeleri tamamladığınızda');
 
-    // Section markers: heading → lifecycle → responsibility → facts → actions → timeline
-    const heading = host.querySelector('[data-job-detail-section="heading"]')!;
-    const lifecycle = host.querySelector('[data-job-detail-section="lifecycle"]')!;
-    const responsibility = host.querySelector('[data-job-detail-section="responsibility"]')!;
-    const facts = host.querySelector('[data-job-detail-section="facts"]')!;
-    const actions = host.querySelector('[data-job-detail-section="actions"]')!;
-    const timelineSection = host.querySelector('[data-job-detail-section="timeline"]')!;
-    expect(heading.compareDocumentPosition(lifecycle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(lifecycle.compareDocumentPosition(responsibility) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(responsibility.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(facts.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
-    expect(actions.compareDocumentPosition(timelineSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    // Staff normal path: heading → lifecycle → responsibility → facts → actions → timeline
+    const heading = section('heading')!;
+    const lifecycle = section('lifecycle')!;
+    const responsibility = section('responsibility')!;
+    const facts = section('facts')!;
+    const actions = section('actions')!;
+    const timelineSection = section('timeline')!;
+    expect(precedes(heading, lifecycle)).toBe(true);
+    expect(precedes(lifecycle, responsibility)).toBe(true);
+    expect(precedes(responsibility, facts)).toBe(true);
+    expect(precedes(facts, actions)).toBe(true);
+    expect(precedes(actions, timelineSection)).toBe(true);
     expect(heading.querySelector('.detail-heading-meta')?.textContent).toContain('Normal öncelik');
     expect(heading.querySelector('.detail-back-button')?.textContent).toBe('Listeye dön');
     expect(host.querySelector('.detail-summary.surface-flat')).not.toBeNull();
+  });
+
+  it('places revision after lifecycle and before responsibility', async () => {
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={revisionRequestedJob({ revisionReason: 'Miktarı düzeltin' })}
+        items={[]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+      />);
+    });
+    const lifecycle = section('lifecycle')!;
+    const revision = section('revision')!;
+    const responsibility = section('responsibility')!;
+    const facts = section('facts')!;
+    expect(section('terminal')).toBeNull();
+    expect(precedes(lifecycle, revision)).toBe(true);
+    expect(precedes(revision, responsibility)).toBe(true);
+    expect(precedes(responsibility, facts)).toBe(true);
+  });
+
+  it('places terminal banner after lifecycle without a responsibility panel', async () => {
+    const completed: JobCard = {
+      ...job,
+      status: 'COMPLETED',
+      workflowContext: staffContext('COMPLETED', {
+        submittedAt: '2026-07-17T10:00:00.000Z',
+        approvedAt: '2026-07-17T11:00:00.000Z',
+        approvedBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      }, { allowedCommands: [], allowedActions: ['VIEW_NOTES'], submissionReadiness: null }),
+    };
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={completed}
+        items={[item]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+      />);
+    });
+    const lifecycle = section('lifecycle')!;
+    const terminal = section('terminal')!;
+    const facts = section('facts')!;
+    expect(section('responsibility')).toBeNull();
+    expect(section('revision')).toBeNull();
+    expect(precedes(lifecycle, terminal)).toBe(true);
+    expect(precedes(terminal, facts)).toBe(true);
+  });
+
+  it('orders manager waiting-approval: facts → type content → management review → actions → timeline', async () => {
+    const waiting: JobCard = {
+      ...job,
+      status: 'WAITING_APPROVAL',
+      type: 'PRODUCT_DELIVERY',
+      workflowContext: contextWith({
+        allowedCommands: ['APPROVE', 'REQUEST_REVISION', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES'],
+        lifecycle: {
+          ...baseLifecycle,
+          startedAt: '2026-07-17T09:00:00.000Z',
+          submittedAt: '2026-07-17T10:00:00.000Z',
+          submittedBy: { id: 's1', name: 'Ayşe Personel' },
+        },
+        submissionReadiness: null,
+      }),
+    };
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={waiting}
+        items={[item]}
+        user={managerUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+        notes={<section className="job-notes" data-test-notes>Notlar</section>}
+        timeline={<section className="job-timeline" data-test-timeline>Timeline</section>}
+      />);
+    });
+    const facts = section('facts')!;
+    const delivery = block('delivery')!;
+    const review = section('management-review')!;
+    const actions = section('actions')!;
+    const timelineSection = section('timeline')!;
+    expect(host.querySelector('.approval-review')).not.toBeNull();
+    expect(precedes(facts, delivery)).toBe(true);
+    expect(precedes(delivery, review)).toBe(true);
+    expect(precedes(review, actions)).toBe(true);
+    expect(precedes(actions, timelineSection)).toBe(true);
+    expect(section('responsibility')).not.toBeNull();
+  });
+
+  it('orders product delivery record-facts before delivery and optional records blocks', async () => {
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={{ ...job, status: 'IN_PROGRESS', workflowContext: staffContext('IN_PROGRESS', {
+          startedAt: '2026-07-17T09:00:00.000Z',
+        }, {
+          allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+          allowedActions: ['VIEW_NOTES'],
+          submissionReadiness: null,
+        }) }}
+        items={[item]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+        records={<section data-test-records>Kayıtlar</section>}
+        notes={<section className="job-notes" data-test-notes>Notlar</section>}
+        timeline={<section className="job-timeline" data-test-timeline>Timeline</section>}
+      />);
+    });
+    const recordFacts = block('record-facts')!;
+    const delivery = block('delivery')!;
+    const records = block('records')!;
+    const actions = section('actions')!;
+    const timelineSection = section('timeline')!;
+    expect(precedes(recordFacts, delivery)).toBe(true);
+    expect(precedes(delivery, records)).toBe(true);
+    expect(precedes(records, actions)).toBe(true);
+    expect(precedes(actions, timelineSection)).toBe(true);
+  });
+
+  it('keeps standalone notes before timeline when there is no decision panel', async () => {
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={{
+          ...job,
+          status: 'COMPLETED',
+          workflowContext: staffContext('COMPLETED', {
+            approvedAt: '2026-07-17T11:00:00.000Z',
+            approvedBy: { id: 'm1', name: 'Mehmet Yönetici' },
+          }, { allowedCommands: [], allowedActions: ['VIEW_NOTES'], submissionReadiness: null }),
+        }}
+        items={[item]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+        notes={<section className="job-notes" data-test-notes>Notlar</section>}
+        timeline={<section className="job-timeline" data-test-timeline>Timeline</section>}
+      />);
+    });
+    const notesOnly = section('notes')!;
+    const timelineSection = section('timeline')!;
+    expect(section('actions')).toBeNull();
+    expect(block('notes')).not.toBeNull();
+    expect(precedes(notesOnly, timelineSection)).toBe(true);
   });
 
   it('does not mount meeting result resources in new and accepted states', async () => {
