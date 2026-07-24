@@ -31,10 +31,10 @@ T0 audit/docs/baseline: COMPLETE
 T1 token and shared language: COMPLETE
   T1A semantic token contract + Ant bridge: COMPLETE
   T1B shared typography/control/surface adoption: COMPLETE
-T2 AppShell and navigation polish: IN PROGRESS
+T2 AppShell and navigation polish: COMPLETE
   T2A desktop shell hierarchy / workspace: COMPLETE
   T2B mobile chrome / drawer: COMPLETE
-  T2C notification shell polish + closeout: NOT STARTED
+  T2C notification shell polish + closeout: COMPLETE
 T3 Jobs and JobDetail polish: NOT STARTED
 T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
@@ -185,13 +185,13 @@ Non-work: AppShell/Jobs/CRM redesign, spacing sweep, Ant Form, feature TSX.
 
 ## T2 — AppShell and navigation polish
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 ```text
 T2A Desktop shell hierarchy and workspace frame   COMPLETE
-T2B Mobile chrome and navigation drawer           COMPLETE (this PR)
-T2C Notification Center visual polish + closeout  NOT STARTED
-T2 overall                                        IN PROGRESS
+T2B Mobile chrome and navigation drawer           COMPLETE
+T2C Notification Center visual polish + closeout  COMPLETE (this PR)
+T2 overall                                        COMPLETE
 ```
 
 No Ant Layout/Menu; no Ayarlar page.
@@ -220,7 +220,20 @@ Implementation record:
 - drawer interaction: Escape/backdrop/focus trap/restore/body lock unchanged
 - responsive smoke: mobile chrome geometry (menu/title/actions/bottom-nav/sticky) on 390 + 200% text zoom
 
-Non-work (T2C): Notification Center panel polish, Jobs/board layout, synthetic T2 evidence pack.
+### T2C — Notification Center visual polish + T2 closeout (COMPLETE)
+
+Implementation record:
+
+- notification trigger/badge hierarchy (absolute badge, 44px target, chip radius token)
+- desktop raised-panel token adoption (`--radius-raised`, `--shadow-raised`)
+- mobile safe-area and reflow (top/right/bottom)
+- read/unread row distinction (leading marker + weight + Okundu/Okunmadı copy)
+- panel-specific state/settings visual hierarchy
+- responsive geometry contracts (390/1024/1440 + 200% text)
+- vertical scroll reachability: short 390×600 + long list forces `scrollHeight > clientHeight`; last action (`.notification-center-more`) reachable after `scrollTop = scrollHeight`
+- synthetic T2 visual evidence under `docs/ui/screenshots/phase-t-t2/`
+
+Non-work: Notification API/SSE/Web Push behavior, AppShell/nav redesign, Jobs/board (T3), global state system (T5).
 
 ---
 
@@ -259,8 +272,8 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T1 | Tokens / visual language (overall) | **COMPLETE** |
 | T2A | Desktop shell hierarchy / workspace | **COMPLETE** |
 | T2B | Mobile chrome / drawer | **COMPLETE** |
-| T2C | Notification shell polish + T2 evidence | NOT STARTED |
-| T2 | AppShell / nav (overall) | **IN PROGRESS** |
+| T2C | Notification shell polish + T2 evidence | **COMPLETE** |
+| T2 | AppShell / nav (overall) | **COMPLETE** |
 | T3 | Jobs + JobDetail | NOT STARTED |
 | T4 | CRM / product / people / forms | NOT STARTED |
 | T5 | States + regression closeout | NOT STARTED |

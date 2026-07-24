@@ -167,6 +167,8 @@ function createFixtureController(snapshot: WebPushSnapshot): WebPushController {
   };
 }
 
+const longList = new URLSearchParams(window.location.search).get('longList') === '1';
+
 window.fetch = async (input) => {
   const path = String(input);
   if (path.includes('/api/web-push/status')) {
@@ -176,11 +178,20 @@ window.fetch = async (input) => {
   }
   if (path.includes('/unread-count')) return new Response(JSON.stringify({ unreadCount: 123 }), { status: 200 });
   if (path.includes('/api/notifications?')) {
+    const items = longList
+      ? Array.from({ length: 14 }, (_, index) => ({
+          ...notification,
+          id: `11111111-1111-4111-8111-${String(index + 1).padStart(12, '0')}`,
+          title: `${index % 2 === 0 ? 'Yeni iş atandı' : 'Düzeltme istendi'} — sentetik kayıt ${index + 1}`,
+          body: `${notification.body} (satır ${index + 1})`,
+          readAt: index % 3 === 0 ? '2026-07-21T11:00:00.000Z' : null,
+        }))
+      : [
+          notification,
+          { ...notification, id: '33333333-3333-4333-8333-333333333333', readAt: '2026-07-21T11:00:00.000Z' },
+        ];
     return new Response(JSON.stringify({
-      items: [
-        notification,
-        { ...notification, id: '33333333-3333-4333-8333-333333333333', readAt: '2026-07-21T11:00:00.000Z' },
-      ],
+      items,
       nextCursor: 'next-page',
     }), { status: 200 });
   }

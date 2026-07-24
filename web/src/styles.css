@@ -724,30 +724,196 @@ button:disabled { cursor: wait; opacity: 0.65; }
   margin-left: 0.25rem;
 }
 .notification-center { min-width: 0; padding: 0.3rem; }
-.shell-notification-trigger { position: relative; display: inline-flex; align-items: center; justify-content: center; flex: 0 0 2.75rem; width: 2.75rem; min-width: 2.75rem; min-height: var(--control-height); padding: 0; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--paper); }
-.shell-notification-icon { width: 1.2rem; height: 1.2rem; }
+.shell-notification-trigger {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 2.75rem;
+  width: 2.75rem;
+  min-width: 2.75rem;
+  min-height: var(--control-height);
+  padding: 0;
+  border: 1px solid var(--rule);
+  border-radius: 0.55rem;
+  color: var(--ink);
+  background: var(--paper);
+}
+.shell-notification-icon {
+  display: block;
+  width: 1.2rem;
+  height: 1.2rem;
+  flex: 0 0 auto;
+}
 .shell-notification-trigger:hover { border-color: oklch(72% 0.018 240deg); background: var(--canvas); }
-.notification-center-badge { display: inline-flex; position: absolute; top: -0.4rem; right: -0.45rem; min-width: 1.2rem; min-height: 1.2rem; align-items: center; justify-content: center; margin: 0; padding-inline: 0.25rem; border: 2px solid var(--canvas); border-radius: var(--radius-chip); color: white; background: var(--accent-hover); font-size: 0.65rem; line-height: 1; }
+/* Absolute badge must not expand trigger geometry or shift the bell. */
+.notification-center-badge {
+  display: inline-flex;
+  position: absolute;
+  top: -0.4rem;
+  right: -0.45rem;
+  z-index: 1;
+  min-width: 1.2rem;
+  max-width: 2.6rem;
+  min-height: 1.2rem;
+  align-items: center;
+  justify-content: center;
+  margin: 0;
+  padding-inline: 0.25rem;
+  border: 2px solid var(--canvas);
+  border-radius: var(--radius-chip);
+  color: white;
+  background: var(--accent-hover);
+  font-size: 0.65rem;
+  font-weight: 740;
+  font-variant-numeric: tabular-nums;
+  line-height: 1;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  pointer-events: none;
+}
 .notification-center-desktop-layer, .notification-center-backdrop { position: fixed; z-index: 40; inset: 0; }
 /* Desktop outside-click layer must receive pointer events; the panel re-enables them. */
 .notification-center-desktop-layer { pointer-events: auto; }
 .notification-center-backdrop { display: flex; justify-content: flex-end; background: oklch(26% 0.016 246deg / 48%); }
 .notification-center-backdrop-button { position: absolute; inset: 0; border: 0; background: transparent; }
-.notification-center-panel { position: absolute; pointer-events: auto; top: 1rem; right: 1rem; display: grid; gap: 1rem; width: min(calc(100vw - 2rem), 28rem); max-height: min(42rem, calc(100dvh - 2rem)); overflow: auto; padding: 1rem; border: 1px solid var(--rule); border-radius: 0.75rem; background: var(--paper); box-shadow: 0 1rem 2.5rem oklch(26% 0.016 246deg / 22%); }
-.notification-center-panel--mobile { top: 0; right: 0; width: min(88vw, 28rem); min-height: 100dvh; max-height: 100vh; border-radius: 0; }
-.notification-center-heading { display: flex; align-items: center; justify-content: space-between; gap: 1rem; }
-
-.notification-center-message { margin: 0; color: var(--muted); line-height: 1.5; }
-.notification-center-list { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; }
-.notification-center-item { display: grid; gap: 0.4rem; width: 100%; padding: 0.8rem; border: 1px solid var(--rule); border-radius: 0.55rem; color: var(--ink); background: var(--canvas); text-align: left; white-space: normal; overflow-wrap: anywhere; }
-.notification-center-item:hover:not(:disabled) { border-color: oklch(72% 0.018 240deg); background: var(--paper); }
-.notification-center-item-title { font-weight: 740; }
-.notification-center-item-meta { display: flex; justify-content: space-between; gap: 0.75rem; color: var(--muted); font-size: 0.78rem; }
+.notification-center-panel {
+  position: absolute;
+  pointer-events: auto;
+  top: 1rem;
+  right: 1rem;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 1rem;
+  width: min(calc(100vw - 2rem), 28rem);
+  max-height: min(42rem, calc(100dvh - 2rem));
+  overflow: auto;
+  min-width: 0;
+  /* Bottom padding lives on .notification-center-body so the last control can scroll fully into view. */
+  padding: 1rem 1rem 0;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-raised);
+  background: var(--paper);
+  box-shadow: var(--shadow-raised);
+}
+.notification-center-panel--mobile {
+  top: 0;
+  right: 0;
+  width: min(88vw, 28rem);
+  min-height: 100dvh;
+  max-height: 100vh;
+  border-radius: 0;
+  padding:
+    calc(1rem + env(safe-area-inset-top, 0px))
+    calc(1rem + env(safe-area-inset-right, 0px))
+    0
+    1rem;
+}
+.notification-center-heading {
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+  padding-bottom: 0.85rem;
+  border-bottom: 1px solid var(--rule);
+}
+.notification-center-heading > h2 {
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow-wrap: anywhere;
+}
+.notification-center-heading .drawer-close {
+  flex: 0 0 auto;
+}
+.notification-center-body {
+  display: grid;
+  gap: 0.85rem;
+  min-width: 0;
+  align-content: start;
+  padding-bottom: 1rem;
+}
+.notification-center-panel--mobile .notification-center-body {
+  padding-bottom: calc(1rem + env(safe-area-inset-bottom, 0px));
+}
+.notification-center-message {
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.notification-center-message--loading,
+.notification-center-message--empty {
+  padding: 0.85rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+.notification-center-message--error {
+  display: grid;
+  gap: 0.65rem;
+  padding: 0.85rem 0.9rem;
+  border: 1px solid oklch(78% 0.07 28deg);
+  border-radius: var(--radius-control);
+  color: var(--error);
+  background: var(--error-soft);
+}
+.notification-center-state { min-width: 0; }
+.notification-center-list { display: grid; gap: 0.5rem; margin: 0; padding: 0; list-style: none; min-width: 0; }
+/* Leading marker width is stable for read/unread so row geometry does not jump. */
+.notification-center-item {
+  display: grid;
+  gap: 0.35rem;
+  width: 100%;
+  min-width: 0;
+  padding: 0.8rem 0.85rem;
+  border: 1px solid var(--rule);
+  border-inline-start-width: 0.25rem;
+  border-radius: 0.55rem;
+  color: var(--ink);
+  background: var(--canvas);
+  text-align: left;
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+.notification-center-item--unread {
+  border-inline-start-color: var(--accent);
+  background: var(--paper);
+}
+.notification-center-item--read {
+  border-inline-start-color: var(--rule);
+  background: var(--canvas);
+}
+.notification-center-item:hover:not(:disabled) {
+  border-color: oklch(72% 0.018 240deg);
+  background: var(--paper);
+}
+.notification-center-item--unread .notification-center-item-title { font-weight: 760; }
+.notification-center-item-title { font-weight: 720; overflow-wrap: anywhere; }
+.notification-center-item-body {
+  color: var(--ink);
+  font-size: 0.9rem;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+.notification-center-item-meta {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.4rem 0.75rem;
+  color: var(--muted);
+  font-size: 0.78rem;
+  min-width: 0;
+}
+.notification-center-item-meta > * { min-width: 0; overflow-wrap: anywhere; }
 .notification-center-more { width: 100%; }
+.notification-center-footer { margin-top: 0.15rem; }
 .notification-settings-trigger { width: 100%; }
 .notification-settings { display: grid; gap: 1rem; min-width: 0; }
 .notification-settings section { min-width: 0; padding-top: 1rem; border-top: 1px solid var(--rule); }
-.notification-settings h3 { margin: 0; font-size: 1rem; }
+.notification-settings h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
 .notification-settings p { margin: 0.65rem 0 0; color: var(--muted); line-height: 1.55; overflow-wrap: anywhere; }
 .notification-settings .primary-button,
 .notification-settings .secondary-button { margin-top: 0.9rem; max-width: 100%; }
