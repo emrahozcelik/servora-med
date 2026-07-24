@@ -2018,6 +2018,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-notes form { max-width: 38rem; }
 .job-note-list { padding: 0; margin: 1.25rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
 .job-note-list li { padding-block: 1rem; border-bottom: 1px solid var(--rule); }
+.job-note-body { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.job-note-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5rem 1rem; min-width: 0; }
+.job-note-meta strong { color: var(--muted); font-size: 0.85rem; font-weight: 680; }
 .job-note-list p { margin: 0 0 0.6rem; white-space: pre-wrap; }
 .job-note-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
 .job-note-list li > div strong { color: var(--muted); font-size: 0.85rem; font-weight: 680; }
@@ -2026,6 +2029,13 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .servora-activity-timeline article p { overflow-wrap: anywhere; }
 .servora-activity-timeline article footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; }
 .servora-activity-timeline article footer > * { min-width: 0; overflow-wrap: anywhere; }
+.activity-timeline-action { font-weight: 700; }
+.activity-timeline-detail { min-width: 0; overflow-wrap: anywhere; }
+.activity-timeline-reason { min-width: 0; overflow-wrap: anywhere; }
+.activity-timeline-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; min-width: 0; }
+.activity-timeline-meta > * { min-width: 0; overflow-wrap: anywhere; }
+.activity-timeline-actor { color: var(--muted); font-size: 0.85rem; }
+.activity-timeline-time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .timeline-reason { margin: 0.15rem 0 0; color: var(--ink); font-size: 0.875rem; line-height: 1.4; overflow-wrap: anywhere; }
 .timeline-reason strong { font-weight: 650; }
 .job-note-list time, .servora-activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }

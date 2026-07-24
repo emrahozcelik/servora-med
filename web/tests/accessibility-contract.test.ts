@@ -190,6 +190,28 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.job-workflow-panel,\s*\.workflow-responsibility,/);
   });
 
+  it('provides stable note body class with overflow-wrap contract', () => {
+    expect(css).toMatch(/\.job-note-body\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+  });
+
+  it('provides stable note metadata class with flex-wrap wrap contract', () => {
+    expect(css).toMatch(/\.job-note-meta\s*\{[^}]*flex-wrap:\s*wrap/s);
+  });
+
+  it('provides stable timeline item class hooks for action, detail, reason, meta, actor, time', () => {
+    expect(css).toMatch(/\.activity-timeline-action/);
+    expect(css).toMatch(/\.activity-timeline-detail\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+    expect(css).toMatch(/\.activity-timeline-reason/);
+    expect(css).toMatch(/\.activity-timeline-meta\s*\{[^}]*flex-wrap:\s*wrap/s);
+    expect(css).toMatch(/\.activity-timeline-actor/);
+    expect(css).toMatch(/\.activity-timeline-time/);
+  });
+
+  it('enforces min-width 0 on timeline article and note body for responsive safety', () => {
+    expect(css).toMatch(/\.servora-activity-timeline article\s*\{[^}]*min-width:\s*0/s);
+    expect(css).toMatch(/\.job-note-body\s*\{[^}]*min-width:\s*0/s);
+  });
+
   it('keeps manager approval review and workflow dialogs reflowable with reachable targets', () => {
     expect(css).toMatch(/\.approval-review \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.approval-review h2 \{[^}]*overflow-wrap: anywhere;/);
