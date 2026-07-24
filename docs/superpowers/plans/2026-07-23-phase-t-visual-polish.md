@@ -344,6 +344,7 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T3D | JobDetail hierarchy | **COMPLETE** |
 | T3E | Decisions / notes / timeline / closeout | IN PROGRESS |
 | T3E-2A | Revision / terminal grammar + feedback checkpoint | COMPLETE |
+| T3E-2B | Notes + Timeline visual hierarchy contract | COMPLETE |
 | T3 | Jobs + JobDetail (overall) | **IN PROGRESS** |
 | T4 | CRM / product / people / forms | NOT STARTED |
 | T5 | States + regression closeout | NOT STARTED |
