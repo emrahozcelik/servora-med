@@ -230,6 +230,7 @@ Implementation record:
 - read/unread row distinction (leading marker + weight + Okundu/Okunmadı copy)
 - panel-specific state/settings visual hierarchy
 - responsive geometry contracts (390/1024/1440 + 200% text)
+- vertical scroll reachability: short 390×600 + long list forces `scrollHeight > clientHeight`; last action (`.notification-center-more`) reachable after `scrollTop = scrollHeight`
 - synthetic T2 visual evidence under `docs/ui/screenshots/phase-t-t2/`
 
 Non-work: Notification API/SSE/Web Push behavior, AppShell/nav redesign, Jobs/board (T3), global state system (T5).

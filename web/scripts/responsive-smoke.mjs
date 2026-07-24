@@ -280,6 +280,48 @@ async function measure(page) {
         && notificationHeadingRect.top < notificationCloseRect.bottom - 2
       ),
     );
+    const notificationLastAction = notificationPanel?.querySelector('.notification-center-more')
+      ?? notificationPanel?.querySelector('.notification-device-push-action')
+      ?? [...(notificationPanel?.querySelectorAll('button:not([disabled])') ?? [])].at(-1)
+      ?? null;
+    const notificationPanelScrollable = Boolean(
+      notificationPanel && notificationPanel.scrollHeight > notificationPanel.clientHeight + 1,
+    );
+    let notificationLastActionReachable = !notificationLastAction;
+    if (notificationPanel && notificationLastAction) {
+      if (notificationPanelScrollable) {
+        notificationPanel.scrollTop = Math.max(
+          0,
+          notificationPanel.scrollHeight - notificationPanel.clientHeight,
+        );
+        // Force layout so getBoundingClientRect reflects the scrolled position.
+        void notificationPanel.offsetHeight;
+      }
+      const panelBox = notificationPanel.getBoundingClientRect();
+      const style = getComputedStyle(notificationPanel);
+      const padTop = Number.parseFloat(style.paddingTop) || 0;
+      const padRight = Number.parseFloat(style.paddingRight) || 0;
+      const padBottom = Number.parseFloat(style.paddingBottom) || 0;
+      const padLeft = Number.parseFloat(style.paddingLeft) || 0;
+      const visibleTop = panelBox.top + padTop;
+      const visibleRight = panelBox.right - padRight;
+      const visibleBottom = panelBox.bottom - padBottom;
+      const visibleLeft = panelBox.left + padLeft;
+      const actionRect = notificationLastAction.getBoundingClientRect();
+      notificationLastActionReachable = Boolean(
+        actionRect.width > 0
+        && actionRect.height > 0
+        && actionRect.top >= visibleTop - 2
+        && actionRect.bottom <= visibleBottom + 2
+        && actionRect.left >= visibleLeft - 2
+        && actionRect.right <= visibleRight + 2
+        && actionRect.left >= -2
+        && actionRect.right <= window.innerWidth + 2
+        && actionRect.top >= -2
+        && actionRect.bottom <= window.innerHeight + 2
+        && notificationLastAction.scrollWidth <= notificationLastAction.clientWidth + 1,
+      );
+    }
     const notificationPanelContract = Boolean(
       notificationPanelRect
       && !notificationOverflow
@@ -295,7 +337,8 @@ async function measure(page) {
         notificationPanelRect.width <= window.innerWidth - 8
         || notificationPanel.classList.contains('notification-center-panel--mobile')
       )
-      && notificationPanelRect.height <= window.innerHeight + 2,
+      && notificationPanelRect.height <= window.innerHeight + 2
+      && notificationLastActionReachable,
     );
     const desktopTopbar = document.getElementById('desktop-topbar');
     const mobileTopbar = document.getElementById('mobile-topbar');
@@ -693,6 +736,9 @@ async function measure(page) {
       notificationHeadingCloseClear,
       notificationRowOverflow,
       notificationPanelHOverflow,
+      notificationPanelScrollable,
+      notificationLastActionReachable,
+      notificationLastActionLabel: notificationLastAction?.textContent?.trim() ?? '',
       notificationItems: notificationSection?.querySelectorAll('[data-notification-id]').length ?? 0,
       notificationLoadMore: Boolean(notificationSection?.querySelector('.notification-center-more')),
       notificationBadge: notificationSection?.querySelector('.notification-center-badge')?.textContent ?? '',
@@ -1040,6 +1086,41 @@ try {
       if (pushStateContractFailed(state, stateMeasure) || stateMeasure.overflowX) {
         failures.push(`${vp.name}: push settings state ${state} contract failure`);
       }
+    }
+    await page.close();
+  }
+
+  // Short mobile viewport + long list forces real vertical panel scroll; last action must remain reachable.
+  {
+    const page = await browser.newPage({ viewport: { width: 390, height: 600 } });
+    const longListUrl = `${url}${url.includes('?') ? '&' : '?'}longList=1`;
+    await page.goto(longListUrl, { waitUntil: 'load' });
+    await page.waitForSelector('.servora-ant-timeline');
+    await page.waitForSelector('[data-smoke-notification] [role="dialog"]');
+    const m = await measure(page);
+    console.log(JSON.stringify({ viewport: '390x600-long-notifications', ...m }));
+    if (m.overflowX) failures.push('390x600 long notifications: horizontal overflow');
+    if (!m.notificationPresent || !m.notificationMobile || m.notificationItems < 8) {
+      failures.push(
+        `390x600 long notifications: fixture list failure items=${m.notificationItems}`,
+      );
+    }
+    if (!m.notificationPanelScrollable) {
+      failures.push('390x600 long notifications: panel did not become scrollable');
+    }
+    if (!m.notificationLastActionReachable || !m.notificationPanelContract) {
+      failures.push(
+        '390x600 long notifications: last action not reachable after scroll'
+        + ` scrollable=${m.notificationPanelScrollable}`
+        + ` reachable=${m.notificationLastActionReachable}`
+        + ` last=${m.notificationLastActionLabel}`
+        + ` contract=${m.notificationPanelContract}`,
+      );
+    }
+    if (m.notificationLastActionLabel && !m.notificationLastActionLabel.includes('Daha fazla')) {
+      failures.push(
+        `390x600 long notifications: expected Daha fazla yükle as last action (got ${m.notificationLastActionLabel})`,
+      );
     }
     await page.close();
   }

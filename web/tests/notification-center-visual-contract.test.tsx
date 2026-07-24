@@ -146,7 +146,9 @@ describe('NotificationCenter visual contracts (T2C)', () => {
     const mobile = exactRuleBody(stylesCss, '.notification-center-panel--mobile');
     expect(mobile).toMatch(/safe-area-inset-top/);
     expect(mobile).toMatch(/safe-area-inset-right/);
-    expect(mobile).toMatch(/safe-area-inset-bottom/);
+    // Bottom safe-area is on the body so the last control can scroll fully into the content box.
+    expect(exactRuleBody(stylesCss, '.notification-center-panel--mobile .notification-center-body'))
+      .toMatch(/safe-area-inset-bottom/);
 
     const badge = exactRuleBody(stylesCss, '.notification-center-badge');
     expect(badge).toMatch(/border-radius:\s*var\(--radius-chip\)/);
