@@ -39,7 +39,7 @@ T3 Jobs and JobDetail polish: IN PROGRESS
   T3A Jobs workspace / filters / state surfaces: COMPLETE
   T3B Job list rows / action hierarchy: COMPLETE
   T3C Job board lanes / responsive geometry: COMPLETE
-  T3D JobDetail information / workflow hierarchy: NOT STARTED
+  T3D JobDetail information / workflow hierarchy: COMPLETE
   T3E Decisions / notes / timeline / T3 closeout: NOT STARTED
 T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
@@ -292,6 +292,22 @@ Non-work for T3B: board lanes (T3C), JobDetail (T3D/E), API/permissions, AppShel
 
 Non-work for T3C: JobDetail (T3D/E), API/permissions, AppShell, Notification Center, drag-drop, Geciken lane.
 
+### T3D — JobDetail information and workflow hierarchy
+
+**Status:** COMPLETE
+**Branch:** `feat/phase-t-job-detail-hierarchy`
+
+- Accessible DOM order: heading → lifecycle → responsibility → facts → type content → requirements/decision → notes → timeline
+- Type eyebrow low emphasis; title primary; Listeye dön secondary; status/priority meta in heading (chips, not color alone)
+- Feedback remains between heading and body, focusable
+- Responsibility / revision / terminal / requirements share `job-workflow-panel` grammar
+- RecordDescriptions P0 container-responsive behavior unchanged
+- Delivery items flat rule-list (no nested raised cards)
+- Desktop CSS grid two-column placement without DOM reorder; mobile single column
+- Timeline full-width after actions
+
+Non-work for T3D: decision panel behavior (T3E closeout polish), notes/timeline API, manager reason dialogs, AppShell, server.
+
 ---
 
 ## T4 — CRM, product, staff/user + forms
@@ -326,7 +342,7 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T3A | Jobs workspace / filters / states | **COMPLETE** |
 | T3B | Job list rows / actions | **COMPLETE** |
 | T3C | Job board lanes / geometry | **COMPLETE** |
-| T3D | JobDetail hierarchy | NOT STARTED |
+| T3D | JobDetail hierarchy | **COMPLETE** |
 | T3E | Decisions / notes / timeline / closeout | NOT STARTED |
 | T3 | Jobs + JobDetail (overall) | **IN PROGRESS** |
 | T4 | CRM / product / people / forms | NOT STARTED |

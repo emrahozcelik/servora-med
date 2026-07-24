@@ -578,6 +578,22 @@ describe('Staff JobCard detail', () => {
     expect(notes.compareDocumentPosition(timeline) & Node.DOCUMENT_POSITION_FOLLOWING)
       .toBeTruthy();
     expect(host.textContent).toContain('Eksik maddeleri tamamladığınızda');
+
+    // Section markers: heading → lifecycle → responsibility → facts → actions → timeline
+    const heading = host.querySelector('[data-job-detail-section="heading"]')!;
+    const lifecycle = host.querySelector('[data-job-detail-section="lifecycle"]')!;
+    const responsibility = host.querySelector('[data-job-detail-section="responsibility"]')!;
+    const facts = host.querySelector('[data-job-detail-section="facts"]')!;
+    const actions = host.querySelector('[data-job-detail-section="actions"]')!;
+    const timelineSection = host.querySelector('[data-job-detail-section="timeline"]')!;
+    expect(heading.compareDocumentPosition(lifecycle) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(lifecycle.compareDocumentPosition(responsibility) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(responsibility.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(facts.compareDocumentPosition(actions) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(actions.compareDocumentPosition(timelineSection) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+    expect(heading.querySelector('.detail-heading-meta')?.textContent).toContain('Normal öncelik');
+    expect(heading.querySelector('.detail-back-button')?.textContent).toBe('Listeye dön');
+    expect(host.querySelector('.detail-summary.surface-flat')).not.toBeNull();
   });
 
   it('does not mount meeting result resources in new and accepted states', async () => {

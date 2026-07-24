@@ -183,6 +183,13 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.job-row-commands \.primary-button,\s*\.job-row-commands \.secondary-button \{[^}]*min-height: var\(--control-height\);/);
   });
 
+  it('keeps JobDetail heading scannable and delivery lines free of nested card weight', () => {
+    expect(css).toMatch(/\.detail-heading-meta \{[^}]*flex-wrap: wrap;/);
+    expect(css).toMatch(/\.detail-type-eyebrow \{[^}]*color: var\(--muted\);/);
+    expect(css).toMatch(/\.delivery-line-item \{[^}]*box-shadow: none;/);
+    expect(css).toMatch(/\.job-workflow-panel,\s*\.workflow-responsibility,/);
+  });
+
   it('keeps manager approval review and workflow dialogs reflowable with reachable targets', () => {
     expect(css).toMatch(/\.approval-review \{[^}]*min-width: 0;/);
     expect(css).toMatch(/\.approval-review h2 \{[^}]*overflow-wrap: anywhere;/);
