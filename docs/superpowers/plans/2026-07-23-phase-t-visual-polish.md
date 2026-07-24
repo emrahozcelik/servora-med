@@ -38,7 +38,7 @@ T2 AppShell and navigation polish: COMPLETE
 T3 Jobs and JobDetail polish: IN PROGRESS
   T3A Jobs workspace / filters / state surfaces: COMPLETE
   T3B Job list rows / action hierarchy: COMPLETE
-  T3C Job board lanes / responsive geometry: NOT STARTED
+  T3C Job board lanes / responsive geometry: COMPLETE
   T3D JobDetail information / workflow hierarchy: NOT STARTED
   T3E Decisions / notes / timeline / T3 closeout: NOT STARTED
 T4 CRM/product/staff/forms polish: NOT STARTED
@@ -278,6 +278,20 @@ Non-work for T3A: JobRow density (T3B), board lanes (T3C), JobDetail (T3D/E), AP
 
 Non-work for T3B: board lanes (T3C), JobDetail (T3D/E), API/permissions, AppShell, Notification Center.
 
+### T3C — Job board lanes and responsive geometry
+
+**Status:** COMPLETE
+**Branch:** `feat/phase-t-job-board-polish`
+
+- Lane heading exposes status label, count chip, and `Tümünü gör` (≥ control-height target)
+- Empty lanes use quieter dashed surface (not card-weight)
+- Preview remains max four cards; backend count preserved; closed counts unchanged
+- Role-based lane ordering via `workflowLanesFor` unchanged
+- Usable-width container query + 64rem/68rem/90rem gates preserved (no five equal columns at 1024+sidebar)
+- No page-level horizontal board scroll; compact stacks vertically; no drag-and-drop
+
+Non-work for T3C: JobDetail (T3D/E), API/permissions, AppShell, Notification Center, drag-drop, Geciken lane.
+
 ---
 
 ## T4 — CRM, product, staff/user + forms
@@ -311,7 +325,7 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T2 | AppShell / nav (overall) | **COMPLETE** |
 | T3A | Jobs workspace / filters / states | **COMPLETE** |
 | T3B | Job list rows / actions | **COMPLETE** |
-| T3C | Job board lanes / geometry | NOT STARTED |
+| T3C | Job board lanes / geometry | **COMPLETE** |
 | T3D | JobDetail hierarchy | NOT STARTED |
 | T3E | Decisions / notes / timeline / closeout | NOT STARTED |
 | T3 | Jobs + JobDetail (overall) | **IN PROGRESS** |

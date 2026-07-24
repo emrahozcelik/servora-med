@@ -191,8 +191,27 @@ describe('read-only JobCard board', () => {
       <MemoryRouter><JobBoard board={emptyBoard} user={manager} compact={false}
         params={new URLSearchParams()} /></MemoryRouter>,
     );
-    expect(host.querySelector('[data-workflow-lane="ACCEPTED"] .workflow-lane-empty')?.textContent)
+    const emptyLane = host.querySelector<HTMLElement>('[data-workflow-lane="ACCEPTED"]')!;
+    expect(emptyLane.classList.contains('workflow-lane--empty')).toBe(true);
+    expect(emptyLane.getAttribute('data-lane-empty')).toBe('true');
+    expect(emptyLane.querySelector('.workflow-lane-empty')?.textContent)
       .toBe('Bu aşamada iş yok.');
+    expect(emptyLane.querySelector('.workflow-lane-count')?.textContent).toBe('0');
+    expect(emptyLane.querySelector('.workflow-lane-link')?.textContent).toBe('Tümünü gör');
+  });
+
+  it('exposes lane label, count chip, and see-all control as distinct heading parts', () => {
+    const host = document.createElement('div');
+    host.innerHTML = renderToStaticMarkup(
+      <MemoryRouter><JobBoard board={board} user={manager} compact={false}
+        params={new URLSearchParams('view=board')} /></MemoryRouter>,
+    );
+    const waiting = host.querySelector<HTMLElement>('[data-workflow-lane="WAITING_APPROVAL"]')!;
+    expect(waiting.querySelector('.workflow-lane-status')?.textContent).toBe('Yönetici kontrolünde');
+    expect(waiting.querySelector('.workflow-lane-count')?.textContent).toBe('4');
+    expect(waiting.querySelector('.workflow-lane-link')?.textContent).toBe('Tümünü gör');
+    expect(host.querySelector('[data-job-board="true"]')?.getAttribute('data-board-layout')).toBe('wide');
+    expect(host.querySelectorAll('.job-board-columns, .job-board-column')).toHaveLength(0);
   });
 
   it('shows the same compact workflow summary as list for waiting approval', () => {
