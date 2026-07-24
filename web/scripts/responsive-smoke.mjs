@@ -56,7 +56,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
         </form>
       </div>
       <div class="filter-region">
-        <form class="job-filters surface">
+        <form class="job-filters surface-flat">
           <div class="job-filter-primary">
             <div class="field-group"><label>Ara</label><input/></div>
             <div class="field-group"><label>Tür</label><select><option>Tümü</option></select></div>

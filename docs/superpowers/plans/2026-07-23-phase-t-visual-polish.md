@@ -35,7 +35,12 @@ T2 AppShell and navigation polish: COMPLETE
   T2A desktop shell hierarchy / workspace: COMPLETE
   T2B mobile chrome / drawer: COMPLETE
   T2C notification shell polish + closeout: COMPLETE
-T3 Jobs and JobDetail polish: NOT STARTED
+T3 Jobs and JobDetail polish: IN PROGRESS
+  T3A Jobs workspace / filters / state surfaces: COMPLETE
+  T3B Job list rows / action hierarchy: NOT STARTED
+  T3C Job board lanes / responsive geometry: NOT STARTED
+  T3D JobDetail information / workflow hierarchy: NOT STARTED
+  T3E Decisions / notes / timeline / T3 closeout: NOT STARTED
 T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
 
@@ -239,9 +244,23 @@ Non-work: Notification API/SSE/Web Push behavior, AppShell/nav redesign, Jobs/bo
 
 ## T3 — Jobs workspace and JobDetail
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
 
-List/board, filters, workflow hierarchy, notes/timeline, approval/revision, Jobs empty/error dialect. P0 must be closed before or as defect preflight prior to claiming T3 complete.
+List/board, filters, workflow hierarchy, notes/timeline, approval/revision, Jobs empty/error dialect. Deliver as five narrow PRs: T3A–T3E. P0 is already COMPLETE.
+
+### T3A — Jobs workspace, filters and Jobs state surfaces
+
+**Status:** COMPLETE
+**Branch:** `feat/phase-t-jobs-workspace-polish`
+
+- Page title (`İşler` / `İşlerim`) and single primary `Yeni iş` action retained
+- Quick views form a clearer chip group; current view uses `aria-current` + `data-state` + weight/fill/border (not color alone)
+- Manager-only approval queue visibility unchanged; URL/search-param model unchanged
+- Desktop filters use flat toolbar surface (no raised card-in-card); mobile FilterSheet path unchanged
+- Active filter count / clear-apply / UUID validation copy unchanged
+- Jobs list + board loading / empty / filtered-empty / forbidden / retryable error use owned `LoadingSkeleton` / `EmptyState` / `ResultState` adapters without global T5 migration
+
+Non-work for T3A: JobRow density (T3B), board lanes (T3C), JobDetail (T3D/E), API/permissions, AppShell, Notification Center.
 
 ---
 
@@ -274,7 +293,12 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T2B | Mobile chrome / drawer | **COMPLETE** |
 | T2C | Notification shell polish + T2 evidence | **COMPLETE** |
 | T2 | AppShell / nav (overall) | **COMPLETE** |
-| T3 | Jobs + JobDetail | NOT STARTED |
+| T3A | Jobs workspace / filters / states | **COMPLETE** |
+| T3B | Job list rows / actions | NOT STARTED |
+| T3C | Job board lanes / geometry | NOT STARTED |
+| T3D | JobDetail hierarchy | NOT STARTED |
+| T3E | Decisions / notes / timeline / closeout | NOT STARTED |
+| T3 | Jobs + JobDetail (overall) | **IN PROGRESS** |
 | T4 | CRM / product / people / forms | NOT STARTED |
 | T5 | States + regression closeout | NOT STARTED |
 

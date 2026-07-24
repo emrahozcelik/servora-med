@@ -166,6 +166,13 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.job-view-switcher \{[^}]*display: grid;[^}]*grid-template-columns: repeat\(2, minmax\(0, 1fr\)\);/);
     expect(css).toMatch(/\.job-view-switcher button \{[^}]*min-height: var\(--control-height\);/);
     expect(css).toMatch(/\.job-view-switcher button\[aria-pressed="true"\] \{[^}]*background: var\(--accent-soft\);/);
+    expect(css).toMatch(/\.job-view-switcher button\[aria-pressed="true"\] \{[^}]*font-weight: 760;/);
+  });
+
+  it('marks Jobs quick views with multi-channel current state (not color alone)', () => {
+    expect(css).toMatch(/\.job-quick-views a\[aria-current="page"\] \{[^}]*font-weight: 760;/);
+    expect(css).toMatch(/\.job-quick-views a\[data-state="current"\] \{[^}]*font-weight: 760;/);
+    expect(css).toMatch(/\.job-filters\.surface-flat \{[^}]*box-shadow: none;/);
   });
 
   it('keeps manager approval review and workflow dialogs reflowable with reachable targets', () => {

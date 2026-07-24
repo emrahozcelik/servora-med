@@ -5,6 +5,7 @@ import type { CurrentUser } from '../services/api';
 import { ApiError } from '../services/api';
 import { createRequestGate } from '../services/request-gate';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
+import { LoadingSkeleton, ResultState } from '../ui/antd';
 import { JobBoard } from './JobBoard';
 import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
@@ -116,26 +117,61 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   const hasFilters = Boolean(filters.q || filters.type || filters.assignedTo || filters.customerId || filters.priority
     || filters.dueAfter || filters.dueBefore || filters.status !== 'active');
 
+  const quickViews = [
+    { key: 'active' as const, label: 'Aktif işler', href: filterHref(params, 'active'), current: filters.status === 'active' },
+    ...(user.role !== 'STAFF'
+      ? [{
+          key: 'WAITING_APPROVAL' as const,
+          label: 'Onay kuyruğu',
+          href: filterHref(params, 'WAITING_APPROVAL'),
+          current: filters.status === 'WAITING_APPROVAL',
+        }]
+      : []),
+    {
+      key: 'REVISION_REQUESTED' as const,
+      label: 'Düzeltme istenenler',
+      href: filterHref(params, 'REVISION_REQUESTED'),
+      current: filters.status === 'REVISION_REQUESTED',
+    },
+    {
+      key: 'closed' as const,
+      label: 'Biten işler',
+      href: closedFilterHref(params),
+      current: filters.status === 'closed',
+    },
+  ];
+
   return <main className="workspace job-workspace">
     {notice && <div className="success-message" role="status">{notice}</div>}
-    <div className="workspace-heading"><div><p className="eyebrow">Çalışma alanı</p><h1>{user.role === 'STAFF' ? 'İşlerim' : 'İşler'}</h1></div>
+    <div className="workspace-heading job-workspace-heading">
+      <div>
+        <p className="eyebrow">Çalışma alanı</p>
+        <h1>{user.role === 'STAFF' ? 'İşlerim' : 'İşler'}</h1>
+      </div>
       <div className="workspace-create-actions workspace-create-actions--toolbar">
         <NewJobMenu
           onCreateMeeting={onCreateMeeting}
           onCreateTask={onCreateTask}
           onCreateDelivery={onCreateDelivery}
         />
-      </div></div>
-    <nav className="job-quick-views" aria-label="Hızlı iş görünümleri">
-      <Link to={{ search: filterHref(params, 'active') }} aria-current={filters.status === 'active' ? 'page' : undefined}>Aktif işler</Link>
-      {user.role !== 'STAFF' && <Link to={{ search: filterHref(params, 'WAITING_APPROVAL') }}
-        aria-current={filters.status === 'WAITING_APPROVAL' ? 'page' : undefined}>Onay kuyruğu</Link>}
-      <Link to={{ search: filterHref(params, 'REVISION_REQUESTED') }}
-        aria-current={filters.status === 'REVISION_REQUESTED' ? 'page' : undefined}>Düzeltme istenenler</Link>
-      <Link to={{ search: closedFilterHref(params) }}
-        aria-current={filters.status === 'closed' ? 'page' : undefined}>Biten işler</Link>
+      </div>
+    </div>
+    <nav className="job-quick-views" aria-label="Hızlı iş görünümleri" data-job-quick-views="true">
+      {quickViews.map((view) => (
+        <Link
+          key={view.key}
+          className="job-quick-view"
+          to={{ search: view.href }}
+          aria-current={view.current ? 'page' : undefined}
+          data-state={view.current ? 'current' : 'idle'}
+        >
+          <span className="job-quick-view-label">{view.label}</span>
+        </Link>
+      ))}
     </nav>
-    {filters.status === 'WAITING_APPROVAL' && <p className="job-order-note">En uzun süredir onay bekleyen işler önce gösterilir.</p>}
+    {filters.status === 'WAITING_APPROVAL' && (
+      <p className="job-order-note">En uzun süredir onay bekleyen işler önce gösterilir.</p>
+    )}
     <JobFilters user={user} filters={filters}
       onApply={(changes) => {
         const next = updateJobSearch(params, changes);
@@ -146,13 +182,38 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       onChange={(_name, value) => setParams(selectStatus(params, value))}
       onViewChange={(view) => setParams(view === 'board' ? enterBoard(params) : forceMobileList(params))}
       showViewControl={filters.status !== 'closed'} />
-    {showBoard ? (boardState.kind === 'loading'
-      ? <div className="job-results" aria-busy="true" aria-live="polite"><h2 className="sr-only">İş panosu yükleniyor</h2></div>
-      : boardState.kind === 'error'
-        ? <div className="workspace-message" role="alert"><h2>İş panosu yüklenemedi</h2><p>{boardState.message}</p></div>
-        : <JobBoard board={boardState.board} user={user} params={params} compact={!isDesktop} />)
-      : <JobList state={state} user={user} hasFilters={hasFilters} onRetry={() => setReload((value) => value + 1)}
-      onOffsetChange={(offset) => { const next = updateJobSearch(params, {}); if (offset > 0) next.set('offset', String(offset)); setParams(next); }}
-      onCommand={(intent) => onCommand?.(intent)} />}
+    {showBoard
+      ? (boardState.kind === 'loading'
+        ? (
+            <div className="job-results" data-job-results-state="board-loading">
+              <LoadingSkeleton title="İş panosu yükleniyor" headingLevel={2} rows={3} />
+            </div>
+          )
+        : boardState.kind === 'error'
+          ? (
+              <div className="job-results" data-job-results-state="board-error">
+                <ResultState
+                  status="error"
+                  title="İş panosu yüklenemedi"
+                  description={boardState.message}
+                  headingLevel={2}
+                />
+              </div>
+            )
+          : <JobBoard board={boardState.board} user={user} params={params} compact={!isDesktop} />)
+      : (
+          <JobList
+            state={state}
+            user={user}
+            hasFilters={hasFilters}
+            onRetry={() => setReload((value) => value + 1)}
+            onOffsetChange={(offset) => {
+              const next = updateJobSearch(params, {});
+              if (offset > 0) next.set('offset', String(offset));
+              setParams(next);
+            }}
+            onCommand={(intent) => onCommand?.(intent)}
+          />
+        )}
   </main>;
 }

@@ -53,13 +53,27 @@ function renderListJob(
 
 describe('structured JobCard list', () => {
   it('renders explicit loading, empty-organization, no-results, error, forbidden, and retry states', () => {
-    expect(renderList({ kind: 'loading' })).toContain('aria-busy="true"');
-    expect(renderList({ kind: 'ready', page: page([]) })).toContain('Henüz iş kaydı yok');
-    expect(renderList({ kind: 'ready', page: page([]) }, manager, true)).toContain('Filtrelere uygun iş bulunamadı');
+    const loading = renderList({ kind: 'loading' });
+    expect(loading).toContain('aria-busy="true"');
+    expect(loading).toContain('data-servora-loading-skeleton="true"');
+    expect(loading).toContain('data-job-results-state="loading"');
+    expect(loading).toContain('İşler yükleniyor');
+    const empty = renderList({ kind: 'ready', page: page([]) });
+    expect(empty).toContain('Henüz iş kaydı yok');
+    expect(empty).toContain('data-servora-empty-state="true"');
+    expect(empty).toContain('data-job-results-state="empty"');
+    const filtered = renderList({ kind: 'ready', page: page([]) }, manager, true);
+    expect(filtered).toContain('Filtrelere uygun iş bulunamadı');
+    expect(filtered).toContain('data-job-results-state="filtered-empty"');
     const retry = renderList({ kind: 'error', code: 'NETWORK_ERROR', message: 'Bağlantı kurulamadı.', retryable: true });
-    expect(retry).toContain('role="alert"'); expect(retry).toContain('Tekrar dene');
+    expect(retry).toContain('role="alert"');
+    expect(retry).toContain('Tekrar dene');
+    expect(retry).toContain('data-servora-result-state="true"');
+    expect(retry).toContain('data-job-results-state="error"');
     const forbidden = renderList({ kind: 'error', code: 'FORBIDDEN', message: 'Yetkiniz yok.', retryable: false });
-    expect(forbidden).toContain('Bu alana erişim yetkiniz yok'); expect(forbidden).not.toContain('Tekrar dene');
+    expect(forbidden).toContain('Bu alana erişim yetkiniz yok');
+    expect(forbidden).not.toContain('Tekrar dene');
+    expect(forbidden).toContain('data-job-results-state="forbidden"');
   });
 
   it('renders semantic operational rows, text-plus-shape status, and hides technical version', () => {
@@ -246,6 +260,8 @@ describe('routed JobCard workspace', () => {
     const closed = links.at(-1)!;
     expect(closed.getAttribute('href')).toBe('/jobs?q=klinik&status=closed&priority=high');
     expect(closed.getAttribute('aria-current')).toBe('page');
+    expect(closed.getAttribute('data-state')).toBe('current');
+    expect(links.slice(0, -1).every((link) => link.getAttribute('data-state') === 'idle')).toBe(true);
   });
 
   it('shows Biten işler to Staff without exposing the approval queue', async () => {

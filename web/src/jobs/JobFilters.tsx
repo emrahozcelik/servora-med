@@ -205,63 +205,120 @@ export function JobFilters({ user, filters, onApply, onChange, onViewChange, sho
   if (narrow) {
     return (
       <div className="filter-region">
-      <div className="job-filters job-filters--compact surface">
-        <form className="job-filter-compact-bar" role="search" onSubmit={submit}>
-          <div className="field-group"><label htmlFor="job-search">İş ara</label>
-            <input id="job-search" type="search" maxLength={200} value={search}
-              onChange={(event) => setSearch(event.target.value)} /></div>
-          <button className="secondary-button job-search-submit" type="submit">Ara</button>
-          <button
-            ref={filterTriggerRef}
-            type="button"
-            className="secondary-button filter-sheet-trigger"
-            aria-expanded={sheetOpen}
-            onClick={openSheet}
+        <div className="job-filters job-filters--compact surface-flat" data-job-filters="compact">
+          <form className="job-filter-compact-bar" role="search" onSubmit={submit}>
+            <div className="field-group job-filter-search">
+              <label htmlFor="job-search">İş ara</label>
+              <input
+                id="job-search"
+                type="search"
+                maxLength={200}
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
+            <button className="secondary-button job-search-submit" type="submit">Ara</button>
+            <button
+              ref={filterTriggerRef}
+              type="button"
+              className="secondary-button filter-sheet-trigger"
+              aria-expanded={sheetOpen}
+              onClick={openSheet}
+            >
+              {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
+            </button>
+          </form>
+          {showViewControl && (
+            <div className="job-view-switcher" role="group" aria-label="İş görünümü" data-job-view-switcher="true">
+              <button
+                type="button"
+                className="job-view-switcher-option"
+                aria-pressed={filters.view === 'list'}
+                data-state={filters.view === 'list' ? 'current' : 'idle'}
+                onClick={() => onViewChange('list')}
+              >
+                Liste
+              </button>
+              <button
+                type="button"
+                className="job-view-switcher-option"
+                aria-pressed={filters.view === 'board'}
+                data-state={filters.view === 'board' ? 'current' : 'idle'}
+                onClick={() => onViewChange('board')}
+              >
+                Pano
+              </button>
+            </div>
+          )}
+          <FilterSheet
+            open={sheetOpen}
+            title="İş filtreleri"
+            onDismiss={dismissSheet}
+            onApply={applySheet}
+            onClear={clearSheet}
+            returnFocusRef={filterTriggerRef}
           >
-            {activeCount > 0 ? `Filtreler ${activeCount}` : 'Filtreler'}
-          </button>
-        </form>
-        {showViewControl && <div className="job-view-switcher" role="group" aria-label="İş görünümü">
-          <button type="button" aria-pressed={filters.view === 'list'} onClick={() => onViewChange('list')}>Liste</button>
-          <button type="button" aria-pressed={filters.view === 'board'} onClick={() => onViewChange('board')}>Pano</button>
-        </div>}
-        <FilterSheet
-          open={sheetOpen}
-          title="İş filtreleri"
-          onDismiss={dismissSheet}
-          onApply={applySheet}
-          onClear={clearSheet}
-          returnFocusRef={filterTriggerRef}
-        >
-          <div className="field-group"><label htmlFor="job-status-sheet">Durum</label>
-            <select id="job-status-sheet" value={draftStatus}
-              onChange={(event) => setDraftStatus(event.target.value as JobCardStatusFilter)}>
-              <JobStatusOptions />
-            </select></div>
-          {advancedFields}
-        </FilterSheet>
-      </div>
+            <div className="field-group">
+              <label htmlFor="job-status-sheet">Durum</label>
+              <select
+                id="job-status-sheet"
+                value={draftStatus}
+                onChange={(event) => setDraftStatus(event.target.value as JobCardStatusFilter)}
+              >
+                <JobStatusOptions />
+              </select>
+            </div>
+            {advancedFields}
+          </FilterSheet>
+        </div>
       </div>
     );
   }
 
-  return <div className="filter-region"><form className="job-filters surface" role="search" onSubmit={submit}>
-    <div className="job-filter-primary">
-      <div className="field-group"><label htmlFor="job-search">İş ara</label>
-        <input id="job-search" type="search" maxLength={200} value={search} onChange={(event) => setSearch(event.target.value)} /></div>
-      {showViewControl && <div className="field-group"><label htmlFor="job-view">Görünüm</label>
-        <select id="job-view" value={filters.view} onChange={(event) => onViewChange(event.target.value as JobSearchState['view'])}>
-          <option value="list">Liste</option><option value="board">Pano</option>
-        </select></div>}
-      <div className="field-group"><label htmlFor="job-status">Durum</label>
-        <select id="job-status" value={filters.status ?? 'active'} onChange={(event) => onChange('status', event.target.value as JobCardStatusFilter)}>
-          <JobStatusOptions />
-        </select></div>
-      <button className="secondary-button job-search-submit" type="submit">Ara</button>
+  return (
+    <div className="filter-region">
+      <form className="job-filters surface-flat" role="search" data-job-filters="desktop" onSubmit={submit}>
+        <div className="job-filter-primary">
+          <div className="field-group job-filter-search">
+            <label htmlFor="job-search">İş ara</label>
+            <input
+              id="job-search"
+              type="search"
+              maxLength={200}
+              value={search}
+              onChange={(event) => setSearch(event.target.value)}
+            />
+          </div>
+          {showViewControl && (
+            <div className="field-group job-filter-view">
+              <label htmlFor="job-view">Görünüm</label>
+              <select
+                id="job-view"
+                value={filters.view}
+                onChange={(event) => onViewChange(event.target.value as JobSearchState['view'])}
+              >
+                <option value="list">Liste</option>
+                <option value="board">Pano</option>
+              </select>
+            </div>
+          )}
+          <div className="field-group job-filter-status">
+            <label htmlFor="job-status">Durum</label>
+            <select
+              id="job-status"
+              value={filters.status ?? 'active'}
+              onChange={(event) => onChange('status', event.target.value as JobCardStatusFilter)}
+            >
+              <JobStatusOptions />
+            </select>
+          </div>
+          <button className="secondary-button job-search-submit" type="submit">Ara</button>
+        </div>
+        <details className="job-filter-disclosure">
+          <summary>Diğer filtreler</summary>
+          {advancedFields}
+        </details>
+      </form>
     </div>
-    <details className="job-filter-disclosure">
-      <summary>Diğer filtreler</summary>
-      {advancedFields}
-    </details>
-  </form></div>;
+  );
 }
