@@ -6,6 +6,8 @@ import type {
 } from './job-workflow-presentation';
 import type { LifecycleCommand } from './jobs-api';
 
+const DESTRUCTIVE_COMMANDS: ReadonlySet<LifecycleCommand> = new Set(['CANCEL']);
+
 export function JobDecisionPanel({
   primary,
   secondary,
@@ -41,7 +43,7 @@ export function JobDecisionPanel({
       Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili
       kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine başlar.
     </p>}
-    {primary?.consequence && <p>{primary.consequence}</p>}
+    {primary?.consequence && <p className="decision-consequence">{primary.consequence}</p>}
     <div className="review-buttons">
       {primary && <button
         className="primary-button compact-button"
@@ -61,7 +63,7 @@ export function JobDecisionPanel({
       </button>}
       {secondary.map((transition) => <button
         key={transition.command}
-        className="secondary-button"
+        className={DESTRUCTIVE_COMMANDS.has(transition.command) ? 'destructive-button compact-button' : 'secondary-button'}
         type="button"
         disabled={pending}
         onClick={(event) => onCommand(transition.command, event.currentTarget)}

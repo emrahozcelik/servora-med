@@ -1745,6 +1745,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   margin-top: 1.5rem;
 }
 .detail-action p { max-width: 55ch; margin: 0; color: var(--muted); line-height: 1.55; }
+.decision-consequence { margin: 0.5rem 0 0; max-width: 55ch; color: var(--ink); font-size: 0.9rem; line-height: 1.5; }
 .detail-action .start-location-notice {
   padding: 0.75rem 0.875rem;
   border-left: 3px solid var(--accent);
@@ -1958,6 +1959,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-note-list li { padding-block: 1rem; border-bottom: 1px solid var(--rule); }
 .job-note-list p { margin: 0 0 0.6rem; white-space: pre-wrap; }
 .job-note-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.job-note-list li > div strong { color: var(--muted); font-size: 0.85rem; font-weight: 680; }
 .servora-activity-timeline { min-width: 0; margin-top: 1.25rem; }
 .servora-activity-timeline article { min-width: 0; }
 .servora-activity-timeline article p { overflow-wrap: anywhere; }
@@ -1965,6 +1967,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .servora-activity-timeline article footer > * { min-width: 0; overflow-wrap: anywhere; }
 .timeline-reason { margin: 0.15rem 0 0; color: var(--ink); font-size: 0.875rem; line-height: 1.4; overflow-wrap: anywhere; }
 .timeline-reason strong { font-weight: 650; }
+.job-note-list time, .servora-activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .job-note-list time, .servora-activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .job-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
 .dialog-backdrop { position: fixed; z-index: 50; inset: 0; display: grid; place-items: center; padding: 1rem; background: oklch(20% 0.02 240deg / 45%); }
@@ -2009,7 +2012,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   color: var(--muted);
   font-size: 0.9rem;
 }
-.approval-review-instruction { margin: 0; font-weight: 680; line-height: 1.5; }
+.approval-review-instruction { margin: 0; padding: 0.7rem 0.85rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-weight: 680; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
 
 .customer-workspace { margin-top: 2rem; }
 .customer-filters { display: grid; grid-template-columns: minmax(12rem, 1.5fr) repeat(4, minmax(9rem, 0.75fr)); gap: 0.9rem; align-items: end; margin-bottom: 2rem; padding-block: 1rem 1.25rem; border-block: 1px solid var(--rule); }
@@ -2259,7 +2262,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .login-introduction { min-height: auto; padding: 1rem; border-right: 0; border-bottom: 1px solid var(--rule); }
   .login-context, .context-note { display: none; }
   .login-panel { min-height: calc(100vh - 4.1rem); place-items: start center; padding: clamp(2.5rem, 12vh, 5rem) 1rem 2rem; }
-  .primary-button, .secondary-button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+  .primary-button, .secondary-button, .destructive-button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
   .delivery-heading > div, .brand-lockup { min-width: 0; }
   .delivery-heading h1, .brand-lockup span { overflow-wrap: anywhere; }
   .workspace { margin-top: 2rem; }
