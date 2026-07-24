@@ -1900,6 +1900,15 @@ button:disabled { cursor: wait; opacity: 0.65; }
   display: grid;
   gap: 0.25rem;
 }
+.revision-hook[data-revision-context] {
+  display: inline;
+}
+.revision-hook[data-revision-context="expected-role"] {
+  font-weight: 650;
+}
+.revision-next-action-hook {
+  margin-top: 0.55rem;
+}
 .revision-loop-reason-label {
   color: var(--muted);
   font-size: 0.75rem;
@@ -1923,8 +1932,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   background: var(--success-soft);
 }
 .cancelled-job-banner {
-  border-color: oklch(78% 0.07 28deg);
-  background: var(--error-soft);
+  border-color: oklch(82% 0.04 60deg);
+  background: oklch(97% 0.01 60deg);
 }
 .cancelled-job-facts {
   display: grid;
@@ -2338,7 +2347,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .detail-action .destructive-button { width: 100%; }
   .servora-workflow-steps { padding: 0.9rem; }
   .cancelled-job-facts { grid-template-columns: 1fr; }
-  .revision-loop-facts, .completed-job-facts { grid-template-columns: 1fr; }
+  .revision-loop-facts, .completed-job-facts, .cancelled-job-facts { grid-template-columns: 1fr; }
   .workflow-requirement { grid-template-columns: 1.35rem minmax(0, 1fr); }
   .workflow-requirement-state { grid-column: 2; }
   .job-note-list li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
