@@ -547,8 +547,10 @@ describe('Staff JobCard detail', () => {
     // Next-action context hook
     const actionHook = revision.querySelector('[data-revision-context="next-action"]');
     expect(actionHook).not.toBeNull();
-    // Long reason wraps without overflow
-    const longReason = 'Miktar '.repeat(50).trim();
+    // Long unwrappable reason is fully rendered and carries the CSS wrap hook.
+    // This test verifies the value is present and the hook exists; actual wrapping
+    // is a CSS contract verified in shared-visual-language-contract.test.ts.
+    const longReason = 'REVISION_REASON_' + 'X'.repeat(200);
     await act(async () => root.unmount());
     host.remove();
     host = document.createElement('div');
@@ -562,9 +564,9 @@ describe('Staff JobCard detail', () => {
         onBack={() => {}} onCommand={() => {}}
       />);
     });
-    const reasonEl = host.querySelector('.revision-loop-reason span:last-child');
-    expect(reasonEl).not.toBeNull();
-    expect(reasonEl!.textContent).toBe(longReason);
+    const valueEl = host.querySelector('.revision-loop-reason-value');
+    expect(valueEl).not.toBeNull();
+    expect(valueEl!.textContent).toBe(longReason);
   });
 
   it('shows revision reason and separates resuming from resubmitting', async () => {

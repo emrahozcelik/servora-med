@@ -256,4 +256,17 @@ describe('shared visual language adoption (T1B)', () => {
     expect(stylesCss).toMatch(/\.success-message[^{]*\{[^}]*color:\s*var\(--success\)/s);
     expect(stylesCss).toMatch(/\.success-message[^{]*\{[^}]*background:\s*var\(--success-soft\)/s);
   });
+
+  it('wraps revision reason with min-width/overflow-wrap contract', () => {
+    expect(outsideRoot).toMatch(/\.revision-loop-reason\s*\{[^}]*display:\s*grid;[^}]*min-width:\s*0;[^}]*gap:\s*0\.25rem/s);
+    expect(outsideRoot).toMatch(/\.revision-loop-reason-value\s*\{[^}]*min-width:\s*0;[^}]*overflow-wrap:\s*anywhere/s);
+  });
+
+  it('does not duplicate .cancelled-job-facts grid-template-columns in mobile block', () => {
+    const mobileBlock = stylesCss.match(/@media \(max-width: 720px\)[\s\S]*?(?=@media\s|$)/);
+    expect(mobileBlock).not.toBeNull();
+    // Count rules containing .cancelled-job-facts selector followed by grid-template-columns.
+    const count = (mobileBlock![0].match(/\.cancelled-job-facts[^{]*\{[^}]*grid-template-columns/g) ?? []).length;
+    expect(count).toBe(1);
+  });
 });

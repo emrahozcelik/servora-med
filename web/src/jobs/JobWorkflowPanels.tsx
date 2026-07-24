@@ -119,7 +119,7 @@ export function RevisionLoopPanel(props: {
       </p>
       <p className="revision-loop-reason">
         <span className="revision-loop-reason-label">Düzeltme nedeni</span>
-        <span>{loop.reason?.trim() ? loop.reason : 'Bilgi kaydedilmemiş'}</span>
+        <span className="revision-loop-reason-value">{loop.reason?.trim() ? loop.reason : 'Bilgi kaydedilmemiş'}</span>
       </p>
       <dl className="revision-loop-facts">
         <div><dt>Düzeltme isteyen</dt><dd>{loop.actorName ?? 'Bilgi kaydedilmemiş'}</dd></div>
