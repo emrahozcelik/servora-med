@@ -109,7 +109,7 @@ describe('CRM detail screen concurrency', () => {
     const name = container.querySelector('#detail-customer-name') as HTMLInputElement; name.value = 'Benim değişikliğim';
     await act(async () => (container.querySelector('.record-form') as HTMLFormElement).requestSubmit()); await settle();
     expect(name.value).toBe('Benim değişikliğim');
-    expect((container.querySelector('.record-form button') as HTMLButtonElement).disabled).toBe(true);
+    expect((container.querySelector('.record-form .primary-button') as HTMLButtonElement).disabled).toBe(true);
     const reload = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Güncel değerleri yükle')!;
     await act(async () => reload.click()); await settle();
     expect((container.querySelector('#detail-customer-name') as HTMLInputElement).value).toBe('Güncel Klinik');

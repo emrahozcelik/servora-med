@@ -2407,6 +2407,11 @@ button:disabled { cursor: wait; opacity: 0.65; }
   /* T4A repair: operational forms use column so DOM/tab order matches visual order (Cancel first). */
   .task-form .form-actions,
   .delivery-form .form-actions { flex-direction: column; }
+  /* T4B: CRM form actions use column so DOM/tab order matches visual order (Cancel first). */
+  .customer-form .form-actions,
+  .record-form .form-actions { flex-direction: column; }
+  /* T4B: inline contact-create form actions also use column for correct visual order. */
+  .inline-record-form .form-actions { flex-direction: column; }
   .form-actions button { width: 100%; }
   .customer-detail { margin-top: 1rem; }
   .record-facts, .job-summary-grid { grid-template-columns: 1fr; }

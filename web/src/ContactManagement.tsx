@@ -97,11 +97,12 @@ export function ContactDetailView({ contact, customerName, pending, error, notic
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
     <section className="record-section" aria-labelledby="contact-fields-title"><h2 id="contact-fields-title">İlgili kişi bilgileri</h2>
-      {canManage ? <form key={`${contact.id}:${formRevision}`} onSubmit={onSave}><label className="field-group" htmlFor="contact-name">Ad soyad<input id="contact-name" name="name" defaultValue={contact.name} required disabled={pending} /></label>
+        {canManage ? <form key={`${contact.id}:${formRevision}`} onSubmit={onSave}><label className="field-group" htmlFor="contact-name">Ad soyad<input id="contact-name" name="name" defaultValue={contact.name} required disabled={pending} /></label>
         <label className="field-group" htmlFor="contact-title">Görev veya unvan<input id="contact-title" name="title" defaultValue={contact.title ?? ''} disabled={pending} /></label>
         <div className="customer-form-pair"><label className="field-group" htmlFor="contact-phone">Telefon<input id="contact-phone" name="phone" type="tel" defaultValue={contact.phone ?? ''} disabled={pending} /></label>
           <label className="field-group" htmlFor="contact-email">E-posta<input id="contact-email" name="email" type="email" defaultValue={contact.email ?? ''} disabled={pending} /></label></div>
-        <button className="primary-button compact-button" disabled={pending || conflict}>Bilgileri kaydet</button></form>
+        <div className="form-actions"><button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Vazgeç</button>
+          <button className="primary-button compact-button" type="submit" disabled={pending || conflict}>Bilgileri kaydet</button></div></form>
         : <dl className="record-facts"><div><dt>Ad soyad</dt><dd>{contact.name}</dd></div><div><dt>Görev veya unvan</dt><dd>{contact.title ?? 'Belirtilmedi'}</dd></div>
           <div><dt>Telefon</dt><dd>{contact.phone ?? 'Belirtilmedi'}</dd></div><div><dt>E-posta</dt><dd>{contact.email ?? 'Belirtilmedi'}</dd></div></dl>}
     </section>

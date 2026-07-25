@@ -51,7 +51,7 @@ function JobSummaries({ title, jobs }: { title: string; jobs: CustomerJobSummary
   </section>;
 }
 
-function CustomerEditForm({ customer, staff, pending, blocked, onSave }: { customer: CustomerDetail; staff: StaffProfile[]; pending: boolean; blocked: boolean; onSave: (event: FormEvent<HTMLFormElement>) => void }) {
+function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel }: { customer: CustomerDetail; staff: StaffProfile[]; pending: boolean; blocked: boolean; onSave: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void }) {
   return <form className="record-form" onSubmit={onSave}><label className="field-group" htmlFor="detail-customer-name">Müşteri adı<input id="detail-customer-name" name="name" defaultValue={customer.name} required disabled={pending} /></label>
     <label className="field-group" htmlFor="detail-customer-type">Müşteri türü<select id="detail-customer-type" name="customerType" defaultValue={customer.customerType} disabled={pending}>{Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     <div className="customer-form-pair"><label className="field-group" htmlFor="detail-customer-tax">Vergi numarası<input id="detail-customer-tax" name="taxNumber" defaultValue={customer.taxNumber ?? ''} disabled={pending} /></label>
@@ -63,7 +63,8 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave }: { custo
     <label className="field-group" htmlFor="detail-customer-staff">Sorumlu personel<select id="detail-customer-staff" name="assignedStaffUserId" defaultValue={customer.assignedStaffUserId ?? ''} disabled={pending}><option value="">Atanmadı</option>
       {customer.assignedStaffUserId && !staff.some((profile) => profile.user.id === customer.assignedStaffUserId) && <option value={customer.assignedStaffUserId}>{customer.assignedStaffName ?? 'Mevcut sorumlu'}</option>}
       {staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}</select></label>
-    <button className="primary-button compact-button" disabled={pending || blocked}>Bilgileri kaydet</button></form>;
+    <div className="form-actions"><button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
+      <button className="primary-button compact-button" type="submit" disabled={pending || blocked}>Bilgileri kaydet</button></div></form>;
 }
 
 export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, errorRef, createContactButtonRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent }: {
@@ -82,7 +83,7 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}
     <section className="record-section" aria-labelledby="general-title"><div className="section-heading"><h2 id="general-title">Genel bilgiler</h2><span>Sürüm {customer.version}</span></div>
-      {canManage ? <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} /> : <CustomerFacts customer={customer} />}</section>
+      {canManage ? <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={onBack} /> : <CustomerFacts customer={customer} />}</section>
     <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage} createButtonRef={createContactButtonRef}
       onRetry={() => {}} onCreate={onCreateContact} onOpenContact={onOpenContact} />
     <div className="job-summary-grid"><JobSummaries title="Açık işler" jobs={customer.openJobs} /><JobSummaries title="Tamamlanan işler" jobs={customer.completedJobs} /></div>

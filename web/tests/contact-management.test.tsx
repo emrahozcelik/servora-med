@@ -52,6 +52,20 @@ describe('Contact management', () => {
     expect(html).not.toMatch(/name="isPrimary"/); expect(html).not.toMatch(/name="isActive"/);
   });
 
+  it('uses form-actions with Cancel-before-Save DOM order in ContactDetailView edit form', () => {
+    const html = renderToStaticMarkup(<ContactDetailView contact={secondary} customerName="Demo Klinik" pending={false}
+      error="" notice="" onBack={() => {}} onSave={() => {}} onMakePrimary={() => {}} />);
+    expect(html).toContain('class="form-actions"');
+    const cancelIdx = html.indexOf('secondary-button');
+    const saveIdx = html.indexOf('primary-button');
+    expect(cancelIdx).toBeGreaterThan(0);
+    expect(saveIdx).toBeGreaterThan(cancelIdx);
+    const cancelTag = html.slice(cancelIdx - 10, cancelIdx + 60);
+    expect(cancelTag).toContain('type="button"');
+    const saveTag = html.slice(saveIdx - 10, saveIdx + 60);
+    expect(saveTag).toContain('type="submit"');
+  });
+
   it('hides primary command for inactive contacts', () => {
     const html = renderToStaticMarkup(<ContactDetailView contact={inactiveSecondary} customerName="Demo Klinik" pending={false}
       error="" notice="" onBack={() => {}} onSave={() => {}} onMakePrimary={() => {}} />);

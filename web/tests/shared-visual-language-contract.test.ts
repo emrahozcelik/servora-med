@@ -328,4 +328,16 @@ describe('shared visual language adoption (T1B)', () => {
       /@media \(max-width: 720px\)[\s\S]*\.form-actions button\s*\{[^}]*width:\s*100%;/s,
     );
   });
+
+  it('uses column layout for CRM form footers at compact width (T4B)', () => {
+    // T4B: customer-form .form-actions and record-form .form-actions use column
+    // so DOM/tab order matches visual order (Cancel first).
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.customer-form .form-actions,\s*\.record-form .form-actions\s*\{[^}]*flex-direction:\s*column;/s,
+    );
+    // T4B: inline contact-create form actions also use column.
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.inline-record-form .form-actions\s*\{[^}]*flex-direction:\s*column;/s,
+    );
+  });
 });

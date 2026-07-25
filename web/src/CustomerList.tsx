@@ -300,8 +300,7 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
   staffMode?: boolean;
   currentUserName?: string;
 }) {
-  return <main className="customer-create"><div className="detail-heading"><div><h1>Yeni müşteri</h1></div>
-    <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
+  return <main className="customer-create"><div className="create-heading"><div><h1>Yeni müşteri</h1></div></div>
     <p className="form-intro">Klinik veya firma kaydını oluşturun. İlgili kişiler müşteri kaydından sonra eklenir.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     {similarCustomers.length > 0 && <section className="similar-customers" aria-labelledby="similar-title"><h2 id="similar-title">Benzer müşteri kayıtları</h2>

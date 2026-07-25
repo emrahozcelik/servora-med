@@ -68,6 +68,21 @@ describe('Customer detail', () => {
     expect(next.assignedStaffName).toBe('Bora Personel'); expect(next.version).toBe(4);
   });
 
+  it('uses form-actions with Cancel-before-Save DOM order in CustomerEditForm', () => {
+    const html = renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={manager} staff={[]}
+      pending={false} error="" notice="" onBack={() => {}} onSave={() => {}}
+      onCreateContact={() => {}} /></MemoryRouter>);
+    expect(html).toContain('class="form-actions"');
+    const cancelIdx = html.indexOf('secondary-button');
+    const saveIdx = html.indexOf('primary-button');
+    expect(cancelIdx).toBeGreaterThan(0);
+    expect(saveIdx).toBeGreaterThan(cancelIdx);
+    const cancelTag = html.slice(cancelIdx - 10, cancelIdx + 60);
+    expect(cancelTag).toContain('type="button"');
+    const saveTag = html.slice(saveIdx - 10, saveIdx + 60);
+    expect(saveTag).toContain('type="submit"');
+  });
+
   it('keeps stale form values blocked behind an explicit current-values action', () => {
     const html = renderToStaticMarkup(<MemoryRouter><CustomerDetailView customer={customer} user={manager} staff={[]}
       pending={false} error="Kayıt güncellendi." notice="" conflict onBack={() => {}} onSave={() => {}}
