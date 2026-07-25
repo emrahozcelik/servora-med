@@ -341,9 +341,32 @@ T3 overall: **COMPLETE** after this closeout lands on main.
 
 ## T4 — CRM, product, staff/user + forms
 
-**Status:** NOT STARTED
+**Status:** IN PROGRESS
 
 Customer/contact, product, staff/user lighter pass; create/edit form chrome contract for meeting/delivery/task/product/customer. Native controls retained.
+
+### T4A — Operational create form chrome (COMPLETE)
+
+Shared action-footer contract: Cancel secondary first, Submit primary second in DOM and visual order. Desktop content-width flex-end; compact scoped column. Landing on main as PR #66.
+
+### T4B — CRM customer and contact surfaces (COMPLETE — Draft PR #67)
+
+Customer-create form adopts T4A `create-heading` + `form-actions` contract. Cancel button removed from heading (duplicate). Customer-edit and contact-edit forms gain `form-actions` wrapper with Cancel before Save. Contact-create form `inline-record-form .form-actions` uses column (not column-reverse) at compact width.
+
+**Behavior/API invariants preserved:**
+- Customer create/edit payloads unchanged
+- Contact create/edit payloads unchanged
+- Customer assignment and primary-contact rules unchanged
+- Search, filter and navigation semantics unchanged
+- Role and permission boundaries unchanged
+- Pending guard, error handling, success navigation unchanged
+
+**Focused tests:** 11 files, 124 tests PASS
+**Full tests:** 86 files, 976 tests PASS (baseline 970, delta +6)
+**Build:** SUCCESS | **Audit:** PASS | **Bundle:** PASS | **Smoke:** PASS
+**Browser verification:** Customer list 390/1024/1440, empty state, create 390/1024, detail 390/1024, edit, contacts — ALL PASS
+**Evidence:** `docs/ui/screenshots/phase-t-t4b/README.md`
+**Draft PR:** #67 (Draft) — integration into main pending
 
 ---
 
@@ -377,7 +400,9 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T3E-2B | Notes + Timeline visual hierarchy contract | COMPLETE |
 | T3E-3 | Visual evidence / final closeout | COMPLETE |
 | T3 | Jobs + JobDetail (overall) | **COMPLETE** |
-| T4 | CRM / product / people / forms | NOT STARTED |
+| T4A | Operational create form chrome | COMPLETE |
+| T4B | CRM customer and contact surfaces | COMPLETE — Draft PR |
+| T4 | CRM / product / people / forms | IN PROGRESS |
 | T5 | States + regression closeout | NOT STARTED |
 
 ---
