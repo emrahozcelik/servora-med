@@ -396,8 +396,8 @@ Customer-create form adopts T4A `create-heading` + `form-actions` contract. Canc
 **Cross-cutting:** 6 files, 78 tests PASS
 **Build:** SUCCESS | **Audit:** PASS | **Bundle:** PASS | **Smoke:** PASS
 
-**Browser verification:** NOT PERFORMED — server unavailable in worktree environment. All visual contracts verified via JSDOM test assertions.
-**Evidence:** `docs/ui/screenshots/phase-t-t4c/README.md` (placeholder — screenshots require running server)
+**Browser verification:** PERFORMED — 11/11 surfaces PASS (Playwright + Chromium, synthetic data, admin + staff roles). All surfaces verified at 390px and/or 1024px viewports with zero console errors, zero horizontal overflow.
+**Evidence:** `docs/ui/screenshots/phase-t-t4c/README.md` (verification matrix)
 **Draft PR:** PENDING
 
 **Known limitations:**

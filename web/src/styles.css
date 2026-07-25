@@ -2263,7 +2263,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .product-select-list button { display: grid; gap: 0.3rem; width: 100%; min-height: var(--control-height); padding: 0.8rem 0.25rem; border: 0; color: var(--ink); background: transparent; text-align: left; }
 .product-select-list button:hover:not(:disabled) { background: var(--canvas); }
 .product-select-list button[aria-pressed="true"] { padding-inline: 0.75rem; background: var(--accent-soft); box-shadow: inset 3px 0 0 var(--accent); }
-.product-select-list button span { color: var(--muted); font-size: 0.8rem; }
+.product-select-list button span { color: var(--muted); font-size: 0.8rem; overflow-wrap: anywhere; }
+.product-select-list button strong { overflow-wrap: anywhere; }
 .product-select-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
 .product-select-pagination span { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
 
