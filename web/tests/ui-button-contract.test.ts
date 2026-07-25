@@ -10,8 +10,9 @@ describe('button CSS contract', () => {
     expect(css).toContain('.primary-button.btn-full');
     expect(css).toMatch(/\.login-form-wrap \.primary-button/);
     expect(css).toMatch(/\.people-form form > \.primary-button/);
-    expect(css).toMatch(/\.task-form > \.primary-button/);
-    expect(css).toMatch(/\.delivery-form > \.primary-button/);
+    // T4A repair: operational forms use .form-actions — primary is content-width, not stretched.
+    expect(css).not.toMatch(/\.task-form .form-actions .primary-button/);
+    expect(css).not.toMatch(/\.delivery-form .form-actions .primary-button/);
   });
 
   it('maps compact-button to small size without forcing full width', () => {

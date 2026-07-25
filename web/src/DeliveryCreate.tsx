@@ -180,8 +180,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   const referencesPending = customerState === 'loading' || contactState === 'loading' || staffState === 'loading';
   const submitDisabled = pending || unavailable || customerState !== 'ready' || !selectedProduct || referencesPending || (user.role !== 'STAFF' && !assignedTo);
   return <main className="delivery-create">
-    <div className="delivery-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div>
-      <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
+    <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div></div>
     <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. İlgili kişi ve teslim notu isteğe bağlıdır.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
@@ -222,7 +221,10 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
           value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
         <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={pending} /></div>
-      <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
+      <div className="form-actions">
+        <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
+        <button className="primary-button" type="submit" disabled={submitDisabled}>{pending ? 'Kaydediliyor…' : 'Teslimi kaydet'}</button>
+      </div>
     </form>
   </main>;
 }

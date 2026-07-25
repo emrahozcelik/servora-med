@@ -146,8 +146,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const referencesUnavailable = customerState !== 'ready' || customers.length === 0
     || (user.role !== 'STAFF' && staffState !== 'ready');
   return <main className="task-create meeting-create">
-    <div className="delivery-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Görüşme / ziyaret planla</h1></div>
-      <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button></div>
+    <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Görüşme / ziyaret planla</h1></div></div>
     <p className="form-intro">
       Görüşme türünü, planlanan zamanı, müşteriyi ve sorumlu personeli belirleyin.
       Görüşme veya ziyaret sonucu daha sonra kaydedilir.
@@ -156,7 +155,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
     {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
       <button data-retry-customers className="inline-action" type="button" onClick={() => void loadCustomers()}>Tekrar dene</button></p>}
-    {customerState === 'ready' && customers.length === 0 && <p className="field-error" role="status">Görüşme planlamak için aktif veya aday müşteri gereklidir.</p>}
+    {customerState === 'ready' && customers.length === 0 && <p className="field-status" role="status">Görüşme planlamak için aktif veya aday müşteri gereklidir.</p>}
     <form className="task-form" onSubmit={submit} noValidate><fieldset disabled={pending}>
       <div className="field-group"><label htmlFor="meeting-title">Başlık</label>
         <input id="meeting-title" required maxLength={255} value={title} aria-invalid={fieldErrors.title ? true : undefined}
@@ -241,7 +240,9 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       <div className="field-group"><label htmlFor="meeting-priority">Öncelik</label>
         <select id="meeting-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
           <option value="low">Düşük</option><option value="normal">Normal</option><option value="high">Yüksek</option><option value="urgent">Acil</option></select></div>
-    </fieldset><button className="primary-button" type="submit" disabled={pending || referencesUnavailable}>
-      {pending ? 'Planlanıyor…' : 'Görüşme / ziyareti planla'}</button></form>
+    </fieldset><div className="form-actions">
+      <button data-cancel-meeting className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
+      <button className="primary-button" type="submit" disabled={pending || referencesUnavailable}>
+        {pending ? 'Planlanıyor…' : 'Görüşme / ziyareti planla'}</button></div></form>
   </main>;
 }

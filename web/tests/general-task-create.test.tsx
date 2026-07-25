@@ -322,4 +322,25 @@ describe('General Task quick create', () => {
     expect(jobs.createJobCard.mock.calls[1]![0].clientActionId).toBe('action-1');
     expect(jobs.createJobCard.mock.calls[1]![0].scheduledAt).toBe(localDateTimeToIso('2026-07-22T13:00'));
   });
+
+  it('uses the shared create-heading and form-actions contract (T4A)', async () => {
+    await act(async () => root.render(<MemoryRouter><GeneralTaskCreateScreen user={staff} onCancel={() => {}} onCreated={() => {}} /></MemoryRouter>));
+    await settle();
+    expect(container.querySelector('.create-heading')).toBeTruthy();
+    expect(container.querySelector('.delivery-heading')).toBeNull();
+    const actions = container.querySelector('.form-actions');
+    expect(actions).toBeTruthy();
+    // Heading must not contain the cancel button.
+    expect(container.querySelector('.create-heading [data-cancel-task]')).toBeNull();
+    // Action footer contains both buttons with expected hooks.
+    expect(actions!.querySelectorAll('.secondary-button').length).toBe(1);
+    expect(actions!.querySelectorAll('.primary-button').length).toBe(1);
+    expect(actions!.querySelector('[data-cancel-task]')).toBeTruthy();
+    expect(actions!.querySelector('[type="submit"]')).toBeTruthy();
+    // DOM order: secondary cancel first, primary submit second.
+    const buttons = actions!.querySelectorAll('button');
+    expect(buttons[0]?.classList.contains('secondary-button')).toBe(true);
+    expect(buttons[0]?.textContent).toBe('Vazgeç');
+    expect(buttons[1]?.classList.contains('primary-button')).toBe(true);
+  });
 });

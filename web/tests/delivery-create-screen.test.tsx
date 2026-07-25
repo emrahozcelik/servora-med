@@ -199,4 +199,26 @@ describe('Delivery create CRM defaults', () => {
     }));
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-09-01T16:00');
   });
+
+  it('uses the shared create-heading and form-actions contract (T4A)', async () => {
+    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
+    await settle();
+    expect(container.querySelector('.create-heading')).toBeTruthy();
+    expect(container.querySelector('.delivery-heading')).toBeNull();
+    const actions = container.querySelector('.form-actions');
+    expect(actions).toBeTruthy();
+    // Heading must not contain the cancel button.
+    expect(container.querySelector('.create-heading .secondary-button')).toBeNull();
+    // Action footer contains both buttons.
+    expect(actions!.querySelectorAll('.secondary-button').length).toBe(1);
+    expect(actions!.querySelectorAll('.primary-button').length).toBe(1);
+    // First actionable button is secondary cancel (Vazgeç).
+    const buttons = actions!.querySelectorAll('button');
+    expect(buttons[0]?.textContent).toBe('Vazgeç');
+    expect(buttons[0]?.getAttribute('type')).toBe('button');
+    expect(buttons[0]?.classList.contains('secondary-button')).toBe(true);
+    // Second button is primary submit.
+    expect(buttons[1]?.getAttribute('type')).toBe('submit');
+    expect(buttons[1]?.classList.contains('primary-button')).toBe(true);
+  });
 });

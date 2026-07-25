@@ -269,4 +269,63 @@ describe('shared visual language adoption (T1B)', () => {
     const count = (mobileBlock![0].match(/\.cancelled-job-facts[^{]*\{[^}]*grid-template-columns/g) ?? []).length;
     expect(count).toBe(1);
   });
+
+  it('defines shared .create-heading contract for operational create forms', () => {
+    expect(stylesCss).toMatch(
+      /\.create-heading\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;[^}]*align-items:\s*end;[^}]*justify-content:\s*space-between;/s,
+    );
+    expect(stylesCss).toMatch(
+      /\.create-heading h1\s*\{[^}]*font-size:\s*1\.75rem;[^}]*letter-spacing:\s*-0\.025em;/s,
+    );
+  });
+
+  it('provides responsive wrapping and overflow-wrap for .create-heading at narrow widths', () => {
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.create-heading > div,.*min-width:\s*0;/s,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.create-heading h1,.*overflow-wrap:\s*anywhere;/s,
+    );
+  });
+
+  it('associates .form-actions with shared button gutter and mobile column-reverse', () => {
+    expect(stylesCss).toMatch(
+      /\.form-actions\s*\{[^}]*display:\s*flex;[^}]*gap:\s*0\.75rem;[^}]*margin-top:\s*1\.75rem;[^}]*padding-top:\s*1\.25rem;[^}]*border-top:\s*1px\s+solid\s+var\(--rule\);/s,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.form-actions\s*\{[^}]*flex-direction:\s*column-reverse;/s,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.form-actions button\s*\{[^}]*width:\s*100%;/s,
+    );
+  });
+
+  it('keeps operational form footer primary buttons content-width on desktop (T4A repair)', () => {
+    // T4A repair: primary buttons inside .form-actions must not inherit stacked-footer full-width.
+    expect(stylesCss).not.toMatch(
+      /\.task-form .form-actions .primary-button[^{]*\{[^}]*width:\s*100%;[^}]*margin-top:\s*1\.5rem;/s,
+    );
+    expect(stylesCss).not.toMatch(
+      /\.delivery-form .form-actions .primary-button[^{]*\{[^}]*width:\s*100%;[^}]*margin-top:\s*1\.5rem;/s,
+    );
+    // The only full-width primary footers are login and people-form.
+    expect(stylesCss).toMatch(
+      /\.login-form-wrap \.primary-button,\s*\.people-form form > \.primary-button\s*\{[^}]*width:\s*100%;[^}]*margin-top:\s*1\.5rem;/s,
+    );
+  });
+
+  it('uses column layout for operational form footers at compact width (T4A repair)', () => {
+    // T4A repair: scoped column so DOM/tab order matches visual order (Cancel first).
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.task-form .form-actions,\s*\.delivery-form .form-actions\s*\{[^}]*flex-direction:\s*column;/s,
+    );
+    // Generic .form-actions still uses column-reverse for non-T4A consumers.
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.form-actions\s*\{[^}]*flex-direction:\s*column-reverse;/s,
+    );
+    // All .form-actions buttons remain full-width at compact width.
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.form-actions button\s*\{[^}]*width:\s*100%;/s,
+    );
+  });
 });
