@@ -102,22 +102,65 @@ export function validateVulnShape(vuln) {
  * This is a narrow helper — only for advisory objects, not string references.
  *
  * @param {unknown} entry
+ * @param {string} [expectedPackage] - The package name that owns this via entry.
+ *   When provided, the advisory object's name must match exactly.
  * @returns {{ allowed: boolean, reason?: string }}
  */
-export function isAllowedAdvisoryObject(entry) {
+export function isAllowedAdvisoryObject(entry, expectedPackage) {
   if (!entry || typeof entry !== 'object') {
     return { allowed: false, reason: 'via entry not an object' };
   }
   const e = /** @type {Record<string, unknown>} */ (entry);
+
+  // URL must be the exact allowed GHSA URL
   if (typeof e.url !== 'string') {
     return { allowed: false, reason: 'via object missing url' };
   }
   if (e.url !== ALLOWED_GHSA_URL) {
-    return { allowed: false, reason: `unapproved advisory: ${e.url}` };
+    return { allowed: false, reason: `unapproved advisory: ${typeof e.url === 'string' ? e.url : '(invalid)'}` };
   }
-  if (typeof e.name !== 'string' || !ALLOWED_PACKAGES.has(e.name)) {
+
+  // Package name must be in allowed set; if expectedPackage given, must match
+  if (typeof e.name !== 'string') {
+    return { allowed: false, reason: 'advisory object missing name' };
+  }
+  if (!ALLOWED_PACKAGES.has(e.name)) {
     return { allowed: false, reason: `advisory package not allowed: ${e.name}` };
   }
+  if (expectedPackage !== undefined && e.name !== expectedPackage) {
+    return { allowed: false, reason: `advisory package mismatch: expected ${expectedPackage}, got ${e.name}` };
+  }
+
+  // Severity must be "high" (critical is handled separately in chain resolver)
+  if (e.severity !== 'high') {
+    return { allowed: false, reason: `advisory severity not high: ${e.severity}` };
+  }
+
+  // Source must be a finite positive integer
+  if (typeof e.source !== 'number' || !Number.isFinite(e.source) || e.source <= 0 || !Number.isInteger(e.source)) {
+    return { allowed: false, reason: `advisory source invalid: ${e.source}` };
+  }
+
+  // Title must be a non-empty string
+  if (typeof e.title !== 'string' || !e.title) {
+    return { allowed: false, reason: 'advisory title missing or empty' };
+  }
+
+  // Range must be a non-empty string
+  if (typeof e.range !== 'string' || !e.range) {
+    return { allowed: false, reason: 'advisory range missing or empty' };
+  }
+
+  // CWE must be an array
+  if (!Array.isArray(e.cwe)) {
+    return { allowed: false, reason: 'advisory cwe not array' };
+  }
+
+  // CVSS must be an object
+  if (!e.cvss || typeof e.cvss !== 'object') {
+    return { allowed: false, reason: 'advisory cvss missing or not object' };
+  }
+
   return { allowed: true };
 }
 
@@ -202,7 +245,7 @@ export function evaluateVulnerabilityChain({
   for (const viaEntry of vuln.via) {
     // Advisory object — check directly
     if (typeof viaEntry === 'object' && viaEntry !== null) {
-      const advResult = isAllowedAdvisoryObject(viaEntry);
+      const advResult = isAllowedAdvisoryObject(viaEntry, vuln.name);
       if (!advResult.allowed) {
         visiting.delete(packageName);
         const result = { allowed: false, reason: `${packageName}: ${advResult.reason}` };
@@ -303,21 +346,18 @@ export function checkMetadataConsistency(report) {
     }
   }
 
-  // Check high mismatch
-  if (mv.high === 0 && actualCounts.high > 0) {
-    return 'metadata high=0 but actual high entries exist';
+  // Exact equality: metadata high/critical must match actual entries
+  if (mv.high !== actualCounts.high) {
+    return `metadata high=${mv.high} but actual high=${actualCounts.high}`;
   }
-  if (mv.high > 0 && actualCounts.high === 0) {
-    return `metadata high=${mv.high} but no actual high entries`;
+  if (mv.critical !== actualCounts.critical) {
+    return `metadata critical=${mv.critical} but actual critical=${actualCounts.critical}`;
   }
 
-  // Check critical mismatch
-  if (mv.critical === 0 && actualCounts.critical > 0) {
-    return 'metadata critical=0 but actual critical entries exist';
-  }
-  if (mv.critical > 0 && actualCounts.critical === 0) {
-    return `metadata critical=${mv.critical} but no actual critical entries`;
-  }
+  // metadata.total: npm audit v2 total is the sum of all severities (info +
+  // low + moderate + high + critical). Validate finite/non-negative but do not
+  // require exact match because some npm versions may include additional
+  // severity categories not tracked in actualCounts.
 
   return null;
 }
@@ -372,9 +412,15 @@ export function runRSCStaticGuard(srcRoot, fsModule, pathModule) {
       const fullPath = pathModule.join(dir, entry.name);
       const entryRelPath = relPath ? `${relPath}/${entry.name}` : entry.name;
 
+      // Symlinks are not allowed — fail closed
+      if (entry.isSymbolicLink()) {
+        scanErrors.push(`symbolic link not allowed: ${fullPath}`);
+        continue;
+      }
+
       if (entry.isDirectory()) {
-        // Skip node_modules and hidden directories
-        if (entry.name === 'node_modules' || entry.name.startsWith('.')) continue;
+        // Skip node_modules only; hidden directories (.) are scanned
+        if (entry.name === 'node_modules') continue;
         dirStack.push({ dir: fullPath, relPath: entryRelPath });
       } else if (entry.isFile() && /\.(ts|tsx|js|jsx|mjs)$/.test(entry.name)) {
         let content;

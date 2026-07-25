@@ -10,6 +10,10 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { tmpdir } from 'node:os';
+import { fileURLToPath } from 'node:url';
+
+const __filename = fileURLToPath(import.meta.url);
+const __testDirname = path.dirname(__filename);
 
 // ─── Constants ──────────────────────────────────────────────────────────────
 
@@ -112,7 +116,12 @@ describe('validateVulnShape', () => {
 // ─── isAllowedAdvisoryObject ───────────────────────────────────────────────
 
 describe('isAllowedAdvisoryObject', () => {
-  it('accepts allowed GHSA advisory object', () => {
+  it('accepts allowed GHSA advisory object with correct expectedPackage', () => {
+    const result = isAllowedAdvisoryObject(makeAllowedViaObject(), 'react-router');
+    expect(result.allowed).toBe(true);
+  });
+
+  it('accepts allowed GHSA advisory object without expectedPackage', () => {
     const result = isAllowedAdvisoryObject(makeAllowedViaObject());
     expect(result.allowed).toBe(true);
   });
@@ -124,6 +133,9 @@ describe('isAllowedAdvisoryObject', () => {
       title: 'PostCSS: Path Traversal',
       url: POSTCSS_GHSA_URL,
       severity: 'high',
+      cwe: ['CWE-22'],
+      cvss: { score: 7.5 },
+      range: '<=8.5.17',
     });
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain('unapproved advisory');
@@ -141,9 +153,74 @@ describe('isAllowedAdvisoryObject', () => {
     const result = isAllowedAdvisoryObject({
       url: ALLOWED_GHSA_URL,
       name: 'some-other-pkg',
+      severity: 'high',
+      source: 1124282,
+      title: 'Some advisory',
+      range: '>=1.0.0',
+      cwe: ['CWE-352'],
+      cvss: { score: 0 },
     });
     expect(result.allowed).toBe(false);
     expect(result.reason).toContain('package not allowed');
+  });
+
+  it('rejects package mismatch with expectedPackage', () => {
+    const result = isAllowedAdvisoryObject(makeAllowedViaObject(), 'react-router-dom');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('package mismatch');
+  });
+
+  it('rejects severity not high', () => {
+    const viaObj = { ...makeAllowedViaObject(), severity: 'low' };
+    const result = isAllowedAdvisoryObject(viaObj, 'react-router');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('severity not high');
+  });
+
+  it('rejects missing severity', () => {
+    const viaObj = { ...makeAllowedViaObject() };
+    delete viaObj.severity;
+    const result = isAllowedAdvisoryObject(viaObj, 'react-router');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('severity not high');
+  });
+
+  it('rejects invalid source', () => {
+    const viaObj = { ...makeAllowedViaObject(), source: -1 };
+    const result = isAllowedAdvisoryObject(viaObj, 'react-router');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('source invalid');
+  });
+
+  it('rejects missing title', () => {
+    const viaObj = { ...makeAllowedViaObject() };
+    delete viaObj.title;
+    const result = isAllowedAdvisoryObject(viaObj, 'react-router');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('title missing');
+  });
+
+  it('rejects missing range', () => {
+    const viaObj = { ...makeAllowedViaObject() };
+    delete viaObj.range;
+    const result = isAllowedAdvisoryObject(viaObj, 'react-router');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('range missing');
+  });
+
+  it('rejects non-array cwe', () => {
+    const viaObj = { ...makeAllowedViaObject(), cwe: 'CWE-352' };
+    const result = isAllowedAdvisoryObject(viaObj, 'react-router');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('cwe not array');
+  });
+
+  it('rejects missing cvss', () => {
+    const viaObj = { ...makeAllowedViaObject() };
+    delete viaObj.cvss;
+    const result = isAllowedAdvisoryObject(viaObj, 'react-router');
+    expect(result.allowed).toBe(false);
+    expect(result.reason).toContain('cvss missing');
   });
 });
 
@@ -310,7 +387,7 @@ describe('checkMetadataConsistency', () => {
     expect(checkMetadataConsistency(report)).toBeNull();
   });
 
-  it('fails when metadata high=0 but high entries exist', () => {
+  it('fails when metadata high=0 but actual high=1', () => {
     const report = {
       metadata: {
         vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 0 },
@@ -319,10 +396,10 @@ describe('checkMetadataConsistency', () => {
         'react-router': makeVuln(),
       },
     };
-    expect(checkMetadataConsistency(report)).toContain('high=0');
+    expect(checkMetadataConsistency(report)).toBe('metadata high=0 but actual high=1');
   });
 
-  it('fails when metadata critical=0 but critical entries exist', () => {
+  it('fails when metadata critical=0 but actual critical=1', () => {
     const report = {
       metadata: {
         vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 0, total: 0 },
@@ -331,17 +408,55 @@ describe('checkMetadataConsistency', () => {
         'react-router': makeVuln({ severity: 'critical' }),
       },
     };
-    expect(checkMetadataConsistency(report)).toContain('critical=0');
+    expect(checkMetadataConsistency(report)).toBe('metadata critical=0 but actual critical=1');
   });
 
-  it('fails when metadata high>0 but no high entries', () => {
+  it('fails when metadata high=2 but actual high=0', () => {
     const report = {
       metadata: {
         vulnerabilities: { info: 0, low: 0, moderate: 0, high: 2, critical: 0, total: 2 },
       },
       vulnerabilities: {},
     };
-    expect(checkMetadataConsistency(report)).toContain('high=2');
+    expect(checkMetadataConsistency(report)).toBe('metadata high=2 but actual high=0');
+  });
+
+  it('fails when metadata high=1 but actual high=2', () => {
+    const report = {
+      metadata: {
+        vulnerabilities: { info: 0, low: 0, moderate: 0, high: 1, critical: 0, total: 1 },
+      },
+      vulnerabilities: {
+        'react-router': makeVuln(),
+        'react-router-dom': makeVuln({ name: 'react-router-dom', via: ['react-router'], effects: [] }),
+      },
+    };
+    expect(checkMetadataConsistency(report)).toBe('metadata high=1 but actual high=2');
+  });
+
+  it('fails when metadata critical=1 but actual critical=2', () => {
+    const report = {
+      metadata: {
+        vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 1, total: 1 },
+      },
+      vulnerabilities: {
+        'pkg-a': makeVuln({ name: 'pkg-a', severity: 'critical' }),
+        'pkg-b': makeVuln({ name: 'pkg-b', severity: 'critical' }),
+      },
+    };
+    expect(checkMetadataConsistency(report)).toBe('metadata critical=1 but actual critical=2');
+  });
+
+  it('fails when metadata critical=2 but actual critical=1', () => {
+    const report = {
+      metadata: {
+        vulnerabilities: { info: 0, low: 0, moderate: 0, high: 0, critical: 2, total: 2 },
+      },
+      vulnerabilities: {
+        'pkg-a': makeVuln({ name: 'pkg-a', severity: 'critical' }),
+      },
+    };
+    expect(checkMetadataConsistency(report)).toBe('metadata critical=2 but actual critical=1');
   });
 
   it('fails when metadata values are non-numeric', () => {
@@ -503,6 +618,92 @@ describe('runRSCStaticGuard', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }
+  });
+
+  it('scans hidden directories for RSC identifiers', () => {
+    const tmpDir = createTempDir('rsc-hidden-');
+    try {
+      const hiddenDir = path.join(tmpDir, '.config');
+      fs.mkdirSync(hiddenDir, { recursive: true });
+      fs.writeFileSync(path.join(hiddenDir, 'rsc.ts'), 'RSCHydratedRouter;\n');
+      const result = runRSCStaticGuard(tmpDir, fs, path);
+      expect(result.violations.length).toBe(1);
+      expect(result.violations[0]).toContain('RSCHydratedRouter');
+      expect(result.scanErrors).toEqual([]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('scans clean hidden directories without error', () => {
+    const tmpDir = createTempDir('rsc-hidden-clean-');
+    try {
+      const hiddenDir = path.join(tmpDir, '.well-known');
+      fs.mkdirSync(hiddenDir, { recursive: true });
+      fs.writeFileSync(path.join(hiddenDir, 'config.json'), '{}');
+      const result = runRSCStaticGuard(tmpDir, fs, path);
+      expect(result.violations).toEqual([]);
+      expect(result.scanErrors).toEqual([]);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports scan error for source file symlink', () => {
+    const tmpDir = createTempDir('rsc-symlink-file-');
+    try {
+      const realFile = path.join(tmpDir, 'real.ts');
+      fs.writeFileSync(realFile, 'const x = 1;\n');
+      const linkPath = path.join(tmpDir, 'link.ts');
+      try {
+        fs.symlinkSync(realFile, linkPath);
+      } catch {
+        // Platform may not support symlinks — skip
+        return;
+      }
+      const result = runRSCStaticGuard(tmpDir, fs, path);
+      expect(result.scanErrors.length).toBeGreaterThan(0);
+      expect(result.scanErrors[0]).toContain('symbolic link');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('reports scan error for source directory symlink', () => {
+    const tmpDir = createTempDir('rsc-symlink-dir-');
+    try {
+      const realDir = path.join(tmpDir, 'real-dir');
+      fs.mkdirSync(realDir, { recursive: true });
+      const linkDir = path.join(tmpDir, 'linked-dir');
+      try {
+        fs.symlinkSync(realDir, linkDir);
+      } catch {
+        // Platform may not support symlinks — skip
+        return;
+      }
+      const result = runRSCStaticGuard(tmpDir, fs, path);
+      expect(result.scanErrors.length).toBeGreaterThan(0);
+      expect(result.scanErrors[0]).toContain('symbolic link');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ─── Runner contract ────────────────────────────────────────────────────────
+
+describe('runner contract — AUDIT_SRC_ROOT removal', () => {
+  it('production runner source does not contain AUDIT_SRC_ROOT', () => {
+    const runnerPath = path.resolve(__testDirname, '../scripts/audit-high-policy.mjs');
+    const content = fs.readFileSync(runnerPath, 'utf-8');
+    expect(content).not.toContain('AUDIT_SRC_ROOT');
+  });
+
+  it('srcRoot is hardcoded to resolve(repoRoot, "src")', () => {
+    const runnerPath = path.resolve(__testDirname, '../scripts/audit-high-policy.mjs');
+    const content = fs.readFileSync(runnerPath, 'utf-8');
+    // Must contain the hardcoded resolution without env fallback
+    expect(content).toContain("resolve(repoRoot, 'src')");
   });
 });
 
@@ -872,6 +1073,24 @@ describe('evaluateAudit — real npm audit fixture', () => {
     expect(result.waiverApplied).toBe(true);
     expect(result.exitCode).toBe(0);
     expect(result.message).toContain('PASS_WITH_WAIVER');
+  });
+
+  it('real audit fixture high=2 match passes metadata check', () => {
+    const realWorldFixture = {
+      auditReportVersion: 2,
+      vulnerabilities: {
+        'react-router': makeVuln(),
+        'react-router-dom': makeVuln({ name: 'react-router-dom', via: ['react-router'], effects: [] }),
+      },
+      metadata: {
+        vulnerabilities: { info: 0, low: 0, moderate: 0, high: 2, critical: 0, total: 2 },
+        dependencies: { prod: 73, dev: 129, optional: 34, peer: 0, peerOptional: 0, total: 201 },
+      },
+    };
+    const result = evaluateAudit(JSON.stringify(realWorldFixture));
+    expect(result.pass).toBe(true);
+    expect(result.waiverApplied).toBe(true);
+    expect(result.exitCode).toBe(0);
   });
 });
 

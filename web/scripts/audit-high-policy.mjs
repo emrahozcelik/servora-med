@@ -15,8 +15,9 @@
  * Usage:
  *   node scripts/audit-high-policy.mjs
  *
- * Env:
- *   AUDIT_SRC_ROOT  – override src root path (default: <repo_root>/src)
+ * Note: The src root is always <repo_root>/src. No environment override exists.
+ * Tests inject their own srcRoot via evaluateAudit options or runRSCStaticGuard
+ * parameters.
  */
 
 import { execSync } from 'node:child_process';
@@ -28,8 +29,7 @@ import { evaluateAudit } from './audit-high-policy-lib.mjs';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, '..');
 
-const srcRoot =
-  process.env.AUDIT_SRC_ROOT || resolve(repoRoot, 'src');
+const srcRoot = resolve(repoRoot, 'src');
 
 function run() {
   // Verify src exists for RSC scan
