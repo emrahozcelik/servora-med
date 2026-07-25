@@ -31,7 +31,8 @@ export function productInputFromFormData(data: FormData): CreateProductInput {
 
 export function ProductForm({ pending, fieldErrors, error, errorRef, onCancel, onSubmit, initialProduct,
   title = 'Yeni ürün', intro = 'Katalog kaydını temel ürün bilgileriyle oluşturun. Yalnız ürün adı zorunludur.',
-  submitLabel = 'Ürün oluştur', pendingLabel = 'Oluşturuluyor…', pendingAnnouncement = 'Ürün oluşturuluyor.' }: {
+  submitLabel = 'Ürün oluştur', pendingLabel = 'Oluşturuluyor…', pendingAnnouncement = 'Ürün oluşturuluyor.',
+  useCreateHeading = false }: {
   pending: boolean;
   fieldErrors: ProductFieldErrors;
   error: string;
@@ -44,10 +45,12 @@ export function ProductForm({ pending, fieldErrors, error, errorRef, onCancel, o
   submitLabel?: string;
   pendingLabel?: string;
   pendingAnnouncement?: string;
+  useCreateHeading?: boolean;
 }) {
+  const headingClass = useCreateHeading ? 'create-heading' : 'detail-heading';
   const describedBy = (field: ProductField, help?: string) => [help, fieldErrors[field] ? `product-${field === 'referencePrice' ? 'reference-price' : field}-error` : ''].filter(Boolean).join(' ') || undefined;
   return <main className="product-create">
-    <div className="detail-heading"><div><p className="eyebrow">Ürün kataloğu</p><h1>{title}</h1></div></div>
+    <div className={headingClass}><div>{useCreateHeading ? <h1>{title}</h1> : <><p className="eyebrow">Ürün kataloğu</p><h1>{title}</h1></>}</div></div>
     <p className="form-intro">{intro}</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <form className="product-form" noValidate onSubmit={onSubmit}>
@@ -134,5 +137,5 @@ export function ProductCreateScreen({ onCancel, onCreated, create = createProduc
   }
 
   return <ProductForm pending={pending} fieldErrors={fieldErrors} error={error} errorRef={errorRef}
-    onCancel={onCancel} onSubmit={(event) => void submit(event)} />;
+    onCancel={onCancel} onSubmit={(event) => void submit(event)} useCreateHeading />;
 }

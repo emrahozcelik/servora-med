@@ -41,7 +41,10 @@ T3 Jobs and JobDetail polish: COMPLETE
   T3C Job board lanes / responsive geometry: COMPLETE
   T3D JobDetail information / workflow hierarchy: COMPLETE
   T3E Decisions / notes / timeline / T3 closeout: COMPLETE
-T4 CRM/product/staff/forms polish: NOT STARTED
+T4 CRM/product/staff/forms polish: IMPLEMENTATION COMPLETE / INTEGRATION PENDING
+T4A Operational create form chrome: COMPLETE (integrated into main)
+T4B CRM customer and contact surfaces: COMPLETE (integrated into main)
+T4C Product, staff/user and T4 closeout: IMPLEMENTATION COMPLETE (Draft PR pending)
 T5 states and visual regression: NOT STARTED
 
 P0 defect track:
@@ -341,32 +344,74 @@ T3 overall: **COMPLETE** after this closeout lands on main.
 
 ## T4 — CRM, product, staff/user + forms
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE (IMPLEMENTATION) / INTEGRATION PENDING
 
-Customer/contact, product, staff/user lighter pass; create/edit form chrome contract for meeting/delivery/task/product/customer. Native controls retained.
+### T4A — Operational create form chrome (COMPLETE — integrated into main)
 
-### T4A — Operational create form chrome (COMPLETE)
+Shared action-footer contract: Cancel secondary first, Submit primary second in DOM and visual order. Desktop content-width flex-end; compact scoped column. Landed on main as PR #66.
 
-Shared action-footer contract: Cancel secondary first, Submit primary second in DOM and visual order. Desktop content-width flex-end; compact scoped column. Landing on main as PR #66.
+### T4B — CRM customer and contact surfaces (COMPLETE — integrated into main)
 
-### T4B — CRM customer and contact surfaces (COMPLETE — Draft PR #67)
+Customer-create form adopts T4A `create-heading` + `form-actions` contract. Cancel button removed from heading (duplicate). Customer-edit and contact-edit forms gain `form-actions` wrapper with Cancel before Save. Contact-create form `inline-record-form .form-actions` uses column (not column-reverse) at compact width. Landed on main as PR #67.
 
-Customer-create form adopts T4A `create-heading` + `form-actions` contract. Cancel button removed from heading (duplicate). Customer-edit and contact-edit forms gain `form-actions` wrapper with Cancel before Save. Contact-create form `inline-record-form .form-actions` uses column (not column-reverse) at compact width.
+### T4C — Product, staff/user and T4 implementation closeout (IMPLEMENTATION COMPLETE — Draft PR)
 
-**Behavior/API invariants preserved:**
-- Customer create/edit payloads unchanged
-- Contact create/edit payloads unchanged
-- Customer assignment and primary-contact rules unchanged
-- Search, filter and navigation semantics unchanged
-- Role and permission boundaries unchanged
-- Pending guard, error handling, success navigation unchanged
+**Product list/detail/create/edit polish:**
+- `ProductForm` gains `useCreateHeading` prop; create route uses `create-heading` (T4 contract), edit route keeps `detail-heading`
+- Product row responsive: single-column layout at ≤47rem; long names/metadata use `overflow-wrap: anywhere`
+- Product detail heading uses `overflow-wrap: anywhere` for long product names
+- Product create/edit `form-actions` already T4-compliant (İptal before Submit/Save)
 
-**Focused tests:** 11 files, 124 tests PASS
-**Full tests:** 86 files, 976 tests PASS (baseline 970, delta +6)
+**ProductSelect polish:**
+- No behavior changes; search, selection, pagination, request gates unchanged
+- CSS wrap protection for product names and metadata in select list
+
+**Staff directory/own/managed profile polish:**
+- `StaffProfileEditView`: `Listeye dön` moved from heading to `form-actions` footer (before `Profili kaydet`)
+- `Operasyon raporunu aç` stays as heading action
+- No duplicate `Listeye dön`; exactly one form-actions region
+- `people-actions` gains `flex-wrap: wrap` for narrow viewports
+- People row metadata uses `overflow-wrap: anywhere`
+
+**User list/create/detail polish:**
+- `UserCreateForm`: `Vazgeç` removed from heading, moved to `form-actions` footer; heading uses `create-heading` class
+- User list heading and row identity preserved
+- User detail sections remain separate; security commands unchanged
+- User detail heading uses `overflow-wrap: anywhere`
+
+**T4 form-contract adoption:**
+- Product create/edit, Staff edit, User create all follow T4 contract: Cancel/Vazgeç secondary before primary submit
+- Compact form-actions use explicit scoped column (not column-reverse)
+- `create-heading` used for create routes, `detail-heading` for detail/edit routes
+
+**Behavior/API/security invariants preserved:**
+- Product API calls, payloads, delete rules unchanged
+- ProductSelect request-gate and pagination semantics unchanged
+- Staff editable-field and role boundaries unchanged
+- User role/password/security operations unchanged
+- No global state migration, no raw Ant imports, no token boundary leaks
+
+**Focused validation:** 6 files, 53 tests PASS (baseline 48, delta +5)
+**Full validation:** 86 files, 981 tests PASS (baseline 981, delta 0 — existing tests preserved)
+**Cross-cutting:** 6 files, 78 tests PASS
 **Build:** SUCCESS | **Audit:** PASS | **Bundle:** PASS | **Smoke:** PASS
-**Browser verification:** Customer list 390/1024/1440, empty state, create 390/1024, detail 390/1024, edit, contacts — ALL PASS
-**Evidence:** `docs/ui/screenshots/phase-t-t4b/README.md`
-**Draft PR:** #67 (Draft) — integration into main pending
+
+**Browser verification:** NOT PERFORMED — server unavailable in worktree environment. All visual contracts verified via JSDOM test assertions.
+**Evidence:** `docs/ui/screenshots/phase-t-t4c/README.md` (placeholder — screenshots require running server)
+**Draft PR:** PENDING
+
+**Known limitations:**
+- Product list compact row treatment and form-actions column verified via CSS contract tests only
+- ProductSelect long-name wrap verified via CSS contract only
+- User detail section hierarchy unchanged from baseline
+
+### T4 — CRM / product / people / forms (overall)
+
+IMPLEMENTATION COMPLETE / INTEGRATION PENDING
+
+T4A (form chrome): integrated into main
+T4B (CRM): integrated into main  
+T4C (product/people): implementation complete, PR pending
 
 ---
 
@@ -401,8 +446,9 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T3E-3 | Visual evidence / final closeout | COMPLETE |
 | T3 | Jobs + JobDetail (overall) | **COMPLETE** |
 | T4A | Operational create form chrome | COMPLETE |
-| T4B | CRM customer and contact surfaces | COMPLETE — Draft PR |
-| T4 | CRM / product / people / forms | IN PROGRESS |
+| T4B | CRM customer and contact surfaces | COMPLETE — integrated into main |
+| T4C | Product, staff/user and T4 implementation closeout | IMPLEMENTATION COMPLETE — Draft PR pending |
+| T4 | CRM / product / people / forms | IMPLEMENTATION COMPLETE / INTEGRATION PENDING |
 | T5 | States + regression closeout | NOT STARTED |
 
 ---

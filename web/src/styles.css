@@ -210,7 +210,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   inset: 0;
   z-index: 0;
 }
-.people-row p { margin: 0.2rem 0 0; color: var(--muted); }
+.people-row p { margin: 0.2rem 0 0; color: var(--muted); overflow-wrap: anywhere; }
 .people-actions { position: relative; z-index: 1; }
 .people-actions { display: flex; align-items: center; gap: 1rem; }.command-button { width: 100%; margin-top: 1rem; }
 .back-link { margin: 1rem; min-height: var(--control-height); border: 0; color: var(--accent); background: transparent; font-weight: 700; }
@@ -2211,6 +2211,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .product-facts div, .product-detail-facts div { display: grid; gap: 0.25rem; }
 .product-facts dt, .product-detail-facts dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
 .product-facts dd, .product-detail-facts dd { margin: 0; font-size: 0.875rem; overflow-wrap: anywhere; }
+.product-detail-facts dd { overflow-wrap: anywhere; }
 .product-row-commands {
   display: flex;
   flex-wrap: wrap;
@@ -2265,6 +2266,43 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .product-select-list button span { color: var(--muted); font-size: 0.8rem; }
 .product-select-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
 .product-select-pagination span { color: var(--muted); font-size: 0.875rem; font-variant-numeric: tabular-nums; }
+
+/* T4C: product identity and metadata wrap */
+.product-identity h2 { margin: 0.45rem 0 0; font-size: 1rem; overflow-wrap: anywhere; }
+.product-identity p { margin: 0.2rem 0 0; color: var(--muted); overflow-wrap: anywhere; }
+.product-detail h1 { overflow-wrap: anywhere; }
+
+/* T4C: compact form-actions column for product and people forms */
+@media (max-width: 40rem) {
+  .product-form .form-actions,
+  .people-form .form-actions {
+    flex-direction: column;
+  }
+  .product-form .form-actions button,
+  .people-form .form-actions button {
+    width: 100%;
+  }
+}
+
+/* T4C: product row compact single-column at narrow widths */
+@media (max-width: 47rem) {
+  .product-row {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0.75rem;
+  }
+  .product-row-commands {
+    justify-content: flex-start;
+  }
+}
+
+/* T4C: user detail heading wrap */
+.people-form .detail-heading h1 { overflow-wrap: anywhere; }
+
+/* T4C: product create heading wrap */
+.product-create .create-heading h1 { overflow-wrap: anywhere; }
+
+/* T4C: staff profile heading actions wrap */
+.people-actions { flex-wrap: wrap; }
 
 @media (max-width: 80rem) {
   .structured-job-row { grid-template-columns: minmax(0, 1fr) auto; }

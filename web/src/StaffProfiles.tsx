@@ -56,13 +56,14 @@ export function StaffProfileEditView({ profile: initial, managers, onBack, onCha
       phone: String(data.get('phone') ?? '') || null, region: String(data.get('region') ?? '') || null, managerUserId: String(data.get('managerUserId') ?? '') || null });
       setProfile(updated); onChanged(updated); setNotice('Personel profili güncellendi.'); }
     catch (e) { setError(e instanceof Error ? e.message : 'Profil güncellenemedi.'); } finally { setPending(false); } }
-  return <main className="people-form"><div className="detail-heading"><div><p className="eyebrow">Personel</p><h1>{profile.user.name}</h1></div><div className="people-actions">{onOpenReport && <button className="secondary-button" onClick={onOpenReport}>Operasyon raporunu aç</button>}<button className="secondary-button" onClick={onBack}>Listeye dön</button></div></div>
+  return <main className="people-form"><div className="detail-heading"><div><p className="eyebrow">Personel</p><h1>{profile.user.name}</h1></div><div className="people-actions">{onOpenReport && <button className="secondary-button" onClick={onOpenReport}>Operasyon raporunu aç</button>}</div></div>
     {error && <div className="form-error" role="alert">{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     <form onSubmit={submit}><label className="field-group">Unvan<input name="title" defaultValue={profile.title ?? ''} disabled={pending} /></label>
       <label className="field-group">Telefon<input name="phone" type="tel" defaultValue={profile.phone ?? ''} disabled={pending} /></label>
       <label className="field-group">Bölge<input name="region" defaultValue={profile.region ?? ''} disabled={pending} /></label>
       <label className="field-group">Yönetici<select name="managerUserId" defaultValue={profile.managerUserId ?? ''} disabled={pending}><option value="">Atanmadı</option>{managers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
-      <button className="primary-button" disabled={pending}>{pending ? 'Kaydediliyor…' : 'Profili kaydet'}</button></form>
+      <div className="form-actions"><button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button>
+      <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'Kaydediliyor…' : 'Profili kaydet'}</button></div></form>
   </main>;
 }
 
