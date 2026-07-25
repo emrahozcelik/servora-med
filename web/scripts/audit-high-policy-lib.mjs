@@ -208,20 +208,20 @@ export function evaluateVulnerabilityChain({
     return result;
   }
 
-  // Validate shape
-  const shapeErr = validateVulnShape(vuln);
-  if (shapeErr) {
-    const result = { allowed: false, reason: `${packageName}: ${shapeErr}` };
-    resolved.set(packageName, result);
-    return result;
-  }
-
   // Vulnerability map key must equal vulnerability name
   if (vuln.name !== packageName) {
     const result = {
       allowed: false,
       reason: `vulnerability key/name mismatch: key=${packageName}, name=${vuln.name}`,
     };
+    resolved.set(packageName, result);
+    return result;
+  }
+
+  // Validate shape
+  const shapeErr = validateVulnShape(vuln);
+  if (shapeErr) {
+    const result = { allowed: false, reason: `${packageName}: ${shapeErr}` };
     resolved.set(packageName, result);
     return result;
   }
