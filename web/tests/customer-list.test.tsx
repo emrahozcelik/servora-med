@@ -143,6 +143,60 @@ describe('Customer list and creation', () => {
     expect(form).toContain('role="alert"'); expect(form).toContain('tabindex="-1"');
   });
 
+  it('renders exactly one primary create-customer command in the workspace heading', () => {
+    const html = list({ kind: 'ready', customers: [] }, manager);
+    const primaryMatches = [...html.matchAll(/class="primary-button[^"]*"[^>]*>/g)];
+    const createButtons = primaryMatches.filter((m) => html.slice(m.index! - 40, m.index! + 80).includes('Yeni müşteri'));
+    expect(createButtons).toHaveLength(1);
+  });
+
+  it('uses create-heading and form-actions with Cancel-before-Submit DOM order in CustomerCreateForm', () => {
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <CustomerCreateForm
+          staff={[profile]}
+          pending={false}
+          similarCustomers={[]}
+          onCancel={() => {}}
+          onSubmit={(event) => event.preventDefault()}
+        />
+      </MemoryRouter>,
+    );
+    expect(html).toContain('class="create-heading"');
+    expect(html).not.toContain('class="detail-heading"');
+
+    // Exactly one Cancel button inside form-actions
+    const cancelMatches = [...html.matchAll(/Vazgeç/g)];
+    expect(cancelMatches).toHaveLength(1);
+
+    // DOM order: Cancel secondary first, Submit primary second inside form-actions
+    const formActionsMatch = html.match(/<div class="form-actions">.*?<\/div>/s);
+    expect(formActionsMatch).toBeTruthy();
+    const faContent = formActionsMatch![0];
+    const cancelIdx = faContent.indexOf('secondary-button');
+    const submitIdx = faContent.indexOf('primary-button');
+    expect(cancelIdx).toBeGreaterThan(0);
+    expect(submitIdx).toBeGreaterThan(cancelIdx);
+  });
+
+  it('shows stable customer-row information hierarchy: signals → title → location → facts → commands', () => {
+    const html = list({ kind: 'ready', customers: [customer] }, manager);
+    const row = html.match(/<article[^>]*customer-row[^>]*>[\s\S]*?<\/article>/);
+    expect(row).toBeTruthy();
+    const rowContent = row![0];
+    // Order within row: signals container → h2 title → location p → facts dl → commands div
+    const signalsIdx = rowContent.indexOf('customer-signals');
+    const titleIdx = rowContent.indexOf('customer-title-link');
+    const locationIdx = rowContent.indexOf('İstanbul');
+    const factsIdx = rowContent.indexOf('customer-facts');
+    const commandsIdx = rowContent.indexOf('customer-row-commands');
+    expect(signalsIdx).toBeGreaterThan(0);
+    expect(titleIdx).toBeGreaterThan(signalsIdx);
+    expect(locationIdx).toBeGreaterThan(titleIdx);
+    expect(factsIdx).toBeGreaterThan(locationIdx);
+    expect(commandsIdx).toBeGreaterThan(factsIdx);
+  });
+
   it('refetches after an unknown create result without claiming a same-name Customer identity', async () => {
     const create = vi.fn().mockRejectedValue(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı koptu.', true));
     const refetch = vi.fn().mockResolvedValue({ items: [customer], total: 1, limit: 25, offset: 0 });
