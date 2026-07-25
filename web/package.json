@@ -14,7 +14,8 @@
     "test": "vitest",
     "smoke:responsive": "node scripts/responsive-smoke.mjs",
     "bundle:report": "node scripts/report-bundle-sizes.mjs",
-    "bundle:check": "BUNDLE_ENFORCE=1 node scripts/report-bundle-sizes.mjs"
+    "bundle:check": "BUNDLE_ENFORCE=1 node scripts/report-bundle-sizes.mjs",
+    "audit:high": "node scripts/audit-high-policy.mjs"
   },
   "dependencies": {
     "antd": "6.5.1",
