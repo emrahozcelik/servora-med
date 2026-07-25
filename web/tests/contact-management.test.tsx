@@ -55,7 +55,12 @@ describe('Contact management', () => {
   it('uses form-actions with Cancel-before-Save DOM order in ContactDetailView edit form', () => {
     const html = renderToStaticMarkup(<ContactDetailView contact={secondary} customerName="Demo Klinik" pending={false}
       error="" notice="" onBack={() => {}} onSave={() => {}} onMakePrimary={() => {}} />);
-    expect(html).toContain('class="form-actions"');
+    // Contact edit form carries record-form so compact column CSS can reach it.
+    expect(html).toContain('class="record-form"');
+    // Exactly one form-actions region inside the edit form.
+    const formActionsMatches = [...html.matchAll(/class="form-actions"/g)];
+    expect(formActionsMatches).toHaveLength(1);
+    // Cancel (secondary, type=button) before Save (primary, type=submit) in DOM.
     const cancelIdx = html.indexOf('secondary-button');
     const saveIdx = html.indexOf('primary-button');
     expect(cancelIdx).toBeGreaterThan(0);
