@@ -167,11 +167,11 @@ button:disabled { cursor: wait; opacity: 0.65; }
   overflow-wrap: anywhere;
 }
 .password-signout { width: 100%; margin-top: 0.75rem; }
-/* Stacked form footers keep full-width primary without a React Button abstraction. */
+/* Stacked form footers keep full-width primary without a React Button abstraction.
+   T4A operational forms (task-form, delivery-form) use .form-actions which owns its own
+   margin/padding/gap — the primary button inside is content-width, not stretched. */
 .login-form-wrap .primary-button,
-.people-form form > .primary-button,
-.task-form .form-actions .primary-button,
-.delivery-form .form-actions .primary-button {
+.people-form form > .primary-button {
   width: 100%;
   margin-top: 1.5rem;
 }
@@ -2404,6 +2404,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .customer-row-commands > * { width: 100%; }
   .customer-form-pair { grid-template-columns: 1fr; gap: 0; }
   .form-actions { align-items: stretch; flex-direction: column-reverse; }
+  /* T4A repair: operational forms use column so DOM/tab order matches visual order (Cancel first). */
+  .task-form .form-actions,
+  .delivery-form .form-actions { flex-direction: column; }
   .form-actions button { width: 100%; }
   .customer-detail { margin-top: 1rem; }
   .record-facts, .job-summary-grid { grid-template-columns: 1fr; }

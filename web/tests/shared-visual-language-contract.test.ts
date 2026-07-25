@@ -299,4 +299,33 @@ describe('shared visual language adoption (T1B)', () => {
       /@media \(max-width: 720px\)[\s\S]*\.form-actions button\s*\{[^}]*width:\s*100%;/s,
     );
   });
+
+  it('keeps operational form footer primary buttons content-width on desktop (T4A repair)', () => {
+    // T4A repair: primary buttons inside .form-actions must not inherit stacked-footer full-width.
+    expect(stylesCss).not.toMatch(
+      /\.task-form .form-actions .primary-button[^{]*\{[^}]*width:\s*100%;[^}]*margin-top:\s*1\.5rem;/s,
+    );
+    expect(stylesCss).not.toMatch(
+      /\.delivery-form .form-actions .primary-button[^{]*\{[^}]*width:\s*100%;[^}]*margin-top:\s*1\.5rem;/s,
+    );
+    // The only full-width primary footers are login and people-form.
+    expect(stylesCss).toMatch(
+      /\.login-form-wrap \.primary-button,\s*\.people-form form > \.primary-button\s*\{[^}]*width:\s*100%;[^}]*margin-top:\s*1\.5rem;/s,
+    );
+  });
+
+  it('uses column layout for operational form footers at compact width (T4A repair)', () => {
+    // T4A repair: scoped column so DOM/tab order matches visual order (Cancel first).
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.task-form .form-actions,\s*\.delivery-form .form-actions\s*\{[^}]*flex-direction:\s*column;/s,
+    );
+    // Generic .form-actions still uses column-reverse for non-T4A consumers.
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.form-actions\s*\{[^}]*flex-direction:\s*column-reverse;/s,
+    );
+    // All .form-actions buttons remain full-width at compact width.
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.form-actions button\s*\{[^}]*width:\s*100%;/s,
+    );
+  });
 });

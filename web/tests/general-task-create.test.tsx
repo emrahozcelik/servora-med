@@ -330,10 +330,17 @@ describe('General Task quick create', () => {
     expect(container.querySelector('.delivery-heading')).toBeNull();
     const actions = container.querySelector('.form-actions');
     expect(actions).toBeTruthy();
+    // Heading must not contain the cancel button.
+    expect(container.querySelector('.create-heading [data-cancel-task]')).toBeNull();
+    // Action footer contains both buttons with expected hooks.
     expect(actions!.querySelectorAll('.secondary-button').length).toBe(1);
     expect(actions!.querySelectorAll('.primary-button').length).toBe(1);
     expect(actions!.querySelector('[data-cancel-task]')).toBeTruthy();
     expect(actions!.querySelector('[type="submit"]')).toBeTruthy();
-    expect(container.querySelector('.create-heading [data-cancel-task]')).toBeNull();
+    // DOM order: secondary cancel first, primary submit second.
+    const buttons = actions!.querySelectorAll('button');
+    expect(buttons[0]?.classList.contains('secondary-button')).toBe(true);
+    expect(buttons[0]?.textContent).toBe('Vazgeç');
+    expect(buttons[1]?.classList.contains('primary-button')).toBe(true);
   });
 });
