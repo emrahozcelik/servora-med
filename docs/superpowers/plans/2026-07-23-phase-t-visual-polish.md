@@ -35,12 +35,12 @@ T2 AppShell and navigation polish: COMPLETE
   T2A desktop shell hierarchy / workspace: COMPLETE
   T2B mobile chrome / drawer: COMPLETE
   T2C notification shell polish + closeout: COMPLETE
-T3 Jobs and JobDetail polish: IN PROGRESS
+T3 Jobs and JobDetail polish: COMPLETE
   T3A Jobs workspace / filters / state surfaces: COMPLETE
   T3B Job list rows / action hierarchy: COMPLETE
   T3C Job board lanes / responsive geometry: COMPLETE
   T3D JobDetail information / workflow hierarchy: COMPLETE
-  T3E Decisions / notes / timeline / T3 closeout: NOT STARTED
+  T3E Decisions / notes / timeline / T3 closeout: COMPLETE
 T4 CRM/product/staff/forms polish: NOT STARTED
 T5 states and visual regression: NOT STARTED
 
@@ -244,7 +244,7 @@ Non-work: Notification API/SSE/Web Push behavior, AppShell/nav redesign, Jobs/bo
 
 ## T3 — Jobs workspace and JobDetail
 
-**Status:** IN PROGRESS
+**Status:** COMPLETE
 
 List/board, filters, workflow hierarchy, notes/timeline, approval/revision, Jobs empty/error dialect. Deliver as five narrow PRs: T3A–T3E. P0 is already COMPLETE.
 
@@ -309,6 +309,36 @@ Non-work for T3D: decision panel visual polish (T3E), notes/timeline API, manage
 
 ---
 
+### T3E — Decisions, notes, timeline and T3 closeout
+
+**Status:** COMPLETE
+**Branch:** `feat/phase-t-job-detail-decisions-closeout`
+**PR:** #64 (Draft)
+
+- Decision and approval hierarchy: primary → secondary → CANCEL destructive presentation only; record-edit separated after lifecycle divider
+- Manager approval review: `surface-raised` + section heading; instruction emphasis; DOM before decision actions
+- Revision grammar: lifecycle / expected-role / next-action hooks; long reason wrap
+- Terminal/cancelled: neutral surface; single-column facts; not error-styled completion
+- Notes hierarchy: `.job-note-body` / `.job-note-meta` wrap contracts; API/clientActionId unchanged
+- Timeline hierarchy: activity class hooks; location privacy preserved; full-width desktop
+- Responsive/accessibility contracts expanded in tests
+- Browser verification: Playwright synthetic fixtures + `npm run smoke:responsive`
+- Synthetic screenshot evidence: `docs/ui/screenshots/phase-t-t3/`
+- T3E-3 closeout:
+  - Exact-head: `57a43c78` (local = remote)
+  - Full local validation: 865 tests PASS (85 files), build PASS, smoke:responsive PASS
+  - Independent review: PASS (no scope creep, no server/API changes, no SSE/notification changes)
+  - Browser verification: CONDITIONAL PASS (pre-existing step label wrap at 1024px — not a T3E regression)
+  - Console/network: clean
+  - Screenshot evidence: 11 synthetic PII-free captures across all T3 states/viewports
+  - PR #64 body finalized with factual summary
+
+Non-work for T3E: server / permissions / allowedCommands, notes/timeline API/SSE, AppShell, Notification Center, T4 forms, T5 global states.
+
+T3 overall: **COMPLETE** after this closeout lands on main.
+
+---
+
 ## T4 — CRM, product, staff/user + forms
 
 **Status:** NOT STARTED
@@ -342,8 +372,11 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T3B | Job list rows / actions | **COMPLETE** |
 | T3C | Job board lanes / geometry | **COMPLETE** |
 | T3D | JobDetail hierarchy | **COMPLETE** |
-| T3E | Decisions / notes / timeline / closeout | NOT STARTED |
-| T3 | Jobs + JobDetail (overall) | **IN PROGRESS** |
+| T3E | Decisions / notes / timeline / closeout | **COMPLETE** |
+| T3E-2A | Revision / terminal grammar + feedback checkpoint | COMPLETE |
+| T3E-2B | Notes + Timeline visual hierarchy contract | COMPLETE |
+| T3E-3 | Visual evidence / final closeout | COMPLETE |
+| T3 | Jobs + JobDetail (overall) | **COMPLETE** |
 | T4 | CRM / product / people / forms | NOT STARTED |
 | T5 | States + regression closeout | NOT STARTED |
 

@@ -18,13 +18,13 @@ export function ActivityTimeline({ items }: {
     className="servora-activity-timeline"
     items={items.map((item) => ({
       key: item.key,
-      title: <strong>{item.action}</strong>,
+      title: <strong className="activity-timeline-action">{item.action}</strong>,
       content: <article data-activity-id={item.key}>
-        {item.detail && <p>{item.detail}</p>}
-        {item.reason && <p className="timeline-reason"><strong>Neden:</strong> {item.reason}</p>}
-        <footer>
-          <span>{item.actor}</span>
-          <time dateTime={item.occurredAt}>{item.occurredAtLabel}</time>
+        {item.detail && <p className="activity-timeline-detail">{item.detail}</p>}
+        {item.reason && <p className="timeline-reason activity-timeline-reason"><strong>Neden:</strong> {item.reason}</p>}
+        <footer className="activity-timeline-meta">
+          <span className="activity-timeline-actor">{item.actor}</span>
+          <time className="activity-timeline-time" dateTime={item.occurredAt}>{item.occurredAtLabel}</time>
         </footer>
       </article>,
     }))}

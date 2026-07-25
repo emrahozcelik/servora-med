@@ -189,6 +189,56 @@ describe('safe JobCard timeline', () => {
     expect(host.textContent).not.toMatch(/oldValue|metadata|clientActionId/);
   });
 
+  it('provides stable activity-timeline-action and activity-timeline-detail hooks', async () => {
+    const activity: JobCardActivity = {
+      id: 'a1', jobCardId: 'job-1', eventType: 'JOB_STARTED',
+      actor: { id: 'staff-1', name: 'Ayşe Personel' },
+      details: { kind: 'STATUS_TRANSITION', fromStatus: 'PLANNED', toStatus: 'IN_PROGRESS', reason: 'Test nedeni' },
+      createdAt: '2026-07-14T08:00:00.000Z',
+    };
+    await act(async () => root.render(<JobTimeline jobId="job-1" load={vi.fn().mockResolvedValue(page([activity]))} />));
+    await act(async () => { await Promise.resolve(); });
+    const action = host.querySelector('.activity-timeline-action');
+    expect(action).not.toBeNull();
+    expect(action?.textContent).toBe('İş başlatıldı');
+    const detail = host.querySelector('.activity-timeline-detail');
+    expect(detail).not.toBeNull();
+    expect(detail?.textContent).toContain('Planlandı');
+    const reason = host.querySelector('.activity-timeline-reason');
+    expect(reason).not.toBeNull();
+  });
+
+  it('provides stable activity-timeline-actor and activity-timeline-time hooks', async () => {
+    const activity: JobCardActivity = {
+      id: 'a1', jobCardId: 'job-1', eventType: 'JOB_CREATED', actor: null,
+      details: { kind: 'NONE' }, createdAt: '2026-07-14T08:00:00.000Z',
+    };
+    await act(async () => root.render(<JobTimeline jobId="job-1" load={vi.fn().mockResolvedValue(page([activity]))} />));
+    await act(async () => { await Promise.resolve(); });
+    const actor = host.querySelector('.activity-timeline-actor');
+    expect(actor).not.toBeNull();
+    expect(actor?.textContent).toBe('Sistem');
+    const time = host.querySelector('.activity-timeline-time');
+    expect(time).not.toBeNull();
+    expect(time?.getAttribute('datetime')).toBe('2026-07-14T08:00:00.000Z');
+  });
+
+  it('wraps timeline items in a stable activity-timeline-meta footer', async () => {
+    const activity: JobCardActivity = {
+      id: 'a1', jobCardId: 'job-1', eventType: 'JOB_CREATED', actor: null,
+      details: { kind: 'NONE' }, createdAt: '2026-07-14T08:00:00.000Z',
+    };
+    await act(async () => root.render(<JobTimeline jobId="job-1" load={vi.fn().mockResolvedValue(page([activity]))} />));
+    await act(async () => { await Promise.resolve(); });
+    const meta = host.querySelector('.activity-timeline-meta');
+    expect(meta).not.toBeNull();
+    const actor = meta?.querySelector('.activity-timeline-actor');
+    expect(actor).not.toBeNull();
+    const time = meta?.querySelector('.activity-timeline-time');
+    expect(time).not.toBeNull();
+    expect(actor?.compareDocumentPosition(time!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('labels JOB_ACCEPTED and historical JOB_PLANNED transitions safely', async () => {
     const activities: JobCardActivity[] = [
       {

@@ -105,10 +105,21 @@ export function RevisionLoopPanel(props: {
       data-job-workflow-panel="revision"
     >
       <h2 id="revision-loop-title">Düzeltme gerekiyor</h2>
-      <p>Yönetici kontrolünden uygulamaya geri gönderildi. Önce düzeltmeye başlayın; tamamladığınızda yeniden kontrole gönderin.</p>
+      <p className="revision-description">
+        <span className="revision-hook" data-revision-context="lifecycle">
+          Yönetici kontrolünden uygulamaya geri gönderildi.
+        </span>
+        {' '}
+        <span className="revision-hook" data-revision-context="expected-role">
+          Personelin düzeltmeyi başlatması bekleniyor.
+        </span>
+      </p>
+      <p className="revision-next-action-hook" data-revision-context="next-action">
+        Önce düzeltmeye başlayın; tamamladığınızda yeniden kontrole gönderin.
+      </p>
       <p className="revision-loop-reason">
         <span className="revision-loop-reason-label">Düzeltme nedeni</span>
-        <span>{loop.reason?.trim() ? loop.reason : 'Bilgi kaydedilmemiş'}</span>
+        <span className="revision-loop-reason-value">{loop.reason?.trim() ? loop.reason : 'Bilgi kaydedilmemiş'}</span>
       </p>
       <dl className="revision-loop-facts">
         <div><dt>Düzeltme isteyen</dt><dd>{loop.actorName ?? 'Bilgi kaydedilmemiş'}</dd></div>

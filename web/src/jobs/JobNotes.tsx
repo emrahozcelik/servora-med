@@ -119,7 +119,7 @@ export function JobNotes({
     {state.kind === 'ready' && (state.page.items.length === 0
       ? <p className="detail-empty">Henüz iş notu yok.</p>
       : <ul className="job-note-list">{state.page.items.map((note) => <li key={note.id}>
-        <p>{note.note}</p><div><strong>{note.author.name}</strong>
+        <p className="job-note-body">{note.note}</p><div className="job-note-meta"><strong>{note.author.name}</strong>
           <time dateTime={note.createdAt}>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(note.createdAt))}</time></div>
       </li>)}</ul>)}
     {state.kind === 'ready' && state.page.total > state.page.limit && <nav className="job-pagination" aria-label="Not sayfaları">

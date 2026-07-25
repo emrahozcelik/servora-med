@@ -142,6 +142,23 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .destructive-button:hover:not(:disabled) {
   background: var(--error-soft);
 }
+/* T3E: decision panel scoped destructive hierarchy */
+.review-buttons .destructive-button {
+  background: oklch(97% 0.012 28deg);
+  border-color: oklch(72% 0.12 28deg);
+  font-weight: 700;
+}
+.review-buttons .destructive-button:hover:not(:disabled) {
+  background: var(--error-soft);
+  border-color: oklch(65% 0.14 28deg);
+}
+.destructive-button.compact-button {
+  min-width: 7.5rem;
+  min-height: 2.5rem;
+  padding: 0.55rem 0.85rem;
+  margin-top: 0;
+  width: auto;
+}
 .btn-sm, .compact-button { min-width: 7.5rem; min-height: 2.5rem; padding: 0.55rem 0.85rem; margin-top: 0; width: auto; }
 .btn-md { min-height: var(--control-height); }
 .form-help {
@@ -1745,13 +1762,43 @@ button:disabled { cursor: wait; opacity: 0.65; }
   margin-top: 1.5rem;
 }
 .detail-action p { max-width: 55ch; margin: 0; color: var(--muted); line-height: 1.55; }
+.detail-action > p:first-of-type { margin-top: 0; }
 .detail-action .start-location-notice {
   padding: 0.75rem 0.875rem;
   border-left: 3px solid var(--accent);
   background: var(--accent-soft);
   overflow-wrap: anywhere;
 }
-.review-buttons { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 0.75rem; }
+.detail-action-consequence {
+  margin: 0 0 0.65rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+  line-height: 1.5;
+  overflow-wrap: anywhere;
+}
+.detail-action-record-edit {
+  margin-top: 0.75rem;
+}
+.detail-action-lifecycle-end {
+  margin: 0 0 0.85rem;
+  border: 0;
+  border-top: 1px solid var(--rule);
+}
+.review-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 0.65rem;
+}
+.review-buttons .primary-button {
+  order: 0;
+}
+.review-buttons .secondary-button {
+  order: 1;
+}
+.review-buttons .destructive-button {
+  order: 2;
+}
 .compact-workflow {
   display: grid;
   gap: 0.2rem;
@@ -1851,7 +1898,22 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 .revision-loop-reason {
   display: grid;
+  min-width: 0;
   gap: 0.25rem;
+}
+
+.revision-loop-reason-value {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+.revision-hook[data-revision-context] {
+  display: inline;
+}
+.revision-hook[data-revision-context="expected-role"] {
+  font-weight: 650;
+}
+.revision-next-action-hook {
+  margin-top: 0.55rem;
 }
 .revision-loop-reason-label {
   color: var(--muted);
@@ -1876,8 +1938,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   background: var(--success-soft);
 }
 .cancelled-job-banner {
-  border-color: oklch(78% 0.07 28deg);
-  background: var(--error-soft);
+  border-color: oklch(82% 0.04 60deg);
+  background: oklch(97% 0.01 60deg);
 }
 .cancelled-job-facts {
   display: grid;
@@ -1956,13 +2018,24 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-notes form { max-width: 38rem; }
 .job-note-list { padding: 0; margin: 1.25rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
 .job-note-list li { padding-block: 1rem; border-bottom: 1px solid var(--rule); }
+.job-note-body { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
+.job-note-meta { display: flex; align-items: baseline; flex-wrap: wrap; gap: 0.5rem 1rem; min-width: 0; }
+.job-note-meta strong { color: var(--muted); font-size: 0.85rem; font-weight: 680; }
 .job-note-list p { margin: 0 0 0.6rem; white-space: pre-wrap; }
 .job-note-list li > div { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; }
+.job-note-list li > div strong { color: var(--muted); font-size: 0.85rem; font-weight: 680; }
 .servora-activity-timeline { min-width: 0; margin-top: 1.25rem; }
 .servora-activity-timeline article { min-width: 0; }
 .servora-activity-timeline article p { overflow-wrap: anywhere; }
 .servora-activity-timeline article footer { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; }
 .servora-activity-timeline article footer > * { min-width: 0; overflow-wrap: anywhere; }
+.activity-timeline-action { font-weight: 700; }
+.activity-timeline-detail { min-width: 0; overflow-wrap: anywhere; }
+.activity-timeline-reason { min-width: 0; overflow-wrap: anywhere; }
+.activity-timeline-meta { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0.5rem 1rem; min-width: 0; }
+.activity-timeline-meta > * { min-width: 0; overflow-wrap: anywhere; }
+.activity-timeline-actor { color: var(--muted); font-size: 0.85rem; }
+.activity-timeline-time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
 .timeline-reason { margin: 0.15rem 0 0; color: var(--ink); font-size: 0.875rem; line-height: 1.4; overflow-wrap: anywhere; }
 .timeline-reason strong { font-weight: 650; }
 .job-note-list time, .servora-activity-timeline time { color: var(--muted); font-size: 0.8rem; font-variant-numeric: tabular-nums; }
@@ -2009,7 +2082,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   color: var(--muted);
   font-size: 0.9rem;
 }
-.approval-review-instruction { margin: 0; font-weight: 680; line-height: 1.5; }
+.approval-review-instruction { margin: 0; padding: 0.7rem 0.85rem; border-left: 3px solid var(--accent); background: var(--accent-soft); font-weight: 680; font-size: 0.9rem; line-height: 1.5; overflow-wrap: anywhere; }
 
 .customer-workspace { margin-top: 2rem; }
 .customer-filters { display: grid; grid-template-columns: minmax(12rem, 1.5fr) repeat(4, minmax(9rem, 0.75fr)); gap: 0.9rem; align-items: end; margin-bottom: 2rem; padding-block: 1rem 1.25rem; border-block: 1px solid var(--rule); }
@@ -2259,7 +2332,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .login-introduction { min-height: auto; padding: 1rem; border-right: 0; border-bottom: 1px solid var(--rule); }
   .login-context, .context-note { display: none; }
   .login-panel { min-height: calc(100vh - 4.1rem); place-items: start center; padding: clamp(2.5rem, 12vh, 5rem) 1rem 2rem; }
-  .primary-button, .secondary-button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
+  .primary-button, .secondary-button, .destructive-button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
   .delivery-heading > div, .brand-lockup { min-width: 0; }
   .delivery-heading h1, .brand-lockup span { overflow-wrap: anywhere; }
   .workspace { margin-top: 2rem; }
@@ -2287,13 +2360,13 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .delivery-line-facts div:last-child { grid-column: 1 / -1; }
   .detail-action { align-items: stretch; flex-direction: column; }
   .detail-action .primary-button { width: 100%; }
+  .detail-action .destructive-button { width: 100%; }
   .servora-workflow-steps { padding: 0.9rem; }
-  .cancelled-job-facts { grid-template-columns: 1fr; }
-  .revision-loop-facts, .completed-job-facts { grid-template-columns: 1fr; }
+  .revision-loop-facts, .completed-job-facts, .cancelled-job-facts { grid-template-columns: 1fr; }
   .workflow-requirement { grid-template-columns: 1.35rem minmax(0, 1fr); }
   .workflow-requirement-state { grid-column: 2; }
   .job-note-list li > div { align-items: flex-start; flex-direction: column; gap: 0.25rem; }
-  .review-buttons { align-items: stretch; flex-direction: column-reverse; }
+  .review-buttons { align-items: stretch; flex-direction: column; }
   .review-buttons button { width: 100%; }
   .approval-review-summary { grid-template-columns: 1fr; }
   .people-row { align-items: stretch; flex-direction: column; }

@@ -533,6 +533,42 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi.');
   });
 
+  it('renders revision lifecycle context and expected owner in the panel structure', async () => {
+    await renderDetail(revisionRequestedJob({ revisionReason: 'İkinci miktarı düzeltin' }));
+    const revision = host.querySelector('.revision-loop')!;
+    expect(revision).not.toBeNull();
+    // Lifecycle context hook: shows the revision flow path
+    const lifecycleHook = revision.querySelector('[data-revision-context="lifecycle"]');
+    expect(lifecycleHook).not.toBeNull();
+    expect(lifecycleHook?.textContent).toMatch(/Yönetici kontrolünden|Uygulama/);
+    // Expected owner/role hook
+    const roleHook = revision.querySelector('[data-revision-context="expected-role"]');
+    expect(roleHook).not.toBeNull();
+    // Next-action context hook
+    const actionHook = revision.querySelector('[data-revision-context="next-action"]');
+    expect(actionHook).not.toBeNull();
+    // Long unwrappable reason is fully rendered and carries the CSS wrap hook.
+    // This test verifies the value is present and the hook exists; actual wrapping
+    // is a CSS contract verified in shared-visual-language-contract.test.ts.
+    const longReason = 'REVISION_REASON_' + 'X'.repeat(200);
+    await act(async () => root.unmount());
+    host.remove();
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={revisionRequestedJob({ revisionReason: longReason })}
+        items={[]} user={staffUser}
+        pending={false} message=""
+        onBack={() => {}} onCommand={() => {}}
+      />);
+    });
+    const valueEl = host.querySelector('.revision-loop-reason-value');
+    expect(valueEl).not.toBeNull();
+    expect(valueEl!.textContent).toBe(longReason);
+  });
+
   it('shows revision reason and separates resuming from resubmitting', async () => {
     await renderDetail(revisionRequestedJob({ revisionReason: 'Miktarı düzeltin' }));
     expect(Array.from(host.querySelectorAll('h2'))
@@ -961,6 +997,58 @@ describe('Staff JobCard detail', () => {
     expect(host.querySelector('time[datetime="2026-07-17T11:00:00.000Z"]')).not.toBeNull();
     expect(host.querySelector('.workflow-requirements')).toBeNull();
     expect(host.querySelector('.detail-action')).toBeNull();
+  });
+
+  it('renders terminal panel with final-state structure and metadata', async () => {
+    const completed: JobCard = {
+      ...job,
+      status: 'COMPLETED',
+      workflowContext: staffContext('COMPLETED', {
+        submittedAt: '2026-07-17T10:00:00.000Z',
+        approvedAt: '2026-07-17T11:00:00.000Z',
+        approvedBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      }, { allowedCommands: [], allowedActions: ['VIEW_NOTES'], submissionReadiness: null }),
+    };
+    await renderDetail(completed);
+    const terminal = section('terminal')!;
+    expect(terminal).not.toBeNull();
+    // Terminal has final-state label
+    expect(terminal.textContent).toContain('Tamamlandı');
+    // Terminal has result/explanation text
+    expect(terminal.textContent).toContain('İş yönetici kontrolünden geçerek tamamlandı');
+    // Terminal has metadata when available
+    expect(terminal.textContent).toContain('Mehmet Yönetici');
+    expect(terminal.querySelector('time')).not.toBeNull();
+    // No responsibility or revision when terminal
+    expect(section('responsibility')).toBeNull();
+    expect(section('revision')).toBeNull();
+    // Terminal before facts
+    const facts = section('facts')!;
+    expect(terminal.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders cancelled panel without error-like presentation', async () => {
+    await renderDetail(cancelledJob({
+      cancelledAt: '2026-07-17T12:00:00.000Z',
+      cancelledBy: { id: 'm1', name: 'Mehmet Yönetici' },
+      cancelReason: 'Müşteri vazgeçti',
+      cancelledFromStatus: 'IN_PROGRESS',
+    }));
+    const terminal = section('terminal')!;
+    expect(terminal).not.toBeNull();
+    // Terminal has final-state label
+    expect(terminal.textContent).toContain('İptal edildi');
+    // Terminal has result/explanation
+    expect(terminal.textContent).toContain('İş iptal edildi ve yeniden açılamaz');
+    // Terminal has metadata
+    expect(terminal.textContent).toContain('Mehmet Yönetici');
+    expect(terminal.textContent).toContain('Müşteri vazgeçti');
+    // No responsibility or revision
+    expect(section('responsibility')).toBeNull();
+    expect(section('revision')).toBeNull();
+    // Terminal before facts
+    const facts = section('facts')!;
+    expect(terminal.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
   it('hides Staff primary lifecycle actions when the viewer is not the assignee', async () => {

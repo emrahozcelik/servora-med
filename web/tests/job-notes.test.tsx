@@ -147,6 +147,40 @@ describe('JobCard operational notes', () => {
     expect(host.textContent).not.toContain('Henüz iş notu yok');
   });
 
+  it('provides a stable job-note-body class on note content for CSS wrap contracts', async () => {
+    const load = vi.fn().mockResolvedValue({
+      items: [savedNote], total: 1, limit: 25, offset: 0,
+    });
+    await renderNotes({ load });
+    const body = host.querySelector('.job-note-list .job-note-body');
+    expect(body).not.toBeNull();
+    expect(body?.textContent).toBe(savedNote.note);
+  });
+
+  it('groups author and time in a job-note-meta wrapper with wrap class', async () => {
+    const load = vi.fn().mockResolvedValue({
+      items: [savedNote], total: 1, limit: 25, offset: 0,
+    });
+    await renderNotes({ load });
+    const meta = host.querySelector('.job-note-list .job-note-meta');
+    expect(meta).not.toBeNull();
+    expect(meta?.querySelector('strong')?.textContent).toBe(savedNote.author.name);
+    expect(meta?.querySelector('time')).not.toBeNull();
+  });
+
+  it('keeps the composer distinct from the note list without structural overlap', async () => {
+    const load = vi.fn().mockResolvedValue({
+      items: [savedNote], total: 1, limit: 25, offset: 0,
+    });
+    await renderNotes({ load });
+    const composer = host.querySelector('.job-notes form');
+    expect(composer).not.toBeNull();
+    const list = host.querySelector('.job-note-list');
+    expect(list).not.toBeNull();
+    // Composer precedes note list in DOM order
+    expect(composer?.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
   it('returns to and reloads the first page after adding a note from a later page', async () => {
     const older = { ...savedNote, id: 'note-old', note: 'Eski sayfa notu' };
     const firstPage = { items: [{ ...savedNote, id: 'note-first', note: 'İlk sayfa notu' }], total: 30, limit: 25, offset: 0 };
