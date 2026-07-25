@@ -44,6 +44,21 @@ describe('Admin user management views', () => {
     expect(html).not.toContain('Kullanıcıyı pasifleştir');
     expect(html).not.toContain('Kullanıcıyı aktifleştir');
   });
+
+  it('user create uses create-heading and form-actions with Vazgeç before submit and no heading cancel', () => {
+    const html = renderToStaticMarkup(<UserCreateForm managers={[]} onCancel={() => {}} onCreated={() => {}} />);
+    expect(html).toContain('create-heading');
+    expect(html).not.toContain('detail-heading');
+    const actions = html.match(/form-actions/g);
+    expect(actions).toHaveLength(1);
+    const vazgecIndex = html.indexOf('Vazgeç');
+    const kullaniciOlusturIndex = html.indexOf('Kullanıcıyı oluştur');
+    expect(vazgecIndex).toBeGreaterThan(-1);
+    expect(kullaniciOlusturIndex).toBeGreaterThan(vazgecIndex);
+    // Vazgeç should appear only once (no duplicate in heading)
+    const vazgecMatches = html.match(/Vazgeç/g);
+    expect(vazgecMatches).toHaveLength(1);
+  });
 });
 
 describe('User list card interaction', () => {

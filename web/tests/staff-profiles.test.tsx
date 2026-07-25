@@ -51,6 +51,24 @@ describe('Staff profile views', () => {
     expect(first.key).toBe('staff-1');
     expect(second.key).toBe('staff-2');
   });
+
+  it('managed profile has one form-actions region with Listeye dön before Profili kaydet', () => {
+    const html = renderToStaticMarkup(<StaffProfileEditView profile={profile} managers={[]}
+      onBack={() => {}} onChanged={() => {}} onOpenReport={() => {}} />);
+    const actions = html.match(/form-actions/g);
+    expect(actions).toHaveLength(1);
+    const listeyeDonIndex = html.indexOf('Listeye dön');
+    const profiliKaydetIndex = html.indexOf('Profili kaydet');
+    expect(listeyeDonIndex).toBeGreaterThan(-1);
+    expect(profiliKaydetIndex).toBeGreaterThan(listeyeDonIndex);
+    expect(html).toContain('Operasyon raporunu aç');
+  });
+
+  it('own profile has no edit command', () => {
+    const html = renderToStaticMarkup(<OwnStaffProfileView profile={profile} onBack={() => {}} />);
+    expect(html).not.toContain('Profili düzenle');
+    expect(html).not.toContain('Profili kaydet');
+  });
 });
 
 describe('Staff directory card interaction', () => {

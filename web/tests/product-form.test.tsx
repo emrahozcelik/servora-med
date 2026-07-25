@@ -112,4 +112,27 @@ describe('Product form', () => {
     expect(sku.getAttribute('aria-describedby')).toContain('product-sku-error');
     expect(document.activeElement).toBe(sku);
   });
+
+  it('uses create-heading for new-product route and a single form-actions region with Cancel before Submit', async () => {
+    await act(async () => root.render(<ProductCreateScreen onCancel={() => {}} onCreated={() => {}} />));
+    expect(container.querySelector('.create-heading')).toBeTruthy();
+    expect(container.querySelector('.detail-heading')).toBeFalsy();
+    const actions = container.querySelectorAll('.form-actions');
+    expect(actions).toHaveLength(1);
+    const buttons = actions[0].querySelectorAll('button');
+    expect(buttons[0].textContent).toBe('İptal');
+    expect(buttons[1].textContent).toBe('Ürün oluştur');
+  });
+
+  it('uses detail-heading for edit mode and keeps form-actions with Cancel before Save', async () => {
+    await act(async () => root.render(<ProductForm pending={false} fieldErrors={{}} error="" onCancel={() => {}} onSubmit={() => {}}
+      title="Ürünü düzenle" submitLabel="Değişiklikleri kaydet" />));
+    expect(container.querySelector('.detail-heading')).toBeTruthy();
+    expect(container.querySelector('.create-heading')).toBeFalsy();
+    const actions = container.querySelectorAll('.form-actions');
+    expect(actions).toHaveLength(1);
+    const buttons = actions[0].querySelectorAll('button');
+    expect(buttons[0].textContent).toBe('İptal');
+    expect(buttons[1].textContent).toBe('Değişiklikleri kaydet');
+  });
 });

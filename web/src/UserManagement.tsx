@@ -48,7 +48,7 @@ export function UserCreateForm({ managers, onCancel, onCreated }: { managers: Ma
       } } : {}) })); }
     catch (caught) { setError(caught instanceof Error ? caught.message : 'Kullanıcı oluşturulamadı.'); setPending(false); }
   }
-  return <main className="people-form"><div className="detail-heading"><div><p className="eyebrow">Yönetim</p><h1>Kullanıcı oluştur</h1></div><button className="secondary-button" onClick={onCancel}>Vazgeç</button></div>
+  return <main className="people-form"><div className="create-heading"><div><h1>Kullanıcı oluştur</h1></div></div>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     <form onSubmit={submit}><Field id="user-name" label="Ad soyad"><input id="user-name" name="name" required disabled={pending} /></Field>
       <Field id="user-email" label="E-posta"><input id="user-email" name="email" type="email" required disabled={pending} /></Field>
@@ -60,7 +60,8 @@ export function UserCreateForm({ managers, onCancel, onCreated }: { managers: Ma
         <Field id="staff-phone" label="Telefon"><input id="staff-phone" name="phone" type="tel" /></Field>
         <Field id="staff-region" label="Bölge"><input id="staff-region" name="region" /></Field>
         <Field id="staff-manager" label="Yönetici"><select id="staff-manager" name="managerUserId"><option value="">Atanmadı</option>{managers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></Field></>}
-      <button className="primary-button" disabled={pending}>{pending ? 'Oluşturuluyor…' : 'Kullanıcıyı oluştur'}</button></form>
+      <div className="form-actions"><button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
+      <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'Oluşturuluyor…' : 'Kullanıcıyı oluştur'}</button></div></form>
   </main>;
 }
 
