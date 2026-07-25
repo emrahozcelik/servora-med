@@ -10,8 +10,8 @@ describe('button CSS contract', () => {
     expect(css).toContain('.primary-button.btn-full');
     expect(css).toMatch(/\.login-form-wrap \.primary-button/);
     expect(css).toMatch(/\.people-form form > \.primary-button/);
-    expect(css).toMatch(/\.task-form > \.primary-button/);
-    expect(css).toMatch(/\.delivery-form > \.primary-button/);
+    expect(css).toMatch(/\.task-form .form-actions .primary-button/);
+    expect(css).toMatch(/\.delivery-form .form-actions .primary-button/);
   });
 
   it('maps compact-button to small size without forcing full width', () => {

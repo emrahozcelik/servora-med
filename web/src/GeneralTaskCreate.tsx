@@ -164,9 +164,8 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
   const staffUnavailable = user.role !== 'STAFF' && staffState !== 'ready';
 
   return <main className="task-create">
-    <div className="delivery-heading">
+    <div className="create-heading">
       <div><p className="eyebrow">Yeni kayıt</p><h1>Genel görev</h1></div>
-      <button data-cancel-task className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
     </div>
     <p className="form-intro">Takip edilmesi gereken işi kısa ve açık biçimde kaydedin.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
@@ -239,9 +238,12 @@ export function GeneralTaskCreateScreen({ user, onCancel, onCreated, initialCust
           </div>
         </details>
       </fieldset>
-      <button className="primary-button" type="submit" disabled={pending || staffUnavailable}>
-        {pending ? 'Görev oluşturuluyor…' : 'Görevi oluştur'}
-      </button>
+      <div className="form-actions">
+        <button data-cancel-task className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>
+        <button className="primary-button" type="submit" disabled={pending || staffUnavailable}>
+          {pending ? 'Görev oluşturuluyor…' : 'Görevi oluştur'}
+        </button>
+      </div>
     </form>
   </main>;
 }

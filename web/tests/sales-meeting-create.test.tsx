@@ -234,4 +234,18 @@ describe('Sales Meeting planning flow', () => {
     expect(jobs.createJobCard.mock.calls[1]![0].clientActionId).toBe('action-1');
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-15T11:00');
   });
+
+  it('uses the shared create-heading and form-actions contract (T4A)', async () => {
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={() => {}} /></MemoryRouter>));
+    await settle();
+    expect(container.querySelector('.create-heading')).toBeTruthy();
+    expect(container.querySelector('.delivery-heading')).toBeNull();
+    const actions = container.querySelector('.form-actions');
+    expect(actions).toBeTruthy();
+    expect(actions!.querySelectorAll('.secondary-button').length).toBe(1);
+    expect(actions!.querySelectorAll('.primary-button').length).toBe(1);
+    expect(actions!.querySelector('[data-cancel-meeting]')).toBeTruthy();
+    expect(actions!.querySelector('[type="submit"]')).toBeTruthy();
+    expect(container.querySelector('.create-heading [data-cancel-meeting]')).toBeNull();
+  });
 });

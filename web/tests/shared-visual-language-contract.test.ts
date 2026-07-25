@@ -269,4 +269,34 @@ describe('shared visual language adoption (T1B)', () => {
     const count = (mobileBlock![0].match(/\.cancelled-job-facts[^{]*\{[^}]*grid-template-columns/g) ?? []).length;
     expect(count).toBe(1);
   });
+
+  it('defines shared .create-heading contract for operational create forms', () => {
+    expect(stylesCss).toMatch(
+      /\.create-heading\s*\{[^}]*display:\s*flex;[^}]*flex-wrap:\s*wrap;[^}]*align-items:\s*end;[^}]*justify-content:\s*space-between;/s,
+    );
+    expect(stylesCss).toMatch(
+      /\.create-heading h1\s*\{[^}]*font-size:\s*1\.75rem;[^}]*letter-spacing:\s*-0\.025em;/s,
+    );
+  });
+
+  it('provides responsive wrapping and overflow-wrap for .create-heading at narrow widths', () => {
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.create-heading > div,.*min-width:\s*0;/s,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.create-heading h1,.*overflow-wrap:\s*anywhere;/s,
+    );
+  });
+
+  it('associates .form-actions with shared button gutter and mobile column-reverse', () => {
+    expect(stylesCss).toMatch(
+      /\.form-actions\s*\{[^}]*display:\s*flex;[^}]*gap:\s*0\.75rem;[^}]*margin-top:\s*1\.75rem;[^}]*padding-top:\s*1\.25rem;[^}]*border-top:\s*1px\s+solid\s+var\(--rule\);/s,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.form-actions\s*\{[^}]*flex-direction:\s*column-reverse;/s,
+    );
+    expect(stylesCss).toMatch(
+      /@media \(max-width: 720px\)[\s\S]*\.form-actions button\s*\{[^}]*width:\s*100%;/s,
+    );
+  });
 });

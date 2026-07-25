@@ -170,8 +170,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 /* Stacked form footers keep full-width primary without a React Button abstraction. */
 .login-form-wrap .primary-button,
 .people-form form > .primary-button,
-.task-form > .primary-button,
-.delivery-form > .primary-button {
+.task-form .form-actions .primary-button,
+.delivery-form .form-actions .primary-button {
   width: 100%;
   margin-top: 1.5rem;
 }
@@ -1522,6 +1522,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .new-job-menu { width: 100%; }
   .new-job-menu-trigger { width: 100%; }
 }
+.create-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
+.create-heading h1 { margin: 0; font-size: 1.75rem; letter-spacing: -0.025em; }
 .delivery-heading { display: flex; flex-wrap: wrap; align-items: end; justify-content: space-between; gap: 1rem; margin-bottom: 1.25rem; }
 .delivery-heading h1 { margin: 0; font-size: 1.75rem; letter-spacing: -0.025em; }
 .delivery-form { margin-top: 0; }
@@ -2333,8 +2335,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .login-context, .context-note { display: none; }
   .login-panel { min-height: calc(100vh - 4.1rem); place-items: start center; padding: clamp(2.5rem, 12vh, 5rem) 1rem 2rem; }
   .primary-button, .secondary-button, .destructive-button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
-  .delivery-heading > div, .brand-lockup { min-width: 0; }
-  .delivery-heading h1, .brand-lockup span { overflow-wrap: anywhere; }
+  .create-heading > div, .delivery-heading > div, .brand-lockup { min-width: 0; }
+  .create-heading h1, .delivery-heading h1, .brand-lockup span { overflow-wrap: anywhere; }
   .workspace { margin-top: 2rem; }
   .workspace-heading { align-items: flex-start; }
   .workspace-actions { align-items: flex-end; }
