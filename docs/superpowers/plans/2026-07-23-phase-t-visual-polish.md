@@ -397,8 +397,8 @@ Customer-create form adopts T4A `create-heading` + `form-actions` contract. Canc
 **Build:** SUCCESS | **Audit:** PASS | **Bundle:** PASS | **Smoke:** PASS
 
 **Browser verification:** PERFORMED — 11/11 surfaces PASS (Playwright + Chromium, synthetic data, admin + staff roles). All surfaces verified at 390px and/or 1024px viewports with zero console errors, zero horizontal overflow.
-**Evidence:** `docs/ui/screenshots/phase-t-t4c/README.md` (verification matrix)
-**Draft PR:** PENDING
+**Evidence:** `docs/ui/screenshots/phase-t-t4c/` — 12 persistent PNG screenshots + README.md, all captured from final visual code head `7fdf70b`.
+**Draft PR:** #68 (Draft) — integration into main pending
 
 **Known limitations:**
 - Product list compact row treatment and form-actions column verified via CSS contract tests only
@@ -486,7 +486,7 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T1 token language | First polish implementation after P0 or in parallel only if no file conflict |
 | Geolocation Console / controlled egress | Ops; not Phase T |
 | Production geolocation enablement | Policy gates; not Phase T |
-| Phase U assisted address entry | Soft-depends on stable form contracts from T1/T4 |
+| Phase U — separate workspace/dashboard/calendar/messaging plan | Begins only after T4 integration and its own U0 preflight; not implemented in Phase T. |
 
 ---
 
