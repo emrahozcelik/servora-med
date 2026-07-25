@@ -847,6 +847,229 @@ describe('evaluateAudit — recursive chain scenarios', () => {
   });
 });
 
+describe('evaluateAudit — metadata mandatory', () => {
+  it('metadata null → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: 2,
+        vulnerabilities: {},
+        metadata: null,
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('metadata missing');
+  });
+
+  it('metadata missing → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: 2,
+        vulnerabilities: {},
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('metadata missing');
+  });
+
+  it('metadata.vulnerabilities null → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: 2,
+        vulnerabilities: {},
+        metadata: { vulnerabilities: null },
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('metadata.vulnerabilities missing');
+  });
+
+  it('metadata.vulnerabilities missing → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: 2,
+        vulnerabilities: {},
+        metadata: {},
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('metadata.vulnerabilities missing');
+  });
+
+  it('allowed GHSA entry but metadata missing → FAIL (no fallback)', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: 2,
+        vulnerabilities: {
+          'react-router': makeVuln(),
+        },
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('metadata missing');
+  });
+
+  it('clean vulnerabilities map but metadata missing → FAIL (no fallback to 0,0)', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: 2,
+        vulnerabilities: {},
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('metadata missing');
+  });
+});
+
+describe('evaluateAudit — auditReportVersion contract', () => {
+  it('version missing → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        vulnerabilities: {},
+        metadata: { vulnerabilities: { high: 0, critical: 0 } },
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('unsupported auditReportVersion');
+  });
+
+  it('version null → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: null,
+        vulnerabilities: {},
+        metadata: { vulnerabilities: { high: 0, critical: 0 } },
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('unsupported auditReportVersion');
+  });
+
+  it('version "2" string → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: '2',
+        vulnerabilities: {},
+        metadata: { vulnerabilities: { high: 0, critical: 0 } },
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('unsupported auditReportVersion');
+  });
+
+  it('version 1 → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: 1,
+        vulnerabilities: {},
+        metadata: { vulnerabilities: { high: 0, critical: 0 } },
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('unsupported auditReportVersion');
+  });
+
+  it('version 3 → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: 3,
+        vulnerabilities: {},
+        metadata: { vulnerabilities: { high: 0, critical: 0 } },
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('unsupported auditReportVersion');
+  });
+
+  it('version 2.1 → FAIL', () => {
+    const result = evaluateAudit(
+      JSON.stringify({
+        auditReportVersion: 2.1,
+        vulnerabilities: {},
+        metadata: { vulnerabilities: { high: 0, critical: 0 } },
+      }),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('unsupported auditReportVersion');
+  });
+
+  it('version 2 → existing tests continue to work', () => {
+    // Already verified by all previous tests using makeReport()
+    // Explicit double-check:
+    const result = evaluateAudit(makeReport({}, 0, 0));
+    expect(result.pass).toBe(true);
+    expect(result.exitCode).toBe(0);
+  });
+});
+
+describe('evaluateAudit — vulnerability key/name mismatch', () => {
+  it('key react-router + name react-router → normal PASS_WITH_WAIVER', () => {
+    const result = evaluateAudit(makeReport({ 'react-router': makeVuln() }, 1, 0));
+    expect(result.pass).toBe(true);
+    expect(result.waiverApplied).toBe(true);
+  });
+
+  it('key postcss + name react-router → FAIL', () => {
+    const result = evaluateAudit(makeReport({ postcss: makeVuln({ name: 'react-router' }) }, 1, 0));
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('key/name mismatch');
+    expect(result.message).toContain('key=postcss');
+    expect(result.message).toContain('name=react-router');
+  });
+
+  it('key react-router + name react-router-dom → FAIL', () => {
+    const result = evaluateAudit(
+      makeReport({ 'react-router': makeVuln({ name: 'react-router-dom' }) }, 1, 0),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('key/name mismatch');
+    expect(result.message).toContain('key=react-router');
+    expect(result.message).toContain('name=react-router-dom');
+  });
+
+  it('via referenced key react-router but referenced name different → FAIL', () => {
+    const vulnerabilities = {
+      'react-router': makeVuln({ name: 'wrong-package-name' }),
+      'react-router-dom': makeVuln({
+        name: 'react-router-dom',
+        via: ['react-router'],
+        effects: [],
+      }),
+    };
+    const result = evaluateAudit(makeReport(vulnerabilities, 2, 0));
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    expect(result.message).toContain('key/name mismatch');
+    expect(result.message).toContain('key=react-router');
+  });
+
+  it('allowed advisory URL and allowed inner name but map key mismatch → FAIL', () => {
+    const result = evaluateAudit(
+      makeReport({
+        'not-in-allowed-set': makeVuln({ name: 'react-router' }),
+      }, 1, 0),
+    );
+    expect(result.pass).toBe(false);
+    expect(result.exitCode).toBe(1);
+    // Map key mismatch between 'not-in-allowed-set' and vuln.name 'react-router'
+    expect(result.message).toContain('key/name mismatch');
+    expect(result.message).toContain('key=not-in-allowed-set');
+  });
+});
+
 describe('evaluateAudit — malformed payload', () => {
   it('via empty array → FAIL', () => {
     const vulnerabilities = {

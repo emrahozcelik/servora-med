@@ -216,6 +216,16 @@ export function evaluateVulnerabilityChain({
     return result;
   }
 
+  // Vulnerability map key must equal vulnerability name
+  if (vuln.name !== packageName) {
+    const result = {
+      allowed: false,
+      reason: `vulnerability key/name mismatch: key=${packageName}, name=${vuln.name}`,
+    };
+    resolved.set(packageName, result);
+    return result;
+  }
+
   // Non-high/critical severities don't need waiver
   if (vuln.severity !== 'high' && vuln.severity !== 'critical') {
     const result = { allowed: true };
@@ -491,6 +501,20 @@ export function evaluateAudit(auditJson, options = {}) {
     };
   }
 
+  // auditReportVersion must be integer 2
+  if (
+    typeof report.auditReportVersion !== 'number' ||
+    !Number.isInteger(report.auditReportVersion) ||
+    report.auditReportVersion !== 2
+  ) {
+    return {
+      pass: false,
+      exitCode: 1,
+      message: `FAIL: unsupported auditReportVersion: ${report.auditReportVersion}`,
+      waiverApplied: false,
+    };
+  }
+
   // vulnerabilities must exist and be a plain object
   if (!report.vulnerabilities || typeof report.vulnerabilities !== 'object' || Array.isArray(report.vulnerabilities)) {
     return {
@@ -501,22 +525,37 @@ export function evaluateAudit(auditJson, options = {}) {
     };
   }
 
-  // Check metadata consistency
-  if (report.metadata) {
-    const metaErr = checkMetadataConsistency(report);
-    if (metaErr) {
-      return {
-        pass: false,
-        exitCode: 1,
-        message: `FAIL: metadata tutarsizligi — ${metaErr}`,
-        waiverApplied: false,
-      };
-    }
+  // metadata is mandatory
+  if (!report.metadata || typeof report.metadata !== 'object') {
+    return {
+      pass: false,
+      exitCode: 1,
+      message: 'FAIL: metadata missing — fail-closed',
+      waiverApplied: false,
+    };
   }
 
-  const { high, critical } = report.metadata
-    ? report.metadata.vulnerabilities
-    : { high: 0, critical: 0 };
+  const metaErr = checkMetadataConsistency(report);
+  if (metaErr) {
+    return {
+      pass: false,
+      exitCode: 1,
+      message: `FAIL: metadata tutarsizligi — ${metaErr}`,
+      waiverApplied: false,
+    };
+  }
+
+  // metadata.vulnerabilities must exist for reliable counting
+  if (!report.metadata.vulnerabilities || typeof report.metadata.vulnerabilities !== 'object') {
+    return {
+      pass: false,
+      exitCode: 1,
+      message: 'FAIL: metadata.vulnerabilities missing — fail-closed',
+      waiverApplied: false,
+    };
+  }
+
+  const { high, critical } = report.metadata.vulnerabilities;
 
   // Collect all high/critical entries
   const highEntries = [];
@@ -545,6 +584,16 @@ export function evaluateAudit(auditJson, options = {}) {
   const visitingGlobal = new Set();
 
   for (const [name, vuln] of highEntries) {
+    // Map key must equal vulnerability name
+    if (vuln.name !== name) {
+      return {
+        pass: false,
+        exitCode: 1,
+        message: `FAIL: vulnerability key/name mismatch: key=${name}, name=${vuln.name}`,
+        waiverApplied: false,
+      };
+    }
+
     // First check shape
     const shapeErr = validateVulnShape(vuln);
     if (shapeErr) {
