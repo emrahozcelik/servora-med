@@ -402,7 +402,7 @@ Customer-create form adopts T4A `create-heading` + `form-actions` contract. Canc
 
 **Known limitations:**
 - Product list compact row treatment and form-actions column verified via CSS contract tests only
-- ProductSelect long-name wrap verified via CSS contract only
+- ProductSelect long-name wrapping was verified in the live browser at 390 px on the final visual code head and is represented by persistent evidence.
 - User detail section hierarchy unchanged from baseline
 
 ### T4 — CRM / product / people / forms (overall)

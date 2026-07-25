@@ -4,7 +4,7 @@
 
 Branch: `feat/phase-t-t4c-product-people-closeout`
 
-Exact capture (visual code) head: `7fdf70b`
+Exact capture (visual code) head: `7fdf70bb7836f4d42f478d8e7b918b0f78c386c0`
 
 ## Verification method
 
