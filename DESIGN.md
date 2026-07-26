@@ -23,12 +23,12 @@ Motion energy is responsive: immediate press and state feedback, short transitio
 - Mobile action and desktop oversight as distinct responsive structures
 - Structured density without small-font ERP compression
 - Semantic color used only when it carries operational meaning
-- Flat by default, with elevation earned by interaction or hierarchy
+- Purpose-layered surfaces: cards, emphasis, and elevation are used when they clarify subject, urgency, or interaction
 - WCAG 2.2 Level AA as a design and completion constraint
 
 ## Colors
 
-The implemented palette uses warm, lightly tinted neutrals and a low-chroma mineral-blue accent. Values below are the current CSS tokens and remain subject to WCAG contrast regression checks when components change.
+The implemented palette uses warm, lightly tinted neutrals and a low-chroma mineral-blue accent. These values are the current baseline, not an immutable brand lock. A coordinated palette revision is allowed when it is performed through the canonical token contract, Ant theme mapping, contrast regression tests, and representative browser evidence. Screen-level one-off colors remain prohibited.
 
 ### Primary
 
@@ -49,7 +49,7 @@ The implemented palette uses warm, lightly tinted neutrals and a low-chroma mine
 - **Confirmed Green** (`oklch(38% 0.08 150deg)` on `oklch(95% 0.025 150deg)`): Successful completion and approval only.
 - **Information Blue** (`oklch(41% 0.105 238deg)` on `oklch(92% 0.025 238deg)`): Neutral informational state when the primary accent would imply action.
 
-**The Restrained Signal Rule.** Tinted neutrals carry the interface. Mineral Blue occupies no more than roughly ten percent of a typical task screen. Semantic colors are not decoration.
+**The Concentrated Signal Rule.** Primary and semantic colors should clarify hierarchy, selection, urgency, and outcome without flooding the interface. There is no fixed percentage cap, but repeated saturated accents, decorative gradients, and color-only status remain prohibited.
 
 **The Two-Channel Rule.** Color never carries status alone. Every priority, delay, approval, warning, and error also uses text, iconography, shape, or position.
 
@@ -99,25 +99,29 @@ layout:
 
 **The Mobile Action Rule.** Phone layouts optimize one-hand JobCard action. Desktop layouts optimize manager oversight. Mobile is not a shrunk desktop board.
 
-## Elevation
+## Elevation and purpose-layered surfaces
 
-Servora-Med is flat by default. Background tone, spacing, grouping, and clear borders establish most hierarchy. Shadows appear only when a surface truly sits above another surface, such as a menu, popover, mobile sheet, or a JobCard actively lifted by direct manipulation.
+Servora-Med uses layers according to purpose rather than enforcing flatness as an end in itself. Background tone and spacing remain the first tools for hierarchy, but cards, borders, tonal fills, and restrained shadows are allowed when they make a subject, deadline, action group, or selected state easier to understand.
 
-Translucency and blur are not part of the base identity. A functional sheet may use subtle separation only after contrast and reduced-transparency fallbacks are defined.
+Translucency and blur are not part of the base identity. A functional overlay may use subtle separation only after contrast and reduced-transparency fallbacks are defined.
 
-**The Earned Elevation Rule.** A shadow indicates a real layer or interaction state. If removing the shadow does not make the hierarchy less understandable, the shadow is forbidden.
+**The Purpose-Layer Rule.** A layer must communicate at least one concrete distinction: a single subject, a grouped action, a selected item, operational urgency, or a true overlay. Decorative containers with no information role are prohibited.
 
-**The One-Surface Rule.** Nested cards and glass panels are prohibited. Group related content through layout before adding another container.
+**The No-Container-Stack Rule.** Card-inside-card and repeated framed wrappers remain prohibited unless the inner element is an independently actionable record and the responsive DOM remains understandable without visual nesting.
 
-**Surface levels (product polish):**
+**Surface levels:**
 
 ```text
-Canvas  → Quiet Canvas (shell / page frame)
-Surface → Daylight Paper panels (filters, detail summary, calm grouping)
-Raised  → menus, popovers, mobile sheets, sticky create (earned elevation only)
+Canvas          → shell / page frame
+Section         → broad content grouping without a mandatory border
+Card            → one subject, metric, record summary, or action group
+Emphasized Card → new, upcoming, attention, overdue, selected, or successful state
+Raised Layer    → drawer, modal, popover, dropdown, sticky interaction layer
 ```
 
-Desktop job list rows stay flat. Do not card-wrap every row.
+A subtle default card shadow is permitted when it materially improves separation from the canvas; it must remain tokenized and lighter than overlay elevation. Operational emphasis should usually combine tonal background, border, label/icon, and explicit text before increasing shadow.
+
+Desktop job-list rows may remain flat when table/list scanning is superior. Dashboard widgets, calendar agenda entries, profile summaries, help categories, settings groups, and other independently understandable subjects may use Servora-owned Card adapters.
 
 ## Shapes
 
@@ -130,7 +134,7 @@ rounded:
   brand-mark: 0.55rem
 ```
 
-Controls and buttons share a modest radius (`{rounded.control}` / `{rounded.button}`) so forms feel consistent. Status and priority chips use a pill (`{rounded.chip}`). Raised layers (sheet, popover) may use a slightly larger radius (`{rounded.raised}`) without becoming soft “bubble” UI.
+Controls and buttons share a modest radius (`{rounded.control}` / `{rounded.button}`) so forms feel consistent. Status and priority chips use a pill (`{rounded.chip}`). Raised layers (sheet, popover) may use a slightly larger radius (`{rounded.raised}`) without becoming soft "bubble" UI.
 
 Corners stay quiet. Radius is not a brand flourish; it only keeps touch targets and grouping readable.
 
@@ -150,6 +154,12 @@ components:
     rounded: 999px
   priority-chip:
     rounded: 999px
+  card:
+    rounded: 0.75rem
+    border: "Soft Rule"
+    shadow: "tokenized subtle card separation"
+  emphasized-card:
+    channels: "tone + border + icon/label + explicit text"
 ```
 
 ### Ant Design foundation
@@ -167,22 +177,115 @@ level. Feedback is obtained only through the owned `useAppFeedback` hook so it
 inherits provider context. Optional Ant motion is disabled when
 `prefers-reduced-motion: reduce` is active.
 
-This foundation does not adopt Ant Design `Layout`, `Menu`, `Card`, or `Form`,
-does not replace the Servora shell or navigation model, and does not authorize
-direct feature-level static message, notification, or modal calls.
+This foundation does not adopt Ant Design `Layout` or `Menu`, does not replace the Servora shell or navigation model, and does not authorize a mass migration to Ant `Form`. Ant `Card`, `Calendar`, `Statistic`, `Result`, `Progress`, `Popconfirm`, `Notification`, `Avatar`, `Badge`, `Segmented`, `Descriptions`, `Collapse`, `Tabs`, `Drawer`, `Skeleton`, `Empty`, `Tooltip`, and related reviewed primitives are authorized through Servora-owned adapters when they improve comprehension, accessibility, or maintenance. Direct feature-level static message, notification, modal, or raw component imports remain prohibited.
+
+### Ant component adoption policy
+
+Ant Design is an implementation resource, not the visual source of truth. Feature modules express Servora domain concepts; adapters own Ant imports, semantic slot styling, theme mapping, responsive behavior, and accessibility fixes.
+
+**Reuse or extend existing adapters before adding new wrappers:**
+
+```text
+ResultState
+EmptyState
+LoadingSkeleton
+RecordDescriptions
+ResponsiveDrawer / ResponsiveFormDrawer
+CompactConfirmationAction
+ConfirmationAction
+ReasonDialog
+WorkflowSteps
+ActivityTimeline
+useAppFeedback
+```
+
+**Approved new adapter families when repository preflight confirms need:**
+
+```text
+ServoraCard / OperationalCard
+MetricStatistic
+ServoraCalendar
+ServoraProgress
+UserAvatar
+IconSegmented
+ContentCollapse / ContentAnchor
+SettingsTabs
+```
+
+Do not wrap every Ant component merely to rename it. Create an adapter when Servora needs stable domain props, token/semantic styling, accessibility behavior, responsive behavior, or an import boundary.
+
+### Card and operational emphasis
+
+Ant Card semantic slots (`root`, `header`, `title`, `extra`, `body`, `actions`) may be styled through owned `classNames` and `styles`. These slot APIs improve styling control but do not automatically choose the correct outer HTML semantics. Independent records remain wrapped or rendered as appropriate `article`, `li`, `section`, or link structures with stable accessible names.
+
+Recommended operational tones:
+
+```text
+default   → ordinary subject
+new       → newly created/unread, with explicit "Yeni" text
+upcoming  → approaching deadline, with remaining-time text
+attention → action required or revision requested
+overdue   → missed deadline, with explicit overdue text
+success   → genuinely completed/approved result
+selected  → current calendar/message/list selection
+```
+
+Color never acts alone. Every non-default tone needs a visible label, icon, status phrase, time phrase, or structural cue. Do not represent a continuously changing deadline only through a stale color class; derive the phrase from server-authoritative time or a bounded client clock strategy.
+
+### Result
+
+Use the existing `ResultState` adapter for 403, 404, 500, blocking error, success, warning, and completed-flow feedback. Full-page Result is appropriate when the current route cannot continue or an operation has reached a clear endpoint. Use a compact in-page Result when the surrounding record must remain visible. A completed JobCard may show a success result/banner with next actions, but it must not hide the authoritative completed record or timeline.
+
+### Progress
+
+Use Progress only for a real percentage, known step completion, or operation expected to take more than roughly two seconds. Do not invent percentages for indeterminate server work. Job lifecycle remains `Steps` unless the domain owns a real numeric completion value.
+
+A notification `showProgress` bar represents the remaining auto-close duration of that notification; it is not task progress. Actual upload/import/export progress must be driven by measured operation data and rendered with `ServoraProgress` or an equivalent owned surface.
+
+### Popconfirm and confirmation dialogs
+
+Use `CompactConfirmationAction` / Popconfirm for short, low-complexity confirmations that need no additional input. Use `ConfirmationAction` or `ReasonDialog` when the user must review consequences, enter a reason, resolve conflicts, or confirm an irreversible/destructive workflow. Never combine `window.confirm` or `window.prompt` with the Servora interaction system.
+
+### Notifications
+
+All message/notification APIs are obtained through `useAppFeedback`. Auto-closing informational notifications may use `showProgress` and `pauseOnHover`. Persistent errors, security notices, or actions requiring a decision must not disappear solely on a timeout. Notification copy and progress styling use canonical Servora tokens and privacy-safe payloads.
+
+### Avatar and Badge
+
+Use an owned Avatar with initials fallback. Image upload remains gated by storage and image-security requirements. Badge may communicate unread count, verified/active state, or another real status. Presence dots and "online" claims are prohibited unless the product has an authoritative presence model.
+
+### Segmented controls
+
+Segmented controls are suitable for small mutually exclusive view or period choices such as `Ay / Ajanda`, `Bugün / 7 gün / 30 gün`, or icon-supported dashboard modes. Prefer icon + visible label. Icon-only items require an accessible name, tooltip where helpful, familiar meaning, and no ambiguity at 200% text zoom.
+
+### Performance and bundle guardrails
+
+Expanded Ant use is allowed under measured budgets:
+
+- preserve route-level lazy loading,
+- import reviewed components only inside owned adapter modules,
+- keep the existing per-chunk bundle budget and report deltas in each visual PR,
+- avoid rendering unbounded Card, Calendar, Timeline, Table, or message collections,
+- use pagination, bounded summaries, or virtualization where scale requires it,
+- avoid decorative animation and repeated timers,
+- profile only when a real interaction or render regression is observed,
+- do not reject a useful component based on generic "Ant is heavy" assumptions without bundle/runtime evidence.
 
 ### Button
 
-Variants: **primary**, **secondary**, **destructive**, **ghost**. Sizes: **btn-sm** (alias: `compact-button`), **btn-md**.  
-**Width is content by default.** Full width is explicit (`.btn-full`) or reserved for stacked form footers (login, people/task/delivery forms). Primary does not mean “span the row.”  
+Variants: **primary**, **secondary**, **destructive**, **ghost**. Sizes: **btn-sm** (alias: `compact-button`), **btn-md**.
+**Width is content by default.** Full width is explicit (`.btn-full`) or reserved for stacked form footers (login, people/task/delivery forms). Primary does not mean "span the row."
 This slice keeps a **CSS class contract**; it does not introduce a separate React `Button` abstraction.
 
 ### Surfaces
 
-- **Surface** (`.surface`): calm grouping for job filters and detail summary.
-- **Surface-flat** (`.surface-flat`): lifecycle action bar; clear but not elevated.
-- **Raised** (`.surface-raised`): Yeni iş menu / mobile sheet, popovers.
-Desktop list rows stay flat (no card wrappers, no side-stripe accents).
+- **Section**: broad grouping that may rely on spacing and heading hierarchy.
+- **Surface** (`.surface`): calm grouping for filters, detail summary, and low-emphasis panels.
+- **Card**: one subject, summary, record, or action group through an owned Card adapter.
+- **Emphasized Card**: operationally meaningful new/upcoming/attention/overdue/success/selected state using the Two-Channel Rule.
+- **Surface-flat** (`.surface-flat`): lifecycle action bar or dense scanning region.
+- **Raised** (`.surface-raised`): menus, popovers, drawers, mobile sheets, and sticky interactions.
+Desktop list rows stay flat when list/table scanning is better; Card is not mandatory for every record.
 
 ### FormControl
 
@@ -263,8 +366,29 @@ use the owned Ant Design boundary in later implementation PRs.
 - **Don't** add distracting badges, saturated color, or notification pressure from social-media patterns.
 - **Don't** shrink desktop Kanban into a crowded mobile viewport.
 - **Don't** use generic healthcare white and bright turquoise as an automatic category theme.
-- **Don't** use identical SaaS card grids, gradient text, side-stripe accents, hero-metric templates, or nested cards.
+- **Don't** copy generic SaaS card grids without role-specific information hierarchy; do not use decorative gradient text, meaningless side stripes, fake hero metrics, or nested containers. Purposeful dashboard grids and operational Card variants are allowed.
 - **Don't** use bounce, elastic easing, confetti, particles, parallax, staggered list entrances, or page-load choreography.
 - **Don't** let momentum, drag distance, or animation bypass backend JobCard transition rules.
 - **Don't** use color as the only carrier of status, priority, lateness, warning, success, or error.
 - **Don't** reach for a modal before inline disclosure, a dedicated page, or a non-blocking panel has been considered.
+
+
+## Phase U visual direction amendment — 2026-07-26
+
+The Phase U dashboard reference direction is the SaaS + AI dashboard composition at `demos.shadcndashboard.dev`, translated into Servora's domain and component boundary rather than copied. The target similarity is information architecture—role-aware summary, time controls, metrics, trends, upcoming work, recent work, notes, messages, and direct actions—not Tailwind, shadcn, demo colors, or demo business copy.
+
+Current Phase U visual priorities:
+
+1. complete this Ant visual documentation reconciliation checkpoint,
+2. complete the U2 Calendar post-merge visual correction (branch: `fix/phase-u2-calendar-visual-closeout`),
+3. create a Workspace Visual Composition checkpoint for Overview, Documentation, Help Center, Settings, Result states, and shared Card/Statistic/Avatar/Segmented primitives,
+4. build U3 messaging and advanced analytics on those primitives,
+5. keep Phase T5 as final state, reflow, accessibility, and regression closure rather than a redesign phase.
+
+Authoritative details live in:
+
+```text
+docs/superpowers/specs/2026-07-26-servora-ant-visual-language.md
+docs/superpowers/plans/2026-07-26-phase-u2-calendar-visual-closeout.md
+docs/superpowers/plans/2026-07-26-phase-u-workspace-visual-composition.md
+```

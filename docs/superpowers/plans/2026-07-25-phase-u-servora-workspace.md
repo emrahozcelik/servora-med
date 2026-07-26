@@ -1,23 +1,23 @@
 # Phase U — Servora Workspace Implementation Plan
-## Three substantial delivery slices
+## Three product slices with required visual correction checkpoints
 
-**Status:** Proposed implementation plan
+**Status:** Active implementation plan — Ant visual documentation reconciled 2026-07-26
 **Date:** 2026-07-25
 **Design spec:** `docs/superpowers/specs/2026-07-25-phase-u-servora-workspace-design.md`
 **Prerequisite:** Phase T4 complete, merged, and resulting `main` CI successful
-**Execution rule:** Preflight first; then U1 → U2 → U3; then Phase T5
+**Execution rule:** U1 → U2 → U2 Calendar post-merge visual correction → Workspace Visual Composition → U3 → Phase T5
 
 ---
 
 ## 1. Planning rules
 
-This plan intentionally uses three large, coherent delivery slices.
+This plan retains three large product/domain slices. Because U1 and the first U2 UI proved functionally correct but visually under-composed, it also requires two bounded corrective checkpoints: the U2 calendar visual closeout as a post-merge corrective PR, and one substantial Workspace Visual Composition PR before U3.
 
 Do not fragment Phase U into one PR per widget, route, breakpoint, notification kind or test file.
 
 A slice may use internal commits/checkpoints, but it should remain one coherent product review unit unless repository preflight proves that a single PR would be unsafe or unreviewable.
 
-Any proposed split beyond U1/U2/U3 requires external authorization.
+The two corrective checkpoints defined here are authorized planning units, not permission to implement. Any further split requires external authorization.
 
 ---
 
@@ -65,15 +65,17 @@ Every implementation checkpoint uses:
 
 ```text
 appropriate Superpowers skill
-→ GPT Terra 5.6 implementation
+→ OpenCode implementer
 → focused validation
 → full validation
-→ GPT Terra 5.6 direct self-review
-→ GPT Terra 5.6 direct Playwright / Chrome DevTools verification
+→ OpenCode independent-reviewer
+→ OpenCode visual-verifier + Playwright MCP + Chrome DevTools MCP
 → handoff
 ```
 
-GPT Terra 5.6 is the sole implementation and review agent unless the user explicitly changes the workflow. Self-review must not be described as independent review.
+Active OpenCode agent/model assignments must be verified from local configuration at the start of each implementation checkpoint.
+
+GPT-5.6 serves as external architect, planner, final reviewer, and PR Ready/merge gate. OpenCode implementer handles implementation. OpenCode independent-reviewer provides independent review. OpenCode visual-verifier provides visual verification with Playwright MCP and Chrome DevTools MCP. Self-review must not be described as independent review.
 
 ---
 
@@ -379,7 +381,7 @@ Implement:
 
 - categorized troubleshooting content,
 - safe self-service steps,
-- “do not share” guidance,
+- "do not share" guidance,
 - configured support contact display.
 
 Do not hardcode a personal administrator email in client code.
@@ -558,7 +560,7 @@ settings
 ## U1 done criteria
 
 - U1 exact-head local validation passes,
-- GPT Terra 5.6 direct self-review passes,
+- independent review passes,
 - browser verification passes,
 - PR diff contains no U2/U3 implementation,
 - PR Ready separately authorized,
@@ -581,18 +583,10 @@ U1 visual acceptance:
 COMPLETE — Draft PR remains subject to separate Ready authorization
 
 U1 integration:
-COMPLETE — merged at 5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
+COMPLETE — merged via PR #72 lineage
 
-U1 Ready:
-NOT AUTHORIZED by this plan
-
-U1 Merge:
-NOT AUTHORIZED by this plan
-
-U2:
-COMPLETE — Draft PR #72 on clean branch feat/phase-u-calendar-planning-clean
-  PR #71 CLOSED (superseded by clean replacement)
-  Visual code SHA: d516a61f8a8a8b6add2a5e3d19354ffebc8ff839
+U1:
+COMPLETE / INTEGRATED
 ```
 
 ## U1 implementation checkpoint
@@ -656,7 +650,7 @@ Responsive smoke:
 PASS
 ```
 
-Terra direct self-review found one concrete U1 defect: unsafe optional support
+Direct self-review found one concrete U1 defect: unsafe optional support
 URL/mailto values could survive client parsing. Server validation and client
 parsing were tightened to fail credential-bearing URLs and unsafe mailto forms
 closed, and regression coverage was added. Boundary review found no migration,
@@ -697,7 +691,7 @@ Remaining U1 acceptance steps:
 ```text
 feat/phase-u-calendar-planning-clean
 ```
-(Original branch feat/phase-u-calendar-planning superseded by clean replacement #72)
+(Original branch feat/phase-u-calendar-planning superseded by clean replacement PR #72)
 
 ## Recommended PR title
 
@@ -760,18 +754,21 @@ Use existing service/repository/authorization patterns.
 
 ### 3. Staff calendar UI
 
-Add `/calendar`.
+Add `/calendar` as a real monthly planning surface.
 
-Staff experience:
+Required experience:
 
-- day/week/month or the smallest accepted view set from U0,
-- upcoming list,
+- Servora-owned Ant Notice Calendar monthly grid,
+- selected-day agenda,
+- bounded cell summaries and `+N plan`,
 - related-job navigation,
 - authorized create/edit only,
-- clear empty/error states,
-- mobile-safe interaction.
+- owned Ant Drawer for create/edit,
+- clear loading/empty/error Result states,
+- compact mobile calendar plus agenda,
+- no browser-native prompt/confirm.
 
-Do not ship a visually rich but operationally unusable calendar.
+The visual composition must remain operationally usable; event density, conflict visibility, and mobile selected-day actions take priority over decorative calendar styling.
 
 ### 4. Manager calendar UI
 
@@ -802,7 +799,7 @@ Manager:
 
 Implement reminder scheduling and dispatch using current worker/outbox patterns.
 
-Implemented notification kinds:
+Canonical kinds:
 
 ```text
 calendar.assigned
@@ -898,7 +895,7 @@ notification deep link
 
 ## Validation
 
-Full server and web validation, security audit, bundle, responsive smoke, boundary checks, GPT Terra 5.6 direct self-review, GPT Terra 5.6 direct Playwright / Chrome DevTools verification, and handoff.
+Full server and web validation, security audit, bundle, responsive smoke, boundary checks, independent review, Playwright MCP / Chrome DevTools MCP verification, and handoff.
 
 ## U2 evidence
 
@@ -926,11 +923,26 @@ calendar-notification
 - exact-head CI green,
 - PR merge and resulting-main CI separately accepted.
 
-## U2 implementation checkpoint — 2026-07-26 (clean replacement)
+## U2 implementation checkpoint — 2026-07-26
 
 Implemented on `feat/phase-u-calendar-planning-clean` (replaces contaminated
-`feat/phase-u-calendar-planning`) from the clean U1 baseline
-`5d5ee5dc15638b94ed3c3267971839b4c6fa36dd`.
+`feat/phase-u-calendar-planning`) from the clean U1 baseline.
+
+PR #71:
+CLOSED / SUPERSEDED
+
+Its problematic ancestry must not enter main.
+
+Clean U2 PR #72 received external approval and was merged.
+
+Externally approved final head:
+d3c3c3ea9020bdac758115cfc41a2f4552a71350
+
+Merge/resulting-main:
+8cbb8b5a7c65e391f1b007919db40e1b098bc2ae
+
+Resulting-main CI:
+SUCCESS
 
 ### Server
 
@@ -941,7 +953,8 @@ Implemented on `feat/phase-u-calendar-planning-clean` (replaces contaminated
 - canonical JobCard rescheduling with transactional conflict checks, reminder
   replacement/cancellation, audit, realtime, and notification projection,
 - deterministic reminder worker with bounded claims, leases, retry/abandon, in-app
-  projection, optional Web Push delivery rows, and graceful shutdown.
+  projection, optional Web Push delivery rows, and graceful shutdown,
+- repository-managed Documentation, Help Center, and user-manual guidance.
 
 ### Web
 
@@ -963,15 +976,16 @@ Implemented on `feat/phase-u-calendar-planning-clean` (replaces contaminated
 ```text
 server build: PASS
 server PostgreSQL regression: 113 files / 1353 tests PASS
-
+U2 PostgreSQL migration/authorization tests: 2 files / 8 tests PASS
 focused U2 web validation: 41 tests PASS
-
 web tests: 93 files / 1043 tests PASS
 web build: PASS
 bundle budget: PASS (44 chunks, each <= 500000 bytes)
 responsive smoke: PASS
 antd boundary: PASS (Calendar + Drawer adapters)
 visual token boundary: PASS
+server production dependency audit: 0 vulnerabilities
+web production dependency audit: PASS_WITH_EXISTING_RSC_ONLY_WAIVER
 ```
 
 ### Browser verification
@@ -992,29 +1006,117 @@ Final reviewed head before documentation-only closure:
 
 `docs/ui/screenshots/phase-u-u2/` — 16 PNGs, README with full metadata matrix.
 
+## U2 calendar visual closeout — post-merge corrective checkpoint
+
+The merged U2 calendar is functionally complete. The remaining visual/product closure is a post-merge corrective PR tracked by:
+
+```text
+docs/superpowers/plans/2026-07-26-phase-u2-calendar-visual-closeout.md
+```
+
+Recommended branch:
+
+```text
+fix/phase-u2-calendar-visual-closeout
+```
+
+Required before Workspace Visual Composition:
+
+- custom Servora calendar header and clear manager filter hierarchy,
+- consistent `[start, end)` multi-day projection using the existing shared date helper contract,
+- responsive behavior that does not snapshot `window.innerWidth` without reacting to changes,
+- removal of `window.prompt` and `window.confirm`,
+- reason-required cancellation through owned dialog behavior,
+- ResultState / LoadingSkeleton / EmptyState adoption,
+- Card/Badge/Tag emphasis using explicit text and the Two-Channel Rule,
+- 390 / 768 / 1024 / 1440 direct browser evidence,
+- exact-head bundle and CI validation.
+
+This corrective PR must not change `017_calendar.sql`, calendar authorization, conflict/version rules, audit records, reminder worker, notification projection, or API payloads.
+
 ## U2 gates
 
 ```text
-U2 implementation:
-COMPLETE — Draft PR #72
+U2:
+COMPLETE / INTEGRATED
 
-U2 calendar correctness:
-COMPLETE
+U2 merge:
+COMPLETE — PR #72 merged at 8cbb8b5a7c65e391f1b007919db40e1b098bc2ae
 
-U2 browser verification:
-COMPLETE
+U2 resulting-main CI:
+SUCCESS
 
-U2 persistent evidence:
-COMPLETE
+U2 Calendar post-merge visual correction:
+NOT AUTHORIZED until reconciliation approval
 
-U2 Ready:
-NOT AUTHORIZED
-
-U2 Merge:
-NOT AUTHORIZED
+Workspace Visual Composition:
+NOT AUTHORIZED until Calendar corrective merge and resulting-main CI
 
 U3:
-NOT AUTHORIZED until U2 merge/main-CI acceptance
+NOT AUTHORIZED until Workspace Visual Composition merge, resulting-main CI and external visual approval
+```
+
+---
+
+# UV — Workspace Visual Composition
+
+## Recommended branch
+
+```text
+feat/phase-u-workspace-visual-composition
+```
+
+## Recommended PR title
+
+```text
+refactor(web): establish Servora workspace visual composition
+```
+
+## User-visible goal
+
+Turn the functionally complete U1/U2 workspace screens into a coherent, understandable, role-aware product UI before messaging and advanced analytics are added.
+
+## Binding plan
+
+```text
+docs/superpowers/plans/2026-07-26-phase-u-workspace-visual-composition.md
+```
+
+## Scope summary
+
+- update `DESIGN.md` and canonical Ant visual-language contract,
+- add/extend owned Card, Statistic, Avatar/Badge, Segmented, Progress and content adapters,
+- redesign Overview into the Servora translation of the SaaS + AI dashboard information architecture,
+- compose Documentation with search/category/Anchor/Collapse,
+- compose Help Center with search/Collapse/Alert/Steps where appropriate,
+- compose Settings with Tabs, Avatar and RecordDescriptions,
+- adopt ResultState for 403/404/500 and completed-flow states,
+- adopt progress-bar notifications only with correct timeout/task semantics,
+- evaluate and, if approved, revise the canonical palette through tokens and contrast/browser evidence.
+
+## Explicit non-work
+
+- no U3 messaging persistence,
+- no calendar schema or reminder changes,
+- no Tailwind/shadcn migration,
+- no AppShell rewrite to Ant Layout/Menu,
+- no mass Ant Form migration,
+- no T5 application-wide state sweep.
+
+## Gates
+
+```text
+UV implementation:
+NOT AUTHORIZED until Calendar corrective merge and resulting-main CI
+
+UV Ready:
+NOT AUTHORIZED by this plan
+
+UV Merge:
+NOT AUTHORIZED by this plan
+
+U3:
+NOT AUTHORIZED until UV merge/main-CI external acceptance
 ```
 
 ---
@@ -1091,8 +1193,11 @@ Requirements:
 
 Add `/messages`.
 
-Implement:
+Implement on the accepted Servora Ant visual language:
 
+- desktop split conversation workspace through an owned Splitter or equivalent responsive composition,
+- mobile conversation-list → thread flow,
+- Avatar with meaningful unread Badge,
 - conversation list,
 - thread view,
 - unread indicators,
@@ -1109,7 +1214,7 @@ Do not embed the full chat UI in overview.
 Add:
 
 ```text
-message_received
+message.received
 ```
 
 Integrate:
@@ -1236,7 +1341,7 @@ empty analytics
 
 ## Validation
 
-Full server/web suites, audits, build, bundle, responsive smoke, boundary checks, GPT Terra 5.6 direct self-review, GPT Terra 5.6 direct Playwright / Chrome DevTools verification, and handoff.
+Full server/web suites, audits, build, bundle, responsive smoke, boundary checks, independent review, Playwright MCP / Chrome DevTools MCP verification, and handoff.
 
 ## U3 evidence
 
@@ -1269,7 +1374,7 @@ manager-staff-performance
 
 ```text
 U3 implementation:
-AUTHORIZED only after U2 merge/main-CI external acceptance
+NOT AUTHORIZED until Workspace Visual Composition merge, resulting-main CI and external visual approval
 
 U3 Ready:
 NOT AUTHORIZED by this plan
@@ -1303,9 +1408,12 @@ Required final handoff:
 
 ```text
 U1:
-COMPLETE
+COMPLETE / INTEGRATED
 
 U2:
+COMPLETE / INTEGRATED
+
+Workspace Visual Composition:
 COMPLETE
 
 U3:
@@ -1344,3 +1452,16 @@ T5 owns:
 - residual state-dialect cleanup.
 
 Phase U slices should implement correct local states but must not absorb an unrelated application-wide state migration.
+
+
+# Visual plan authority — 2026-07-26
+
+The following plans refine this file and control where older wording conflicts:
+
+```text
+docs/superpowers/specs/2026-07-26-servora-ant-visual-language.md
+docs/superpowers/plans/2026-07-26-phase-u2-calendar-visual-closeout.md
+docs/superpowers/plans/2026-07-26-phase-u-workspace-visual-composition.md
+```
+
+The number of product/domain slices remains three. U2 visual closeout is a post-merge corrective PR; UV is one substantial corrective visual PR required because the earlier functional implementation did not yet meet the intended dashboard/workspace composition. Do not create additional micro-PRs without external authorization.

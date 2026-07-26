@@ -1,12 +1,12 @@
 # Phase U — Servora Workspace, Dashboard, Calendar and Messaging
 ## Product and Architecture Design Specification
 
-**Status:** Proposed
+**Status:** Active design — Ant visual-language documentation reconciled 2026-07-26
 **Date:** 2026-07-25
 **Repository:** `emrahozcelik/servora-med`
 **Depends on:** Phase T4 complete and merged
 **Must complete before:** Phase T5 final visual/state regression closeout
-**Implementation shape:** Three substantial delivery slices: U1, U2, U3
+**Implementation shape:** Three product slices (U1, U2, U3) plus one substantial Workspace Visual Composition corrective checkpoint between U2 and U3
 
 ---
 
@@ -51,11 +51,11 @@ Phase U does not authorize:
 
 - migration to Tailwind,
 - migration to shadcn/ui,
-- mass migration to Ant Form, Ant Layout, Ant Menu or Ant Card,
+- mass migration to Ant Form, Ant Layout or Ant Menu; Ant Card and other reviewed components are allowed through owned adapters,
 - copying the third-party demo's theme provider, router, mock API or application shell,
 - a general-purpose BI platform,
 - a drag-and-drop dashboard builder,
-- generative AI or an “Ask AI” feature,
+- generative AI or an "Ask AI" feature,
 - group chat,
 - message attachments,
 - voice/video calling,
@@ -74,9 +74,9 @@ Phase U does not authorize:
 
 All new screens must follow the Servora UI architecture:
 
-- flat by default,
-- elevation only when earned,
-- no card-inside-card composition,
+- purpose-layered surfaces rather than flatness as an end in itself,
+- Card and emphasis when they clarify a subject, urgency, selection, or action group,
+- no decorative card-inside-card composition,
 - one obvious primary action per local task,
 - operational color only when it communicates status or risk,
 - Turkish user-facing copy,
@@ -201,9 +201,38 @@ Page heading and contextual greeting
 → recent activity/action list
 ```
 
-The dashboard should use a responsive CSS grid but retain Servora's flat surface grammar.
+The dashboard should use a responsive CSS grid and Servora-owned Card/Statistic/Badge/Avatar/Segmented adapters. It should preserve Servora domain semantics and avoid decorative nested containers, but it is no longer required to remain visually flat.
 
-### 6.2 Staff dashboard
+### 6.2 Dashboard component contract
+
+The accepted dashboard direction is a Servora translation of the SaaS + AI reference composition:
+
+```text
+contextual greeting + period control
+→ four primary metrics
+→ main trend/operational chart
+→ upcoming schedule or attention queue
+→ recent completed work
+→ recent notes
+→ unread messages after U3
+```
+
+Approved owned primitives:
+
+```text
+MetricStatistic        — Ant Statistic inside Servora card grammar
+OperationalCard        — default/new/upcoming/attention/overdue/success/selected
+IconSegmented          — period or view selection
+UserAvatar             — image/initials plus meaningful Badge
+ResultState            — loading failure, forbidden, not found, completed flow
+LoadingSkeleton        — dashboard skeleton
+EmptyState             — bounded empty widgets
+RecordDescriptions     — profile/account facts
+```
+
+Dashboard Cards may use semantic slot `classNames` / `styles`, but feature code must not import Ant Card directly. Each actionable widget has a real heading, bounded data, and deep link. A Card grid is allowed because the dashboard is a summary workspace; it must not be copied into every dense operational list.
+
+### 6.3 Staff dashboard
 
 #### Header
 
@@ -247,7 +276,7 @@ Do not expose:
 - private message threads,
 - organization-wide revenue unless the current role already permits it.
 
-### 6.3 Manager/admin dashboard
+### 6.4 Manager/admin dashboard
 
 #### KPI candidates
 
@@ -286,7 +315,7 @@ Use no more than four primary KPI cards at once. Secondary values can live in su
 
 No artificial AI labeling should remain in Servora copy.
 
-### 6.4 Chart rules
+### 6.5 Chart rules
 
 - Reuse current Servora report-chart primitives whenever possible.
 - Add a chart dependency only through a separate dependency/security gate when current primitives cannot meet an accepted requirement.
@@ -296,7 +325,7 @@ No artificial AI labeling should remain in Servora copy.
 - Avoid decorative animation that delays comprehension.
 - Dashboard charts must not replace detailed reports.
 
-### 6.5 Responsive layout
+### 6.6 Responsive layout
 
 Minimum contract:
 
@@ -408,7 +437,21 @@ Veri saklama ve silme politikası
 
 Legal content must be supplied or approved by the organization's authorized legal/administrative owner. Engineering must not invent final legal obligations.
 
-### 8.3 Content delivery
+### 8.3 Documentation composition
+
+Documentation uses a searchable, navigable content layout rather than rendering every article fully expanded. Approved composition:
+
+- Content search,
+- category navigation,
+- owned Anchor for long-document sections,
+- owned Collapse for concise guides and FAQs,
+- full document layout for legal/policy text,
+- visible version and publication metadata,
+- ResultState for unavailable/forbidden documents.
+
+Legal documents must not be reduced to FAQ accordions when full reading context is required.
+
+### 8.4 Content delivery
 
 Preferred initial implementation:
 
@@ -436,9 +479,9 @@ Do not block login on a new legal acceptance workflow without a separate product
 
 ### 9.1 Purpose
 
-Documentation answers “how does the product work?”
+Documentation answers "how does the product work?"
 
-Help Center answers “what should I do when something goes wrong?”
+Help Center answers "what should I do when something goes wrong?"
 
 ### 9.2 Initial topics
 
@@ -465,7 +508,11 @@ Each article should contain:
 - when to contact an administrator,
 - approved contact channel.
 
-### 9.4 Contact model
+### 9.4 Help Center composition
+
+Help Center uses search, categorized Collapse items, Alert for safety/security guidance, optional Steps for ordered troubleshooting, and a clear support-contact Card. It must distinguish everyday operational messaging from technical support. All content remains Turkish and repository-managed unless an approved support service is introduced.
+
+### 9.5 Contact model
 
 U1 may provide configured support contact information through public-safe authenticated runtime configuration returned alongside the current-user bootstrap contract, or through a small authenticated runtime-config response.
 
@@ -486,11 +533,15 @@ Bildirimler
 Görünüm — only if supported by current product direction
 ```
 
-### 10.2 Profile
+### 10.2 Settings composition
+
+Settings uses owned Tabs or route-aware tab navigation, Avatar with initials fallback, RecordDescriptions for account facts, ResultState for unsupported/forbidden actions, and compact Cards for security/notification groups. An Avatar Badge may show a real verified/active/unread state only when backed by authoritative data; decorative presence dots are prohibited.
+
+### 10.3 Profile
 
 U1 provides read-only current-user/profile presentation with an initials fallback. It must not promise a self-profile mutation that the current repository does not provide.
 
-### 10.3 Avatar safety
+### 10.4 Avatar safety
 
 Do not introduce an ad-hoc production local-disk store.
 
@@ -507,7 +558,7 @@ Avatar upload is not in U1. It requires a separate storage/security gate if it i
 
 U1 decision: `DISPLAY + INITIALS ONLY; UPLOAD DEFERRED`.
 
-### 10.4 Password change
+### 10.5 Password change
 
 Must include:
 
@@ -520,7 +571,7 @@ Must include:
 
 Do not redesign authentication inside Phase U unless a blocking security issue requires a separately authorized remediation.
 
-### 10.5 Notifications
+### 10.6 Notifications
 
 U1 exposes existing Web Push device/subscription controls only. It does not add a stored per-category preference model; calendar and message preference decisions belong to their authorized later slices. Critical security or mandatory operational notices must not become suppressible accidentally.
 
@@ -642,13 +693,13 @@ A conflict warning must not silently overwrite a newer server version.
 
 ### 11.6 Reminders
 
-Candidate notification kinds:
+Canonical notification kinds:
 
 ```text
-calendar_assigned
-calendar_rescheduled
-calendar_cancelled
-calendar_reminder
+calendar.assigned
+calendar.rescheduled
+calendar.cancelled
+calendar.reminder
 ```
 
 Use existing in-app notification and Web Push infrastructure.
@@ -666,7 +717,31 @@ Reminder dispatch must be:
 
 Provider I/O remains outside open database transactions.
 
-### 11.7 Dashboard calendar widget
+### 11.7 Accepted calendar visual composition
+
+The U2 page must be a real monthly planning surface, not only a weekly record list.
+
+Desktop/tablet:
+
+- Servora-owned Ant Notice Calendar monthly grid,
+- custom Servora header with today/navigation and optional icon-supported view control,
+- manager/admin staff filter,
+- bounded event summaries per date and explicit `+N plan`,
+- selected-day agenda beside or below the grid,
+- create/edit in an owned Ant Drawer,
+- ResultState, LoadingSkeleton and EmptyState for page/agenda states.
+
+Mobile:
+
+- compact monthly calendar,
+- event count or minimal markers in cells,
+- selected-day agenda below,
+- full-width responsive Drawer for create/edit,
+- no horizontally compressed desktop event text.
+
+Calendar intervals use the server's `[start, end)` semantics everywhere, including multi-day cell projection. Preserve and reuse the existing shared `[start, end)` date helper contract. Add/retain regression coverage for midnight end boundaries and multi-day rendering. Do not rewrite server date semantics in a visual corrective PR. Browser-native `window.prompt` and `window.confirm` are prohibited. A reason-required cancellation uses ReasonDialog/ConfirmationAction; a short confirmation with no input may use CompactConfirmationAction/Popconfirm.
+
+### 11.8 Dashboard calendar widget
 
 The dashboard widget shows:
 
@@ -819,11 +894,11 @@ Reuse the existing notification center, SSE invalidation and Web Push foundation
 Candidate new notification kinds:
 
 ```text
-calendar_assigned
-calendar_rescheduled
-calendar_cancelled
-calendar_reminder
-message_received
+calendar.assigned
+calendar.rescheduled
+calendar.cancelled
+calendar.reminder
+message.received
 ```
 
 Each kind must define:
@@ -838,6 +913,12 @@ Each kind must define:
 - disabled-feature behavior.
 
 No notification provider I/O should occur inside an open database transaction.
+
+---
+
+### 14.1 Notification and progress presentation
+
+In-app feedback is obtained only through `useAppFeedback`. Auto-closing informational notifications may use Ant Notification `showProgress` and `pauseOnHover`; that bar communicates time remaining before auto-close, not the progress of the underlying operation. Persistent errors and decisions must not rely on auto-close. Actual upload/export/import progress uses a measured Progress value; indeterminate server work uses loading/skeleton/status language rather than a fabricated percentage.
 
 ---
 
@@ -1061,6 +1142,20 @@ Delivers:
 - dashboard upcoming-work widget,
 - role/privacy acceptance.
 
+### Workspace Visual Composition checkpoint — after U2, before U3
+
+This is one substantial corrective PR, not a collection of micro-PRs. It updates the canonical visual contract and applies it to:
+
+- Overview/dashboard composition,
+- Documentation,
+- Help Center,
+- Profile and Settings,
+- 403/404/500 and completed-operation Result states,
+- shared OperationalCard, MetricStatistic, UserAvatar, IconSegmented, Progress and content adapters,
+- palette/token revision when accepted by contrast and browser evidence.
+
+It does not add messaging persistence, calendar domain changes, new reports, or T5 application-wide state migration. U3 starts only after this checkpoint merges and resulting-main CI succeeds.
+
 ### U3 — Messaging and advanced dashboard analytics
 
 Delivers:
@@ -1104,26 +1199,43 @@ Phase U is complete only when:
 
 ```text
 Phase T4:
-MUST COMPLETE FIRST
+COMPLETE / INTEGRATED
 
-Phase U preflight:
-AUTHORIZED after T4 merge and main CI success
+Phase U Ant visual documentation reconciliation:
+AUTHORIZED — current checkpoint
 
-U1 implementation:
-NOT AUTHORIZED until preflight external review
+U1:
+COMPLETE / INTEGRATED — merged via PR #72 lineage
 
-U2 implementation:
-NOT AUTHORIZED until U1 merge/main-CI gate
+U2:
+COMPLETE / INTEGRATED — merged at 8cbb8b5a7c65e391f1b007919db40e1b098bc2ae via PR #72
 
-U3 implementation:
-NOT AUTHORIZED until U2 merge/main-CI gate
+U2 Calendar post-merge visual correction:
+NOT AUTHORIZED until reconciliation approval
 
-Phase T5:
-NOT AUTHORIZED until U3 completion
+Workspace Visual Composition:
+NOT AUTHORIZED until Calendar corrective merge and resulting-main CI
 
-Staging:
+U3:
+NOT AUTHORIZED until Workspace Visual Composition merge, resulting-main CI and external visual approval
+
+T5:
 NOT AUTHORIZED
 
-Production:
-NOT AUTHORIZED
+Staging/production:
+NOT AUTHORIZED — separate authorization required
 ```
+
+
+## 23. Visual-language authority — 2026-07-26
+
+The following files are binding amendments to this design:
+
+```text
+DESIGN.md
+docs/superpowers/specs/2026-07-26-servora-ant-visual-language.md
+docs/superpowers/plans/2026-07-26-phase-u2-calendar-visual-closeout.md
+docs/superpowers/plans/2026-07-26-phase-u-workspace-visual-composition.md
+```
+
+Where older Phase U wording says "flat" or excludes Ant Card, the newer purpose-layered and owned-adapter rules control. The raw feature-import boundary, authorization, privacy, responsive, accessibility, bundle, and production gates remain unchanged.
