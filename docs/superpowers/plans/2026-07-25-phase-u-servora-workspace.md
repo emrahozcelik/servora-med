@@ -590,7 +590,9 @@ U1 Merge:
 NOT AUTHORIZED by this plan
 
 U2:
-NOT AUTHORIZED until U1 merge/main-CI acceptance
+COMPLETE — Draft PR #72 on clean branch feat/phase-u-calendar-planning-clean
+  PR #71 CLOSED (superseded by clean replacement)
+  Visual code SHA: d516a61f8a8a8b6add2a5e3d19354ffebc8ff839
 ```
 
 ## U1 implementation checkpoint
@@ -693,8 +695,9 @@ Remaining U1 acceptance steps:
 ## Recommended branch
 
 ```text
-feat/phase-u-calendar-planning
+feat/phase-u-calendar-planning-clean
 ```
+(Original branch feat/phase-u-calendar-planning superseded by clean replacement #72)
 
 ## Recommended PR title
 
@@ -923,10 +926,13 @@ calendar-notification
 - exact-head CI green,
 - PR merge and resulting-main CI separately accepted.
 
-## U2 implementation checkpoint — 2026-07-26
+## U2 implementation checkpoint — 2026-07-26 (clean replacement)
 
-Implemented on `feat/phase-u-calendar-planning` from the externally accepted U1
-resulting-main commit:
+Implemented on `feat/phase-u-calendar-planning-clean` (replaces contaminated
+`feat/phase-u-calendar-planning`) from the clean U1 baseline
+`5d5ee5dc15638b94ed3c3267971839b4c6fa36dd`.
+
+### Server
 
 - `017_calendar.sql` with JobCard end time, manual events, field-level audit,
   reminder state machine, and calendar notification/realtime constraints,
@@ -934,42 +940,70 @@ resulting-main commit:
   organization scope,
 - canonical JobCard rescheduling with transactional conflict checks, reminder
   replacement/cancellation, audit, realtime, and notification projection,
-- weekly `/calendar`, capability-gated navigation, team filter, manual planning,
-  JobCard deep links, exact notification selection, and Overview upcoming work,
 - deterministic reminder worker with bounded claims, leases, retry/abandon, in-app
-  projection, optional Web Push delivery rows, and graceful shutdown,
-- repository-managed Documentation, Help Center, and user-manual guidance.
+  projection, optional Web Push delivery rows, and graceful shutdown.
 
-Automated verification completed:
+### Web
+
+- monthly notice-calendar with ServoraCalendar adapter (Ant Calendar wrapper),
+- selected-day agenda beside/below the month grid,
+- ResponsiveFormDrawer for create/edit forms,
+- half-open shared date helper (`calendar-date.ts`) used by both grid and agenda,
+- grid/agenda parity verified by 15 dedicated date-helper tests,
+- `dayjs` 1.11.21 declared as direct dependency,
+- Staff/Manager/Admin role-based calendar views,
+- CALENDAR_CONFLICT preserves draft in drawer,
+- capability-off fallback (`/calendar` → `/jobs`),
+- 200% text zoom support.
+
+### Automated verification
 
 ```text
 server build: PASS
-server PostgreSQL regression (local trust-auth contract excluded): 113 files / 1353 tests PASS
-U2 PostgreSQL migration/authorization tests: 2 files / 8 tests PASS
-web tests: 92 files / 1011 tests PASS
+server PostgreSQL regression: 113 files / 1353 tests PASS
+web tests: 93 files / 1038 tests PASS
 web build: PASS
-bundle budget: PASS (40 chunks, each <= 500000 bytes)
+bundle budget: PASS (44 chunks, each <= 500000 bytes)
 responsive smoke: PASS
-server production dependency audit: 0 vulnerabilities
-web production dependency audit: PASS_WITH_EXISTING_RSC_ONLY_WAIVER
+antd boundary: PASS (Calendar + Drawer adapters)
+visual token boundary: PASS
 ```
 
-Direct browser scenario capture and persistent PNG evidence are intentionally deferred
-to the named operator under the user-approved override. This checkpoint does not claim
-browser verification or evidence completion; the PR must remain Draft until that
-operator matrix is attached and externally reviewed.
+### Browser verification
+
+```text
+Playwright MCP complete: 16 PNGs recaptured
+Roles: Staff (390/1024/1440), Manager (390/1440/1024 filtered), Admin (1024)
+States: monthly grid, agenda, drawer create, conflict, zoom, deep-link, capability-off overview, notifications
+Console: 0 application errors (benign 401/409 expected)
+Network: 0 unexpected failures
+Exact visual code/capture SHA: d516a61f8a8a8b6add2a5e3d19354ffebc8ff839
+```
+
+### Persistent evidence
+
+`docs/ui/screenshots/phase-u-u2/` — 16 PNGs, README with full metadata matrix.
 
 ## U2 gates
 
 ```text
 U2 implementation:
-AUTHORIZED only after U1 merge/main-CI external acceptance
+COMPLETE — Draft PR #72
+
+U2 calendar correctness:
+COMPLETE
+
+U2 browser verification:
+COMPLETE
+
+U2 persistent evidence:
+COMPLETE
 
 U2 Ready:
-NOT AUTHORIZED by this plan
+NOT AUTHORIZED
 
 U2 Merge:
-NOT AUTHORIZED by this plan
+NOT AUTHORIZED
 
 U3:
 NOT AUTHORIZED until U2 merge/main-CI acceptance

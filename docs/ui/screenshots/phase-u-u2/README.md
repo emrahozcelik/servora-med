@@ -2,7 +2,7 @@
 
 Status: **COMPLETE**
 
-Visual code SHA: documented after final commit
+Visual code/capture SHA: `d516a61f8a8a8b6add2a5e3d19354ffebc8ff839`
 Evidence commit range: clean baseline → final U2 head
 
 Capture browser: Chromium 140 (Playwright 1.55.1), headless
