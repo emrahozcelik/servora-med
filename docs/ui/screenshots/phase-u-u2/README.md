@@ -1,76 +1,71 @@
-# Phase U2 browser evidence
+# Phase U2 browser evidence — Monthly Calendar
 
-Status: **COMPLETE** (Round 1 + Round 2)
+Status: **COMPLETE** (visual correction round)
 
-Capture commit: `8796c053fe8512414e5f070f35931e29fdf1e9d4`
-Capture dates: 2026-07-26
+Capture commit: a81b308b27d04279d1823234063d695b810c1d85
+Capture date: 2026-07-26
 Browser: Chromium 140 (Playwright 1.55.1), headless
-Database: disposable `servora_u2_browser` seeded with synthetic identities
-Pre-created fixture: JobCard `69f133f4` ("Test zamanlı teslimat", PRODUCT_DELIVERY, scheduledAt/EndsAt, assigned to Demo Staff)
+Database: disposable `servora_u2_v2` seeded with synthetic identities
 
 ## Synthetic identities
 
-| Role    | Email                    | Password       |
-|---------|--------------------------|----------------|
-| STAFF   | staff@servora.local      | Demo1234!Test  |
-| MANAGER | manager@servora.local    | Demo1234!Test  |
-| ADMIN   | admin@servora.local      | Demo1234!Test  |
+| Role    | Email                    |
+|---------|--------------------------|
+| STAFF   | staff@servora.local      |
+| MANAGER | manager@servora.local    |
+| ADMIN   | admin@servora.local      |
 
 Organization: Servora Med Demo (synthetic)
+Authentication material was supplied only to the disposable local runtime and is not documented here.
 
-## Screenshot matrix
+## Screenshot matrix — Monthly Calendar
 
 | File | Role | Viewport | State | PII-free |
 |------|------|----------|-------|----------|
-| `staff-calendar-390.png` | STAFF | 390×844 | Personal calendar with JOB and MANUAL events | ✓ |
-| `staff-calendar-1024.png` | STAFF | 1024×768 | Desktop personal calendar | ✓ |
-| `staff-manual-create-390.png` | STAFF | 390×844 | Creating manual plan form (mobile) | ✓ |
-| `staff-calendar-conflict-390.png` | STAFF | 390×844 | CALENDAR_CONFLICT error with preserved draft | ✓ |
-| `calendar-empty.png` | STAFF | 390×844 | Empty week (distant future) | ✓ |
-| `overview-upcoming-staff.png` | STAFF | 390×844 | Overview page with upcoming-work widget | ✓ |
-| `manager-calendar-390.png` | MANAGER | 390×844 | Mobile team calendar with Staff filter | ✓ |
-| `manager-calendar-1440.png` | MANAGER | 1440×900 | Large desktop team calendar | ✓ |
-| `manager-calendar-filtered.png` | MANAGER | 1024×768 | Team calendar filtered to one staff | ✓ |
-| `manager-creates-for-staff.png` | MANAGER | 1024×768 | Manager creating manual event for a staff member | ✓ |
-| `overview-upcoming-manager.png` | MANAGER | 1024×768 | Manager overview with team upcoming work | ✓ |
-| `calendar-notification.png` | STAFF | 390×844 | Notification Center showing calendar notifications | ✓ |
-| `capability-off-overview.png` | STAFF | 390×844 | Overview when `CALENDAR_ENABLED=false` — widget absent | ✓ |
-| `admin-calendar-1024.png` | ADMIN | 1024×768 | Organization-wide calendar with staff filter | ✓ |
-| `staff-calendar-zoom-390.png` | STAFF | 390×844 | Calendar at 200% text zoom — no overflow, controls accessible | ✓ |
-| `staff-calendar-job-deeplink-390.png` | STAFF | 390×844 | JobCard detail page reached via "İşi aç" link from calendar event | ✓ |
+| `staff-calendar-month-390.png` | STAFF | 390×844 | Compact monthly calendar + agenda | ✓ |
+| `staff-calendar-month-1024.png` | STAFF | 1024×768 | Desktop monthly grid + agenda | ✓ |
+| `staff-calendar-month-1440.png` | STAFF | 1440×900 | Large grid + agenda side-by-side | ✓ |
+| `staff-selected-day-agenda-390.png` | STAFF | 390×844 | Selected-day agenda with events | ✓ |
+| `staff-manual-create-drawer-390.png` | STAFF | 390×844 | New plan form in dedicated drawer | ✓ |
+| `staff-calendar-conflict-drawer-390.png` | STAFF | 390×844 | CALENDAR_CONFLICT — drawer stays open, draft preserved | ✓ |
+| `calendar-zoom-200-390.png` | STAFF | 390×844 | 200% text zoom — no overflow, controls reachable | ✓ |
+| `calendar-job-deeplink-390.png` | STAFF | 390×844 | Deep-linked event selects month and date | ✓ |
+| `manager-calendar-month-390.png` | MANAGER | 390×844 | Compact team month + Staff filter | ✓ |
+| `manager-calendar-month-1440.png` | MANAGER | 1440×900 | Team month grid + agenda | ✓ |
+| `manager-calendar-filtered-1024.png` | MANAGER | 1024×768 | Team calendar filtered to one staff | ✓ |
+| `admin-calendar-month-1024.png` | ADMIN | 1024×768 | Organization calendar with staff filter | ✓ |
+| `calendar-capability-off-390.png` | STAFF | 390×844 | /calendar falls back when disabled | ✓ |
+| `overview-upcoming-staff.png` | STAFF | 390×844 | Overview upcoming-work widget | ✓ |
+| `overview-upcoming-manager.png` | MANAGER | 1024×768 | Manager overview upcoming work | ✓ |
+| `calendar-notification.png` | STAFF | 390×844 | Notification Center | ✓ |
 
 ## Verified contracts
 
-- [x] Staff sees only own calendar events
-- [x] Manager sees authorized team calendar
-- [x] Admin sees organization-wide calendar with staff filter
-- [x] Manager can filter by staff
-- [x] CALENDAR_CONFLICT returns 409 with preserved draft
-- [x] Manual event create form (mobile and desktop)
-- [x] JOB/MANUAL discrimination in list
-- [x] JobCard deep-link ("İşi aç") navigates to canonical job detail
-- [x] Overview upcoming-work widget renders for both roles
-- [x] Calendar notification route accessible
-- [x] `/calendar` redirects to `/jobs` when capability disabled
-- [x] "Takvim" navigation hidden when capability disabled
-- [x] 200% text zoom: navigation usable, no horizontal overflow, forms reflow
-- [x] No PII or real customer data in any screenshot
-- [x] No secrets, credentials, or production data
+- [x] Monthly calendar grid (ServoraCalendar adapter)
+- [x] Selected-day agenda
+- [x] Desktop grid + agenda split layout (≥1024px)
+- [x] Compact mobile calendar with count markers
+- [x] Staff owns only own calendar
+- [x] Manager team filter
+- [x] Admin organization-wide access
+- [x] JOB/MANUAL source distinction (color + label)
+- [x] Form in dedicated drawer (ResponsiveFormDrawer)
+- [x] CALENDAR_CONFLICT preserves draft in drawer
+- [x] Event deep-link selects month/date
+- [x] JobCard deep-link available
+- [x] 200% zoom — no overflow
+- [x] Capability-off fallback
+- [x] No raw antd imports outside ui/antd
+- [x] No PII or credentials
 
 ## Console errors
 
-- 401 (Unauthorized) × 4: Non-impact resource loads during page transitions (Round 1)
-- 409 (Conflict): **Expected** — CALENDAR_CONFLICT test case (Round 1)
-- Round 2 (visual-verifier): **0 application errors** — only benign navigation-race aborts on `/api/notifications/unread-count`
+- 401 (Unauthorized): benign resource loads during page transitions
+- 409 (Conflict): expected CALENDAR_CONFLICT test case
 
-## NOT VERIFIED (documented limitation)
+## NOT VERIFIED
 
-- [ ] Stale-version (VERSION_CONFLICT) recovery — requires concurrent edit simulation
-- [ ] Service-worker Web Push delivery path — `WEB_PUSH_ENABLED=false` in test config
-- [ ] Reminder worker runtime behavior — requires separate worker-process observation
-- [ ] SSE realtime invalidation — requires WebSocket observation in browser
-
-## Deferred scenarios
-
-These are documented explicitly. Server-side contracts are covered by automated tests:
-
+- Stale-version (VERSION_CONFLICT) recovery — concurrent edit simulation needed
+- Web Push delivery — WEB_PUSH_ENABLED=false
+- Reminder worker runtime — separate process observation needed
+- SSE realtime — WebSocket observation needed

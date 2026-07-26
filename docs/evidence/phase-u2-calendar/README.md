@@ -10,13 +10,16 @@ Pre-created fixture: JobCard `69f133f4` ("Test zamanlı teslimat", PRODUCT_DELIV
 
 ## Synthetic identities
 
-| Role    | Email                    | Password       |
-|---------|--------------------------|----------------|
-| STAFF   | staff@servora.local      | Demo1234!Test  |
-| MANAGER | manager@servora.local    | Demo1234!Test  |
-| ADMIN   | admin@servora.local      | Demo1234!Test  |
+| Role    | Email                    |
+|---------|--------------------------|
+| STAFF   | staff@servora.local      |
+| MANAGER | manager@servora.local    |
+| ADMIN   | admin@servora.local      |
 
 Organization: Servora Med Demo (synthetic)
+
+Authentication material was supplied only to the disposable local runtime,
+was not retained in the final evidence package, and is not documented here.
 
 ## Screenshot matrix
 

@@ -1,4 +1,4 @@
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { patchJobCard } from '../jobs/jobs-api';
@@ -14,31 +14,69 @@ import {
   patchManualEvent,
   type CalendarAssignee,
   type CalendarEvent,
-  type ManualCalendarEvent,
 } from '../services/calendar-api';
+import { ResponsiveFormDrawer } from '../ui/antd/ResponsiveFormDrawer';
+import { ServoraCalendar } from '../ui/antd/ServoraCalendar';
+import type { ServoraCalendarEventSummary } from '../ui/antd/ServoraCalendar';
+
+// ── helpers ──
 
 const DAY_MS = 24 * 60 * 60 * 1_000;
 const localInput = (instant: string) => {
-  const date = new Date(instant);
-  const offset = date.getTimezoneOffset() * 60_000;
-  return new Date(date.valueOf() - offset).toISOString().slice(0, 16);
+  const d = new Date(instant);
+  const off = d.getTimezoneOffset() * 60_000;
+  return new Date(d.valueOf() - off).toISOString().slice(0, 16);
 };
 const instant = (value: string) => new Date(value).toISOString();
 const actionId = () => crypto.randomUUID();
-const weekStart = (value: Date) => {
-  const result = new Date(value);
-  const day = (result.getDay() + 6) % 7;
-  result.setHours(0, 0, 0, 0);
-  result.setDate(result.getDate() - day);
-  return result;
-};
-const weekRange = (anchor: Date) => {
-  const from = weekStart(anchor);
+
+/** Monday of the week containing `d`. */
+function mondayOf(d: Date): Date {
+  const r = new Date(d);
+  const day = (r.getDay() + 6) % 7;
+  r.setHours(0, 0, 0, 0);
+  r.setDate(r.getDate() - day);
+  return r;
+}
+
+/**
+ * Visible calendar grid range: from Monday of the first visible week
+ * to Monday after the last visible week (35–42 days).
+ */
+function visibleMonthRange(anchor: Date) {
+  const year = anchor.getFullYear();
+  const month = anchor.getMonth();
+  const firstDay = new Date(year, month, 1);
+  const lastDay = new Date(year, month + 1, 0);
+  const from = mondayOf(firstDay);
+  // Ensure 6 rows (42 days) for consistent grid height
+  const to = new Date(from.valueOf() + 42 * DAY_MS);
   return {
     from: from.toISOString(),
-    to: new Date(from.valueOf() + 7 * DAY_MS).toISOString(),
+    to: to.toISOString(),
   };
-};
+}
+
+/** Convert CalendarEvent to ServoraCalendarEventSummary. */
+function toSummary(event: CalendarEvent): ServoraCalendarEventSummary {
+  return {
+    id: event.id,
+    source: event.source,
+    title: event.title,
+    startsAt: event.startsAt,
+    endsAt: event.endsAt,
+  };
+}
+
+/** Check if event interval intersects day (half-open). */
+function eventIntersectsDay(event: CalendarEvent, dayStart: Date): boolean {
+  const start = new Date(event.startsAt);
+  const end = event.endsAt ? new Date(event.endsAt) : start;
+  const dayEnd = new Date(dayStart.valueOf() + DAY_MS);
+  return start < dayEnd && end > dayStart;
+}
+
+// ── EventForm (moved into drawer) ──
 
 type Draft = {
   assignedUserId: string;
@@ -47,6 +85,12 @@ type Draft = {
   startsAt: string;
   endsAt: string;
 };
+
+function drawerTitle(event: CalendarEvent | null): string {
+  if (!event) return 'Yeni plan';
+  if (event.source === 'JOB') return 'İş zamanını güncelle';
+  return 'Planı düzenle';
+}
 
 function EventForm({
   user,
@@ -66,14 +110,14 @@ function EventForm({
   const initialAssignee = event?.assignedUser.id ?? defaultAssigneeId;
   const now = new Date();
   now.setMinutes(Math.ceil(now.getMinutes() / 30) * 30, 0, 0);
+  const defaultEnd = new Date(now.valueOf() + 60 * 60_000);
+
   const [draft, setDraft] = useState<Draft>({
     assignedUserId: initialAssignee,
     title: event?.title ?? '',
     description: event?.source === 'MANUAL' ? event.description ?? '' : '',
     startsAt: event ? localInput(event.startsAt) : localInput(now.toISOString()),
-    endsAt: event?.endsAt
-      ? localInput(event.endsAt)
-      : localInput(new Date(now.valueOf() + 60 * 60_000).toISOString()),
+    endsAt: event?.endsAt ? localInput(event.endsAt) : localInput(defaultEnd.toISOString()),
   });
   const [error, setError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<Array<Record<string, unknown>>>([]);
@@ -132,12 +176,11 @@ function EventForm({
   };
 
   return (
-    <form className="calendar-form surface" onSubmit={submit}>
-      <h2>{event ? 'Planı düzenle' : 'Yeni kişisel plan'}</h2>
+    <form className="calendar-form" onSubmit={submit}>
       {user.role !== 'STAFF' && (
         <label className="field-group"><span className="field-label">Personel</span>
           <select value={draft.assignedUserId} onChange={(e) => setDraft({ ...draft, assignedUserId: e.target.value })}>
-            {assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}
+            {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
           </select>
         </label>
       )}
@@ -164,9 +207,9 @@ function EventForm({
         </label>
       </div>
       {error && <div className="form-error" role="alert"><p>{error}</p>
-        {conflicts.map((conflict) => (
-          <p key={String(conflict.id)}>
-            {String(conflict.title)} · {new Date(String(conflict.startsAt)).toLocaleString('tr-TR')}
+        {conflicts.map((c) => (
+          <p key={String(c.id)}>
+            {String(c.title)} · {new Date(String(c.startsAt)).toLocaleString('tr-TR')}
           </p>
         ))}
       </div>}
@@ -179,6 +222,8 @@ function EventForm({
     </form>
   );
 }
+
+// ── EventItem (agenda) ──
 
 function EventItem({
   event,
@@ -232,24 +277,42 @@ function EventItem({
   );
 }
 
+// ── CalendarPage ──
+
+const MAX_VISIBLE_PER_DAY = 3;
+
 export function CalendarPage({ user }: { user: CurrentUser }) {
   const [searchParams] = useSearchParams();
   const selectedEventId = searchParams.get('event');
-  const [anchor, setAnchor] = useState(() => new Date());
+  const [month, setMonth] = useState(() => new Date());
+  const [selectedDate, setSelectedDate] = useState(() => new Date());
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
   const [assignees, setAssignees] = useState<CalendarAssignee[]>([]);
   const [events, setEvents] = useState<CalendarEvent[]>([]);
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<CalendarEvent | null | 'new'>(null);
-  const range = useMemo(() => weekRange(anchor), [anchor]);
+  const newPlanTriggerRef = useRef<HTMLButtonElement>(null);
+
+  const range = useMemo(() => visibleMonthRange(month), [month]);
+  const compact = typeof window !== 'undefined' && window.innerWidth < 640;
+
+  // Event summaries for calendar cells
+  const summaries = useMemo(() => events.map(toSummary), [events]);
+
+  // Events intersecting selected day for agenda
+  const selectedDayEvents = useMemo(() => {
+    const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
+    return events.filter((e) => eventIntersectsDay(e, dayStart));
+  }, [events, selectedDate]);
 
   const refresh = useCallback(async () => {
     setState('loading');
     try {
       const [calendar, users] = await Promise.all([
         listCalendar({
-          ...range,
+          from: range.from,
+          to: range.to,
           assignedTo: user.role === 'STAFF' ? undefined : assignedTo,
         }),
         listCalendarAssignees(),
@@ -264,58 +327,127 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   }, [assignedTo, range, user.role]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Deep-link: navigate to event's month and select its date
   useEffect(() => {
     if (!selectedEventId) return;
     let active = true;
     void getCalendarEvent(selectedEventId).then((selected) => {
-      if (active) setAnchor(new Date(selected.startsAt));
+      if (!active) return;
+      const d = new Date(selected.startsAt);
+      setMonth(new Date(d.getFullYear(), d.getMonth(), 1));
+      setSelectedDate(new Date(d.getFullYear(), d.getMonth(), d.getDate()));
     }).catch(() => {
-      // The weekly list remains usable when the selected event is unavailable.
+      // Event unavailable — calendar remains usable.
     });
     return () => { active = false; };
   }, [selectedEventId]);
+
   useRealtimeInvalidation(['calendar', `calendar:${assignedTo}`], () => { void refresh(); });
+
+  const onMonthChange = useCallback((m: Date) => setMonth(m), []);
+  const onDateSelect = useCallback((d: Date) => setSelectedDate(d), []);
+  const openNewPlan = useCallback(() => setEditing('new'), []);
 
   return (
     <main className="workspace calendar-workspace">
       <header className="workspace-heading">
-        <div><p className="eyebrow">Haftalık planlama</p><h1>Takvim</h1>
-          <p>İşlerinizi ve operasyonel planlarınızı tek zaman çizelgesinde görün.</p></div>
+        <div>
+          <p className="eyebrow">Aylık planlama</p>
+          <h1>Takvim</h1>
+          <p>İşlerinizi ve operasyonel planlarınızı aylık zaman çizelgesinde görün.</p>
+        </div>
         <button
+          ref={newPlanTriggerRef}
           type="button"
           className="primary-button"
           disabled={user.role !== 'STAFF' && assignees.length === 0}
-          onClick={() => setEditing('new')}
+          onClick={openNewPlan}
         >
           Yeni plan
         </button>
       </header>
+
+      {/* Toolbar with Staff filter for Manager/Admin */}
       <div className="calendar-toolbar surface">
-        <button type="button" className="secondary-button" onClick={() => setAnchor(new Date(anchor.valueOf() - 7 * DAY_MS))}>Önceki hafta</button>
-        <strong>{new Date(range.from).toLocaleDateString('tr-TR')} – {new Date(range.to).toLocaleDateString('tr-TR')}</strong>
-        <button type="button" className="secondary-button" onClick={() => setAnchor(new Date(anchor.valueOf() + 7 * DAY_MS))}>Sonraki hafta</button>
-        {user.role !== 'STAFF' && <label><span>Personel</span>
-          <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
-            <option value="">Tüm yetkili personel</option>
-            {assignees.map((assignee) => <option key={assignee.id} value={assignee.id}>{assignee.name}</option>)}
-          </select>
-        </label>}
+        {user.role !== 'STAFF' && (
+          <label><span>Personel</span>
+            <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
+              <option value="">Tüm yetkili personel</option>
+              {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+            </select>
+          </label>
+        )}
       </div>
-      {editing && <EventForm user={user} assignees={assignees}
-        event={editing === 'new' ? null : editing}
-        defaultAssigneeId={assignedTo || assignees[0]?.id || user.id}
-        onClose={() => setEditing(null)}
-        onSaved={() => { setEditing(null); void refresh(); }} />}
-      {state === 'loading' && <div className="workspace-message" aria-busy="true"><p>Takvim yükleniyor…</p></div>}
-      {state === 'error' && <div className="workspace-message" role="alert"><h2>Takvim yüklenemedi</h2><p>{error}</p>
-        <button type="button" className="secondary-button" onClick={() => void refresh()}>Tekrar dene</button></div>}
-      {state === 'ready' && events.length === 0 && <div className="workspace-message"><h2>Bu hafta plan bulunmuyor</h2>
-        <p>Yeni bir kişisel plan oluşturabilir veya başka bir haftaya geçebilirsiniz.</p></div>}
-      {state === 'ready' && events.length > 0 && <section className="calendar-list" aria-label="Haftalık planlar">
-        {events.map((event) => <EventItem key={`${event.source}:${event.id}`} event={event}
-          selected={event.id === selectedEventId}
-          onEdit={() => setEditing(event)} onCancelled={() => void refresh()} />)}
-      </section>}
+
+      {/* Loading / Error states */}
+      {state === 'loading' && (
+        <div className="workspace-message" aria-busy="true"><p>Takvim yükleniyor…</p></div>
+      )}
+      {state === 'error' && (
+        <div className="workspace-message" role="alert">
+          <h2>Takvim yüklenemedi</h2>
+          <p>{error}</p>
+          <button type="button" className="secondary-button" onClick={() => void refresh()}>Tekrar dene</button>
+        </div>
+      )}
+
+      {/* Monthly calendar + agenda */}
+      {state === 'ready' && (
+        <div className="calendar-layout">
+          <section className="calendar-grid-section" aria-label="Aylık takvim">
+            <ServoraCalendar
+              month={month}
+              selectedDate={selectedDate}
+              events={summaries}
+              compact={compact}
+              maxVisibleEventsPerDay={MAX_VISIBLE_PER_DAY}
+              onMonthChange={onMonthChange}
+              onDateSelect={onDateSelect}
+            />
+          </section>
+          <section className="calendar-agenda-section" aria-label="Seçili gün planları">
+            <h2 className="calendar-agenda-heading">
+              {selectedDate.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}
+            </h2>
+            {selectedDayEvents.length === 0 ? (
+              <div className="workspace-message">
+                <p>Bu gün için plan bulunmuyor.</p>
+              </div>
+            ) : (
+              <div className="calendar-list">
+                {selectedDayEvents.map((e) => (
+                  <EventItem
+                    key={`${e.source}:${e.id}`}
+                    event={e}
+                    selected={e.id === selectedEventId}
+                    onEdit={() => setEditing(e)}
+                    onCancelled={() => void refresh()}
+                  />
+                ))}
+              </div>
+            )}
+          </section>
+        </div>
+      )}
+
+      {/* Form drawer */}
+      <ResponsiveFormDrawer
+        open={editing !== null}
+        title={drawerTitle(editing === 'new' ? null : editing)}
+        onDismiss={() => setEditing(null)}
+        returnFocusRef={newPlanTriggerRef}
+      >
+        <EventForm
+          user={user}
+          assignees={assignees}
+          event={editing === 'new' ? null : editing}
+          defaultAssigneeId={assignedTo || assignees[0]?.id || user.id}
+          onClose={() => setEditing(null)}
+          onSaved={() => { setEditing(null); void refresh(); }}
+        />
+      </ResponsiveFormDrawer>
+
       <p className="calendar-help"><Link to={paths.docs}>Takvim kullanım yardımını aç</Link></p>
     </main>
   );

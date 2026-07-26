@@ -69,6 +69,7 @@ describe('Ant Design ownership boundary', () => {
       Empty: 'EmptyState.tsx',
       Skeleton: 'LoadingSkeleton.tsx',
       Popconfirm: 'CompactConfirmationAction.tsx',
+      Calendar: 'ServoraCalendar.tsx',
     } as const;
     const violations: string[] = [];
     const imports = new Map<string, string[]>();
@@ -97,6 +98,16 @@ describe('Ant Design ownership boundary', () => {
     const indexSource = await readFile(join(ownedBoundaryRoot, 'index.ts'), 'utf8');
     expect(indexSource).toContain(
       "export { CompactConfirmationAction } from './CompactConfirmationAction';",
+    );
+  });
+
+  it('exports the owned calendar and drawer adapters', async () => {
+    const indexSource = await readFile(join(ownedBoundaryRoot, 'index.ts'), 'utf8');
+    expect(indexSource).toContain(
+      "export { ServoraCalendar } from './ServoraCalendar';",
+    );
+    expect(indexSource).toContain(
+      "export { ResponsiveFormDrawer } from './ResponsiveFormDrawer';",
     );
   });
 
