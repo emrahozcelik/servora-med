@@ -22,7 +22,6 @@ import type { ServoraCalendarEventSummary } from '../ui/antd/ServoraCalendar';
 
 // ── helpers ──
 
-const DAY_MS = 24 * 60 * 60 * 1_000;
 const localInput = (instant: string) => {
   const d = new Date(instant);
   const off = d.getTimezoneOffset() * 60_000;
@@ -50,8 +49,9 @@ function visibleMonthRange(anchor: Date) {
   const firstDay = new Date(year, month, 1);
   const lastDay = new Date(year, month + 1, 0);
   const from = mondayOf(firstDay);
-  // Ensure 6 rows (42 days) for consistent grid height
-  const to = new Date(from.valueOf() + 42 * DAY_MS);
+  // 42 local calendar days from Monday, DST-safe
+  const to = new Date(from);
+  to.setDate(to.getDate() + 42);
   return {
     from: from.toISOString(),
     to: to.toISOString(),

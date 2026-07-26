@@ -37,13 +37,27 @@ export function intervalIntersectsLocalDay(
   dayStart: Date,
 ): boolean {
   const start = new Date(startsAt);
-  const end = endsAt ? new Date(endsAt) : start;
-  const dayEnd = nextLocalDay(dayStart);
 
-  // Guard: invalid or non-positive duration does not invent extra days
-  if (end <= start && endsAt !== null) return false;
+  if (Number.isNaN(start.valueOf())) {
+    return false;
+  }
 
-  return start < dayEnd && end > dayStart;
+  // Point event → only the startsAt local day
+  if (endsAt === null) {
+    return localDayKey(start) === localDayKey(dayStart);
+  }
+
+  // Duration event → half-open [start, end) intersection with [dayStart, dayEnd)
+  const end = new Date(endsAt);
+
+  if (Number.isNaN(end.valueOf()) || end <= start) {
+    return false;
+  }
+
+  const normalizedDayStart = startOfLocalDay(dayStart);
+  const dayEnd = nextLocalDay(normalizedDayStart);
+
+  return start < dayEnd && end > normalizedDayStart;
 }
 
 /**
