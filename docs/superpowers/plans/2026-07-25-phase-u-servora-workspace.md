@@ -581,7 +581,7 @@ U1 visual acceptance:
 COMPLETE — Draft PR remains subject to separate Ready authorization
 
 U1 integration:
-PENDING
+COMPLETE — merged at 5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
 
 U1 Ready:
 NOT AUTHORIZED by this plan
