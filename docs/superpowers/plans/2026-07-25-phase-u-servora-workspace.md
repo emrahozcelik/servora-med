@@ -802,13 +802,13 @@ Manager:
 
 Implement reminder scheduling and dispatch using current worker/outbox patterns.
 
-Candidate kinds:
+Implemented notification kinds:
 
 ```text
-calendar_assigned
-calendar_rescheduled
-calendar_cancelled
-calendar_reminder
+calendar.assigned
+calendar.rescheduled
+calendar.cancelled
+calendar.reminder
 ```
 
 Requirements:
@@ -949,7 +949,9 @@ Implemented on `feat/phase-u-calendar-planning-clean` (replaces contaminated
 - selected-day agenda beside/below the month grid,
 - ResponsiveFormDrawer for create/edit forms,
 - half-open shared date helper (`calendar-date.ts`) used by both grid and agenda,
-- grid/agenda parity verified by 15 dedicated date-helper tests,
+- grid/agenda parity verified by 24 dedicated date-helper tests passing in
+  default timezone, TZ=UTC, and TZ=Europe/Istanbul,
+- point-event local-midnight parity explicitly tested,
 - `dayjs` 1.11.21 declared as direct dependency,
 - Staff/Manager/Admin role-based calendar views,
 - CALENDAR_CONFLICT preserves draft in drawer,
@@ -961,7 +963,10 @@ Implemented on `feat/phase-u-calendar-planning-clean` (replaces contaminated
 ```text
 server build: PASS
 server PostgreSQL regression: 113 files / 1353 tests PASS
-web tests: 93 files / 1038 tests PASS
+
+focused U2 web validation: 41 tests PASS
+
+web tests: 93 files / 1043 tests PASS
 web build: PASS
 bundle budget: PASS (44 chunks, each <= 500000 bytes)
 responsive smoke: PASS
@@ -979,6 +984,9 @@ Console: 0 application errors (benign 401/409 expected)
 Network: 0 unexpected failures
 Exact visual code/capture SHA: d516a61f8a8a8b6add2a5e3d19354ffebc8ff839
 ```
+
+Final reviewed head before documentation-only closure:
+`f005a1eaa97f14231c8b6cc703854b26532b7c21`
 
 ### Persistent evidence
 
