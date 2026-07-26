@@ -5,6 +5,7 @@ import { patchJobCard } from '../jobs/jobs-api';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import type { ApiError, CurrentUser } from '../services/api';
+import { intervalIntersectsLocalDay } from './calendar-date';
 import {
   cancelManualEvent,
   createManualEvent,
@@ -66,14 +67,6 @@ function toSummary(event: CalendarEvent): ServoraCalendarEventSummary {
     startsAt: event.startsAt,
     endsAt: event.endsAt,
   };
-}
-
-/** Check if event interval intersects day (half-open). */
-function eventIntersectsDay(event: CalendarEvent, dayStart: Date): boolean {
-  const start = new Date(event.startsAt);
-  const end = event.endsAt ? new Date(event.endsAt) : start;
-  const dayEnd = new Date(dayStart.valueOf() + DAY_MS);
-  return start < dayEnd && end > dayStart;
 }
 
 // ── EventForm (moved into drawer) ──
@@ -303,7 +296,7 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   // Events intersecting selected day for agenda
   const selectedDayEvents = useMemo(() => {
     const dayStart = new Date(selectedDate.getFullYear(), selectedDate.getMonth(), selectedDate.getDate());
-    return events.filter((e) => eventIntersectsDay(e, dayStart));
+    return events.filter((e) => intervalIntersectsLocalDay(e.startsAt, e.endsAt, dayStart));
   }, [events, selectedDate]);
 
   const refresh = useCallback(async () => {

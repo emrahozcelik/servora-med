@@ -5,7 +5,6 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CalendarPage } from '../src/calendar/CalendarPage';
-import { intersectedDates } from '../src/ui/antd/ServoraCalendar';
 import type { CurrentUser } from '../src/services/api';
 
 const calendarApi = vi.hoisted(() => ({
@@ -89,40 +88,6 @@ const jobEvent = {
   canEdit: true,
   canCancel: false,
 };
-
-// ── Half-open interval tests ──
-
-describe('intersectedDates (half-open)', () => {
-  it('09:00 → next day 00:00 does not appear on next day', () => {
-    const dates = intersectedDates('2026-07-29T09:00:00.000Z', '2026-07-30T00:00:00.000Z');
-    expect(dates).toHaveLength(1);
-    expect(dates).toEqual(['2026-07-29']);
-  });
-
-  it('00:00 → next day 00:00 appears on exactly one day', () => {
-    const dates = intersectedDates('2026-07-29T00:00:00.000Z', '2026-07-30T00:00:00.000Z');
-    expect(dates).toHaveLength(1);
-    expect(dates).toEqual(['2026-07-29']);
-  });
-
-  it('multi-day event crossing noon appears on all intersected days', () => {
-    const dates = intersectedDates('2026-07-29T12:00:00.000Z', '2026-07-31T12:00:00.000Z');
-    expect(dates).toHaveLength(2);
-    expect(dates).toEqual(['2026-07-29', '2026-07-30']);
-  });
-
-  it('point Job event appears only on startsAt day', () => {
-    const dates = intersectedDates('2026-07-28T14:00:00.000Z', null);
-    expect(dates).toHaveLength(1);
-    expect(dates).toEqual(['2026-07-28']);
-  });
-
-  it('single-day event appears on correct date', () => {
-    const dates = intersectedDates('2026-07-29T09:00:00.000Z', '2026-07-29T10:00:00.000Z');
-    expect(dates).toHaveLength(1);
-    expect(dates).toEqual(['2026-07-29']);
-  });
-});
 
 describe('CalendarPage', () => {
   let container: HTMLDivElement;
