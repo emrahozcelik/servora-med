@@ -572,13 +572,13 @@ U1 code and automated-test implementation:
 COMPLETE — Draft PR checkpoint
 
 U1 direct browser verification:
-PENDING — BLOCKED BY BROWSER AVAILABILITY
+COMPLETE — Playwright MCP matrix plus Chrome DevTools MCP spot-check
 
 U1 persistent visual evidence:
-PENDING
+COMPLETE — `docs/ui/screenshots/phase-u-u1/`
 
 U1 visual acceptance:
-NOT COMPLETE
+COMPLETE — Draft PR remains subject to separate Ready authorization
 
 U1 integration:
 PENDING
@@ -629,8 +629,9 @@ Focused server:
 7 files / 120 tests PASS
 
 Full local server DB suite:
-NOT RUN
-Reason: TEST_DATABASE_URL or DATABASE_URL unavailable
+109 files / 1323 of 1324 tests PASS on a disposable migrated database
+One environment-contract test cannot pass because the local Homebrew
+PostgreSQL host accepts an intentionally wrong password through trust auth
 Security: no .env or credential was opened, copied or created
 Final authority: exact-head GitHub CI server job
 
@@ -659,19 +660,31 @@ parsing were tightened to fail credential-bearing URLs and unsafe mailto forms
 closed, and regression coverage was added. Boundary review found no migration,
 dependency, U2/U3 source module, or new Ant/token boundary violation.
 
-Direct browser verification is not complete. The configured availability check
-returned no browser target, so no Staff/Manager/Admin rendered role matrix,
-capability-disabled browser state, console/network acceptance, or 390/1024/1440
-visual acceptance is claimed. Persistent PNG evidence was not created, and no
-placeholder screenshot directory exists.
+Direct Playwright MCP verification completed the Staff and Manager
+390/1024/1440 matrix, Admin 1024 check, empty/error states, Docs/Help/Settings,
+mobile drawer, keyboard focus, and capability-disabled fallback. Chrome
+DevTools MCP independently repeated the Manager 1024 console/network and
+rendered-state check. No horizontal overflow, clipped inspected headings,
+application console errors, unexpected network failures, role leakage,
+password values, push endpoints, or keys were observed.
+
+Persistent evidence:
+
+```text
+Directory:
+docs/ui/screenshots/phase-u-u1/
+
+PNG count:
+12
+
+Exact visual code/capture head:
+2e353a461729b483668c36ae914a4ff580a8991b
+```
 
 Remaining U1 acceptance steps:
 
-1. Run the direct browser role/viewport and disabled-capability matrix.
-2. Capture genuine synthetic, PII-free PNG evidence and record its exact visual
-   head.
-3. Obtain separate PR Ready authorization after visual acceptance.
-4. Obtain separate merge authorization and verify resulting-main CI.
+1. Obtain separate PR Ready authorization after external review.
+2. Obtain separate merge authorization and verify resulting-main CI.
 
 ---
 

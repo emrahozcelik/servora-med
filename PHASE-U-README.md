@@ -79,13 +79,13 @@ U1 implementation commit:
 0d45d501a0ace8c54555efaccb431780a2818476
 
 U1 direct browser verification:
-PENDING — BLOCKED BY BROWSER AVAILABILITY
+COMPLETE — Playwright MCP matrix plus Chrome DevTools MCP spot-check
 
 U1 persistent visual evidence:
-PENDING
+COMPLETE — `docs/ui/screenshots/phase-u-u1/`
 
 U1 visual acceptance:
-NOT COMPLETE
+COMPLETE — Draft PR remains subject to separate Ready authorization
 
 U1 integration:
 PENDING
@@ -131,8 +131,9 @@ Focused server:
 7 files / 120 tests PASS
 
 Full local server DB suite:
-NOT RUN
-Reason: TEST_DATABASE_URL or DATABASE_URL unavailable
+109 files / 1323 of 1324 tests PASS on a disposable migrated database
+One environment-contract test cannot pass because the local Homebrew
+PostgreSQL host accepts an intentionally wrong password through trust auth
 Security: no .env or credential was opened, copied or created
 Final authority: exact-head GitHub CI server job
 
@@ -163,8 +164,14 @@ email and HTTPS URL parsing accepted unsafe mailto query and credential forms.
 Server validation and client parsing now fail those values closed, with
 regression coverage.
 
-Direct browser verification was attempted through the configured browser
-control surface, but no browser target was available. The 390/1024/1440
-Staff/Manager/Admin matrix, capability-disabled rendered fallback,
-console/network checks, genuine PNG evidence, and final visual acceptance
-remain pending. No screenshot directory or placeholder evidence was created.
+Direct Playwright MCP verification completed the Staff and Manager
+390/1024/1440 matrix, Admin 1024 check, empty/error states, Docs/Help/Settings,
+mobile drawer, keyboard focus, and capability-disabled fallback. Chrome
+DevTools MCP independently repeated the Manager 1024 console/network and
+rendered-state check. No horizontal overflow, clipped inspected headings,
+application console errors, unexpected network failures, role leakage,
+password values, push endpoints, or keys were observed.
+
+Twelve genuine synthetic PNGs and their per-capture contract index are stored
+under `docs/ui/screenshots/phase-u-u1/`. Their exact visual code/capture head is
+`2e353a461729b483668c36ae914a4ff580a8991b`.
