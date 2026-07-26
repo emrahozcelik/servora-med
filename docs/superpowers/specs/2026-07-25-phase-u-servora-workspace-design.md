@@ -119,7 +119,7 @@ A dashboard must not become a dead-end display.
 
 ### 4.5 Privacy is enforced at the source
 
-Dashboard aggregation, calendar visibility, note previews and message previews must apply authorization server-side. The client must not receive hidden records and then filter them locally.
+Dashboard aggregation, calendar visibility, note previews and message-summary metadata must apply authorization server-side. The client must not receive records outside its authorized JobCard, calendar or conversation scope and then filter them locally.
 
 ---
 
@@ -243,7 +243,7 @@ Do not expose:
 - other staff performance,
 - organization-wide customer data beyond current authorization,
 - manager-only review queues,
-- hidden notes,
+- notes from JobCards outside the user's authorized scope,
 - private message threads,
 - organization-wide revenue unless the current role already permits it.
 
@@ -767,7 +767,7 @@ The server generates `direct_key` from the sorted participant pair plus either `
 - unread reconciliation is deterministic,
 - notification delivery is idempotent,
 - deleted/disabled users are handled explicitly,
-- message previews are privacy-safe and Push/dashboard notifications never contain the message body.
+- message-summary metadata is privacy-safe and Push/dashboard notifications never contain the message body.
 
 ### 12.5 Dashboard message widget
 
@@ -775,7 +775,7 @@ The dashboard should show only a bounded summary:
 
 - unread total,
 - sender display name,
-- short sanitized preview,
+- generic privacy-safe unread status, never a message-body preview,
 - time,
 - link to thread.
 
@@ -795,7 +795,7 @@ A recent-note widget may include:
 - timestamp,
 - deep link.
 
-The query must reuse note visibility/authorization rules. Hidden notes must not leak through overview aggregation.
+The query must derive note visibility from the related JobCard authorization scope. There is no separate hidden-note model; overview aggregation must not expose notes from inaccessible JobCards.
 
 ### 13.2 Recent completed work
 

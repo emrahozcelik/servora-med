@@ -326,7 +326,7 @@ Requirements:
 - server-authoritative dates,
 - no N+1 behavior,
 - deterministic tests,
-- no hidden note leakage.
+- no notes from inaccessible JobCards.
 
 ### 4. Staff overview
 
@@ -469,7 +469,7 @@ Minimum coverage:
 
 - staff overview scope,
 - manager/admin overview scope,
-- hidden notes absent,
+- inaccessible JobCard notes absent,
 - stable date boundaries,
 - collection limits/order,
 - capability disabled,
@@ -902,7 +902,7 @@ Requirements:
 - bounded pagination,
 - duplicate-submit protection,
 - cross-organization denial,
-- privacy-safe previews.
+- privacy-safe body-free message summary metadata.
 
 ### 3. Messaging UI
 
@@ -946,7 +946,7 @@ Show:
 - unread total,
 - bounded recent thread summaries,
 - sender,
-- safe short preview,
+- generic privacy-safe unread status, never a message-body preview,
 - time,
 - thread link.
 
