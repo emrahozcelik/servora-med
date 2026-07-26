@@ -16,7 +16,28 @@ export {
 export type { DeliveryItem, DeliveryPurpose, JobCard, JobCardStatus } from '../jobs/jobs-api';
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF';
-export type CurrentUser = { id: string; organizationId: string; name: string; email: string; role: UserRole; mustChangePassword: boolean; isActive: boolean; version: number };
+export type AuthenticatedCapabilities = {
+  overviewDashboard: boolean;
+  calendar: boolean;
+  messaging: boolean;
+};
+export type AuthenticatedSupport = {
+  displayLabel: string;
+  email: string | null;
+  helpUrl: string | null;
+};
+export type CurrentUser = {
+  id: string;
+  organizationId: string;
+  name: string;
+  email: string;
+  role: UserRole;
+  mustChangePassword: boolean;
+  isActive: boolean;
+  version: number;
+  capabilities: AuthenticatedCapabilities;
+  support: AuthenticatedSupport;
+};
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 
 export class ApiError extends Error {
@@ -75,12 +96,62 @@ export async function request(path: string, init: RequestInit = {}) {
 }
 export const json = (method: string, body: unknown): RequestInit => ({ method, headers: { 'content-type': 'application/json' }, body: JSON.stringify(body) });
 
+function parseCurrentUser(value: unknown): CurrentUser {
+  const user = object(value);
+  const role = string(user.role, 'role');
+  if (!['ADMIN', 'MANAGER', 'STAFF'].includes(role)) {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Yanıtta role alanı geçersiz.');
+  }
+  const rawCapabilities = user.capabilities && typeof user.capabilities === 'object'
+    ? object(user.capabilities)
+    : {};
+  const rawSupport = user.support && typeof user.support === 'object'
+    ? object(user.support)
+    : {};
+  let helpUrl: string | null = null;
+  if (typeof rawSupport.helpUrl === 'string') {
+    try {
+      const parsed = new URL(rawSupport.helpUrl);
+      if (parsed.protocol === 'https:' && !parsed.username && !parsed.password) {
+        helpUrl = parsed.toString();
+      }
+    } catch {
+      // Unsafe or malformed optional support URLs fail closed.
+    }
+  }
+  return {
+    id: string(user.id, 'id'),
+    organizationId: string(user.organizationId, 'organizationId'),
+    name: string(user.name, 'name'),
+    email: string(user.email, 'email'),
+    role: role as UserRole,
+    mustChangePassword: boolean(user.mustChangePassword, 'mustChangePassword'),
+    isActive: typeof user.isActive === 'boolean' ? user.isActive : true,
+    version: typeof user.version === 'number' ? number(user.version, 'version') : 1,
+    capabilities: {
+      overviewDashboard: rawCapabilities.overviewDashboard === true,
+      calendar: rawCapabilities.calendar === true,
+      messaging: rawCapabilities.messaging === true,
+    },
+    support: {
+      displayLabel: typeof rawSupport.displayLabel === 'string' && rawSupport.displayLabel.trim()
+        ? rawSupport.displayLabel
+        : 'Sistem yöneticiniz',
+      email: typeof rawSupport.email === 'string'
+        && /^[A-Za-z0-9.!#$%&'*+/=_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.[A-Za-z]{2,63}$/.test(rawSupport.email)
+        ? rawSupport.email
+        : null,
+      helpUrl,
+    },
+  };
+}
+
 export async function login(credentials: { email: string; password: string }) {
   const body = object(await request('/api/auth/login', json('POST', credentials)));
-  return body.user as CurrentUser;
+  return parseCurrentUser(body.user);
 }
 export async function getCurrentUser(): Promise<CurrentUser | null> {
-  try { return object(await request('/api/auth/me')).user as CurrentUser; }
+  try { return parseCurrentUser(object(await request('/api/auth/me')).user); }
   catch (error) { if (error instanceof ApiError && error.status === 401) return null; throw error; }
 }
 export async function logout() { await request('/api/auth/logout', { method: 'POST' }); }

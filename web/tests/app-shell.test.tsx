@@ -13,6 +13,8 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const staff: CurrentUser = {
   id: 'staff-1', organizationId: 'org-1', name: 'Ayşe Personel', email: 'ayse@example.com',
   role: 'STAFF', mustChangePassword: false, isActive: true, version: 1,
+  capabilities: { overviewDashboard: false, calendar: false, messaging: false },
+  support: { displayLabel: 'Destek', email: null, helpUrl: null },
 };
 const manager: CurrentUser = { ...staff, id: 'manager-1', name: 'Murat Yönetici', role: 'MANAGER' };
 const admin: CurrentUser = { ...manager, id: 'admin-1', name: 'Deniz Admin', role: 'ADMIN' };
@@ -50,9 +52,9 @@ describe('responsive authenticated AppShell', () => {
   }
 
   it.each([
-    [staff, ['İşler', 'Müşteriler', 'Ürünler', 'Profilim'], ['Personel', 'Kullanıcılar']],
-    [manager, ['İşler', 'Müşteriler', 'Ürünler', 'Raporlar', 'Personel'], ['Profilim', 'Kullanıcılar']],
-    [admin, ['İşler', 'Müşteriler', 'Ürünler', 'Raporlar', 'Personel', 'Kullanıcılar'], ['Profilim']],
+    [staff, ['İşler', 'Müşteriler', 'Ürünler', 'Profilim', 'Dokümantasyon', 'Yardım Merkezi', 'Ayarlar'], ['Personel', 'Kullanıcılar']],
+    [manager, ['İşler', 'Müşteriler', 'Ürünler', 'Raporlar', 'Personel', 'Dokümantasyon', 'Yardım Merkezi', 'Ayarlar'], ['Profilim', 'Kullanıcılar']],
+    [admin, ['İşler', 'Müşteriler', 'Ürünler', 'Raporlar', 'Personel', 'Kullanıcılar', 'Dokümantasyon', 'Yardım Merkezi', 'Ayarlar'], ['Profilim']],
   ] as const)('renders exact desktop destinations for %s', async (user, visible, hidden) => {
     await render(user, true);
     const aside = container.querySelector('aside')!;
@@ -60,7 +62,9 @@ describe('responsive authenticated AppShell', () => {
     const navigation = aside.querySelector('nav')!;
     expect(navigation.getAttribute('aria-label')).toBe('Ana navigasyon');
     const groups = Array.from(navigation.querySelectorAll<HTMLElement>('[data-nav-section]'));
-    const expectedGroups = user.role === 'STAFF' ? ['Operasyon', 'Ekip'] : ['Operasyon', 'Analiz', 'Ekip'];
+    const expectedGroups = user.role === 'STAFF'
+      ? ['Operasyon', 'Ekip', 'Destek', 'Hesap']
+      : ['Operasyon', 'Analiz', 'Ekip', 'Destek', 'Hesap'];
     expect(groups.map((group) => group.getAttribute('data-nav-section'))).toEqual(expectedGroups);
     expect(groups.map((group) => group.querySelector('h2')?.textContent)).toEqual(expectedGroups);
     for (const label of visible) expect(navigation.textContent).toContain(label);
@@ -88,8 +92,8 @@ describe('responsive authenticated AppShell', () => {
     expect(container.querySelector('.compact-shell-header .dunya-dental-brand--topbar')).not.toBeNull();
     expect(container.querySelector('.mobile-top-bar-actions [aria-label="Bildirimler"] svg')).not.toBeNull();
     expect(container.querySelector('.mobile-shell-title')?.textContent).toBe('İşlerim');
-    expect(container.querySelector('.mobile-bottom-nav')?.textContent).toContain('Profilim');
-    expect(container.querySelector('.mobile-bottom-nav')?.textContent).not.toContain('Menü');
+    expect(container.querySelector('.mobile-bottom-nav')?.textContent).not.toContain('Profilim');
+    expect(container.querySelector('.mobile-bottom-nav')?.textContent).toContain('Menü');
     const trigger = container.querySelector<HTMLButtonElement>('[aria-controls="app-navigation-drawer"]')!;
     expect(trigger.getAttribute('aria-expanded')).toBe('false');
     await act(async () => trigger.click());
@@ -98,6 +102,8 @@ describe('responsive authenticated AppShell', () => {
     expect(dialog.getAttribute('aria-labelledby')).toBe('app-navigation-title');
     expect(trigger.getAttribute('aria-expanded')).toBe('true');
     expect(document.activeElement).toBe(dialog.querySelector('button, a'));
+    expect(dialog.textContent).toContain('Profilim');
+    expect(dialog.textContent).toContain('Yardım Merkezi');
   });
 
   it('uses Menü bottom control as a button that opens overflow drawer and restores focus', async () => {

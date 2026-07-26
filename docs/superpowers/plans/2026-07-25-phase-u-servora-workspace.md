@@ -568,8 +568,20 @@ settings
 ## U1 gates
 
 ```text
-U1 implementation:
-AUTHORIZED only by separate external-review decision
+U1 code and automated-test implementation:
+COMPLETE — Draft PR checkpoint
+
+U1 direct browser verification:
+COMPLETE — Playwright MCP matrix plus Chrome DevTools MCP spot-check
+
+U1 persistent visual evidence:
+COMPLETE — `docs/ui/screenshots/phase-u-u1/`
+
+U1 visual acceptance:
+COMPLETE — Draft PR remains subject to separate Ready authorization
+
+U1 integration:
+PENDING
 
 U1 Ready:
 NOT AUTHORIZED by this plan
@@ -580,6 +592,99 @@ NOT AUTHORIZED by this plan
 U2:
 NOT AUTHORIZED until U1 merge/main-CI acceptance
 ```
+
+## U1 implementation checkpoint
+
+```text
+Exact authorized base:
+06a0d2a92d1776874ec5de13cf2d15e7c5e7460b
+
+Exact source/test implementation commit:
+0d45d501a0ace8c54555efaccb431780a2818476
+```
+
+The authenticated bootstrap now exposes default-off
+`overviewDashboard`, `calendar`, and `messaging` capabilities with login and
+`/me` parity. Safe support configuration is authenticated, narrowly validated,
+and fails unsafe email, non-HTTPS, credential-bearing, or malformed values
+closed.
+
+`GET /api/overview` is server-gated and returns a discriminated Staff or
+Management response. It reuses report calculations directly. Staff recent work
+and note previews are derived only after assigned-JobCard authorization;
+Manager/Admin results are organization-scoped. SQL bounds both recent lists to
+10 and uses timestamp plus ID ordering.
+
+The web checkpoint adds capability-aware root/login routing, disabled Overview
+fallback to Jobs, grouped desktop navigation, a maximum-four-control mobile
+model with secondary destinations in Menü, role-specific Overview UI, typed
+Docs/Help content, read-only initials Profile, existing password-change
+semantics, and current-device Web Push controls. Realtime carries only the
+`overview` invalidation key and canonical REST refetch remains authoritative.
+
+Automated validation:
+
+```text
+Focused server:
+7 files / 120 tests PASS
+
+Full local server DB suite:
+109 files / 1323 of 1324 tests PASS on a disposable migrated database
+One environment-contract test cannot pass because the local Homebrew
+PostgreSQL host accepts an intentionally wrong password through trust auth
+Security: no .env or credential was opened, copied or created
+Final authority: exact-head GitHub CI server job
+
+Full web:
+90 files / 1004 tests PASS
+
+Server/web builds:
+PASS
+
+Server audit:
+0 vulnerabilities
+
+Web audit:
+PASS_WITH_WAIVER — existing GHSA-qwww-vcr4-c8h2 RSC-only waiver
+
+Bundle:
+PASS — 39 JavaScript chunks within the 500000-byte limit
+
+Responsive smoke:
+PASS
+```
+
+Terra direct self-review found one concrete U1 defect: unsafe optional support
+URL/mailto values could survive client parsing. Server validation and client
+parsing were tightened to fail credential-bearing URLs and unsafe mailto forms
+closed, and regression coverage was added. Boundary review found no migration,
+dependency, U2/U3 source module, or new Ant/token boundary violation.
+
+Direct Playwright MCP verification completed the Staff and Manager
+390/1024/1440 matrix, Admin 1024 check, empty/error states, Docs/Help/Settings,
+mobile drawer, keyboard focus, and capability-disabled fallback. Chrome
+DevTools MCP independently repeated the Manager 1024 console/network and
+rendered-state check. No horizontal overflow, clipped inspected headings,
+application console errors, unexpected network failures, role leakage,
+password values, push endpoints, or keys were observed.
+
+Persistent evidence:
+
+```text
+Directory:
+docs/ui/screenshots/phase-u-u1/
+
+PNG count:
+12
+
+Exact visual code/capture head:
+2e353a461729b483668c36ae914a4ff580a8991b
+```
+
+Remaining U1 acceptance steps:
+
+1. Obtain separate PR Ready authorization after external review.
+2. Obtain separate merge authorization and verify resulting-main CI.
 
 ---
 

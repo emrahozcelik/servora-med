@@ -23,6 +23,7 @@ import { GoogleReverseGeocoder } from './modules/geocoding/google-reverse-geocod
 import { PostgresReverseGeocodingQuotaGuard } from './modules/geocoding/postgres-reverse-geocoding-quota.js';
 import type { ReverseGeocoder } from './modules/job-cards/reverse-geocoder.js';
 import type { ReverseGeocodingQuotaGuard } from './modules/geocoding/reverse-geocoding-quota.js';
+import { PostgresOverviewRepository } from './modules/overview/repository.js';
 
 async function main() {
   const config = loadConfig();
@@ -82,6 +83,7 @@ async function main() {
       productRepository: new PostgresProductRepository(database.pool),
       approvalQueueItemPort: jobCards,
       reportsRepository: reports,
+      overviewRepository: new PostgresOverviewRepository(database.pool, reports),
       healthReadiness: createPostgresReadiness(database.pool, config.healthSchemaVersion),
       realtimeService,
       realtimePublisher: realtimeBus,

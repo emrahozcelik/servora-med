@@ -55,6 +55,7 @@ describe('realtime JobCard contract', () => {
     ['JOB_PLANNED', 'job.updated'],
     ['JOB_RESUMED', 'job.updated'],
     ['JOB_APPROVAL_WITHDRAWN', 'job.updated'],
+    ['NOTE_ADDED', 'job.updated'],
   ] as const)('maps %s to %s', (activity, expected) => {
     expect(mapJobCardActivityToRealtime({
       ...base,
@@ -63,7 +64,6 @@ describe('realtime JobCard contract', () => {
   });
 
   it.each([
-    'NOTE_ADDED',
     'DELIVERY_ITEM_ADDED',
     'DELIVERY_ITEM_UPDATED',
     'DELIVERY_ITEM_REMOVED',
@@ -87,8 +87,18 @@ describe('realtime JobCard contract', () => {
       'job-board',
       'job-detail:job-1',
       'job-list',
+      'overview',
       'reports',
       'staff-profile:staff-new',
     ]);
+  });
+
+  it('invalidates overview for a note without carrying note content', () => {
+    const event = mapJobCardActivityToRealtime({
+      ...base,
+      event: 'NOTE_ADDED',
+    });
+    expect(event?.resourceKeys).toContain('overview');
+    expect(JSON.stringify(event)).not.toContain('note');
   });
 });

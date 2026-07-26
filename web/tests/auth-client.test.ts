@@ -5,6 +5,9 @@ import { getCurrentUser, login, logout } from '../src/services/api';
 const user = {
   id: 'user-1', organizationId: 'org-1', name: 'Emrah Admin',
   email: 'admin@example.com', role: 'ADMIN' as const, mustChangePassword: false,
+  isActive: true, version: 1,
+  capabilities: { overviewDashboard: true, calendar: false, messaging: false },
+  support: { displayLabel: 'Operasyon desteği', email: null, helpUrl: null },
 };
 
 afterEach(() => vi.unstubAllGlobals());
@@ -26,6 +29,40 @@ describe('auth API client', () => {
   it('returns null when the current session is unauthorized', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('', { status: 401 })));
     await expect(getCurrentUser()).resolves.toBeNull();
+  });
+
+  it('handles a legacy missing capability payload fail-closed', async () => {
+    const { capabilities: _capabilities, support: _support, ...legacyUser } = user;
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      user: legacyUser,
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    await expect(getCurrentUser()).resolves.toMatchObject({
+      capabilities: {
+        overviewDashboard: false,
+        calendar: false,
+        messaging: false,
+      },
+    });
+  });
+
+  it('fails unsafe optional support links and mailto values closed', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      user: {
+        ...user,
+        support: {
+          displayLabel: '',
+          email: 'support?subject=unsafe@example.test',
+          helpUrl: 'https://user:secret@support.example.test',
+        },
+      },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    await expect(getCurrentUser()).resolves.toMatchObject({
+      support: {
+        displayLabel: 'Sistem yöneticiniz',
+        email: null,
+        helpUrl: null,
+      },
+    });
   });
 
   it('uses included credentials for logout', async () => {

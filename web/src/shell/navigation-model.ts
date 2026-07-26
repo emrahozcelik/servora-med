@@ -6,7 +6,7 @@ export type NavLinkItem = {
   id: string;
   label: string;
   to: string;
-  section: 'Operasyon' | 'Analiz' | 'Ekip';
+  section: 'Operasyon' | 'Analiz' | 'Ekip' | 'Destek' | 'Hesap';
 };
 
 export type NavMenuItem = {
@@ -31,6 +31,7 @@ export type NavigationModel = {
  * Do not duplicate role lists in shell components.
  */
 export function buildNavigationModel(user: CurrentUser): NavigationModel {
+  const overview: NavLinkItem = { kind: 'link', id: 'overview', label: 'Genel Bakış', to: paths.overview, section: 'Operasyon' };
   const jobs: NavLinkItem = { kind: 'link', id: 'jobs', label: 'İşler', to: paths.jobs, section: 'Operasyon' };
   const customers: NavLinkItem = { kind: 'link', id: 'customers', label: 'Müşteriler', to: paths.customers, section: 'Operasyon' };
   const products: NavLinkItem = { kind: 'link', id: 'products', label: 'Ürünler', to: paths.products, section: 'Operasyon' };
@@ -43,36 +44,45 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
     to: paths.staff,
     section: 'Ekip',
   };
+  const docs: NavLinkItem = { kind: 'link', id: 'docs', label: 'Dokümantasyon', to: paths.docs, section: 'Destek' };
+  const help: NavLinkItem = { kind: 'link', id: 'help', label: 'Yardım Merkezi', to: paths.help, section: 'Destek' };
+  const settings: NavLinkItem = { kind: 'link', id: 'settings', label: 'Ayarlar', to: paths.settings, section: 'Hesap' };
 
   const destinations: NavLinkItem[] = [
+    ...(user.capabilities?.overviewDashboard ? [overview] : []),
     jobs,
     customers,
     products,
     ...(user.role !== 'STAFF' ? [reports] : []),
     ...(user.role === 'ADMIN' ? [users] : []),
     staff,
+    docs,
+    help,
+    settings,
   ];
 
   if (user.role === 'STAFF') {
+    const direct = user.capabilities?.overviewDashboard
+      ? [overview, jobs, customers]
+      : [jobs, customers, products];
+    const directIds = new Set(direct.map((item) => item.id));
     return {
       destinations,
-      bottom: [jobs, customers, products, staff],
-      overflow: [],
+      bottom: [...direct, { kind: 'menu', id: 'menu', label: 'Menü' }],
+      overflow: destinations.filter((item) => !directIds.has(item.id)),
     };
   }
 
-  const overflow: NavLinkItem[] = [
-    products,
-    staff,
-    ...(user.role === 'ADMIN' ? [users] : []),
-  ];
+  const direct = user.capabilities?.overviewDashboard
+    ? [overview, jobs, reports]
+    : [jobs, customers, reports];
+  const directIds = new Set(direct.map((item) => item.id));
+  const overflow = destinations.filter((item) => !directIds.has(item.id));
 
   return {
     destinations,
     bottom: [
-      jobs,
-      customers,
-      reports,
+      ...direct,
       { kind: 'menu', id: 'menu', label: 'Menü' },
     ],
     overflow,
@@ -81,6 +91,10 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
 
 /** Section title for the single mobile top bar (not a second page h1). */
 export function resolveShellTitle(pathname: string, role: CurrentUser['role']): string {
+  if (pathname.startsWith('/overview')) return 'Genel Bakış';
+  if (pathname.startsWith('/docs')) return 'Dokümantasyon';
+  if (pathname.startsWith('/help')) return 'Yardım Merkezi';
+  if (pathname.startsWith('/settings')) return 'Ayarlar';
   if (pathname.startsWith('/jobs/new-')) return 'Yeni iş';
   if (/^\/jobs\/[^/]+/.test(pathname)) return 'İş detayı';
   if (pathname.startsWith('/jobs')) return role === 'STAFF' ? 'İşlerim' : 'İşler';

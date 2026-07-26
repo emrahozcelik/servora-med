@@ -54,6 +54,9 @@ import type { WebPushDispatcher } from './modules/web-push/dispatcher.js';
 import { createDispatcher } from './modules/web-push/dispatcher.js';
 import { createWebPushSender } from './modules/web-push/sender.js';
 import { buildPushPayload, buildPushTopic } from './modules/web-push/payload.js';
+import type { OverviewReadModel } from './modules/overview/repository.js';
+import { OverviewService } from './modules/overview/service.js';
+import { overviewRoutes } from './modules/overview/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -96,6 +99,7 @@ export type AppDependencies = {
   reverseGeocodingQuotaGuard?: ReverseGeocodingQuotaGuard;
   webPushRepository?: WebPushRepository;
   webPushDispatcher?: WebPushDispatcher;
+  overviewRepository?: OverviewReadModel;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
 };
@@ -202,6 +206,16 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: new ReportsService(
           dependencies.reportsRepository,
           dependencies.approvalQueueItemPort,
+        ),
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.overviewRepository) {
+      await app.register(overviewRoutes, {
+        prefix: '/api/overview',
+        service: new OverviewService(
+          config.capabilities?.overviewDashboard ?? false,
+          dependencies.overviewRepository,
         ),
         authenticate: authenticateDomain,
       });

@@ -1,5 +1,10 @@
 import { createECDH } from 'node:crypto';
 
+import type {
+  AuthenticatedCapabilities,
+  AuthenticatedSupport,
+} from './modules/capabilities/types.js';
+
 export type NodeEnvironment = 'development' | 'test' | 'production';
 
 export type TrustedProxy = 'loopback' | '127.0.0.1' | '::1';
@@ -32,6 +37,8 @@ export type AppConfig = {
   geocodingUserDailyLimit: number;
   geocodingOrganizationDailyLimit: number;
   geocodingGlobalMonthlyLimit: number;
+  capabilities?: AuthenticatedCapabilities;
+  support?: AuthenticatedSupport;
   webPush: WebPushConfig;
 };
 
@@ -94,6 +101,37 @@ function readBoolean(value: string | undefined, name: string): boolean {
   if (!resolved || resolved === 'false') return false;
   if (resolved === 'true') return true;
   throw new Error(`${name} must be true or false`);
+}
+
+function readSupportConfig(env: NodeJS.ProcessEnv): AuthenticatedSupport {
+  const displayLabel = env.SUPPORT_DISPLAY_LABEL?.trim() || 'Sistem yöneticiniz';
+  if (displayLabel.length > 120 || /[\u0000-\u001f\u007f]/.test(displayLabel)) {
+    throw new Error('SUPPORT_DISPLAY_LABEL must be at most 120 safe characters');
+  }
+  const email = env.SUPPORT_EMAIL?.trim() || null;
+  if (
+    email
+    && (
+      email.length > 254
+      || !/^[A-Za-z0-9.!#$%&'*+/=_`{|}~-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]{0,251}[A-Za-z0-9])?\.[A-Za-z]{2,63}$/.test(email)
+    )
+  ) {
+    throw new Error('SUPPORT_EMAIL must be a valid email address');
+  }
+  const helpUrl = env.SUPPORT_HELP_URL?.trim() || null;
+  if (helpUrl) {
+    try {
+      const url = new URL(helpUrl);
+      if (
+        url.protocol !== 'https:'
+        || url.username
+        || url.password
+      ) throw new Error('invalid');
+    } catch {
+      throw new Error('SUPPORT_HELP_URL must be an https URL');
+    }
+  }
+  return { displayLabel, email, helpUrl };
 }
 
 function readDatabaseUrl(value: string | undefined): string {
@@ -407,6 +445,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     healthSchemaVersion: readHealthSchemaVersion(env.HEALTH_SCHEMA_VERSION, typedNodeEnv),
     actionScopedGeolocationEnabled,
     ...geocoding,
+    capabilities: {
+      overviewDashboard: readBoolean(
+        env.OVERVIEW_DASHBOARD_ENABLED,
+        'OVERVIEW_DASHBOARD_ENABLED',
+      ),
+      calendar: readBoolean(env.CALENDAR_ENABLED, 'CALENDAR_ENABLED'),
+      messaging: readBoolean(env.MESSAGING_ENABLED, 'MESSAGING_ENABLED'),
+    },
+    support: readSupportConfig(env),
     webPush: readWebPushConfig(env),
   };
 }

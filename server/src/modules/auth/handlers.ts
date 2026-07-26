@@ -1,6 +1,11 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
+import { authenticatedUser } from '../capabilities/service.js';
+import type {
+  AuthenticatedCapabilities,
+  AuthenticatedSupport,
+} from '../capabilities/types.js';
 import { SESSION_COOKIE_NAME } from './middleware.js';
 import type { AuthService } from './service.js';
 
@@ -13,7 +18,12 @@ function requireString(value: unknown, field: string): string {
   return value;
 }
 
-export function createAuthHandlers(authService: AuthService, cookieOptions: CookieOptions) {
+export function createAuthHandlers(
+  authService: AuthService,
+  cookieOptions: CookieOptions,
+  capabilities: AuthenticatedCapabilities | undefined,
+  support: AuthenticatedSupport | undefined,
+) {
   return {
     login: async (request: FastifyRequest, reply: FastifyReply) => {
       const body = request.body as Record<string, unknown> | null;
@@ -22,9 +32,11 @@ export function createAuthHandlers(authService: AuthService, cookieOptions: Cook
         requireString(body?.password, 'password'),
       );
       reply.setCookie(SESSION_COOKIE_NAME, result.rawToken, cookieOptions);
-      return { user: result.user };
+      return { user: authenticatedUser(result.user, capabilities, support) };
     },
-    me: async (request: FastifyRequest) => ({ user: request.currentUser }),
+    me: async (request: FastifyRequest) => ({
+      user: authenticatedUser(request.currentUser!, capabilities, support),
+    }),
     logout: async (request: FastifyRequest, reply: FastifyReply) => {
       const token = request.cookies[SESSION_COOKIE_NAME];
       if (token) await authService.logout(token);

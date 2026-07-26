@@ -102,6 +102,18 @@ describe('RealtimeProvider', () => {
     expect(Array.from(view.querySelectorAll('output')).map((item) => item.textContent)).toEqual(['1', '1']);
   });
 
+  it('coalesces rapid overview invalidations and ignores unrelated resources', async () => {
+    const source = new FakeEventSource();
+    const view = await render(source, <Subscription resourceKey="overview" />);
+    await act(async () => {
+      source.emit('servora.change', change('20', ['job-list']));
+      source.emit('servora.change', change('21', ['overview']));
+      source.emit('servora.change', change('22', ['overview']));
+      await Promise.resolve();
+    });
+    expect(view.querySelector('output')?.textContent).toBe('1');
+  });
+
   it('coalesces a workspace sync marker and reconciles every mounted resource once', async () => {
     const source = new FakeEventSource();
     const view = await render(source, <>

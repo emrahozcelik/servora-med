@@ -2558,6 +2558,85 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .brand-lockup { margin-top: 0.35rem; }
 }
 
+.overview-kpis {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1rem;
+  margin: 0 0 1.5rem;
+}
+.overview-kpis > div,
+.overview-section,
+.content-list > article,
+.support-contact,
+.settings-panel,
+.settings-card-grid > a {
+  min-width: 0;
+  padding: 1.15rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-card);
+  background: var(--paper);
+}
+.overview-kpis dt { color: var(--muted); font-size: 0.82rem; font-weight: 680; }
+.overview-kpis dd { margin: 0.35rem 0; font-size: clamp(1.5rem, 4vw, 2.2rem); font-weight: 780; }
+.overview-kpis a,
+.overview-section a,
+.settings-card-grid a { color: var(--accent-hover); font-weight: 700; }
+.overview-recent-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
+.overview-section h2,
+.content-list h2,
+.support-contact h2,
+.settings-panel h2 { margin-top: 0; font-size: 1.15rem; }
+.overview-section ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
+.overview-section li { display: grid; gap: 0.35rem; min-width: 0; padding: 0.85rem 0; border-top: 1px solid var(--rule); }
+.overview-section li:first-child { border-top: 0; padding-top: 0; }
+.overview-section li span,
+.overview-section li p,
+.overview-text-summary { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
+.overview-trend { margin-block: 1rem; }
+
+.content-list { display: grid; gap: 1rem; }
+.content-list article > p,
+.content-list section p,
+.support-contact p { color: var(--muted); line-height: 1.65; overflow-wrap: anywhere; }
+.content-list article section { margin-top: 1.25rem; }
+.content-list h3 { font-size: 1rem; }
+.support-contact { display: grid; gap: 0.35rem; margin-bottom: 1rem; }
+.support-contact > * { margin-block: 0; overflow-wrap: anywhere; }
+
+.settings-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
+.settings-card-grid > a { display: grid; gap: 0.5rem; color: var(--ink); text-decoration: none; overflow-wrap: anywhere; }
+.settings-card-grid span { font-size: 1.05rem; font-weight: 760; }
+.settings-card-grid small { color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
+.settings-panel { display: grid; gap: 1rem; max-width: 44rem; }
+.settings-form-panel form { display: grid; gap: 1rem; max-width: 32rem; }
+.profile-initials {
+  display: grid;
+  place-items: center;
+  width: 3.25rem;
+  height: 3.25rem;
+  border-radius: 50%;
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+  font-weight: 780;
+}
+.profile-details { display: grid; gap: 0; margin: 0; }
+.profile-details > div {
+  display: grid;
+  grid-template-columns: minmax(7.5rem, 0.5fr) minmax(0, 1fr);
+  gap: 1rem;
+  padding-block: 0.75rem;
+  border-top: 1px solid var(--rule);
+}
+.profile-details dt { color: var(--muted); font-weight: 680; }
+.profile-details dd { margin: 0; overflow-wrap: anywhere; }
+
+@media (max-width: 48rem) {
+  .overview-kpis,
+  .overview-recent-grid,
+  .settings-card-grid { grid-template-columns: 1fr; }
+  .profile-details > div { grid-template-columns: 1fr; gap: 0.25rem; }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .completed-trend span { transition: none; }
   .servora-workflow-steps,

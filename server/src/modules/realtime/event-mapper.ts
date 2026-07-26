@@ -29,6 +29,7 @@ const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
   JOB_CANCELLED: 'job.cancelled',
   JOB_FIELDS_UPDATED: 'job.updated',
   JOB_APPROVAL_WITHDRAWN: 'job.updated',
+  NOTE_ADDED: 'job.updated',
 };
 
 const APPROVAL_EVENTS = new Set<JobCardActivityEvent>([
@@ -50,6 +51,7 @@ export function mapJobCardActivityToRealtime(
     `job-detail:${input.jobCardId}`,
     'job-list',
     'reports',
+    'overview',
     `staff-profile:${input.afterAssigneeId}`,
   ]);
   if (input.beforeAssigneeId) {
