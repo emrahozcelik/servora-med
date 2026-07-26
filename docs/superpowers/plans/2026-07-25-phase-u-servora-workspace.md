@@ -583,7 +583,7 @@ U1 visual acceptance:
 COMPLETE — Draft PR remains subject to separate Ready authorization
 
 U1 integration:
-COMPLETE — merged via PR #72 lineage
+COMPLETE — merged via PR #70 at 5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
 
 U1:
 COMPLETE / INTEGRATED
@@ -597,6 +597,15 @@ Exact authorized base:
 
 Exact source/test implementation commit:
 0d45d501a0ace8c54555efaccb431780a2818476
+
+Externally approved final head:
+05ca6420f12118de62bfd2546ca3c48af1dfe0d8
+
+Integration PR:
+#70
+
+Merge/resulting-main:
+5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
 ```
 
 The authenticated bootstrap now exposes default-off

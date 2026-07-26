@@ -1205,7 +1205,7 @@ Phase U Ant visual documentation reconciliation:
 AUTHORIZED — current checkpoint
 
 U1:
-COMPLETE / INTEGRATED — merged via PR #72 lineage
+COMPLETE / INTEGRATED — merged via PR #70 at 5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
 
 U2:
 COMPLETE / INTEGRATED — merged at 8cbb8b5a7c65e391f1b007919db40e1b098bc2ae via PR #72
