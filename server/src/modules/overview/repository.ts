@@ -2,19 +2,28 @@ import type { Pool } from 'pg';
 
 import type { SafeUser } from '../auth/types.js';
 import type { ReportsReadModel } from '../reports/ports.js';
-import type { OverviewQuery, OverviewResponse } from './types.js';
+import type {
+  OverviewQuery,
+  StaffOverviewResponse,
+  ManagementOverviewResponse,
+  OverviewUpcomingWork,
+} from './types.js';
 
 export interface OverviewReadModel {
   getStaffOverview(
     actor: SafeUser,
     query: OverviewQuery,
     requestTime: Date,
-  ): Promise<OverviewResponse>;
+  ): Promise<Omit<StaffOverviewResponse, 'upcomingWork'>>;
   getManagementOverview(
     actor: SafeUser,
     query: OverviewQuery,
     requestTime: Date,
-  ): Promise<OverviewResponse>;
+  ): Promise<Omit<ManagementOverviewResponse, 'upcomingWork'>>;
+  getUpcomingWork?(
+    actor: SafeUser,
+    requestTime: Date,
+  ): Promise<OverviewUpcomingWork>;
 }
 
 type RecentWorkRow = {
@@ -149,6 +158,60 @@ export class PostgresOverviewRepository implements OverviewReadModel {
       },
       recentCompletedWork,
       recentNotes,
+    };
+  }
+
+  async getUpcomingWork(actor: SafeUser, requestTime: Date) {
+    const from = requestTime.toISOString();
+    const to = new Date(requestTime.valueOf() + 7 * 24 * 60 * 60 * 1_000).toISOString();
+    const limit = actor.role === 'STAFF' ? 5 : 10;
+    const result = await this.pool.query<{
+      id: string; source: 'JOB' | 'MANUAL'; title: string; starts_at: Date;
+      ends_at: Date | null; assigned_user_name: string;
+    }>(
+      `SELECT j.id, 'JOB'::text AS source, j.title, j.scheduled_at AS starts_at,
+         j.scheduled_ends_at AS ends_at, u.name AS assigned_user_name
+       FROM job_cards j
+       JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
+       WHERE j.organization_id = $1
+         AND ($2::text <> 'STAFF' OR j.assigned_to = $3)
+         AND ($2::text <> 'MANAGER' OR EXISTS (
+           SELECT 1 FROM staff_profiles sp
+           WHERE sp.organization_id = j.organization_id
+             AND sp.user_id = j.assigned_to
+             AND sp.manager_user_id = $3
+         ))
+         AND j.status NOT IN ('COMPLETED','CANCELLED')
+         AND j.scheduled_at >= $4 AND j.scheduled_at < $5
+       UNION ALL
+       SELECT e.id, 'MANUAL', e.title, e.starts_at, e.ends_at, u.name
+       FROM calendar_events e
+       JOIN users u ON u.organization_id = e.organization_id AND u.id = e.assigned_user_id
+       WHERE e.organization_id = $1
+         AND ($2::text <> 'STAFF' OR e.assigned_user_id = $3)
+         AND ($2::text <> 'MANAGER' OR EXISTS (
+           SELECT 1 FROM staff_profiles sp
+           WHERE sp.organization_id = e.organization_id
+             AND sp.user_id = e.assigned_user_id
+             AND sp.manager_user_id = $3
+         ))
+         AND e.status = 'ACTIVE' AND e.starts_at >= $4 AND e.starts_at < $5
+       ORDER BY starts_at ASC, source ASC, id ASC LIMIT $6`,
+      [actor.organizationId, actor.role, actor.id, from, to, limit],
+    );
+    return {
+      items: result.rows.map((row) => ({
+        id: row.id,
+        source: row.source,
+        title: row.title,
+        startsAt: row.starts_at.toISOString(),
+        endsAt: row.ends_at?.toISOString() ?? null,
+        assignedUserName: row.assigned_user_name,
+        path: row.source === 'JOB'
+          ? `/jobs/${row.id}`
+          : `/calendar?event=${row.id}`,
+      })),
+      window: { from, to },
     };
   }
 

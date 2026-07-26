@@ -47,7 +47,7 @@ class MemoryMigrationStore implements MigrationStore {
 }
 
 describe('runMigrations', () => {
-  it('ships the complete ordered migration set through Web Push storage', async () => {
+  it('ships the complete ordered migration set through calendar storage', async () => {
     const migrationsDirectory = fileURLToPath(
       new URL('../src/db/migrations', import.meta.url),
     );
@@ -76,9 +76,10 @@ describe('runMigrations', () => {
       '014_create_web_push.sql',
       '015_job_card_engagement_kind.sql',
       '016_google_reverse_geocoding.sql',
+      '017_calendar.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('016_google_reverse_geocoding.sql');
-    expect(expectedSchemaVersion).toBe(16);
+    expect(migrations.at(-1)?.name).toBe('017_calendar.sql');
+    expect(expectedSchemaVersion).toBe(17);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

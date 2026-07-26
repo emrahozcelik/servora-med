@@ -87,6 +87,23 @@ export function OverviewPage({
       </header>
       <Kpis overview={overview} />
 
+      {overview.upcomingWork && (
+        <section className="overview-section" aria-labelledby="upcoming-work-title">
+          <div className="overview-section-heading">
+            <h2 id="upcoming-work-title">Yaklaşan çalışmalar</h2>
+            <Link to={paths.calendar}>Takvimi aç</Link>
+          </div>
+          {overview.upcomingWork.items.length === 0
+            ? <p>Önümüzdeki yedi gün için planlanmış çalışma bulunmuyor.</p>
+            : <ul>{overview.upcomingWork.items.map((item) => (
+              <li key={`${item.source}:${item.id}`}>
+                <Link to={item.path}>{item.title}</Link>
+                <span>{new Date(item.startsAt).toLocaleString('tr-TR')} · {item.assignedUserName}</span>
+              </li>
+            ))}</ul>}
+        </section>
+      )}
+
       {overview.scope === 'management' && (
         <section className="overview-section" aria-labelledby="completion-trend-title">
           <h2 id="completion-trend-title">Tamamlanma eğilimi</h2>

@@ -467,6 +467,8 @@ cd web && npm audit --omit=dev
 | `TRUSTED_PROXY` | production | `loopback`, `127.0.0.1`, or `::1`; defaults to `loopback` outside production |
 | `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (e.g. `008_meeting_approval_withdrawal`); optional in development/test |
 | `ACTION_SCOPED_GEOLOCATION_ENABLED` | no | exact `true`/`false`; defaults to `false` and must remain disabled until the disclosure, retention, and reverse-geocoding provider gates are approved |
+| `CALENDAR_ENABLED` | no | fail-closed Phase U2 capability; exact `true`/`false`, defaults to `false` |
+| `CALENDAR_REMINDER_LEAD_MINUTES` | no | in-app calendar reminder lead time; integer `5..1440`, defaults to `30` |
 | `SESSION_TTL_SECONDS` | no | opaque session lifetime; defaults to `28800` (8 hours) |
 | `LOGIN_RATE_LIMIT_MAX` | no | login attempts allowed per limiter window; defaults to `5` |
 | `RATE_LIMIT_WINDOW_MS` | no | login limiter window in milliseconds; defaults to `60000` |

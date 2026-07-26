@@ -125,6 +125,9 @@ const ApprovalReport = lazy(() =>
 const OverviewPage = lazy(() =>
   import('./overview/OverviewPage').then((module) => ({ default: module.OverviewPage })),
 );
+const CalendarPage = lazy(() =>
+  import('./calendar/CalendarPage').then((module) => ({ default: module.CalendarPage })),
+);
 const DocumentationPage = lazy(() =>
   import('./content/DocumentationPage').then((module) => ({ default: module.DocumentationPage })),
 );
@@ -240,6 +243,7 @@ function SalesMeetingCreateRoute({ user, navigate }: { user: CurrentUser; naviga
 export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSessionEnded }: AppRouterProps) {
   const navigate = useNavigate();
   const overviewEnabled = user.capabilities?.overviewDashboard === true;
+  const calendarEnabled = user.capabilities?.calendar === true;
   const landingPath = overviewEnabled ? paths.overview : paths.jobs;
   return (
     <Suspense fallback={<RouteLoading />}>
@@ -248,6 +252,8 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path="/login" element={<Navigate to={landingPath} replace />} />
         <Route path={paths.overview} element={overviewEnabled
           ? <OverviewPage user={user} /> : <Navigate to={paths.jobs} replace />} />
+        <Route path={paths.calendar} element={calendarEnabled
+          ? <CalendarPage user={user} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.docs} element={<DocumentationPage user={user} />} />
         <Route path={paths.help} element={<HelpCenterPage user={user} />} />
         <Route path={paths.settings} element={<SettingsLandingPage />} />

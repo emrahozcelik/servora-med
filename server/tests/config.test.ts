@@ -90,6 +90,7 @@ describe('loadConfig', () => {
       trustedProxy: '127.0.0.1',
       healthSchemaVersion: '007_sales_meeting',
       actionScopedGeolocationEnabled: false,
+      calendarReminderLeadMinutes: 30,
       reverseGeocoderProvider: null,
       googleGeocodingApiKey: null,
       reverseGeocoderTimeoutMs: 2000,
@@ -129,6 +130,7 @@ describe('loadConfig', () => {
       trustedProxy: 'loopback',
       healthSchemaVersion: null,
       actionScopedGeolocationEnabled: false,
+      calendarReminderLeadMinutes: 30,
       reverseGeocoderProvider: null,
       googleGeocodingApiKey: null,
       reverseGeocoderTimeoutMs: 2000,
@@ -520,4 +522,27 @@ describe('loadConfig', () => {
       `${name} must be a positive integer`,
     );
   });
+
+  it('parses the calendar capability and bounded reminder lead', () => {
+    expect(loadConfig({
+      ...validEnvironment,
+      CALENDAR_ENABLED: 'true',
+      CALENDAR_REMINDER_LEAD_MINUTES: '45',
+    })).toMatchObject({
+      capabilities: { calendar: true },
+      calendarReminderLeadMinutes: 45,
+    });
+  });
+
+  it.each(['4', '1441', '1.5', 'soon'])(
+    'rejects invalid CALENDAR_REMINDER_LEAD_MINUTES=%s',
+    (value) => {
+      expect(() => loadConfig({
+        ...validEnvironment,
+        CALENDAR_REMINDER_LEAD_MINUTES: value,
+      })).toThrow(
+        'CALENDAR_REMINDER_LEAD_MINUTES must be an integer between 5 and 1440',
+      );
+    },
+  );
 });

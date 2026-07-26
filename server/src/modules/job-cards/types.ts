@@ -56,6 +56,7 @@ export type JobCard = {
   priority: JobCardPriority;
   dueDate: string | null;
   scheduledAt: string | null;
+  scheduledEndsAt: string | null;
   engagementKind: JobCardEngagementKind | null;
 };
 
@@ -83,6 +84,7 @@ type NormalizedCommonCreateInput = {
   clientActionId: string; title: string; description: string | null; contactId: string | null;
   assignedTo: string; priority: JobCardPriority; dueDate: string | null;
   scheduledAt: string | null;
+  scheduledEndsAt?: string | null;
 };
 
 export type NormalizedJobCardCreateInput =
@@ -247,6 +249,7 @@ export type PersistedJobCardListItem = {
   priority: JobCardPriority;
   dueDate: string | null;
   scheduledAt: string | null;
+  scheduledEndsAt: string | null;
   createdAt: string;
   updatedAt: string;
   staffCompletedAt: string | null;
@@ -328,7 +331,8 @@ export type JobCardActivityDetails =
       kind: 'FIELDS_UPDATED';
       changedFields: Array<
         'title' | 'description' | 'customer' | 'contact' |
-        'assignee' | 'priority' | 'dueDate' | 'engagementKind'
+        'assignee' | 'priority' | 'dueDate' | 'scheduledAt'
+        | 'scheduledEndsAt' | 'engagementKind'
       >;
     }
   | {

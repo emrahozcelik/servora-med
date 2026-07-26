@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useLocation } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { NotificationCenter } from '../src/notifications/NotificationCenter';
@@ -27,6 +27,11 @@ const notification = {
   entity: { type: 'job-card' as const, id: '22222222-2222-4222-8222-222222222222' },
   createdAt: '2026-07-21T10:00:00.000Z', readAt: null,
 };
+
+function LocationProbe() {
+  const location = useLocation();
+  return <output data-location>{`${location.pathname}${location.search}`}</output>;
+}
 
 class FakeEventSource implements RealtimeEventSource {
   readonly listeners = new Map<string, Set<EventListener>>();
@@ -77,6 +82,37 @@ describe('NotificationCenter', () => {
     expect(dialog.textContent).toContain('Size yeni bir iş atandı.');
     expect(dialog.textContent).toContain('Okunmadı');
     expect(document.activeElement).toBe(dialog.querySelector('button'));
+  });
+
+  it('opens calendar notifications on the exact authorized calendar selection', async () => {
+    const calendarNotification = {
+      ...notification,
+      kind: 'calendar.reminder' as const,
+      title: 'Yaklaşan plan',
+      body: 'Yaklaşan planınız bulunuyor.',
+      entity: { type: 'calendar-event' as const, id: '33333333-3333-4333-8333-333333333333' },
+    };
+    api.listNotifications.mockResolvedValue({
+      items: [calendarNotification],
+      nextCursor: null,
+    });
+    api.markNotificationRead.mockResolvedValue({
+      ...calendarNotification,
+      readAt: '2026-07-21T11:00:00.000Z',
+    });
+    await act(async () => root.render(
+      <MemoryRouter>
+        <NotificationCenter identityKey="org-1:staff-1" mobile={false} />
+        <LocationProbe />
+      </MemoryRouter>,
+    ));
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const action = container.querySelector<HTMLButtonElement>('[data-notification-id]')!;
+    await act(async () => action.click());
+    expect(container.querySelector('[data-location]')?.textContent).toBe(
+      '/calendar?event=33333333-3333-4333-8333-333333333333',
+    );
   });
 
   it('closes the desktop panel on outside pointer down and keeps it open for panel clicks', async () => {

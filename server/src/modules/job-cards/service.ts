@@ -82,11 +82,13 @@ import {
 } from './start-location-input.js';
 import type { JobActionLocationCapture } from './location-types.js';
 import type { ReverseGeocodingQuotaGuard } from '../geocoding/reverse-geocoding-quota.js';
+import type { NotificationDraft } from '../notifications/types.js';
 
 type PatchInput = {
   expectedVersion: number; title?: string; description?: string | null;
   customerId?: string; contactId?: string | null; assignedTo?: string; priority?: JobCardPriority;
   dueDate?: string | null; scheduledAt?: string | null;
+  scheduledEndsAt?: string | null;
   engagementKind?: JobCardEngagementKind;
 };
 type DeliveryInput = {
@@ -197,6 +199,10 @@ export class JobCardService {
     private readonly webPush: Readonly<{
       enabled: boolean;
     }> = { enabled: false },
+    private readonly calendar: Readonly<{
+      enabled: boolean;
+      reminderLeadMinutes: number;
+    }> = { enabled: false, reminderLeadMinutes: 30 },
   ) { this.notesService = new JobCardNotesService(repository); }
 
   private publishRealtime(events: readonly RealtimeEventRecord[]) {
@@ -215,6 +221,8 @@ export class JobCardService {
       event: JobCardActivityEvent;
       beforeAssigneeId: string | null;
       afterAssigneeId: string;
+      calendarAffected?: boolean;
+      notifyCalendarRescheduled?: boolean;
     },
   ): Promise<RealtimeEventRecord[]> {
     const mapped = mapJobCardActivityToRealtime({
@@ -232,18 +240,37 @@ export class JobCardService {
     const managementRecipients = input.event === 'JOB_SUBMITTED_FOR_APPROVAL'
       ? await transaction.listActiveManagementRecipients(input.organizationId)
       : [];
-    const drafts = createJobCardNotificationDrafts({
+    const drafts: NotificationDraft[] = [...createJobCardNotificationDrafts({
       event: input.event,
       actorUserId: input.actorUserId,
       afterAssigneeId: input.afterAssigneeId,
       jobCardId: input.jobCardId,
       managementRecipients,
-    });
+    })];
+    if (
+      input.notifyCalendarRescheduled
+      && !drafts.some((draft) => draft.recipientUserId === input.afterAssigneeId)
+    ) {
+      drafts.push({
+        recipientUserId: input.afterAssigneeId,
+        kind: 'calendar.rescheduled',
+        entityType: 'job-card',
+        entityId: input.jobCardId,
+      });
+    }
+    const resourceKeys = new Set(mapped.resourceKeys);
+    if (input.calendarAffected) {
+      resourceKeys.add('calendar');
+      resourceKeys.add(`calendar:${input.afterAssigneeId}`);
+      if (input.beforeAssigneeId) {
+        resourceKeys.add(`calendar:${input.beforeAssigneeId}`);
+      }
+    }
     const realtimeEvent = await transaction.appendRealtimeEvent({
       ...mapped,
       resourceKeys: drafts.length > 0
-        ? [...new Set([...mapped.resourceKeys, 'notifications'])].sort()
-        : mapped.resourceKeys,
+        ? [...new Set([...resourceKeys, 'notifications'])].sort()
+        : [...resourceKeys].sort(),
     });
     if (drafts.length > 0) {
       const notifications = await transaction.appendNotifications({
@@ -306,10 +333,24 @@ export class JobCardService {
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
           dueDate: input.dueDate,
           scheduledAt: input.scheduledAt,
+          scheduledEndsAt: null,
           engagementKind,
           acceptedAt: selfAccepted ? requestTime : null,
           acceptedBy: selfAccepted ? actor.id : null,
         });
+        if (this.calendar.enabled) {
+          await transaction.synchronizeCalendarReminder({
+            organizationId: actor.organizationId,
+            jobCardId: job.id,
+            assignedUserId: job.assignedTo,
+            startsAt: job.scheduledAt,
+            endsAt: job.scheduledEndsAt,
+            version: job.version,
+            active: true,
+            now: requestTime,
+            reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+          });
+        }
         if (input.type === 'SALES_MEETING') {
           await transaction.createMeetingDetails({
             organizationId: actor.organizationId,
@@ -338,6 +379,7 @@ export class JobCardService {
           event: 'JOB_CREATED',
           beforeAssigneeId: null,
           afterAssigneeId: job.assignedTo,
+          calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
         });
         const detail = await transaction.getJobDetail(actor.organizationId, job.id);
         if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -545,11 +587,15 @@ export class JobCardService {
     if (fields.scheduledAt !== undefined && fields.scheduledAt !== null) {
       fields.scheduledAt = isoInstant(fields.scheduledAt, 'scheduledAt');
     }
+    if (fields.scheduledEndsAt !== undefined && fields.scheduledEndsAt !== null) {
+      fields.scheduledEndsAt = isoInstant(fields.scheduledEndsAt, 'scheduledEndsAt');
+    }
     if (fields.engagementKind !== undefined
       && !JOB_CARD_ENGAGEMENT_KINDS.includes(fields.engagementKind)) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
     }
 
+    const requestTime = this.now();
     return this.repository.executeTransaction(async (transaction) => {
       const snapshot = await transaction.getJob(actor.organizationId, jobCardId);
       if (!snapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -587,9 +633,30 @@ export class JobCardService {
           'Planlanan zaman bu iş türü için zorunludur.',
         );
       }
+      const nextScheduledAt = fields.scheduledAt === undefined
+        ? job.scheduledAt
+        : fields.scheduledAt;
+      const nextScheduledEndsAt = fields.scheduledEndsAt === undefined
+        ? job.scheduledEndsAt ?? null
+        : fields.scheduledEndsAt;
+      if (
+        nextScheduledEndsAt !== null
+        && (
+          nextScheduledAt === null
+          || Date.parse(nextScheduledEndsAt) <= Date.parse(nextScheduledAt)
+        )
+      ) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          400,
+          'Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.',
+        );
+      }
 
       const scheduleChanged = fields.scheduledAt !== undefined
-        && fields.scheduledAt !== job.scheduledAt;
+        && fields.scheduledAt !== job.scheduledAt
+        || fields.scheduledEndsAt !== undefined
+        && fields.scheduledEndsAt !== (job.scheduledEndsAt ?? null);
       const assigneeChanged = fields.assignedTo !== undefined
         && fields.assignedTo !== job.assignedTo;
       if ((scheduleChanged || assigneeChanged)
@@ -601,11 +668,33 @@ export class JobCardService {
         fields.status = 'NEW';
         fields.clearAcceptance = true;
       }
+      if (this.calendar.enabled && (scheduleChanged || assigneeChanged)) {
+        await transaction.assertCalendarAvailability({
+          organizationId: actor.organizationId,
+          jobCardId,
+          assignedUserId: fields.assignedTo ?? job.assignedTo,
+          startsAt: nextScheduledAt,
+          endsAt: nextScheduledEndsAt,
+        });
+      }
 
       const updated = await transaction.updateFieldsWithVersion({
         organizationId: actor.organizationId, jobCardId, expectedVersion: input.expectedVersion, fields,
       });
       if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+      if (this.calendar.enabled && (scheduleChanged || assigneeChanged)) {
+        await transaction.synchronizeCalendarReminder({
+          organizationId: actor.organizationId,
+          jobCardId,
+          assignedUserId: updated.assignedTo,
+          startsAt: updated.scheduledAt,
+          endsAt: updated.scheduledEndsAt,
+          version: updated.version,
+          active: !['COMPLETED', 'CANCELLED'].includes(updated.status),
+          now: requestTime,
+          reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+        });
+      }
       const realtimeEvents: RealtimeEventRecord[] = [];
       if (fields.assignedTo !== undefined && fields.assignedTo !== job.assignedTo) {
         const activity = await transaction.appendActivity({
@@ -621,6 +710,7 @@ export class JobCardService {
           event: 'JOB_ASSIGNED',
           beforeAssigneeId: job.assignedTo,
           afterAssigneeId: updated.assignedTo,
+          calendarAffected: this.calendar.enabled,
         }));
       }
       const nonAssignmentFields = Object.keys(fields).filter(
@@ -641,12 +731,14 @@ export class JobCardService {
           event: 'JOB_FIELDS_UPDATED',
           beforeAssigneeId: job.assignedTo,
           afterAssigneeId: updated.assignedTo,
+          calendarAffected: this.calendar.enabled && scheduleChanged,
+          notifyCalendarRescheduled: this.calendar.enabled && scheduleChanged,
         }));
       }
       const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
       if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       return {
-        response: await this.presentDetail(transaction, actor, detail, this.now()),
+        response: await this.presentDetail(transaction, actor, detail, requestTime),
         realtimeEvents,
       };
     }).then((committed) => {
@@ -928,6 +1020,21 @@ export class JobCardService {
           cancelReason: definition.cancelReason,
         });
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        const calendarTerminal = definition.target === 'CANCELLED'
+          || definition.target === 'COMPLETED';
+        if (this.calendar.enabled && calendarTerminal) {
+          await tx.synchronizeCalendarReminder({
+            organizationId: actor.organizationId,
+            jobCardId,
+            assignedUserId: updated.assignedTo,
+            startsAt: updated.scheduledAt,
+            endsAt: updated.scheduledEndsAt,
+            version: updated.version,
+            active: false,
+            now: requestTime,
+            reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+          });
+        }
         const reason = definition.revisionReason ?? definition.cancelReason;
         const metadata = reason === null ? undefined : { reason };
         const activity = await tx.appendActivity({
@@ -958,6 +1065,7 @@ export class JobCardService {
           event: definition.event,
           beforeAssigneeId: job.assignedTo,
           afterAssigneeId: updated.assignedTo,
+          calendarAffected: this.calendar.enabled && calendarTerminal,
         });
         const detail = await tx.getJobDetail(actor.organizationId, jobCardId);
         if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');

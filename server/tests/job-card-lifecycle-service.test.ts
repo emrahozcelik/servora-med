@@ -56,6 +56,7 @@ class LifecycleRepository implements JobCardRepository {
   startedAt: Date | null = null;
   revision = { at: null as Date | null, by: null as string | null, reason: null as string | null };
   cancellation = { at: null as Date | null, by: null as string | null, reason: null as string | null };
+  calendarSyncs: unknown[] = [];
   lifecycle = {
     createdAt: '2026-07-13T10:00:00.000Z',
     acceptedAt: null as string | null,
@@ -124,6 +125,8 @@ class LifecycleRepository implements JobCardRepository {
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
       appendWebPushDeliveries: async () => [],
+      assertCalendarAvailability: async () => {},
+      synchronizeCalendarReminder: async (input) => { this.calendarSyncs.push(input); },
       getAssignee: async () => {
         this.submissionReads.push('assignee');
         return this.assignee;
@@ -593,6 +596,40 @@ describe('JobCard lifecycle commands', () => {
     repo.job.status = 'IN_PROGRESS'; repo.job.version = 3;
     await service.cancel(manager, 'job-1', { ...input('cancel', 3), cancelReason: ' Müşteri iptal etti ' });
     expect(repo.cancellation).toEqual({ at: time, by: 'manager-1', reason: 'Müşteri iptal etti' });
+  });
+
+  it.each([
+    ['cancel', 'IN_PROGRESS', 'CANCELLED'],
+    ['approve', 'WAITING_APPROVAL', 'COMPLETED'],
+  ] as const)('cancels pending calendar reminders when jobs %s', async (method, status, target) => {
+    const repo = new LifecycleRepository();
+    repo.job = {
+      ...repo.job,
+      status,
+      scheduledAt: '2026-07-30T09:00:00.000Z',
+      scheduledEndsAt: '2026-07-30T10:00:00.000Z',
+    };
+    const service = new JobCardService(
+      repo,
+      () => time,
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    );
+    if (method === 'cancel') {
+      await service.cancel(manager, 'job-1', {
+        ...input('calendar-cancel'),
+        cancelReason: 'İptal',
+      });
+    } else {
+      await service.approve(manager, 'job-1', input('calendar-complete'));
+    }
+    expect(repo.job.status).toBe(target);
+    expect(repo.calendarSyncs).toEqual([expect.objectContaining({
+      jobCardId: 'job-1',
+      active: false,
+    })]);
   });
 
   it('allows assigned Staff to cancel throughout the active lifecycle', async () => {

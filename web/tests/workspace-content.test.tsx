@@ -15,13 +15,12 @@ const staff: CurrentUser = {
 };
 
 describe('repository-managed workspace content', () => {
-  it('uses stable typed IDs and contains no calendar, messaging or invented legal content', () => {
+  it('uses stable typed IDs and contains no messaging or invented legal content', () => {
     const ids = [...productDocumentation, ...helpArticles].map((article) => article.id);
     expect(new Set(ids).size).toBe(ids.length);
     const content = JSON.stringify([productDocumentation, helpArticles]).toLocaleLowerCase('tr-TR');
     expect(content).not.toContain('kvkk');
     expect(content).not.toContain('gizlilik politikası');
-    expect(content).not.toContain('takvim');
     expect(content).not.toContain('mesajlaşma');
   });
 

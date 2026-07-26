@@ -14,6 +14,10 @@ export const NOTIFICATION_KINDS = [
   'job.approved',
   'job.revision_requested',
   'job.cancelled',
+  'calendar.assigned',
+  'calendar.rescheduled',
+  'calendar.cancelled',
+  'calendar.reminder',
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -22,7 +26,7 @@ export type InAppNotification = Readonly<{
   kind: NotificationKind;
   title: string;
   body: string;
-  entity: Readonly<{ type: 'job-card'; id: string }>;
+  entity: Readonly<{ type: 'job-card' | 'calendar-event'; id: string }>;
   createdAt: string;
   readAt: string | null;
 }>;
@@ -53,13 +57,16 @@ function parseNotification(value: unknown): InAppNotification {
   if (!NOTIFICATION_KINDS.includes(kind as NotificationKind)) invalid('kind');
   const entity = object(notification.entity);
   exact(entity, ['type', 'id']);
-  if (entity.type !== 'job-card') invalid('entity.type');
+  if (entity.type !== 'job-card' && entity.type !== 'calendar-event') invalid('entity.type');
   return {
     id: string(notification.id, 'id'),
     kind: kind as NotificationKind,
     title: string(notification.title, 'title'),
     body: string(notification.body, 'body'),
-    entity: { type: 'job-card', id: string(entity.id, 'entity.id') },
+    entity: {
+      type: entity.type,
+      id: string(entity.id, 'entity.id'),
+    },
     createdAt: instant(notification.createdAt, 'createdAt'),
     readAt: notification.readAt === null ? null : instant(notification.readAt, 'readAt'),
   };
