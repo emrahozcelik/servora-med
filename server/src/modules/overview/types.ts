@@ -26,6 +26,22 @@ type OverviewCommon = Readonly<{
   generatedAt: string;
   recentCompletedWork: OverviewRecentWork[];
   recentNotes: OverviewRecentNote[];
+  upcomingWork: OverviewUpcomingWork | null;
+}>;
+
+export type OverviewUpcomingItem = Readonly<{
+  id: string;
+  source: 'JOB' | 'MANUAL';
+  title: string;
+  startsAt: string;
+  endsAt: string | null;
+  assignedUserName: string;
+  path: string;
+}>;
+
+export type OverviewUpcomingWork = Readonly<{
+  items: OverviewUpcomingItem[];
+  window: Readonly<{ from: string; to: string }>;
 }>;
 
 export type StaffOverviewResponse = OverviewCommon & Readonly<{

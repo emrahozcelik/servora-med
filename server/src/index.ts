@@ -24,6 +24,11 @@ import { PostgresReverseGeocodingQuotaGuard } from './modules/geocoding/postgres
 import type { ReverseGeocoder } from './modules/job-cards/reverse-geocoder.js';
 import type { ReverseGeocodingQuotaGuard } from './modules/geocoding/reverse-geocoding-quota.js';
 import { PostgresOverviewRepository } from './modules/overview/repository.js';
+import { PostgresCalendarRepository } from './modules/calendar/repository.js';
+import {
+  PostgresCalendarReminderWorkerRepository,
+  createCalendarReminderWorker,
+} from './modules/calendar/reminder-worker.js';
 
 async function main() {
   const config = loadConfig();
@@ -84,6 +89,18 @@ async function main() {
       approvalQueueItemPort: jobCards,
       reportsRepository: reports,
       overviewRepository: new PostgresOverviewRepository(database.pool, reports),
+      calendarRepository: new PostgresCalendarRepository(
+        database.pool,
+        config.calendarReminderLeadMinutes ?? 30,
+        config.webPush.enabled,
+      ),
+      calendarReminderWorker: createCalendarReminderWorker(
+        new PostgresCalendarReminderWorkerRepository(database.pool),
+        {
+          publisher: realtimeBus,
+          webPushEnabled: config.webPush.enabled,
+        },
+      ),
       healthReadiness: createPostgresReadiness(database.pool, config.healthSchemaVersion),
       realtimeService,
       realtimePublisher: realtimeBus,

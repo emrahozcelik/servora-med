@@ -69,6 +69,7 @@ describe('Postgres JobCard detail projection', () => {
       title: 'Doktoru ara', description: null, customerId: 'customer-1', contactId: null,
       assignedTo: 'staff-1', createdBy: 'manager-1', priority: 'normal', dueDate: null,
       scheduledAt: '2026-07-17T08:30:00.000Z',
+      scheduledEndsAt: null,
       engagementKind: null,
       assignee: { id: 'staff-1', name: 'Emrah Demir' },
       customer: { id: 'customer-1', name: 'Demo Dental Klinik' },

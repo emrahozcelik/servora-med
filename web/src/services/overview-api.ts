@@ -28,6 +28,18 @@ type OverviewCommon = {
   generatedAt: string;
   recentCompletedWork: OverviewRecentWork[];
   recentNotes: OverviewRecentNote[];
+  upcomingWork?: {
+    items: Array<{
+      id: string;
+      source: 'JOB' | 'MANUAL';
+      title: string;
+      startsAt: string;
+      endsAt: string | null;
+      assignedUserName: string;
+      path: string;
+    }>;
+    window: { from: string; to: string };
+  } | null;
 };
 
 export type StaffOverview = OverviewCommon & {
@@ -63,6 +75,10 @@ function parseCommon(value: Record<string, unknown>): OverviewCommon {
   const range = object(value.range);
   const work = Array.isArray(value.recentCompletedWork) ? value.recentCompletedWork : [];
   const notes = Array.isArray(value.recentNotes) ? value.recentNotes : [];
+  const upcoming = value.upcomingWork === null || value.upcomingWork === undefined
+    ? null
+    : object(value.upcomingWork);
+  const upcomingItems = upcoming && Array.isArray(upcoming.items) ? upcoming.items : [];
   return {
     range: {
       from: string(range.from, 'range.from'),
@@ -91,6 +107,28 @@ function parseCommon(value: Record<string, unknown>): OverviewCommon {
         createdAt: string(item.createdAt, 'recentNotes.createdAt'),
       };
     }),
+    ...(value.upcomingWork === undefined ? {} : { upcomingWork: upcoming ? {
+      items: upcomingItems.map((entry) => {
+        const item = object(entry);
+        const source = string(item.source, 'upcomingWork.source');
+        if (source !== 'JOB' && source !== 'MANUAL') {
+          throw new ApiError(0, 'INVALID_RESPONSE', 'Takvim kaynağı geçersiz.');
+        }
+        return {
+          id: string(item.id, 'upcomingWork.id'),
+          source,
+          title: string(item.title, 'upcomingWork.title'),
+          startsAt: string(item.startsAt, 'upcomingWork.startsAt'),
+          endsAt: nullable(item.endsAt, 'upcomingWork.endsAt'),
+          assignedUserName: string(item.assignedUserName, 'upcomingWork.assignedUserName'),
+          path: string(item.path, 'upcomingWork.path'),
+        };
+      }),
+      window: {
+        from: string(object(upcoming.window).from, 'upcomingWork.window.from'),
+        to: string(object(upcoming.window).to, 'upcomingWork.window.to'),
+      },
+    } : null }),
   };
 }
 

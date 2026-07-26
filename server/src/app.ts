@@ -57,6 +57,10 @@ import { buildPushPayload, buildPushTopic } from './modules/web-push/payload.js'
 import type { OverviewReadModel } from './modules/overview/repository.js';
 import { OverviewService } from './modules/overview/service.js';
 import { overviewRoutes } from './modules/overview/routes.js';
+import type { CalendarRepository } from './modules/calendar/repository.js';
+import { CalendarService } from './modules/calendar/service.js';
+import { calendarRoutes } from './modules/calendar/routes.js';
+import type { CalendarReminderWorker } from './modules/calendar/reminder-worker.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -100,6 +104,8 @@ export type AppDependencies = {
   webPushRepository?: WebPushRepository;
   webPushDispatcher?: WebPushDispatcher;
   overviewRepository?: OverviewReadModel;
+  calendarRepository?: CalendarRepository;
+  calendarReminderWorker?: CalendarReminderWorker;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
 };
@@ -177,6 +183,10 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           quotaGuard: dependencies.reverseGeocodingQuotaGuard,
         },
         { enabled: config.webPush.enabled },
+        {
+          enabled: config.capabilities?.calendar ?? false,
+          reminderLeadMinutes: config.calendarReminderLeadMinutes ?? 30,
+        },
       );
       await app.register(jobCardRoutes, {
         prefix: '/api/job-cards',
@@ -216,9 +226,32 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: new OverviewService(
           config.capabilities?.overviewDashboard ?? false,
           dependencies.overviewRepository,
+          undefined,
+          config.capabilities?.calendar ?? false,
         ),
         authenticate: authenticateDomain,
       });
+    }
+    if (dependencies.calendarRepository) {
+      await app.register(calendarRoutes, {
+        prefix: '/api/calendar',
+        service: new CalendarService(
+          config.capabilities?.calendar ?? false,
+          dependencies.calendarRepository,
+        ),
+        authenticate: authenticateDomain,
+      });
+      if (
+        config.capabilities?.calendar
+        && dependencies.calendarReminderWorker
+      ) {
+        app.addHook('onReady', () => {
+          dependencies.calendarReminderWorker!.start();
+        });
+        app.addHook('onClose', async () => {
+          await dependencies.calendarReminderWorker!.stop();
+        });
+      }
     }
     if (dependencies.crmRepository) {
       await app.register(crmRoutes, {

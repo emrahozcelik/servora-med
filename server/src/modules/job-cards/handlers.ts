@@ -47,6 +47,7 @@ function page(raw: unknown, defaultLimit: number) {
 const PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'engagementKind',
+  'scheduledEndsAt',
 ];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;

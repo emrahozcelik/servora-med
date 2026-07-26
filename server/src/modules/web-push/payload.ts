@@ -20,9 +20,10 @@ export class InvalidPushPayloadError extends Error {
 export function buildPushPayload(
   notification: PublicNotification,
 ): PushPayloadV1 {
-  if (notification.entity.type !== 'job-card') {
+  if (notification.entity.type !== 'job-card'
+    && notification.entity.type !== 'calendar-event') {
     throw new InvalidPushPayloadError(
-      `unsupported entity type: ${notification.entity.type}`,
+      `invalid entity type: ${notification.entity.type}`,
     );
   }
   if (!CANONICAL_UUID.test(notification.entity.id)) {
@@ -36,7 +37,9 @@ export function buildPushPayload(
     notificationId: notification.id,
     title: notification.title,
     body: notification.body,
-    url: `/jobs/${notification.entity.id}`,
+    url: notification.entity.type === 'job-card'
+      ? `/jobs/${notification.entity.id}`
+      : `/calendar?event=${notification.entity.id}`,
   };
 }
 

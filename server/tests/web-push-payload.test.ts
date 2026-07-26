@@ -59,6 +59,26 @@ describe('buildPushPayload', () => {
     expect(payload.body.length).toBeGreaterThan(0);
   });
 
+  it.each([
+    'calendar.assigned',
+    'calendar.rescheduled',
+    'calendar.cancelled',
+    'calendar.reminder',
+  ] as const)('maps %s to privacy-safe calendar copy and deep link', (kind) => {
+    const entityId = randomUUID();
+    const payload = buildPushPayload(presentNotification(makeRecord({
+      kind,
+      entityType: 'calendar-event',
+      entityId,
+    })));
+
+    expect(payload.title).toBeTruthy();
+    expect(payload.body).toBeTruthy();
+    expect(payload.url).toBe(`/calendar?event=${entityId}`);
+    expect(JSON.stringify(payload)).not.toContain('description');
+    expect(JSON.stringify(payload)).not.toContain('customer');
+  });
+
   it('url is always /jobs/<entity UUID>', () => {
     const entityId = randomUUID();
     const record = makeRecord({ entityId });

@@ -48,6 +48,7 @@ import type {
   LocationGeocodingStatus,
 } from './location-types.js';
 import type { AppendWebPushDeliveriesInput } from '../web-push/repository.js';
+import { AppError } from '../../errors/index.js';
 
 export type AppendedActivity = {
   id: string;
@@ -94,6 +95,7 @@ export type CreateJobCardRecord = {
   title: string; description: string | null;
   customerId: string | null; contactId: string | null; assignedTo: string; createdBy: string;
   priority: JobCardPriority; dueDate: string | null; scheduledAt: string | null;
+  scheduledEndsAt: string | null;
   engagementKind: JobCard['engagementKind'];
   acceptedAt: Date | null; acceptedBy: string | null;
 };
@@ -106,13 +108,24 @@ export type JobCardReadScope = { organizationId: string; assignedTo: string | nu
 export type UpdateJobCardFields = Partial<Pick<
   JobCard,
   'title' | 'description' | 'customerId' | 'contactId' | 'assignedTo' | 'priority' | 'dueDate'
-  | 'scheduledAt' | 'status' | 'engagementKind'
+  | 'scheduledAt' | 'scheduledEndsAt' | 'status' | 'engagementKind'
 >> & {
   clearAcceptance?: boolean;
 };
 export type UpdateJobCardInput = {
   organizationId: string; jobCardId: string; expectedVersion: number; fields: UpdateJobCardFields;
 };
+export type JobCalendarSchedule = Readonly<{
+  organizationId: string;
+  jobCardId: string;
+  assignedUserId: string;
+  startsAt: string | null;
+  endsAt: string | null;
+  version: number;
+  active: boolean;
+  now: Date;
+  reminderLeadMinutes: number;
+}>;
 export type ProductReference = {
   id: string; organizationId: string; name: string; sku: string | null; model: string | null;
   unit: string | null; isActive: boolean;
@@ -192,6 +205,8 @@ export interface JobCardTransaction extends SubmissionReader {
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
   updateMeetingDetails(input: MeetingDetailsRecord): Promise<void>;
   updateFieldsWithVersion(input: UpdateJobCardInput): Promise<JobCard | null>;
+  assertCalendarAvailability(input: Omit<JobCalendarSchedule, 'version' | 'active' | 'now' | 'reminderLeadMinutes'>): Promise<void>;
+  synchronizeCalendarReminder(input: JobCalendarSchedule): Promise<void>;
   getProduct(organizationId: string, productId: string): Promise<ProductReference | null>;
   getDeliveryItemForUpdate(organizationId: string, jobCardId: string, itemId: string): Promise<DeliveryItemRecord | null>;
   createDeliveryItem(input: Omit<DeliveryItemRecord, 'id'>): Promise<DeliveryItemRecord>;
@@ -272,6 +287,7 @@ type JobCardRow = {
   assigned_to: string; created_by: string; priority: JobCardPriority;
   due_date: string | Date | null;
   scheduled_at: Date | null;
+  scheduled_ends_at: Date | null;
   engagement_kind: JobCard['engagementKind'];
 };
 type JobCardDetailRow = JobCardRow & {
@@ -310,6 +326,7 @@ type JobCardListRow = {
   priority: JobCardPriority;
   due_date: string | Date | null;
   scheduled_at: Date | null;
+  scheduled_ends_at: Date | null;
   engagement_kind: JobCard['engagementKind'];
   created_at: Date;
   updated_at: Date;
@@ -424,6 +441,7 @@ function mapJobCard(row: JobCardRow): JobCard {
     customerId: row.customer_id, contactId: row.contact_id, assignedTo: row.assigned_to, createdBy: row.created_by,
     priority: row.priority, dueDate: mapCalendarDate(row.due_date),
     scheduledAt: mapInstant(row.scheduled_at),
+    scheduledEndsAt: mapInstant(row.scheduled_ends_at),
     engagementKind: row.engagement_kind,
   };
 }
@@ -438,7 +456,7 @@ function mapCalendarDate(value: string | Date | null) {
 
 const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
        j.title, j.description, j.customer_id, j.contact_id, j.assigned_to, j.created_by,
-       j.priority, j.due_date, j.scheduled_at, j.engagement_kind,
+       j.priority, j.due_date, j.scheduled_at, j.scheduled_ends_at, j.engagement_kind,
        j.created_at, j.accepted_at, j.started_at,
        j.staff_completed_at, j.staff_completion_note,
        j.manager_approved_at, j.manager_approval_note,
@@ -547,6 +565,7 @@ function mapJobCardListItem(row: JobCardListRow): PersistedJobCardListItem {
     priority: row.priority,
     dueDate: mapCalendarDate(row.due_date),
     scheduledAt: mapInstant(row.scheduled_at),
+    scheduledEndsAt: mapInstant(row.scheduled_ends_at),
     createdAt: row.created_at.toISOString(),
     updatedAt: row.updated_at.toISOString(),
     staffCompletedAt: row.staff_completed_at?.toISOString() ?? null,
@@ -574,7 +593,7 @@ const WORKSPACE_JOINS = `FROM job_cards j
     ON ct.organization_id = j.organization_id AND ct.id = j.contact_id`;
 
 const JOB_CARD_LIST_COLUMNS = `j.id, j.type, j.status, j.version, j.title, j.priority, j.due_date,
-  j.scheduled_at, j.engagement_kind, j.created_at, j.updated_at, j.staff_completed_at,
+  j.scheduled_at, j.scheduled_ends_at, j.engagement_kind, j.created_at, j.updated_at, j.staff_completed_at,
   c.id AS customer_id, c.name AS customer_name,
   ct.id AS contact_id, ct.name AS contact_name,
   u.id AS assignee_id, u.name AS assignee_name,
@@ -641,7 +660,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   async getJob(organizationId: string, jobCardId: string) {
     const result = await this.client.query<JobCardRow>(
       `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind
+              assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind
        FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
@@ -650,7 +669,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
   async getJobForUpdate(organizationId: string, jobCardId: string) {
     const result = await this.client.query<JobCardRow>(
       `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind
+              assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind
        FROM job_cards WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
       [organizationId, jobCardId],
     );
@@ -688,7 +707,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
            updated_at = $5
        WHERE organization_id = $1 AND id = $2 AND version = $3
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind`,
+                 assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind`,
       [input.organizationId, input.jobCardId, input.expectedVersion, input.status, input.occurredAt,
         input.actorId ?? null, input.note ?? null, input.revisionReason ?? null,
         input.cancelReason ?? null, input.command],
@@ -855,13 +874,15 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const result = await this.client.query<JobCardRow>(
       `INSERT INTO job_cards
          (organization_id, type, status, title, description, customer_id, contact_id,
-          assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind, accepted_at, accepted_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15)
+          assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at,
+          engagement_kind, accepted_at, accepted_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind`,
+                 assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind`,
       [input.organizationId, input.type, input.status, input.title, input.description,
         input.customerId, input.contactId, input.assignedTo, input.createdBy, input.priority,
-        input.dueDate, input.scheduledAt, input.engagementKind, input.acceptedAt, input.acceptedBy],
+        input.dueDate, input.scheduledAt, input.scheduledEndsAt, input.engagementKind,
+        input.acceptedAt, input.acceptedBy],
     );
     return mapJobCard(result.rows[0]!);
   }
@@ -900,7 +921,8 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const columns: Record<string, string> = {
       title: 'title', description: 'description', customerId: 'customer_id', contactId: 'contact_id',
       assignedTo: 'assigned_to', priority: 'priority', dueDate: 'due_date',
-      scheduledAt: 'scheduled_at', status: 'status', engagementKind: 'engagement_kind',
+      scheduledAt: 'scheduled_at', scheduledEndsAt: 'scheduled_ends_at',
+      status: 'status', engagementKind: 'engagement_kind',
     };
     const values: unknown[] = [input.organizationId, input.jobCardId, input.expectedVersion];
     const assignments: string[] = [];
@@ -919,9 +941,101 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `UPDATE job_cards SET ${assignments.join(', ')}, version = version + 1, updated_at = NOW()
        WHERE organization_id = $1 AND id = $2 AND version = $3
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind`, values,
+                 assigned_to, created_by, priority, due_date, scheduled_at,
+                 scheduled_ends_at, engagement_kind`, values,
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
+  async assertCalendarAvailability(
+    input: Omit<JobCalendarSchedule, 'version' | 'active' | 'now' | 'reminderLeadMinutes'>,
+  ) {
+    if (!input.startsAt || !input.endsAt) return;
+    const result = await this.client.query<{
+      source: 'JOB' | 'MANUAL';
+      id: string;
+      title: string;
+      starts_at: Date;
+      ends_at: Date;
+      assigned_user_name: string;
+      related_job_path: string | null;
+    }>(
+      `SELECT 'MANUAL'::text AS source, e.id, e.title, e.starts_at, e.ends_at,
+         u.name AS assigned_user_name, NULL::text AS related_job_path
+       FROM calendar_events e
+       JOIN users u ON u.organization_id = e.organization_id AND u.id = e.assigned_user_id
+       WHERE e.organization_id = $1 AND e.assigned_user_id = $2
+         AND e.status = 'ACTIVE' AND e.starts_at < $4 AND $3 < e.ends_at
+       UNION ALL
+       SELECT 'JOB', j.id, j.title, j.scheduled_at, j.scheduled_ends_at,
+         u.name, '/jobs/' || j.id::text
+       FROM job_cards j
+       JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
+       WHERE j.organization_id = $1 AND j.assigned_to = $2 AND j.id <> $5
+         AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
+         AND j.status NOT IN ('COMPLETED', 'CANCELLED')
+         AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
+       ORDER BY starts_at ASC, id ASC LIMIT 10`,
+      [
+        input.organizationId,
+        input.assignedUserId,
+        input.startsAt,
+        input.endsAt,
+        input.jobCardId,
+      ],
+    );
+    if (result.rows.length === 0) return;
+    throw new AppError(
+      'CALENDAR_CONFLICT',
+      409,
+      'Seçilen personelin bu zaman aralığında başka bir planı bulunuyor.',
+      {
+        conflicts: result.rows.map((row) => ({
+          source: row.source,
+          id: row.id,
+          title: row.title,
+          startsAt: row.starts_at.toISOString(),
+          endsAt: row.ends_at.toISOString(),
+          assignedUser: {
+            id: input.assignedUserId,
+            name: row.assigned_user_name,
+          },
+          relatedJobPath: row.related_job_path,
+        })),
+      },
+    );
+  }
+
+  async synchronizeCalendarReminder(input: JobCalendarSchedule) {
+    await this.client.query(
+      `UPDATE calendar_reminders
+       SET state = 'CANCELLED', cancelled_at = $3, lease_token = NULL,
+         lease_until = NULL, updated_at = $3
+       WHERE organization_id = $1 AND job_card_id = $2
+         AND state IN ('PENDING', 'CLAIMED')`,
+      [input.organizationId, input.jobCardId, input.now],
+    );
+    if (!input.active || !input.startsAt || Date.parse(input.startsAt) <= input.now.valueOf()) {
+      return;
+    }
+    const remindAt = new Date(Math.max(
+      input.now.valueOf(),
+      Date.parse(input.startsAt) - input.reminderLeadMinutes * 60_000,
+    ));
+    await this.client.query(
+      `INSERT INTO calendar_reminders
+        (organization_id, job_card_id, recipient_user_id, remind_at,
+         next_attempt_at, dedupe_key)
+       VALUES ($1,$2,$3,$4,$4,$5)
+       ON CONFLICT (dedupe_key) DO NOTHING`,
+      [
+        input.organizationId,
+        input.jobCardId,
+        input.assignedUserId,
+        remindAt,
+        `JOB:${input.jobCardId}:${input.assignedUserId}:${input.startsAt}:v${input.version}:lead${input.reminderLeadMinutes}`,
+      ],
+    );
   }
 
   async getProduct(organizationId: string, productId: string) {
@@ -975,7 +1089,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `UPDATE job_cards SET version=version+1, updated_at=NOW()
        WHERE organization_id=$1 AND id=$2 AND version=$3
        RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind`, [organizationId, jobCardId, expectedVersion]);
+                 assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind`, [organizationId, jobCardId, expectedVersion]);
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
 
@@ -1166,7 +1280,7 @@ implements JobCardRepository, ApprovalQueueItemPort {
   async findJobCard(organizationId: string, jobCardId: string) {
     const result = await this.pool.query<JobCardRow>(
       `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date, scheduled_at, engagement_kind
+              assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind
        FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;

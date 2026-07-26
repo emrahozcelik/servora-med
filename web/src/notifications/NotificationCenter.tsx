@@ -182,7 +182,9 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
       await markNotificationRead(notification.id);
       await Promise.all([loadUnread(), loadPage(null, false)]);
       close();
-      navigate(`/jobs/${notification.entity.id}`);
+      navigate(notification.entity.type === 'job-card'
+        ? `/jobs/${notification.entity.id}`
+        : `/calendar?event=${notification.entity.id}`);
     } catch (caught) {
       setActionError(message(caught, 'Bildirim açılamadı. Lütfen tekrar deneyin.'));
     } finally {

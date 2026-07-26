@@ -923,6 +923,42 @@ calendar-notification
 - exact-head CI green,
 - PR merge and resulting-main CI separately accepted.
 
+## U2 implementation checkpoint — 2026-07-26
+
+Implemented on `feat/phase-u-calendar-planning` from the externally accepted U1
+resulting-main commit:
+
+- `017_calendar.sql` with JobCard end time, manual events, field-level audit,
+  reminder state machine, and calendar notification/realtime constraints,
+- Staff self scope, Manager `staff_profiles.manager_user_id` team scope, and Admin
+  organization scope,
+- canonical JobCard rescheduling with transactional conflict checks, reminder
+  replacement/cancellation, audit, realtime, and notification projection,
+- weekly `/calendar`, capability-gated navigation, team filter, manual planning,
+  JobCard deep links, exact notification selection, and Overview upcoming work,
+- deterministic reminder worker with bounded claims, leases, retry/abandon, in-app
+  projection, optional Web Push delivery rows, and graceful shutdown,
+- repository-managed Documentation, Help Center, and user-manual guidance.
+
+Automated verification completed:
+
+```text
+server build: PASS
+server PostgreSQL regression (local trust-auth contract excluded): 113 files / 1353 tests PASS
+U2 PostgreSQL migration/authorization tests: 2 files / 8 tests PASS
+web tests: 92 files / 1011 tests PASS
+web build: PASS
+bundle budget: PASS (40 chunks, each <= 500000 bytes)
+responsive smoke: PASS
+server production dependency audit: 0 vulnerabilities
+web production dependency audit: PASS_WITH_EXISTING_RSC_ONLY_WAIVER
+```
+
+Direct browser scenario capture and persistent PNG evidence are intentionally deferred
+to the named operator under the user-approved override. This checkpoint does not claim
+browser verification or evidence completion; the PR must remain Draft until that
+operator matrix is attached and externally reviewed.
+
 ## U2 gates
 
 ```text

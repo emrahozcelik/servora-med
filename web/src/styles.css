@@ -2652,3 +2652,312 @@ button:disabled { cursor: wait; opacity: 0.65; }
     animation-iteration-count: 1 !important;
   }
 }
+/* ── Calendar monthly grid + agenda ── */
+
+.calendar-workspace {
+  display: grid;
+  gap: 1rem;
+}
+
+.calendar-toolbar {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  padding: 0.75rem 1rem;
+}
+
+.calendar-toolbar label {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+}
+
+/* Layout: grid + agenda side-by-side at width */
+.calendar-layout {
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+@media (min-width: 64rem) {
+  .calendar-layout {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 22rem);
+  }
+}
+
+.calendar-grid-section {
+  min-width: 0;
+}
+
+.calendar-agenda-section {
+  min-width: 0;
+}
+
+.calendar-agenda-heading {
+  font-size: 1rem;
+  font-weight: 700;
+  margin: 0 0 0.5rem;
+}
+
+/* ── ServoraCalendar adapter cell classes ── */
+
+.servora-calendar .ant-picker-calendar {
+  /* Respect Servora surface tokens */
+}
+
+.servora-calendar--compact .ant-picker-calendar {
+  font-size: 0.85rem;
+}
+
+.servora-calendar-cell {
+  align-items: start;
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  min-height: 5.5rem;
+  padding: 0.25rem 0.35rem;
+  border-top: 1px solid var(--rule);
+  overflow: hidden;
+}
+
+.servora-calendar-cell--outside {
+  opacity: 0.35;
+}
+
+.servora-calendar-cell--today {
+  background: var(--accent-soft);
+}
+
+.servora-calendar-cell--selected {
+  box-shadow: inset 0 0 0 2px var(--accent);
+  border-radius: 0.35rem;
+}
+
+.servora-calendar-date {
+  font-size: 0.78rem;
+  font-weight: 700;
+  color: var(--muted);
+  line-height: 1.2;
+}
+
+.servora-calendar-cell--today .servora-calendar-date {
+  color: var(--accent);
+}
+
+.servora-calendar-events {
+  display: flex;
+  flex-direction: column;
+  gap: 0.15rem;
+  width: 100%;
+  overflow: hidden;
+}
+
+.servora-calendar-event-summary {
+  align-items: center;
+  border-radius: 0.3rem;
+  display: flex;
+  font-size: 0.68rem;
+  gap: 0.25rem;
+  line-height: 1.25;
+  overflow: hidden;
+  padding: 0.1rem 0.3rem;
+  white-space: nowrap;
+}
+
+.servora-calendar-event-summary--job {
+  background: var(--info-soft);
+  color: var(--info);
+  border-left: 2px solid var(--info);
+}
+
+.servora-calendar-event-summary--manual {
+  background: var(--canvas);
+  color: var(--muted);
+  border-left: 2px solid var(--rule);
+}
+
+.servora-calendar-event-time {
+  flex-shrink: 0;
+  font-weight: 700;
+}
+
+.servora-calendar-event-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.servora-calendar-overflow {
+  color: var(--muted);
+  font-size: 0.7rem;
+  padding: 0 0.3rem;
+}
+
+/* Compact mobile count indicator */
+.servora-calendar-count {
+  align-items: center;
+  background: var(--accent-soft);
+  border-radius: 999px;
+  color: var(--accent);
+  display: inline-flex;
+  font-size: 0.65rem;
+  font-weight: 700;
+  height: 1.2rem;
+  justify-content: center;
+  min-width: 1.2rem;
+  padding: 0 0.25rem;
+}
+
+/* ── Agenda event list ── */
+
+.calendar-list {
+  border-top: 1px solid var(--rule);
+  display: grid;
+}
+
+.calendar-event {
+  align-items: start;
+  border-bottom: 1px solid var(--rule);
+  display: grid;
+  gap: 1rem;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 1rem 0;
+}
+
+.calendar-event--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--info-soft);
+}
+
+.calendar-event h3,
+.calendar-event p {
+  margin: 0.35rem 0 0;
+  overflow-wrap: anywhere;
+}
+
+.calendar-source {
+  border: 1px solid var(--rule);
+  border-radius: 999px;
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  padding: 0.2rem 0.55rem;
+}
+
+.calendar-source--job {
+  background: var(--info-soft);
+  color: var(--info);
+}
+
+.calendar-source--manual {
+  background: var(--canvas);
+  color: var(--muted);
+}
+
+.calendar-event-actions,
+.calendar-form-times {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+}
+
+/* ── Form (inside drawer) ── */
+
+.calendar-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.calendar-form-times > * {
+  flex: 1 1 14rem;
+}
+
+.calendar-help {
+  margin: 0;
+}
+
+/* ── Form drawer ── */
+
+.form-drawer-root {
+  display: contents;
+}
+
+.form-drawer-backdrop {
+  background: oklch(0% 0 0deg / 0.35);
+  border: none;
+  inset: 0;
+  min-height: 0;
+  position: fixed;
+  width: 100%;
+  z-index: 100;
+}
+
+.form-drawer {
+  background: var(--paper);
+  bottom: 0;
+  box-shadow: var(--shadow-raised);
+  display: grid;
+  gap: 1rem;
+  grid-template-rows: auto 1fr;
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem;
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: min(30rem, 90vw);
+  z-index: 101;
+}
+
+.form-drawer-header {
+  align-items: center;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 0.75rem;
+}
+
+.form-drawer-header h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.form-drawer-body {
+  min-height: 0;
+}
+
+/* Mobile: near-full-width drawer */
+@media (max-width: 40rem) {
+  .form-drawer {
+    width: min(100vw, 30rem);
+    max-height: 90dvh;
+    border-radius: 0.75rem 0.75rem 0 0;
+    bottom: 0;
+    top: auto;
+  }
+
+  .calendar-form-times > * {
+    width: 100%;
+  }
+}
+
+/* Agenda compact */
+@media (max-width: 40rem) {
+  .calendar-toolbar > *,
+  .calendar-toolbar label,
+  .calendar-event-actions > *,
+  .calendar-form-times > * {
+    width: 100%;
+  }
+
+  .calendar-event {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .servora-calendar-cell {
+    min-height: 3.2rem;
+    padding: 0.1rem 0.2rem;
+  }
+}

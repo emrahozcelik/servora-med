@@ -33,6 +33,7 @@ export type NavigationModel = {
 export function buildNavigationModel(user: CurrentUser): NavigationModel {
   const overview: NavLinkItem = { kind: 'link', id: 'overview', label: 'Genel Bakış', to: paths.overview, section: 'Operasyon' };
   const jobs: NavLinkItem = { kind: 'link', id: 'jobs', label: 'İşler', to: paths.jobs, section: 'Operasyon' };
+  const calendar: NavLinkItem = { kind: 'link', id: 'calendar', label: 'Takvim', to: paths.calendar, section: 'Operasyon' };
   const customers: NavLinkItem = { kind: 'link', id: 'customers', label: 'Müşteriler', to: paths.customers, section: 'Operasyon' };
   const products: NavLinkItem = { kind: 'link', id: 'products', label: 'Ürünler', to: paths.products, section: 'Operasyon' };
   const reports: NavLinkItem = { kind: 'link', id: 'reports', label: 'Raporlar', to: paths.reports, section: 'Analiz' };
@@ -51,6 +52,7 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
   const destinations: NavLinkItem[] = [
     ...(user.capabilities?.overviewDashboard ? [overview] : []),
     jobs,
+    ...(user.capabilities?.calendar ? [calendar] : []),
     customers,
     products,
     ...(user.role !== 'STAFF' ? [reports] : []),
@@ -63,7 +65,7 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
 
   if (user.role === 'STAFF') {
     const direct = user.capabilities?.overviewDashboard
-      ? [overview, jobs, customers]
+      ? [overview, jobs, ...(user.capabilities?.calendar ? [calendar] : [customers])]
       : [jobs, customers, products];
     const directIds = new Set(direct.map((item) => item.id));
     return {
@@ -74,7 +76,7 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
   }
 
   const direct = user.capabilities?.overviewDashboard
-    ? [overview, jobs, reports]
+    ? [overview, jobs, ...(user.capabilities?.calendar ? [calendar] : [reports])]
     : [jobs, customers, reports];
   const directIds = new Set(direct.map((item) => item.id));
   const overflow = destinations.filter((item) => !directIds.has(item.id));
@@ -92,6 +94,7 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
 /** Section title for the single mobile top bar (not a second page h1). */
 export function resolveShellTitle(pathname: string, role: CurrentUser['role']): string {
   if (pathname.startsWith('/overview')) return 'Genel Bakış';
+  if (pathname.startsWith('/calendar')) return 'Takvim';
   if (pathname.startsWith('/docs')) return 'Dokümantasyon';
   if (pathname.startsWith('/help')) return 'Yardım Merkezi';
   if (pathname.startsWith('/settings')) return 'Ayarlar';
