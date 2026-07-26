@@ -39,6 +39,16 @@ const baseConfig = {
   corsOrigin: 'https://app.example.com', sessionTtlSeconds: 28_800,
   loginRateLimitMax: 2, rateLimitWindowMs: 60_000,
   trustedProxy: 'loopback' as const, healthSchemaVersion: null,
+  capabilities: {
+    overviewDashboard: true,
+    calendar: false,
+    messaging: false,
+  },
+  support: {
+    displayLabel: 'Operasyon desteği',
+    email: 'destek@example.test',
+    helpUrl: 'https://help.example.test',
+  },
 };
 
 describe('auth HTTP routes', () => {
@@ -65,6 +75,8 @@ describe('auth HTTP routes', () => {
     expect(response.statusCode).toBe(200);
     expect(response.json()).toEqual({ user: expect.objectContaining({
       email: 'admin@example.com', role: 'ADMIN', isActive: true, version: 1,
+      capabilities: baseConfig.capabilities,
+      support: baseConfig.support,
     }) });
     expect(response.body).not.toContain('passwordHash');
     expect(response.headers['set-cookie']).toMatch(/servora_session=.*HttpOnly.*SameSite=Lax/i);
@@ -87,6 +99,7 @@ describe('auth HTTP routes', () => {
     const cookie = login.headers['set-cookie'] as string;
     const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
     expect(me.statusCode).toBe(200);
+    expect(me.json().user.capabilities).toEqual(login.json().user.capabilities);
     const logout = await app.inject({ method: 'POST', url: '/api/auth/logout',
       headers: { cookie, origin: baseConfig.corsOrigin } });
     expect(logout.statusCode).toBe(204);

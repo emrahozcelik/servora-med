@@ -29,6 +29,39 @@ const validWebPushEnvironment = {
 };
 
 describe('loadConfig', () => {
+  it('keeps every Phase U capability disabled by default', () => {
+    expect(loadConfig(validEnvironment).capabilities).toEqual({
+      overviewDashboard: false,
+      calendar: false,
+      messaging: false,
+    });
+  });
+
+  it('validates optional authenticated support contact values', () => {
+    expect(loadConfig({
+      ...validEnvironment,
+      SUPPORT_DISPLAY_LABEL: 'Operasyon desteği',
+      SUPPORT_EMAIL: 'destek@example.test',
+      SUPPORT_HELP_URL: 'https://help.example.test/servora',
+    }).support).toEqual({
+      displayLabel: 'Operasyon desteği',
+      email: 'destek@example.test',
+      helpUrl: 'https://help.example.test/servora',
+    });
+    expect(() => loadConfig({
+      ...validEnvironment,
+      SUPPORT_HELP_URL: 'http://help.example.test',
+    })).toThrow('SUPPORT_HELP_URL must be an https URL');
+    expect(() => loadConfig({
+      ...validEnvironment,
+      SUPPORT_EMAIL: 'support?subject=unsafe@example.test',
+    })).toThrow('SUPPORT_EMAIL must be a valid email address');
+    expect(() => loadConfig({
+      ...validEnvironment,
+      SUPPORT_DISPLAY_LABEL: `Destek${String.fromCharCode(10)}kanalı`,
+    })).toThrow('SUPPORT_DISPLAY_LABEL must be at most 120 safe characters');
+  });
+
   it('parses explicit values', () => {
     expect(
       loadConfig({
@@ -63,6 +96,16 @@ describe('loadConfig', () => {
       geocodingUserDailyLimit: 15,
       geocodingOrganizationDailyLimit: 250,
       geocodingGlobalMonthlyLimit: 8000,
+      capabilities: {
+        overviewDashboard: false,
+        calendar: false,
+        messaging: false,
+      },
+      support: {
+        displayLabel: 'Sistem yöneticiniz',
+        email: null,
+        helpUrl: null,
+      },
       webPush: {
         enabled: false,
         vapidSubject: null,
@@ -92,6 +135,16 @@ describe('loadConfig', () => {
       geocodingUserDailyLimit: 15,
       geocodingOrganizationDailyLimit: 250,
       geocodingGlobalMonthlyLimit: 8000,
+      capabilities: {
+        overviewDashboard: false,
+        calendar: false,
+        messaging: false,
+      },
+      support: {
+        displayLabel: 'Sistem yöneticiniz',
+        email: null,
+        helpUrl: null,
+      },
       webPush: {
         enabled: false,
         vapidSubject: null,

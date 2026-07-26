@@ -122,11 +122,34 @@ const ApprovalReport = lazy(() =>
   })),
 );
 
+const OverviewPage = lazy(() =>
+  import('./overview/OverviewPage').then((module) => ({ default: module.OverviewPage })),
+);
+const DocumentationPage = lazy(() =>
+  import('./content/DocumentationPage').then((module) => ({ default: module.DocumentationPage })),
+);
+const HelpCenterPage = lazy(() =>
+  import('./content/HelpCenterPage').then((module) => ({ default: module.HelpCenterPage })),
+);
+const SettingsLandingPage = lazy(() =>
+  import('./settings/SettingsPages').then((module) => ({ default: module.SettingsLandingPage })),
+);
+const ProfileSettingsPage = lazy(() =>
+  import('./settings/SettingsPages').then((module) => ({ default: module.ProfileSettingsPage })),
+);
+const SecuritySettingsPage = lazy(() =>
+  import('./settings/SettingsPages').then((module) => ({ default: module.SecuritySettingsPage })),
+);
+const NotificationSettingsPage = lazy(() =>
+  import('./settings/SettingsPages').then((module) => ({ default: module.NotificationSettingsPage })),
+);
+
 type AppRouterProps = {
   user: CurrentUser;
   notice: string;
   onClearNotice: () => void;
   onDeliveryCreated: () => void;
+  onSessionEnded: () => void;
 };
 
 function ForbiddenView() {
@@ -214,13 +237,23 @@ function SalesMeetingCreateRoute({ user, navigate }: { user: CurrentUser; naviga
     onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />;
 }
 
-export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated }: AppRouterProps) {
+export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSessionEnded }: AppRouterProps) {
   const navigate = useNavigate();
+  const overviewEnabled = user.capabilities?.overviewDashboard === true;
+  const landingPath = overviewEnabled ? paths.overview : paths.jobs;
   return (
     <Suspense fallback={<RouteLoading />}>
       <Routes>
-        <Route path="/" element={<Navigate to={paths.jobs} replace />} />
-        <Route path="/login" element={<Navigate to={paths.jobs} replace />} />
+        <Route path="/" element={<Navigate to={landingPath} replace />} />
+        <Route path="/login" element={<Navigate to={landingPath} replace />} />
+        <Route path={paths.overview} element={overviewEnabled
+          ? <OverviewPage user={user} /> : <Navigate to={paths.jobs} replace />} />
+        <Route path={paths.docs} element={<DocumentationPage user={user} />} />
+        <Route path={paths.help} element={<HelpCenterPage user={user} />} />
+        <Route path={paths.settings} element={<SettingsLandingPage />} />
+        <Route path={paths.settingsProfile} element={<ProfileSettingsPage user={user} />} />
+        <Route path={paths.settingsSecurity} element={<SecuritySettingsPage onSessionEnded={onSessionEnded} />} />
+        <Route path={paths.settingsNotifications} element={<NotificationSettingsPage />} />
         <Route path={paths.jobs} element={<JobWorkspace user={user} notice={notice}
           onCreateDelivery={() => { onClearNotice(); navigate(paths.newDelivery); }}
           onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}

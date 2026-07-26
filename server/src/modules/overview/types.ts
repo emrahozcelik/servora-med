@@ -1,0 +1,54 @@
+import type { RequestedReportRange, ResolvedReportRange } from '../reports/types.js';
+
+export type OverviewQuery = Readonly<{
+  requestedRange: RequestedReportRange;
+}>;
+
+export type OverviewRecentWork = Readonly<{
+  id: string;
+  title: string;
+  customerName: string | null;
+  assigneeName: string | null;
+  completedAt: string;
+}>;
+
+export type OverviewRecentNote = Readonly<{
+  id: string;
+  jobCardId: string;
+  jobTitle: string;
+  preview: string;
+  authorName: string;
+  createdAt: string;
+}>;
+
+type OverviewCommon = Readonly<{
+  range: ResolvedReportRange;
+  generatedAt: string;
+  recentCompletedWork: OverviewRecentWork[];
+  recentNotes: OverviewRecentNote[];
+}>;
+
+export type StaffOverviewResponse = OverviewCommon & Readonly<{
+  scope: 'staff';
+  openJobCards: number;
+  waitingApproval: number;
+  revisionRequested: number;
+  completedInPeriod: number;
+}>;
+
+export type ManagementOverviewResponse = OverviewCommon & Readonly<{
+  scope: 'management';
+  active: number;
+  overdue: number;
+  waitingApproval: number;
+  revisionRequested: number;
+  completedInPeriod: number;
+  cancelledInPeriod: number;
+  completionTrend: Array<{ date: string; count: number }>;
+  approvalQueueSummary: Readonly<{
+    pendingCount: number;
+    oldestWaitingMinutes: number | null;
+  }>;
+}>;
+
+export type OverviewResponse = StaffOverviewResponse | ManagementOverviewResponse;

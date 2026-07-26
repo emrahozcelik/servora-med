@@ -122,7 +122,8 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
         <AppShell user={user} pendingSignOut={pending} onSignOut={() => void signOut()}>
           <AppRouter user={user}
             notice={notice} onClearNotice={clearNotice}
-            onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')} />
+            onDeliveryCreated={() => setNotice('Teslim kaydı oluşturuldu.')}
+            onSessionEnded={onSignedOut} />
           {error && <div className="shell-error form-error" role="alert">{error}</div>}
         </AppShell>
       </WebPushProvider>

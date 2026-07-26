@@ -25,6 +25,9 @@ Object.defineProperty(window, 'matchMedia', {
 const staff: CurrentUser = {
   id: 'staff-1', organizationId: 'org-1', name: 'Ayşe Personel',
   email: 'staff@example.com', role: 'STAFF', mustChangePassword: false,
+  isActive: true, version: 1,
+  capabilities: { overviewDashboard: false, calendar: false, messaging: false },
+  support: { displayLabel: 'BT Destek', email: 'support@example.com', helpUrl: 'https://support.example.com' },
 };
 const manager: CurrentUser = { ...staff, id: 'manager-1', name: 'Murat Yönetici', role: 'MANAGER' };
 const admin: CurrentUser = { ...manager, id: 'admin-1', name: 'Deniz Admin', role: 'ADMIN' };
@@ -81,6 +84,12 @@ describe('application routes', () => {
     ['/products?q=eski&offset=25', 'Ürünler', manager],
     ['/products/new', 'Yeni ürün', manager],
     ['/products/product-1', 'Ürün detayı yükleniyor', staff],
+    ['/docs', 'Dokümantasyon', staff],
+    ['/help', 'Yardım Merkezi', manager],
+    ['/settings', 'Ayarlar', staff],
+    ['/settings/profile', 'Ayşe Personel', staff],
+    ['/settings/security', 'Parolanızı değiştirmeniz', staff],
+    ['/settings/notifications', 'Bu cihaz', staff],
   ] as const)('renders %s at a stable URL', async (path, expected, user) => {
     expect(await render(path, user)).toContain(expected);
   });
@@ -106,6 +115,25 @@ describe('application routes', () => {
     expect(html).not.toContain('Sayfa bulunamadı');
   });
 
+  it('uses overview as the authenticated landing only when the server capability is enabled', async () => {
+    const enabled = { ...manager, capabilities: { ...manager.capabilities, overviewDashboard: true } };
+    expect(await render('/', enabled)).toContain('Genel bakış yükleniyor');
+    expect(await render('/login', enabled)).toContain('Genel bakış yükleniyor');
+    expect(await render('/', manager)).toContain('İşler');
+  });
+
+  it('fails closed when overview is opened directly without the capability', async () => {
+    const html = await render('/overview', staff);
+    expect(html).toContain('İşler');
+    expect(html).not.toContain('Genel bakış yükleniyor');
+  });
+
+  it('renders configured support links without exposing arbitrary protocols', async () => {
+    const html = await render('/help', staff);
+    expect(html).toContain('mailto:support@example.com');
+    expect(html).toContain('https://support.example.com');
+  });
+
   it('exports encoded route helpers', () => {
     expect(paths.job('job/1')).toBe('/jobs/job%2F1');
     expect(paths.newTask).toBe('/jobs/new-task');
@@ -122,6 +150,10 @@ describe('application routes', () => {
     expect(paths.product('product/1')).toBe('/products/product%2F1');
     expect(paths.newUser).toBe('/users/new');
     expect(paths.user('user/1')).toBe('/users/user%2F1');
+    expect(paths.overview).toBe('/overview');
+    expect(paths.docs).toBe('/docs');
+    expect(paths.help).toBe('/help');
+    expect(paths.settingsNotifications).toBe('/settings/notifications');
   });
 
   it('shows Product navigation to every role', async () => {

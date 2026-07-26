@@ -12,7 +12,7 @@ export const authRoutes: FastifyPluginAsync<AuthRoutesOptions> = async (app, opt
     httpOnly: true, sameSite: 'lax', path: '/',
     secure: options.config.nodeEnv === 'production',
     maxAge: options.config.sessionTtlSeconds,
-  });
+  }, options.config.capabilities, options.config.support);
   const authenticated = requireAuthentication(options.authService);
 
   app.post('/login', {
