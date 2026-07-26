@@ -67,17 +67,104 @@ U0 external review:
 APPROVED WITH DOCUMENT AMENDMENTS
 
 Phase U documentation:
-THIS DOCS-ONLY DRAFT PR
+INTEGRATED INTO MAIN
 
-U1 implementation:
-NOT AUTHORIZED
+Phase U documentation merge:
+06a0d2a92d1776874ec5de13cf2d15e7c5e7460b
 
-U2/U3:
-NOT AUTHORIZED
+U1 code and automated-test implementation:
+COMPLETE — Draft PR checkpoint
+
+U1 implementation commit:
+0d45d501a0ace8c54555efaccb431780a2818476
+
+U1 direct browser verification:
+PENDING — BLOCKED BY BROWSER AVAILABILITY
+
+U1 persistent visual evidence:
+PENDING
+
+U1 visual acceptance:
+NOT COMPLETE
+
+U1 integration:
+PENDING
+
+U2:
+NOT STARTED
+
+U3:
+NOT STARTED
 
 T5:
-NOT AUTHORIZED
+NOT STARTED
 
 Staging/production:
 NOT AUTHORIZED
 ```
+
+## U1 Draft PR checkpoint
+
+The U1 implementation is based on exact Phase U documentation merge
+`06a0d2a92d1776874ec5de13cf2d15e7c5e7460b`.
+
+Implemented contracts:
+
+- `OVERVIEW_DASHBOARD_ENABLED`, `CALENDAR_ENABLED`, and `MESSAGING_ENABLED`
+  are explicit authenticated capabilities and default to `false`.
+- Login and `/me` return the same capability and safe support configuration.
+- `GET /api/overview` is server-gated and returns a Staff or Management
+  discriminated union.
+- Staff recent work and notes are limited to assigned JobCards; management
+  results remain organization-scoped. Both recent lists use server-side
+  `LIMIT 10` and deterministic timestamp/ID ordering.
+- Root/login routing uses Overview only when enabled. Docs, Help, and the
+  read-only Profile/Security/current-device Notification settings remain
+  independently reachable.
+- Overview realtime messages carry invalidation keys only; canonical data is
+  refetched from REST.
+
+Automated checkpoint:
+
+```text
+Focused server:
+7 files / 120 tests PASS
+
+Full local server DB suite:
+NOT RUN
+Reason: TEST_DATABASE_URL or DATABASE_URL unavailable
+Security: no .env or credential was opened, copied or created
+Final authority: exact-head GitHub CI server job
+
+Web:
+90 files / 1004 tests PASS
+
+Server build:
+PASS
+
+Web build:
+PASS
+
+Server audit:
+0 vulnerabilities
+
+Web audit:
+PASS_WITH_WAIVER — existing GHSA-qwww-vcr4-c8h2 RSC-only waiver
+
+Bundle budget:
+PASS — 39 JavaScript chunks, each at most 500000 bytes
+
+Responsive smoke:
+PASS
+```
+
+Direct self-review found and repaired one U1-owned issue: optional support
+email and HTTPS URL parsing accepted unsafe mailto query and credential forms.
+Server validation and client parsing now fail those values closed, with
+regression coverage.
+
+Direct browser verification was attempted through the configured browser
+control surface, but no browser target was available. The 390/1024/1440
+Staff/Manager/Admin matrix, capability-disabled rendered fallback,
+console/network checks, genuine PNG evidence, and final visual acceptance
+remain pending. No screenshot directory or placeholder evidence was created.

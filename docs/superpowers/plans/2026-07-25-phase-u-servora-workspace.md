@@ -568,8 +568,20 @@ settings
 ## U1 gates
 
 ```text
-U1 implementation:
-AUTHORIZED only by separate external-review decision
+U1 code and automated-test implementation:
+COMPLETE — Draft PR checkpoint
+
+U1 direct browser verification:
+PENDING — BLOCKED BY BROWSER AVAILABILITY
+
+U1 persistent visual evidence:
+PENDING
+
+U1 visual acceptance:
+NOT COMPLETE
+
+U1 integration:
+PENDING
 
 U1 Ready:
 NOT AUTHORIZED by this plan
@@ -580,6 +592,86 @@ NOT AUTHORIZED by this plan
 U2:
 NOT AUTHORIZED until U1 merge/main-CI acceptance
 ```
+
+## U1 implementation checkpoint
+
+```text
+Exact authorized base:
+06a0d2a92d1776874ec5de13cf2d15e7c5e7460b
+
+Exact source/test implementation commit:
+0d45d501a0ace8c54555efaccb431780a2818476
+```
+
+The authenticated bootstrap now exposes default-off
+`overviewDashboard`, `calendar`, and `messaging` capabilities with login and
+`/me` parity. Safe support configuration is authenticated, narrowly validated,
+and fails unsafe email, non-HTTPS, credential-bearing, or malformed values
+closed.
+
+`GET /api/overview` is server-gated and returns a discriminated Staff or
+Management response. It reuses report calculations directly. Staff recent work
+and note previews are derived only after assigned-JobCard authorization;
+Manager/Admin results are organization-scoped. SQL bounds both recent lists to
+10 and uses timestamp plus ID ordering.
+
+The web checkpoint adds capability-aware root/login routing, disabled Overview
+fallback to Jobs, grouped desktop navigation, a maximum-four-control mobile
+model with secondary destinations in Menü, role-specific Overview UI, typed
+Docs/Help content, read-only initials Profile, existing password-change
+semantics, and current-device Web Push controls. Realtime carries only the
+`overview` invalidation key and canonical REST refetch remains authoritative.
+
+Automated validation:
+
+```text
+Focused server:
+7 files / 120 tests PASS
+
+Full local server DB suite:
+NOT RUN
+Reason: TEST_DATABASE_URL or DATABASE_URL unavailable
+Security: no .env or credential was opened, copied or created
+Final authority: exact-head GitHub CI server job
+
+Full web:
+90 files / 1004 tests PASS
+
+Server/web builds:
+PASS
+
+Server audit:
+0 vulnerabilities
+
+Web audit:
+PASS_WITH_WAIVER — existing GHSA-qwww-vcr4-c8h2 RSC-only waiver
+
+Bundle:
+PASS — 39 JavaScript chunks within the 500000-byte limit
+
+Responsive smoke:
+PASS
+```
+
+Terra direct self-review found one concrete U1 defect: unsafe optional support
+URL/mailto values could survive client parsing. Server validation and client
+parsing were tightened to fail credential-bearing URLs and unsafe mailto forms
+closed, and regression coverage was added. Boundary review found no migration,
+dependency, U2/U3 source module, or new Ant/token boundary violation.
+
+Direct browser verification is not complete. The configured availability check
+returned no browser target, so no Staff/Manager/Admin rendered role matrix,
+capability-disabled browser state, console/network acceptance, or 390/1024/1440
+visual acceptance is claimed. Persistent PNG evidence was not created, and no
+placeholder screenshot directory exists.
+
+Remaining U1 acceptance steps:
+
+1. Run the direct browser role/viewport and disabled-capability matrix.
+2. Capture genuine synthetic, PII-free PNG evidence and record its exact visual
+   head.
+3. Obtain separate PR Ready authorization after visual acceptance.
+4. Obtain separate merge authorization and verify resulting-main CI.
 
 ---
 
