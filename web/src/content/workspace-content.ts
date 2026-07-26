@@ -14,6 +14,28 @@ const everyRole: readonly UserRole[] = ['ADMIN', 'MANAGER', 'STAFF'];
 
 export const productDocumentation: readonly WorkspaceContent[] = [
   {
+    id: 'calendar-planning',
+    title: 'Takvim ve planlama',
+    summary: 'İş planları, kişisel operasyon planları ve yaklaşan çalışma bildirimleri.',
+    category: 'İş akışı',
+    audience: everyRole,
+    updatedLabel: 'U2',
+    sections: [{
+      heading: 'İş ve kişisel plan ayrımı',
+      paragraphs: [
+        'İş etiketi taşıyan kayıtlar JobCard tarafından yönetilir; işin durumunu veya yetkisini Takvim değiştirmez.',
+        'Kişisel plan etiketi taşıyan kayıtlar Takvim içinde oluşturulur, düzenlenir veya gerekçeyle iptal edilir.',
+        'Çakışma uyarısında taslağınız korunur. Başka biri kaydı değiştirdiyse güncel veriyi yükleyip tekrar deneyin.',
+      ],
+    }, {
+      heading: 'Yetki ve bildirim',
+      paragraphs: [
+        'Personel yalnız kendi takvimini görür. Yönetici yalnız mevcut ekip ilişkisindeki aktif personeli, admin ise organizasyondaki aktif personeli planlayabilir.',
+        'Yaklaşan plan bildirimleri başlık, müşteri açıklaması veya serbest metin taşımaz; kayıt uygulamada yetkili bağlantıdan açılır.',
+      ],
+    }],
+  },
+  {
     id: 'job-flow',
     title: 'İşlerin temel akışı',
     summary: 'Atamadan yönetici onayına kadar JobCard yaşam döngüsü.',
@@ -75,6 +97,22 @@ export const productDocumentation: readonly WorkspaceContent[] = [
 ];
 
 export const helpArticles: readonly WorkspaceContent[] = [
+  {
+    id: 'calendar-help',
+    title: 'Takvim kaydı görünmüyor veya kaydedilemiyor',
+    summary: 'Yetki, çakışma, güncel sürüm ve bildirim durumunu ayırt etme.',
+    category: 'Sorun giderme',
+    audience: everyRole,
+    updatedLabel: 'U2',
+    sections: [{
+      heading: 'Güvenli kontrol sırası',
+      paragraphs: [
+        'Doğru haftada ve doğru personel filtresinde olduğunuzu kontrol edin; personel rolünde filtre her zaman kendi hesabınıza sabittir.',
+        'Çakışma uyarısında listelenen güvenli zaman aralığını inceleyin ve başlangıç veya bitiş saatini değiştirin.',
+        'Kayıt başka bir kullanıcı tarafından değiştirildiyse sayfayı yenileyin. Sorun sürerse yalnız hata kodunu paylaşın; plan açıklamasını veya müşteri bilgisini destek mesajına kopyalamayın.',
+      ],
+    }],
+  },
   {
     id: 'login-refresh',
     title: 'Oturum açma ve sayfa yenileme',

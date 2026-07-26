@@ -581,7 +581,7 @@ U1 visual acceptance:
 COMPLETE — Draft PR remains subject to separate Ready authorization
 
 U1 integration:
-PENDING
+COMPLETE — merged at 5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
 
 U1 Ready:
 NOT AUTHORIZED by this plan
@@ -590,7 +590,9 @@ U1 Merge:
 NOT AUTHORIZED by this plan
 
 U2:
-NOT AUTHORIZED until U1 merge/main-CI acceptance
+COMPLETE — Draft PR #72 on clean branch feat/phase-u-calendar-planning-clean
+  PR #71 CLOSED (superseded by clean replacement)
+  Visual code SHA: d516a61f8a8a8b6add2a5e3d19354ffebc8ff839
 ```
 
 ## U1 implementation checkpoint
@@ -693,8 +695,9 @@ Remaining U1 acceptance steps:
 ## Recommended branch
 
 ```text
-feat/phase-u-calendar-planning
+feat/phase-u-calendar-planning-clean
 ```
+(Original branch feat/phase-u-calendar-planning superseded by clean replacement #72)
 
 ## Recommended PR title
 
@@ -799,13 +802,13 @@ Manager:
 
 Implement reminder scheduling and dispatch using current worker/outbox patterns.
 
-Candidate kinds:
+Implemented notification kinds:
 
 ```text
-calendar_assigned
-calendar_rescheduled
-calendar_cancelled
-calendar_reminder
+calendar.assigned
+calendar.rescheduled
+calendar.cancelled
+calendar.reminder
 ```
 
 Requirements:
@@ -923,17 +926,92 @@ calendar-notification
 - exact-head CI green,
 - PR merge and resulting-main CI separately accepted.
 
+## U2 implementation checkpoint — 2026-07-26 (clean replacement)
+
+Implemented on `feat/phase-u-calendar-planning-clean` (replaces contaminated
+`feat/phase-u-calendar-planning`) from the clean U1 baseline
+`5d5ee5dc15638b94ed3c3267971839b4c6fa36dd`.
+
+### Server
+
+- `017_calendar.sql` with JobCard end time, manual events, field-level audit,
+  reminder state machine, and calendar notification/realtime constraints,
+- Staff self scope, Manager `staff_profiles.manager_user_id` team scope, and Admin
+  organization scope,
+- canonical JobCard rescheduling with transactional conflict checks, reminder
+  replacement/cancellation, audit, realtime, and notification projection,
+- deterministic reminder worker with bounded claims, leases, retry/abandon, in-app
+  projection, optional Web Push delivery rows, and graceful shutdown.
+
+### Web
+
+- monthly notice-calendar with ServoraCalendar adapter (Ant Calendar wrapper),
+- selected-day agenda beside/below the month grid,
+- ResponsiveFormDrawer for create/edit forms,
+- half-open shared date helper (`calendar-date.ts`) used by both grid and agenda,
+- grid/agenda parity verified by 24 dedicated date-helper tests passing in
+  default timezone, TZ=UTC, and TZ=Europe/Istanbul,
+- point-event local-midnight parity explicitly tested,
+- `dayjs` 1.11.21 declared as direct dependency,
+- Staff/Manager/Admin role-based calendar views,
+- CALENDAR_CONFLICT preserves draft in drawer,
+- capability-off fallback (`/calendar` → `/jobs`),
+- 200% text zoom support.
+
+### Automated verification
+
+```text
+server build: PASS
+server PostgreSQL regression: 113 files / 1353 tests PASS
+
+focused U2 web validation: 41 tests PASS
+
+web tests: 93 files / 1043 tests PASS
+web build: PASS
+bundle budget: PASS (44 chunks, each <= 500000 bytes)
+responsive smoke: PASS
+antd boundary: PASS (Calendar + Drawer adapters)
+visual token boundary: PASS
+```
+
+### Browser verification
+
+```text
+Playwright MCP complete: 16 PNGs recaptured
+Roles: Staff (390/1024/1440), Manager (390/1440/1024 filtered), Admin (1024)
+States: monthly grid, agenda, drawer create, conflict, zoom, deep-link, capability-off overview, notifications
+Console: 0 application errors (benign 401/409 expected)
+Network: 0 unexpected failures
+Exact visual code/capture SHA: d516a61f8a8a8b6add2a5e3d19354ffebc8ff839
+```
+
+Final reviewed head before documentation-only closure:
+`f005a1eaa97f14231c8b6cc703854b26532b7c21`
+
+### Persistent evidence
+
+`docs/ui/screenshots/phase-u-u2/` — 16 PNGs, README with full metadata matrix.
+
 ## U2 gates
 
 ```text
 U2 implementation:
-AUTHORIZED only after U1 merge/main-CI external acceptance
+COMPLETE — Draft PR #72
+
+U2 calendar correctness:
+COMPLETE
+
+U2 browser verification:
+COMPLETE
+
+U2 persistent evidence:
+COMPLETE
 
 U2 Ready:
-NOT AUTHORIZED by this plan
+NOT AUTHORIZED
 
 U2 Merge:
-NOT AUTHORIZED by this plan
+NOT AUTHORIZED
 
 U3:
 NOT AUTHORIZED until U2 merge/main-CI acceptance

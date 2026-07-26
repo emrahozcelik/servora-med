@@ -72,6 +72,23 @@ describe('buildNavigationModel', () => {
     expect(buildNavigationModel(staff).destinations.map((item) => item.label))
       .not.toContain('Genel Bakış');
   });
+
+  it('shows Takvim only with capability and keeps it in the four-control mobile model', () => {
+    const enabled = buildNavigationModel({
+      ...staff,
+      capabilities: {
+        ...staff.capabilities,
+        overviewDashboard: true,
+        calendar: true,
+      },
+    });
+    expect(enabled.destinations.map((item) => item.label)).toContain('Takvim');
+    expect(enabled.bottom.map((item) => item.label))
+      .toEqual(['Genel Bakış', 'İşler', 'Takvim', 'Menü']);
+    expect(buildNavigationModel(staff).destinations.map((item) => item.label))
+      .not.toContain('Takvim');
+    expect(resolveShellTitle('/calendar', 'STAFF')).toBe('Takvim');
+  });
 });
 
 describe('shell title and back helpers', () => {

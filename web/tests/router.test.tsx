@@ -128,6 +128,17 @@ describe('application routes', () => {
     expect(html).not.toContain('Genel bakış yükleniyor');
   });
 
+  it('gates the calendar route without redirect loops', async () => {
+    const enabled = {
+      ...staff,
+      capabilities: { ...staff.capabilities, calendar: true },
+    };
+    expect(await render('/calendar', enabled)).toContain('Takvim');
+    const disabled = await render('/calendar', staff);
+    expect(disabled).toContain('İşler');
+    expect(disabled).not.toContain('Haftalık planlama');
+  });
+
   it('renders configured support links without exposing arbitrary protocols', async () => {
     const html = await render('/help', staff);
     expect(html).toContain('mailto:support@example.com');
@@ -151,6 +162,7 @@ describe('application routes', () => {
     expect(paths.newUser).toBe('/users/new');
     expect(paths.user('user/1')).toBe('/users/user%2F1');
     expect(paths.overview).toBe('/overview');
+    expect(paths.calendar).toBe('/calendar');
     expect(paths.docs).toBe('/docs');
     expect(paths.help).toBe('/help');
     expect(paths.settingsNotifications).toBe('/settings/notifications');

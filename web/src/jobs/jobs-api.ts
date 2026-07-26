@@ -96,7 +96,7 @@ export type JobCard = {
   id: string; organizationId: string; type: JobCardType; status: JobCardStatus;
   version: number; title: string; description: string | null; customerId: string | null;
   contactId: string | null; assignedTo: string; createdBy: string; priority: JobCardPriority;
-  dueDate: string | null; scheduledAt: string | null;
+  dueDate: string | null; scheduledAt: string | null; scheduledEndsAt?: string | null;
   engagementKind: JobCardEngagementKind | null;
   assignee: RelatedName;
   customer: RelatedName | null; contact: RelatedName | null; workflowContext: JobWorkflowContext;
@@ -115,6 +115,7 @@ export type JobCardCreateInput =
 export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; scheduledAt: string | null;
+  scheduledEndsAt?: string | null;
   engagementKind: JobCardEngagementKind | null;
   createdAt: string; updatedAt: string; staffCompletedAt: string | null;
   customer: RelatedName | null; contact: RelatedName | null; assignee: RelatedName;
@@ -182,6 +183,7 @@ export type PatchJobCardInput = {
   priority?: JobCardPriority;
   dueDate?: string | null;
   scheduledAt?: string | null;
+  scheduledEndsAt?: string | null;
   engagementKind?: JobCardEngagementKind;
 };
 
@@ -356,6 +358,9 @@ function parseJobCard(value: unknown): JobCard {
     assignedTo: string(v.assignedTo, 'assignedTo'), createdBy: string(v.createdBy, 'createdBy'),
     priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES), dueDate: nullableString(v.dueDate, 'dueDate'),
     scheduledAt: nullableCanonicalInstant(v.scheduledAt, 'scheduledAt'),
+    ...(v.scheduledEndsAt === undefined ? {} : {
+      scheduledEndsAt: nullableCanonicalInstant(v.scheduledEndsAt, 'scheduledEndsAt'),
+    }),
     engagementKind: parseEngagementKind(v.engagementKind, type),
     assignee: related(v.assignee, 'assignee'), customer: nullableRelated(v.customer, 'customer'),
     contact: nullableRelated(v.contact, 'contact'),
@@ -371,6 +376,9 @@ export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardL
     title: string(v.title, 'title'), priority: oneOf(v.priority, 'priority', JOB_CARD_PRIORITIES),
     dueDate: nullableString(v.dueDate, 'dueDate'),
     scheduledAt: nullableCanonicalInstant(v.scheduledAt, 'scheduledAt'),
+    ...(v.scheduledEndsAt === undefined ? {} : {
+      scheduledEndsAt: nullableCanonicalInstant(v.scheduledEndsAt, 'scheduledEndsAt'),
+    }),
     engagementKind: parseEngagementKind(v.engagementKind, type),
     createdAt: string(v.createdAt, 'createdAt'),
     updatedAt: string(v.updatedAt, 'updatedAt'), staffCompletedAt: nullableString(v.staffCompletedAt, 'staffCompletedAt'),

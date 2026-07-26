@@ -45,6 +45,10 @@ class CrudMemoryRepository implements JobCardRepository {
   processing = new Set<string>();
   failActivity = false;
   listCalls: Array<{ scope: JobCardReadScope; query: JobCardListQuery }> = [];
+  calendarChecks: unknown[] = [];
+  calendarSyncs: unknown[] = [];
+  notificationDrafts: unknown[] = [];
+  realtimeResourceKeys: string[][] = [];
 
   acceptance = new Map<string, { acceptedAt: string; acceptedBy: string }>();
 
@@ -135,6 +139,7 @@ class CrudMemoryRepository implements JobCardRepository {
           priority: input.priority,
           dueDate: input.dueDate,
           scheduledAt: input.scheduledAt,
+          scheduledEndsAt: input.scheduledEndsAt,
           engagementKind: input.engagementKind,
         };
         this.jobs.push(job);
@@ -156,6 +161,8 @@ class CrudMemoryRepository implements JobCardRepository {
       listActiveManagementRecipients: async () => [],
         appendNotifications: async () => [],
         appendWebPushDeliveries: async () => [],
+      assertCalendarAvailability: async (input) => { this.calendarChecks.push(input); },
+      synchronizeCalendarReminder: async (input) => { this.calendarSyncs.push(input); },
     };
     try {
       const completed = await work(tx); this.completed.set(key, completed.response);
@@ -228,10 +235,18 @@ class CrudMemoryRepository implements JobCardRepository {
         this.activities.push(input.event);
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
-      appendRealtimeEvent: async (input) => ({ ...input, id: 1n }),
+      appendRealtimeEvent: async (input) => {
+        this.realtimeResourceKeys.push([...input.resourceKeys]);
+        return { ...input, id: 1n };
+      },
       listActiveManagementRecipients: async () => [],
-              appendNotifications: async () => [],
+      appendNotifications: async (input) => {
+        this.notificationDrafts.push(...input.drafts);
+        return [];
+      },
         appendWebPushDeliveries: async () => [],
+      assertCalendarAvailability: async (input) => { this.calendarChecks.push(input); },
+      synchronizeCalendarReminder: async (input) => { this.calendarSyncs.push(input); },
     };
     try { return await work(tx); } catch (error) { this.jobs = before; this.activities.splice(eventCount); throw error; }
   }
@@ -256,6 +271,17 @@ const generalTaskInput: NormalizedJobCardCreateInput = {
 
 function serviceOf(repository: CrudMemoryRepository) {
   return new JobCardService(repository, () => now);
+}
+
+function calendarServiceOf(repository: CrudMemoryRepository) {
+  return new JobCardService(
+    repository,
+    () => now,
+    undefined,
+    undefined,
+    undefined,
+    { enabled: true, reminderLeadMinutes: 30 },
+  );
 }
 
 describe('JobCardService create and reads', () => {
@@ -680,6 +706,83 @@ describe('JobCardService create and reads', () => {
     expect(cleared).toMatchObject({
       type: 'GENERAL_TASK', scheduledAt: null, version: 2,
     });
+  });
+
+  it('checks conflicts, replaces the reminder, invalidates calendar and notifies on reschedule', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'calendar-create',
+    });
+    repository.calendarChecks = [];
+    repository.calendarSyncs = [];
+    repository.notificationDrafts = [];
+    repository.realtimeResourceKeys = [];
+
+    const updated = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T09:00:00.000Z',
+      scheduledEndsAt: '2026-07-21T10:00:00.000Z',
+    });
+
+    expect(repository.calendarChecks).toEqual([expect.objectContaining({
+      jobCardId: created.id,
+      assignedUserId: 'staff-1',
+      startsAt: '2026-07-21T09:00:00.000Z',
+      endsAt: '2026-07-21T10:00:00.000Z',
+    })]);
+    expect(repository.calendarSyncs).toEqual([expect.objectContaining({
+      jobCardId: created.id,
+      assignedUserId: 'staff-1',
+      version: 2,
+      active: true,
+      reminderLeadMinutes: 30,
+    })]);
+    expect(repository.notificationDrafts).toContainEqual(expect.objectContaining({
+      recipientUserId: 'staff-1',
+      kind: 'calendar.rescheduled',
+      entityType: 'job-card',
+      entityId: created.id,
+    }));
+    expect(repository.realtimeResourceKeys[0]).toEqual(expect.arrayContaining([
+      'calendar',
+      'calendar:staff-1',
+      'overview',
+      'notifications',
+    ]));
+    expect(updated).toMatchObject({
+      version: 2,
+      scheduledEndsAt: '2026-07-21T10:00:00.000Z',
+    });
+  });
+
+  it('moves reminders to the new recipient without duplicating assignment notification kinds', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...createInput,
+      clientActionId: 'calendar-reassign-create',
+    });
+    repository.calendarSyncs = [];
+    repository.notificationDrafts = [];
+
+    await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      assignedTo: 'staff-2',
+    });
+
+    expect(repository.calendarSyncs).toEqual([expect.objectContaining({
+      assignedUserId: 'staff-2',
+      version: 2,
+    })]);
+    expect(repository.notificationDrafts).toContainEqual(expect.objectContaining({
+      recipientUserId: 'staff-2',
+      kind: 'job.reassigned',
+    }));
+    expect(repository.notificationDrafts).not.toContainEqual(expect.objectContaining({
+      kind: 'calendar.assigned',
+    }));
   });
 });
 

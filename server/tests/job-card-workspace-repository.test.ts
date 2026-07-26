@@ -202,7 +202,7 @@ describe('PostgresJobCardRepository workspace list', () => {
       items: [{
         id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 3,
         title: 'Klinik teslimi', priority: 'high', dueDate: '2026-07-20',
-        scheduledAt: scheduledAt.toISOString(), engagementKind: null,
+        scheduledAt: scheduledAt.toISOString(), scheduledEndsAt: null, engagementKind: null,
         createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
         staffCompletedAt: staffCompletedAt.toISOString(),
         customer: { id: 'customer-1', name: 'ABC Klinik' },
@@ -306,7 +306,7 @@ describe('PostgresJobCardRepository workspace list', () => {
       {
         id: 'job-delivery', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL',
         version: 3, title: 'Klinik teslimi', priority: 'high', dueDate: '2026-07-20',
-        scheduledAt: null, engagementKind: null,
+        scheduledAt: null, scheduledEndsAt: null, engagementKind: null,
         createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
         staffCompletedAt: staffCompletedAt.toISOString(),
         customer: { id: 'customer-1', name: 'ABC Klinik' },
@@ -317,7 +317,7 @@ describe('PostgresJobCardRepository workspace list', () => {
       {
         id: 'job-general', type: 'GENERAL_TASK', status: 'WAITING_APPROVAL',
         version: 1, title: 'Genel görev', priority: 'normal', dueDate: null,
-        scheduledAt: null, engagementKind: null,
+        scheduledAt: null, scheduledEndsAt: null, engagementKind: null,
         createdAt: createdAt.toISOString(), updatedAt: updatedAt.toISOString(),
         staffCompletedAt: '2026-07-14T12:01:00.000Z', customer: null, contact: null,
         assignee: { id: 'staff-2', name: 'Gelecek Personel' },

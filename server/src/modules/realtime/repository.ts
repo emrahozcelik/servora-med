@@ -10,9 +10,9 @@ import type {
 type EventRow = {
   id: string;
   organization_id: string;
-  source_activity_id: string;
+  source_activity_id: string | null;
   event_type: RealtimeEventType;
-  entity_type: 'job-card';
+  entity_type: 'job-card' | 'calendar-event';
   entity_id: string;
   actor_user_id: string | null;
   audience_roles: ('ADMIN' | 'MANAGER')[];

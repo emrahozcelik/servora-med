@@ -38,6 +38,7 @@ export type AppConfig = {
   geocodingOrganizationDailyLimit: number;
   geocodingGlobalMonthlyLimit: number;
   capabilities?: AuthenticatedCapabilities;
+  calendarReminderLeadMinutes?: number;
   support?: AuthenticatedSupport;
   webPush: WebPushConfig;
 };
@@ -453,6 +454,13 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       calendar: readBoolean(env.CALENDAR_ENABLED, 'CALENDAR_ENABLED'),
       messaging: readBoolean(env.MESSAGING_ENABLED, 'MESSAGING_ENABLED'),
     },
+    calendarReminderLeadMinutes: readIntegerInRange(
+      env.CALENDAR_REMINDER_LEAD_MINUTES,
+      30,
+      'CALENDAR_REMINDER_LEAD_MINUTES',
+      5,
+      1_440,
+    ),
     support: readSupportConfig(env),
     webPush: readWebPushConfig(env),
   };

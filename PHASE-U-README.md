@@ -88,10 +88,37 @@ U1 visual acceptance:
 COMPLETE — Draft PR remains subject to separate Ready authorization
 
 U1 integration:
+COMPLETE — merged at 5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
+
+U2 server/domain implementation:
+COMPLETE — Draft PR #72 (clean branch feat/phase-u-calendar-planning-clean)
+
+U2 calendar visual correction:
+COMPLETE — monthly notice-calendar with ServoraCalendar adapter
+
+U2 browser verification:
+COMPLETE — Playwright MCP matrix, Chrome DevTools spot-check
+
+U2 persistent evidence:
+COMPLETE — 16 PNGs in docs/ui/screenshots/phase-u-u2/
+
+U2 integration:
 PENDING
 
-U2:
-NOT STARTED
+U2 merge baseline:
+5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
+
+U2 visual code SHA:
+d516a61f8a8a8b6add2a5e3d19354ffebc8ff839
+
+U2 clean branch:
+feat/phase-u-calendar-planning-clean
+
+PR #71:
+SUPERSEDED / CLOSED
+
+PR #72:
+OPEN / Draft — https://github.com/emrahozcelik/servora-med/pull/72
 
 U3:
 NOT STARTED

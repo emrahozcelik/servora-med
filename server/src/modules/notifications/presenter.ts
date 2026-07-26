@@ -5,7 +5,7 @@ export type PublicNotification = Readonly<{
   kind: NotificationKind;
   title: string;
   body: string;
-  entity: Readonly<{ type: 'job-card'; id: string }>;
+  entity: Readonly<{ type: 'job-card' | 'calendar-event'; id: string }>;
   createdAt: string;
   readAt: string | null;
 }>;
@@ -17,6 +17,22 @@ export const NOTIFICATION_MESSAGES: Record<NotificationKind, Readonly<{ title: s
   'job.approved': { title: 'İş onaylandı', body: 'İşiniz onaylandı.' },
   'job.revision_requested': { title: 'Düzeltme istendi', body: 'İşiniz düzeltme için geri gönderildi.' },
   'job.cancelled': { title: 'İş iptal edildi', body: 'İşiniz iptal edildi.' },
+  'calendar.assigned': {
+    title: 'Yeni takvim planı',
+    body: 'Takviminize yeni bir plan eklendi.',
+  },
+  'calendar.rescheduled': {
+    title: 'Plan zamanı güncellendi',
+    body: 'Planlanan çalışma zamanı güncellendi.',
+  },
+  'calendar.cancelled': {
+    title: 'Takvim planı iptal edildi',
+    body: 'Takvim planınız iptal edildi.',
+  },
+  'calendar.reminder': {
+    title: 'Yaklaşan plan',
+    body: 'Yaklaşan planınız bulunuyor.',
+  },
 };
 
 export function presentNotification(record: NotificationRecord): PublicNotification {

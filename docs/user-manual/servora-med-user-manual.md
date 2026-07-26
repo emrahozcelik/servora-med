@@ -54,6 +54,7 @@ Sağ üstte (masaüstü) veya menüde **Oturumu kapat**.
 | Menü | Yol | Kim görür |
 |------|-----|-----------|
 | **İşler** | `/jobs` | Herkes |
+| **Takvim** | `/calendar` | Takvim özelliği açıkken herkes; veri kapsamı role göre sınırlı |
 | **Müşteriler** | `/customers` | Herkes (personel kapsamı sınırlı) |
 | **Ürünler** | `/products` | Herkes (personel salt okunur) |
 | **Raporlar** | `/reports` | Yönetici ve sistem yöneticisi |
@@ -111,6 +112,21 @@ Aynı durumun birkaç nedeni olabilir; hepsi “yetkim yok” demek değildir:
 - **Version conflict:** Başka biri işi değiştirdiyse işlem reddedilebilir; sayfayı yenileyip güncel haliyle tekrar deneyin.
 - **Notlar:** İş detayında **Notlar** bölümüne iş notu eklenir (salt metin; zorunlu yapılandırılmış alanların yerini tutmaz).
 - **Aktivite:** Aynı detayda zaman çizelgesi; olay etiketleri Türkçe gösterilir.
+
+### Takvim ve yaklaşan planlar
+
+- **Takvim** (`/calendar`) haftalık iş ve operasyon planlarını birlikte gösterir.
+- **İş** etiketli kayıtlar JobCard’a bağlıdır. Düzenleme mevcut JobCard yetkisini, durum
+  kurallarını ve sürüm kontrolünü kullanır; iş durumu Takvim içinde kopyalanmaz.
+- **Kişisel plan** etiketli kayıtlar Takvim içinde oluşturulur. Bitiş zamanı başlangıçtan
+  sonra olmalıdır; çakışan aralıklar sunucu tarafından reddedilir. Ardışık
+  `[başlangıç, bitiş)` aralıkları çakışma sayılmaz.
+- Personel yalnız kendi takvimini görür. Yönetici yalnız mevcut ekip kapsamındaki aktif
+  personeli, sistem yöneticisi organizasyondaki aktif personeli filtreleyebilir.
+- Çakışma veya başka kullanıcı değişikliği uyarısında form taslağı korunur. Güncel kaydı
+  yükleyip zamanı yeniden seçin.
+- Yaklaşan plan bildirimini açmak ilgili JobCard’a veya yetkili Takvim seçimine götürür.
+  Bildirim ve cihaz bildirimi serbest metin plan açıklamasını taşımaz.
 
 ---
 

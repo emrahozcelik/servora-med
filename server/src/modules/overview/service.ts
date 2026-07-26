@@ -14,13 +14,18 @@ export class OverviewService {
     private readonly enabled: boolean,
     private readonly repository: OverviewReadModel,
     private readonly now: () => Date = () => new Date(),
+    private readonly calendarEnabled = false,
   ) {}
 
   async getOverview(actor: SafeUser, query: OverviewQuery) {
     if (!this.enabled) throw overviewUnavailable();
     const requestTime = this.now();
-    return actor.role === 'STAFF'
+    const overview = await (actor.role === 'STAFF'
       ? this.repository.getStaffOverview(actor, query, requestTime)
-      : this.repository.getManagementOverview(actor, query, requestTime);
+      : this.repository.getManagementOverview(actor, query, requestTime));
+    const upcomingWork = this.calendarEnabled
+      ? await this.repository.getUpcomingWork!(actor, requestTime)
+      : null;
+    return { ...overview, upcomingWork };
   }
 }

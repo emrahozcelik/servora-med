@@ -57,6 +57,8 @@ const FIELD_MAPPINGS = [
   ['assignedTo', 'assignee'],
   ['priority', 'priority'],
   ['dueDate', 'dueDate'],
+  ['scheduledAt', 'scheduledAt'],
+  ['scheduledEndsAt', 'scheduledEndsAt'],
   ['engagementKind', 'engagementKind'],
 ] as const;
 
