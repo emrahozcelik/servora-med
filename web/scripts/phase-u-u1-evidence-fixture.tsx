@@ -8,6 +8,7 @@ import '../src/styles.css';
 
 declare global {
   interface Window {
+    __evidenceRequests: string[];
     __evidenceUnexpectedRequests: string[];
   }
 }
@@ -20,6 +21,8 @@ const role = requestedRole === 'manager'
     ? 'ADMIN'
     : 'STAFF';
 const overviewDashboard = query.get('overview') !== 'off';
+const emptyOverview = query.get('empty') === '1';
+const errorOverview = query.get('error') === '1';
 
 const identities = {
   STAFF: {
@@ -103,8 +106,8 @@ const overview = role === 'STAFF'
       waitingApproval: 2,
       revisionRequested: 1,
       completedInPeriod: 9,
-      recentCompletedWork,
-      recentNotes,
+      recentCompletedWork: emptyOverview ? [] : recentCompletedWork,
+      recentNotes: emptyOverview ? [] : recentNotes,
     }
   : {
       scope: 'management',
@@ -124,17 +127,25 @@ const overview = role === 'STAFF'
         { date: '2026-07-25', count: 7 },
       ],
       approvalQueueSummary: { pendingCount: 5, oldestWaitingMinutes: 135 },
-      recentCompletedWork,
-      recentNotes,
+      recentCompletedWork: emptyOverview ? [] : recentCompletedWork,
+      recentNotes: emptyOverview ? [] : recentNotes,
     };
 
+window.__evidenceRequests = [];
 window.__evidenceUnexpectedRequests = [];
 Object.defineProperty(window, 'EventSource', { configurable: true, value: undefined });
 Object.defineProperty(globalThis, 'fetch', {
   configurable: true,
   value: async (input: RequestInfo | URL) => {
     const url = new URL(typeof input === 'string' ? input : input.toString(), window.location.origin);
+    window.__evidenceRequests.push(`${url.pathname}${url.search}`);
     if (url.pathname === '/api/overview') {
+      if (errorOverview) {
+        return new Response(JSON.stringify({ code: 'EVIDENCE_FIXTURE_ERROR', error: 'Sentetik genel bakış hatası.' }), {
+          status: 503,
+          headers: { 'content-type': 'application/json' },
+        });
+      }
       return new Response(JSON.stringify(overview), { status: 200, headers: { 'content-type': 'application/json' } });
     }
     if (url.pathname === '/api/notifications/unread-count') {

@@ -9,6 +9,7 @@ const fixture = `<!doctype html>
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" href="data:," />
     <title>Servora-Med U1 Sentetik Kanıt</title>
   </head>
   <body>
