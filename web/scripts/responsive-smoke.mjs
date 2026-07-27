@@ -921,7 +921,7 @@ function chartContractFailed(m) {
 }
 
 try {
-  browser = await chromium.launch({ headless: true });
+  browser = await chromium.launch({ headless: true, channel: 'chrome' });
   for (const vp of viewports) {
     const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
     await page.goto(url, { waitUntil: 'load' });
