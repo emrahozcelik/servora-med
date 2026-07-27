@@ -109,7 +109,7 @@ describe('responsive authenticated AppShell', () => {
   it('uses Menü bottom control as a button that opens overflow drawer and restores focus', async () => {
     await render(manager, false);
     const bottom = container.querySelector('.mobile-bottom-nav')!;
-    expect(bottom.textContent).toContain('Raporlar');
+    expect(bottom.textContent).toContain('Rapor');
     const menu = Array.from(bottom.querySelectorAll('button')).find((b) => b.textContent === 'Menü')!;
     expect(menu.tagName).toBe('BUTTON');
     expect(menu.getAttribute('aria-controls')).toBe('app-navigation-drawer');
@@ -367,7 +367,7 @@ describe('responsive authenticated AppShell', () => {
     // Bottom nav: active uses weight channel; labels can wrap safely.
     expect(exactRuleBody('.mobile-bottom-nav')).toMatch(/safe-area-inset-bottom/);
     expect(exactRuleBody('.mobile-bottom-nav-item')).toMatch(/min-height:\s*var\(--control-height\)/);
-    expect(exactRuleBody('.mobile-bottom-nav-item')).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(exactRuleBody('.mobile-bottom-nav-item')).toMatch(/overflow-wrap:\s*break-word/);
     const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, '');
     expect(cleaned).toMatch(
       /\.mobile-bottom-nav-item--active,\s*\.mobile-bottom-nav a\[aria-current=["']page["']\],\s*\.mobile-bottom-nav-menu\[aria-expanded=["']true["']\]\s*\{[^}]*font-weight:\s*760/s,
@@ -377,7 +377,7 @@ describe('responsive authenticated AppShell', () => {
     expect(exactRuleBody('.sticky-new-job')).toMatch(/bottom:\s*calc\(4\.35rem \+ env\(safe-area-inset-bottom/);
     expect(exactRuleBody('.authenticated-shell--mobile .shell-content')).toMatch(/safe-area-inset-bottom/);
     expect(css).toMatch(
-      /\.authenticated-shell--mobile\.authenticated-shell:has\(\.sticky-new-job\) \.shell-content\s*\{[^}]*padding-bottom:\s*calc\(8\.75rem/s,
+      /\.authenticated-shell--mobile\.authenticated-shell:has\(\.sticky-new-job\) \.shell-content\s*\{[^}]*padding-bottom:\s*calc\(11rem/s,
     );
 
     // Drawer visual polish is drawer-scoped; shared nav baseline stays T2A isolation values.

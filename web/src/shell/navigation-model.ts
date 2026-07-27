@@ -5,6 +5,8 @@ export type NavLinkItem = {
   kind: 'link';
   id: string;
   label: string;
+  /** Optional shorter label for tight mobile bottom-nav slots. Falls back to label. */
+  shortLabel?: string;
   to: string;
   section: 'Operasyon' | 'Analiz' | 'Ekip' | 'Destek' | 'Hesap';
 };
@@ -31,17 +33,18 @@ export type NavigationModel = {
  * Do not duplicate role lists in shell components.
  */
 export function buildNavigationModel(user: CurrentUser): NavigationModel {
-  const overview: NavLinkItem = { kind: 'link', id: 'overview', label: 'Genel Bakış', to: paths.overview, section: 'Operasyon' };
+  const overview: NavLinkItem = { kind: 'link', id: 'overview', label: 'Genel Bakış', shortLabel: 'Bakış', to: paths.overview, section: 'Operasyon' };
   const jobs: NavLinkItem = { kind: 'link', id: 'jobs', label: 'İşler', to: paths.jobs, section: 'Operasyon' };
   const calendar: NavLinkItem = { kind: 'link', id: 'calendar', label: 'Takvim', to: paths.calendar, section: 'Operasyon' };
-  const customers: NavLinkItem = { kind: 'link', id: 'customers', label: 'Müşteriler', to: paths.customers, section: 'Operasyon' };
-  const products: NavLinkItem = { kind: 'link', id: 'products', label: 'Ürünler', to: paths.products, section: 'Operasyon' };
-  const reports: NavLinkItem = { kind: 'link', id: 'reports', label: 'Raporlar', to: paths.reports, section: 'Analiz' };
-  const users: NavLinkItem = { kind: 'link', id: 'users', label: 'Kullanıcılar', to: paths.users, section: 'Ekip' };
+  const customers: NavLinkItem = { kind: 'link', id: 'customers', label: 'Müşteriler', shortLabel: 'Müşt.', to: paths.customers, section: 'Operasyon' };
+  const products: NavLinkItem = { kind: 'link', id: 'products', label: 'Ürünler', shortLabel: 'Ürün.', to: paths.products, section: 'Operasyon' };
+  const reports: NavLinkItem = { kind: 'link', id: 'reports', label: 'Raporlar', shortLabel: 'Rapor', to: paths.reports, section: 'Analiz' };
+  const users: NavLinkItem = { kind: 'link', id: 'users', label: 'Kullanıcılar', shortLabel: 'Kull.', to: paths.users, section: 'Ekip' };
   const staff: NavLinkItem = {
     kind: 'link',
     id: 'staff',
     label: user.role === 'STAFF' ? 'Profilim' : 'Personel',
+    shortLabel: user.role === 'STAFF' ? 'Profil' : 'Pers.',
     to: paths.staff,
     section: 'Ekip',
   };

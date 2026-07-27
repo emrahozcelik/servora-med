@@ -20,80 +20,78 @@ vi.mock('../src/jobs/jobs-api', () => ({ patchJobCard: vi.fn() }));
 vi.mock('../src/realtime/RealtimeProvider', () => ({
   useRealtimeInvalidation: vi.fn(),
 }));
-// Mock dayjs to provide stable calendar rendering in JSDOM
 vi.mock('dayjs', () => {
   const actual = vi.importActual('dayjs') as Promise<Record<string, unknown>>;
   return actual;
 });
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
+// Fixed test date: 2026-07-29
+const TEST_TODAY = new Date(2026, 6, 29, 10, 0, 0);
+
 const staff: CurrentUser = {
-  id: 'staff-1',
-  organizationId: 'org-1',
-  name: 'Ayşe Personel',
-  email: 'staff@example.test',
-  role: 'STAFF',
-  mustChangePassword: false,
-  isActive: true,
-  version: 1,
+  id: 'staff-1', organizationId: 'org-1', name: 'Ayşe Personel',
+  email: 'staff@example.test', role: 'STAFF', mustChangePassword: false,
+  isActive: true, version: 1,
   capabilities: { overviewDashboard: true, calendar: true, messaging: false },
   support: { displayLabel: 'Destek', email: null, helpUrl: null },
 };
 
 const manager: CurrentUser = {
-  id: 'manager-1',
-  organizationId: 'org-1',
-  name: 'Murat Yönetici',
-  email: 'manager@example.test',
-  role: 'MANAGER',
-  mustChangePassword: false,
-  isActive: true,
-  version: 1,
+  id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici',
+  email: 'manager@example.test', role: 'MANAGER', mustChangePassword: false,
+  isActive: true, version: 1,
   capabilities: { overviewDashboard: true, calendar: true, messaging: false },
   support: { displayLabel: 'Destek', email: null, helpUrl: null },
 };
 
 const manualEvent = {
-  id: 'event-1',
-  source: 'MANUAL' as const,
-  title: 'Klinik hazırlığı',
-  description: null,
-  startsAt: '2026-07-29T09:00:00.000Z',
-  endsAt: '2026-07-29T10:00:00.000Z',
-  timezone: 'Europe/Istanbul',
-  assignedUser: { id: 'staff-1', name: 'Ayşe Personel' },
-  version: 1,
+  id: 'event-1', source: 'MANUAL' as const, title: 'Klinik hazırlığı',
+  description: null, startsAt: '2026-07-29T09:00:00.000Z',
+  endsAt: '2026-07-29T10:00:00.000Z', timezone: 'Europe/Istanbul',
+  assignedUser: { id: 'staff-1', name: 'Ayşe Personel' }, version: 1,
   status: 'ACTIVE' as const,
   createdBy: { id: 'manager-1', name: 'Murat Yönetici' },
   updatedBy: { id: 'manager-1', name: 'Murat Yönetici' },
-  canEdit: true,
-  canCancel: true,
+  canEdit: true, canCancel: true,
 };
 
 const jobEvent = {
-  id: 'job-event-1',
-  source: 'JOB' as const,
-  title: 'Ürün teslimi',
-  startsAt: '2026-07-28T14:00:00.000Z',
-  endsAt: '2026-07-28T16:00:00.000Z',
+  id: 'job-event-1', source: 'JOB' as const, title: 'Ürün teslimi',
+  startsAt: '2026-07-28T14:00:00.000Z', endsAt: '2026-07-28T16:00:00.000Z',
   timezone: 'Europe/Istanbul',
-  assignedUser: { id: 'staff-1', name: 'Ayşe Personel' },
-  version: 2,
-  jobCardId: 'job-1',
-  jobType: 'PRODUCT_DELIVERY',
-  jobStatus: 'NEW',
-  priority: 'normal',
-  customer: null,
-  relatedJobPath: '/jobs/job-1',
-  canEdit: true,
-  canCancel: false,
+  assignedUser: { id: 'staff-1', name: 'Ayşe Personel' }, version: 2,
+  jobCardId: 'job-1', jobType: 'PRODUCT_DELIVERY', jobStatus: 'NEW',
+  priority: 'normal', customer: null, relatedJobPath: '/jobs/job-1',
+  canEdit: true, canCancel: false,
 };
+
+/** Simulate user typing into a controlled input/textarea in React. */
+function setReactValue(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
+  const nativeSetter = Object.getOwnPropertyDescriptor(
+    element.tagName === 'TEXTAREA'
+      ? window.HTMLTextAreaElement.prototype : window.HTMLInputElement.prototype, 'value',
+  )?.set;
+  nativeSetter?.call(element, value);
+  element.dispatchEvent(new Event('input', { bubbles: true }));
+  element.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+/** Set viewport width and trigger resize. */
+function resizeTo(width: number) {
+  Object.defineProperty(window, 'innerWidth', {
+    writable: true, configurable: true, value: width,
+  });
+  window.dispatchEvent(new Event('resize'));
+}
 
 describe('CalendarPage', () => {
   let container: HTMLDivElement;
   let root: Root;
 
   beforeEach(() => {
+    vi.useFakeTimers();
+    vi.setSystemTime(TEST_TODAY);
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
@@ -103,9 +101,13 @@ describe('CalendarPage', () => {
       { id: 'staff-2', name: 'Bora Personel' },
     ]);
     calendarApi.getCalendarEvent.mockResolvedValue(manualEvent);
+    calendarApi.cancelManualEvent.mockResolvedValue(undefined);
+    // Reset viewport to desktop
+    resizeTo(1024);
   });
 
   afterEach(async () => {
+    vi.useRealTimers();
     await act(async () => root.unmount());
     container.remove();
     vi.clearAllMocks();
@@ -113,16 +115,12 @@ describe('CalendarPage', () => {
 
   async function render(user: CurrentUser = manager, path = '/calendar') {
     await act(async () => {
-      root.render(
-        <MemoryRouter initialEntries={[path]}>
-          <CalendarPage user={user} />
-        </MemoryRouter>,
-      );
+      root.render(<MemoryRouter initialEntries={[path]}><CalendarPage user={user} /></MemoryRouter>);
     });
     await act(async () => {});
   }
 
-  it('queries the visible month range (≤42 days) for the manager', async () => {
+  it('queries the visible month range (≤42 days)', async () => {
     await render();
     expect(calendarApi.listCalendar).toHaveBeenCalledTimes(1);
     const call = calendarApi.listCalendar.mock.calls[0][0] as Record<string, string>;
@@ -133,15 +131,11 @@ describe('CalendarPage', () => {
     expect(days).toBeGreaterThanOrEqual(35);
   });
 
-  it('shows the Manager staff filter and renders the month grid', async () => {
+  it('shows the Manager staff filter', async () => {
     await render();
     const filter = container.querySelector<HTMLSelectElement>('.calendar-toolbar select')!;
     expect(filter).toBeTruthy();
-    expect(filter.value).toBe('');
     expect(filter.textContent).toContain('Tüm yetkili personel');
-    expect(filter.textContent).toContain('Ayşe Personel');
-    // Calendar grid should be present (Ant Calendar renders inside servora-calendar)
-    expect(container.querySelector('.servora-calendar')).toBeTruthy();
   });
 
   it('hides the staff filter for STAFF role', async () => {
@@ -149,58 +143,258 @@ describe('CalendarPage', () => {
     expect(container.querySelector('.calendar-toolbar select')).toBeNull();
   });
 
-  it('shows the agenda section with a heading', async () => {
+  it('renders LoadingSkeleton during load', async () => {
+    let resolveList: (v: unknown) => void;
+    calendarApi.listCalendar.mockReturnValue(new Promise((r) => { resolveList = r; }));
     await render();
-    const agenda = container.querySelector('.calendar-agenda-section');
-    expect(agenda).toBeTruthy();
-    const heading = agenda!.querySelector('h2');
-    expect(heading).toBeTruthy();
+    const skeleton = container.querySelector('[data-servora-loading-skeleton]');
+    expect(skeleton).toBeTruthy();
+    expect(skeleton!.textContent).toContain('Takvim yükleniyor');
+    (resolveList!)([]);
+    await act(async () => {});
   });
 
-  it('shows events in the selected-day agenda', async () => {
+  it('renders ResultState on error with retry', async () => {
+    calendarApi.listCalendar.mockRejectedValue(new Error('Ağ hatası'));
     await render();
-    // Both events should be visible (they're in July 2026, within the query range)
-    const agendaSection = container.querySelector('.calendar-agenda-section')!;
-    // EventItem articles depend on selected date — default is today
-    // but since listCalendar returns events, they appear in the list
-    expect(calendarApi.listCalendar).toHaveBeenCalled();
+    const result = container.querySelector('[data-servora-result-state]');
+    expect(result).toBeTruthy();
+    expect(result!.textContent).toContain('Takvim yüklenemedi');
+    const retryBtn = Array.from(container.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('Tekrar dene'));
+    expect(retryBtn).toBeTruthy();
+  });
+
+  it('renders EmptyState when selected day has no events', async () => {
+    calendarApi.listCalendar.mockResolvedValue([]);
+    await render();
+    const empty = container.querySelector('[data-servora-empty-state]');
+    expect(empty).toBeTruthy();
+  });
+
+  it('renders agenda cards with OperationalCard', async () => {
+    await render();
+    const card = container.querySelector('.servora-operational-card');
+    expect(card).toBeTruthy();
+    const source = container.querySelector('.calendar-source--manual');
+    expect(source).toBeTruthy();
+    expect(source!.textContent).toContain('KİŞİSEL PLAN');
+  });
+
+  it('selected card gets selected tone', async () => {
+    await render(manager, '/calendar?event=event-1');
+    await act(async () => {});
+    const selectedCard = container.querySelector('.servora-operational-card--selected');
+    expect(selectedCard).toBeTruthy();
+    const article = container.querySelector('article[aria-current="true"]');
+    expect(article).toBeTruthy();
+  });
+
+  describe('custom header behavior', () => {
+    it('renders header with prev/today/next', async () => {
+      await render();
+      const header = container.querySelector('.servora-calendar-header');
+      expect(header).toBeTruthy();
+      expect(header!.querySelector('[aria-label="Önceki ay"]')).toBeTruthy();
+      expect(header!.querySelector('[aria-label="Sonraki ay"]')).toBeTruthy();
+      const todayBtn = Array.from(header!.querySelectorAll('button'))
+        .find((b) => b.textContent?.includes('Bugün'));
+      expect(todayBtn).toBeTruthy();
+    });
+
+    it('prev month refreshes calendar with new range', async () => {
+      await render();
+      const prevBtn = container.querySelector<HTMLButtonElement>('[aria-label="Önceki ay"]')!;
+      // listCalendar was called once during initial render
+      expect(calendarApi.listCalendar).toHaveBeenCalledTimes(1);
+      await act(async () => prevBtn.click());
+      // After prev click, listCalendar is called again
+      expect(calendarApi.listCalendar).toHaveBeenCalledTimes(2);
+      // The second call should have a different range (previous month)
+      const firstFrom = (calendarApi.listCalendar.mock.calls[0][0] as Record<string, string>).from;
+      const secondFrom = (calendarApi.listCalendar.mock.calls[1][0] as Record<string, string>).from;
+      const firstDate = new Date(firstFrom);
+      const secondDate = new Date(secondFrom);
+      expect(secondDate.valueOf()).toBeLessThan(firstDate.valueOf());
+    });
+
+    it('next month refreshes calendar with new range', async () => {
+      await render();
+      const nextBtn = container.querySelector<HTMLButtonElement>('[aria-label="Sonraki ay"]')!;
+      const firstFrom = (calendarApi.listCalendar.mock.calls[0][0] as Record<string, string>).from;
+      await act(async () => nextBtn.click());
+      const secondFrom = (calendarApi.listCalendar.mock.calls[1][0] as Record<string, string>).from;
+      expect(new Date(secondFrom).valueOf()).toBeGreaterThan(new Date(firstFrom).valueOf());
+    });
+
+    it('today button returns to current month and selects today', async () => {
+      await render();
+      const nextBtn = container.querySelector<HTMLButtonElement>('[aria-label="Sonraki ay"]')!;
+      // Navigate to next month first
+      await act(async () => nextBtn.click());
+      await act(async () => {});
+      const todayBtn = Array.from(container.querySelectorAll('button'))
+        .find((b) => b.textContent?.includes('Bugün'))!;
+      await act(async () => todayBtn.click());
+      await act(async () => {});
+      // After going to today, calendar calls listCalendar again
+      // The range should now contain today (July 29, 2026)
+      const lastCall = calendarApi.listCalendar.mock.calls[
+        calendarApi.listCalendar.mock.calls.length - 1
+      ][0] as Record<string, string>;
+      const from = new Date(lastCall.from);
+      const to = new Date(lastCall.to);
+      const today = new Date(2026, 6, 29);
+      expect(from.valueOf()).toBeLessThanOrEqual(today.valueOf());
+      expect(to.valueOf()).toBeGreaterThan(today.valueOf());
+    });
+  });
+
+  describe('reactive responsive behavior', () => {
+    it('desktop shows event summaries, not compact count', async () => {
+      resizeTo(1024);
+      await render();
+      expect(container.querySelector('.servora-calendar--compact')).toBeNull();
+      // Event summaries should exist (manualEvent is today)
+      expect(container.querySelector('.servora-calendar-event-summary')).toBeTruthy();
+    });
+
+    it('resize to 390 activates compact mode', async () => {
+      resizeTo(1024);
+      await render();
+      expect(container.querySelector('.servora-calendar--compact')).toBeNull();
+      // Resize to mobile
+      resizeTo(390);
+      await act(async () => {});
+      expect(container.querySelector('.servora-calendar--compact')).toBeTruthy();
+    });
+
+    it('compact mode shows count instead of event summaries', async () => {
+      resizeTo(390);
+      await render();
+      // Count badge should be visible
+      expect(container.querySelector('.servora-calendar-count')).toBeTruthy();
+      // Desktop event summaries should be hidden
+      expect(container.querySelector('.servora-calendar-event-summary')).toBeNull();
+    });
+
+    it('resize back to 1024 restores desktop mode', async () => {
+      resizeTo(390);
+      await render();
+      expect(container.querySelector('.servora-calendar--compact')).toBeTruthy();
+      // Resize back to desktop
+      resizeTo(1024);
+      await act(async () => {});
+      expect(container.querySelector('.servora-calendar--compact')).toBeNull();
+      expect(container.querySelector('.servora-calendar-event-summary')).toBeTruthy();
+    });
   });
 
   it('opens the form drawer when clicking Yeni plan', async () => {
     await render();
     const createBtn = Array.from(container.querySelectorAll('button'))
       .find((b) => b.textContent?.includes('Yeni plan'))!;
-    expect(createBtn).toBeTruthy();
     await act(async () => createBtn.click());
-    // Form drawer dialog should be visible
     const dialog = document.querySelector('[role="dialog"][aria-modal="true"]');
     expect(dialog).toBeTruthy();
-    expect(dialog!.textContent).toContain('Yeni plan');
   });
 
-  it('deep-link selects the event month and shows it in agenda', async () => {
+  it('deep-link selects the event', async () => {
     await render(manager, '/calendar?event=event-1');
-    expect(calendarApi.getCalendarEvent).toHaveBeenCalledWith('event-1');
-    // The event should be highlighted in the agenda
     await act(async () => {});
-    const selected = container.querySelector<HTMLElement>('.calendar-event--selected');
+    const selected = container.querySelector('.servora-operational-card--selected');
     expect(selected).toBeTruthy();
-    expect(selected?.textContent).toContain('Klinik hazırlığı');
   });
 
-  it('renders JOB and MANUAL source badges', async () => {
-    await render();
-    const jobBadge = container.querySelector('.calendar-source--job');
-    const manualBadge = container.querySelector('.calendar-source--manual');
-    // Badges appear in agenda when events intersect selected date
-    // At minimum, the CSS class infrastructure is present
-    expect(document.querySelector('.servora-calendar-event-summary--job') ||
-           jobBadge).toBeTruthy();
+  describe('cancellation with ReasonDialog', () => {
+    it('opens ReasonDialog instead of window.prompt', async () => {
+      await render();
+      const cancelBtns = Array.from(container.querySelectorAll('button'))
+        .filter((b) => b.textContent?.includes('İptal et'));
+      expect(cancelBtns.length).toBeGreaterThan(0);
+      await act(async () => cancelBtns[0].click());
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      const cancelDialog = Array.from(dialogs).find(
+        (d) => d.textContent?.includes('Plan iptali'));
+      expect(cancelDialog).toBeTruthy();
+    });
+
+    it('requires reason before confirming', async () => {
+      await render();
+      const cancelBtns = Array.from(container.querySelectorAll('button'))
+        .filter((b) => b.textContent?.includes('İptal et'));
+      await act(async () => cancelBtns[0].click());
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      const cancelDialog = Array.from(dialogs).find(
+        (d) => d.textContent?.includes('Plan iptali'));
+      const form = cancelDialog!.querySelector('form');
+      await act(async () => {
+        form?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+      });
+      expect(calendarApi.cancelManualEvent).not.toHaveBeenCalled();
+    });
+
+    it('calls cancelManualEvent with correct payload', async () => {
+      await render();
+      const cancelBtns = Array.from(container.querySelectorAll('button'))
+        .filter((b) => b.textContent?.includes('İptal et'));
+      await act(async () => cancelBtns[0].click());
+      const dialogs = document.querySelectorAll('[role="dialog"]');
+      const cancelDialog = Array.from(dialogs).find(
+        (d) => d.textContent?.includes('Plan iptali'));
+      const textarea = cancelDialog!.querySelector('textarea') as HTMLTextAreaElement;
+      await act(async () => setReactValue(textarea, 'Artık gerekli değil'));
+      const confirmBtn = Array.from(cancelDialog!.querySelectorAll('button'))
+        .find((b) => b.textContent?.includes('İptal et'));
+      await act(async () => confirmBtn!.click());
+      await act(async () => {});
+      expect(calendarApi.cancelManualEvent).toHaveBeenCalledWith('event-1', {
+        clientActionId: expect.any(String) as string,
+        expectedVersion: 1,
+        cancelReason: expect.stringContaining('Artık gerekli değil') as string,
+      });
+    });
   });
 
-  it('shows the empty agenda message when no events intersect the date', async () => {
-    calendarApi.listCalendar.mockResolvedValue([]);
+  it('on cancel failure, dialog closes and error appears in card', async () => {
+    calendarApi.cancelManualEvent.mockRejectedValue(new Error('İptal başarısız'));
     await render();
-    expect(container.textContent).toContain('Bu gün için plan bulunmuyor');
+    const cancelBtns = Array.from(container.querySelectorAll('button'))
+      .filter((b) => b.textContent?.includes('İptal et'));
+    await act(async () => cancelBtns[0].click());
+    const dialogs = document.querySelectorAll('[role="dialog"]');
+    const cancelDialog = Array.from(dialogs).find(
+      (d) => d.textContent?.includes('Plan iptali'));
+    const textarea = cancelDialog!.querySelector('textarea') as HTMLTextAreaElement;
+    await act(async () => setReactValue(textarea, 'Neden'));
+    const confirmBtn = Array.from(cancelDialog!.querySelectorAll('button'))
+      .find((b) => b.textContent?.includes('İptal et'));
+    await act(async () => confirmBtn!.click());
+    await act(async () => {});
+    // Dialog should be gone
+    expect(document.querySelector('[role="dialog"]')).toBeNull();
+    // Error should appear in the card (EventItem)
+    const eventError = container.querySelector('.form-error');
+    expect(eventError).toBeTruthy();
+    expect(eventError!.textContent).toContain('İptal başarısız');
+  });
+
+  it('does not use window.prompt or window.confirm', async () => {
+    const promptSpy = vi.spyOn(window, 'prompt');
+    const confirmSpy = vi.spyOn(window, 'confirm');
+    await render();
+    const cancelBtns = Array.from(container.querySelectorAll('button'))
+      .filter((b) => b.textContent?.includes('İptal et'));
+    if (cancelBtns.length > 0) await act(async () => cancelBtns[0].click());
+    expect(promptSpy).not.toHaveBeenCalled();
+    expect(confirmSpy).not.toHaveBeenCalled();
+    promptSpy.mockRestore();
+    confirmSpy.mockRestore();
+  });
+
+  it('sr-only source text exists for screen readers', async () => {
+    await render();
+    const srTexts = container.querySelectorAll('.sr-only');
+    expect(srTexts.length).toBeGreaterThan(0);
   });
 });

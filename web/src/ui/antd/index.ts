@@ -38,5 +38,7 @@ export type {
   ServoraCalendarEventSummary,
   ServoraCalendarProps,
 } from './ServoraCalendar';
+export { OperationalCard } from './OperationalCard';
+export type { OperationalCardProps, OperationalCardTone } from './OperationalCard';
 export { ResponsiveFormDrawer } from './ResponsiveFormDrawer';
 export type { ResponsiveFormDrawerProps } from './ResponsiveFormDrawer';

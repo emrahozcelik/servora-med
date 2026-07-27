@@ -16,9 +16,15 @@ import {
   type CalendarAssignee,
   type CalendarEvent,
 } from '../services/calendar-api';
+import { EmptyState } from '../ui/antd/EmptyState';
+import { LoadingSkeleton } from '../ui/antd/LoadingSkeleton';
+import { OperationalCard } from '../ui/antd/OperationalCard';
+import { ReasonDialog } from '../ui/antd/ReasonDialog';
 import { ResponsiveFormDrawer } from '../ui/antd/ResponsiveFormDrawer';
+import { ResultState } from '../ui/antd/ResultState';
 import { ServoraCalendar } from '../ui/antd/ServoraCalendar';
 import type { ServoraCalendarEventSummary } from '../ui/antd/ServoraCalendar';
+import { useCompact } from '../ui/useResponsive';
 
 // ── helpers ──
 
@@ -216,57 +222,108 @@ function EventForm({
   );
 }
 
-// ── EventItem (agenda) ──
+// ── EventItem (agenda card) ──
 
 function EventItem({
   event,
   onEdit,
   onCancelled,
   selected,
+  cancelTriggerRef,
 }: {
   event: CalendarEvent;
   onEdit: () => void;
   onCancelled: () => void;
   selected: boolean;
+  cancelTriggerRef?: React.RefObject<HTMLButtonElement | null>;
 }) {
   const [error, setError] = useState<string | null>(null);
-  const cancel = async () => {
-    if (event.source !== 'MANUAL') return;
-    const reason = window.prompt('İptal nedenini yazın:');
-    if (!reason?.trim()) return;
-    if (!window.confirm('Bu takvim planını iptal etmek istediğinize emin misiniz?')) return;
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [cancelPending, setCancelPending] = useState(false);
+  const localCancelRef = useRef<HTMLButtonElement>(null);
+  const cancelBtnRef = cancelTriggerRef ?? localCancelRef;
+
+  const handleCancelConfirm = async (reason: string) => {
+    setCancelPending(true);
+    setError(null);
     try {
       await cancelManualEvent(event.id, {
         clientActionId: actionId(),
         expectedVersion: event.version,
         cancelReason: reason,
       });
+      setCancelOpen(false);
       onCancelled();
     } catch (caught) {
+      setCancelOpen(false);
       setError(caught instanceof Error ? caught.message : 'Plan iptal edilemedi.');
+    } finally {
+      setCancelPending(false);
     }
   };
+
+  const sourceLabel = event.source === 'JOB' ? 'İŞ' : 'KİŞİSEL PLAN';
+  const timeText = new Date(event.startsAt).toLocaleString('tr-TR')
+    + (event.endsAt
+      ? ` – ${new Date(event.endsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
+      : '');
+
+  const actionBar = (
+    <div className="calendar-event-actions">
+      {event.source === 'JOB' && <Link to={event.relatedJobPath}>İşi aç</Link>}
+      {event.canEdit && <button type="button" className="secondary-button" onClick={onEdit}>Düzenle</button>}
+      {event.canCancel && (
+        <button
+          ref={cancelBtnRef}
+          type="button"
+          className="destructive-button"
+          onClick={() => setCancelOpen(true)}
+        >
+          İptal et
+        </button>
+      )}
+    </div>
+  );
+
   return (
-    <article
-      className={`calendar-event${selected ? ' calendar-event--selected' : ''}`}
-      aria-current={selected ? 'true' : undefined}
-    >
-      <div>
-        <span className={`calendar-source calendar-source--${event.source.toLowerCase()}`}>
-          {event.source === 'JOB' ? 'İŞ' : 'KİŞİSEL PLAN'}
-        </span>
-        <h3>{event.title}</h3>
-        <p>{new Date(event.startsAt).toLocaleString('tr-TR')}
-          {event.endsAt ? ` – ${new Date(event.endsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` : ''}</p>
-        <p>{event.assignedUser.name}</p>
-      </div>
-      <div className="calendar-event-actions">
-        {event.source === 'JOB' && <Link to={event.relatedJobPath}>İşi aç</Link>}
-        {event.canEdit && <button type="button" className="secondary-button" onClick={onEdit}>Düzenle</button>}
-        {event.canCancel && <button type="button" className="destructive-button" onClick={() => void cancel()}>İptal et</button>}
-      </div>
-      {error && <p className="form-error" role="alert">{error}</p>}
-    </article>
+    <>
+      <article aria-current={selected ? 'true' : undefined}>
+        <OperationalCard
+          tone={selected ? 'selected' : 'default'}
+          actions={actionBar}
+          className="calendar-event-card"
+        >
+          <span className={`calendar-source calendar-source--${event.source.toLowerCase()}`}>
+            {sourceLabel}
+          </span>
+          <h3>{event.title}</h3>
+          <p className="calendar-event-time">{timeText}</p>
+          <p>{event.assignedUser.name}</p>
+          {error && <p className="form-error" role="alert">{error}</p>}
+        </OperationalCard>
+      </article>
+
+      <ReasonDialog
+        open={cancelOpen}
+        title="Plan iptali"
+        description={
+          <>
+            <strong>{event.title}</strong> planını iptal etmek istediğinize emin misiniz?
+          </>
+        }
+        reasonLabel="İptal nedeni"
+        confirmLabel="İptal et"
+        cancelLabel="Vazgeç"
+        maxLength={500}
+        required
+        pending={cancelPending}
+        pendingLabel="İptal ediliyor…"
+        destructive
+        onConfirm={(reason) => { void handleCancelConfirm(reason); }}
+        onCancel={() => setCancelOpen(false)}
+        returnFocusRef={cancelBtnRef}
+      />
+    </>
   );
 }
 
@@ -288,7 +345,7 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   const newPlanTriggerRef = useRef<HTMLButtonElement>(null);
 
   const range = useMemo(() => visibleMonthRange(month), [month]);
-  const compact = typeof window !== 'undefined' && window.innerWidth < 640;
+  const compact = useCompact();
 
   // Event summaries for calendar cells
   const summaries = useMemo(() => events.map(toSummary), [events]);
@@ -361,67 +418,77 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
         </button>
       </header>
 
-      {/* Toolbar with Staff filter for Manager/Admin */}
-      <div className="calendar-toolbar surface">
-        {user.role !== 'STAFF' && (
-          <label><span>Personel</span>
-            <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
-              <option value="">Tüm yetkili personel</option>
-              {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
-            </select>
-          </label>
-        )}
-      </div>
-
-      {/* Loading / Error states */}
+      {/* Loading state */}
       {state === 'loading' && (
-        <div className="workspace-message" aria-busy="true"><p>Takvim yükleniyor…</p></div>
+        <LoadingSkeleton title="Takvim yükleniyor…" headingLevel={2} rows={4} />
       )}
+
+      {/* Error state with retry */}
       {state === 'error' && (
-        <div className="workspace-message" role="alert">
-          <h2>Takvim yüklenemedi</h2>
-          <p>{error}</p>
-          <button type="button" className="secondary-button" onClick={() => void refresh()}>Tekrar dene</button>
-        </div>
+        <ResultState
+          status="error"
+          title="Takvim yüklenemedi"
+          description={error}
+          action={
+            <button type="button" className="secondary-button" onClick={() => { void refresh(); }}>
+              Tekrar dene
+            </button>
+          }
+        />
       )}
 
       {/* Monthly calendar + agenda */}
       {state === 'ready' && (
-        <div className="calendar-layout">
-          <section className="calendar-grid-section" aria-label="Aylık takvim">
-            <ServoraCalendar
-              month={month}
-              selectedDate={selectedDate}
-              events={summaries}
-              compact={compact}
-              maxVisibleEventsPerDay={MAX_VISIBLE_PER_DAY}
-              onMonthChange={onMonthChange}
-              onDateSelect={onDateSelect}
-            />
-          </section>
-          <section className="calendar-agenda-section" aria-label="Seçili gün planları">
-            <h2 className="calendar-agenda-heading">
-              {selectedDate.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}
-            </h2>
-            {selectedDayEvents.length === 0 ? (
-              <div className="workspace-message">
-                <p>Bu gün için plan bulunmuyor.</p>
-              </div>
-            ) : (
-              <div className="calendar-list">
-                {selectedDayEvents.map((e) => (
-                  <EventItem
-                    key={`${e.source}:${e.id}`}
-                    event={e}
-                    selected={e.id === selectedEventId}
-                    onEdit={() => setEditing(e)}
-                    onCancelled={() => void refresh()}
-                  />
-                ))}
-              </div>
-            )}
-          </section>
-        </div>
+        <>
+          {/* Toolbar with Staff filter for Manager/Admin */}
+          {user.role !== 'STAFF' && (
+            <div className="calendar-toolbar surface">
+              <label><span>Personel</span>
+                <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
+                  <option value="">Tüm yetkili personel</option>
+                  {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
+                </select>
+              </label>
+            </div>
+          )}
+
+          <div className="calendar-layout">
+            <section className="calendar-grid-section" aria-label="Aylık takvim">
+              <ServoraCalendar
+                month={month}
+                selectedDate={selectedDate}
+                events={summaries}
+                compact={compact}
+                maxVisibleEventsPerDay={MAX_VISIBLE_PER_DAY}
+                onMonthChange={onMonthChange}
+                onDateSelect={onDateSelect}
+              />
+            </section>
+            <section className="calendar-agenda-section" aria-label="Seçili gün planları">
+              <h2 className="calendar-agenda-heading">
+                {selectedDate.toLocaleDateString('tr-TR', { weekday: 'long', day: 'numeric', month: 'long' })}
+              </h2>
+              {selectedDayEvents.length === 0 ? (
+                <EmptyState
+                  title="Bu gün için plan bulunmuyor"
+                  description="Seçili tarihte herhangi bir plan kaydı yok."
+                />
+              ) : (
+                <div className="calendar-list">
+                  {selectedDayEvents.map((e) => (
+                    <EventItem
+                      key={`${e.source}:${e.id}`}
+                      event={e}
+                      selected={e.id === selectedEventId}
+                      onEdit={() => setEditing(e)}
+                      onCancelled={() => { void refresh(); }}
+                    />
+                  ))}
+                </div>
+              )}
+            </section>
+          </div>
+        </>
       )}
 
       {/* Form drawer */}
