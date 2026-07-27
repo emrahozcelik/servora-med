@@ -2,7 +2,7 @@ import { App as AntApp, ConfigProvider } from 'antd';
 import trTR from 'antd/es/locale/tr_TR';
 import { useEffect, useMemo, useState, type PropsWithChildren } from 'react';
 
-import { getServoraAntTheme } from './servora-ant-theme';
+import { servoraAntTheme } from './servora-ant-theme';
 
 export const SERVORA_ANT_PREFIX = 'servora-ant';
 
@@ -45,10 +45,13 @@ export function getServoraPopupContainer() {
 
 export function ServoraAntProvider({ children }: PropsWithChildren) {
   const prefersReducedMotion = usePrefersReducedMotion();
-  const resolvedTheme = useMemo(
-    () => getServoraAntTheme(prefersReducedMotion),
-    [prefersReducedMotion],
-  );
+  const resolvedTheme = useMemo(() => {
+    if (!prefersReducedMotion) return servoraAntTheme;
+    return {
+      ...servoraAntTheme,
+      token: { ...servoraAntTheme.token, motion: false },
+    };
+  }, [prefersReducedMotion]);
 
   return (
     <ConfigProvider

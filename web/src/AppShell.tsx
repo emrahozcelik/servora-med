@@ -8,6 +8,7 @@ import { MobileBottomNav } from './shell/MobileBottomNav';
 import { MobileTopBar } from './shell/MobileTopBar';
 import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { NotificationCenter } from './notifications/NotificationCenter';
+import { UserAvatar } from './ui/antd/UserAvatar';
 import {
   buildNavigationModel,
   isJobsListPath,
@@ -81,8 +82,11 @@ function Account({ user, pendingSignOut, onSignOut }: Omit<AppShellProps, 'child
   return (
     <div className="shell-account">
       <div className="shell-identity">
-        <strong>{user.name}</strong>
-        <span>{roleLabels[user.role]}</span>
+        <UserAvatar name={user.name} size="default" />
+        <div>
+          <strong>{user.name}</strong>
+          <span>{roleLabels[user.role]}</span>
+        </div>
       </div>
       <button className="shell-signout" type="button" onClick={onSignOut} disabled={pendingSignOut}>
         {pendingSignOut ? 'Kapatılıyor…' : 'Oturumu kapat'}

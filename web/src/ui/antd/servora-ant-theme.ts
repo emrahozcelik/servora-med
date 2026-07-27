@@ -7,14 +7,6 @@ import {
 
 const { color, control, elevation, typography } = servoraVisualTokens;
 
-/** Backward-compatible semantic soft backgrounds; values come from the token contract. */
-export const servoraAntSemanticBackgrounds = {
-  information: servoraSemanticColorPairs.information.soft.antValue,
-  success: servoraSemanticColorPairs.success.soft.antValue,
-  warning: servoraSemanticColorPairs.warning.soft.antValue,
-  error: servoraSemanticColorPairs.error.soft.antValue,
-} as const;
-
 export const servoraAntTheme: ThemeConfig = {
   token: {
     borderRadius: control.radiusPx,
@@ -30,22 +22,22 @@ export const servoraAntTheme: ThemeConfig = {
     colorBorderSecondary: color.rule.antValue,
 
     colorError: color.error.antValue,
-    colorErrorBg: servoraAntSemanticBackgrounds.error,
+    colorErrorBg: color.errorSoft.antValue,
 
     colorInfo: color.information.antValue,
-    colorInfoBg: servoraAntSemanticBackgrounds.information,
+    colorInfoBg: color.informationSoft.antValue,
 
     colorPrimary: color.accent.antValue,
 
     colorSuccess: color.success.antValue,
-    colorSuccessBg: servoraAntSemanticBackgrounds.success,
+    colorSuccessBg: color.successSoft.antValue,
 
     colorText: color.ink.antValue,
     colorTextLightSolid: color.paper.antValue,
     colorTextSecondary: color.muted.antValue,
 
     colorWarning: color.warning.antValue,
-    colorWarningBg: servoraAntSemanticBackgrounds.warning,
+    colorWarningBg: color.warningSoft.antValue,
 
     controlHeight: control.heightPx,
     controlOutline: color.focus.antValue,
@@ -56,18 +48,11 @@ export const servoraAntTheme: ThemeConfig = {
 
     motion: true,
   },
-};
+} satisfies ThemeConfig;
 
-export function getServoraAntTheme(reducedMotion: boolean): ThemeConfig {
-  if (!reducedMotion) {
-    return servoraAntTheme;
-  }
-
-  return {
-    ...servoraAntTheme,
-    token: {
-      ...servoraAntTheme.token,
-      motion: false,
-    },
-  };
-}
+export const servoraAntSemanticBackgrounds = {
+  information: servoraSemanticColorPairs.information.soft.antValue,
+  success: servoraSemanticColorPairs.success.soft.antValue,
+  warning: servoraSemanticColorPairs.warning.soft.antValue,
+  error: servoraSemanticColorPairs.error.soft.antValue,
+} as const;

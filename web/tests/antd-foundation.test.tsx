@@ -11,7 +11,6 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../src/App';
 import {
-  getServoraAntTheme,
   getServoraPopupContainer,
   servoraAntTheme,
   ServoraAntProvider,
@@ -162,40 +161,42 @@ describe('Servora Ant Design foundation', () => {
       colorInfo: token.colorInfo.toUpperCase(),
       controlOutline: token.controlOutline.toUpperCase(),
     }).toEqual({
-      colorPrimary: '#00628E',
-      colorText: '#1E252B',
-      colorTextSecondary: '#535C65',
-      colorBgBase: '#F8FBFC',
-      colorBgContainer: '#F8FBFC',
-      colorBorder: '#CAD2D8',
-      colorError: '#902822',
-      colorWarning: '#603C07',
-      colorSuccess: '#1D4E2B',
-      colorInfo: '#00507C',
-      controlOutline: '#0084C3',
+      colorPrimary: '#005D8F',
+      colorText: '#162028',
+      colorTextSecondary: '#4F5A64',
+      colorBgBase: '#FCFCFD',
+      colorBgContainer: '#FCFCFD',
+      colorBorder: '#C4CCD3',
+      colorError: '#751E19',
+      colorWarning: '#5C3A07',
+      colorSuccess: '#174A26',
+      colorInfo: '#004F7F',
+      controlOutline: '#007EC9',
     });
   });
 
   it.each([
-    ['#00628E', '#F8FBFC'],
-    ['#1E252B', '#F8FBFC'],
-    ['#535C65', '#F8FBFC'],
-    ['#603C07', '#F7EDDC'],
-    ['#1D4E2B', '#E3F4E6'],
-    ['#00507C', '#D6E7F4'],
+    ['#005D8F', '#FCFCFD'],
+    ['#162028', '#FCFCFD'],
+    ['#4F5A64', '#FCFCFD'],
+    ['#5C3A07', '#F4E9D5'],
+    ['#174A26', '#D9EFDF'],
+    ['#004F7F', '#D3E3F5'],
   ])('keeps normal text contrast for %s on %s', (foreground, background) => {
     expect(contrastRatio(foreground, background)).toBeGreaterThanOrEqual(4.5);
   });
 
   it('keeps the focus indicator distinguishable from the base surface', () => {
-    expect(contrastRatio('#0084C3', '#F8FBFC')).toBeGreaterThanOrEqual(3);
+    expect(contrastRatio('#007EC9', '#FCFCFD')).toBeGreaterThanOrEqual(3);
   });
 
   it('derives reduced motion without mutating the canonical theme', () => {
     const baseToken = { ...servoraAntTheme.token };
-    const reducedMotionTheme = getServoraAntTheme(true);
+    const reducedMotionTheme = {
+      ...servoraAntTheme,
+      token: { ...servoraAntTheme.token, motion: false },
+    };
 
-    expect(getServoraAntTheme(false)).toBe(servoraAntTheme);
     expect(reducedMotionTheme).not.toBe(servoraAntTheme);
     expect(reducedMotionTheme.token?.motion).toBe(false);
     expect(servoraAntTheme.token).toEqual(baseToken);

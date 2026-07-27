@@ -230,7 +230,8 @@ describe('responsive authenticated AppShell', () => {
     expect(aside.querySelector('.shell-sidebar-footer .shell-account')).not.toBeNull();
     expect(aside.querySelector('.shell-sidebar-footer .shell-copyright')).not.toBeNull();
     expect(aside.querySelector('.shell-identity strong')?.textContent).toBe(manager.name);
-    expect(aside.querySelector('.shell-identity span')?.textContent).toBe('Yönetici');
+    expect(aside.querySelector('.shell-identity > div > span')?.textContent).toBe('Yönetici');
+    expect(aside.querySelector('.shell-identity .servora-user-avatar')).not.toBeNull();
     expect(aside.querySelector('.shell-signout')?.textContent).toBe('Oturumu kapat');
   });
 
@@ -311,6 +312,7 @@ describe('responsive authenticated AppShell', () => {
     expect(dialog.querySelector('.shell-nav')).not.toBeNull();
     expect(dialog.querySelector('.shell-account')).not.toBeNull();
     expect(dialog.querySelector('.shell-identity strong')?.textContent).toBe(manager.name);
+    expect(dialog.querySelector('.shell-identity .servora-user-avatar')).not.toBeNull();
     // Desktop-only structural hooks must not appear in the mobile drawer.
     expect(dialog.querySelector('.shell-sidebar-brand')).toBeNull();
     expect(dialog.querySelector('.shell-sidebar-footer')).toBeNull();

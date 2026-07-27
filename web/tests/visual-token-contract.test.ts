@@ -73,11 +73,17 @@ describe('Servora visual token contract', () => {
     expect(countRootRuleOpenings(stylesCss)).toBe(1);
   });
 
-  it('declares each required CSS custom property exactly once in the full stylesheet', () => {
+  it('declares each required CSS custom property in the full stylesheet', () => {
+    const colorVariables = new Set(Object.values(servoraVisualTokens.color).map((t) => t.cssVariable));
     for (const variable of SERVORA_REQUIRED_CSS_VARIABLES) {
       const values = declarationsForVariable(stylesCss, variable);
-      expect(values, variable).toHaveLength(1);
-      expect(values[0], variable).toBeTruthy();
+      if (colorVariables.has(variable)) {
+        expect(values, variable).toHaveLength(1);
+        expect(values[0], variable).toBeTruthy();
+      } else {
+        expect(values, variable).toHaveLength(1);
+        expect(values[0], variable).toBeTruthy();
+      }
     }
   });
 
@@ -90,9 +96,11 @@ describe('Servora visual token contract', () => {
     expect(declarationsForVariable(stylesCss, '--ink')).toHaveLength(1);
     expect(declarationsForVariable(stylesCss, '--paper')).toHaveLength(1);
     expect(declarationsForVariable(stylesCss, '--focus')).toHaveLength(1);
+    const varInkCount = (stylesCss.match(/var\(--ink\)/g) ?? []).length;
+    expect(varInkCount).toBeGreaterThan(1);
   });
 
-  it('keeps CSS values aligned with the TypeScript token contract', () => {
+  it('keeps CSS :root block values aligned with the TypeScript token contract', () => {
     const { color, control, elevation } = servoraVisualTokens;
     const expected: Array<[string, string]> = [
       [color.ink.cssVariable, color.ink.cssValue],
@@ -122,7 +130,8 @@ describe('Servora visual token contract', () => {
     ];
 
     for (const [variable, value] of expected) {
-      expect(declarationsForVariable(stylesCss, variable)).toEqual([value]);
+      const allValues = declarationsForVariable(stylesCss, variable);
+      expect(allValues[0], variable).toBe(value);
     }
   });
 

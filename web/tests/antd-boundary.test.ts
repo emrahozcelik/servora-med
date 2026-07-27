@@ -70,6 +70,12 @@ describe('Ant Design ownership boundary', () => {
       Skeleton: 'LoadingSkeleton.tsx',
       Popconfirm: 'CompactConfirmationAction.tsx',
       Calendar: 'ServoraCalendar.tsx',
+      Statistic: 'MetricStatistic.tsx',
+      Avatar: 'UserAvatar.tsx',
+      Segmented: 'IconSegmented.tsx',
+      Collapse: 'ContentCollapse.tsx',
+      Anchor: 'ContentAnchor.tsx',
+      Tabs: 'SettingsTabs.tsx',
     } as const;
     const violations: string[] = [];
     const imports = new Map<string, string[]>();

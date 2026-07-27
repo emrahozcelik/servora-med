@@ -85,7 +85,7 @@ describe('Management report navigation', () => {
 
   it.each(['/reports', '/reports/deliveries', '/reports/approvals'])
     ('denies Staff direct report route %s', async (path) => {
-      expect(await render(path, staff)).toContain('Bu alana erişim yetkiniz yok');
+      expect(await render(path, staff)).toContain('Erişim yetkiniz yok');
     });
 
   it('replaces invalid delivery URL state and writes the echoed default range', async () => {

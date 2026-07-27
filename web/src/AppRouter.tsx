@@ -5,6 +5,7 @@ import { JobWorkspace } from './jobs/JobWorkspace';
 import { paths } from './paths';
 import type { CurrentUser } from './services/api';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
+import { ResultState } from './ui/antd/ResultState';
 
 export { paths } from './paths';
 
@@ -156,19 +157,29 @@ type AppRouterProps = {
 };
 
 function ForbiddenView() {
-  return <main className="workspace"><div className="workspace-message" role="alert">
-    <h1>Bu alana erişim yetkiniz yok</h1>
-    <p>Bu sayfayı görüntülemek için gerekli role sahip değilsiniz.</p>
-    <Link className="secondary-button" to={paths.jobs}>İşlere dön</Link>
-  </div></main>;
+  return (
+    <main className="workspace">
+      <ResultState
+        status="403"
+        title="Erişim yetkiniz yok"
+        description="Bu alana erişim yetkiniz bulunmuyor. Yetkili olduğunuz alanlara dönebilirsiniz."
+        action={<Link className="secondary-button" to={paths.jobs}>İşlere dön</Link>}
+      />
+    </main>
+  );
 }
 
 function NotFoundView() {
-  return <main className="workspace"><div className="workspace-message">
-    <h1>Sayfa bulunamadı</h1>
-    <p>Bağlantı değişmiş veya sayfa kaldırılmış olabilir.</p>
-    <Link className="secondary-button" to={paths.jobs}>İşlere dön</Link>
-  </div></main>;
+  return (
+    <main className="workspace">
+      <ResultState
+        status="404"
+        title="Sayfa bulunamadı"
+        description="Bağlantı değişmiş veya sayfa kaldırılmış olabilir."
+        action={<Link className="secondary-button" to={paths.jobs}>İşlere dön</Link>}
+      />
+    </main>
+  );
 }
 
 function JobDetailRoute({ user }: Pick<AppRouterProps, 'user'>) {
