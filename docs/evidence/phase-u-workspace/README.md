@@ -1,6 +1,6 @@
 # Phase U — Workspace Visual Composition Evidence
 
-**Capture code SHA:** `37ee05c...`
+**Capture code SHA:** `004a001...`
 **Date:** 2026-07-27
 **Browser:** Playwright (Chromium) against real running backend
 **Data:** Synthetic — all users (`@servora.local`), disposable test data
