@@ -4,6 +4,10 @@ import { Link } from 'react-router-dom';
 import { validatePasswordChange } from '../PasswordChange';
 import { paths } from '../paths';
 import { changePassword, type CurrentUser } from '../services/api';
+import { OperationalCard } from '../ui/antd/OperationalCard';
+import { RecordDescriptions } from '../ui/antd/RecordDescriptions';
+import { SettingsTabs } from '../ui/antd/SettingsTabs';
+import { UserAvatar } from '../ui/antd/UserAvatar';
 import { PASSWORD_LENGTH_HINT_TR } from '../ui/password-policy';
 import { useWebPush } from '../web-push/WebPushProvider';
 
@@ -13,37 +17,60 @@ const roleLabels = {
   STAFF: 'Personel',
 } as const;
 
-function SettingsHeader({ title, description }: { title: string; description: string }) {
-  return <header className="workspace-heading"><div>
-    <p className="eyebrow">Hesap</p><h1>{title}</h1><p>{description}</p>
-  </div></header>;
-}
+const SETTINGS_TABS = [
+  { key: 'profile', label: 'Profil', to: '/settings/profile' },
+  { key: 'security', label: 'Güvenlik', to: '/settings/security' },
+  { key: 'notifications', label: 'Bildirimler', to: '/settings/notifications' },
+];
+
+const settingsLandingItems = [
+  { key: 'profile', title: 'Profil', description: 'Hesap ve rol bilgilerinizi görüntüleyin.', to: paths.settingsProfile },
+  { key: 'security', title: 'Güvenlik', description: 'Parolanızı güvenli biçimde değiştirin.', to: paths.settingsSecurity },
+  { key: 'notifications', title: 'Bildirimler', description: 'Bu cihazdaki web bildirimlerini yönetin.', to: paths.settingsNotifications },
+];
 
 export function SettingsLandingPage() {
   return <main className="workspace settings-workspace">
-    <SettingsHeader title="Ayarlar" description="Hesap bilgilerinizi, güvenliğinizi ve bu cihazın bildirim tercihlerini yönetin." />
+    <header className="workspace-heading"><div>
+      <p className="eyebrow">Hesap</p><h1>Ayarlar</h1>
+    </div></header>
     <nav className="settings-card-grid" aria-label="Ayar bölümleri">
-      <Link to={paths.settingsProfile}><span>Profil</span><small>Hesap ve rol bilgilerinizi görüntüleyin.</small></Link>
-      <Link to={paths.settingsSecurity}><span>Güvenlik</span><small>Parolanızı güvenli biçimde değiştirin.</small></Link>
-      <Link to={paths.settingsNotifications}><span>Bildirimler</span><small>Bu cihazdaki web bildirimlerini yönetin.</small></Link>
+      {settingsLandingItems.map((item) => (
+        <Link key={item.key} to={item.to} className="settings-card-link">
+          <OperationalCard title={item.title}>
+            <small>{item.description}</small>
+          </OperationalCard>
+        </Link>
+      ))}
     </nav>
   </main>;
 }
 
 export function ProfileSettingsPage({ user }: { user: CurrentUser }) {
-  const initials = user.name.split(/\s+/).filter(Boolean).slice(0, 2).map((part) => part[0]?.toLocaleUpperCase('tr-TR')).join('');
   return <main className="workspace settings-workspace">
-    <SettingsHeader title="Profil" description="Kurumunuz tarafından yönetilen hesap bilgileri." />
-    <section className="settings-panel" aria-labelledby="profile-details-title">
-      <div className="profile-initials" aria-hidden="true">{initials || 'SM'}</div>
-      <div><h2 id="profile-details-title">{user.name}</h2>
-        <dl className="profile-details">
-          <div><dt>E-posta</dt><dd>{user.email}</dd></div>
-          <div><dt>Rol</dt><dd>{roleLabels[user.role]}</dd></div>
-        </dl>
-        <p className="field-hint">Bu bilgiler kurum yöneticiniz tarafından yönetilir.</p>
+    <SettingsTabs items={SETTINGS_TABS} activeKey="profile" />
+    <header className="workspace-heading"><div>
+      <p className="eyebrow">Hesap</p><h1>Profil</h1>
+    </div></header>
+    <OperationalCard title="Profil bilgileri">
+      <div className="profile-header">
+        <UserAvatar name={user.name} size="large" />
+        <div>
+          <strong>{user.name}</strong>
+          <small className="text-muted">{roleLabels[user.role]}</small>
+        </div>
       </div>
-    </section>
+      <RecordDescriptions
+        ariaLabel="Profil bilgileri"
+        items={[
+          { key: 'email', label: 'E-posta', content: user.email },
+          { key: 'role', label: 'Rol', content: roleLabels[user.role] },
+        ]}
+      />
+      <small className="settings-hint">
+        Profil bilgileriniz kuruluş yöneticiniz tarafından yönetilmektedir.
+      </small>
+    </OperationalCard>
   </main>;
 }
 
@@ -75,14 +102,22 @@ export function SecuritySettingsPage({ onSessionEnded }: { onSessionEnded: () =>
   }
 
   if (changed) return <main className="workspace settings-workspace">
-    <SettingsHeader title="Parolanız değiştirildi" description="Güvenliğiniz için mevcut oturumlarınız kapatıldı." />
-    <section className="settings-panel"><p role="status">Yeni parolanızla yeniden giriş yapabilirsiniz.</p>
-      <button type="button" className="primary-button" onClick={onSessionEnded}>Giriş ekranına dön</button></section>
+    <SettingsTabs items={SETTINGS_TABS} activeKey="security" />
+    <header className="workspace-heading"><div>
+      <p className="eyebrow">Hesap</p><h1>Parolanız değiştirildi</h1>
+    </div></header>
+    <OperationalCard title="Parola değiştir">
+      <p role="status">Yeni parolanızla yeniden giriş yapabilirsiniz.</p>
+      <button type="button" className="primary-button" onClick={onSessionEnded}>Giriş ekranına dön</button>
+    </OperationalCard>
   </main>;
 
   return <main className="workspace settings-workspace">
-    <SettingsHeader title="Güvenlik" description="Parolanızı değiştirmeniz tüm mevcut oturumları kapatır." />
-    <section className="settings-panel settings-form-panel">
+    <SettingsTabs items={SETTINGS_TABS} activeKey="security" />
+    <header className="workspace-heading"><div>
+      <p className="eyebrow">Hesap</p><h1>Güvenlik</h1>
+    </div></header>
+    <OperationalCard title="Parola değiştir">
       {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
       <form onSubmit={submit}>
         <div className="field-group"><label htmlFor="settings-current-password">Mevcut parola</label>
@@ -94,7 +129,7 @@ export function SecuritySettingsPage({ onSessionEnded }: { onSessionEnded: () =>
           <input id="settings-password-confirmation" name="confirmation" type="password" autoComplete="new-password" minLength={12} maxLength={128} required disabled={pending} /></div>
         <button className="primary-button" type="submit" disabled={pending}>{pending ? 'Değiştiriliyor…' : 'Parolayı değiştir'}</button>
       </form>
-    </section>
+    </OperationalCard>
   </main>;
 }
 
@@ -116,9 +151,12 @@ export function NotificationSettingsPage() {
     && webPush.capability === 'supported'
     && webPush.permission !== 'denied';
   return <main className="workspace settings-workspace">
-    <SettingsHeader title="Bildirimler" description="Yalnızca bu tarayıcı ve cihazdaki web bildirimlerini yönetin." />
-    <section className="settings-panel" aria-labelledby="device-notifications-title">
-      <h2 id="device-notifications-title">Bu cihaz</h2>
+    <SettingsTabs items={SETTINGS_TABS} activeKey="notifications" />
+    <header className="workspace-heading"><div>
+      <p className="eyebrow">Hesap</p><h1>Bildirimler</h1>
+    </div></header>
+    <OperationalCard title="Cihaz bildirimleri">
+      <h2 id="device-notifications-title" className="sr-only">Bu cihaz</h2>
       <dl className="profile-details">
         <div><dt>Tarayıcı desteği</dt><dd>{capabilityLabels[webPush.capability]}</dd></div>
         <div><dt>Tarayıcı izni</dt><dd>{permissionLabels[webPush.permission]}</dd></div>
@@ -132,6 +170,6 @@ export function NotificationSettingsPage() {
           {webPush.pending === 'disable' ? 'Kapatılıyor…' : 'Bu cihazda kapat'}</button>
         : <button className="primary-button" type="button" disabled={!canEnable || webPush.pending !== null} onClick={() => void webPush.enable()}>
           {webPush.pending === 'enable' ? 'Açılıyor…' : 'Bu cihazda aç'}</button>}
-    </section>
+    </OperationalCard>
   </main>;
 }

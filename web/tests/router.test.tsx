@@ -88,7 +88,7 @@ describe('application routes', () => {
     ['/help', 'Yardım Merkezi', manager],
     ['/settings', 'Ayarlar', staff],
     ['/settings/profile', 'Ayşe Personel', staff],
-    ['/settings/security', 'Parolanızı değiştirmeniz', staff],
+    ['/settings/security', 'Parola değiştir', staff],
     ['/settings/notifications', 'Bu cihaz', staff],
   ] as const)('renders %s at a stable URL', async (path, expected, user) => {
     expect(await render(path, user)).toContain(expected);
@@ -100,7 +100,8 @@ describe('application routes', () => {
     ['/staff/staff-1/reports', staff],
   ] as const)('renders the established forbidden state for unauthorized direct route %s', async (path, user) => {
     const html = await render(path, user);
-    expect(html).toContain('Bu alana erişim yetkiniz yok');
+    expect(html).toContain('Erişim yetkiniz yok');
+    expect(html).toContain('servora-result-state');
     expect(html).not.toContain('Kullanıcı oluştur');
   });
 
@@ -108,6 +109,8 @@ describe('application routes', () => {
     const html = await render('/unknown');
     expect(html).toContain('Sayfa bulunamadı');
     expect(html).toContain('İşlere dön');
+    expect(html).toContain('servora-result-state');
+    expect(html).toContain('Bağlantı değişmiş veya sayfa kaldırılmış olabilir.');
   });
 
   it('redirects an authenticated user away from the sign-in route', async () => {
@@ -177,6 +180,6 @@ describe('application routes', () => {
   it('marks the active shell destination without weakening direct-route authorization', async () => {
     const html = await render('/products', staff);
     expect(html).toMatch(/aria-current="page"[^>]*href="\/products"/);
-    expect(await render('/users', staff)).toContain('Bu alana erişim yetkiniz yok');
+    expect(await render('/users', staff)).toContain('Erişim yetkiniz yok');
   });
 });
