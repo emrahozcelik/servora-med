@@ -1,9 +1,12 @@
 import { Button } from 'antd';
 import { Calendar } from 'antd';
 import dayjs, { type Dayjs } from 'dayjs';
+import 'dayjs/locale/tr';
 import { useCallback, useMemo, type ReactNode } from 'react';
 
 import { intersectedLocalDates } from '../../calendar/calendar-date';
+
+dayjs.locale('tr');
 
 export type ServoraCalendarEventSummary = {
   id: string;

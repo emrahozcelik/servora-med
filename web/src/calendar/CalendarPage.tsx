@@ -254,6 +254,7 @@ function EventItem({
       setCancelOpen(false);
       onCancelled();
     } catch (caught) {
+      setCancelOpen(false);
       setError(caught instanceof Error ? caught.message : 'Plan iptal edilemedi.');
     } finally {
       setCancelPending(false);
