@@ -11,7 +11,7 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState(ALL_CATEGORIES);
   const [readingMode, setReadingMode] = useState(false);
-  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
+  const [expandedByArticle, setExpandedByArticle] = useState<Record<string, string[]>>({});
 
   const articles = useMemo(() => {
     return productDocumentation.filter((a) => a.audience.includes(user.role));
@@ -48,7 +48,7 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
   const handleReadingMode = useCallback((checked: boolean) => {
     setReadingMode(checked);
     if (!checked) {
-      setExpandedKeys([]);
+      setExpandedByArticle({});
     }
   }, []);
 
@@ -114,7 +114,11 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
             const hasAnchor = readingMode && article.sections.length >= ANCHOR_MIN_SECTIONS;
             const anchors = hasAnchor ? anchorItems(article) : null;
             const sectionKeys = article.sections.map((s) => s.heading);
-            const activeKey = readingMode ? sectionKeys : expandedKeys;
+            const articleExpanded = expandedByArticle[article.id] ?? [];
+            const activeKey = readingMode ? sectionKeys : articleExpanded;
+            const handleCollapseChange = readingMode
+              ? undefined
+              : (keys: string[]) => setExpandedByArticle((prev) => ({ ...prev, [article.id]: keys }));
             return (
               <article
                 key={article.id}
@@ -135,7 +139,7 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
                     <small className="content-meta">{article.updatedLabel} · {article.category}</small>
                     <ContentCollapse
                       activeKey={activeKey}
-                      onChange={readingMode ? undefined : setExpandedKeys}
+                      onChange={handleCollapseChange as (keys: string[]) => void}
                       items={article.sections.map((s) => ({
                         key: s.heading,
                         label: s.heading,

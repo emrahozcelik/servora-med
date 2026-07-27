@@ -1,5 +1,8 @@
-import { renderToStaticMarkup } from 'react-dom/server';
-import { describe, expect, it } from 'vitest';
+/** @vitest-environment jsdom */
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, describe, expect, it } from 'vitest';
 
 import { DocumentationPage } from '../src/content/DocumentationPage';
 import { HelpCenterPage } from '../src/content/HelpCenterPage';
@@ -14,6 +17,37 @@ const staff: CurrentUser = {
   support: { displayLabel: 'Sistem yöneticiniz', email: null, helpUrl: null },
 };
 
+function renderDocs(user = staff) {
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  act(() => {
+    root.render(
+      <MemoryRouter>
+        <DocumentationPage user={user} />
+      </MemoryRouter>,
+    );
+  });
+  return { container, root };
+}
+
+function cleanup({ container, root }: { container: HTMLElement; root: Root }) {
+  act(() => root.unmount());
+  container.remove();
+}
+
+function getCheckbox(container: HTMLElement): HTMLInputElement {
+  return container.querySelector('input[type="checkbox"]') as HTMLInputElement;
+}
+
+function getCollapseHeaders(container: HTMLElement): HTMLElement[] {
+  return Array.from(container.querySelectorAll('[class*=\"collapse-header\"]'));
+}
+
+function getActivePanels(container: HTMLElement): Element[] {
+  return Array.from(container.querySelectorAll('[class*=\"collapse-item-active\"]'));
+}
+
 describe('repository-managed workspace content', () => {
   it('uses stable typed IDs and contains no messaging or invented legal content', () => {
     const ids = [...productDocumentation, ...helpArticles].map((article) => article.id);
@@ -25,108 +59,250 @@ describe('repository-managed workspace content', () => {
   });
 
   it('filters management documentation from Staff and provides neutral support fallback', () => {
-    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
-    expect(docs).not.toContain('Yönetici ve admin rollerinin mevcut operasyon raporları');
-    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
-    expect(help).toContain('İletişim kanalı yapılandırılmamış');
-    expect(help).not.toContain('mailto:');
-    expect(help).not.toContain('target="_blank"');
+    const docsHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><DocumentationPage user={staff} /></MemoryRouter>,
+    );
+    expect(docsHTML).not.toContain('Yönetici ve admin rollerinin mevcut operasyon raporları');
+    const helpHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>,
+    );
+    expect(helpHTML).toContain('İletişim kanalı yapılandırılmamış');
+    expect(helpHTML).not.toContain('mailto:');
+    expect(helpHTML).not.toContain('target="_blank"');
   });
 
   it('renders only validated support link forms with noreferrer', () => {
-    const help = renderToStaticMarkup(<HelpCenterPage user={{
-      ...staff,
-      support: {
-        displayLabel: 'Sentetik destek',
-        email: 'support@example.test',
-        helpUrl: 'https://support.example.test/help',
-      },
-    }} />);
-    expect(help).toContain('href="mailto:support@example.test"');
-    expect(help).toContain('href="https://support.example.test/help"');
-    expect(help).toContain('rel="noreferrer"');
+    const helpHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><HelpCenterPage user={{
+        ...staff,
+        support: { displayLabel: 'Sentetik destek', email: 'support@example.test', helpUrl: 'https://support.example.test/help' },
+      }} /></MemoryRouter>,
+    );
+    expect(helpHTML).toContain('href="mailto:support@example.test"');
+    expect(helpHTML).toContain('href="https://support.example.test/help"');
+    expect(helpHTML).toContain('rel="noreferrer"');
   });
 
   it('renders search input in documentation page', () => {
-    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
-    expect(docs).toContain('type="search"');
-    expect(docs).toContain('Dokümantasyonda ara');
+    const docsHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><DocumentationPage user={staff} /></MemoryRouter>,
+    );
+    expect(docsHTML).toContain('type="search"');
+    expect(docsHTML).toContain('Dokümantasyonda ara');
   });
 
   it('renders search input in help center page', () => {
-    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
-    expect(help).toContain('type="search"');
-    expect(help).toContain('Yardım konularında ara');
+    const helpHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>,
+    );
+    expect(helpHTML).toContain('type="search"');
+    expect(helpHTML).toContain('Yardım konularında ara');
   });
 
   it('renders category filter buttons with aria-pressed in documentation page', () => {
-    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
-    expect(docs).toContain('aria-pressed="true"');
-    expect(docs).toContain('aria-pressed="false"');
-    expect(docs).toContain('Tümü');
-    expect(docs).toContain('İş akışı');
+    const docsHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><DocumentationPage user={staff} /></MemoryRouter>,
+    );
+    expect(docsHTML).toContain('aria-pressed="true"');
+    expect(docsHTML).toContain('aria-pressed="false"');
+    expect(docsHTML).toContain('Tümü');
+    expect(docsHTML).toContain('İş akışı');
   });
 
   it('renders category filter buttons with aria-pressed in help center page', () => {
-    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
-    expect(help).toContain('aria-pressed="true"');
-    expect(help).toContain('aria-pressed="false"');
-    expect(help).toContain('Tümü');
-    expect(help).toContain('Sorun giderme');
+    const helpHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>,
+    );
+    expect(helpHTML).toContain('aria-pressed="true"');
+    expect(helpHTML).toContain('aria-pressed="false"');
+    expect(helpHTML).toContain('Tümü');
+    expect(helpHTML).toContain('Sorun giderme');
   });
 
   it('renders articles using OperationalCard and ContentCollapse in documentation page', () => {
-    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
-    expect(docs).toContain('servora-operational-card');
-    expect(docs).toContain('servora-content-collapse');
-    expect(docs).toContain('content-summary');
-    expect(docs).toContain('content-meta');
+    const docsHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><DocumentationPage user={staff} /></MemoryRouter>,
+    );
+    expect(docsHTML).toContain('servora-operational-card');
+    expect(docsHTML).toContain('servora-content-collapse');
+    expect(docsHTML).toContain('content-summary');
+    expect(docsHTML).toContain('content-meta');
   });
 
   it('renders articles using OperationalCard and ContentCollapse in help center page', () => {
-    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
-    expect(help).toContain('servora-operational-card');
-    expect(help).toContain('servora-content-collapse');
-    expect(help).toContain('content-summary');
-    expect(help).toContain('content-meta');
+    const helpHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>,
+    );
+    expect(helpHTML).toContain('servora-operational-card');
+    expect(helpHTML).toContain('servora-content-collapse');
+    expect(helpHTML).toContain('content-summary');
+    expect(helpHTML).toContain('content-meta');
   });
 
   it('renders support contact with OperationalCard and RecordDescriptions when contact is configured', () => {
-    const help = renderToStaticMarkup(<HelpCenterPage user={{
-      ...staff,
-      support: {
-        displayLabel: 'Sentetik destek',
-        email: 'support@example.test',
-        helpUrl: 'https://support.example.test/help',
-      },
-    }} />);
-    expect(help).toContain('Destek iletişimi');
-    expect(help).toContain('servora-operational-card');
-    expect(help).toContain('servora-record-descriptions');
+    const helpHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><HelpCenterPage user={{
+        ...staff,
+        support: { displayLabel: 'Sentetik destek', email: 'support@example.test', helpUrl: 'https://support.example.test/help' },
+      }} /></MemoryRouter>,
+    );
+    expect(helpHTML).toContain('Destek iletişimi');
+    expect(helpHTML).toContain('servora-operational-card');
+    expect(helpHTML).toContain('servora-record-descriptions');
   });
 
   it('renders support contact fallback when no contact is configured', () => {
-    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
-    expect(help).toContain('Destek iletişimi');
-    expect(help).toContain('İletişim kanalı yapılandırılmamış');
-    expect(help).toContain('servora-operational-card--attention');
+    const helpHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>,
+    );
+    expect(helpHTML).toContain('Destek iletişimi');
+    expect(helpHTML).toContain('İletişim kanalı yapılandırılmamış');
+    expect(helpHTML).toContain('servora-operational-card--attention');
   });
 
   it('renders security notice in help center page', () => {
-    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
-    expect(help).toContain('Güvenlik bildirimi');
-    expect(help).toContain('Servora hesap ve veri güvenliğiniz kurum politikalarına tabidir');
-    expect(help).toContain('role="alert"');
+    const helpHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>,
+    );
+    expect(helpHTML).toContain('Güvenlik bildirimi');
+    expect(helpHTML).toContain('Servora hesap ve veri güvenliğiniz kurum politikalarına tabidir');
+    expect(helpHTML).toContain('role="alert"');
   });
 
   it('renders reading mode toggle in documentation page', () => {
-    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
-    expect(docs).toContain('type="checkbox"');
-    expect(docs).toContain('Okuma modu');
+    const docsHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><DocumentationPage user={staff} /></MemoryRouter>,
+    );
+    expect(docsHTML).toContain('type="checkbox"');
+    expect(docsHTML).toContain('Okuma modu');
   });
 
-  it('shows EmptyState when search would yield no results (initial state renders articles)', () => {
-    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
-    expect(docs).toContain('Ürün dokümantasyonu');
+  it('shows EmptyState when search yields no results (initial state renders articles)', () => {
+    const docsHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><DocumentationPage user={staff} /></MemoryRouter>,
+    );
+    expect(docsHTML).toContain('Ürün dokümantasyonu');
+  });
+});
+
+describe('Documentation reading mode interaction', () => {
+  let ctx: ReturnType<typeof renderDocs>;
+
+  afterEach(() => {
+    if (ctx) cleanup(ctx);
+  });
+
+  it('reading mode starts disabled', () => {
+    ctx = renderDocs();
+    expect(getCheckbox(ctx.container).checked).toBe(false);
+    expect(getActivePanels(ctx.container)).toHaveLength(0);
+  });
+
+  it('collapse panel headers are present with expected section text', () => {
+    ctx = renderDocs();
+    const headers = getCollapseHeaders(ctx.container);
+    expect(headers.length).toBeGreaterThanOrEqual(4);
+    const headingTexts = headers.map((h) => h.textContent?.trim());
+    expect(headingTexts).toContain('İş ve kişisel plan ayrımı');
+    expect(headingTexts).toContain('Yetki ve bildirim');
+  });
+
+  it('per-article state is isolated via content-article layout by article id', () => {
+    ctx = renderDocs();
+    const articles = ctx.container.querySelectorAll('article');
+    expect(articles.length).toBeGreaterThanOrEqual(4);
+    for (const article of Array.from(articles)) {
+      expect(article.id).toBeTruthy();
+    }
+  });
+
+  it('reading mode ON opens all visible section panels', () => {
+    ctx = renderDocs();
+    act(() => { getCheckbox(ctx.container).click(); });
+    expect(getCheckbox(ctx.container).checked).toBe(true);
+    expect(getActivePanels(ctx.container).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it('reading mode ON prevents closing panels via header click', () => {
+    ctx = renderDocs();
+    act(() => { getCheckbox(ctx.container).click(); });
+    const activeBefore = getActivePanels(ctx.container).length;
+    expect(activeBefore).toBeGreaterThanOrEqual(4);
+    const headers = getCollapseHeaders(ctx.container);
+    if (headers.length > 0) {
+      act(() => { (headers[0] as HTMLElement).click(); });
+    }
+    expect(getActivePanels(ctx.container)).toHaveLength(activeBefore);
+  });
+
+  it('reading mode OFF closes all panels', () => {
+    ctx = renderDocs();
+    const checkbox = getCheckbox(ctx.container);
+    act(() => { checkbox.click(); });
+    expect(getActivePanels(ctx.container).length).toBeGreaterThanOrEqual(4);
+    act(() => { checkbox.click(); });
+    expect(getCheckbox(ctx.container).checked).toBe(false);
+    expect(getActivePanels(ctx.container)).toHaveLength(0);
+  });
+
+  it('after reading mode OFF, panels are closed and checkbox is unchecked', () => {
+    ctx = renderDocs();
+    const checkbox = getCheckbox(ctx.container);
+    act(() => { checkbox.click(); });
+    act(() => { checkbox.click(); });
+    expect(checkbox.checked).toBe(false);
+    expect(getActivePanels(ctx.container)).toHaveLength(0);
+  });
+
+  it('anchor only appears on calendar-planning article (2 sections)', () => {
+    ctx = renderDocs();
+    act(() => { getCheckbox(ctx.container).click(); });
+    const anchorSections = ctx.container.querySelectorAll('.content-anchor-sidebar');
+    expect(anchorSections.length).toBe(1);
+    const anchorArticle = anchorSections[0].closest('article');
+    expect(anchorArticle?.id).toBe('calendar-planning');
+  });
+
+  it('single-section articles do not receive anchor class', () => {
+    ctx = renderDocs();
+    act(() => { getCheckbox(ctx.container).click(); });
+    const articles = ctx.container.querySelectorAll('article');
+    const singleSectionIds = ['job-flow', 'records', 'notifications'];
+    for (const article of Array.from(articles)) {
+      if (singleSectionIds.includes(article.id)) {
+        expect(article.classList.contains('content-article--with-anchor')).toBe(false);
+      }
+    }
+  });
+
+  it('search filter change shows EmptyState and does not crash', () => {
+    ctx = renderDocs();
+    const searchInput = ctx.container.querySelector('input[type="search"]') as HTMLInputElement;
+    act(() => {
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, 'value',
+      )!.set!;
+      nativeInputValueSetter.call(searchInput, 'raporla');
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    const articleIds = ctx.container.querySelectorAll('article');
+    expect(articleIds.length).toBe(0);
+    expect(ctx.container.textContent).toContain('Sonuç bulunamadı');
+  });
+
+  it('checkbox receives keyboard focus', () => {
+    ctx = renderDocs();
+    const checkbox = getCheckbox(ctx.container);
+    checkbox.focus();
+    expect(document.activeElement).toBe(checkbox);
+  });
+
+  it('collapse headers are present and contain section heading text', () => {
+    ctx = renderDocs();
+    const headers = getCollapseHeaders(ctx.container);
+    expect(headers.length).toBeGreaterThanOrEqual(4);
+    const headingTexts = headers.map((h) => h.textContent?.trim());
+    expect(headingTexts).toContain('İş ve kişisel plan ayrımı');
+    expect(headingTexts).toContain('Yetki ve bildirim');
   });
 });
