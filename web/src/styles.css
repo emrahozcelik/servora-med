@@ -2709,7 +2709,11 @@ button:disabled { cursor: wait; opacity: 0.65; }
   display: flex;
   gap: 0.5rem;
   padding: 0.5rem 0;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
+  min-width: 0;
+}
+.servora-calendar-header > * {
+  min-width: 0;
 }
 
 .servora-calendar-header-label {
@@ -2723,10 +2727,6 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 
 @media (min-width: 40.01rem) {
-  .servora-calendar-header {
-    flex-wrap: nowrap;
-  }
-
   .servora-calendar-header-label {
     flex: 0 1 auto;
   }
