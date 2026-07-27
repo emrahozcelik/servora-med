@@ -456,10 +456,10 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 .mobile-top-back--spacer { visibility: hidden; pointer-events: none; }
 .authenticated-shell--mobile .shell-content {
-  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
 }
 .authenticated-shell--mobile.authenticated-shell:has(.sticky-new-job) .shell-content {
-  padding-bottom: calc(8.75rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(9rem + env(safe-area-inset-bottom, 0px));
 }
 .mobile-bottom-nav {
   position: fixed;
@@ -495,6 +495,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   text-align: center;
   text-decoration: none;
   overflow-wrap: anywhere;
+  word-break: keep-all;
+  hyphens: auto;
   cursor: pointer;
 }
 /* Active destination uses accent soft + weight (not color alone). */
@@ -2719,6 +2721,16 @@ button:disabled { cursor: wait; opacity: 0.65; }
   min-width: 0;
   white-space: nowrap;
   text-align: center;
+}
+
+@media (min-width: 40.01rem) {
+  .servora-calendar-header {
+    flex-wrap: nowrap;
+  }
+
+  .servora-calendar-header-label {
+    flex: 0 1 auto;
+  }
 }
 
 @media (max-width: 40rem) {

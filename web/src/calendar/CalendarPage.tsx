@@ -441,16 +441,16 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
       {state === 'ready' && (
         <>
           {/* Toolbar with Staff filter for Manager/Admin */}
-          <div className="calendar-toolbar surface">
-            {user.role !== 'STAFF' && (
+          {user.role !== 'STAFF' && (
+            <div className="calendar-toolbar surface">
               <label><span>Personel</span>
                 <select value={assignedTo} onChange={(e) => setAssignedTo(e.target.value)}>
                   <option value="">Tüm yetkili personel</option>
                   {assignees.map((a) => <option key={a.id} value={a.id}>{a.name}</option>)}
                 </select>
               </label>
-            )}
-          </div>
+            </div>
+          )}
 
           <div className="calendar-layout">
             <section className="calendar-grid-section" aria-label="Aylık takvim">
