@@ -148,7 +148,7 @@ export function ServoraCalendar({
             aria-label="Önceki ay"
             size={compact ? 'small' : 'middle'}
           >
-            ‹ Önceki
+            {compact ? '‹' : '‹ Önceki'}
           </Button>
           <Button
             onClick={goToday}
@@ -165,7 +165,7 @@ export function ServoraCalendar({
             aria-label="Sonraki ay"
             size={compact ? 'small' : 'middle'}
           >
-            Sonraki ›
+            {compact ? '›' : 'Sonraki ›'}
           </Button>
         </div>
       );

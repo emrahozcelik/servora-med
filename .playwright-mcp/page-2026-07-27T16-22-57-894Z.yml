@@ -1,0 +1,148 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e6]:
+      - generic "Dünya Dental"
+      - paragraph: Takvim
+    - generic [ref=e9]:
+      - button "Bildirimler" [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+      - button "Menüyü aç" [ref=e14] [cursor=pointer]: Menü
+  - main [ref=e35]:
+    - generic [ref=e36]:
+      - generic [ref=e37]:
+        - paragraph [ref=e38]: Aylık planlama
+        - heading "Takvim" [level=1] [ref=e39]
+        - paragraph [ref=e40]: İşlerinizi ve operasyonel planlarınızı aylık zaman çizelgesinde görün.
+      - button "Yeni plan" [ref=e41] [cursor=pointer]
+    - generic [ref=e42]:
+      - region "Aylık takvim" [ref=e43]:
+        - generic [ref=e45]:
+          - generic [ref=e46]:
+            - button "Önceki ay" [ref=e47] [cursor=pointer]:
+              - generic [ref=e48]: ‹ Önceki
+            - button "Bugüne dön" [ref=e49] [cursor=pointer]:
+              - generic [ref=e50]: Bugün
+            - generic [ref=e51]: Temmuz 2026
+            - button "Sonraki ay" [ref=e52] [cursor=pointer]:
+              - generic [ref=e53]: Sonraki ›
+          - table [ref=e57]:
+            - rowgroup [ref=e58]:
+              - row "Pzt Sal Çar Per Cum Cmt Paz" [ref=e59]:
+                - columnheader "Pzt" [ref=e60]
+                - columnheader "Sal" [ref=e61]
+                - columnheader "Çar" [ref=e62]
+                - columnheader "Per" [ref=e63]
+                - columnheader "Cum" [ref=e64]
+                - columnheader "Cmt" [ref=e65]
+                - columnheader "Paz" [ref=e66]
+            - rowgroup [ref=e67]:
+              - row "29 30 1 2 3 4 5" [ref=e68]:
+                - cell "29" [ref=e69] [cursor=pointer]:
+                  - generic [ref=e71]: "29"
+                - cell "30" [ref=e72] [cursor=pointer]:
+                  - generic [ref=e74]: "30"
+                - cell "1" [ref=e75] [cursor=pointer]:
+                  - generic [ref=e77]: "1"
+                - cell "2" [ref=e78] [cursor=pointer]:
+                  - generic [ref=e80]: "2"
+                - cell "3" [ref=e81] [cursor=pointer]:
+                  - generic [ref=e83]: "3"
+                - cell "4" [ref=e84] [cursor=pointer]:
+                  - generic [ref=e86]: "4"
+                - cell "5" [ref=e87] [cursor=pointer]:
+                  - generic [ref=e89]: "5"
+              - row "6 7 8 9 10 11 12" [ref=e90]:
+                - cell "6" [ref=e91] [cursor=pointer]:
+                  - generic [ref=e93]: "6"
+                - cell "7" [ref=e94] [cursor=pointer]:
+                  - generic [ref=e96]: "7"
+                - cell "8" [ref=e97] [cursor=pointer]:
+                  - generic [ref=e99]: "8"
+                - cell "9" [ref=e100] [cursor=pointer]:
+                  - generic [ref=e102]: "9"
+                - cell "10" [ref=e103] [cursor=pointer]:
+                  - generic [ref=e105]: "10"
+                - cell "11" [ref=e106] [cursor=pointer]:
+                  - generic [ref=e108]: "11"
+                - cell "12" [ref=e109] [cursor=pointer]:
+                  - generic [ref=e111]: "12"
+              - row "13 14 15 16 17 18 19" [ref=e112]:
+                - cell "13" [ref=e113] [cursor=pointer]:
+                  - generic [ref=e115]: "13"
+                - cell "14" [ref=e116] [cursor=pointer]:
+                  - generic [ref=e118]: "14"
+                - cell "15" [ref=e119] [cursor=pointer]:
+                  - generic [ref=e121]: "15"
+                - cell "16" [ref=e122] [cursor=pointer]:
+                  - generic [ref=e124]: "16"
+                - cell "17" [ref=e125] [cursor=pointer]:
+                  - generic [ref=e127]: "17"
+                - cell "18" [ref=e128] [cursor=pointer]:
+                  - generic [ref=e130]: "18"
+                - cell "19" [ref=e131] [cursor=pointer]:
+                  - generic [ref=e133]: "19"
+              - row "20 21 22 23 24 25 26" [ref=e134]:
+                - cell "20" [ref=e135] [cursor=pointer]:
+                  - generic [ref=e137]: "20"
+                - cell "21" [ref=e138] [cursor=pointer]:
+                  - generic [ref=e140]: "21"
+                - cell "22" [ref=e141] [cursor=pointer]:
+                  - generic [ref=e143]: "22"
+                - cell "23" [ref=e144] [cursor=pointer]:
+                  - generic [ref=e146]: "23"
+                - cell "24" [ref=e147] [cursor=pointer]:
+                  - generic [ref=e149]: "24"
+                - cell "25" [ref=e150] [cursor=pointer]:
+                  - generic [ref=e152]: "25"
+                - cell "26" [ref=e153] [cursor=pointer]:
+                  - generic [ref=e155]: "26"
+              - row "27 28 29 30 31 1 2" [ref=e156]:
+                - cell "27" [ref=e157] [cursor=pointer]:
+                  - generic [ref=e159]: "27"
+                - cell "28" [ref=e160] [cursor=pointer]:
+                  - generic [ref=e162]: "28"
+                - cell "29" [ref=e163] [cursor=pointer]:
+                  - generic [ref=e165]: "29"
+                - cell "30" [ref=e166] [cursor=pointer]:
+                  - generic [ref=e168]: "30"
+                - cell "31" [ref=e169] [cursor=pointer]:
+                  - generic [ref=e171]: "31"
+                - cell "1" [ref=e172] [cursor=pointer]:
+                  - generic [ref=e174]: "1"
+                - cell "2" [ref=e175] [cursor=pointer]:
+                  - generic [ref=e177]: "2"
+              - row "3 4 5 6 7 8 9" [ref=e178]:
+                - cell "3" [ref=e179] [cursor=pointer]:
+                  - generic [ref=e181]: "3"
+                - cell "4" [ref=e182] [cursor=pointer]:
+                  - generic [ref=e184]: "4"
+                - cell "5" [ref=e185] [cursor=pointer]:
+                  - generic [ref=e187]: "5"
+                - cell "6" [ref=e188] [cursor=pointer]:
+                  - generic [ref=e190]: "6"
+                - cell "7" [ref=e191] [cursor=pointer]:
+                  - generic [ref=e193]: "7"
+                - cell "8" [ref=e194] [cursor=pointer]:
+                  - generic [ref=e196]: "8"
+                - cell "9" [ref=e197] [cursor=pointer]:
+                  - generic [ref=e199]: "9"
+      - region "Seçili gün planları" [ref=e200]:
+        - heading "27 Temmuz Pazartesi" [level=2] [ref=e201]
+        - generic [ref=e203]:
+          - img "Veri Yok" [ref=e205]
+          - generic [ref=e212]:
+            - heading "Bu gün için plan bulunmuyor" [level=2] [ref=e213]
+            - paragraph [ref=e214]: Seçili tarihte herhangi bir plan kaydı yok.
+    - paragraph [ref=e215]:
+      - link "Takvim kullanım yardımını aç" [ref=e216] [cursor=pointer]:
+        - /url: /docs
+  - navigation "Mobil ana navigasyon" [ref=e30]:
+    - link "İşler" [ref=e31] [cursor=pointer]:
+      - /url: /jobs
+    - link "Müşteriler" [ref=e32] [cursor=pointer]:
+      - /url: /customers
+      - text: Müşt.
+    - link "Ürünler" [ref=e33] [cursor=pointer]:
+      - /url: /products
+      - text: Ürün.
+    - button "Menü" [ref=e34] [cursor=pointer]

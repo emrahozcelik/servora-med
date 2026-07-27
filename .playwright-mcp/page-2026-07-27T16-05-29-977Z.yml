@@ -1,0 +1,6 @@
+- main [ref=e30]:
+  - region "Parolanız değiştirildi" [ref=e48]:
+    - paragraph [ref=e32]: Güvenli erişim
+    - heading "Parolanız değiştirildi" [level=1] [ref=e49]
+    - status [ref=e50]: Yeni parolanızla yeniden giriş yapabilirsiniz.
+    - button "Giriş ekranına dön" [ref=e51] [cursor=pointer]

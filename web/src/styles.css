@@ -2735,13 +2735,17 @@ button:disabled { cursor: wait; opacity: 0.65; }
 @media (max-width: 40rem) {
   .servora-calendar-header {
     justify-content: center;
+    gap: 0.25rem;
   }
 
   .servora-calendar-header-label {
     font-size: 0.95rem;
-    order: -1;
-    flex-basis: 100%;
+    flex: 0 1 auto;
+    min-width: 0;
     text-align: center;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 

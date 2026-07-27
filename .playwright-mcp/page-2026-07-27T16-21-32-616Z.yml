@@ -1,0 +1,30 @@
+- generic [ref=e4]:
+  - banner [ref=e5]:
+    - generic [ref=e6]:
+      - generic "Dünya Dental" [ref=e7]
+      - paragraph [ref=e8]: Takvim
+    - generic [ref=e9]:
+      - button "Bildirimler" [ref=e11] [cursor=pointer]:
+        - img [ref=e12]
+      - button "Menüyü aç" [ref=e14] [cursor=pointer]: Menü
+  - main [ref=e16]:
+    - generic [ref=e17]:
+      - heading [level=1] [ref=e18]:
+        - status [ref=e19]: Sayfa yükleniyor
+      - generic [ref=e23]:
+        - heading [level=3] [ref=e24]
+        - list [ref=e25]:
+          - listitem [ref=e26]
+          - listitem [ref=e27]
+          - listitem [ref=e28]
+          - listitem [ref=e29]
+  - navigation "Mobil ana navigasyon" [ref=e30]:
+    - link "İşler" [ref=e31] [cursor=pointer]:
+      - /url: /jobs
+    - link "Müşteriler" [ref=e32] [cursor=pointer]:
+      - /url: /customers
+      - text: Müşt.
+    - link "Ürünler" [ref=e33] [cursor=pointer]:
+      - /url: /products
+      - text: Ürün.
+    - button "Menü" [ref=e34] [cursor=pointer]

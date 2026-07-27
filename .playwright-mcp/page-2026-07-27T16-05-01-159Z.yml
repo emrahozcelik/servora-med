@@ -1,0 +1,18 @@
+- main [ref=e30]:
+  - region "Parolanızı değiştirin" [ref=e31]:
+    - paragraph [ref=e32]: İlk giriş güvenliği
+    - heading "Parolanızı değiştirin" [level=1] [ref=e33]
+    - paragraph [ref=e34]: Demo Staff, devam etmek için size verilen geçici parolayı yenileyin.
+    - generic [ref=e35]:
+      - generic [ref=e36]:
+        - generic [ref=e37]: Mevcut parola
+        - textbox "Mevcut parola" [ref=e38]
+      - generic [ref=e39]:
+        - generic [ref=e40]: Yeni parola
+        - textbox "Yeni parola" [ref=e41]
+        - paragraph [ref=e42]: En az 12, en fazla 128 karakter.
+      - generic [ref=e43]:
+        - generic [ref=e44]: Yeni parolayı doğrulayın
+        - textbox "Yeni parolayı doğrulayın" [ref=e45]
+      - button "Parolayı değiştir" [ref=e46] [cursor=pointer]
+      - button "Oturumu kapat" [ref=e47] [cursor=pointer]
