@@ -26,8 +26,16 @@
   /* Shared raised elevation for Ant bridge and native .surface-raised. */
   --shadow-raised: 0 8px 24px rgba(30, 37, 43, 0.12);
 
-[data-palette="a"] {
-  /* Candidate A: Warm Professional */
+  color: var(--ink);
+  /* Document fallback between paper and canvas; body content uses --paper. */
+  background: oklch(97.5% 0.006 235deg);
+  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+/* ── Palette Candidate A: Warm Professional ── */
+html[data-palette="a"] {
   --ink: oklch(27% 0.012 260deg);
   --muted: oklch(48% 0.015 260deg);
   --paper: oklch(99% 0.003 90deg);
@@ -47,8 +55,8 @@
   --error-soft: oklch(95.5% 0.022 25deg);
 }
 
-[data-palette="b"] {
-  /* Candidate B: Clinical Cool */
+/* ── Palette Candidate B: Clinical Cool ── */
+html[data-palette="b"] {
   --ink: oklch(23% 0.018 250deg);
   --muted: oklch(44% 0.02 250deg);
   --paper: oklch(99% 0.002 245deg);
@@ -66,14 +74,6 @@
   --warning-soft: oklch(94% 0.028 78deg);
   --error: oklch(36% 0.16 28deg);
   --error-soft: oklch(94% 0.028 28deg);
-}
-
-  color: var(--ink);
-  /* Document fallback between paper and canvas; body content uses --paper. */
-  background: oklch(97.5% 0.006 235deg);
-  font-family: Inter, ui-sans-serif, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-  font-synthesis: none;
-  text-rendering: optimizeLegibility;
 }
 
 * { box-sizing: border-box; }
