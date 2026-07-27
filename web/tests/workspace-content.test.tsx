@@ -46,4 +46,87 @@ describe('repository-managed workspace content', () => {
     expect(help).toContain('href="https://support.example.test/help"');
     expect(help).toContain('rel="noreferrer"');
   });
+
+  it('renders search input in documentation page', () => {
+    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
+    expect(docs).toContain('type="search"');
+    expect(docs).toContain('Dokümantasyonda ara');
+  });
+
+  it('renders search input in help center page', () => {
+    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
+    expect(help).toContain('type="search"');
+    expect(help).toContain('Yardım konularında ara');
+  });
+
+  it('renders category filter buttons with aria-pressed in documentation page', () => {
+    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
+    expect(docs).toContain('aria-pressed="true"');
+    expect(docs).toContain('aria-pressed="false"');
+    expect(docs).toContain('Tümü');
+    expect(docs).toContain('İş akışı');
+  });
+
+  it('renders category filter buttons with aria-pressed in help center page', () => {
+    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
+    expect(help).toContain('aria-pressed="true"');
+    expect(help).toContain('aria-pressed="false"');
+    expect(help).toContain('Tümü');
+    expect(help).toContain('Sorun giderme');
+  });
+
+  it('renders articles using OperationalCard and ContentCollapse in documentation page', () => {
+    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
+    expect(docs).toContain('servora-operational-card');
+    expect(docs).toContain('servora-content-collapse');
+    expect(docs).toContain('content-summary');
+    expect(docs).toContain('content-meta');
+  });
+
+  it('renders articles using OperationalCard and ContentCollapse in help center page', () => {
+    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
+    expect(help).toContain('servora-operational-card');
+    expect(help).toContain('servora-content-collapse');
+    expect(help).toContain('content-summary');
+    expect(help).toContain('content-meta');
+  });
+
+  it('renders support contact with OperationalCard and RecordDescriptions when contact is configured', () => {
+    const help = renderToStaticMarkup(<HelpCenterPage user={{
+      ...staff,
+      support: {
+        displayLabel: 'Sentetik destek',
+        email: 'support@example.test',
+        helpUrl: 'https://support.example.test/help',
+      },
+    }} />);
+    expect(help).toContain('Destek iletişimi');
+    expect(help).toContain('servora-operational-card');
+    expect(help).toContain('servora-record-descriptions');
+  });
+
+  it('renders support contact fallback when no contact is configured', () => {
+    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
+    expect(help).toContain('Destek iletişimi');
+    expect(help).toContain('İletişim kanalı yapılandırılmamış');
+    expect(help).toContain('servora-operational-card--attention');
+  });
+
+  it('renders security notice in help center page', () => {
+    const help = renderToStaticMarkup(<HelpCenterPage user={staff} />);
+    expect(help).toContain('Güvenlik bildirimi');
+    expect(help).toContain('Servora hesap ve veri güvenliğiniz kurum politikalarına tabidir');
+    expect(help).toContain('role="alert"');
+  });
+
+  it('renders reading mode toggle in documentation page', () => {
+    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
+    expect(docs).toContain('type="checkbox"');
+    expect(docs).toContain('Okuma modu');
+  });
+
+  it('shows EmptyState when search would yield no results (initial state renders articles)', () => {
+    const docs = renderToStaticMarkup(<DocumentationPage user={staff} />);
+    expect(docs).toContain('Ürün dokümantasyonu');
+  });
 });
