@@ -3142,3 +3142,85 @@ button:disabled { cursor: wait; opacity: 0.65; }
     padding: 0.1rem 0.2rem;
   }
 }
+
+/* ── Workspace adapters ── */
+
+.servora-metric-statistic {
+  background: var(--paper);
+  border-radius: var(--radius-raised);
+  padding: 1rem;
+}
+.servora-metric-statistic .ant-statistic-title {
+  color: var(--muted);
+  font-size: 0.8125rem;
+  font-weight: 600;
+}
+.servora-metric-statistic .ant-statistic-content {
+  color: var(--ink);
+  font-weight: 720;
+}
+.servora-metric-statistic--attention {
+  border-left: 3px solid var(--warning);
+}
+.servora-metric-statistic--attention .ant-statistic-content {
+  color: var(--warning);
+}
+.servora-metric-statistic--success {
+  border-left: 3px solid var(--success);
+}
+.servora-metric-statistic--success .ant-statistic-content {
+  color: var(--success);
+}
+.servora-metric-statistic--warning {
+  border-left: 3px solid var(--warning);
+}
+.servora-metric-statistic--warning .ant-statistic-content {
+  color: var(--warning);
+}
+
+.servora-user-avatar {
+  flex-shrink: 0;
+}
+
+.servora-content-collapse {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-raised);
+  overflow: hidden;
+}
+.servora-content-collapse .servora-ant-collapse-item {
+  border-bottom: 1px solid var(--rule);
+}
+.servora-content-collapse .servora-ant-collapse-item:last-child {
+  border-bottom: none;
+}
+.servora-content-collapse .servora-ant-collapse-header {
+  color: var(--ink);
+  font-weight: 640;
+}
+.servora-content-collapse .servora-ant-collapse-content {
+  border-top: 1px solid var(--rule);
+}
+
+.servora-content-anchor a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.servora-content-anchor a:hover {
+  color: var(--accent);
+}
+.servora-content-anchor .servora-ant-anchor-link-active > a {
+  color: var(--accent);
+  font-weight: 640;
+}
+
+.servora-settings-tabs .servora-ant-tabs-nav::before {
+  border-bottom-color: var(--rule);
+}
+.servora-settings-tabs .servora-ant-tabs-tab a {
+  color: var(--muted);
+  text-decoration: none;
+}
+.servora-settings-tabs .servora-ant-tabs-tab-active a {
+  color: var(--accent);
+  font-weight: 640;
+}
