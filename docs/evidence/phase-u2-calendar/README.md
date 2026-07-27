@@ -1,7 +1,7 @@
 # Phase U2 — Calendar Runtime Visual Evidence (Repair)
 
-**Capture code SHA:** `9386c0a1e7b33d8318e77eb0f341afea85cd76fd`
-**PR head:** `9386c0a1e7b33d8318e77eb0f341afea85cd76fd`
+**Capture code SHA:** `ed43c94...`
+**PR head:** `ed43c94...`
 **Date:** 2026-07-27
 **Browser:** Playwright (Chromium) + Chrome DevTools against real running backend
 **Data:** Synthetic — all users (`@servora.local`), events, and assignees are disposable test data
@@ -52,7 +52,7 @@ Verified at 390px viewport with 200% text resize:
 - **Bundle check:** OK (44 chunks, all under 500KB)
 - **Audit:** PASS_WITH_WAIVER
 - **smoke:responsive:** OK (all viewports including 200% text, 400% WCAG reflow)
-- **Exact-head CI:** Web ✅ (build, test, bundle, smoke, audit all passed), Server ⚠️ (Docker pull failure — GitHub infrastructure, not code)
+- **Exact-head CI:** Web ✅, Server ✅ (head ed43c94)
 
 ## Visual-verifier verdict: PASS
 
