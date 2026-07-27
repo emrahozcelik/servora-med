@@ -2700,6 +2700,40 @@ button:disabled { cursor: wait; opacity: 0.65; }
   margin: 0 0 0.5rem;
 }
 
+
+/* ── Calendar custom header ── */
+
+.servora-calendar-header {
+  align-items: center;
+  display: flex;
+  gap: 0.5rem;
+  padding: 0.5rem 0;
+  flex-wrap: wrap;
+}
+
+.servora-calendar-header-label {
+  font-size: 1.1rem;
+  font-weight: 700;
+  margin: 0 0.5rem;
+  flex: 1 1 auto;
+  min-width: 0;
+  white-space: nowrap;
+  text-align: center;
+}
+
+@media (max-width: 40rem) {
+  .servora-calendar-header {
+    justify-content: center;
+  }
+
+  .servora-calendar-header-label {
+    font-size: 0.95rem;
+    order: -1;
+    flex-basis: 100%;
+    text-align: center;
+  }
+}
+
 /* ── ServoraCalendar adapter cell classes ── */
 
 .servora-calendar .ant-picker-calendar {
@@ -2808,32 +2842,72 @@ button:disabled { cursor: wait; opacity: 0.65; }
   padding: 0 0.25rem;
 }
 
-/* ── Agenda event list ── */
 
-.calendar-list {
+/* ── OperationalCard adapter styles ── */
+
+.servora-operational-card {
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-raised);
+}
+
+.servora-operational-card .ant-card-head {
+  border-bottom: none;
+  min-height: auto;
+  padding: 0.5rem 0.75rem;
+}
+
+.servora-operational-card .ant-card-body {
+  padding: 0.75rem;
+}
+
+.servora-operational-card .ant-card-actions {
   border-top: 1px solid var(--rule);
-  display: grid;
+  padding: 0.5rem 0.75rem;
 }
 
-.calendar-event {
-  align-items: start;
-  border-bottom: 1px solid var(--rule);
-  display: grid;
-  gap: 1rem;
-  grid-template-columns: minmax(0, 1fr) auto;
-  padding: 1rem 0;
+.servora-operational-card .ant-card-actions > li {
+  margin: 0;
 }
 
-.calendar-event--selected {
+.servora-operational-card--selected {
   border-color: var(--accent);
-  box-shadow: 0 0 0 3px var(--info-soft);
+  box-shadow: 0 0 0 2px var(--info-soft);
 }
 
-.calendar-event h3,
-.calendar-event p {
-  margin: 0.35rem 0 0;
+/* Calendar event card inside agenda */
+.calendar-event-card {
+  margin-bottom: 0;
+}
+
+.calendar-event-card h3 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0.5rem 0 0.25rem;
   overflow-wrap: anywhere;
 }
+
+.calendar-event-card p {
+  margin: 0.2rem 0 0;
+  color: var(--muted);
+  font-size: 0.85rem;
+  overflow-wrap: anywhere;
+}
+
+.calendar-event-card .calendar-event-time {
+  font-variant-numeric: tabular-nums;
+}
+
+.calendar-event-card .form-error {
+  margin-top: 0.5rem;
+}
+
+/* Agenda list spacing */
+.calendar-list {
+  display: grid;
+  gap: 0.75rem;
+}
+
+/* ── Agenda source badges ── */
 
 .calendar-source {
   border: 1px solid var(--rule);
@@ -2861,6 +2935,101 @@ button:disabled { cursor: wait; opacity: 0.65; }
   gap: 0.75rem;
 }
 
+/* ── Form (inside drawer) ── */
+
+.calendar-form {
+  display: grid;
+  gap: 1rem;
+}
+
+.calendar-form-times > * {
+  flex: 1 1 14rem;
+}
+
+.calendar-help {
+  margin: 0;
+}
+
+/* ── Form drawer ── */
+
+.form-drawer-root {
+  display: contents;
+}
+
+.form-drawer-backdrop {
+  background: oklch(0% 0 0deg / 0.35);
+  border: none;
+  inset: 0;
+  min-height: 0;
+  position: fixed;
+  width: 100%;
+  z-index: 100;
+}
+
+.form-drawer {
+  background: var(--paper);
+  bottom: 0;
+  box-shadow: var(--shadow-raised);
+  display: grid;
+  gap: 1rem;
+  grid-template-rows: auto 1fr;
+  max-height: 100dvh;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 1rem;
+  position: fixed;
+  right: 0;
+  top: 0;
+  width: min(30rem, 90vw);
+  z-index: 101;
+}
+
+.form-drawer-header {
+  align-items: center;
+  border-bottom: 1px solid var(--rule);
+  display: flex;
+  justify-content: space-between;
+  padding-bottom: 0.75rem;
+}
+
+.form-drawer-header h2 {
+  font-size: 1.15rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.form-drawer-body {
+  min-height: 0;
+}
+
+/* Mobile: near-full-width drawer */
+@media (max-width: 40rem) {
+  .form-drawer {
+    width: min(100vw, 30rem);
+    max-height: 90dvh;
+    border-radius: 0.75rem 0.75rem 0 0;
+    bottom: 0;
+    top: auto;
+  }
+
+  .calendar-form-times > * {
+    width: 100%;
+  }
+}
+
+/* Agenda compact */
+@media (max-width: 40rem) {
+  .calendar-toolbar > *,
+  .calendar-toolbar label,
+  .calendar-event-actions > *,
+  .calendar-form-times > * {
+    width: 100%;
+  }
+
+  .servora-calendar-cell {
+    min-height: 3.2rem;
+  }
+}
 /* ── Form (inside drawer) ── */
 
 .calendar-form {

@@ -18,6 +18,7 @@ import {
 } from '../services/calendar-api';
 import { EmptyState } from '../ui/antd/EmptyState';
 import { LoadingSkeleton } from '../ui/antd/LoadingSkeleton';
+import { OperationalCard } from '../ui/antd/OperationalCard';
 import { ReasonDialog } from '../ui/antd/ReasonDialog';
 import { ResponsiveFormDrawer } from '../ui/antd/ResponsiveFormDrawer';
 import { ResultState } from '../ui/antd/ResultState';
@@ -221,7 +222,7 @@ function EventForm({
   );
 }
 
-// ── EventItem (agenda) ──
+// ── EventItem (agenda card) ──
 
 function EventItem({
   event,
@@ -261,36 +262,45 @@ function EventItem({
     }
   };
 
+  const sourceLabel = event.source === 'JOB' ? 'İŞ' : 'KİŞİSEL PLAN';
+  const timeText = new Date(event.startsAt).toLocaleString('tr-TR')
+    + (event.endsAt
+      ? ` – ${new Date(event.endsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
+      : '');
+
+  const actionBar = (
+    <div className="calendar-event-actions">
+      {event.source === 'JOB' && <Link to={event.relatedJobPath}>İşi aç</Link>}
+      {event.canEdit && <button type="button" className="secondary-button" onClick={onEdit}>Düzenle</button>}
+      {event.canCancel && (
+        <button
+          ref={cancelBtnRef}
+          type="button"
+          className="destructive-button"
+          onClick={() => setCancelOpen(true)}
+        >
+          İptal et
+        </button>
+      )}
+    </div>
+  );
+
   return (
     <>
-      <article
-        className={`calendar-event${selected ? ' calendar-event--selected' : ''}`}
-        aria-current={selected ? 'true' : undefined}
-      >
-        <div>
+      <article aria-current={selected ? 'true' : undefined}>
+        <OperationalCard
+          tone={selected ? 'selected' : 'default'}
+          actions={actionBar}
+          className="calendar-event-card"
+        >
           <span className={`calendar-source calendar-source--${event.source.toLowerCase()}`}>
-            {event.source === 'JOB' ? 'İŞ' : 'KİŞİSEL PLAN'}
+            {sourceLabel}
           </span>
           <h3>{event.title}</h3>
-          <p>{new Date(event.startsAt).toLocaleString('tr-TR')}
-            {event.endsAt ? ` – ${new Date(event.endsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}` : ''}</p>
+          <p className="calendar-event-time">{timeText}</p>
           <p>{event.assignedUser.name}</p>
-        </div>
-        <div className="calendar-event-actions">
-          {event.source === 'JOB' && <Link to={event.relatedJobPath}>İşi aç</Link>}
-          {event.canEdit && <button type="button" className="secondary-button" onClick={onEdit}>Düzenle</button>}
-          {event.canCancel && (
-            <button
-              ref={cancelBtnRef}
-              type="button"
-              className="destructive-button"
-              onClick={() => setCancelOpen(true)}
-            >
-              İptal et
-            </button>
-          )}
-        </div>
-        {error && <p className="form-error" role="alert">{error}</p>}
+          {error && <p className="form-error" role="alert">{error}</p>}
+        </OperationalCard>
       </article>
 
       <ReasonDialog
