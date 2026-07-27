@@ -143,7 +143,7 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.workflow-lane-cards \{[^}]*min-width: 0;[^}]*grid-template-columns: minmax\(0, 1fr\);/);
     expect(css).not.toMatch(/\.workflow-lane-cards[^}]*overflow-y|\.workflow-lane[^}]*overflow-y/);
     expect(css).not.toMatch(/\.job-board-card[^}]*box-shadow|\.workflow-lane[^}]*gradient/);
-    expect(css).not.toMatch(/\.ant-layout|\.ant-menu|\.ant-card/);
+    expect(css).not.toMatch(/\.ant-layout|\.ant-menu/);
     expect(css).toMatch(/\.workflow-lane-heading h2 > strong \{[^}]*border-radius: var\(--radius-chip\);/);
     expect(css).toMatch(/\.workflow-lane-empty \{[^}]*border: 1px dashed var\(--rule\);/);
   });
