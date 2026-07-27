@@ -2611,7 +2611,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   color: var(--ink);
   background: var(--paper);
 }
-.content-search input:hover { border-color: oklch(60% 0.03 240deg); }
+.content-search input:hover { border-color: var(--accent); }
 .content-search input:focus { border-color: var(--accent); }
 
 .content-categories {
@@ -2634,12 +2634,12 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .content-categories button:hover {
   color: var(--ink);
   background: var(--canvas);
-  border-color: oklch(72% 0.018 240deg);
+  border-color: var(--accent);
 }
 .content-categories button[aria-pressed="true"] {
   color: var(--accent-hover);
   background: var(--accent-soft);
-  border-color: oklch(78% 0.04 238deg);
+  border-color: var(--accent);
   font-weight: 760;
 }
 
@@ -2701,16 +2701,19 @@ button:disabled { cursor: wait; opacity: 0.65; }
   min-width: 0;
 }
 
-.content-reading-mode .content-list article {
+.content-article--with-anchor {
   display: grid;
-  grid-template-columns: minmax(12rem, 1fr) minmax(0, 3fr);
+  grid-template-columns: minmax(12rem, 16rem) minmax(0, 1fr);
   gap: 1.5rem;
   align-items: start;
 }
-.content-reading-mode .content-anchor-sidebar {
+.content-article--with-anchor .content-anchor-sidebar {
   position: sticky;
   top: 5rem;
   align-self: start;
+}
+.content-article--with-anchor .content-article-body {
+  min-width: 0;
 }
 
 .content-security-notice {
@@ -2739,7 +2742,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .settings-card-grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1rem; }
 .settings-card-link { color: inherit; text-decoration: none; }
 .settings-card-link .servora-operational-card { height: 100%; }
-.settings-card-link:hover .servora-operational-card { border-color: var(--accent); box-shadow: 0 2px 12px oklch(41% 0.13 242deg / 0.12); }
+.settings-card-link:hover .servora-operational-card { border-color: var(--accent); box-shadow: var(--shadow-raised); }
 .settings-card-grid small { color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
 .settings-panel { display: grid; gap: 1rem; max-width: 44rem; }
 .settings-form-panel form { display: grid; gap: 1rem; max-width: 32rem; }
@@ -2770,10 +2773,10 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 
 @media (max-width: 48rem) {
-  .content-reading-mode .content-list article {
+  .content-article--with-anchor {
     grid-template-columns: 1fr;
   }
-  .content-reading-mode .content-anchor-sidebar {
+  .content-article--with-anchor .content-anchor-sidebar {
     position: static;
   }
   .overview-kpis {

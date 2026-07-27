@@ -1,15 +1,17 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { CurrentUser } from '../services/api';
 import { ContentCollapse, ContentAnchor, EmptyState, OperationalCard } from '../ui/antd';
 import type { ContentAnchorItem } from '../ui/antd';
 import { productDocumentation, type WorkspaceContent } from './workspace-content';
 
 const ALL_CATEGORIES = 'Tümü';
+const ANCHOR_MIN_SECTIONS = 2;
 
 export function DocumentationPage({ user }: { user: CurrentUser }) {
   const [search, setSearch] = useState('');
   const [activeCategory, setActiveCategory] = useState(ALL_CATEGORIES);
   const [readingMode, setReadingMode] = useState(false);
+  const [expandedKeys, setExpandedKeys] = useState<string[]>([]);
 
   const articles = useMemo(() => {
     return productDocumentation.filter((a) => a.audience.includes(user.role));
@@ -43,6 +45,13 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
     return result;
   }, [articles, search, activeCategory]);
 
+  const handleReadingMode = useCallback((checked: boolean) => {
+    setReadingMode(checked);
+    if (!checked) {
+      setExpandedKeys([]);
+    }
+  }, []);
+
   const anchorItems = (article: WorkspaceContent): ContentAnchorItem[] =>
     article.sections.map((s) => ({
       key: `${article.id}-${s.heading}`,
@@ -51,7 +60,7 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
     }));
 
   return (
-    <main className={`workspace content-workspace${readingMode ? ' content-reading-mode' : ''}`}>
+    <main className="workspace content-workspace">
       <header className="workspace-heading">
         <div>
           <p className="eyebrow">Dokümantasyon</p>
@@ -88,7 +97,7 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
           <input
             type="checkbox"
             checked={readingMode}
-            onChange={(e) => setReadingMode(e.target.checked)}
+            onChange={(e) => handleReadingMode(e.target.checked)}
           />
           {' '}Okuma modu (tüm bölümler açık)
         </label>
@@ -102,10 +111,17 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
       ) : (
         <div className="content-list">
           {filteredArticles.map((article) => {
-            const anchors = article.sections.length >= 3 ? anchorItems(article) : null;
+            const hasAnchor = readingMode && article.sections.length >= ANCHOR_MIN_SECTIONS;
+            const anchors = hasAnchor ? anchorItems(article) : null;
+            const sectionKeys = article.sections.map((s) => s.heading);
+            const activeKey = readingMode ? sectionKeys : expandedKeys;
             return (
-              <article key={article.id} id={article.id}>
-                {readingMode && anchors && (
+              <article
+                key={article.id}
+                id={article.id}
+                className={hasAnchor ? 'content-article--with-anchor' : undefined}
+              >
+                {anchors && (
                   <aside className="content-anchor-sidebar">
                     <ContentAnchor
                       items={anchors}
@@ -113,24 +129,27 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
                     />
                   </aside>
                 )}
-                <OperationalCard title={article.title}>
-                  <p className="content-summary">{article.summary}</p>
-                  <small className="content-meta">{article.updatedLabel} · {article.category}</small>
-                  <ContentCollapse
-                    defaultActiveKey={readingMode ? article.sections.map((s) => s.heading) : undefined}
-                    items={article.sections.map((s) => ({
-                      key: s.heading,
-                      label: s.heading,
-                      children: (
-                        <div id={`${article.id}-${encodeURIComponent(s.heading)}`}>
-                          {s.paragraphs.map((p) => (
-                            <p key={p.slice(0, 20)} className="content-paragraph">{p}</p>
-                          ))}
-                        </div>
-                      ),
-                    }))}
-                  />
-                </OperationalCard>
+                <div className="content-article-body">
+                  <OperationalCard title={article.title}>
+                    <p className="content-summary">{article.summary}</p>
+                    <small className="content-meta">{article.updatedLabel} · {article.category}</small>
+                    <ContentCollapse
+                      activeKey={activeKey}
+                      onChange={readingMode ? undefined : setExpandedKeys}
+                      items={article.sections.map((s) => ({
+                        key: s.heading,
+                        label: s.heading,
+                        children: (
+                          <div id={`${article.id}-${encodeURIComponent(s.heading)}`}>
+                            {s.paragraphs.map((p) => (
+                              <p key={p.slice(0, 20)} className="content-paragraph">{p}</p>
+                            ))}
+                          </div>
+                        ),
+                      }))}
+                    />
+                  </OperationalCard>
+                </div>
               </article>
             );
           })}

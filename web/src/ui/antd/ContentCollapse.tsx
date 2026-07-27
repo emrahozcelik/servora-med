@@ -10,6 +10,8 @@ export type ContentCollapseItem = {
 export type ContentCollapseProps = {
   items: ContentCollapseItem[];
   defaultActiveKey?: string[];
+  activeKey?: string[];
+  onChange?: (keys: string[]) => void;
   accordion?: boolean;
   ariaLabel?: string;
 };
@@ -17,6 +19,8 @@ export type ContentCollapseProps = {
 export function ContentCollapse({
   items,
   defaultActiveKey,
+  activeKey,
+  onChange,
   accordion = false,
   ariaLabel,
 }: ContentCollapseProps): ReactNode {
@@ -24,7 +28,9 @@ export function ContentCollapse({
     <Collapse
       className="servora-content-collapse"
       items={items}
-      defaultActiveKey={defaultActiveKey}
+      defaultActiveKey={activeKey !== undefined ? undefined : defaultActiveKey}
+      activeKey={activeKey}
+      onChange={onChange as (keys: string | string[]) => void}
       accordion={accordion}
       aria-label={ariaLabel}
     />
