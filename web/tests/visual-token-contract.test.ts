@@ -78,7 +78,7 @@ describe('Servora visual token contract', () => {
     for (const variable of SERVORA_REQUIRED_CSS_VARIABLES) {
       const values = declarationsForVariable(stylesCss, variable);
       if (colorVariables.has(variable)) {
-        expect(values, variable).toHaveLength(3);
+        expect(values, variable).toHaveLength(1);
         expect(values[0], variable).toBeTruthy();
       } else {
         expect(values, variable).toHaveLength(1);
@@ -93,12 +93,11 @@ describe('Servora visual token contract', () => {
     expect(stylesCss).toMatch(/var\(--ink\)/);
     expect(stylesCss).toMatch(/var\(--paper\)/);
     expect(stylesCss).toMatch(/var\(--focus\)/);
-    expect(declarationsForVariable(stylesCss, '--ink')).toHaveLength(3);
-    expect(declarationsForVariable(stylesCss, '--paper')).toHaveLength(3);
-    expect(declarationsForVariable(stylesCss, '--focus')).toHaveLength(3);
-    // var() usage count is higher than declaration count (declarations come from :root + palettes).
+    expect(declarationsForVariable(stylesCss, '--ink')).toHaveLength(1);
+    expect(declarationsForVariable(stylesCss, '--paper')).toHaveLength(1);
+    expect(declarationsForVariable(stylesCss, '--focus')).toHaveLength(1);
     const varInkCount = (stylesCss.match(/var\(--ink\)/g) ?? []).length;
-    expect(varInkCount).toBeGreaterThan(3);
+    expect(varInkCount).toBeGreaterThan(1);
   });
 
   it('keeps CSS :root block values aligned with the TypeScript token contract', () => {

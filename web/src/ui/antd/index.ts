@@ -4,7 +4,6 @@ export {
   ServoraAntProvider,
 } from './ServoraAntProvider';
 export {
-  getServoraAntTheme,
   servoraAntSemanticBackgrounds,
   servoraAntTheme,
 } from './servora-ant-theme';
