@@ -109,7 +109,7 @@ describe('responsive authenticated AppShell', () => {
   it('uses Menü bottom control as a button that opens overflow drawer and restores focus', async () => {
     await render(manager, false);
     const bottom = container.querySelector('.mobile-bottom-nav')!;
-    expect(bottom.textContent).toContain('Raporlar');
+    expect(bottom.textContent).toContain('Rapor');
     const menu = Array.from(bottom.querySelectorAll('button')).find((b) => b.textContent === 'Menü')!;
     expect(menu.tagName).toBe('BUTTON');
     expect(menu.getAttribute('aria-controls')).toBe('app-navigation-drawer');

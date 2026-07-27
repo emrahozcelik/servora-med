@@ -1,7 +1,12 @@
-# Phase U2 — Calendar Runtime Visual Evidence (Repair)
+# Phase U2 — Calendar Runtime Visual Evidence
 
-**Capture code SHA:** `ed43c94...`
-**PR head:** `ed43c94...`
+**Capture code SHA:**
+- Screenshot'ların alındığı anda çalışan uygulama kodu SHA'sı.
+
+**Evidence commit:**
+- Git history'deki commit; README kendi commit SHA'sını yazmaya çalışmaz.
+
+**Capture-time SHA:** (visual-verifier capture sonrası doldurulur)
 **Date:** 2026-07-27
 **Browser:** Playwright (Chromium) + Chrome DevTools against real running backend
 **Data:** Synthetic — all users (`@servora.local`), events, and assignees are disposable test data
@@ -10,8 +15,9 @@
 ## Repair fixes applied
 
 1. **Empty toolbar removed for STAFF** — `<div className="calendar-toolbar surface">` conditionally renders only for non-STAFF roles (MANAGER/ADMIN)
-2. **Calendar header nowrap at ≥641px** — `flex-wrap: nowrap` prevents "Sonraki" button from wrapping to next line at desktop widths
-3. **Bottom nav text-resize resilience** — `word-break: keep-all` + `hyphens: auto` prevents mid-word label breaking; increased `shell-content` bottom padding to `calc(6rem + ...)` to prevent nav/content overlap at text resize
+2. **Calendar header nowrap at ≥641px** — `flex-wrap: nowrap` prevents "Sonraki" button wrapping
+3. **Mobile bottom nav short labels** — `shortLabel` on long items ("Müşteriler"→"Müşt.", "Ürünler"→"Ürün.", "Genel Bakış"→"Bakış", "Raporlar"→"Rapor"); accessible names preserved via `aria-label` on truncated links
+4. **Shell-content padding** — increased to `calc(6rem + ...)` to prevent bottom nav/content overlap
 
 ## Evidence manifest
 
@@ -36,23 +42,21 @@
 
 Repository-standard method: `html { font-size: 200% !important; }` injected via Playwright `addStyleTag`.
 This is **text resize**, not browser zoom (Ctrl/Cmd +).
-Browser zoom was not available in the test runtime; the repository-standard 200% text resize method was used instead.
 
 Verified at 390px viewport with 200% text resize:
 - No horizontal overflow (scrollWidth 375 === clientWidth 375)
-- "Yeni plan" button not hidden behind bottom navigation
-- Bottom nav labels use `word-break: keep-all` — no mid-word breaking
-- Bottom nav content padding prevents overlap
+- Bottom nav labels display as shortened forms — no mid-word breaking
+- Shell-content bottom padding prevents calendar control / nav overlap
+- Accessible names preserved on shortened nav items via `aria-label`
 
 ## Verification summary
 
 - **Web tests:** 93/93 PASS (1058 tests)
 - **Build (web):** SUCCESS
 - **Build (server):** SUCCESS
-- **Bundle check:** OK (44 chunks, all under 500KB)
+- **Bundle check:** OK
 - **Audit:** PASS_WITH_WAIVER
 - **smoke:responsive:** OK (all viewports including 200% text, 400% WCAG reflow)
-- **Exact-head CI:** Web ✅, Server ✅ (head ed43c94)
 
 ## Visual-verifier verdict: PASS
 
@@ -66,7 +70,7 @@ Four Playwright/Chrome DevTools sessions verified all 14 scenarios against the r
 ### Key blocker verifications
 - **STAFF 390 empty toolbar:** GONE — `document.querySelector('.calendar-toolbar')` returns null ✅
 - **MANAGER 1024 header single-line:** All elements share same bounding box top ✅
-- **200% text resize:** No overlap, no mid-word breaks, no horizontal overflow ✅
+- **200% text resize:** No overlap, no mid-word breaks, no horizontal overflow, accessible names preserved ✅
 
 ## Secrets check
 

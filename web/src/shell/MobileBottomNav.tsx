@@ -35,6 +35,8 @@ export function MobileBottomNav({
             </button>
           );
         }
+        const visible = item.shortLabel ?? item.label;
+        const hasShort = item.shortLabel !== undefined && item.shortLabel !== item.label;
         return (
           <NavLink
             key={item.id}
@@ -42,8 +44,9 @@ export function MobileBottomNav({
             className={({ isActive }) =>
               `mobile-bottom-nav-item${isActive ? ' mobile-bottom-nav-item--active' : ''}`
             }
+            aria-label={hasShort ? item.label : undefined}
           >
-            {item.label}
+            {visible}
           </NavLink>
         );
       })}
