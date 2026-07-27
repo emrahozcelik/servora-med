@@ -6,7 +6,7 @@
 **Evidence commit:**
 - Git history'deki commit; README kendi commit SHA'sını yazmaya çalışmaz.
 
-**Capture-time SHA:** (visual-verifier capture sonrası doldurulur)
+**Capture-time SHA:** `fcc310bcf8225f8418b6e83e8ad6328e8ba5ef33`
 **Date:** 2026-07-27
 **Browser:** Playwright (Chromium) + Chrome DevTools against real running backend
 **Data:** Synthetic — all users (`@servora.local`), events, and assignees are disposable test data
@@ -15,9 +15,10 @@
 ## Repair fixes applied
 
 1. **Empty toolbar removed for STAFF** — `<div className="calendar-toolbar surface">` conditionally renders only for non-STAFF roles (MANAGER/ADMIN)
-2. **Calendar header nowrap at ≥641px** — `flex-wrap: nowrap` prevents "Sonraki" button wrapping
-3. **Mobile bottom nav short labels** — `shortLabel` on long items ("Müşteriler"→"Müşt.", "Ürünler"→"Ürün.", "Genel Bakış"→"Bakış", "Raporlar"→"Rapor"); accessible names preserved via `aria-label` on truncated links
-4. **Shell-content padding** — increased to `calc(6rem + ...)` to prevent bottom nav/content overlap
+2. **Calendar header nowrap at all viewports** — `flex-wrap: nowrap` + `min-width: 0` on children keeps prev/today/next on single row
+3. **Compact prev/next arrows** — `‹` / `›` instead of `‹ Önceki` / `Sonraki ›` in compact mode; `aria-label` preserves accessible names
+4. **Mobile bottom nav short labels** — `shortLabel` on long items ("Müşteriler"→"Müşt.", "Ürünler"→"Ürün.", "Genel Bakış"→"Bakış", "Raporlar"→"Rapor"); accessible names preserved via `aria-label`
+5. **Shell-content padding** — increased to `calc(8rem + ...)` for text-resize clearance
 
 ## Evidence manifest
 
@@ -45,9 +46,10 @@ This is **text resize**, not browser zoom (Ctrl/Cmd +).
 
 Verified at 390px viewport with 200% text resize:
 - No horizontal overflow (scrollWidth 375 === clientWidth 375)
-- Bottom nav labels display as shortened forms — no mid-word breaking
-- Shell-content bottom padding prevents calendar control / nav overlap
+- Bottom nav labels display as shortened forms ("Müşt.", "Ürün.") — no mid-word breaking
+- Calendar header stays single-row (flex-wrap: nowrap, min-width: 0) — no control overlap with nav
 - Accessible names preserved on shortened nav items via `aria-label`
+- Clear 4px gap between header button bottom and nav top
 
 ## Verification summary
 
@@ -57,6 +59,7 @@ Verified at 390px viewport with 200% text resize:
 - **Bundle check:** OK
 - **Audit:** PASS_WITH_WAIVER
 - **smoke:responsive:** OK (all viewports including 200% text, 400% WCAG reflow)
+- **Capture-code CI:** PENDING (check via gh pr checks 74 after push)
 
 ## Visual-verifier verdict: PASS
 
@@ -70,7 +73,8 @@ Four Playwright/Chrome DevTools sessions verified all 14 scenarios against the r
 ### Key blocker verifications
 - **STAFF 390 empty toolbar:** GONE — `document.querySelector('.calendar-toolbar')` returns null ✅
 - **MANAGER 1024 header single-line:** All elements share same bounding box top ✅
-- **200% text resize:** No overlap, no mid-word breaks, no horizontal overflow, accessible names preserved ✅
+- **200% text resize:** No overlap (4px gap), no mid-word breaks, no horizontal overflow, accessible names preserved ✅
+- **Calendar header nowrap:** Single row at all viewports including 200% text resize ✅
 
 ## Secrets check
 
