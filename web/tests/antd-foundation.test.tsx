@@ -193,9 +193,9 @@ describe('Servora Ant Design foundation', () => {
 
   it('derives reduced motion without mutating the canonical theme', () => {
     const baseToken = { ...servoraAntTheme.token };
-    const reducedMotionTheme = getServoraAntTheme(true);
+    const reducedMotionTheme = getServoraAntTheme({ reducedMotion: true });
 
-    expect(getServoraAntTheme(false)).toBe(servoraAntTheme);
+    expect(getServoraAntTheme({ reducedMotion: false })).toBe(servoraAntTheme);
     expect(reducedMotionTheme).not.toBe(servoraAntTheme);
     expect(reducedMotionTheme.token?.motion).toBe(false);
     expect(servoraAntTheme.token).toEqual(baseToken);

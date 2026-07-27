@@ -26,6 +26,48 @@
   /* Shared raised elevation for Ant bridge and native .surface-raised. */
   --shadow-raised: 0 8px 24px rgba(30, 37, 43, 0.12);
 
+[data-palette="a"] {
+  /* Candidate A: Warm Professional */
+  --ink: oklch(27% 0.012 260deg);
+  --muted: oklch(48% 0.015 260deg);
+  --paper: oklch(99% 0.003 90deg);
+  --canvas: oklch(96% 0.008 90deg);
+  --rule: oklch(87% 0.01 105deg);
+  --accent: oklch(44% 0.12 255deg);
+  --accent-hover: oklch(37% 0.12 255deg);
+  --accent-soft: oklch(93% 0.02 255deg);
+  --focus: oklch(55% 0.14 255deg);
+  --info: oklch(41% 0.10 255deg);
+  --info-soft: oklch(93% 0.02 255deg);
+  --success: oklch(38% 0.09 155deg);
+  --success-soft: oklch(95.5% 0.025 155deg);
+  --warning: oklch(39% 0.09 75deg);
+  --warning-soft: oklch(95.5% 0.025 85deg);
+  --error: oklch(42% 0.15 25deg);
+  --error-soft: oklch(95.5% 0.022 25deg);
+}
+
+[data-palette="b"] {
+  /* Candidate B: Clinical Cool */
+  --ink: oklch(23% 0.018 250deg);
+  --muted: oklch(44% 0.02 250deg);
+  --paper: oklch(99% 0.002 245deg);
+  --canvas: oklch(94% 0.01 245deg);
+  --rule: oklch(83% 0.014 238deg);
+  --accent: oklch(41% 0.13 242deg);
+  --accent-hover: oklch(34% 0.13 242deg);
+  --accent-soft: oklch(91% 0.03 242deg);
+  --focus: oklch(53% 0.15 242deg);
+  --info: oklch(37% 0.12 242deg);
+  --info-soft: oklch(91% 0.03 242deg);
+  --success: oklch(35% 0.09 150deg);
+  --success-soft: oklch(94% 0.028 150deg);
+  --warning: oklch(38% 0.09 70deg);
+  --warning-soft: oklch(94% 0.028 78deg);
+  --error: oklch(36% 0.16 28deg);
+  --error-soft: oklch(94% 0.028 28deg);
+}
+
   color: var(--ink);
   /* Document fallback between paper and canvas; body content uses --paper. */
   background: oklch(97.5% 0.006 235deg);

@@ -43,11 +43,22 @@ export function getServoraPopupContainer() {
   return document.body;
 }
 
+function readPalette(): 'a' | 'b' | undefined {
+  if (typeof document === 'undefined') return undefined;
+  const ds = document.documentElement.dataset.palette;
+  if (ds === 'a' || ds === 'b') return ds;
+  const hash = window.location.hash;
+  if (hash === '#palette-a') return 'a';
+  if (hash === '#palette-b') return 'b';
+  return undefined;
+}
+
 export function ServoraAntProvider({ children }: PropsWithChildren) {
   const prefersReducedMotion = usePrefersReducedMotion();
+  const [palette] = useState<'a' | 'b' | undefined>(readPalette);
   const resolvedTheme = useMemo(
-    () => getServoraAntTheme(prefersReducedMotion),
-    [prefersReducedMotion],
+    () => getServoraAntTheme({ palette, reducedMotion: prefersReducedMotion }),
+    [prefersReducedMotion, palette],
   );
 
   return (

@@ -73,11 +73,17 @@ describe('Servora visual token contract', () => {
     expect(countRootRuleOpenings(stylesCss)).toBe(1);
   });
 
-  it('declares each required CSS custom property exactly once in the full stylesheet', () => {
+  it('declares each required CSS custom property in the full stylesheet', () => {
+    const colorVariables = new Set(Object.values(servoraVisualTokens.color).map((t) => t.cssVariable));
     for (const variable of SERVORA_REQUIRED_CSS_VARIABLES) {
       const values = declarationsForVariable(stylesCss, variable);
-      expect(values, variable).toHaveLength(1);
-      expect(values[0], variable).toBeTruthy();
+      if (colorVariables.has(variable)) {
+        expect(values, variable).toHaveLength(3);
+        expect(values[0], variable).toBeTruthy();
+      } else {
+        expect(values, variable).toHaveLength(1);
+        expect(values[0], variable).toBeTruthy();
+      }
     }
   });
 
@@ -87,12 +93,15 @@ describe('Servora visual token contract', () => {
     expect(stylesCss).toMatch(/var\(--ink\)/);
     expect(stylesCss).toMatch(/var\(--paper\)/);
     expect(stylesCss).toMatch(/var\(--focus\)/);
-    expect(declarationsForVariable(stylesCss, '--ink')).toHaveLength(1);
-    expect(declarationsForVariable(stylesCss, '--paper')).toHaveLength(1);
-    expect(declarationsForVariable(stylesCss, '--focus')).toHaveLength(1);
+    expect(declarationsForVariable(stylesCss, '--ink')).toHaveLength(3);
+    expect(declarationsForVariable(stylesCss, '--paper')).toHaveLength(3);
+    expect(declarationsForVariable(stylesCss, '--focus')).toHaveLength(3);
+    // var() usage count is higher than declaration count (declarations come from :root + palettes).
+    const varInkCount = (stylesCss.match(/var\(--ink\)/g) ?? []).length;
+    expect(varInkCount).toBeGreaterThan(3);
   });
 
-  it('keeps CSS values aligned with the TypeScript token contract', () => {
+  it('keeps CSS :root block values aligned with the TypeScript token contract', () => {
     const { color, control, elevation } = servoraVisualTokens;
     const expected: Array<[string, string]> = [
       [color.ink.cssVariable, color.ink.cssValue],
@@ -122,7 +131,8 @@ describe('Servora visual token contract', () => {
     ];
 
     for (const [variable, value] of expected) {
-      expect(declarationsForVariable(stylesCss, variable)).toEqual([value]);
+      const allValues = declarationsForVariable(stylesCss, variable);
+      expect(allValues[0], variable).toBe(value);
     }
   });
 
