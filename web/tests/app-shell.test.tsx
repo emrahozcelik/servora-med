@@ -367,7 +367,7 @@ describe('responsive authenticated AppShell', () => {
     // Bottom nav: active uses weight channel; labels can wrap safely.
     expect(exactRuleBody('.mobile-bottom-nav')).toMatch(/safe-area-inset-bottom/);
     expect(exactRuleBody('.mobile-bottom-nav-item')).toMatch(/min-height:\s*var\(--control-height\)/);
-    expect(exactRuleBody('.mobile-bottom-nav-item')).toMatch(/overflow-wrap:\s*anywhere/);
+    expect(exactRuleBody('.mobile-bottom-nav-item')).toMatch(/overflow-wrap:\s*break-word/);
     const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, '');
     expect(cleaned).toMatch(
       /\.mobile-bottom-nav-item--active,\s*\.mobile-bottom-nav a\[aria-current=["']page["']\],\s*\.mobile-bottom-nav-menu\[aria-expanded=["']true["']\]\s*\{[^}]*font-weight:\s*760/s,

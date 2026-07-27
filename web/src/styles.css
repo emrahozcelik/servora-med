@@ -494,8 +494,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   line-height: 1.15;
   text-align: center;
   text-decoration: none;
-  overflow-wrap: anywhere;
-  word-break: keep-all;
+  overflow-wrap: break-word;
   hyphens: auto;
   cursor: pointer;
 }

@@ -52,7 +52,7 @@ Verified at 390px viewport with 200% text resize:
 - **Bundle check:** OK (44 chunks, all under 500KB)
 - **Audit:** PASS_WITH_WAIVER
 - **smoke:responsive:** OK (all viewports including 200% text, 400% WCAG reflow)
-- **Exact-head CI:** PENDING (push sonrası)
+- **Exact-head CI:** Web ✅ (build, test, bundle, smoke, audit all passed), Server ⚠️ (Docker pull failure — GitHub infrastructure, not code)
 
 ## Visual-verifier verdict: PASS
 
