@@ -377,7 +377,7 @@ describe('responsive authenticated AppShell', () => {
     expect(exactRuleBody('.sticky-new-job')).toMatch(/bottom:\s*calc\(4\.35rem \+ env\(safe-area-inset-bottom/);
     expect(exactRuleBody('.authenticated-shell--mobile .shell-content')).toMatch(/safe-area-inset-bottom/);
     expect(css).toMatch(
-      /\.authenticated-shell--mobile\.authenticated-shell:has\(\.sticky-new-job\) \.shell-content\s*\{[^}]*padding-bottom:\s*calc\(8\.75rem/s,
+      /\.authenticated-shell--mobile\.authenticated-shell:has\(\.sticky-new-job\) \.shell-content\s*\{[^}]*padding-bottom:\s*calc\(9rem/s,
     );
 
     // Drawer visual polish is drawer-scoped; shared nav baseline stays T2A isolation values.
