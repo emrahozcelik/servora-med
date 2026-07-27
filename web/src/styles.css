@@ -456,10 +456,10 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 .mobile-top-back--spacer { visibility: hidden; pointer-events: none; }
 .authenticated-shell--mobile .shell-content {
-  padding-bottom: calc(6rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(8rem + env(safe-area-inset-bottom, 0px));
 }
 .authenticated-shell--mobile.authenticated-shell:has(.sticky-new-job) .shell-content {
-  padding-bottom: calc(9rem + env(safe-area-inset-bottom, 0px));
+  padding-bottom: calc(11rem + env(safe-area-inset-bottom, 0px));
 }
 .mobile-bottom-nav {
   position: fixed;

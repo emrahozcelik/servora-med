@@ -1,0 +1,22 @@
+- main [ref=e52]:
+  - region "İşler net, süreçler izlenebilir." [ref=e53]:
+    - generic "Dünya Dental" [ref=e54]
+    - generic [ref=e55]:
+      - paragraph [ref=e56]: Saha operasyonları
+      - heading "İşler net, süreçler izlenebilir." [level=2] [ref=e57]
+      - paragraph [ref=e58]: Müşteri çalışmalarınızı, ürün teslimlerinizi ve yönetici onaylarını tek akışta yönetin.
+    - paragraph [ref=e59]: Medikal ve dental ekipler için operasyon alanı
+  - region "Hesabınıza giriş yapın" [ref=e60]:
+    - generic [ref=e61]:
+      - paragraph [ref=e62]: Güvenli erişim
+      - heading "Hesabınıza giriş yapın" [level=1] [ref=e63]
+      - paragraph [ref=e64]: Firmanız tarafından tanımlanan bilgilerle devam edin.
+      - generic [ref=e65]:
+        - generic [ref=e66]:
+          - generic [ref=e67]: E-posta
+          - textbox "E-posta" [ref=e68]: staff@servora.local
+        - generic [ref=e69]:
+          - generic [ref=e70]: Parola
+          - textbox "Parola" [ref=e71]: Acceptance2026!
+        - button "Giriş yap" [ref=e72] [cursor=pointer]
+        - paragraph [ref=e73]: Erişim sorunu yaşıyorsanız sistem yöneticinizle iletişime geçin.
