@@ -9,33 +9,11 @@ import {
 } from '../services/overview-api';
 import type { CurrentUser } from '../services/api';
 import { TrendBars } from '../reports/report-charts';
-
-function Kpis({ overview }: { overview: OverviewResponse }) {
-  const items = overview.scope === 'staff'
-    ? [
-        ['Açık işler', overview.openJobCards, `${paths.jobs}?status=active`],
-        ['Kontrol bekleyen', overview.waitingApproval, `${paths.jobs}?status=WAITING_APPROVAL`],
-        ['Düzeltme gereken', overview.revisionRequested, `${paths.jobs}?status=REVISION_REQUESTED`],
-        ['Tamamlanan', overview.completedInPeriod, `${paths.jobs}?status=COMPLETED`],
-      ]
-    : [
-        ['Aktif işler', overview.active, `${paths.jobs}?status=active`],
-        ['Geciken', overview.overdue, `${paths.jobs}?dueBefore=${overview.range.to}`],
-        ['Kontrol bekleyen', overview.waitingApproval, paths.approvalReports],
-        ['Düzeltme gereken', overview.revisionRequested, `${paths.jobs}?status=REVISION_REQUESTED`],
-      ];
-  return (
-    <dl className="overview-kpis" aria-label="Dönem özeti">
-      {items.map(([label, value, href]) => (
-        <div key={label}>
-          <dt>{label}</dt>
-          <dd>{value}</dd>
-          <Link to={String(href)}>İşleri aç</Link>
-        </div>
-      ))}
-    </dl>
-  );
-}
+import { EmptyState } from '../ui/antd/EmptyState';
+import { LoadingSkeleton } from '../ui/antd/LoadingSkeleton';
+import { MetricStatistic } from '../ui/antd/MetricStatistic';
+import { OperationalCard } from '../ui/antd/OperationalCard';
+import { ResultState } from '../ui/antd/ResultState';
 
 export function OverviewPage({
   user,
@@ -66,73 +44,135 @@ export function OverviewPage({
   useRealtimeInvalidation(['overview'], () => { void refresh(); });
 
   if (state.kind === 'loading') {
-    return <main className="workspace overview-workspace" aria-busy="true"><h1>Genel bakış yükleniyor</h1></main>;
+    return (
+      <main className="workspace overview-workspace" aria-busy="true">
+        <LoadingSkeleton title="Genel bakış yükleniyor…" rows={4} />
+      </main>
+    );
   }
   if (state.kind === 'error') {
-    return <main className="workspace overview-workspace"><div className="workspace-message" role="alert">
-      <h1>Genel bakış yüklenemedi</h1><p>{state.message}</p>
-      <button className="secondary-button" type="button" onClick={() => void refresh()}>Tekrar dene</button>
-    </div></main>;
+    return (
+      <main className="workspace overview-workspace">
+        <ResultState
+          status="error"
+          title="Genel bakış yüklenemedi"
+          description={state.message}
+          action={
+            <button className="secondary-button" type="button" onClick={() => void refresh()}>
+              Tekrar dene
+            </button>
+          }
+        />
+      </main>
+    );
   }
 
   const { overview } = state;
+  const isStaff = overview.scope === 'staff';
+
+  const kpis = isStaff
+    ? [
+        { label: 'Açık işler', value: overview.openJobCards, href: `${paths.jobs}?status=active`, tone: 'default' as const },
+        { label: 'Kontrol bekleyen', value: overview.waitingApproval, href: `${paths.jobs}?status=WAITING_APPROVAL`, tone: 'attention' as const },
+        { label: 'Düzeltme gereken', value: overview.revisionRequested, href: `${paths.jobs}?status=REVISION_REQUESTED`, tone: 'warning' as const },
+        { label: 'Tamamlanan', value: overview.completedInPeriod, href: `${paths.jobs}?status=COMPLETED`, tone: 'success' as const },
+      ]
+    : [
+        { label: 'Aktif işler', value: overview.active, href: `${paths.jobs}?status=active`, tone: 'default' as const },
+        { label: 'Geciken', value: overview.overdue, href: `${paths.jobs}?dueBefore=${overview.range.to}`, tone: 'attention' as const },
+        { label: 'Kontrol bekleyen', value: overview.waitingApproval, href: paths.approvalReports, tone: 'attention' as const },
+        { label: 'Düzeltme gereken', value: overview.revisionRequested, href: `${paths.jobs}?status=REVISION_REQUESTED`, tone: 'warning' as const },
+      ];
+
   return (
     <main className="workspace overview-workspace">
       <header className="workspace-heading">
         <div>
-          <p className="eyebrow">{overview.scope === 'staff' ? 'Kişisel çalışma alanı' : 'Operasyon görünümü'}</p>
+          <p className="eyebrow">{isStaff ? 'Kişisel çalışma alanı' : 'Operasyon görünümü'}</p>
           <h1>Genel Bakış</h1>
           <p>{user.name}, {overview.range.from} – {overview.range.to} dönemi.</p>
         </div>
       </header>
-      <Kpis overview={overview} />
 
-      {overview.upcomingWork && (
-        <section className="overview-section" aria-labelledby="upcoming-work-title">
-          <div className="overview-section-heading">
-            <h2 id="upcoming-work-title">Yaklaşan çalışmalar</h2>
-            <Link to={paths.calendar}>Takvimi aç</Link>
-          </div>
-          {overview.upcomingWork.items.length === 0
-            ? <p>Önümüzdeki yedi gün için planlanmış çalışma bulunmuyor.</p>
-            : <ul>{overview.upcomingWork.items.map((item) => (
-              <li key={`${item.source}:${item.id}`}>
-                <Link to={item.path}>{item.title}</Link>
-                <span>{new Date(item.startsAt).toLocaleString('tr-TR')} · {item.assignedUserName}</span>
-              </li>
-            ))}</ul>}
-        </section>
-      )}
+      <div className="overview-kpis" aria-label="Dönem özeti">
+        {kpis.map((kpi) => (
+          <MetricStatistic
+            key={kpi.label}
+            title={kpi.label}
+            value={kpi.value}
+            linkTo={kpi.href}
+            tone={kpi.tone}
+          />
+        ))}
+      </div>
 
-      {overview.scope === 'management' && (
-        <section className="overview-section" aria-labelledby="completion-trend-title">
-          <h2 id="completion-trend-title">Tamamlanma eğilimi</h2>
-          <p>{overview.completedInPeriod} iş tamamlandı; {overview.cancelledInPeriod} iş iptal edildi.</p>
-          <TrendBars points={overview.completionTrend} className="overview-trend" />
-          <p className="overview-text-summary">
-            Kontrol kuyruğunda {overview.approvalQueueSummary.pendingCount} iş bulunuyor.
-          </p>
-        </section>
-      )}
+      <div className="overview-main-grid">
+        {!isStaff && (
+          <section className="overview-section" aria-labelledby="completion-trend-title">
+            <h2 id="completion-trend-title">Tamamlanma eğilimi</h2>
+            <p>{overview.completedInPeriod} iş tamamlandı; {overview.cancelledInPeriod} iş iptal edildi.</p>
+            <TrendBars points={overview.completionTrend} className="overview-trend" />
+            <p className="overview-text-summary">
+              Kontrol kuyruğunda {overview.approvalQueueSummary.pendingCount} iş bulunuyor.
+            </p>
+          </section>
+        )}
 
-      <div className="overview-recent-grid">
+        {overview.upcomingWork && (
+          <section className="overview-section" aria-labelledby="upcoming-work-title">
+            <h2 id="upcoming-work-title">Yaklaşan işler</h2>
+            {overview.upcomingWork.items.length === 0
+              ? <EmptyState title="Yaklaşan iş bulunmuyor" />
+              : <div className="overview-card-stack">
+                  {overview.upcomingWork.items.map((item) => (
+                    <OperationalCard
+                      key={`${item.source}:${item.id}`}
+                      title={<Link to={item.path}>{item.title}</Link>}
+                      tone="upcoming"
+                    >
+                      <span>{new Date(item.startsAt).toLocaleString('tr-TR')} · {item.assignedUserName}</span>
+                    </OperationalCard>
+                  ))}
+                </div>
+            }
+          </section>
+        )}
+
         <section className="overview-section" aria-labelledby="recent-work-title">
           <h2 id="recent-work-title">Son tamamlanan işler</h2>
           {overview.recentCompletedWork.length === 0
-            ? <p>Bu dönemde tamamlanan iş bulunmuyor.</p>
-            : <ul>{overview.recentCompletedWork.map((item) => (
-              <li key={item.id}><Link to={paths.job(item.id)}>{item.title}</Link>
-                <span>{item.customerName ?? 'Müşteri bağlantısı yok'} · {item.assigneeName ?? 'Atanmamış'}</span></li>
-            ))}</ul>}
+            ? <EmptyState title="Bu dönemde tamamlanan iş bulunmuyor" />
+            : <div className="overview-card-stack">
+                {overview.recentCompletedWork.map((item) => (
+                  <OperationalCard
+                    key={item.id}
+                    title={<Link to={paths.job(item.id)}>{item.title}</Link>}
+                    tone="success"
+                  >
+                    <span>{item.customerName ?? 'Müşteri bağlantısı yok'} · {item.assigneeName ?? 'Atanmamış'}</span>
+                  </OperationalCard>
+                ))}
+              </div>
+          }
         </section>
+
         <section className="overview-section" aria-labelledby="recent-notes-title">
           <h2 id="recent-notes-title">Son notlar</h2>
           {overview.recentNotes.length === 0
-            ? <p>Yetki kapsamınızda yakın tarihli not bulunmuyor.</p>
-            : <ul>{overview.recentNotes.map((note) => (
-              <li key={note.id}><Link to={paths.job(note.jobCardId)}>{note.jobTitle}</Link>
-                <p>{note.preview}</p><span>{note.authorName}</span></li>
-            ))}</ul>}
+            ? <EmptyState title="Yakın tarihli not bulunmuyor" />
+            : <div className="overview-card-stack">
+                {overview.recentNotes.map((note) => (
+                  <OperationalCard
+                    key={note.id}
+                    title={<Link to={paths.job(note.jobCardId)}>{note.jobTitle}</Link>}
+                    tone="default"
+                  >
+                    <p>{note.preview}</p>
+                    <span>{note.authorName}</span>
+                  </OperationalCard>
+                ))}
+              </div>
+          }
         </section>
       </div>
     </main>

@@ -2562,31 +2562,29 @@ button:disabled { cursor: wait; opacity: 0.65; }
   gap: 1rem;
   margin: 0 0 1.5rem;
 }
-.overview-kpis > div,
-.overview-section,
-.content-list > article,
-.support-contact,
-.settings-panel,
-.settings-card-grid > a {
+.overview-main-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 1rem;
+}
+.overview-section {
   min-width: 0;
   padding: 1.15rem;
   border: 1px solid var(--rule);
   border-radius: var(--radius-card);
   background: var(--paper);
 }
-.overview-kpis dt { color: var(--muted); font-size: 0.82rem; font-weight: 680; }
-.overview-kpis dd { margin: 0.35rem 0; font-size: clamp(1.5rem, 4vw, 2.2rem); font-weight: 780; }
-.overview-kpis a,
-.overview-section a,
-.settings-card-grid a { color: var(--accent-hover); font-weight: 700; }
-.overview-recent-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 1rem; margin-top: 1rem; }
 .overview-section h2,
 .content-list h2,
 .support-contact h2,
 .settings-panel h2 { margin-top: 0; font-size: 1.15rem; }
-.overview-section ul { display: grid; gap: 0; margin: 0; padding: 0; list-style: none; }
-.overview-section li { display: grid; gap: 0.35rem; min-width: 0; padding: 0.85rem 0; border-top: 1px solid var(--rule); }
-.overview-section li:first-child { border-top: 0; padding-top: 0; }
+.overview-section h2 { margin-bottom: 0.75rem; }
+.overview-card-stack {
+  display: grid;
+  gap: 0.65rem;
+}
+.overview-section a,
+.settings-card-grid a { color: var(--accent-hover); font-weight: 700; }
 .overview-section li span,
 .overview-section li p,
 .overview-text-summary { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
@@ -2629,8 +2627,10 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .profile-details dd { margin: 0; overflow-wrap: anywhere; }
 
 @media (max-width: 48rem) {
-  .overview-kpis,
-  .overview-recent-grid,
+  .overview-kpis {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .overview-main-grid,
   .settings-card-grid { grid-template-columns: 1fr; }
   .profile-details > div { grid-template-columns: 1fr; gap: 0.25rem; }
 }
