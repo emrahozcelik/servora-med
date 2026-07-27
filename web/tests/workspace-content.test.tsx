@@ -48,6 +48,18 @@ function getActivePanels(container: HTMLElement): Element[] {
   return Array.from(container.querySelectorAll('[class*=\"collapse-item-active\"]'));
 }
 
+function getCollapseHeadersInArticle(container: HTMLElement, articleId: string): HTMLElement[] {
+  const article = container.querySelector(`article[id="${articleId}"]`);
+  if (!article) return [];
+  return Array.from(article.querySelectorAll('[class*=\"collapse-header\"]'));
+}
+
+function clickCollapseHeader(header: HTMLElement) {
+  header.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+  header.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+  header.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
 describe('repository-managed workspace content', () => {
   it('uses stable typed IDs and contains no messaging or invented legal content', () => {
     const ids = [...productDocumentation, ...helpArticles].map((article) => article.id);
@@ -207,13 +219,27 @@ describe('Documentation reading mode interaction', () => {
     expect(headingTexts).toContain('Yetki ve bildirim');
   });
 
-  it('per-article state is isolated via content-article layout by article id', () => {
+  it('calendar-planning article has two collapse headers', () => {
     ctx = renderDocs();
-    const articles = ctx.container.querySelectorAll('article');
-    expect(articles.length).toBeGreaterThanOrEqual(4);
-    for (const article of Array.from(articles)) {
-      expect(article.id).toBeTruthy();
-    }
+    const cpHeaders = getCollapseHeadersInArticle(ctx.container, 'calendar-planning');
+    expect(cpHeaders).toHaveLength(2);
+  });
+
+  it('keeps panels in different articles independently expanded', () => {
+    ctx = renderDocs();
+
+    const calendarHeaders = getCollapseHeadersInArticle(ctx.container, 'calendar-planning');
+    expect(calendarHeaders.length).toBeGreaterThanOrEqual(1);
+    act(() => { clickCollapseHeader(calendarHeaders[0]); });
+    expect(getActivePanels(ctx.container)).toHaveLength(1);
+
+    const jobFlowHeaders = getCollapseHeadersInArticle(ctx.container, 'job-flow');
+    expect(jobFlowHeaders.length).toBeGreaterThanOrEqual(1);
+    act(() => { clickCollapseHeader(jobFlowHeaders[0]); });
+    expect(getActivePanels(ctx.container)).toHaveLength(2);
+
+    act(() => { clickCollapseHeader(jobFlowHeaders[0]); });
+    expect(getActivePanels(ctx.container)).toHaveLength(1);
   });
 
   it('reading mode ON opens all visible section panels', () => {
@@ -230,7 +256,7 @@ describe('Documentation reading mode interaction', () => {
     expect(activeBefore).toBeGreaterThanOrEqual(4);
     const headers = getCollapseHeaders(ctx.container);
     if (headers.length > 0) {
-      act(() => { (headers[0] as HTMLElement).click(); });
+      act(() => { clickCollapseHeader(headers[0] as HTMLElement); });
     }
     expect(getActivePanels(ctx.container)).toHaveLength(activeBefore);
   });
@@ -245,13 +271,22 @@ describe('Documentation reading mode interaction', () => {
     expect(getActivePanels(ctx.container)).toHaveLength(0);
   });
 
-  it('after reading mode OFF, panels are closed and checkbox is unchecked', () => {
+  it('restores independent per-article interaction after leaving reading mode', () => {
     ctx = renderDocs();
     const checkbox = getCheckbox(ctx.container);
+
     act(() => { checkbox.click(); });
+    expect(getActivePanels(ctx.container).length).toBeGreaterThanOrEqual(4);
     act(() => { checkbox.click(); });
-    expect(checkbox.checked).toBe(false);
+    expect(getCheckbox(ctx.container).checked).toBe(false);
     expect(getActivePanels(ctx.container)).toHaveLength(0);
+
+    const calendarHeaders = getCollapseHeadersInArticle(ctx.container, 'calendar-planning');
+    const jobFlowHeaders = getCollapseHeadersInArticle(ctx.container, 'job-flow');
+    act(() => { clickCollapseHeader(calendarHeaders[0]); });
+    expect(getActivePanels(ctx.container)).toHaveLength(1);
+    act(() => { clickCollapseHeader(jobFlowHeaders[0]); });
+    expect(getActivePanels(ctx.container)).toHaveLength(2);
   });
 
   it('anchor only appears on calendar-planning article (2 sections)', () => {
@@ -285,8 +320,7 @@ describe('Documentation reading mode interaction', () => {
       nativeInputValueSetter.call(searchInput, 'raporla');
       searchInput.dispatchEvent(new Event('input', { bubbles: true }));
     });
-    const articleIds = ctx.container.querySelectorAll('article');
-    expect(articleIds.length).toBe(0);
+    expect(ctx.container.querySelectorAll('article').length).toBe(0);
     expect(ctx.container.textContent).toContain('Sonuç bulunamadı');
   });
 
@@ -295,14 +329,5 @@ describe('Documentation reading mode interaction', () => {
     const checkbox = getCheckbox(ctx.container);
     checkbox.focus();
     expect(document.activeElement).toBe(checkbox);
-  });
-
-  it('collapse headers are present and contain section heading text', () => {
-    ctx = renderDocs();
-    const headers = getCollapseHeaders(ctx.container);
-    expect(headers.length).toBeGreaterThanOrEqual(4);
-    const headingTexts = headers.map((h) => h.textContent?.trim());
-    expect(headingTexts).toContain('İş ve kişisel plan ayrımı');
-    expect(headingTexts).toContain('Yetki ve bildirim');
   });
 });
