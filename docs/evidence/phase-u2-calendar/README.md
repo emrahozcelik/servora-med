@@ -59,7 +59,7 @@ Verified at 390px viewport with 200% text resize:
 - **Bundle check:** OK
 - **Audit:** PASS_WITH_WAIVER
 - **smoke:responsive:** OK (all viewports including 200% text, 400% WCAG reflow)
-- **Capture-code CI:** PENDING (check via gh pr checks 74 after push)
+- **Capture-code CI:** Web ✅, Server ✅ (head 8ea6169)
 
 ## Visual-verifier verdict: PASS
 
