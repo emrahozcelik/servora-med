@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import type { CurrentUser } from '../services/api';
 import {
   createOrGetConversation,
@@ -59,6 +60,7 @@ function nextClientActionId(userId: string): string {
 }
 
 export function MessagingPage({ user }: { user: CurrentUser }) {
+  const [searchParams] = useSearchParams();
   const [pageState, setPageState] = useState<PageState>({ kind: 'loading' });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -203,6 +205,17 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       setMarkReadError(error instanceof Error ? error.message : 'Okundu işaretlenemedi.');
     }
   }, [selectedId, loadConversations, loadUnreadCount, user.id]);
+
+  // Deep-link: auto-select conversation from URL ?conversation=<id>
+  useEffect(() => {
+    const convId = searchParams.get('conversation');
+    if (convId && pageState.kind === 'ready') {
+      const conv = conversations.find((c) => c.id === convId);
+      if (conv) {
+        selectConversation(conv);
+      }
+    }
+  }, [pageState.kind, conversations, searchParams, selectConversation]);
 
   useEffect(() => {
     if (threadEndRef.current) {
