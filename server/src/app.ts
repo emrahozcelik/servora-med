@@ -61,6 +61,8 @@ import type { CalendarRepository } from './modules/calendar/repository.js';
 import { CalendarService } from './modules/calendar/service.js';
 import { calendarRoutes } from './modules/calendar/routes.js';
 import type { CalendarReminderWorker } from './modules/calendar/reminder-worker.js';
+import { MessagingService } from './modules/messaging/service.js';
+import { messagingRoutes } from './modules/messaging/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -85,6 +87,7 @@ export const LOGGER_REDACT_PATHS = [
   'webPush.vapidSubject',
   'webPush.vapidPublicKey',
   'webPush.vapidPrivateKey',
+  'req.body.body',
 ];
 
 export type AppDependencies = {
@@ -108,6 +111,7 @@ export type AppDependencies = {
   calendarReminderWorker?: CalendarReminderWorker;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
+  pool?: import('pg').Pool;
 };
 
 export function buildLoggerOptions(
@@ -315,6 +319,17 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           await wd.stop();
         });
       }
+    }
+    if (dependencies.pool) {
+      await app.register(messagingRoutes, {
+        prefix: '/api/messaging',
+        service: new MessagingService(
+          dependencies.pool,
+          config.capabilities?.messaging ?? false,
+          dependencies.realtimePublisher,
+        ),
+        authenticate: authenticateDomain,
+      });
     }
   }
 

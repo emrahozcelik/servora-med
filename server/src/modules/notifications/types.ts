@@ -14,6 +14,7 @@ export const NOTIFICATION_KINDS = [
   'calendar.rescheduled',
   'calendar.cancelled',
   'calendar.reminder',
+  'message.received',
 ] as const;
 
 export type NotificationKind = (typeof NOTIFICATION_KINDS)[number];
@@ -24,7 +25,7 @@ export type NotificationRecord = Readonly<{
   recipientUserId: string;
   sourceRealtimeEventId: bigint;
   kind: NotificationKind;
-  entityType: 'job-card' | 'calendar-event';
+  entityType: 'job-card' | 'calendar-event' | 'conversation';
   entityId: string;
   createdAt: Date;
   readAt: Date | null;
@@ -43,7 +44,7 @@ export type NotificationPage = Readonly<{
 export type NotificationDraft = Readonly<{
   recipientUserId: string;
   kind: NotificationKind;
-  entityType: 'job-card' | 'calendar-event';
+  entityType: 'job-card' | 'calendar-event' | 'conversation';
   entityId: string;
 }>;
 

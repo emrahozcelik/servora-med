@@ -15,7 +15,7 @@ type NotificationRow = {
   recipient_user_id: string;
   source_realtime_event_id: string;
   kind: NotificationKind;
-  entity_type: 'job-card' | 'calendar-event';
+  entity_type: 'job-card' | 'calendar-event' | 'conversation';
   entity_id: string;
   created_at: Date;
   read_at: Date | null;

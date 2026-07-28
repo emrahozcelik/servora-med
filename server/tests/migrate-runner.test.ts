@@ -77,9 +77,10 @@ describe('runMigrations', () => {
       '015_job_card_engagement_kind.sql',
       '016_google_reverse_geocoding.sql',
       '017_calendar.sql',
+      '018_messaging.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('017_calendar.sql');
-    expect(expectedSchemaVersion).toBe(17);
+    expect(migrations.at(-1)?.name).toBe('018_messaging.sql');
+    expect(expectedSchemaVersion).toBe(18);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

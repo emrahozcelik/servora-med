@@ -5,7 +5,7 @@ export type PublicNotification = Readonly<{
   kind: NotificationKind;
   title: string;
   body: string;
-  entity: Readonly<{ type: 'job-card' | 'calendar-event'; id: string }>;
+  entity: Readonly<{ type: 'job-card' | 'calendar-event' | 'conversation'; id: string }>;
   createdAt: string;
   readAt: string | null;
 }>;
@@ -32,6 +32,10 @@ export const NOTIFICATION_MESSAGES: Record<NotificationKind, Readonly<{ title: s
   'calendar.reminder': {
     title: 'Yaklaşan plan',
     body: 'Yaklaşan planınız bulunuyor.',
+  },
+  'message.received': {
+    title: 'Yeni operasyon mesajı',
+    body: 'Yeni bir operasyon mesajı aldınız.',
   },
 };
 

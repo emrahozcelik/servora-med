@@ -14,6 +14,8 @@ export const REALTIME_EVENT_TYPES = [
   'calendar.updated',
   'calendar.cancelled',
   'calendar.reminder_due',
+  'conversation.created',
+  'message.sent',
 ] as const;
 
 export type RealtimeEventType = (typeof REALTIME_EVENT_TYPES)[number];
@@ -28,7 +30,7 @@ export type RealtimeEventInput = Readonly<{
   organizationId: string;
   sourceActivityId: string;
   type: RealtimeEventType;
-  entityType: 'job-card' | 'calendar-event';
+  entityType: 'job-card' | 'calendar-event' | 'conversation';
   entityId: string;
   actorUserId: string | null;
   audience: RealtimeAudience;
@@ -50,7 +52,7 @@ export type RealtimeViewer = Readonly<{
 export type RealtimeChangeEnvelope = Readonly<{
   id: string;
   type: RealtimeEventType;
-  entity: Readonly<{ type: 'job-card' | 'calendar-event'; id: string }>;
+  entity: Readonly<{ type: 'job-card' | 'calendar-event' | 'conversation'; id: string }>;
   resourceKeys: readonly string[];
   occurredAt: string;
 }>;
