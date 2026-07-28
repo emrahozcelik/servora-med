@@ -313,7 +313,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
           </ul>
         </aside>
 
-        <section className="messaging-thread" aria-label="Mesaj akışı">
+        <section className={`messaging-thread${selected ? ' active' : ''}`} aria-label="Mesaj akışı">
           {selected ? (
             <>
               <header className="thread-header">
