@@ -1,7 +1,7 @@
 # Phase U3 Messaging — Visual Evidence
 
-**Capture code SHA:** 99cb4b79a61bc2d1a7b0c52c9a1d157aa53c22a1
-**Evidence commit SHA:** 3b6ac0e00719b926af2c0f28907a8bb844e393f4
+**Capture code SHA:** 580adf98bfa513c632bc57d102b948e6139e643c
+**Evidence commit SHA:** d9068108d9327bf0ea5069526bec8dbaddc1affa
 **Backend:** Real Fastify + PostgreSQL (localhost:3000)
 **Frontend:** Real Vite dev server (localhost:5173)
 **Database:** servora_med (PostgreSQL 17)
@@ -48,8 +48,8 @@ Injected via Playwright `page.addStyleTag()`. Applied at 1024px viewport.
 `.messaging-stacked` class, switching to drill-down (mobile) layout: sidebar full-width, thread as
 fixed overlay when a conversation is selected.
 
-**Measured:** document scrollWidth=1024, clientWidth=1024, horizontal overflow=0.
-"Mesajlar" heading fully visible (not truncated). "Yeni" button fully visible.
+**Measured:** document scrollWidth=1009, clientWidth=1009, horizontal overflow=0.
+"Mesajlar" heading fully visible (DOM text: "Mesajlar", 8 chars). "Yeni" button fully visible.
 No content hidden or clipped. All essential controls accessible.
 
 ---
