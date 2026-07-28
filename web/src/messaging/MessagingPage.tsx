@@ -174,6 +174,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     } finally {
       setOlderLoading(false);
     }
+    shouldAutoScrollRef.current = true;
   }, [selectedId, olderCursor, olderLoading]);
 
   const selectConversation = useCallback(
@@ -182,6 +183,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       setDraft(null);
       setSendError(null);
       setMarkReadError(null);
+      shouldAutoScrollRef.current = true;
 
       const loadedMessages = await loadMessages(conversation.id);
 
