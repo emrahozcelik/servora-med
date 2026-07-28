@@ -33,9 +33,10 @@ describe('018 messaging migration', () => {
     expect(sql).toContain('REFERENCES users (organization_id, id)');
   });
 
-  it('protects message body length and plain-text contract', () => {
+  it('protects message body length and does not restrict literal text', () => {
     expect(sql).toContain('length(body) BETWEEN 1 AND 4000');
-    expect(sql).toContain("body !~ '<[a-zA-Z/]'");
+    expect(sql).not.toContain("body !~ '<[a-zA-Z/]'");
+    expect(sql).toContain('CONSTRAINT messages_body_check');
   });
 
   it('ensures idempotent send via client_action_id uniqueness', () => {
@@ -71,7 +72,7 @@ describe('018 messaging migration', () => {
       "CONSTRAINT messaging_activity_action_check",
     );
     expect(sql).toContain(
-      "action IN ('CONVERSATION_CREATED', 'MESSAGE_SENT')",
+      "action IN ('CONVERSATION_CREATED', 'MESSAGE_SENT', 'READ_CURSOR_UPDATED')",
     );
     expect(sql).toContain(
       'UNIQUE (organization_id, actor_user_id, client_action_id, action)',
