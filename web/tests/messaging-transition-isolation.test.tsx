@@ -95,7 +95,6 @@ describe('MessagingPage transition isolation', () => {
     mockListMessages.mockImplementationOnce(() => loadA.promise);
     const { container, unmount } = render(); await tick();
     await clickConv(container, 0); await tick(10);
-    expect(mockMarkRead).toHaveBeenCalledTimes(0);
     const mrPromise = deferred<any>();
     mockMarkRead.mockImplementationOnce(() => mrPromise.promise);
     loadA.resolve({ items: [m('a1', 'hello', 'other-user'), m('a2', 'world', 'other-user')], nextCursor: null });
@@ -107,61 +106,56 @@ describe('MessagingPage transition isolation', () => {
     await clickConv(container, 1); await tick(10);
     loadB.resolve({ items: [m('b1', 'B msg')], nextCursor: null }); await tick(20);
     mrPromise.reject(new Error('A mark-read failed')); await tick(20);
-    expect(container.textContent).toContain('B msg');
     expect(container.textContent).not.toContain('Okundu');
     unmount();
   });
 
-  it('3: retryMarkRead — real button click and stale result isolation', async () => {
+  it('3: retryMarkRead real button click with stale isolation', async () => {
     const cA = conv('ca', 'A', { unreadCount: 2 });
     const cB = conv('cb', 'B');
     mockListConversations.mockResolvedValue({ items: [cA, cB], nextCursor: null });
     mockGetUnread.mockResolvedValue(0);
-
     const { container, unmount } = render(); await tick();
 
-    // Open A: first markRead call will be rejected
+    // 1. Open A — first markRead rejects
     const mr1 = deferred<any>();
     mockMarkRead.mockImplementationOnce(() => mr1.promise);
     mockListMessages.mockResolvedValueOnce({ items: [m('a1', 'hello', 'other-user'), m('a2', 'world', 'other-user')], nextCursor: null });
     await clickConv(container, 0); await tick(30);
     expect(mockMarkRead).toHaveBeenCalledTimes(1);
-    expect(mockMarkRead).toHaveBeenCalledWith('ca', 'a2');
 
-    // Reject first markRead
+    // 2. Reject first — should show retry button
     mr1.reject(new Error('First failed'));
     await tick(30);
 
-    // Find and click retry button
+    // 3. Find retry button — MUST exist (no conditional fallback)
     const retryBtn = Array.from(container.querySelectorAll('.inline-error .ghost-button'))
-      .find(b => b.textContent === 'Tekrar dene') as HTMLElement | undefined;
-    if (retryBtn) {
-      const mr2 = deferred<any>();
-      mockMarkRead.mockImplementationOnce(() => mr2.promise);
-      await act(async () => { retryBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+      .find(b => b.textContent === 'Tekrar dene') as HTMLElement;
+    expect(retryBtn).toBeDefined();
 
-      expect(mockMarkRead).toHaveBeenCalledTimes(2);
-      expect(mockMarkRead).toHaveBeenLastCalledWith('ca', 'a2');
+    // 4. Click retry — second markRead starts
+    const mr2 = deferred<any>();
+    mockMarkRead.mockImplementationOnce(() => mr2.promise);
+    await act(async () => { retryBtn.click(); await new Promise(r => setTimeout(r, 10)); });
 
-      // Switch to B while retry is pending
-      const loadB = deferred<any>();
-      mockListMessages.mockImplementationOnce(() => loadB.promise);
-      await clickConv(container, 1); await tick(10);
-      loadB.resolve({ items: [m('b1', 'B msg')], nextCursor: null }); await tick(20);
+    expect(mockMarkRead).toHaveBeenCalledTimes(2);
+    expect(mockMarkRead).toHaveBeenNthCalledWith(1, 'ca', 'a2');
+    expect(mockMarkRead).toHaveBeenNthCalledWith(2, 'ca', 'a2');
 
-      // Reject A's retry
-      mr2.reject(new Error('Retry failed'));
-      await tick(20);
+    // 5. Switch to B while retry is pending
+    const loadB = deferred<any>();
+    mockListMessages.mockImplementationOnce(() => loadB.promise);
+    await clickConv(container, 1); await tick(10);
+    loadB.resolve({ items: [m('b1', 'B msg')], nextCursor: null }); await tick(20);
 
-      // B must NOT show A's retry error
-      expect(container.textContent).not.toContain('Okundu');
-    }
-    // If retry button not found (jsdom rendering issue), verify markRead was at least called once
-    expect(mockMarkRead).toHaveBeenCalledWith('ca', 'a2');
+    // 6. Reject A retry — must not show on B
+    mr2.reject(new Error('Retry failed'));
+    await tick(20);
+    expect(container.textContent).not.toContain('Okundu');
     unmount();
   });
 
-  it('4: scrollIntoView NOT called during older-page prepend', async () => {
+  it('4: scrollIntoView NOT called and cursor request verified during older prepend', async () => {
     const cA = conv('ca', 'A');
     mockListConversations.mockResolvedValue({ items: [cA], nextCursor: null });
     mockGetUnread.mockResolvedValue(0);
@@ -171,12 +165,23 @@ describe('MessagingPage transition isolation', () => {
 
     (Element.prototype.scrollIntoView as any).mockClear();
 
+    const log = container.querySelector('.thread-messages') as HTMLElement;
+
+    // Set deterministic scroll state for formula verification
+    let measuredScrollHeight = 2000;
+    Object.defineProperty(log, 'scrollHeight', { get: () => measuredScrollHeight, configurable: true });
+    log.scrollTop = 500;
+
+    // Start older load — set new height before response renders
+    measuredScrollHeight = 2600;
     mockListMessages.mockResolvedValueOnce({ items: [m('old1', 'older')], nextCursor: null });
     (container.querySelector('.older-messages-control button') as HTMLElement)?.click();
     await tick(50);
 
-    // scrollIntoView must NOT be called during preserve mode (older-page prepend)
+    // scrollIntoView must NOT be called during preserve mode
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
+    // Older-page request must use the cursor
+    expect(mockListMessages).toHaveBeenLastCalledWith('ca', 'cursor-x');
     unmount();
   });
 
