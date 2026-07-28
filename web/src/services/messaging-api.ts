@@ -87,15 +87,19 @@ export async function listConversations(cursor?: string | null): Promise<Convers
   const params = new URLSearchParams({ limit: '20' });
   if (cursor) params.set('cursor', cursor);
   const data = object(await request(`/api/messaging/conversations?${params}`));
+  const list = data.items;
+  if (!Array.isArray(list)) throw new ApiError(0, 'INVALID_RESPONSE', 'Geçersiz liste yanıtı.');
   return {
-    items: items(data.items).map(parseConversation),
+    items: list.map(parseConversation),
     nextCursor: typeof data.nextCursor === 'string' ? data.nextCursor : null,
   };
 }
 
 export async function listRecipients(): Promise<Recipient[]> {
   const data = object(await request('/api/messaging/recipients'));
-  return items(data.items).map(parseRecipient);
+  const list = data.items;
+  if (!Array.isArray(list)) throw new ApiError(0, 'INVALID_RESPONSE', 'Geçersiz liste yanıtı.');
+  return list.map(parseRecipient);
 }
 
 export async function createOrGetConversation(
@@ -116,8 +120,10 @@ export async function listMessages(
   const params = new URLSearchParams({ limit: '50' });
   if (cursor) params.set('cursor', cursor);
   const data = object(await request(`/api/messaging/conversations/${conversationId}/messages?${params}`));
+  const list = data.items;
+  if (!Array.isArray(list)) throw new ApiError(0, 'INVALID_RESPONSE', 'Geçersiz liste yanıtı.');
   return {
-    items: items(data.items).map(parseMessage),
+    items: list.map(parseMessage),
     nextCursor: typeof data.nextCursor === 'string' ? data.nextCursor : null,
   };
 }
