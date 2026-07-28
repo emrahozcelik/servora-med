@@ -1,7 +1,8 @@
 # Phase U3 Messaging — Visual Evidence
 
 **Capture code SHA:** a58cda912526229405bfbb0f23f648d5d55d2198
-**Evidence commit SHA:** (docs commit after capture, see git log)
+**Evidence commit SHA:** 63f209c17b5e8e24f189dbdf48e7eaaad0a34f93
+**Final PR head:** 63f209c17b5e8e24f189dbdf48e7eaaad0a34f93
 **Backend:** Real Fastify + PostgreSQL (localhost:3000)
 **Frontend:** Real Vite dev server (localhost:5173)
 **Database:** servora_med (PostgreSQL 17)
