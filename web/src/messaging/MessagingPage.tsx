@@ -338,13 +338,25 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     if (loadedMessages.length === 0) return;
     const lastOtherMsg = [...loadedMessages].reverse().find((m) => m.senderUserId !== user.id);
     if (!lastOtherMsg) return;
+
+    const gen = ++markReadGenRef.current;
+    const req = { gen, convId: selectedId };
+    pendingMarkReadRef.current = req;
+
     try {
       await markRead(selectedId, lastOtherMsg.id);
-      setMarkReadError(null);
+      if (pendingMarkReadRef.current?.gen === gen) {
+        setMarkReadError(null);
+      }
       loadConversations();
       loadUnreadCount();
     } catch (error) {
-      setMarkReadError(error instanceof Error ? error.message : 'Okundu işaretlenemedi.');
+      if (pendingMarkReadRef.current?.gen === gen) {
+        setMarkReadError(error instanceof Error ? error.message : 'Okundu işaretlenemedi.');
+      }
+    }
+    if (pendingMarkReadRef.current?.gen === gen) {
+      pendingMarkReadRef.current = null;
     }
   }, [selectedId, loadConversations, loadUnreadCount, user.id]);
 
