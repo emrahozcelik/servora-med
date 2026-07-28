@@ -94,7 +94,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const scrollModeRef = useRef<ScrollMode>('bottom');
   const scrollRestoreRef = useRef({ prevHeight: 0, prevTop: 0 });
   const olderGenRef = useRef(0);
+  const loadGenRef = useRef(0);
   const pendingOlderRef = useRef<OlderRequest | null>(null);
+  const pendingLoadRef = useRef<{ gen: number; convId: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const threadMessagesRef = useRef<HTMLDivElement>(null);
 
@@ -151,9 +153,11 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     selectedId ? [`conversation:${selectedId}`] : [],
     () => {
       if (selectedId) {
-        // Invalidate any pending older request when realtime refreshes the thread
+        // Invalidate any pending older request and load when realtime refreshes the thread
         olderGenRef.current++;
+        loadGenRef.current++;
         pendingOlderRef.current = null;
+        pendingLoadRef.current = null;
         scrollModeRef.current = 'bottom';
         loadMessages(selectedId);
       }
@@ -165,20 +169,33 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   // --- Messages + Pagination ---
 
   const loadMessages = useCallback(async (conversationId: string, cursor?: string | null): Promise<Message[]> => {
+    const gen = ++loadGenRef.current;
+    pendingLoadRef.current = { gen, convId: conversationId };
     setMessageLoading(true);
     setThreadError(null);
     try {
       const page = await listMessages(conversationId, cursor);
+      // Validate: still same conversation and no newer load superseded this
+      if (pendingLoadRef.current?.gen !== gen || pendingLoadRef.current?.convId !== conversationId) {
+        return [];
+      }
       setMessages(page.items);
       setOlderCursor(page.nextCursor);
       loadedPageRef.current = page.items;
       return page.items;
     } catch (error) {
-      const msg = error instanceof Error ? error.message : 'Mesajlar yüklenemedi.';
-      setThreadError(msg);
+      if (pendingLoadRef.current?.gen === gen && pendingLoadRef.current?.convId === conversationId) {
+        setThreadError(error instanceof Error ? error.message : 'Mesajlar yüklenemedi.');
+      }
       return [];
     } finally {
-      setMessageLoading(false);
+      if (pendingLoadRef.current?.gen === gen) {
+        pendingLoadRef.current = null;
+      }
+      // Only clear loading if this is the current request
+      if (pendingLoadRef.current === null || pendingLoadRef.current.gen <= gen) {
+        setMessageLoading(false);
+      }
     }
   }, []);
 
@@ -225,7 +242,10 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       if (pendingOlderRef.current?.gen === gen) {
         pendingOlderRef.current = null;
       }
-      setOlderLoading(false);
+      // Only clear olderLoading if no newer request superseded this
+      if (olderGenRef.current === gen) {
+        setOlderLoading(false);
+      }
     }
   }, [selectedId, olderCursor, olderLoading]);
 
@@ -255,9 +275,11 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   const selectConversation = useCallback(
     async (conversation: Conversation) => {
-      // Invalidate any pending older request from previous conversation
+      // Invalidate any pending requests from previous conversation
       olderGenRef.current++;
+      loadGenRef.current++;
       pendingOlderRef.current = null;
+      pendingLoadRef.current = null;
       setSelectedId(conversation.id);
       setDraft(null);
       setSendError(null);
