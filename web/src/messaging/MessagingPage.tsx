@@ -85,6 +85,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const loadedPageRef = useRef<Message[]>([]);
   const pendingScrollRef = useRef<'bottom' | 'preserve' | 'none'>('bottom');
   const scrollRestoreRef = useRef({ prevHeight: 0, prevTop: 0 });
+  const olderLoadPendingRef = useRef(false);
   const containerRef = useRef<HTMLDivElement>(null);
   const threadMessagesRef = useRef<HTMLDivElement>(null);
 
@@ -126,9 +127,10 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       const sidebar = container.querySelector('.messaging-sidebar') as HTMLElement | null;
       const thread = container.querySelector('.messaging-thread') as HTMLElement | null;
       const workspace = container.closest('.messaging-workspace');
-      if (!sidebar || !thread || !workspace) return;
-      // Check if sidebar + thread minimum widths exceed available space
-      const needsStack = sidebar.scrollWidth + 200 > container.clientWidth;
+      if (!workspace) return;
+      // Use container width threshold: below 650px, switch to drill-down
+      // This works at both narrow viewports and 200% font-size (content appears 2x larger)
+      const needsStack = container.clientWidth < 650;
       workspace.classList.toggle('messaging-stacked', needsStack);
     });
     ro.observe(container);
@@ -172,6 +174,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const handleLoadOlder = useCallback(async () => {
     if (!selectedId || !olderCursor || olderLoading) return;
     setOlderLoading(true);
+    olderLoadPendingRef.current = true;
     pendingScrollRef.current = 'preserve';
     const log = threadMessagesRef.current;
     if (log) {
@@ -182,6 +185,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       setMessages((prev) => [...page.items, ...prev]);
       setOlderCursor(page.nextCursor);
     } catch (error) {
+      olderLoadPendingRef.current = false;
       pendingScrollRef.current = 'bottom';
       setThreadError(error instanceof Error ? error.message : 'Eski mesajlar yüklenemedi.');
     } finally {
@@ -249,17 +253,18 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     const log = threadMessagesRef.current;
     if (!log || messages.length === 0) return;
 
-    if (pendingScrollRef.current === 'preserve') {
+    if (pendingScrollRef.current === 'preserve' && olderLoadPendingRef.current) {
       const { prevHeight, prevTop } = scrollRestoreRef.current;
       const newHeight = log.scrollHeight;
       log.scrollTop = prevTop + (newHeight - prevHeight);
+      olderLoadPendingRef.current = false;
+      pendingScrollRef.current = 'bottom';
     } else if (pendingScrollRef.current === 'bottom') {
       if (threadEndRef.current) {
         threadEndRef.current.scrollIntoView({ behavior: 'smooth' });
       }
     }
-    // Reset to bottom for next change (own send, realtime, conversation switch)
-    pendingScrollRef.current = 'bottom';
+    // Don't reset pendingScrollRef on every render — only on explicit mode consumption
   }, [messages]);
 
   const handleSend = useCallback(

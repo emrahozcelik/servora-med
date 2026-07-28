@@ -403,6 +403,11 @@
   display: none;
 }
 
+.messaging-workspace.messaging-stacked .messaging-sidebar-header h2 {
+  white-space: normal;
+  overflow: visible;
+}
+
 .messaging-workspace.messaging-stacked .messaging-thread.active {
   display: flex;
 }
