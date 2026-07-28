@@ -26,17 +26,6 @@ export interface OverviewReadModel {
     actor: SafeUser,
     requestTime: Date,
   ): Promise<OverviewUpcomingWork>;
-  getWorkTypeDistribution?(
-    organizationId: string,
-    from: string,
-    to: string,
-    staffUserId: string | null,
-    managerUserId?: string,
-  ): Promise<WorkTypeDistributionItem[]>;
-  getMessageUnreadSummary?(
-    organizationId: string,
-    userId: string,
-  ): Promise<MessageUnreadSummary | null>;
 }
 
 type RecentWorkRow = {
@@ -256,70 +245,5 @@ export class PostgresOverviewRepository implements OverviewReadModel {
         createdAt: row.created_at.toISOString(),
       })),
     ] as const;
-  }
-
-  async getWorkTypeDistribution(
-    organizationId: string,
-    from: string,
-    to: string,
-    staffUserId: string | null,
-    managerUserId?: string,
-  ): Promise<WorkTypeDistributionItem[]> {
-    const managerFilter = managerUserId
-      ? `AND EXISTS (
-           SELECT 1 FROM staff_profiles sp
-            WHERE sp.organization_id = j.organization_id
-              AND sp.user_id = j.assigned_to
-              AND sp.manager_user_id = $${staffUserId ? 5 : 4}
-         )`
-      : '';
-    const staffFilter = staffUserId ? `AND j.assigned_to = $4` : '';
-    const values: unknown[] = [organizationId, from, to];
-    if (staffUserId) values.push(staffUserId);
-    if (managerUserId) values.push(managerUserId);
-    const result = await this.pool.query<{ type: string; count: string }>(
-      `SELECT j.type, COUNT(*)::int AS count
-         FROM job_cards j
-         JOIN organizations o ON o.id = j.organization_id
-        WHERE j.organization_id = $1
-          AND j.created_at >= ($2::date AT TIME ZONE o.timezone)
-          AND j.created_at < (($3::date + 1) AT TIME ZONE o.timezone)
-          ${staffFilter}
-          ${managerFilter}
-        GROUP BY j.type
-        ORDER BY count DESC, j.type ASC
-        LIMIT 10`,
-      values,
-    );
-    return result.rows.map((row) => ({
-      type: row.type,
-      count: parseInt(row.count, 10),
-    }));
-  }
-
-  async getMessageUnreadSummary(
-    organizationId: string,
-    userId: string,
-  ): Promise<MessageUnreadSummary | null> {
-    try {
-      const result = await this.pool.query<{ unread_count: string }>(
-        `SELECT COUNT(*)::int AS unread_count
-           FROM messages m
-           JOIN conversation_participants cp
-             ON cp.conversation_id = m.conversation_id
-            AND cp.user_id = $2
-            AND cp.organization_id = m.organization_id
-           LEFT JOIN messages rm
-             ON rm.conversation_id = m.conversation_id AND rm.id = cp.last_read_message_id
-          WHERE m.organization_id = $1
-            AND m.sender_user_id <> $2
-            AND (cp.last_read_message_id IS NULL
-                 OR (m.created_at, m.id) > (rm.created_at, rm.id))`,
-        [organizationId, userId],
-      );
-      return { unreadTotal: parseInt(result.rows[0]?.unread_count ?? '0', 10) };
-    } catch {
-      return null;
-    }
   }
 }

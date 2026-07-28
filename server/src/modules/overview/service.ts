@@ -1,7 +1,8 @@
 import { AppError } from '../../errors/index.js';
-import type { Pool } from 'pg';
 import type { SafeUser } from '../auth/types.js';
 import type { OverviewReadModel } from './repository.js';
+import type { ReportsReadModel } from '../reports/ports.js';
+import type { MessagingReadPort } from '../messaging/types.js';
 import type {
   ManagementOverviewResponse,
   MessageUnreadSummary,
@@ -19,10 +20,11 @@ export class OverviewService {
   constructor(
     private readonly enabled: boolean,
     private readonly repository: OverviewReadModel,
-    private readonly pool?: Pool,
+    private readonly reports?: ReportsReadModel,
     private readonly now: () => Date = () => new Date(),
     private readonly calendarEnabled = false,
     private readonly messagingEnabled = false,
+    private readonly messagingRead?: MessagingReadPort,
   ) {}
 
   async getOverview(actor: SafeUser, query: OverviewQuery) {
@@ -38,28 +40,30 @@ export class OverviewService {
     let workTypeDistribution: WorkTypeDistributionItem[] | undefined;
     let messageUnreadSummary: MessageUnreadSummary | undefined;
 
-    if (actor.role !== 'STAFF' && this.repository.getWorkTypeDistribution) {
+    // Work-type distribution owned by reports module
+    if (actor.role !== 'STAFF' && this.reports?.getWorkTypeDistribution) {
       try {
         const detailedOverview = overview as Omit<ManagementOverviewResponse, 'upcomingWork' | 'messageUnreadSummary' | 'workTypeDistribution'>;
-        workTypeDistribution = await this.repository.getWorkTypeDistribution(
-          actor.organizationId,
-          detailedOverview.range.from,
-          detailedOverview.range.to,
-          null,
-          actor.role === 'MANAGER' ? actor.id : undefined,
-        );
+        workTypeDistribution = await this.reports.getWorkTypeDistribution({
+          organizationId: actor.organizationId,
+          from: detailedOverview.range.from,
+          to: detailedOverview.range.to,
+          staffUserId: null,
+          managerUserId: actor.role === 'MANAGER' ? actor.id : undefined,
+        });
       } catch {
         workTypeDistribution = undefined;
       }
     }
 
-    if (this.messagingEnabled && this.repository.getMessageUnreadSummary) {
+    // Message unread summary owned by messaging module
+    if (this.messagingEnabled && this.messagingRead) {
       try {
-        const summary = await this.repository.getMessageUnreadSummary(
+        const unreadTotal = await this.messagingRead.getUnreadCount(
           actor.organizationId,
           actor.id,
         );
-        messageUnreadSummary = summary ?? undefined;
+        messageUnreadSummary = { unreadTotal };
       } catch {
         messageUnreadSummary = undefined;
       }

@@ -94,3 +94,7 @@ export type MessagingNotificationInput = Readonly<{
   entityType: 'conversation';
   entityId: string;
 }>;
+
+export interface MessagingReadPort {
+  getUnreadCount(organizationId: string, userId: string): Promise<number>;
+}
