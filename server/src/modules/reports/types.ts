@@ -163,3 +163,16 @@ export type DeliveryReportQuery = ReportRangeQuery & {
 export type ApprovalReportQuery = { limit: number; offset: number };
 export type DeliveryReportReadInput = StaffOperationalSummaryScope
   & Omit<DeliveryReportQuery, 'requestedRange'>;
+
+export type WorkTypeDistributionItem = Readonly<{
+  type: string;
+  count: number;
+}>;
+
+export type WorkTypeDistributionInput = Readonly<{
+  organizationId: string;
+  from: string;
+  to: string;
+  staffUserId: string | null;
+  managerUserId?: string;
+}>;

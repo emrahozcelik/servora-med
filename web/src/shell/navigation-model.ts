@@ -36,6 +36,7 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
   const overview: NavLinkItem = { kind: 'link', id: 'overview', label: 'Genel Bakış', shortLabel: 'Bakış', to: paths.overview, section: 'Operasyon' };
   const jobs: NavLinkItem = { kind: 'link', id: 'jobs', label: 'İşler', to: paths.jobs, section: 'Operasyon' };
   const calendar: NavLinkItem = { kind: 'link', id: 'calendar', label: 'Takvim', to: paths.calendar, section: 'Operasyon' };
+  const messages: NavLinkItem = { kind: 'link', id: 'messages', label: 'Mesajlar', shortLabel: 'Mesaj', to: paths.messages, section: 'Operasyon' };
   const customers: NavLinkItem = { kind: 'link', id: 'customers', label: 'Müşteriler', shortLabel: 'Müşt.', to: paths.customers, section: 'Operasyon' };
   const products: NavLinkItem = { kind: 'link', id: 'products', label: 'Ürünler', shortLabel: 'Ürün.', to: paths.products, section: 'Operasyon' };
   const reports: NavLinkItem = { kind: 'link', id: 'reports', label: 'Raporlar', shortLabel: 'Rapor', to: paths.reports, section: 'Analiz' };
@@ -56,6 +57,7 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
     ...(user.capabilities?.overviewDashboard ? [overview] : []),
     jobs,
     ...(user.capabilities?.calendar ? [calendar] : []),
+    ...(user.capabilities?.messaging ? [messages] : []),
     customers,
     products,
     ...(user.role !== 'STAFF' ? [reports] : []),
@@ -98,6 +100,7 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
 export function resolveShellTitle(pathname: string, role: CurrentUser['role']): string {
   if (pathname.startsWith('/overview')) return 'Genel Bakış';
   if (pathname.startsWith('/calendar')) return 'Takvim';
+  if (pathname.startsWith('/messages')) return 'Mesajlar';
   if (pathname.startsWith('/docs')) return 'Dokümantasyon';
   if (pathname.startsWith('/help')) return 'Yardım Merkezi';
   if (pathname.startsWith('/settings')) return 'Ayarlar';

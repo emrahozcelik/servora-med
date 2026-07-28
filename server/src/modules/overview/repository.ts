@@ -3,10 +3,12 @@ import type { Pool } from 'pg';
 import type { SafeUser } from '../auth/types.js';
 import type { ReportsReadModel } from '../reports/ports.js';
 import type {
+  MessageUnreadSummary,
   OverviewQuery,
+  OverviewUpcomingWork,
   StaffOverviewResponse,
   ManagementOverviewResponse,
-  OverviewUpcomingWork,
+  WorkTypeDistributionItem,
 } from './types.js';
 
 export interface OverviewReadModel {
@@ -14,12 +16,12 @@ export interface OverviewReadModel {
     actor: SafeUser,
     query: OverviewQuery,
     requestTime: Date,
-  ): Promise<Omit<StaffOverviewResponse, 'upcomingWork'>>;
+  ): Promise<Omit<StaffOverviewResponse, 'upcomingWork' | 'messageUnreadSummary'>>;
   getManagementOverview(
     actor: SafeUser,
     query: OverviewQuery,
     requestTime: Date,
-  ): Promise<Omit<ManagementOverviewResponse, 'upcomingWork'>>;
+  ): Promise<Omit<ManagementOverviewResponse, 'upcomingWork' | 'workTypeDistribution' | 'messageUnreadSummary'>>;
   getUpcomingWork?(
     actor: SafeUser,
     requestTime: Date,

@@ -106,6 +106,7 @@ async function main() {
       realtimePublisher: realtimeBus,
       notificationRepository: new PostgresNotificationRepository(database.pool),
       webPushRepository: new PostgresWebPushRepository(database.pool),
+      pool: database.pool,
       reverseGeocoder,
       reverseGeocodingQuotaGuard,
     });

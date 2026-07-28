@@ -144,6 +144,7 @@ implements CalendarReminderWorkerRepository {
         id: BigInt(realtime.rows[0]!.id),
         organizationId: claim.organizationId,
         sourceActivityId: null,
+        messagingActivityId: null,
         type: 'calendar.reminder_due' as const,
         entityType: current.entity_type,
         entityId: current.entity_id,

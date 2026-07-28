@@ -11,8 +11,9 @@ type EventRow = {
   id: string;
   organization_id: string;
   source_activity_id: string | null;
+  messaging_activity_id: string | null;
   event_type: RealtimeEventType;
-  entity_type: 'job-card' | 'calendar-event';
+  entity_type: 'job-card' | 'calendar-event' | 'conversation';
   entity_id: string;
   actor_user_id: string | null;
   audience_roles: ('ADMIN' | 'MANAGER')[];
@@ -21,15 +22,18 @@ type EventRow = {
   created_at: Date;
 };
 
-const COLUMNS = `id, organization_id, source_activity_id, event_type,
+const COLUMNS_NO_MSG = `id, organization_id, source_activity_id, event_type,
   entity_type, entity_id, actor_user_id, audience_roles,
   audience_user_ids, resource_keys, created_at`;
+
+const COLUMNS = `${COLUMNS_NO_MSG}, messaging_activity_id`;
 
 function mapEvent(row: EventRow): RealtimeEventRecord {
   return {
     id: BigInt(row.id),
     organizationId: row.organization_id,
     sourceActivityId: row.source_activity_id,
+    messagingActivityId: row.messaging_activity_id,
     type: row.event_type,
     entityType: row.entity_type,
     entityId: row.entity_id,
@@ -56,16 +60,21 @@ implements RealtimeEventTransaction {
       'SELECT pg_advisory_xact_lock(1, hashtext($1::text))',
       [input.organizationId],
     );
+    const hasMsg = input.messagingActivityId != null;
+    const columns = hasMsg ? COLUMNS : COLUMNS_NO_MSG;
     const result = await this.client.query<EventRow>(
       `INSERT INTO realtime_events
-        (organization_id, source_activity_id, event_type, entity_type,
+        (organization_id, source_activity_id${hasMsg ? ', messaging_activity_id' : ''}, event_type, entity_type,
          entity_id, actor_user_id, audience_roles, audience_user_ids,
          resource_keys, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
-       RETURNING ${COLUMNS}`,
+       VALUES ($1,$2${hasMsg ? ',$3' : ''},$${hasMsg ? '4' : '3'},$${hasMsg ? '5' : '4'},$${hasMsg ? '6' : '5'},
+               $${hasMsg ? '7' : '6'},$${hasMsg ? '8' : '7'},$${hasMsg ? '9' : '8'},
+               $${hasMsg ? '10' : '9'},$${hasMsg ? '11' : '10'})
+       RETURNING ${columns}`,
       [
         input.organizationId,
-        input.sourceActivityId,
+        input.sourceActivityId ?? null,
+        ...(hasMsg ? [input.messagingActivityId] : []),
         input.type,
         input.entityType,
         input.entityId,

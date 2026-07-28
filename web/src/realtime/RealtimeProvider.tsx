@@ -22,12 +22,14 @@ const CHANGE_TYPES = new Set([
   'job.revision_requested',
   'job.cancelled',
   'job.updated',
+  'conversation.created',
+  'message.sent',
 ]);
 
 type RealtimeChangeEnvelope = Readonly<{
   id: string;
   type: string;
-  entity: Readonly<{ type: 'job-card'; id: string }>;
+  entity: Readonly<{ type: 'job-card' | 'calendar-event' | 'conversation'; id: string }>;
   resourceKeys: readonly string[];
   occurredAt: string;
 }>;

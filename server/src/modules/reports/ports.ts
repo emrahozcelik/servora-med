@@ -11,6 +11,8 @@ import type {
   StaffOperationalSummaryManyInput,
   StaffOperationalSummaryOneInput,
   StaffOperationalSummaryScope,
+  WorkTypeDistributionInput,
+  WorkTypeDistributionItem,
 } from './types.js';
 
 export interface StaffOperationalSummaryPort {
@@ -30,6 +32,8 @@ export interface ReportsReadModel extends StaffOperationalSummaryPort {
   getDeliveryReport(input: DeliveryReportReadInput): Promise<DeliveryReportResponse>;
   getApprovalSummary(input: { organizationId: string; requestTime: Date }):
     Promise<ApprovalSummary>;
+  getWorkTypeDistribution(input: WorkTypeDistributionInput):
+    Promise<WorkTypeDistributionItem[]>;
 }
 
 export interface ApprovalQueueItemPort {
