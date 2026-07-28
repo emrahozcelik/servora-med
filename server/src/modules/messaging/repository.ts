@@ -784,8 +784,8 @@ export class PostgresMessagingTransaction {
       entityType: string;
       entityId: string;
     }[];
-  }): Promise<void> {
-    if (input.drafts.length === 0) return;
+  }): Promise<string[]> {
+    if (input.drafts.length === 0) return [];
     const values: unknown[] = [];
     const rows = input.drafts.map((draft, index) => {
       const offset = index * 7;
@@ -801,13 +801,57 @@ export class PostgresMessagingTransaction {
       return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4},
         $${offset + 5}, $${offset + 6}, $${offset + 7})`;
     });
-    await this.client.query(
+    const result = await this.client.query<{ id: string }>(
       `INSERT INTO in_app_notifications
         (organization_id, recipient_user_id, source_realtime_event_id, kind,
          entity_type, entity_id, created_at)
        VALUES ${rows.join(', ')}
-       ON CONFLICT (recipient_user_id, source_realtime_event_id) DO NOTHING`,
+       ON CONFLICT (recipient_user_id, source_realtime_event_id) DO NOTHING
+       RETURNING id`,
       values,
+    );
+    return result.rows.map((row) => row.id);
+  }
+
+  async appendWebPushDeliveries(input: {
+    organizationId: string;
+    notificationIds: readonly string[];
+    at: Date;
+  }): Promise<void> {
+    if (input.notificationIds.length === 0) return;
+    await this.client.query(
+      `INSERT INTO web_push_deliveries
+         (organization_id, notification_id, subscription_id,
+          next_attempt_at, created_at, updated_at)
+       SELECT notification.organization_id,
+              notification.id,
+              subscription.id,
+              $3,
+              $3,
+              $3
+         FROM in_app_notifications notification
+         JOIN web_push_subscriptions subscription
+           ON subscription.organization_id = notification.organization_id
+          AND subscription.recipient_user_id = notification.recipient_user_id
+          AND subscription.disabled_at IS NULL
+          AND (
+            subscription.expiration_time IS NULL
+            OR subscription.expiration_time > $3
+          )
+         JOIN users recipient
+           ON recipient.organization_id = subscription.organization_id
+          AND recipient.id = subscription.recipient_user_id
+          AND recipient.is_active = TRUE
+         JOIN sessions session_record
+           ON session_record.user_id = subscription.recipient_user_id
+          AND session_record.id = subscription.session_id
+          AND session_record.revoked_at IS NULL
+          AND session_record.expires_at > $3
+        WHERE notification.organization_id = $1
+          AND notification.id = ANY($2::uuid[])
+          AND notification.read_at IS NULL
+       ON CONFLICT (notification_id, subscription_id) DO NOTHING`,
+      [input.organizationId, input.notificationIds, input.at],
     );
   }
 

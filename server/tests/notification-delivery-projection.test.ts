@@ -26,6 +26,7 @@ const MIGRATIONS = [
   '015_job_card_engagement_kind.sql',
   '016_google_reverse_geocoding.sql',
   '017_calendar.sql',
+  '018_messaging.sql',
 ] as const;
 
 type DeliveryFixture = {

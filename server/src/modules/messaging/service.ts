@@ -309,7 +309,7 @@ export class MessagingService {
         // Persist in-app notifications for other participants
         const notificationRecipients = participantIds.filter((uid) => uid !== actor.id);
         if (notificationRecipients.length > 0 && realtimeEventId != null) {
-          await tx.appendNotifications({
+          const notificationIds = await tx.appendNotifications({
             organizationId: actor.organizationId,
             sourceRealtimeEventId: realtimeEventId,
             createdAt: now,
@@ -320,6 +320,15 @@ export class MessagingService {
               entityId: conversation.id,
             })),
           });
+
+          // Persist Web Push deliveries for active subscriptions
+          if (notificationIds.length > 0) {
+            await tx.appendWebPushDeliveries({
+              organizationId: actor.organizationId,
+              notificationIds,
+              at: now,
+            });
+          }
         }
       }
 
