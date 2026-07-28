@@ -22,9 +22,11 @@ type EventRow = {
   created_at: Date;
 };
 
-const COLUMNS = `id, organization_id, source_activity_id, messaging_activity_id, event_type,
+const COLUMNS_NO_MSG = `id, organization_id, source_activity_id, event_type,
   entity_type, entity_id, actor_user_id, audience_roles,
   audience_user_ids, resource_keys, created_at`;
+
+const COLUMNS = `${COLUMNS_NO_MSG}, messaging_activity_id`;
 
 function mapEvent(row: EventRow): RealtimeEventRecord {
   return {
@@ -58,17 +60,21 @@ implements RealtimeEventTransaction {
       'SELECT pg_advisory_xact_lock(1, hashtext($1::text))',
       [input.organizationId],
     );
+    const hasMsg = input.messagingActivityId != null;
+    const columns = hasMsg ? COLUMNS : COLUMNS_NO_MSG;
     const result = await this.client.query<EventRow>(
       `INSERT INTO realtime_events
-        (organization_id, source_activity_id, messaging_activity_id, event_type, entity_type,
+        (organization_id, source_activity_id${hasMsg ? ', messaging_activity_id' : ''}, event_type, entity_type,
          entity_id, actor_user_id, audience_roles, audience_user_ids,
          resource_keys, created_at)
-       VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
-       RETURNING ${COLUMNS}`,
+       VALUES ($1,$2${hasMsg ? ',$3' : ''},$${hasMsg ? '4' : '3'},$${hasMsg ? '5' : '4'},$${hasMsg ? '6' : '5'},
+               $${hasMsg ? '7' : '6'},$${hasMsg ? '8' : '7'},$${hasMsg ? '9' : '8'},
+               $${hasMsg ? '10' : '9'},$${hasMsg ? '11' : '10'})
+       RETURNING ${columns}`,
       [
         input.organizationId,
         input.sourceActivityId ?? null,
-        input.messagingActivityId ?? null,
+        ...(hasMsg ? [input.messagingActivityId] : []),
         input.type,
         input.entityType,
         input.entityId,
