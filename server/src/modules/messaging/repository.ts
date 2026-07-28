@@ -372,7 +372,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
     const cursorClause = cursor
       ? `AND (m.created_at, m.id) ${direction} ($${cursor ? 4 : 0}, $${cursor ? 5 : 0})`
       : '';
-    const limitParam = cursor ? '$6' : '$4';
+    const limitParam = cursor ? '$6' : '$3';
     const values: unknown[] = [organizationId, conversationId];
     if (cursor) {
       values.push(cursor.createdAt, cursor.id);
