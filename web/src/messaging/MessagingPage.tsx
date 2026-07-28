@@ -83,7 +83,10 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const threadEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const loadedPageRef = useRef<Message[]>([]);
-  const shouldAutoScrollRef = useRef(true);
+  const pendingScrollRef = useRef<'bottom' | 'preserve' | 'none'>('bottom');
+  const scrollRestoreRef = useRef({ prevHeight: 0, prevTop: 0 });
+  const containerRef = useRef<HTMLDivElement>(null);
+  const threadMessagesRef = useRef<HTMLDivElement>(null);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -114,6 +117,23 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   }, [loadConversations, loadUnreadCount]);
 
   useEffect(() => { void refresh(); }, [refresh]);
+
+  // Detect when sidebar + thread don't fit side-by-side (e.g. 200% font-size) and switch to drill-down
+  useEffect(() => {
+    const container = containerRef.current;
+    if (!container) return;
+    const ro = new ResizeObserver(() => {
+      const sidebar = container.querySelector('.messaging-sidebar') as HTMLElement | null;
+      const thread = container.querySelector('.messaging-thread') as HTMLElement | null;
+      const workspace = container.closest('.messaging-workspace');
+      if (!sidebar || !thread || !workspace) return;
+      // Check if sidebar + thread minimum widths exceed available space
+      const needsStack = sidebar.scrollWidth + 200 > container.clientWidth;
+      workspace.classList.toggle('messaging-stacked', needsStack);
+    });
+    ro.observe(container);
+    return () => ro.disconnect();
+  }, [pageState.kind]);
 
   useRealtimeInvalidation(['conversations', 'message-unread'], () => {
     loadConversations();
@@ -152,29 +172,21 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const handleLoadOlder = useCallback(async () => {
     if (!selectedId || !olderCursor || olderLoading) return;
     setOlderLoading(true);
-    shouldAutoScrollRef.current = false;
+    pendingScrollRef.current = 'preserve';
+    const log = threadMessagesRef.current;
+    if (log) {
+      scrollRestoreRef.current = { prevHeight: log.scrollHeight, prevTop: log.scrollTop };
+    }
     try {
-      // Save scroll position before prepend
-      const log = document.querySelector('.thread-messages');
-      const prevScrollHeight = log?.scrollHeight ?? 0;
-
       const page = await listMessages(selectedId, olderCursor);
       setMessages((prev) => [...page.items, ...prev]);
       setOlderCursor(page.nextCursor);
-
-      // Restore scroll position after prepend
-      requestAnimationFrame(() => {
-        if (log) {
-          const newScrollHeight = log.scrollHeight;
-          log.scrollTop = newScrollHeight - prevScrollHeight;
-        }
-      });
     } catch (error) {
+      pendingScrollRef.current = 'bottom';
       setThreadError(error instanceof Error ? error.message : 'Eski mesajlar yüklenemedi.');
     } finally {
       setOlderLoading(false);
     }
-    shouldAutoScrollRef.current = true;
   }, [selectedId, olderCursor, olderLoading]);
 
   const selectConversation = useCallback(
@@ -183,7 +195,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       setDraft(null);
       setSendError(null);
       setMarkReadError(null);
-      shouldAutoScrollRef.current = true;
+      pendingScrollRef.current = 'bottom';
 
       const loadedMessages = await loadMessages(conversation.id);
 
@@ -234,14 +246,21 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   }, [pageState.kind, conversations, searchParams, selectConversation]);
 
   useEffect(() => {
-    if (shouldAutoScrollRef.current && threadEndRef.current) {
-      threadEndRef.current.scrollIntoView({ behavior: 'smooth' });
-    }
-    // Reset flag after each render
-  }, [messages]);
+    const log = threadMessagesRef.current;
+    if (!log || messages.length === 0) return;
 
-  // Auto-scroll on own send (new message appended at bottom)
-  // Don't auto-scroll on older-page prepend (handleLoadOlder manages its own scroll)
+    if (pendingScrollRef.current === 'preserve') {
+      const { prevHeight, prevTop } = scrollRestoreRef.current;
+      const newHeight = log.scrollHeight;
+      log.scrollTop = prevTop + (newHeight - prevHeight);
+    } else if (pendingScrollRef.current === 'bottom') {
+      if (threadEndRef.current) {
+        threadEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+    }
+    // Reset to bottom for next change (own send, realtime, conversation switch)
+    pendingScrollRef.current = 'bottom';
+  }, [messages]);
 
   const handleSend = useCallback(
     async (e?: React.KeyboardEvent) => {
@@ -262,7 +281,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
       setDraft({ body: text, clientActionId: effectiveActionId, status: 'sending' });
       setSendError(null);
-      shouldAutoScrollRef.current = true;
+      pendingScrollRef.current = 'bottom';
 
       try {
         const msg = await sendMessage(selectedId, text, effectiveActionId);
@@ -334,7 +353,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   return (
     <main className="workspace messaging-workspace">
-      <div className="messaging-container">
+      <div className="messaging-container" ref={containerRef}>
         <aside className="messaging-sidebar">
           <header className="messaging-sidebar-header">
             <h2>Mesajlar</h2>
@@ -469,7 +488,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
                 </div>
               )}
 
-              <div className="thread-messages" role="log" aria-live="polite">
+              <div className="thread-messages" role="log" aria-live="polite" ref={threadMessagesRef}>
                 {olderCursor && (
                   <div className="older-messages-control">
                     <button
