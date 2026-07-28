@@ -148,6 +148,10 @@ const NotificationSettingsPage = lazy(() =>
   import('./settings/SettingsPages').then((module) => ({ default: module.NotificationSettingsPage })),
 );
 
+const MessagingPage = lazy(() =>
+  import('./messaging/MessagingPage').then((module) => ({ default: module.MessagingPage })),
+);
+
 type AppRouterProps = {
   user: CurrentUser;
   notice: string;
@@ -255,6 +259,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
   const navigate = useNavigate();
   const overviewEnabled = user.capabilities?.overviewDashboard === true;
   const calendarEnabled = user.capabilities?.calendar === true;
+  const messagingEnabled = user.capabilities?.messaging === true;
   const landingPath = overviewEnabled ? paths.overview : paths.jobs;
   return (
     <Suspense fallback={<RouteLoading />}>
@@ -265,6 +270,8 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
           ? <OverviewPage user={user} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.calendar} element={calendarEnabled
           ? <CalendarPage user={user} /> : <Navigate to={paths.jobs} replace />} />
+        <Route path={paths.messages} element={messagingEnabled
+          ? <MessagingPage user={user} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.docs} element={<DocumentationPage user={user} />} />
         <Route path={paths.help} element={<HelpCenterPage user={user} />} />
         <Route path={paths.settings} element={<SettingsLandingPage />} />
