@@ -155,7 +155,7 @@ describe('MessagingPage transition isolation', () => {
     unmount();
   });
 
-  it('4: scrollIntoView NOT called and cursor request verified during older prepend', async () => {
+  it('4: scroll restoration exact formula with cursor verification', async () => {
     const cA = conv('ca', 'A');
     mockListConversations.mockResolvedValue({ items: [cA], nextCursor: null });
     mockGetUnread.mockResolvedValue(0);
@@ -167,20 +167,31 @@ describe('MessagingPage transition isolation', () => {
 
     const log = container.querySelector('.thread-messages') as HTMLElement;
 
-    // Set deterministic scroll state for formula verification
+    // Deterministic scroll state — scrollHeight getter returns controllable value
     let measuredScrollHeight = 2000;
     Object.defineProperty(log, 'scrollHeight', { get: () => measuredScrollHeight, configurable: true });
     log.scrollTop = 500;
 
-    // Start older load — set new height before response renders
-    measuredScrollHeight = 2600;
-    mockListMessages.mockResolvedValueOnce({ items: [m('old1', 'older')], nextCursor: null });
-    (container.querySelector('.older-messages-control button') as HTMLElement)?.click();
-    await tick(50);
+    // Deferred older-page response — handleLoadOlder reads prevHeight=2000, prevTop=500 synchronously,
+    // then suspends at await listMessages(…)
+    const olderPage = deferred<any>();
+    mockListMessages.mockImplementationOnce(() => olderPage.promise);
 
-    // scrollIntoView must NOT be called during preserve mode
+    await act(async () => {
+      (container.querySelector('.older-messages-control button') as HTMLElement)?.click();
+    });
+
+    // At this point handleLoadOlder has captured prevHeight=2000, prevTop=500
+    // and is suspended. Set new height before response renders.
+    measuredScrollHeight = 2600;
+
+    // Resolve the deferred — flushes microtask continuation + React re-render + useLayoutEffect
+    olderPage.resolve({ items: [m('old1', 'older')], nextCursor: null });
+    await act(async () => { await new Promise(r => setTimeout(r, 50)); });
+
+    // Formula: prevTop(500) + (newHeight(2600) - prevHeight(2000)) = 1100
+    expect(log.scrollTop).toBe(1100);
     expect(Element.prototype.scrollIntoView).not.toHaveBeenCalled();
-    // Older-page request must use the cursor
     expect(mockListMessages).toHaveBeenLastCalledWith('ca', 'cursor-x');
     unmount();
   });
