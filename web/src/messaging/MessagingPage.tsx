@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import type { CurrentUser } from '../services/api';
 import {
@@ -31,6 +31,14 @@ type DraftState = {
   status: 'pending' | 'sending' | 'error';
   error?: string;
 } | null;
+
+type ScrollMode = 'bottom' | 'preserve' | 'none';
+
+type OlderRequest = {
+  gen: number;
+  convId: string;
+  cursor: string;
+};
 
 function formatActivityTime(iso: string): string {
   const date = new Date(iso);
@@ -83,10 +91,14 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const threadEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const loadedPageRef = useRef<Message[]>([]);
-  const pendingScrollRef = useRef<'bottom' | 'preserve' | 'none'>('bottom');
-  const olderLoadGenRef = useRef(0);
+  const scrollModeRef = useRef<ScrollMode>('bottom');
+  const scrollRestoreRef = useRef({ prevHeight: 0, prevTop: 0 });
+  const olderGenRef = useRef(0);
+  const pendingOlderRef = useRef<OlderRequest | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const threadMessagesRef = useRef<HTMLDivElement>(null);
+
+  // --- Data loading ---
 
   const loadConversations = useCallback(async () => {
     try {
@@ -99,11 +111,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   }, []);
 
   const loadUnreadCount = useCallback(async () => {
-    try {
-      setUnreadTotal(await getUnreadCount());
-    } catch {
-      // Non-critical, silently ignore
-    }
+    try { setUnreadTotal(await getUnreadCount()); } catch { /* non-critical */ }
   }, []);
 
   const refresh = useCallback(async () => {
@@ -118,23 +126,20 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  // Detect when sidebar + thread don't fit side-by-side (e.g. 200% font-size) and switch to drill-down
+  // Drill-down detection for 200% font-size
   useEffect(() => {
     const container = containerRef.current;
     if (!container) return;
     const ro = new ResizeObserver(() => {
-      const sidebar = container.querySelector('.messaging-sidebar') as HTMLElement | null;
-      const thread = container.querySelector('.messaging-thread') as HTMLElement | null;
       const workspace = container.closest('.messaging-workspace');
       if (!workspace) return;
-      // Use container width threshold: below 650px, switch to drill-down
-      // This works at both narrow viewports and 200% font-size (content appears 2x larger)
-      const needsStack = container.clientWidth < 650;
-      workspace.classList.toggle('messaging-stacked', needsStack);
+      workspace.classList.toggle('messaging-stacked', container.clientWidth < 650);
     });
     ro.observe(container);
     return () => ro.disconnect();
   }, [pageState.kind]);
+
+  // --- Realtime ---
 
   useRealtimeInvalidation(['conversations', 'message-unread'], () => {
     loadConversations();
@@ -145,70 +150,120 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   useRealtimeInvalidation(
     selectedId ? [`conversation:${selectedId}`] : [],
     () => {
-      if (selectedId) loadMessages(selectedId);
+      if (selectedId) {
+        // Invalidate any pending older request when realtime refreshes the thread
+        olderGenRef.current++;
+        pendingOlderRef.current = null;
+        scrollModeRef.current = 'bottom';
+        loadMessages(selectedId);
+      }
       loadConversations();
       loadUnreadCount();
     },
   );
+
+  // --- Messages + Pagination ---
 
   const loadMessages = useCallback(async (conversationId: string, cursor?: string | null): Promise<Message[]> => {
     setMessageLoading(true);
     setThreadError(null);
     try {
       const page = await listMessages(conversationId, cursor);
-      const items = page.items;
-      setMessages(items);
+      setMessages(page.items);
       setOlderCursor(page.nextCursor);
-      loadedPageRef.current = items;
-      return items;
+      loadedPageRef.current = page.items;
+      return page.items;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Mesajlar yüklenemedi.';
-      setThreadError(message);
+      const msg = error instanceof Error ? error.message : 'Mesajlar yüklenemedi.';
+      setThreadError(msg);
       return [];
     } finally {
       setMessageLoading(false);
     }
   }, []);
 
+  // --- Older-page load with conversation-scoped invalidation ---
+
   const handleLoadOlder = useCallback(async () => {
     if (!selectedId || !olderCursor || olderLoading) return;
     setOlderLoading(true);
-    const gen = ++olderLoadGenRef.current;
+
+    const gen = ++olderGenRef.current;
+    const request: OlderRequest = { gen, convId: selectedId, cursor: olderCursor };
+    pendingOlderRef.current = request;
+
     const log = threadMessagesRef.current;
     const prevHeight = log?.scrollHeight ?? 0;
     const prevTop = log?.scrollTop ?? 0;
+
     try {
       const page = await listMessages(selectedId, olderCursor);
-      if (olderLoadGenRef.current !== gen) return; // superseded
+
+      // Validate request is still current before applying result
+      if (
+        pendingOlderRef.current?.gen !== gen ||
+        pendingOlderRef.current?.convId !== selectedId ||
+        pendingOlderRef.current?.cursor !== olderCursor
+      ) {
+        return; // Superseded by conversation switch, realtime, or new request
+      }
+
       setMessages((prev) => [...page.items, ...prev]);
       setOlderCursor(page.nextCursor);
-      // Restore scroll after React commits the prepend
-      requestAnimationFrame(() => {
-        if (log) {
-          const newHeight = log.scrollHeight;
-          log.scrollTop = prevTop + (newHeight - prevHeight);
-        }
-      });
+
+      // Use scroll restoration via useLayoutEffect
+      scrollModeRef.current = 'preserve';
+      scrollRestoreRef.current = { prevHeight, prevTop };
     } catch (error) {
-      if (olderLoadGenRef.current !== gen) return;
-      setThreadError(error instanceof Error ? error.message : 'Eski mesajlar yüklenemedi.');
+      if (pendingOlderRef.current?.gen === gen && pendingOlderRef.current?.convId === selectedId) {
+        setThreadError(error instanceof Error ? error.message : 'Eski mesajlar yüklenemedi.');
+      }
     } finally {
+      if (pendingOlderRef.current?.gen === gen) {
+        pendingOlderRef.current = null;
+      }
       setOlderLoading(false);
     }
   }, [selectedId, olderCursor, olderLoading]);
 
+  // --- Scroll state machine (useLayoutEffect for synchronous restore before paint) ---
+
+  useLayoutEffect(() => {
+    const log = threadMessagesRef.current;
+    if (!log || messages.length === 0) return;
+
+    const mode = scrollModeRef.current;
+
+    if (mode === 'preserve') {
+      const { prevHeight, prevTop } = scrollRestoreRef.current;
+      const newHeight = log.scrollHeight;
+      log.scrollTop = prevTop + (newHeight - prevHeight);
+      scrollModeRef.current = 'none'; // consumed
+    } else if (mode === 'bottom') {
+      if (threadEndRef.current) {
+        threadEndRef.current.scrollIntoView({ behavior: 'smooth' });
+      }
+      scrollModeRef.current = 'none';
+    }
+    // 'none' = no action
+  }, [messages]);
+
+  // --- Conversation selection ---
+
   const selectConversation = useCallback(
     async (conversation: Conversation) => {
+      // Invalidate any pending older request from previous conversation
+      olderGenRef.current++;
+      pendingOlderRef.current = null;
       setSelectedId(conversation.id);
       setDraft(null);
       setSendError(null);
       setMarkReadError(null);
-      pendingScrollRef.current = 'bottom';
+      scrollModeRef.current = 'bottom';
 
       const loadedMessages = await loadMessages(conversation.id);
 
       if (conversation.unreadCount > 0 && loadedMessages.length > 0) {
-        // Find the last message from another user (not the viewer) to mark as read
         const lastOtherMsg = [...loadedMessages].reverse().find((m) => m.senderUserId !== user.id);
         if (lastOtherMsg) {
           try {
@@ -229,7 +284,6 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     if (!selectedId) return;
     const loadedMessages = loadedPageRef.current;
     if (loadedMessages.length === 0) return;
-    // Find the last message from another user (not the viewer)
     const lastOtherMsg = [...loadedMessages].reverse().find((m) => m.senderUserId !== user.id);
     if (!lastOtherMsg) return;
     try {
@@ -242,55 +296,37 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     }
   }, [selectedId, loadConversations, loadUnreadCount, user.id]);
 
-  // Deep-link: auto-select conversation from URL ?conversation=<id>
+  // Deep-link from notification center
   useEffect(() => {
     const convId = searchParams.get('conversation');
     if (convId && pageState.kind === 'ready') {
       const conv = conversations.find((c) => c.id === convId);
-      if (conv) {
-        selectConversation(conv);
-      }
+      if (conv) selectConversation(conv);
     }
   }, [pageState.kind, conversations, searchParams, selectConversation]);
 
-  useEffect(() => {
-    const log = threadMessagesRef.current;
-    if (!log || messages.length === 0) return;
-
-    if (pendingScrollRef.current === 'bottom') {
-      if (threadEndRef.current) {
-        threadEndRef.current.scrollIntoView({ behavior: 'smooth' });
-      }
-    }
-    // preserve mode is handled synchronously in handleLoadOlder via rAF
-  }, [messages]);
+  // --- Send ---
 
   const handleSend = useCallback(
     async (e?: React.KeyboardEvent) => {
       if (e) {
         if (e.key === 'Enter' && !e.shiftKey) {
           e.preventDefault();
-        } else if (e.key !== 'Enter') {
-          return;
-        }
+        } else if (e.key !== 'Enter') return;
         if (e.shiftKey && e.key === 'Enter') return;
       }
 
       const text = composerText.trim();
       if (!text || !selectedId) return;
 
-      // If draft already exists with same body, reuse clientActionId for retry
       const effectiveActionId = draft?.body === text ? draft.clientActionId : nextClientActionId(user.id);
-
       setDraft({ body: text, clientActionId: effectiveActionId, status: 'sending' });
       setSendError(null);
-      pendingScrollRef.current = 'bottom';
+      scrollModeRef.current = 'bottom';
 
       try {
         const msg = await sendMessage(selectedId, text, effectiveActionId);
-        if (!msg.isDuplicate) {
-          setMessages((prev) => [...prev, msg]);
-        }
+        if (!msg.isDuplicate) setMessages((prev) => [...prev, msg]);
         setComposerText('');
         setDraft(null);
         loadConversations();
@@ -321,32 +357,21 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const loadRecipientsForPicker = useCallback(async () => {
     setRecipientsLoading(true);
     setRecipientsError(null);
-    try {
-      setRecipients(await listRecipients());
-    } catch (error) {
+    try { setRecipients(await listRecipients()); } catch (error) {
       setRecipientsError(error instanceof Error ? error.message : 'Alıcılar yüklenemedi.');
-    } finally {
-      setRecipientsLoading(false);
-    }
+    } finally { setRecipientsLoading(false); }
   }, []);
 
-  if (pageState.kind === 'loading') {
-    return (
-      <main className="workspace messaging-workspace">
-        <LoadConversations />
-      </main>
-    );
-  }
+  // --- Render ---
 
+  if (pageState.kind === 'loading') {
+    return <main className="workspace messaging-workspace"><LoadConversations /></main>;
+  }
   if (pageState.kind === 'error') {
     return (
       <main className="workspace messaging-workspace">
-        <ResultState
-          status="error"
-          title="Yüklenemedi"
-          description={pageState.message}
-          action={<button className="primary-button" onClick={refresh}>Tekrar dene</button>}
-        />
+        <ResultState status="error" title="Yüklenemedi" description={pageState.message}
+          action={<button className="primary-button" onClick={refresh}>Tekrar dene</button>} />
       </main>
     );
   }
@@ -360,228 +385,61 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         <aside className="messaging-sidebar">
           <header className="messaging-sidebar-header">
             <h2>Mesajlar</h2>
-            <button
-              className="secondary-button"
-              onClick={() => {
-                setShowRecipientPicker(true);
-                loadRecipientsForPicker();
-              }}
-              aria-label="Yeni mesaj"
-            >
-              Yeni
-            </button>
+            <button className="secondary-button" onClick={() => { setShowRecipientPicker(true); loadRecipientsForPicker(); }} aria-label="Yeni mesaj">Yeni</button>
           </header>
-
-          {convLoadError && (
-            <div className="inline-error">
-              {convLoadError}
-              <button className="ghost-button" onClick={loadConversations}>Tekrar dene</button>
-            </div>
-          )}
-
+          {convLoadError && <div className="inline-error">{convLoadError}<button className="ghost-button" onClick={loadConversations}>Tekrar dene</button></div>}
           {showRecipientPicker && (
             <div className="recipient-picker">
-              <header>
-                <h3>Alıcı seçin</h3>
-                <button
-                  className="ghost-button"
-                  onClick={() => setShowRecipientPicker(false)}
-                  aria-label="Kapat"
-                >
-                  Kapat
-                </button>
-              </header>
+              <header><h3>Alıcı seçin</h3><button className="ghost-button" onClick={() => setShowRecipientPicker(false)} aria-label="Kapat">Kapat</button></header>
               {recipientsLoading && <LoadRecipients />}
-              {recipientsError && (
-                <div className="inline-error">
-                  {recipientsError}
-                  <button className="ghost-button" onClick={loadRecipientsForPicker}>Tekrar dene</button>
-                </div>
-              )}
+              {recipientsError && <div className="inline-error">{recipientsError}<button className="ghost-button" onClick={loadRecipientsForPicker}>Tekrar dene</button></div>}
               <ul className="recipient-list">
                 {recipients.map((r) => (
-                  <li key={r.id}>
-                    <button
-                      className="recipient-item"
-                      onClick={() => handleNewConversation(r.id)}
-                      disabled={!r.isActive}
-                    >
-                      <UserAvatar name={r.name} size="default" />
-                      <span className="recipient-details">
-                        <strong>{r.name}</strong>
-                        <small>{r.role === 'ADMIN' ? 'Yönetici' : r.role === 'MANAGER' ? 'Müdür' : 'Personel'}{!r.isActive ? ' (Pasif)' : ''}</small>
-                      </span>
-                    </button>
-                  </li>
+                  <li key={r.id}><button className="recipient-item" onClick={() => handleNewConversation(r.id)} disabled={!r.isActive}><UserAvatar name={r.name} size="default" /><span className="recipient-details"><strong>{r.name}</strong><small>{r.role === 'ADMIN' ? 'Yönetici' : r.role === 'MANAGER' ? 'Müdür' : 'Personel'}{!r.isActive ? ' (Pasif)' : ''}</small></span></button></li>
                 ))}
-                {!recipientsLoading && !recipientsError && recipients.length === 0 && (
-                  <li className="empty-recipients">
-                    <EmptyState title="Alıcı bulunamadı" />
-                  </li>
-                )}
+                {!recipientsLoading && !recipientsError && recipients.length === 0 && <li className="empty-recipients"><EmptyState title="Alıcı bulunamadı" /></li>}
               </ul>
             </div>
           )}
-
           <ul className="conversation-list" role="listbox" aria-label="Konuşmalar">
             {conversations.map((conv) => (
               <li key={conv.id} role="option" aria-selected={conv.id === selectedId}>
-                <button
-                  className={`conversation-item ${conv.id === selectedId ? 'selected' : ''} ${conv.unreadCount > 0 ? 'unread' : ''}`}
-                  onClick={() => selectConversation(conv)}
-                >
+                <button className={`conversation-item ${conv.id === selectedId ? 'selected' : ''} ${conv.unreadCount > 0 ? 'unread' : ''}`} onClick={() => selectConversation(conv)}>
                   <UserAvatar name={conv.participantName} size="default" />
                   <span className="conversation-meta">
-                    <span className="conversation-name">
-                      {conv.participantName}
-                      {!conv.participantIsActive && <span className="disabled-badge">Pasif</span>}
-                    </span>
-                    <span className="conversation-context">
-                      {conv.contextType === 'JOB' && conv.jobTitle
-                        ? `İş: ${conv.jobTitle}`
-                        : conv.contextType === 'GENERAL'
-                          ? 'Genel'
-                          : ''}
-                    </span>
+                    <span className="conversation-name">{conv.participantName}{!conv.participantIsActive && <span className="disabled-badge">Pasif</span>}</span>
+                    <span className="conversation-context">{conv.contextType === 'JOB' && conv.jobTitle ? `İş: ${conv.jobTitle}` : conv.contextType === 'GENERAL' ? 'Genel' : ''}</span>
                   </span>
-                  <span className="conversation-activity">
-                    <span className="activity-time">{formatActivityTime(conv.lastActivityAt)}</span>
-                    {conv.unreadCount > 0 && (
-                      <span className="unread-count">{conv.unreadCount}</span>
-                    )}
-                  </span>
+                  <span className="conversation-activity"><span className="activity-time">{formatActivityTime(conv.lastActivityAt)}</span>{conv.unreadCount > 0 && <span className="unread-count">{conv.unreadCount}</span>}</span>
                 </button>
               </li>
             ))}
-            {conversations.length === 0 && (
-              <li className="empty-conversations">
-                <EmptyState title="Konuşma bulunmuyor" description="Yeni butonu ile konuşma başlatabilirsiniz." />
-              </li>
-            )}
+            {conversations.length === 0 && <li className="empty-conversations"><EmptyState title="Konuşma bulunmuyor" description="Yeni butonu ile konuşma başlatabilirsiniz." /></li>}
           </ul>
         </aside>
-
         <section className={`messaging-thread${selected ? ' active' : ''}`} aria-label="Mesaj akışı">
-          {selected ? (
-            <>
-              <header className="thread-header">
-                <button
-                  className="ghost-button back-button"
-                  onClick={() => setSelectedId(null)}
-                  aria-label="Geri"
-                >
-                  ←
-                </button>
-                <span className="thread-participant">
-                  <UserAvatar name={selected.participantName} size="default" />
-                  <span>
-                    <strong>{selected.participantName}</strong>
-                    {!selected.participantIsActive && <span className="disabled-badge">Pasif</span>}
-                    {selected.contextType === 'JOB' && selected.jobTitle && (
-                      <small>İş: {selected.jobTitle}</small>
-                    )}
-                  </span>
-                </span>
-              </header>
-
-              {markReadError && (
-                <div className="inline-error">
-                  {markReadError}
-                  <button className="ghost-button" onClick={retryMarkRead}>Tekrar dene</button>
-                </div>
-              )}
-
-              <div className="thread-messages" role="log" aria-live="polite" ref={threadMessagesRef}>
-                {olderCursor && (
-                  <div className="older-messages-control">
-                    <button
-                      className="secondary-button"
-                      onClick={handleLoadOlder}
-                      disabled={olderLoading}
-                    >
-                      {olderLoading ? 'Yükleniyor…' : 'Daha eski mesajlar'}
-                    </button>
-                  </div>
-                )}
-                {threadError && (
-                  <div className="inline-error">
-                    {threadError}
-                    <button className="ghost-button" onClick={() => selectedId && loadMessages(selectedId)}>Tekrar dene</button>
-                  </div>
-                )}
-                {messageLoading && <LoadMessages />}
-                {!messageLoading && !threadError && messages.length === 0 && (
-                  <EmptyState title="Henüz mesaj yok" description="İlk mesajı siz gönderin." />
-                )}
-                {messages.map((msg) => (
-                  <div
-                    key={msg.id}
-                    className={`message-bubble ${msg.senderUserId === user.id ? 'own' : 'other'}`}
-                  >
-                    <div className="message-body">{msg.body}</div>
-                    <time className="message-time">{formatMessageTime(msg.createdAt)}</time>
-                  </div>
-                ))}
-                {isSending && draft && (
-                  <div className="message-bubble own pending">
-                    <div className="message-body">{draft.body}</div>
-                    <time className="message-time">Gönderiliyor…</time>
-                  </div>
-                )}
-                <div ref={threadEndRef} />
-              </div>
-
-              <div className="thread-composer">
-                {sendError && draft?.status === 'error' && (
-                  <div className="inline-error">
-                    {sendError}
-                    <button className="ghost-button" onClick={() => handleSend()}>Tekrar gönder</button>
-                  </div>
-                )}
-                <textarea
-                  ref={composerRef}
-                  className="composer-input"
-                  placeholder="Mesajınızı yazın…"
-                  value={composerText}
-                  onChange={(e) => {
-                    setComposerText(e.target.value);
-                    // New text means new message — clear draft on change
-                    if (draft && draft.body !== e.target.value) {
-                      setDraft(null);
-                      setSendError(null);
-                    }
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === 'Enter' && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSend();
-                    }
-                  }}
-                  maxLength={4000}
-                  rows={2}
-                  disabled={isSending || !selected.participantIsActive}
-                  aria-label="Mesaj metni"
-                />
-                <button
-                  className="primary-button send-button"
-                  onClick={() => handleSend()}
-                  disabled={!composerText.trim() || isSending || !selected.participantIsActive}
-                  aria-label="Gönder"
-                >
-                  Gönder
-                </button>
-                <div className="composer-hint">
-                  {selected.participantIsActive
-                    ? `Enter: gönder • Shift+Enter: alt satır • ${composerText.length}/4000`
-                    : 'Alıcı pasif durumda • Mesaj gönderilemez'}
-                </div>
-              </div>
-            </>
-          ) : (
-            <div className="thread-empty">
-              <EmptyState title="Konuşma seçin" description="Sol taraftan bir konuşma seçin veya yeni bir konuşma başlatın." />
+          {selected ? (<>
+            <header className="thread-header">
+              <button className="ghost-button back-button" onClick={() => setSelectedId(null)} aria-label="Geri">←</button>
+              <span className="thread-participant"><UserAvatar name={selected.participantName} size="default" /><span><strong>{selected.participantName}</strong>{!selected.participantIsActive && <span className="disabled-badge">Pasif</span>}{selected.contextType === 'JOB' && selected.jobTitle && <small>İş: {selected.jobTitle}</small>}</span></span>
+            </header>
+            {markReadError && <div className="inline-error">{markReadError}<button className="ghost-button" onClick={retryMarkRead}>Tekrar dene</button></div>}
+            <div className="thread-messages" role="log" aria-live="polite" ref={threadMessagesRef}>
+              {olderCursor && <div className="older-messages-control"><button className="secondary-button" onClick={handleLoadOlder} disabled={olderLoading}>{olderLoading ? 'Yükleniyor…' : 'Daha eski mesajlar'}</button></div>}
+              {threadError && <div className="inline-error">{threadError}<button className="ghost-button" onClick={() => selectedId && loadMessages(selectedId)}>Tekrar dene</button></div>}
+              {messageLoading && <LoadMessages />}
+              {!messageLoading && !threadError && messages.length === 0 && <EmptyState title="Henüz mesaj yok" description="İlk mesajı siz gönderin." />}
+              {messages.map((msg) => (<div key={msg.id} className={`message-bubble ${msg.senderUserId === user.id ? 'own' : 'other'}`}><div className="message-body">{msg.body}</div><time className="message-time">{formatMessageTime(msg.createdAt)}</time></div>))}
+              {isSending && draft && <div className="message-bubble own pending"><div className="message-body">{draft.body}</div><time className="message-time">Gönderiliyor…</time></div>}
+              <div ref={threadEndRef} />
             </div>
-          )}
+            <div className="thread-composer">
+              {sendError && draft?.status === 'error' && <div className="inline-error">{sendError}<button className="ghost-button" onClick={() => handleSend()}>Tekrar gönder</button></div>}
+              <textarea ref={composerRef} className="composer-input" placeholder="Mesajınızı yazın…" value={composerText} onChange={(e) => { setComposerText(e.target.value); if (draft && draft.body !== e.target.value) { setDraft(null); setSendError(null); } }} onKeyDown={(e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend(); } }} maxLength={4000} rows={2} disabled={isSending || !selected.participantIsActive} aria-label="Mesaj metni" />
+              <button className="primary-button send-button" onClick={() => handleSend()} disabled={!composerText.trim() || isSending || !selected.participantIsActive} aria-label="Gönder">Gönder</button>
+              <div className="composer-hint">{selected.participantIsActive ? `Enter: gönder • Shift+Enter: alt satır • ${composerText.length}/4000` : 'Alıcı pasif durumda • Mesaj gönderilemez'}</div>
+            </div>
+          </>) : (<div className="thread-empty"><EmptyState title="Konuşma seçin" description="Sol taraftan bir konuşma seçin veya yeni bir konuşma başlatın." /></div>)}
         </section>
       </div>
     </main>
