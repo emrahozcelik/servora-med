@@ -148,10 +148,13 @@ describe('MessagingPage transition isolation', () => {
     await clickConv(container, 1); await tick(10);
     loadB.resolve({ items: [m('b1', 'B msg')], nextCursor: null }); await tick(20);
 
-    // 6. Reject A retry — must not show on B
+    // 6. Reject A retry — error text and .inline-error must not leak to B
     mr2.reject(new Error('Retry failed'));
     await tick(20);
+    expect(container.textContent).toContain('B msg');
     expect(container.textContent).not.toContain('Okundu');
+    expect(container.textContent).not.toContain('Retry failed');
+    expect(container.querySelector('.inline-error')).toBeNull();
     unmount();
   });
 
