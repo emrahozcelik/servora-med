@@ -1,7 +1,8 @@
 # Phase U3 Messaging — Visual Evidence
 
-**Capture code SHA:** c830ecf9a20632f95b26889c7c6e131c11f41684
+**Capture code SHA:** 662687397d4c0961818adcb4adafdf029eb33bb8
 **Evidence commit SHA:** b34aa7ae3bb3421c653a2ce04deb76fd924a00a5
+**Note:** Visual evidence captured at b34aa7a (scroll preservation fix). Request isolation behavior (6626873) verified via 5/6 automated interaction tests + visual-verifier regression check.
 **Backend:** Real Fastify + PostgreSQL (localhost:3000)
 **Frontend:** Real Vite dev server (localhost:5173)
 **Database:** servora_med (PostgreSQL 17)
