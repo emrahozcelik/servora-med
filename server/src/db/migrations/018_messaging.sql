@@ -158,3 +158,22 @@ ALTER TABLE realtime_events
     )),
   ADD CONSTRAINT realtime_events_entity_type_check
     CHECK (entity_type IN ('job-card', 'calendar-event', 'conversation'));
+
+-- Repair: remove HTML regex plain-text check on existing messages table
+ALTER TABLE messages
+  DROP CONSTRAINT IF EXISTS messages_body_plain_check;
+
+-- Repair: strengthen context invariant on existing conversations table
+ALTER TABLE conversations
+  DROP CONSTRAINT IF EXISTS conversations_job_id_scope_check,
+  ADD CONSTRAINT conversations_job_id_scope_check
+    CHECK (
+      (context_type = 'GENERAL' AND job_id IS NULL)
+      OR (context_type = 'JOB' AND job_id IS NOT NULL)
+    );
+
+-- Repair: add READ_CURSOR_UPDATED action on existing activity log table
+ALTER TABLE messaging_activity_logs
+  DROP CONSTRAINT IF EXISTS messaging_activity_action_check,
+  ADD CONSTRAINT messaging_activity_action_check
+    CHECK (action IN ('CONVERSATION_CREATED', 'MESSAGE_SENT', 'READ_CURSOR_UPDATED'));
