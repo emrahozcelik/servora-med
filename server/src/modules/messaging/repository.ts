@@ -746,13 +746,14 @@ export class PostgresMessagingTransaction {
     audienceUserIds: readonly string[];
     resourceKeys: readonly string[];
     occurredAt: Date;
-  }): Promise<void> {
-    await this.client.query(
+  }): Promise<bigint> {
+    const result = await this.client.query<{ id: string }>(
       `INSERT INTO realtime_events
         (organization_id, messaging_activity_id, event_type, entity_type,
          entity_id, actor_user_id, audience_roles, audience_user_ids,
          resource_keys, created_at)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+       RETURNING id`,
       [
         input.organizationId,
         input.messagingActivityId,
@@ -766,6 +767,7 @@ export class PostgresMessagingTransaction {
         input.occurredAt,
       ],
     );
+    return BigInt(result.rows[0]!.id);
   }
 
   async appendNotifications(input: {

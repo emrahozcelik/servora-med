@@ -261,8 +261,9 @@ export class MessagingService {
       const now = new Date();
 
       // Persist realtime event
+      let realtimeEventId: bigint | null = null;
       if (activity) {
-        await tx.appendRealtimeEvent({
+        realtimeEventId = await tx.appendRealtimeEvent({
           organizationId: actor.organizationId,
           messagingActivityId: activity.id,
           type: 'message.sent',
@@ -283,10 +284,10 @@ export class MessagingService {
 
         // Persist in-app notifications for other participants
         const notificationRecipients = participantIds.filter((uid) => uid !== actor.id);
-        if (notificationRecipients.length > 0) {
+        if (notificationRecipients.length > 0 && realtimeEventId != null) {
           await tx.appendNotifications({
             organizationId: actor.organizationId,
-            sourceRealtimeEventId: BigInt(0),
+            sourceRealtimeEventId: realtimeEventId,
             createdAt: now,
             drafts: notificationRecipients.map((uid) => ({
               recipientUserId: uid,
