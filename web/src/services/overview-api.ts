@@ -48,6 +48,7 @@ export type StaffOverview = OverviewCommon & {
   waitingApproval: number;
   revisionRequested: number;
   completedInPeriod: number;
+  messageUnreadSummary?: { unreadTotal: number };
 };
 
 export type ManagementOverview = OverviewCommon & {
@@ -63,6 +64,8 @@ export type ManagementOverview = OverviewCommon & {
     pendingCount: number;
     oldestWaitingMinutes: number | null;
   };
+  workTypeDistribution?: Array<{ type: string; count: number }>;
+  messageUnreadSummary?: { unreadTotal: number };
 };
 
 export type OverviewResponse = StaffOverview | ManagementOverview;
@@ -136,6 +139,9 @@ export function parseOverviewResponse(input: unknown): OverviewResponse {
   const value = object(input);
   const common = parseCommon(value);
   if (value.scope === 'staff') {
+    const msgUnread = value.messageUnreadSummary
+      ? object(value.messageUnreadSummary)
+      : undefined;
     return {
       scope: 'staff',
       ...common,
@@ -143,11 +149,20 @@ export function parseOverviewResponse(input: unknown): OverviewResponse {
       waitingApproval: number(value.waitingApproval, 'waitingApproval'),
       revisionRequested: number(value.revisionRequested, 'revisionRequested'),
       completedInPeriod: number(value.completedInPeriod, 'completedInPeriod'),
+      ...(msgUnread ? {
+        messageUnreadSummary: { unreadTotal: number(msgUnread.unreadTotal, 'unreadTotal') },
+      } : {}),
     };
   }
   if (value.scope === 'management') {
     const trend = Array.isArray(value.completionTrend) ? value.completionTrend : [];
     const approval = object(value.approvalQueueSummary);
+    const typeDist = value.workTypeDistribution && Array.isArray(value.workTypeDistribution)
+      ? value.workTypeDistribution
+      : undefined;
+    const msgUnread = value.messageUnreadSummary
+      ? object(value.messageUnreadSummary)
+      : undefined;
     return {
       scope: 'management',
       ...common,
@@ -167,6 +182,18 @@ export function parseOverviewResponse(input: unknown): OverviewResponse {
           ? null
           : number(approval.oldestWaitingMinutes, 'oldestWaitingMinutes'),
       },
+      ...(typeDist ? {
+        workTypeDistribution: typeDist.map((entry) => {
+          const item = object(entry);
+          return {
+            type: string(item.type, 'type'),
+            count: number(item.count, 'count'),
+          };
+        }),
+      } : {}),
+      ...(msgUnread ? {
+        messageUnreadSummary: { unreadTotal: number(msgUnread.unreadTotal, 'unreadTotal') },
+      } : {}),
     };
   }
   throw new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz genel bakış yanıtı alındı.');

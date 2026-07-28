@@ -44,12 +44,22 @@ export type OverviewUpcomingWork = Readonly<{
   window: Readonly<{ from: string; to: string }>;
 }>;
 
+export type WorkTypeDistributionItem = Readonly<{
+  type: string;
+  count: number;
+}>;
+
+export type MessageUnreadSummary = Readonly<{
+  unreadTotal: number;
+}>;
+
 export type StaffOverviewResponse = OverviewCommon & Readonly<{
   scope: 'staff';
   openJobCards: number;
   waitingApproval: number;
   revisionRequested: number;
   completedInPeriod: number;
+  messageUnreadSummary?: MessageUnreadSummary;
 }>;
 
 export type ManagementOverviewResponse = OverviewCommon & Readonly<{
@@ -65,6 +75,8 @@ export type ManagementOverviewResponse = OverviewCommon & Readonly<{
     pendingCount: number;
     oldestWaitingMinutes: number | null;
   }>;
+  workTypeDistribution?: WorkTypeDistributionItem[];
+  messageUnreadSummary?: MessageUnreadSummary;
 }>;
 
 export type OverviewResponse = StaffOverviewResponse | ManagementOverviewResponse;

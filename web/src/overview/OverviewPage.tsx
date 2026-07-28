@@ -174,6 +174,44 @@ export function OverviewPage({
               </div>
           }
         </section>
+
+        {!isStaff && overview.workTypeDistribution && overview.workTypeDistribution.length > 0 && (
+          <section className="overview-section" aria-labelledby="work-type-dist-title">
+            <h2 id="work-type-dist-title">İş dağılımı</h2>
+            <div className="overview-card-stack">
+              {overview.workTypeDistribution.map((item) => {
+                const label = item.type === 'PRODUCT_DELIVERY'
+                  ? 'Ürün Teslimi'
+                  : item.type === 'GENERAL_TASK'
+                    ? 'Genel Görev'
+                    : item.type === 'SALES_MEETING'
+                      ? 'Satış Görüşmesi'
+                      : item.type;
+                return (
+                  <OperationalCard key={item.type} title={label} tone="default">
+                    <span>{item.count} iş</span>
+                  </OperationalCard>
+                );
+              })}
+            </div>
+          </section>
+        )}
+
+        {overview.messageUnreadSummary !== undefined && (
+          <section className="overview-section" aria-labelledby="message-summary-title">
+            <h2 id="message-summary-title">Okunmamış mesaj</h2>
+            <OperationalCard
+              title={
+                overview.messageUnreadSummary.unreadTotal > 0
+                  ? <Link to={paths.messages}>{overview.messageUnreadSummary.unreadTotal} okunmamış mesaj</Link>
+                  : <span>Okunmamış mesaj yok</span>
+              }
+              tone={overview.messageUnreadSummary.unreadTotal > 0 ? 'attention' : 'default'}
+            >
+              <span>Yeni operasyon mesajı</span>
+            </OperationalCard>
+          </section>
+        )}
       </div>
     </main>
   );

@@ -3,10 +3,12 @@ import type { Pool } from 'pg';
 import type { SafeUser } from '../auth/types.js';
 import type { ReportsReadModel } from '../reports/ports.js';
 import type {
+  MessageUnreadSummary,
   OverviewQuery,
+  OverviewUpcomingWork,
   StaffOverviewResponse,
   ManagementOverviewResponse,
-  OverviewUpcomingWork,
+  WorkTypeDistributionItem,
 } from './types.js';
 
 export interface OverviewReadModel {
@@ -14,16 +16,26 @@ export interface OverviewReadModel {
     actor: SafeUser,
     query: OverviewQuery,
     requestTime: Date,
-  ): Promise<Omit<StaffOverviewResponse, 'upcomingWork'>>;
+  ): Promise<Omit<StaffOverviewResponse, 'upcomingWork' | 'messageUnreadSummary'>>;
   getManagementOverview(
     actor: SafeUser,
     query: OverviewQuery,
     requestTime: Date,
-  ): Promise<Omit<ManagementOverviewResponse, 'upcomingWork'>>;
+  ): Promise<Omit<ManagementOverviewResponse, 'upcomingWork' | 'workTypeDistribution' | 'messageUnreadSummary'>>;
   getUpcomingWork?(
     actor: SafeUser,
     requestTime: Date,
   ): Promise<OverviewUpcomingWork>;
+  getWorkTypeDistribution?(
+    organizationId: string,
+    from: string,
+    to: string,
+    staffUserId: string | null,
+  ): Promise<WorkTypeDistributionItem[]>;
+  getMessageUnreadSummary?(
+    organizationId: string,
+    userId: string,
+  ): Promise<MessageUnreadSummary | null>;
 }
 
 type RecentWorkRow = {
@@ -243,5 +255,56 @@ export class PostgresOverviewRepository implements OverviewReadModel {
         createdAt: row.created_at.toISOString(),
       })),
     ] as const;
+  }
+
+  async getWorkTypeDistribution(
+    organizationId: string,
+    from: string,
+    to: string,
+    staffUserId: string | null,
+  ): Promise<WorkTypeDistributionItem[]> {
+    const staffFilter = staffUserId ? 'AND j.assigned_to = $4' : '';
+    const values = staffUserId
+      ? [organizationId, from, to, staffUserId]
+      : [organizationId, from, to];
+    const result = await this.pool.query<{ type: string; count: string }>(
+      `SELECT j.type, COUNT(*)::int AS count
+         FROM job_cards j
+        WHERE j.organization_id = $1
+          AND j.created_at >= ($2::date AT TIME ZONE 'UTC')
+          AND j.created_at < (($3::date + 1) AT TIME ZONE 'UTC')
+          ${staffFilter}
+        GROUP BY j.type
+        ORDER BY count DESC
+        LIMIT 10`,
+      values,
+    );
+    return result.rows.map((row) => ({
+      type: row.type,
+      count: parseInt(row.count, 10),
+    }));
+  }
+
+  async getMessageUnreadSummary(
+    organizationId: string,
+    userId: string,
+  ): Promise<MessageUnreadSummary | null> {
+    try {
+      const result = await this.pool.query<{ unread_count: string }>(
+        `SELECT COUNT(*)::int AS unread_count
+           FROM messages m
+           JOIN conversation_participants cp
+             ON cp.conversation_id = m.conversation_id
+            AND cp.user_id = $2
+            AND cp.organization_id = m.organization_id
+          WHERE m.organization_id = $1
+            AND m.sender_user_id <> $2
+            AND m.id > COALESCE(cp.last_read_message_id, '00000000-0000-0000-0000-000000000000')`,
+        [organizationId, userId],
+      );
+      return { unreadTotal: parseInt(result.rows[0]?.unread_count ?? '0', 10) };
+    } catch {
+      return null;
+    }
   }
 }

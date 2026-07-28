@@ -1,7 +1,12 @@
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
 import type { OverviewReadModel } from './repository.js';
-import type { OverviewQuery } from './types.js';
+import type {
+  ManagementOverviewResponse,
+  MessageUnreadSummary,
+  OverviewQuery,
+  WorkTypeDistributionItem,
+} from './types.js';
 
 const overviewUnavailable = () => new AppError(
   'NOT_FOUND',
@@ -15,6 +20,7 @@ export class OverviewService {
     private readonly repository: OverviewReadModel,
     private readonly now: () => Date = () => new Date(),
     private readonly calendarEnabled = false,
+    private readonly messagingEnabled = false,
   ) {}
 
   async getOverview(actor: SafeUser, query: OverviewQuery) {
@@ -26,6 +32,36 @@ export class OverviewService {
     const upcomingWork = this.calendarEnabled
       ? await this.repository.getUpcomingWork!(actor, requestTime)
       : null;
-    return { ...overview, upcomingWork };
+
+    let workTypeDistribution: WorkTypeDistributionItem[] | undefined;
+    let messageUnreadSummary: MessageUnreadSummary | undefined;
+
+    if (actor.role !== 'STAFF' && this.repository.getWorkTypeDistribution) {
+      try {
+        const detailedOverview = overview as Omit<ManagementOverviewResponse, 'upcomingWork' | 'messageUnreadSummary' | 'workTypeDistribution'>;
+        workTypeDistribution = await this.repository.getWorkTypeDistribution(
+          actor.organizationId,
+          detailedOverview.range.from,
+          detailedOverview.range.to,
+          null,
+        );
+      } catch {
+        workTypeDistribution = undefined;
+      }
+    }
+
+    if (this.messagingEnabled && this.repository.getMessageUnreadSummary) {
+      try {
+        const summary = await this.repository.getMessageUnreadSummary(
+          actor.organizationId,
+          actor.id,
+        );
+        messageUnreadSummary = summary ?? undefined;
+      } catch {
+        messageUnreadSummary = undefined;
+      }
+    }
+
+    return {...overview, upcomingWork, ...(actor.role !== 'STAFF' ? { workTypeDistribution } : {}), ...(this.messagingEnabled ? { messageUnreadSummary } : {})};
   }
 }
