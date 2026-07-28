@@ -107,14 +107,45 @@ describe('MessagingService', () => {
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('rejects HTML content', async () => {
-      const pool = createPoolWithConnect();
-      const service = new MessagingService(pool, true);
-      const actor = staffActor(randomUUID());
+    it('accepts literal HTML-like plain text', async () => {
+      const conversationId = randomUUID();
+      const organizationId = randomUUID();
+      const actor = staffActor(organizationId);
+      const messageId = randomUUID();
 
-      await expect(
-        service.sendMessage(actor, randomUUID(), '<b>bold</b>', 'action-1'),
-      ).rejects.toMatchObject({ statusCode: 400 });
+      const client = {
+        query: vi.fn(),
+        release: vi.fn(),
+      };
+      const pool = {
+        query: vi.fn().mockResolvedValue({ rows: [], rowCount: 0 }),
+        connect: vi.fn().mockResolvedValue(client),
+      } as unknown as Pool;
+
+      // poolTransaction: BEGIN
+      client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      // findConversationById
+      client.query.mockResolvedValueOnce({ rows: [{ id: conversationId, organization_id: organizationId, direct_key: 'k', context_type: 'GENERAL', job_id: null, created_at: new Date(), updated_at: new Date() }], rowCount: 1 });
+      // findAllParticipants (only actor)
+      client.query.mockResolvedValueOnce({ rows: [{ conversation_id: conversationId, user_id: actor.id, organization_id: organizationId, last_read_message_id: null, created_at: new Date() }], rowCount: 1 });
+      // insertMessage
+      client.query.mockResolvedValueOnce({ rows: [{ id: messageId, conversation_id: conversationId, organization_id: organizationId, sender_user_id: actor.id, client_action_id: 'action-html', body: '<b>bold</b>', created_at: new Date() }], rowCount: 1 });
+      // updateConversationTimestamp
+      client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      // insertActivity
+      client.query.mockResolvedValueOnce({ rows: [{ id: randomUUID(), organization_id: organizationId, conversation_id: conversationId, actor_user_id: actor.id, action: 'MESSAGE_SENT', client_action_id: 'action-html', created_at: new Date() }], rowCount: 1 });
+      // appendRealtimeEvent
+      client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      // appendNotifications
+      client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+      // COMMIT
+      client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
+
+      const service = new MessagingService(pool, true);
+      const result = await service.sendMessage(actor, conversationId, '<b>bold</b>', 'action-html');
+
+      expect(result.body).toBe('<b>bold</b>');
+      expect(result.isDuplicate).toBe(false);
     });
 
     it('accepts valid plain text', async () => {

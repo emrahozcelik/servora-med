@@ -153,7 +153,6 @@ export interface MessagingRepository {
     conversationId: string,
     cursor: MessageCursor | null,
     limit: number,
-    oldestFirst: boolean,
   ): Promise<MessagePage>;
 
   insertMessage(
@@ -310,7 +309,9 @@ export class PostgresMessagingRepository implements MessagingRepository {
               other.id AS participant_id,
               other.is_active AS participant_is_active,
               COUNT(m.id) FILTER (
-                WHERE m.id > COALESCE(cp.last_read_message_id, '00000000-0000-0000-0000-000000000000')
+                WHERE m.sender_user_id <> $2
+                  AND (cp.last_read_message_id IS NULL
+                       OR (m.created_at, m.id) > (rm.created_at, rm.id))
               ) AS unread_count,
               COALESCE(
                 (SELECT MAX(msgs.created_at) FROM messages msgs WHERE msgs.conversation_id = c.id),
@@ -324,6 +325,8 @@ export class PostgresMessagingRepository implements MessagingRepository {
            ON cp2.conversation_id = c.id AND cp2.user_id <> $2
          JOIN users other
            ON other.organization_id = c.organization_id AND other.id = cp2.user_id
+         LEFT JOIN messages rm
+           ON rm.conversation_id = c.id AND rm.id = cp.last_read_message_id
          LEFT JOIN job_cards j
            ON j.organization_id = c.organization_id AND j.id = c.job_id
          LEFT JOIN messages m
@@ -365,12 +368,9 @@ export class PostgresMessagingRepository implements MessagingRepository {
     conversationId: string,
     cursor: MessageCursor | null,
     limit: number,
-    oldestFirst: boolean,
   ): Promise<MessagePage> {
-    const direction = oldestFirst ? '>' : '<';
-    const order = oldestFirst ? 'ASC' : 'DESC';
     const cursorClause = cursor
-      ? `AND (m.created_at, m.id) ${direction} ($${cursor ? 4 : 0}, $${cursor ? 5 : 0})`
+      ? `AND (m.created_at, m.id) < ($${cursor ? 4 : 0}, $${cursor ? 5 : 0})`
       : '';
     const limitParam = cursor ? '$6' : '$3';
     const values: unknown[] = [organizationId, conversationId];
@@ -379,9 +379,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
     }
     values.push(limit + 1);
 
-    // For oldest-first, we need to query in ASC order, then reverse for the response
-    const needReverse = oldestFirst;
-
+    // Query DESC (newest first) to get the bounded window; return ASC for display
     const result = await this.pool.query<MessageRow>(
       `SELECT m.id, m.conversation_id, m.organization_id, m.sender_user_id,
               m.client_action_id, m.body, m.created_at
@@ -389,17 +387,14 @@ export class PostgresMessagingRepository implements MessagingRepository {
         WHERE m.organization_id = $1
           AND m.conversation_id = $2
           ${cursorClause}
-        ORDER BY m.created_at ${order}, m.id ${order}
+        ORDER BY m.created_at DESC, m.id DESC
         LIMIT ${limitParam}`,
       values,
     );
 
-    let rows = result.rows.map(mapMessage);
-    if (needReverse) {
-      rows = rows.reverse();
-    }
+    const rows = result.rows.map(mapMessage).reverse();
     const items = rows.slice(0, limit);
-    const last = items.at(needReverse ? 0 : -1);
+    const last = items.at(-1);
     return {
       items,
       nextCursor: result.rows.length > limit && last
@@ -455,9 +450,12 @@ export class PostgresMessagingRepository implements MessagingRepository {
            ON cp.conversation_id = m.conversation_id
           AND cp.user_id = $2
           AND cp.organization_id = m.organization_id
+         LEFT JOIN messages rm
+           ON rm.conversation_id = m.conversation_id AND rm.id = cp.last_read_message_id
         WHERE m.organization_id = $1
           AND m.sender_user_id <> $2
-          AND m.id > COALESCE(cp.last_read_message_id, '00000000-0000-0000-0000-000000000000')`,
+          AND (cp.last_read_message_id IS NULL
+               OR (m.created_at, m.id) > (rm.created_at, rm.id))`,
       [organizationId, userId],
     );
     return parseInt(result.rows[0]?.unread_count ?? '0', 10);
@@ -475,10 +473,13 @@ export class PostgresMessagingRepository implements MessagingRepository {
            ON cp.conversation_id = m.conversation_id
           AND cp.user_id = $2
           AND cp.organization_id = m.organization_id
+         LEFT JOIN messages rm
+           ON rm.conversation_id = m.conversation_id AND rm.id = cp.last_read_message_id
         WHERE m.organization_id = $1
           AND m.conversation_id = $3
           AND m.sender_user_id <> $2
-          AND m.id > COALESCE(cp.last_read_message_id, '00000000-0000-0000-0000-000000000000')`,
+          AND (cp.last_read_message_id IS NULL
+               OR (m.created_at, m.id) > (rm.created_at, rm.id))`,
       [organizationId, userId, conversationId],
     );
     return parseInt(result.rows[0]?.unread_count ?? '0', 10);
@@ -491,12 +492,24 @@ export class PostgresMessagingRepository implements MessagingRepository {
     messageId: string,
   ): Promise<void> {
     await this.pool.query(
-      `UPDATE conversation_participants
+      `WITH target_msg AS (
+         SELECT created_at, id FROM messages
+          WHERE organization_id = $1
+            AND conversation_id = $3
+            AND id = $4
+       )
+       UPDATE conversation_participants cp
           SET last_read_message_id = $4
-        WHERE organization_id = $1
-          AND user_id = $2
-          AND conversation_id = $3
-          AND (last_read_message_id IS NULL OR last_read_message_id < $4)`,
+         FROM target_msg tm
+        WHERE cp.organization_id = $1
+          AND cp.user_id = $2
+          AND cp.conversation_id = $3
+          AND (cp.last_read_message_id IS NULL
+               OR (tm.created_at, tm.id) > (
+                 SELECT rm.created_at, rm.id FROM messages rm
+                  WHERE rm.conversation_id = cp.conversation_id
+                    AND rm.id = cp.last_read_message_id
+               ))`,
       [organizationId, userId, conversationId, messageId],
     );
   }
@@ -514,7 +527,8 @@ export class PostgresMessagingRepository implements MessagingRepository {
                  FROM users u
                 WHERE u.organization_id = $1
                   AND u.id <> $2
-                  AND u.role IN ('ADMIN', 'MANAGER', 'STAFF')
+                  AND u.role = 'STAFF'
+                  AND u.is_active = TRUE
                 ORDER BY u.name ASC`;
     } else if (role === 'MANAGER') {
       query = `SELECT u.id, u.name, u.role, u.is_active
@@ -527,21 +541,8 @@ export class PostgresMessagingRepository implements MessagingRepository {
                   AND sp.manager_user_id = $2
                 ORDER BY u.name ASC`;
     } else {
-      // Staff can only see conversations they're already in
-      query = `SELECT u.id, u.name, u.role, u.is_active
-                 FROM users u
-                 JOIN conversation_participants cp
-                   ON cp.conversation_id IN (
-                     SELECT conversation_id FROM conversation_participants
-                      WHERE user_id = $2 AND organization_id = $1
-                   )
-                  AND cp.user_id = u.id
-                 JOIN conversation_participants cp_self
-                   ON cp_self.conversation_id = cp.conversation_id
-                  AND cp_self.user_id = $2
-                WHERE u.organization_id = $1
-                  AND u.id <> $2
-                ORDER BY u.name ASC`;
+      // STAFF cannot create new conversations — return empty
+      return [];
     }
 
     const result = await this.pool.query<RecipientRow>(query, values);
@@ -596,6 +597,26 @@ export class PostgresMessagingTransaction {
        RETURNING id, organization_id, direct_key, context_type, job_id, created_at, updated_at`,
       [organizationId, directKey, contextType, jobId],
     );
+    return mapConversation(result.rows[0]);
+  }
+
+  async createConversationIfNotExists(
+    organizationId: string,
+    directKey: DirectKey,
+    contextType: ConversationContextType,
+    jobId: string | null,
+  ): Promise<ConversationRecord> {
+    const result = await this.client.query<ConversationRow>(
+      `INSERT INTO conversations (organization_id, direct_key, context_type, job_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (organization_id, direct_key) DO NOTHING
+       RETURNING id, organization_id, direct_key, context_type, job_id, created_at, updated_at`,
+      [organizationId, directKey, contextType, jobId],
+    );
+    // If no row returned (conflict), fetch existing
+    if (result.rows.length === 0) {
+      return this.findConversationByDirectKey(organizationId, directKey) as Promise<ConversationRecord>;
+    }
     return mapConversation(result.rows[0]);
   }
 
@@ -683,6 +704,105 @@ export class PostgresMessagingTransaction {
     const row = result.rows[0];
     if (!row) return null as unknown as MessagingActivityRecord;
     return mapActivity(row);
+  }
+
+  async markRead(
+    organizationId: string,
+    userId: string,
+    conversationId: string,
+    messageId: string,
+  ): Promise<void> {
+    await this.client.query(
+      `WITH target_msg AS (
+         SELECT created_at, id FROM messages
+          WHERE organization_id = $1
+            AND conversation_id = $3
+            AND id = $4
+       )
+       UPDATE conversation_participants cp
+          SET last_read_message_id = $4
+         FROM target_msg tm
+        WHERE cp.organization_id = $1
+          AND cp.user_id = $2
+          AND cp.conversation_id = $3
+          AND (cp.last_read_message_id IS NULL
+               OR (tm.created_at, tm.id) > (
+                 SELECT rm.created_at, rm.id FROM messages rm
+                  WHERE rm.conversation_id = cp.conversation_id
+                    AND rm.id = cp.last_read_message_id
+               ))`,
+      [organizationId, userId, conversationId, messageId],
+    );
+  }
+
+  async appendRealtimeEvent(input: {
+    organizationId: string;
+    messagingActivityId: string;
+    type: string;
+    entityType: string;
+    entityId: string;
+    actorUserId: string | null;
+    audienceRoles: readonly string[];
+    audienceUserIds: readonly string[];
+    resourceKeys: readonly string[];
+    occurredAt: Date;
+  }): Promise<void> {
+    await this.client.query(
+      `INSERT INTO realtime_events
+        (organization_id, messaging_activity_id, event_type, entity_type,
+         entity_id, actor_user_id, audience_roles, audience_user_ids,
+         resource_keys, created_at)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+      [
+        input.organizationId,
+        input.messagingActivityId,
+        input.type,
+        input.entityType,
+        input.entityId,
+        input.actorUserId,
+        input.audienceRoles,
+        input.audienceUserIds,
+        input.resourceKeys,
+        input.occurredAt,
+      ],
+    );
+  }
+
+  async appendNotifications(input: {
+    organizationId: string;
+    sourceRealtimeEventId: bigint;
+    createdAt: Date;
+    drafts: readonly {
+      recipientUserId: string;
+      kind: string;
+      entityType: string;
+      entityId: string;
+    }[];
+  }): Promise<void> {
+    if (input.drafts.length === 0) return;
+    const values: unknown[] = [];
+    const rows = input.drafts.map((draft, index) => {
+      const offset = index * 7;
+      values.push(
+        input.organizationId,
+        draft.recipientUserId,
+        input.sourceRealtimeEventId.toString(),
+        draft.kind,
+        draft.entityType,
+        draft.entityId,
+        input.createdAt,
+      );
+      return `($${offset + 1}, $${offset + 2}, $${offset + 3}, $${offset + 4},
+        $${offset + 5}, $${offset + 6}, $${offset + 7})`;
+    });
+    await this.client.query(
+      `INSERT INTO in_app_notifications
+        (organization_id, recipient_user_id, source_realtime_event_id, kind,
+         entity_type, entity_id, created_at)
+       VALUES ${rows.join(', ')}
+       ON CONFLICT (recipient_user_id, source_realtime_event_id) DO NOTHING`,
+      values,
+    );
   }
 
   async updateConversationTimestamp(conversationId: string): Promise<void> {

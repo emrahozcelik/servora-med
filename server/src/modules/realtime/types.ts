@@ -28,7 +28,8 @@ export type RealtimeAudience = Readonly<{
 
 export type RealtimeEventInput = Readonly<{
   organizationId: string;
-  sourceActivityId: string;
+  sourceActivityId?: string;
+  messagingActivityId?: string;
   type: RealtimeEventType;
   entityType: 'job-card' | 'calendar-event' | 'conversation';
   entityId: string;
@@ -38,9 +39,10 @@ export type RealtimeEventInput = Readonly<{
   occurredAt: Date;
 }>;
 
-export type RealtimeEventRecord = Omit<RealtimeEventInput, 'sourceActivityId'> & Readonly<{
+export type RealtimeEventRecord = Omit<RealtimeEventInput, 'sourceActivityId' | 'messagingActivityId'> & Readonly<{
   id: bigint;
   sourceActivityId: string | null;
+  messagingActivityId: string | null;
 }>;
 
 export type RealtimeViewer = Readonly<{

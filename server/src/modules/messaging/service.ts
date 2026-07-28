@@ -31,17 +31,17 @@ function notFound(): never {
 }
 
 function validateBody(body: unknown): string {
-  if (typeof body !== 'string' || body.length < 1 || body.length > 4000) {
-    throw new AppError('VALIDATION_ERROR', 400, 'Mesaj 1-4000 karakter arasında olmalıdır.');
+  if (typeof body !== 'string') {
+    throw new AppError('VALIDATION_ERROR', 400, 'Mesaj metni geçersiz.');
   }
-  if (/<[a-zA-Z/]/.test(body)) {
-    throw new AppError('VALIDATION_ERROR', 400, 'Mesaj yalnız düz metin olabilir.');
+  const codePointCount = [...body].length;
+  if (codePointCount < 1 || codePointCount > 4000) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Mesaj 1-4000 karakter arasında olmalıdır.');
   }
   return body;
 }
 
 function buildDirectKey(
-  organizationId: string,
   initiatorUserId: string,
   recipientUserId: string,
   contextType: ConversationContextType,
@@ -52,50 +52,11 @@ function buildDirectKey(
   return jobId ? `${base}:JOB:${jobId}` : base;
 }
 
-function buildRealtimeEvent(
-  organizationId: string,
-  conversationId: string,
-  participantIds: readonly string[],
-  activity: MessagingActivityRecord,
-  occurredAt: Date,
-  notificationDrafts: readonly MessagingNotificationInput[],
-): RealtimeEventInput {
-  const eventType = activity.action === 'CONVERSATION_CREATED'
-    ? 'conversation.created' as const
-    : 'message.sent' as const;
-
-  const resourceKeys = [
-    'conversations',
-    `conversation:${conversationId}`,
-    'message-unread',
-    'overview',
-  ];
-
-  if (notificationDrafts.length > 0) {
-    resourceKeys.push('notifications');
-  }
-
-  return {
-    organizationId,
-    sourceActivityId: activity.id,
-    type: eventType,
-    entityType: 'conversation',
-    entityId: conversationId,
-    actorUserId: activity.actorUserId,
-    audience: {
-      roles: [],
-      userIds: [...participantIds],
-    },
-    resourceKeys,
-    occurredAt,
-  };
-}
-
 export class MessagingService {
   private readonly repository: MessagingRepository;
 
   constructor(
-    pool: Pick<Pool, 'query'>,
+    private readonly pool: Pool,
     private readonly enabled: boolean,
     private readonly realtimePublisher?: RealtimeEventPublisher,
   ) {
@@ -116,7 +77,7 @@ export class MessagingService {
     recipientUserId: string,
     contextType: ConversationContextType,
     jobId: string | null,
-  ): Promise<ConversationRecord & { participants: readonly { userId: string; isActive: boolean }[] }> {
+  ): Promise<ConversationListItem> {
     this.requireEnabled();
     if (recipientUserId === actor.id) {
       throw new AppError('VALIDATION_ERROR', 400, 'Kendinizle konuşma başlatamazsınız.');
@@ -126,59 +87,122 @@ export class MessagingService {
       throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz konuşma tipi.');
     }
 
+    // STAFF cannot create new conversations
+    if (actor.role === 'STAFF') {
+      throw forbidden();
+    }
+
+    // JOB must have jobId
+    if (contextType === 'JOB' && !jobId) {
+      throw new AppError('VALIDATION_ERROR', 400, 'İş bağlamı için jobId zorunludur.');
+    }
+
+    // GENERAL must not have jobId
+    if (contextType === 'GENERAL' && jobId) {
+      throw new AppError('VALIDATION_ERROR', 400, 'Genel bağlamda jobId kullanılamaz.');
+    }
+
     const directKey = buildDirectKey(
-      actor.organizationId, actor.id, recipientUserId, contextType, jobId,
+      actor.id, recipientUserId, contextType, jobId,
     );
 
+    // Query recipient info first (used for both create and existing cases)
+    const recipientResult = await this.pool.query<{
+      name: string; is_active: boolean; role: string;
+    }>(
+      `SELECT name, is_active, role FROM users
+        WHERE organization_id = $1 AND id = $2`,
+      [actor.organizationId, recipientUserId],
+    );
+    if (recipientResult.rows.length === 0) {
+      throw notFound();
+    }
+    const recipientInfo = recipientResult.rows[0];
+
+    // Authorize before creating
+    await this.authorizeRecipient(actor, recipientUserId, contextType, jobId);
+
+    // Fetch job title if JOB context
+    let jobTitle: string | null = null;
+    if (contextType === 'JOB' && jobId) {
+      const jobResult = await this.pool.query<{ title: string }>(
+        `SELECT title FROM job_cards
+          WHERE organization_id = $1 AND id = $2`,
+        [actor.organizationId, jobId],
+      );
+      jobTitle = jobResult.rows[0]?.title ?? null;
+    }
+
+    const now = new Date();
+
     return this.poolTransaction(async (tx) => {
+      // Check if conversation already exists
       const existing = await tx.findConversationByDirectKey(actor.organizationId, directKey);
       if (existing) {
-        const participants = await tx.findAllParticipants(actor.organizationId, existing.id);
         return {
-          ...existing,
-          participants: participants.map((p) => ({ userId: p.userId, isActive: true })),
+          id: existing.id,
+          directKey: existing.directKey,
+          contextType: existing.contextType,
+          jobId: existing.jobId,
+          jobTitle,
+          participantName: recipientInfo.name,
+          participantId: recipientUserId,
+          participantIsActive: recipientInfo.is_active,
+          unreadCount: 0,
+          lastActivityAt: existing.updatedAt.toISOString(),
+          updatedAt: existing.updatedAt.toISOString(),
         };
       }
 
-      await this.authorizeRecipient(actor, recipientUserId, contextType, jobId);
-
-      const conversation = await tx.createConversation(
+      // Atomic insert-winner
+      const conversation = await tx.createConversationIfNotExists(
         actor.organizationId, directKey, contextType, jobId,
       );
 
-      const participantRecords = await tx.addParticipants(
+      // Add participants (idempotent)
+      await tx.addParticipants(
         actor.organizationId, conversation.id, [actor.id, recipientUserId],
       );
 
+      const clientActionId = `conv:${actor.id}:${recipientUserId}:${directKey}`;
+
+      // Insert activity (idempotent)
       const activity = await tx.insertActivity(
         actor.organizationId,
         conversation.id,
         actor.id,
         'CONVERSATION_CREATED',
-        `conv-create-${actor.id}-${recipientUserId}-${Date.now()}`,
+        clientActionId,
       );
 
-      const realtimeEvent = buildRealtimeEvent(
-        actor.organizationId,
-        conversation.id,
-        [actor.id, recipientUserId],
-        activity,
-        new Date(),
-        [],
-      );
-
-      this.realtimePublisher?.publish({
-        ...realtimeEvent,
-        id: BigInt(0), // Will be replaced by actual insert
-        sourceActivityId: realtimeEvent.sourceActivityId,
-      } as any);
+      // Persist realtime event (no notifications for conversation created)
+      if (activity) {
+        await tx.appendRealtimeEvent({
+          organizationId: actor.organizationId,
+          messagingActivityId: activity.id,
+          type: 'conversation.created',
+          entityType: 'conversation',
+          entityId: conversation.id,
+          actorUserId: actor.id,
+          audienceRoles: [],
+          audienceUserIds: [actor.id, recipientUserId],
+          resourceKeys: ['conversations', `conversation:${conversation.id}`, 'message-unread'],
+          occurredAt: now,
+        });
+      }
 
       return {
-        ...conversation,
-        participants: participantRecords.map((p) => ({
-          userId: p.userId,
-          isActive: true,
-        })),
+        id: conversation.id,
+        directKey: conversation.directKey,
+        contextType: conversation.contextType,
+        jobId: conversation.jobId,
+        jobTitle,
+        participantName: recipientInfo.name,
+        participantId: recipientUserId,
+        participantIsActive: recipientInfo.is_active,
+        unreadCount: 0,
+        lastActivityAt: conversation.createdAt.toISOString(),
+        updatedAt: conversation.updatedAt.toISOString(),
       };
     });
   }
@@ -206,16 +230,10 @@ export class MessagingService {
         throw forbidden();
       }
 
+      // Reauthorize: verify other participant is still valid
       const otherParticipant = participants.find((p) => p.userId !== actor.id);
       if (otherParticipant) {
-        const isActive = await this.repository.getAuthorizedRecipients(
-          actor.organizationId, actor.id, actor.role,
-        );
-        // Don't let sending to disabled users
-        const recipient = isActive.find((r) => r.id === otherParticipant.userId);
-        if (recipient && !recipient.isActive) {
-          throw new AppError('VALIDATION_ERROR', 400, 'Alıcı kullanıcı pasif durumda.');
-        }
+        await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
       }
 
       const message = await tx.insertMessage(
@@ -223,7 +241,7 @@ export class MessagingService {
       );
 
       if (!message) {
-        // Duplicate - fetch existing
+        // Duplicate — fetch existing (idempotent)
         const existing = await this.repository.findMessageByClientAction(
           conversation.id, actor.id, clientActionId,
         );
@@ -240,31 +258,44 @@ export class MessagingService {
         clientActionId,
       );
 
-      const notificationInputs = participantIds
-        .filter((uid) => uid !== actor.id)
-        .map((uid): MessagingNotificationInput => ({
+      const now = new Date();
+
+      // Persist realtime event
+      if (activity) {
+        await tx.appendRealtimeEvent({
           organizationId: actor.organizationId,
-          recipientUserId: uid,
-          kind: 'message.received',
+          messagingActivityId: activity.id,
+          type: 'message.sent',
           entityType: 'conversation',
           entityId: conversation.id,
-        }));
+          actorUserId: actor.id,
+          audienceRoles: [],
+          audienceUserIds: [...participantIds],
+          resourceKeys: [
+            'conversations',
+            `conversation:${conversationId}`,
+            'message-unread',
+            'overview',
+            'notifications',
+          ],
+          occurredAt: now,
+        });
 
-      const realtimeEvent = buildRealtimeEvent(
-        actor.organizationId,
-        conversation.id,
-        participantIds,
-        activity,
-        new Date(),
-        notificationInputs,
-      );
-
-      if (this.realtimePublisher && activity) {
-        this.realtimePublisher.publish({
-          ...realtimeEvent,
-          id: BigInt(0),
-          sourceActivityId: realtimeEvent.sourceActivityId,
-        } as any);
+        // Persist in-app notifications for other participants
+        const notificationRecipients = participantIds.filter((uid) => uid !== actor.id);
+        if (notificationRecipients.length > 0) {
+          await tx.appendNotifications({
+            organizationId: actor.organizationId,
+            sourceRealtimeEventId: BigInt(0),
+            createdAt: now,
+            drafts: notificationRecipients.map((uid) => ({
+              recipientUserId: uid,
+              kind: 'message.received',
+              entityType: 'conversation',
+              entityId: conversation.id,
+            })),
+          });
+        }
       }
 
       return { ...message, isDuplicate: false };
@@ -287,7 +318,7 @@ export class MessagingService {
     }
 
     return this.repository.listMessages(
-      actor.organizationId, conversationId, cursor, limit, true,
+      actor.organizationId, conversationId, cursor, limit,
     );
   }
 
@@ -305,7 +336,66 @@ export class MessagingService {
       throw forbidden();
     }
 
-    await this.repository.markRead(actor.organizationId, actor.id, conversationId, messageId);
+    // Verify message belongs to this conversation and org
+    const msgResult = await this.pool.query<{ id: string }>(
+      `SELECT id FROM messages
+        WHERE organization_id = $1
+          AND conversation_id = $2
+          AND id = $3`,
+      [actor.organizationId, conversationId, messageId],
+    );
+    if (msgResult.rows.length === 0) {
+      throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz mesaj.');
+    }
+
+    // Check if cursor actually advances
+    const currentCursor = participants.find((p) => p.userId === actor.id);
+    const currentReadId = currentCursor?.lastReadMessageId ?? null;
+
+    if (currentReadId === messageId) {
+      return; // Already at this cursor
+    }
+
+    // Determine if this is a forward move
+    const cursorAdvances = currentReadId === null || await this.isForwardMove(
+      actor.organizationId, conversationId, currentReadId, messageId,
+    );
+
+    if (!cursorAdvances) {
+      return; // No-op: cursor not moving forward
+    }
+
+    const now = new Date();
+
+    await this.poolTransaction(async (tx) => {
+      await tx.markRead(actor.organizationId, actor.id, conversationId, messageId);
+
+      const clientActionId = `read:${actor.id}:${conversationId}:${messageId}:${Date.now()}`;
+
+      const activity = await tx.insertActivity(
+        actor.organizationId,
+        conversationId,
+        actor.id,
+        'READ_CURSOR_UPDATED',
+        clientActionId,
+      );
+
+      if (activity) {
+        // Persist realtime invalidation for other tabs of the same user
+        await tx.appendRealtimeEvent({
+          organizationId: actor.organizationId,
+          messagingActivityId: activity.id,
+          type: 'message.sent',
+          entityType: 'conversation',
+          entityId: conversationId,
+          actorUserId: actor.id,
+          audienceRoles: [],
+          audienceUserIds: [actor.id],
+          resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread'],
+          occurredAt: now,
+        });
+      }
+    });
   }
 
   async getUnreadCount(actor: SafeUser): Promise<number> {
@@ -327,8 +417,7 @@ export class MessagingService {
   private async poolTransaction<T>(
     fn: (tx: PostgresMessagingTransaction) => Promise<T>,
   ): Promise<T> {
-    const pool = (this.repository as PostgresMessagingRepository)['pool'] as Pool;
-    const client = await pool.connect();
+    const client = await this.pool.connect();
     try {
       await client.query('BEGIN');
       const tx = new PostgresMessagingTransaction(client);
@@ -355,25 +444,139 @@ export class MessagingService {
 
     const recipient = recipients.find((r) => r.id === recipientUserId);
     if (!recipient) {
-      throw new AppError('NOT_FOUND', 404, 'Alıcı bulunamadı.');
+      throw forbidden();
     }
     if (!recipient.isActive) {
       throw new AppError('VALIDATION_ERROR', 400, 'Pasif kullanıcı ile konuşma başlatılamaz.');
     }
 
     if (contextType === 'JOB' && jobId) {
-      // Validate job visibility
-      const pool = (this.repository as PostgresMessagingRepository)['pool'] as Pool;
-      const result = await pool.query<{ id: string }>(
-        `SELECT id FROM job_cards
-          WHERE organization_id = $1
-            AND id = $2
-            AND ($3 = 'ADMIN' OR $3 = 'MANAGER' OR assigned_to = $4)`,
-        [actor.organizationId, jobId, actor.role, actor.id],
+      await this.validateJobContext(actor, jobId, recipientUserId);
+    }
+  }
+
+  private async reauthorizeSend(
+    actor: SafeUser,
+    otherUserId: string,
+    conversation: ConversationRecord,
+  ): Promise<void> {
+    // Check if other user is still active
+    const userResult = await this.pool.query<{ is_active: boolean; role: string }>(
+      `SELECT is_active, role FROM users
+        WHERE organization_id = $1 AND id = $2`,
+      [actor.organizationId, otherUserId],
+    );
+    const otherUser = userResult.rows[0];
+    if (!otherUser) throw forbidden();
+    if (!otherUser.is_active) {
+      throw new AppError('VALIDATION_ERROR', 400, 'Alıcı kullanıcı pasif durumda.');
+    }
+
+    // MANAGER: verify other participant is still in their team (must be STAFF)
+    if (actor.role === 'MANAGER') {
+      if (otherUser.role !== 'STAFF') throw forbidden();
+      const teamCheck = await this.pool.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM staff_profiles
+            WHERE organization_id = $1
+              AND user_id = $2
+              AND manager_user_id = $3
+         ) AS exists`,
+        [actor.organizationId, otherUserId, actor.id],
       );
-      if (result.rows.length === 0) {
-        throw new AppError('NOT_FOUND', 404, 'İş bulunamadı.');
+      if (!teamCheck.rows[0]?.exists) throw forbidden();
+    }
+
+    // ADMIN: verify other participant is still active STAFF in same org
+    if (actor.role === 'ADMIN') {
+      if (otherUser.role !== 'STAFF') throw forbidden();
+    }
+
+    // STAFF: verify other participant is ADMIN or MANAGER and active
+    if (actor.role === 'STAFF') {
+      if (otherUser.role !== 'ADMIN' && otherUser.role !== 'MANAGER') {
+        throw forbidden();
       }
     }
+
+    // JOB context: verify job still belongs to same org
+    if (conversation.contextType === 'JOB' && conversation.jobId) {
+      const jobResult = await this.pool.query<{ id: string }>(
+        `SELECT id FROM job_cards
+          WHERE organization_id = $1 AND id = $2`,
+        [actor.organizationId, conversation.jobId],
+      );
+      if (jobResult.rows.length === 0) throw forbidden();
+
+      // MANAGER: verify assigned staff is still in their team
+      if (actor.role === 'MANAGER') {
+        const jobStaffCheck = await this.pool.query<{ exists: boolean }>(
+          `SELECT EXISTS (
+             SELECT 1 FROM job_cards j
+             JOIN staff_profiles sp
+               ON sp.organization_id = j.organization_id
+              AND sp.user_id = j.assigned_to
+              AND sp.manager_user_id = $3
+              WHERE j.organization_id = $1 AND j.id = $2
+           ) AS exists`,
+          [actor.organizationId, conversation.jobId, actor.id],
+        );
+        if (!jobStaffCheck.rows[0]?.exists) throw forbidden();
+      }
+    }
+  }
+
+  private async validateJobContext(
+    actor: SafeUser,
+    jobId: string,
+    recipientUserId: string,
+  ): Promise<void> {
+    const result = await this.pool.query<{ assigned_to: string }>(
+      `SELECT assigned_to FROM job_cards
+        WHERE organization_id = $1 AND id = $2`,
+      [actor.organizationId, jobId],
+    );
+    if (result.rows.length === 0) {
+      throw new AppError('NOT_FOUND', 404, 'İş bulunamadı.');
+    }
+
+    const job = result.rows[0];
+    if (job.assigned_to !== recipientUserId) {
+      throw new AppError('VALIDATION_ERROR', 400, 'İş bağlamında alıcı, işin atandığı personel olmalıdır.');
+    }
+
+    // MANAGER: verify assigned staff is in their team
+    if (actor.role === 'MANAGER') {
+      const teamCheck = await this.pool.query<{ exists: boolean }>(
+        `SELECT EXISTS (
+           SELECT 1 FROM staff_profiles
+            WHERE organization_id = $1
+              AND user_id = $2
+              AND manager_user_id = $3
+         ) AS exists`,
+        [actor.organizationId, job.assigned_to, actor.id],
+      );
+      if (!teamCheck.rows[0]?.exists) throw forbidden();
+    }
+  }
+
+  private async isForwardMove(
+    organizationId: string,
+    conversationId: string,
+    currentMessageId: string,
+    targetMessageId: string,
+  ): Promise<boolean> {
+    const result = await this.pool.query<{ is_forward: boolean }>(
+      `SELECT (target.created_at, target.id) > (current.created_at, current.id) AS is_forward
+         FROM messages target, messages current
+        WHERE target.organization_id = $1
+          AND target.conversation_id = $2
+          AND target.id = $3
+          AND current.organization_id = $1
+          AND current.conversation_id = $2
+          AND current.id = $4`,
+      [organizationId, conversationId, targetMessageId, currentMessageId],
+    );
+    return result.rows[0]?.is_forward ?? false;
   }
 }

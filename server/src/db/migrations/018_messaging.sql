@@ -17,7 +17,10 @@ CREATE TABLE conversations (
     FOREIGN KEY (organization_id, job_id)
     REFERENCES job_cards (organization_id, id) ON DELETE SET NULL,
   CONSTRAINT conversations_job_id_scope_check
-    CHECK (job_id IS NULL OR context_type = 'JOB')
+    CHECK (
+      (context_type = 'GENERAL' AND job_id IS NULL)
+      OR (context_type = 'JOB' AND job_id IS NOT NULL)
+    )
 );
 
 CREATE INDEX conversations_organization_updated_idx
@@ -44,8 +47,6 @@ CREATE TABLE messages (
     REFERENCES users (organization_id, id),
   CONSTRAINT messages_body_check
     CHECK (length(body) BETWEEN 1 AND 4000),
-  CONSTRAINT messages_body_plain_check
-    CHECK (body !~ '<[a-zA-Z/]'),
   PRIMARY KEY (conversation_id, id)
 );
 
@@ -91,7 +92,7 @@ CREATE TABLE messaging_activity_logs (
     FOREIGN KEY (organization_id, conversation_id)
     REFERENCES conversations (organization_id, id) ON DELETE CASCADE,
   CONSTRAINT messaging_activity_action_check
-    CHECK (action IN ('CONVERSATION_CREATED', 'MESSAGE_SENT')),
+    CHECK (action IN ('CONVERSATION_CREATED', 'MESSAGE_SENT', 'READ_CURSOR_UPDATED')),
   CONSTRAINT messaging_activity_unique
     UNIQUE (organization_id, actor_user_id, client_action_id, action)
 );

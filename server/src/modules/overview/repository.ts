@@ -31,6 +31,7 @@ export interface OverviewReadModel {
     from: string,
     to: string,
     staffUserId: string | null,
+    managerUserId?: string,
   ): Promise<WorkTypeDistributionItem[]>;
   getMessageUnreadSummary?(
     organizationId: string,
@@ -262,20 +263,31 @@ export class PostgresOverviewRepository implements OverviewReadModel {
     from: string,
     to: string,
     staffUserId: string | null,
+    managerUserId?: string,
   ): Promise<WorkTypeDistributionItem[]> {
-    const staffFilter = staffUserId ? 'AND j.assigned_to = $4' : '';
-    const values = staffUserId
-      ? [organizationId, from, to, staffUserId]
-      : [organizationId, from, to];
+    const managerFilter = managerUserId
+      ? `AND EXISTS (
+           SELECT 1 FROM staff_profiles sp
+            WHERE sp.organization_id = j.organization_id
+              AND sp.user_id = j.assigned_to
+              AND sp.manager_user_id = $${staffUserId ? 5 : 4}
+         )`
+      : '';
+    const staffFilter = staffUserId ? `AND j.assigned_to = $4` : '';
+    const values: unknown[] = [organizationId, from, to];
+    if (staffUserId) values.push(staffUserId);
+    if (managerUserId) values.push(managerUserId);
     const result = await this.pool.query<{ type: string; count: string }>(
       `SELECT j.type, COUNT(*)::int AS count
          FROM job_cards j
+         JOIN organizations o ON o.id = j.organization_id
         WHERE j.organization_id = $1
-          AND j.created_at >= ($2::date AT TIME ZONE 'UTC')
-          AND j.created_at < (($3::date + 1) AT TIME ZONE 'UTC')
+          AND j.created_at >= ($2::date AT TIME ZONE o.timezone)
+          AND j.created_at < (($3::date + 1) AT TIME ZONE o.timezone)
           ${staffFilter}
+          ${managerFilter}
         GROUP BY j.type
-        ORDER BY count DESC
+        ORDER BY count DESC, j.type ASC
         LIMIT 10`,
       values,
     );
@@ -297,9 +309,12 @@ export class PostgresOverviewRepository implements OverviewReadModel {
              ON cp.conversation_id = m.conversation_id
             AND cp.user_id = $2
             AND cp.organization_id = m.organization_id
+           LEFT JOIN messages rm
+             ON rm.conversation_id = m.conversation_id AND rm.id = cp.last_read_message_id
           WHERE m.organization_id = $1
             AND m.sender_user_id <> $2
-            AND m.id > COALESCE(cp.last_read_message_id, '00000000-0000-0000-0000-000000000000')`,
+            AND (cp.last_read_message_id IS NULL
+                 OR (m.created_at, m.id) > (rm.created_at, rm.id))`,
         [organizationId, userId],
       );
       return { unreadTotal: parseInt(result.rows[0]?.unread_count ?? '0', 10) };

@@ -1,4 +1,5 @@
 import { AppError } from '../../errors/index.js';
+import type { Pool } from 'pg';
 import type { SafeUser } from '../auth/types.js';
 import type { OverviewReadModel } from './repository.js';
 import type {
@@ -18,6 +19,7 @@ export class OverviewService {
   constructor(
     private readonly enabled: boolean,
     private readonly repository: OverviewReadModel,
+    private readonly pool?: Pool,
     private readonly now: () => Date = () => new Date(),
     private readonly calendarEnabled = false,
     private readonly messagingEnabled = false,
@@ -44,6 +46,7 @@ export class OverviewService {
           detailedOverview.range.from,
           detailedOverview.range.to,
           null,
+          actor.role === 'MANAGER' ? actor.id : undefined,
         );
       } catch {
         workTypeDistribution = undefined;

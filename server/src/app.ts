@@ -230,6 +230,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: new OverviewService(
           config.capabilities?.overviewDashboard ?? false,
           dependencies.overviewRepository,
+          dependencies.pool,
           undefined,
           config.capabilities?.calendar ?? false,
           config.capabilities?.messaging ?? false,
@@ -321,7 +322,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         });
       }
     }
-    if (dependencies.pool) {
+    if (dependencies.pool && config.capabilities?.messaging) {
       await app.register(messagingRoutes, {
         prefix: '/api/messaging',
         service: new MessagingService(

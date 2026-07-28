@@ -75,7 +75,7 @@ export type RecipientListItem = Readonly<{
 
 export type DirectKey = string;
 
-export type MessagingActivityAction = 'CONVERSATION_CREATED' | 'MESSAGE_SENT';
+export type MessagingActivityAction = 'CONVERSATION_CREATED' | 'MESSAGE_SENT' | 'READ_CURSOR_UPDATED';
 
 export type MessagingActivityRecord = Readonly<{
   id: string;
