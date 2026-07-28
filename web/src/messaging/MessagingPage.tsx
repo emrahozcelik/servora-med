@@ -186,7 +186,6 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   const handleLoadOlder = useCallback(async () => {
     if (!selectedId || !olderCursor || olderLoading) return;
-    setOlderLoading(true);
 
     const gen = ++olderGenRef.current;
     const request: OlderRequest = { gen, convId: selectedId, cursor: olderCursor };
@@ -195,6 +194,10 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     const log = threadMessagesRef.current;
     const prevHeight = log?.scrollHeight ?? 0;
     const prevTop = log?.scrollTop ?? 0;
+
+    // Set mode BEFORE any state update to prevent intermediate renders from scrolling to bottom
+    scrollModeRef.current = 'none';
+    setOlderLoading(true);
 
     try {
       const page = await listMessages(selectedId, olderCursor);
