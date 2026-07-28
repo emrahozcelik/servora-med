@@ -83,6 +83,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const threadEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const loadedPageRef = useRef<Message[]>([]);
+  const shouldAutoScrollRef = useRef(true);
 
   const loadConversations = useCallback(async () => {
     try {
@@ -151,10 +152,23 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const handleLoadOlder = useCallback(async () => {
     if (!selectedId || !olderCursor || olderLoading) return;
     setOlderLoading(true);
+    shouldAutoScrollRef.current = false;
     try {
+      // Save scroll position before prepend
+      const log = document.querySelector('.thread-messages');
+      const prevScrollHeight = log?.scrollHeight ?? 0;
+
       const page = await listMessages(selectedId, olderCursor);
       setMessages((prev) => [...page.items, ...prev]);
       setOlderCursor(page.nextCursor);
+
+      // Restore scroll position after prepend
+      requestAnimationFrame(() => {
+        if (log) {
+          const newScrollHeight = log.scrollHeight;
+          log.scrollTop = newScrollHeight - prevScrollHeight;
+        }
+      });
     } catch (error) {
       setThreadError(error instanceof Error ? error.message : 'Eski mesajlar yüklenemedi.');
     } finally {
@@ -218,10 +232,14 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   }, [pageState.kind, conversations, searchParams, selectConversation]);
 
   useEffect(() => {
-    if (threadEndRef.current) {
+    if (shouldAutoScrollRef.current && threadEndRef.current) {
       threadEndRef.current.scrollIntoView({ behavior: 'smooth' });
     }
+    // Reset flag after each render
   }, [messages]);
+
+  // Auto-scroll on own send (new message appended at bottom)
+  // Don't auto-scroll on older-page prepend (handleLoadOlder manages its own scroll)
 
   const handleSend = useCallback(
     async (e?: React.KeyboardEvent) => {
@@ -242,6 +260,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
       setDraft({ body: text, clientActionId: effectiveActionId, status: 'sending' });
       setSendError(null);
+      shouldAutoScrollRef.current = true;
 
       try {
         const msg = await sendMessage(selectedId, text, effectiveActionId);

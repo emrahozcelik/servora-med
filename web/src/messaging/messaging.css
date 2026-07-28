@@ -3,21 +3,25 @@
   height: calc(100vh - 4.5rem);
   display: flex;
   flex-direction: column;
+  overflow-x: hidden;
 }
 
 .messaging-container {
   display: flex;
   flex: 1;
   min-height: 0;
+  overflow: hidden;
 }
 
 .messaging-sidebar {
-  width: 320px;
-  min-width: 260px;
+  width: min(320px, 35%);
+  min-width: 0;
+  flex-shrink: 1;
   border-right: 1px solid var(--rule);
   display: flex;
   flex-direction: column;
   background: var(--canvas);
+  overflow: hidden;
 }
 
 .messaging-sidebar-header {
@@ -26,13 +30,19 @@
   justify-content: space-between;
   padding: 1rem 1rem 0.75rem;
   border-bottom: 1px solid var(--rule);
+  flex-wrap: wrap;
+  gap: 0.5rem;
 }
 
 .messaging-sidebar-header h2 {
   font-size: 1.05rem;
   font-weight: 600;
   margin: 0;
-  color: var(--ink);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex: 1;
+  min-width: 0;
 }
 
 .conversation-list {
@@ -166,16 +176,21 @@
   display: flex;
   align-items: center;
   gap: 0.5rem;
+  min-width: 0;
 }
 
 .thread-participant span {
   display: flex;
   flex-direction: column;
   gap: 0.1rem;
+  min-width: 0;
 }
 
 .thread-participant strong {
   font-size: 0.95rem;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .thread-participant small {
