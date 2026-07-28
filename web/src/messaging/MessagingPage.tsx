@@ -75,6 +75,8 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [markReadError, setMarkReadError] = useState<string | null>(null);
   const [convLoadError, setConvLoadError] = useState<string | null>(null);
+  const [olderCursor, setOlderCursor] = useState<string | null>(null);
+  const [olderLoading, setOlderLoading] = useState(false);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -125,13 +127,14 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     },
   );
 
-  const loadMessages = useCallback(async (conversationId: string): Promise<Message[]> => {
+  const loadMessages = useCallback(async (conversationId: string, cursor?: string | null): Promise<Message[]> => {
     setMessageLoading(true);
     setThreadError(null);
     try {
-      const page = await listMessages(conversationId);
+      const page = await listMessages(conversationId, cursor);
       const items = page.items;
       setMessages(items);
+      setOlderCursor(page.nextCursor);
       loadedPageRef.current = items;
       return items;
     } catch (error) {
@@ -142,6 +145,20 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       setMessageLoading(false);
     }
   }, []);
+
+  const handleLoadOlder = useCallback(async () => {
+    if (!selectedId || !olderCursor || olderLoading) return;
+    setOlderLoading(true);
+    try {
+      const page = await listMessages(selectedId, olderCursor);
+      setMessages((prev) => [...page.items, ...prev]);
+      setOlderCursor(page.nextCursor);
+    } catch (error) {
+      setThreadError(error instanceof Error ? error.message : 'Eski mesajlar yüklenemedi.');
+    } finally {
+      setOlderLoading(false);
+    }
+  }, [selectedId, olderCursor, olderLoading]);
 
   const selectConversation = useCallback(
     async (conversation: Conversation) => {
@@ -419,6 +436,17 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               )}
 
               <div className="thread-messages" role="log" aria-live="polite">
+                {olderCursor && (
+                  <div className="older-messages-control">
+                    <button
+                      className="secondary-button"
+                      onClick={handleLoadOlder}
+                      disabled={olderLoading}
+                    >
+                      {olderLoading ? 'Yükleniyor…' : 'Daha eski mesajlar'}
+                    </button>
+                  </div>
+                )}
                 {threadError && (
                   <div className="inline-error">
                     {threadError}

@@ -184,7 +184,9 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
       close();
       navigate(notification.entity.type === 'job-card'
         ? `/jobs/${notification.entity.id}`
-        : `/calendar?event=${notification.entity.id}`);
+        : notification.entity.type === 'conversation'
+          ? `/messages?conversation=${notification.entity.id}`
+          : `/calendar?event=${notification.entity.id}`);
     } catch (caught) {
       setActionError(message(caught, 'Bildirim açılamadı. Lütfen tekrar deneyin.'));
     } finally {
