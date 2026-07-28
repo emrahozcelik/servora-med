@@ -1,7 +1,7 @@
 # Phase U3 Messaging — Visual Evidence
 
-**Capture code SHA:** 580adf98bfa513c632bc57d102b948e6139e643c
-**Evidence commit SHA:** d9068108d9327bf0ea5069526bec8dbaddc1affa
+**Capture code SHA:** c830ecf9a20632f95b26889c7c6e131c11f41684
+**Evidence commit SHA:** b34aa7ae3bb3421c653a2ce04deb76fd924a00a5
 **Backend:** Real Fastify + PostgreSQL (localhost:3000)
 **Frontend:** Real Vite dev server (localhost:5173)
 **Database:** servora_med (PostgreSQL 17)
@@ -62,14 +62,16 @@ No content hidden or clipped. All essential controls accessible.
 - Notification label is generic/bodyless — no message body or preview ✅
 
 ### Pagination Scroll Preservation
-- Older-page prepend saves scrollHeight + scrollTop before load ✅
-- Restores via `scrollTop = prevTop + (newHeight - prevHeight)` ✅
-- "Daha eski mesajlar" button visible before click ✅
-- Messages #001-#005 visible at top after older-page load, scroll position preserved ✅
-- No bottom-jump on prepend ✅
-- No duplicate messages ✅
-- Chronological order preserved ✅
-- Own send/new message still scrolls to bottom (pendingScrollRef='bottom') ✅
+- `scrollModeRef`: 'bottom' | 'preserve' | 'none' state machine
+- `useLayoutEffect` restores scroll synchronously before paint
+- Older-page prepend saves prevScrollHeight + prevScrollTop before load
+- Restores via `scrollTop = prevTop + (newHeight - prevHeight)`
+- Anchor message #049: 2px before, 2px after — 0px drift
+- scrollIntoView NOT called during older-page prepend
+- No bottom-jump on prepend
+- No duplicate messages
+- Chronological order preserved
+- Own send/new message scrolls to bottom (scrollModeRef='bottom')
 
 ### 200% Reflow
 - scrollWidth = clientWidth (1009px) — zero horizontal overflow ✅
