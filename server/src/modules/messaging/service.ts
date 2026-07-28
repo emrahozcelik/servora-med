@@ -178,11 +178,11 @@ export class MessagingService {
         clientActionId,
       );
 
-      const events: RealtimeEventInput[] = [];
+      const events: Array<{ id: bigint; event: RealtimeEventInput }> = [];
 
       // Persist realtime event (no notifications for conversation created)
       if (activity) {
-        await tx.appendRealtimeEvent({
+        const rtId = await tx.appendRealtimeEvent({
           organizationId: actor.organizationId,
           messagingActivityId: activity.id,
           type: 'conversation.created',
@@ -196,15 +196,18 @@ export class MessagingService {
         });
 
         events.push({
-          organizationId: actor.organizationId,
-          messagingActivityId: activity.id,
-          type: 'conversation.created',
-          entityType: 'conversation',
-          entityId: conversation.id,
-          actorUserId: actor.id,
-          audience: { roles: [], userIds: [actor.id, recipientUserId] },
-          resourceKeys: ['conversations', `conversation:${conversation.id}`, 'message-unread'],
-          occurredAt: now,
+          id: rtId,
+          event: {
+            organizationId: actor.organizationId,
+            messagingActivityId: activity.id,
+            type: 'conversation.created',
+            entityType: 'conversation',
+            entityId: conversation.id,
+            actorUserId: actor.id,
+            audience: { roles: [], userIds: [actor.id, recipientUserId] },
+            resourceKeys: ['conversations', `conversation:${conversation.id}`, 'message-unread'],
+            occurredAt: now,
+          },
         });
       }
 
@@ -266,7 +269,7 @@ export class MessagingService {
         const existing = await this.repository.findMessageByClientAction(
           conversation.id, actor.id, clientActionId,
         );
-        return { result: { ...existing!, isDuplicate: true }, events: [] as RealtimeEventInput[] };
+        return { result: { ...existing!, isDuplicate: true }, events: [] as Array<{ id: bigint; event: RealtimeEventInput }> };
       }
 
       await tx.updateConversationTimestamp(conversation.id);
@@ -320,18 +323,21 @@ export class MessagingService {
         }
       }
 
-      const events: RealtimeEventInput[] = [];
-      if (activity) {
+      const events: Array<{ id: bigint; event: RealtimeEventInput }> = [];
+      if (activity && realtimeEventId != null) {
         events.push({
-          organizationId: actor.organizationId,
-          messagingActivityId: activity.id,
-          type: 'message.sent',
-          entityType: 'conversation',
-          entityId: conversation.id,
-          actorUserId: actor.id,
-          audience: { roles: [], userIds: [...participantIds] },
-          resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread', 'overview', 'notifications'],
-          occurredAt: now,
+          id: realtimeEventId,
+          event: {
+            organizationId: actor.organizationId,
+            messagingActivityId: activity.id,
+            type: 'message.sent',
+            entityType: 'conversation',
+            entityId: conversation.id,
+            actorUserId: actor.id,
+            audience: { roles: [], userIds: [...participantIds] },
+            resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread', 'overview', 'notifications'],
+            occurredAt: now,
+          },
         });
       }
 
@@ -425,11 +431,11 @@ export class MessagingService {
         clientActionId,
       );
 
-      const events: RealtimeEventInput[] = [];
+      const events: Array<{ id: bigint; event: RealtimeEventInput }> = [];
 
       if (activity) {
         // Persist realtime invalidation for other tabs of the same user
-        await tx.appendRealtimeEvent({
+        const rtId = await tx.appendRealtimeEvent({
           organizationId: actor.organizationId,
           messagingActivityId: activity.id,
           type: 'message.sent',
@@ -443,15 +449,18 @@ export class MessagingService {
         });
 
         events.push({
-          organizationId: actor.organizationId,
-          messagingActivityId: activity.id,
-          type: 'message.sent',
-          entityType: 'conversation',
-          entityId: conversationId,
-          actorUserId: actor.id,
-          audience: { roles: [], userIds: [actor.id] },
-          resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread'],
-          occurredAt: now,
+          id: rtId,
+          event: {
+            organizationId: actor.organizationId,
+            messagingActivityId: activity.id,
+            type: 'message.sent',
+            entityType: 'conversation',
+            entityId: conversationId,
+            actorUserId: actor.id,
+            audience: { roles: [], userIds: [actor.id] },
+            resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread'],
+            occurredAt: now,
+          },
         });
       }
 
@@ -494,7 +503,7 @@ export class MessagingService {
   }
 
   private async poolTransactionWithPublish<T>(
-    fn: (tx: PostgresMessagingTransaction) => Promise<{ result: T; events: RealtimeEventInput[] }>,
+    fn: (tx: PostgresMessagingTransaction) => Promise<{ result: T; events: Array<{ id: bigint; event: RealtimeEventInput }> }>,
   ): Promise<T> {
     const client = await this.pool.connect();
     try {
@@ -505,12 +514,9 @@ export class MessagingService {
 
       // Post-commit publish: events are already persisted, now notify in-memory bus
       if (this.realtimePublisher && events.length > 0) {
-        for (const event of events) {
-          // Build a RealtimeEventRecord for publish
-          // The persisted ID isn't available here; the event bus uses it only for SSE envelope
-          // which gets regenerated on the SSE side from the persisted record
+        for (const { id, event } of events) {
           this.realtimePublisher.publish({
-            id: BigInt(0), // placeholder — SSE replay will use real ID
+            id,
             organizationId: event.organizationId,
             sourceActivityId: event.sourceActivityId ?? null,
             messagingActivityId: event.messagingActivityId ?? null,
@@ -600,29 +606,37 @@ export class MessagingService {
       }
     }
 
-    // JOB context: verify job still belongs to same org
+    // JOB context: verify job still belongs to same org and other participant is the assigned staff
     if (conversation.contextType === 'JOB' && conversation.jobId) {
-      const jobResult = await this.pool.query<{ id: string }>(
-        `SELECT id FROM job_cards
+      const jobResult = await this.pool.query<{ id: string; assigned_to: string }>(
+        `SELECT id, assigned_to FROM job_cards
           WHERE organization_id = $1 AND id = $2`,
         [actor.organizationId, conversation.jobId],
       );
       if (jobResult.rows.length === 0) throw forbidden();
 
+      const job = jobResult.rows[0];
+
+      // The other participant must be the currently assigned staff
+      if (job.assigned_to !== otherUserId) throw forbidden();
+
       // MANAGER: verify assigned staff is still in their team
       if (actor.role === 'MANAGER') {
         const jobStaffCheck = await this.pool.query<{ exists: boolean }>(
           `SELECT EXISTS (
-             SELECT 1 FROM job_cards j
-             JOIN staff_profiles sp
-               ON sp.organization_id = j.organization_id
-              AND sp.user_id = j.assigned_to
-              AND sp.manager_user_id = $3
-              WHERE j.organization_id = $1 AND j.id = $2
+             SELECT 1 FROM staff_profiles sp
+              WHERE sp.organization_id = $1
+               AND sp.user_id = $2
+               AND sp.manager_user_id = $3
            ) AS exists`,
-          [actor.organizationId, conversation.jobId, actor.id],
+          [actor.organizationId, job.assigned_to, actor.id],
         );
         if (!jobStaffCheck.rows[0]?.exists) throw forbidden();
+      }
+
+      // STAFF: verify the job is still assigned to the actor
+      if (actor.role === 'STAFF') {
+        if (job.assigned_to !== actor.id) throw forbidden();
       }
     }
   }
