@@ -95,10 +95,32 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const scrollRestoreRef = useRef({ prevHeight: 0, prevTop: 0 });
   const olderGenRef = useRef(0);
   const loadGenRef = useRef(0);
+  const markReadGenRef = useRef(0);
+  const olderActiveConvRef = useRef<string | null>(null);
   const pendingOlderRef = useRef<OlderRequest | null>(null);
   const pendingLoadRef = useRef<{ gen: number; convId: string } | null>(null);
+  const pendingMarkReadRef = useRef<{ gen: number; convId: string } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const threadMessagesRef = useRef<HTMLDivElement>(null);
+
+  // Centralized conversation transition — invalidates all pending requests
+  const invalidateThread = useCallback(() => {
+    loadGenRef.current++;
+    olderGenRef.current++;
+    markReadGenRef.current++;
+    pendingLoadRef.current = null;
+    pendingOlderRef.current = null;
+    pendingMarkReadRef.current = null;
+    olderActiveConvRef.current = null;
+    setMessageLoading(false);
+    setOlderLoading(false);
+    setThreadError(null);
+    setMarkReadError(null);
+    setMessages([]);
+    setOlderCursor(null);
+    loadedPageRef.current = [];
+    scrollModeRef.current = 'bottom';
+  }, []);
 
   // --- Data loading ---
 
@@ -153,11 +175,8 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     selectedId ? [`conversation:${selectedId}`] : [],
     () => {
       if (selectedId) {
-        // Invalidate any pending older request and load when realtime refreshes the thread
-        olderGenRef.current++;
-        loadGenRef.current++;
-        pendingOlderRef.current = null;
-        pendingLoadRef.current = null;
+        invalidateThread();
+        setSelectedId(selectedId); // keep same conversation
         scrollModeRef.current = 'bottom';
         loadMessages(selectedId);
       }
@@ -207,12 +226,13 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     const gen = ++olderGenRef.current;
     const request: OlderRequest = { gen, convId: selectedId, cursor: olderCursor };
     pendingOlderRef.current = request;
+    olderActiveConvRef.current = selectedId;
 
     const log = threadMessagesRef.current;
     const prevHeight = log?.scrollHeight ?? 0;
     const prevTop = log?.scrollTop ?? 0;
 
-    // Set mode BEFORE any state update to prevent intermediate renders from scrolling to bottom
+    // Set mode BEFORE any state update
     scrollModeRef.current = 'none';
     setOlderLoading(true);
 
@@ -275,34 +295,41 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   const selectConversation = useCallback(
     async (conversation: Conversation) => {
-      // Invalidate any pending requests from previous conversation
-      olderGenRef.current++;
-      loadGenRef.current++;
-      pendingOlderRef.current = null;
-      pendingLoadRef.current = null;
+      invalidateThread();
       setSelectedId(conversation.id);
       setDraft(null);
       setSendError(null);
-      setMarkReadError(null);
       scrollModeRef.current = 'bottom';
+
+      const gen = ++markReadGenRef.current;
+      const markReq: { gen: number; convId: string } = { gen, convId: conversation.id };
+      pendingMarkReadRef.current = markReq;
 
       const loadedMessages = await loadMessages(conversation.id);
 
-      if (conversation.unreadCount > 0 && loadedMessages.length > 0) {
+      // Only mark-read if conversation hasn't changed and this request is still current
+      if (pendingMarkReadRef.current?.gen === gen && conversation.unreadCount > 0 && loadedMessages.length > 0) {
         const lastOtherMsg = [...loadedMessages].reverse().find((m) => m.senderUserId !== user.id);
         if (lastOtherMsg) {
           try {
             await markRead(conversation.id, lastOtherMsg.id);
-            setMarkReadError(null);
+            if (pendingMarkReadRef.current?.gen === gen) {
+              setMarkReadError(null);
+            }
           } catch (error) {
-            setMarkReadError(error instanceof Error ? error.message : 'Okundu işaretlenemedi.');
+            if (pendingMarkReadRef.current?.gen === gen) {
+              setMarkReadError(error instanceof Error ? error.message : 'Okundu işaretlenemedi.');
+            }
           }
         }
         loadConversations();
         loadUnreadCount();
       }
+      if (pendingMarkReadRef.current?.gen === gen) {
+        pendingMarkReadRef.current = null;
+      }
     },
-    [loadMessages, user.id, loadConversations, loadUnreadCount],
+    [loadMessages, user.id, loadConversations, loadUnreadCount, invalidateThread],
   );
 
   const retryMarkRead = useCallback(async () => {
@@ -329,6 +356,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       if (conv) selectConversation(conv);
     }
   }, [pageState.kind, conversations, searchParams, selectConversation]);
+
+  // Cleanup on unmount
+  useEffect(() => () => { invalidateThread(); }, [invalidateThread]);
 
   // --- Send ---
 
@@ -370,13 +400,15 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         const conv = await createOrGetConversation(recipientId);
         setShowRecipientPicker(false);
         await loadConversations();
+        invalidateThread();
         setSelectedId(conv.id);
+        scrollModeRef.current = 'bottom';
         await loadMessages(conv.id);
       } catch (error) {
         setSendError(error instanceof Error ? error.message : 'Konuşma başlatılamadı.');
       }
     },
-    [loadConversations, loadMessages],
+    [loadConversations, loadMessages, invalidateThread],
   );
 
   const loadRecipientsForPicker = useCallback(async () => {
@@ -445,7 +477,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         <section className={`messaging-thread${selected ? ' active' : ''}`} aria-label="Mesaj akışı">
           {selected ? (<>
             <header className="thread-header">
-              <button className="ghost-button back-button" onClick={() => setSelectedId(null)} aria-label="Geri">←</button>
+              <button className="ghost-button back-button" onClick={() => { invalidateThread(); setSelectedId(null); }} aria-label="Geri">←</button>
               <span className="thread-participant"><UserAvatar name={selected.participantName} size="default" /><span><strong>{selected.participantName}</strong>{!selected.participantIsActive && <span className="disabled-badge">Pasif</span>}{selected.contextType === 'JOB' && selected.jobTitle && <small>İş: {selected.jobTitle}</small>}</span></span>
             </header>
             {markReadError && <div className="inline-error">{markReadError}<button className="ghost-button" onClick={retryMarkRead}>Tekrar dene</button></div>}
