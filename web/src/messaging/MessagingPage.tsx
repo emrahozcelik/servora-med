@@ -84,8 +84,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const composerRef = useRef<HTMLTextAreaElement>(null);
   const loadedPageRef = useRef<Message[]>([]);
   const pendingScrollRef = useRef<'bottom' | 'preserve' | 'none'>('bottom');
-  const scrollRestoreRef = useRef({ prevHeight: 0, prevTop: 0 });
-  const olderLoadPendingRef = useRef(false);
+  const olderLoadGenRef = useRef(0);
   const containerRef = useRef<HTMLDivElement>(null);
   const threadMessagesRef = useRef<HTMLDivElement>(null);
 
@@ -174,19 +173,24 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const handleLoadOlder = useCallback(async () => {
     if (!selectedId || !olderCursor || olderLoading) return;
     setOlderLoading(true);
-    olderLoadPendingRef.current = true;
-    pendingScrollRef.current = 'preserve';
+    const gen = ++olderLoadGenRef.current;
     const log = threadMessagesRef.current;
-    if (log) {
-      scrollRestoreRef.current = { prevHeight: log.scrollHeight, prevTop: log.scrollTop };
-    }
+    const prevHeight = log?.scrollHeight ?? 0;
+    const prevTop = log?.scrollTop ?? 0;
     try {
       const page = await listMessages(selectedId, olderCursor);
+      if (olderLoadGenRef.current !== gen) return; // superseded
       setMessages((prev) => [...page.items, ...prev]);
       setOlderCursor(page.nextCursor);
+      // Restore scroll after React commits the prepend
+      requestAnimationFrame(() => {
+        if (log) {
+          const newHeight = log.scrollHeight;
+          log.scrollTop = prevTop + (newHeight - prevHeight);
+        }
+      });
     } catch (error) {
-      olderLoadPendingRef.current = false;
-      pendingScrollRef.current = 'bottom';
+      if (olderLoadGenRef.current !== gen) return;
       setThreadError(error instanceof Error ? error.message : 'Eski mesajlar yüklenemedi.');
     } finally {
       setOlderLoading(false);
@@ -253,18 +257,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     const log = threadMessagesRef.current;
     if (!log || messages.length === 0) return;
 
-    if (pendingScrollRef.current === 'preserve' && olderLoadPendingRef.current) {
-      const { prevHeight, prevTop } = scrollRestoreRef.current;
-      const newHeight = log.scrollHeight;
-      log.scrollTop = prevTop + (newHeight - prevHeight);
-      olderLoadPendingRef.current = false;
-      pendingScrollRef.current = 'bottom';
-    } else if (pendingScrollRef.current === 'bottom') {
+    if (pendingScrollRef.current === 'bottom') {
       if (threadEndRef.current) {
         threadEndRef.current.scrollIntoView({ behavior: 'smooth' });
       }
     }
-    // Don't reset pendingScrollRef on every render — only on explicit mode consumption
+    // preserve mode is handled synchronously in handleLoadOlder via rAF
   }, [messages]);
 
   const handleSend = useCallback(
