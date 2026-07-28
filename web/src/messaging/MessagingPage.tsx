@@ -153,17 +153,18 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       const loadedMessages = await loadMessages(conversation.id);
 
       if (conversation.unreadCount > 0 && loadedMessages.length > 0) {
-        const lastMsg = loadedMessages[loadedMessages.length - 1];
-        if (lastMsg && lastMsg.senderUserId !== user.id) {
+        // Find the last message from another user (not the viewer) to mark as read
+        const lastOtherMsg = [...loadedMessages].reverse().find((m) => m.senderUserId !== user.id);
+        if (lastOtherMsg) {
           try {
-            await markRead(conversation.id, lastMsg.id);
+            await markRead(conversation.id, lastOtherMsg.id);
             setMarkReadError(null);
           } catch (error) {
             setMarkReadError(error instanceof Error ? error.message : 'Okundu işaretlenemedi.');
           }
-          loadConversations();
-          loadUnreadCount();
         }
+        loadConversations();
+        loadUnreadCount();
       }
     },
     [loadMessages, user.id, loadConversations, loadUnreadCount],
@@ -173,17 +174,18 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     if (!selectedId) return;
     const loadedMessages = loadedPageRef.current;
     if (loadedMessages.length === 0) return;
-    const lastMsg = loadedMessages[loadedMessages.length - 1];
-    if (!lastMsg) return;
+    // Find the last message from another user (not the viewer)
+    const lastOtherMsg = [...loadedMessages].reverse().find((m) => m.senderUserId !== user.id);
+    if (!lastOtherMsg) return;
     try {
-      await markRead(selectedId, lastMsg.id);
+      await markRead(selectedId, lastOtherMsg.id);
       setMarkReadError(null);
       loadConversations();
       loadUnreadCount();
     } catch (error) {
       setMarkReadError(error instanceof Error ? error.message : 'Okundu işaretlenemedi.');
     }
-  }, [selectedId, loadConversations, loadUnreadCount]);
+  }, [selectedId, loadConversations, loadUnreadCount, user.id]);
 
   useEffect(() => {
     if (threadEndRef.current) {

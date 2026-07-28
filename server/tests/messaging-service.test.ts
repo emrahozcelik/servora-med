@@ -126,8 +126,17 @@ describe('MessagingService', () => {
       client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
       // findConversationById
       client.query.mockResolvedValueOnce({ rows: [{ id: conversationId, organization_id: organizationId, direct_key: 'k', context_type: 'GENERAL', job_id: null, created_at: new Date(), updated_at: new Date() }], rowCount: 1 });
-      // findAllParticipants (only actor)
-      client.query.mockResolvedValueOnce({ rows: [{ conversation_id: conversationId, user_id: actor.id, organization_id: organizationId, last_read_message_id: null, created_at: new Date() }], rowCount: 1 });
+      // findAllParticipants (actor + other user)
+      const otherUserId = randomUUID();
+      client.query.mockResolvedValueOnce({ rows: [
+        { conversation_id: conversationId, user_id: actor.id, organization_id: organizationId, last_read_message_id: null, created_at: new Date() },
+        { conversation_id: conversationId, user_id: otherUserId, organization_id: organizationId, last_read_message_id: null, created_at: new Date() },
+      ], rowCount: 2 });
+      // reauthorizeSend: check other user active/role (ADMIN for STAFF actor)
+      // This uses this.pool.query, not client.query — need to set up pool mock
+      (pool.query as any).mockImplementationOnce(() =>
+        Promise.resolve({ rows: [{ is_active: true, role: 'ADMIN' }], rowCount: 1 }),
+      );
       // insertMessage
       client.query.mockResolvedValueOnce({ rows: [{ id: messageId, conversation_id: conversationId, organization_id: organizationId, sender_user_id: actor.id, client_action_id: 'action-html', body: '<b>bold</b>', created_at: new Date() }], rowCount: 1 });
       // updateConversationTimestamp
@@ -167,8 +176,17 @@ describe('MessagingService', () => {
       client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
       // findConversationById
       client.query.mockResolvedValueOnce({ rows: [{ id: conversationId, organization_id: organizationId, direct_key: 'k', context_type: 'GENERAL', job_id: null, created_at: new Date(), updated_at: new Date() }], rowCount: 1 });
-      // findAllParticipants (only actor)
-      client.query.mockResolvedValueOnce({ rows: [{ conversation_id: conversationId, user_id: actor.id, organization_id: organizationId, last_read_message_id: null, created_at: new Date() }], rowCount: 1 });
+      // findAllParticipants (actor + other user)
+      const otherUserId2 = randomUUID();
+      client.query.mockResolvedValueOnce({ rows: [
+        { conversation_id: conversationId, user_id: actor.id, organization_id: organizationId, last_read_message_id: null, created_at: new Date() },
+        { conversation_id: conversationId, user_id: otherUserId2, organization_id: organizationId, last_read_message_id: null, created_at: new Date() },
+      ], rowCount: 2 });
+      // reauthorizeSend: check other user active/role (ADMIN for STAFF actor)
+      // This uses this.pool.query, not client.query — need to set up pool mock
+      (pool.query as any).mockImplementationOnce(() =>
+        Promise.resolve({ rows: [{ is_active: true, role: 'ADMIN' }], rowCount: 1 }),
+      );
       // insertMessage
       client.query.mockResolvedValueOnce({ rows: [{ id: messageId, conversation_id: conversationId, organization_id: organizationId, sender_user_id: actor.id, client_action_id: 'action-1', body: 'Hello', created_at: new Date() }], rowCount: 1 });
       // updateConversationTimestamp

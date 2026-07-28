@@ -392,13 +392,15 @@ export class PostgresMessagingRepository implements MessagingRepository {
       values,
     );
 
-    const rows = result.rows.map(mapMessage).reverse();
-    const items = rows.slice(0, limit);
-    const last = items.at(-1);
+    const rows = result.rows.map(mapMessage);       // DESC: newest first
+    const selected = rows.slice(0, limit);           // newest `limit` in DESC order
+    const items = [...selected].reverse();           // ASC for display
+    const cursorRow = selected[selected.length - 1]; // oldest in selected
+    const hasMore = result.rows.length > limit;
     return {
       items,
-      nextCursor: result.rows.length > limit && last
-        ? { createdAt: last.createdAt, id: last.id }
+      nextCursor: hasMore && cursorRow
+        ? { createdAt: cursorRow.createdAt, id: cursorRow.id }
         : null,
     };
   }
@@ -706,13 +708,13 @@ export class PostgresMessagingTransaction {
     return mapActivity(row);
   }
 
-  async markRead(
+  async markReadWithResult(
     organizationId: string,
     userId: string,
     conversationId: string,
     messageId: string,
-  ): Promise<void> {
-    await this.client.query(
+  ): Promise<boolean> {
+    const result = await this.client.query<{ updated: boolean }>(
       `WITH target_msg AS (
          SELECT created_at, id FROM messages
           WHERE organization_id = $1
@@ -730,9 +732,11 @@ export class PostgresMessagingTransaction {
                  SELECT rm.created_at, rm.id FROM messages rm
                   WHERE rm.conversation_id = cp.conversation_id
                     AND rm.id = cp.last_read_message_id
-               ))`,
+               ))
+       RETURNING TRUE AS updated`,
       [organizationId, userId, conversationId, messageId],
     );
+    return (result.rowCount ?? 0) > 0;
   }
 
   async appendRealtimeEvent(input: {

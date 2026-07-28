@@ -135,22 +135,25 @@ export class MessagingService {
 
     const now = new Date();
 
-    return this.poolTransaction(async (tx) => {
+    return this.poolTransactionWithPublish(async (tx) => {
       // Check if conversation already exists
       const existing = await tx.findConversationByDirectKey(actor.organizationId, directKey);
       if (existing) {
         return {
-          id: existing.id,
-          directKey: existing.directKey,
-          contextType: existing.contextType,
-          jobId: existing.jobId,
-          jobTitle,
-          participantName: recipientInfo.name,
-          participantId: recipientUserId,
-          participantIsActive: recipientInfo.is_active,
-          unreadCount: 0,
-          lastActivityAt: existing.updatedAt.toISOString(),
-          updatedAt: existing.updatedAt.toISOString(),
+          result: {
+            id: existing.id,
+            directKey: existing.directKey,
+            contextType: existing.contextType,
+            jobId: existing.jobId,
+            jobTitle,
+            participantName: recipientInfo.name,
+            participantId: recipientUserId,
+            participantIsActive: recipientInfo.is_active,
+            unreadCount: 0,
+            lastActivityAt: existing.updatedAt.toISOString(),
+            updatedAt: existing.updatedAt.toISOString(),
+          },
+          events: [],
         };
       }
 
@@ -175,6 +178,8 @@ export class MessagingService {
         clientActionId,
       );
 
+      const events: RealtimeEventInput[] = [];
+
       // Persist realtime event (no notifications for conversation created)
       if (activity) {
         await tx.appendRealtimeEvent({
@@ -189,20 +194,35 @@ export class MessagingService {
           resourceKeys: ['conversations', `conversation:${conversation.id}`, 'message-unread'],
           occurredAt: now,
         });
+
+        events.push({
+          organizationId: actor.organizationId,
+          messagingActivityId: activity.id,
+          type: 'conversation.created',
+          entityType: 'conversation',
+          entityId: conversation.id,
+          actorUserId: actor.id,
+          audience: { roles: [], userIds: [actor.id, recipientUserId] },
+          resourceKeys: ['conversations', `conversation:${conversation.id}`, 'message-unread'],
+          occurredAt: now,
+        });
       }
 
       return {
-        id: conversation.id,
-        directKey: conversation.directKey,
-        contextType: conversation.contextType,
-        jobId: conversation.jobId,
-        jobTitle,
-        participantName: recipientInfo.name,
-        participantId: recipientUserId,
-        participantIsActive: recipientInfo.is_active,
-        unreadCount: 0,
-        lastActivityAt: conversation.createdAt.toISOString(),
-        updatedAt: conversation.updatedAt.toISOString(),
+        result: {
+          id: conversation.id,
+          directKey: conversation.directKey,
+          contextType: conversation.contextType,
+          jobId: conversation.jobId,
+          jobTitle,
+          participantName: recipientInfo.name,
+          participantId: recipientUserId,
+          participantIsActive: recipientInfo.is_active,
+          unreadCount: 0,
+          lastActivityAt: conversation.createdAt.toISOString(),
+          updatedAt: conversation.updatedAt.toISOString(),
+        },
+        events,
       };
     });
   }
@@ -220,7 +240,7 @@ export class MessagingService {
       throw new AppError('VALIDATION_ERROR', 400, 'clientActionId zorunludur.');
     }
 
-    return this.poolTransaction(async (tx) => {
+    const result = await this.poolTransactionWithPublish<MessageRecord & { isDuplicate: boolean }>(async (tx) => {
       const conversation = await tx.findConversationById(actor.organizationId, conversationId);
       if (!conversation) throw notFound();
 
@@ -230,11 +250,12 @@ export class MessagingService {
         throw forbidden();
       }
 
-      // Reauthorize: verify other participant is still valid
-      const otherParticipant = participants.find((p) => p.userId !== actor.id);
-      if (otherParticipant) {
-        await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
+      // Reauthorize: verify exactly 2 participants and other is still valid
+      if (participants.length !== 2) {
+        throw forbidden();
       }
+      const otherParticipant = participants.find((p) => p.userId !== actor.id)!;
+      await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
 
       const message = await tx.insertMessage(
         actor.organizationId, conversation.id, actor.id, clientActionId, trimmedBody,
@@ -245,7 +266,7 @@ export class MessagingService {
         const existing = await this.repository.findMessageByClientAction(
           conversation.id, actor.id, clientActionId,
         );
-        return { ...existing!, isDuplicate: true };
+        return { result: { ...existing!, isDuplicate: true }, events: [] as RealtimeEventInput[] };
       }
 
       await tx.updateConversationTimestamp(conversation.id);
@@ -299,8 +320,24 @@ export class MessagingService {
         }
       }
 
-      return { ...message, isDuplicate: false };
+      const events: RealtimeEventInput[] = [];
+      if (activity) {
+        events.push({
+          organizationId: actor.organizationId,
+          messagingActivityId: activity.id,
+          type: 'message.sent',
+          entityType: 'conversation',
+          entityId: conversation.id,
+          actorUserId: actor.id,
+          audience: { roles: [], userIds: [...participantIds] },
+          resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread', 'overview', 'notifications'],
+          occurredAt: now,
+        });
+      }
+
+      return { result: { ...message, isDuplicate: false }, events };
     });
+    return result;
   }
 
   async getMessages(
@@ -368,10 +405,17 @@ export class MessagingService {
 
     const now = new Date();
 
-    await this.poolTransaction(async (tx) => {
-      await tx.markRead(actor.organizationId, actor.id, conversationId, messageId);
+    return this.poolTransactionWithPublish(async (tx) => {
+      // Mark read with forward-only check; returns true if cursor actually advanced
+      const advanced = await tx.markReadWithResult(
+        actor.organizationId, actor.id, conversationId, messageId,
+      );
 
-      const clientActionId = `read:${actor.id}:${conversationId}:${messageId}:${Date.now()}`;
+      if (!advanced) {
+        return { result: undefined, events: [] };
+      }
+
+      const clientActionId = `read:${actor.id}:${conversationId}:${messageId}`;
 
       const activity = await tx.insertActivity(
         actor.organizationId,
@@ -380,6 +424,8 @@ export class MessagingService {
         'READ_CURSOR_UPDATED',
         clientActionId,
       );
+
+      const events: RealtimeEventInput[] = [];
 
       if (activity) {
         // Persist realtime invalidation for other tabs of the same user
@@ -395,7 +441,21 @@ export class MessagingService {
           resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread'],
           occurredAt: now,
         });
+
+        events.push({
+          organizationId: actor.organizationId,
+          messagingActivityId: activity.id,
+          type: 'message.sent',
+          entityType: 'conversation',
+          entityId: conversationId,
+          actorUserId: actor.id,
+          audience: { roles: [], userIds: [actor.id] },
+          resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread'],
+          occurredAt: now,
+        });
       }
+
+      return { result: undefined, events };
     });
   }
 
@@ -424,6 +484,46 @@ export class MessagingService {
       const tx = new PostgresMessagingTransaction(client);
       const result = await fn(tx);
       await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  private async poolTransactionWithPublish<T>(
+    fn: (tx: PostgresMessagingTransaction) => Promise<{ result: T; events: RealtimeEventInput[] }>,
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+      const tx = new PostgresMessagingTransaction(client);
+      const { result, events } = await fn(tx);
+      await client.query('COMMIT');
+
+      // Post-commit publish: events are already persisted, now notify in-memory bus
+      if (this.realtimePublisher && events.length > 0) {
+        for (const event of events) {
+          // Build a RealtimeEventRecord for publish
+          // The persisted ID isn't available here; the event bus uses it only for SSE envelope
+          // which gets regenerated on the SSE side from the persisted record
+          this.realtimePublisher.publish({
+            id: BigInt(0), // placeholder — SSE replay will use real ID
+            organizationId: event.organizationId,
+            sourceActivityId: event.sourceActivityId ?? null,
+            messagingActivityId: event.messagingActivityId ?? null,
+            type: event.type,
+            entityType: event.entityType,
+            entityId: event.entityId,
+            actorUserId: event.actorUserId,
+            audience: event.audience,
+            resourceKeys: event.resourceKeys,
+            occurredAt: event.occurredAt,
+          });
+        }
+      }
       return result;
     } catch (error) {
       await client.query('ROLLBACK');
