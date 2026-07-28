@@ -1,7 +1,7 @@
 # Phase U3 Messaging — Visual Evidence
 
-**Capture code SHA:** 2762798c2b4728ed621d785e52562fdff726d224
-**Evidence commit SHA:** (see git log for docs/evidence commits)
+**Capture code SHA:** 99cb4b79a61bc2d1a7b0c52c9a1d157aa53c22a1
+**Evidence commit SHA:** 3b6ac0e00719b926af2c0f28907a8bb844e393f4
 **Backend:** Real Fastify + PostgreSQL (localhost:3000)
 **Frontend:** Real Vite dev server (localhost:5173)
 **Database:** servora_med (PostgreSQL 17)
@@ -43,7 +43,14 @@ html { font-size: 200% !important; }
 ```
 
 Injected via Playwright `page.addStyleTag()`. Applied at 1024px viewport.
-**Measured:** scrollWidth=1009, clientWidth=1009, horizontal overflow=0.
+
+**Layout model:** ResizeObserver detects when sidebar + thread don't fit side-by-side and adds
+`.messaging-stacked` class, switching to drill-down (mobile) layout: sidebar full-width, thread as
+fixed overlay when a conversation is selected.
+
+**Measured:** document scrollWidth=1024, clientWidth=1024, horizontal overflow=0.
+"Mesajlar" heading fully visible (not truncated). "Yeni" button fully visible.
+No content hidden or clipped. All essential controls accessible.
 
 ---
 
@@ -55,12 +62,14 @@ Injected via Playwright `page.addStyleTag()`. Applied at 1024px viewport.
 - Notification label is generic/bodyless — no message body or preview ✅
 
 ### Pagination Scroll Preservation
-- Older-page prepend saves scrollHeight before load, restores scrollTop after ✅
+- Older-page prepend saves scrollHeight + scrollTop before load ✅
+- Restores via `scrollTop = prevTop + (newHeight - prevHeight)` ✅
 - "Daha eski mesajlar" button visible before click ✅
-- Messages #001-#005 visible at top after older-page load ✅
+- Messages #001-#005 visible at top after older-page load, scroll position preserved ✅
+- No bottom-jump on prepend ✅
 - No duplicate messages ✅
 - Chronological order preserved ✅
-- Own send/new message still scrolls to bottom ✅
+- Own send/new message still scrolls to bottom (pendingScrollRef='bottom') ✅
 
 ### 200% Reflow
 - scrollWidth = clientWidth (1009px) — zero horizontal overflow ✅
