@@ -23,29 +23,6 @@ CREATE TABLE conversations (
 CREATE INDEX conversations_organization_updated_idx
   ON conversations (organization_id, updated_at DESC, id);
 
-CREATE TABLE conversation_participants (
-  conversation_id UUID NOT NULL,
-  user_id UUID NOT NULL,
-  organization_id UUID NOT NULL,
-  last_read_message_id UUID,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT conversation_participants_pk
-    PRIMARY KEY (conversation_id, user_id),
-  CONSTRAINT conversation_participants_conv_fk
-    FOREIGN KEY (organization_id, conversation_id)
-    REFERENCES conversations (organization_id, id) ON DELETE CASCADE,
-  CONSTRAINT conversation_participants_user_fk
-    FOREIGN KEY (organization_id, user_id)
-    REFERENCES users (organization_id, id) ON DELETE CASCADE,
-  CONSTRAINT conversation_participants_read_fk
-    FOREIGN KEY (conversation_id, last_read_message_id)
-    REFERENCES messages (conversation_id, id) DEFERRABLE INITIALLY DEFERRED
-);
-
-CREATE INDEX conversation_participants_user_updated_idx
-  ON conversation_participants (organization_id, user_id, conversation_id);
-
 CREATE TABLE messages (
   id UUID DEFAULT gen_random_uuid(),
   conversation_id UUID NOT NULL,
@@ -74,6 +51,50 @@ CREATE TABLE messages (
 
 CREATE INDEX messages_organization_cursor_idx
   ON messages (organization_id, conversation_id, created_at, id);
+
+CREATE TABLE conversation_participants (
+  conversation_id UUID NOT NULL,
+  user_id UUID NOT NULL,
+  organization_id UUID NOT NULL,
+  last_read_message_id UUID,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT conversation_participants_pk
+    PRIMARY KEY (conversation_id, user_id),
+  CONSTRAINT conversation_participants_conv_fk
+    FOREIGN KEY (organization_id, conversation_id)
+    REFERENCES conversations (organization_id, id) ON DELETE CASCADE,
+  CONSTRAINT conversation_participants_user_fk
+    FOREIGN KEY (organization_id, user_id)
+    REFERENCES users (organization_id, id) ON DELETE CASCADE,
+  CONSTRAINT conversation_participants_read_fk
+    FOREIGN KEY (conversation_id, last_read_message_id)
+    REFERENCES messages (conversation_id, id) DEFERRABLE INITIALLY DEFERRED
+);
+
+CREATE INDEX conversation_participants_user_updated_idx
+  ON conversation_participants (organization_id, user_id, conversation_id);
+
+CREATE TABLE messaging_activity_logs (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+  conversation_id UUID NOT NULL,
+  actor_user_id UUID NOT NULL,
+  action VARCHAR(20) NOT NULL,
+  client_action_id VARCHAR(255) NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+
+  CONSTRAINT messaging_activity_actor_fk
+    FOREIGN KEY (organization_id, actor_user_id)
+    REFERENCES users (organization_id, id),
+  CONSTRAINT messaging_activity_conversation_fk
+    FOREIGN KEY (organization_id, conversation_id)
+    REFERENCES conversations (organization_id, id) ON DELETE CASCADE,
+  CONSTRAINT messaging_activity_action_check
+    CHECK (action IN ('CONVERSATION_CREATED', 'MESSAGE_SENT')),
+  CONSTRAINT messaging_activity_unique
+    UNIQUE (organization_id, actor_user_id, client_action_id, action)
+);
 
 ALTER TABLE in_app_notifications
   DROP CONSTRAINT in_app_notifications_entity_type_check,
@@ -136,24 +157,3 @@ ALTER TABLE realtime_events
     )),
   ADD CONSTRAINT realtime_events_entity_type_check
     CHECK (entity_type IN ('job-card', 'calendar-event', 'conversation'));
-
-CREATE TABLE messaging_activity_logs (
-  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  organization_id UUID NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
-  conversation_id UUID NOT NULL,
-  actor_user_id UUID NOT NULL,
-  action VARCHAR(20) NOT NULL,
-  client_action_id VARCHAR(255) NOT NULL,
-  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-
-  CONSTRAINT messaging_activity_actor_fk
-    FOREIGN KEY (organization_id, actor_user_id)
-    REFERENCES users (organization_id, id),
-  CONSTRAINT messaging_activity_conversation_fk
-    FOREIGN KEY (organization_id, conversation_id)
-    REFERENCES conversations (organization_id, id) ON DELETE CASCADE,
-  CONSTRAINT messaging_activity_action_check
-    CHECK (action IN ('CONVERSATION_CREATED', 'MESSAGE_SENT')),
-  CONSTRAINT messaging_activity_unique
-    UNIQUE (organization_id, actor_user_id, client_action_id, action)
-);

@@ -232,6 +232,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           dependencies.overviewRepository,
           undefined,
           config.capabilities?.calendar ?? false,
+          config.capabilities?.messaging ?? false,
         ),
         authenticate: authenticateDomain,
       });

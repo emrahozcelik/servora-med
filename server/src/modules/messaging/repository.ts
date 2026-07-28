@@ -557,6 +557,32 @@ export class PostgresMessagingRepository implements MessagingRepository {
 export class PostgresMessagingTransaction {
   constructor(private readonly client: Pick<PoolClient, 'query'>) {}
 
+  async findConversationByDirectKey(
+    organizationId: string,
+    directKey: string,
+  ): Promise<ConversationRecord | null> {
+    const result = await this.client.query<ConversationRow>(
+      `SELECT id, organization_id, direct_key, context_type, job_id, created_at, updated_at
+         FROM conversations
+        WHERE organization_id = $1 AND direct_key = $2`,
+      [organizationId, directKey],
+    );
+    return result.rows[0] ? mapConversation(result.rows[0]) : null;
+  }
+
+  async findConversationById(
+    organizationId: string,
+    conversationId: string,
+  ): Promise<ConversationRecord | null> {
+    const result = await this.client.query<ConversationRow>(
+      `SELECT id, organization_id, direct_key, context_type, job_id, created_at, updated_at
+         FROM conversations
+        WHERE organization_id = $1 AND id = $2`,
+      [organizationId, conversationId],
+    );
+    return result.rows[0] ? mapConversation(result.rows[0]) : null;
+  }
+
   async createConversation(
     organizationId: string,
     directKey: DirectKey,
