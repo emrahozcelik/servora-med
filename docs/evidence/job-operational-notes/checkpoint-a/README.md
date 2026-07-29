@@ -7,13 +7,13 @@
 - Main source commit: `19e9d1b8456a43f5ad4ab21ea8acbe4def88bcad`
 - Responsive source repair: `d6b5f628161a0876cfba325195e3dd0718790e62`
 - Original visual capture SHA: `d6b5f628161a0876cfba325195e3dd0718790e62`
-- Review repair source SHA: `f1f9727ef3732872e2730a2d23276fccf28b5852`
+- Review repair source SHA: `f1f97279a42fa7ffb06fd42cc94c7c1484912dc8`
 - Migration: `019_job_card_operational_note_context.sql`
 - Capture date: 2026-07-29
 
 The screenshots remain the original visual captures from `d6b5f628161a0876cfba325195e3dd0718790e62`;
 they were not recaptured or relabelled as repair-source captures. Review-repair API assertions and
-automated validation were regenerated on `f1f9727ef3732872e2730a2d23276fccf28b5852`.
+automated validation were regenerated on `f1f97279a42fa7ffb06fd42cc94c7c1484912dc8`.
 All evidence uses only synthetic organization, user, JobCard, and note data.
 
 ## Runtime
