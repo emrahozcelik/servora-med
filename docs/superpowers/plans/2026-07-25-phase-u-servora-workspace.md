@@ -204,7 +204,7 @@ U3 implementation:
 NOT AUTHORIZED
 
 T5:
-NOT AUTHORIZED
+IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
 
 Staging/production:
 NOT AUTHORIZED
@@ -1395,7 +1395,7 @@ Phase U complete:
 ONLY after U3 merge and resulting-main CI success
 
 T5:
-NOT AUTHORIZED until Phase U external closeout
+IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE until Phase U external closeout
 ```
 
 ---
@@ -1432,7 +1432,7 @@ Phase U:
 READY_FOR_EXTERNAL_REVIEW
 
 T5:
-NOT AUTHORIZED
+IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
 
 Staging/production:
 NOT AUTHORIZED

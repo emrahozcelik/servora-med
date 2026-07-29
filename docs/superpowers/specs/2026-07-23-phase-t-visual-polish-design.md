@@ -232,7 +232,7 @@ Geolocation production enablement stays out of scope (`ACTION_SCOPED_GEOLOCATION
 - [ ] T2 shell polish recorded
 - [ ] T3 Jobs + JobDetail consistency improved vs baseline
 - [ ] T4 CRM/product/people forms aligned
-- [ ] T5 state surfaces + responsive regression matrix green
+- [x] T5 state surfaces + responsive regression matrix green
 - [ ] No new direct `antd` feature imports; geolocation flag remains false
 
 ---
