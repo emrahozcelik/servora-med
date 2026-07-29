@@ -2,8 +2,9 @@
 
 Status: **PR A–M merged** — mandatory Ant chain and approved optional UI runtime backlog complete
 Ant optional closeout baseline (historical): `b8434d633a40055f3b6f772c3eadfe9bc9e610e5`
-Phase T code baseline (current main): `e96aaeacce6094c4e36e25e794c55834d7e7f029`
-Current phase: **Phase T — Visual Consistency and Screen Polish** (T0 complete; does **not** rebuild Ant foundation)
+Phase T code baseline (historical): `e96aaeacce6094c4e36e25e794c55834d7e7f029`
+Phase T closeout: **COMPLETE / MERGED** via PR #77 at `41f893a9cd90dc7c62b5047c6946a3de5b6a40d1`
+Current product status: **PRODUCT DECISION REQUIRED** — no next implementation phase is automatically authorized
 
 ```text
 Ant Design foundation: COMPLETE
@@ -16,11 +17,11 @@ T0 audit/docs/baseline: COMPLETE
 T1 token and shared language: COMPLETE
 T2 AppShell and navigation polish: COMPLETE
 T3 Jobs and JobDetail polish: COMPLETE
-T4 CRM/product/staff/forms polish: IMPLEMENTATION COMPLETE / INTEGRATED
-T5 states and visual regression: IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
+T4 CRM/product/staff/forms polish: COMPLETE / INTEGRATED
+T5 states and visual regression: COMPLETE / MERGED
 
 P0 defect track:
-RecordDescriptions container reflow: OPEN
+RecordDescriptions container reflow: COMPLETE
 ```
 
 Phase T mevcut Ant/Servora mimarisi üzerinde görsel tutarlılık ve ekran iyileştirmesidir. Toplu Ant migration veya default Ant admin görünümü bu fazın hedefi değildir.

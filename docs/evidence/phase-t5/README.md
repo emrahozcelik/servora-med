@@ -2,7 +2,9 @@
 
 **T5A capture source SHA:** `1499b5cc44d5d4cba2cc676770024c257f51812f`
 **T5B capture source SHA:** `b50bf4fc623440713fd7980baf0452b4836022d7`
-**T5C closeout:** (docs-only — see PR #77 for current exact head and CI)
+**T5C approved head:** `e19b937c017d880ae65a630bd8515e0961c65219`
+**T5 merge commit:** `41f893a9cd90dc7c62b5047c6946a3de5b6a40d1`
+**Resulting-main CI:** `30470763526` — SUCCESS
 
 ## Safety
 
@@ -59,7 +61,7 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 |-----------|-----------|-------------|--------|---------|
 | T5A — State-dialect cleanup | `1499b5c` | `2432358` | `30439243680` | PASS |
 | T5B — Responsive regression | (CSS fixes) | `b50bf4f` | `30465980117` | PASS (2 found, 2 fixed, 0 open) |
-| T5C — Evidence & plan closeout | (docs only) | (see PR #77) | (see PR #77) | IMPLEMENTATION COMPLETE |
+| T5C — Evidence & plan closeout | `e19b937` | (docs only) | `30470763526` (resulting main) | MERGED / PASS |
 
 ### Final Validation Matrix
 
@@ -83,8 +85,8 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 |------|--------|
 | T5A | APPROVED |
 | T5B | APPROVED |
-| T5C | IMPLEMENTATION COMPLETE |
-| PR #77 | OPEN / READY |
-| Merge | AWAITING EXTERNAL GPT-5.6 AUTHORIZATION |
-| Resulting-main CI | NOT AVAILABLE |
+| T5C | COMPLETE |
+| PR #77 | MERGED |
+| Merge | `41f893a9cd90dc7c62b5047c6946a3de5b6a40d1` |
+| Resulting-main CI | `30470763526` — SUCCESS |
 | Staging/production | NOT AUTHORIZED |

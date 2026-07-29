@@ -72,8 +72,8 @@ INTEGRATED INTO MAIN
 Phase U documentation merge:
 06a0d2a92d1776874ec5de13cf2d15e7c5e7460b
 
-U1 code and automated-test implementation:
-COMPLETE — Draft PR checkpoint
+U1:
+COMPLETE / INTEGRATED — PR #70
 
 U1 implementation commit:
 0d45d501a0ace8c54555efaccb431780a2818476
@@ -84,17 +84,14 @@ COMPLETE — Playwright MCP matrix plus Chrome DevTools MCP spot-check
 U1 persistent visual evidence:
 COMPLETE — `docs/ui/screenshots/phase-u-u1/`
 
-U1 visual acceptance:
-COMPLETE — Draft PR remains subject to separate Ready authorization
-
 U1 integration:
 COMPLETE — merged at 5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
 
-U2 server/domain implementation:
-COMPLETE — Draft PR #72 (clean branch feat/phase-u-calendar-planning-clean)
+U2:
+COMPLETE / INTEGRATED — PR #72
 
 U2 calendar visual correction:
-COMPLETE — monthly notice-calendar with ServoraCalendar adapter
+COMPLETE / INTEGRATED — PR #74
 
 U2 browser verification:
 COMPLETE — Playwright MCP matrix, Chrome DevTools spot-check
@@ -103,7 +100,7 @@ U2 persistent evidence:
 COMPLETE — 16 PNGs in docs/ui/screenshots/phase-u-u2/
 
 U2 integration:
-PENDING
+COMPLETE — merged at 8cbb8b5a7c65e391f1b007919db40e1b098bc2ae
 
 U2 merge baseline:
 5d5ee5dc15638b94ed3c3267971839b4c6fa36dd
@@ -118,13 +115,28 @@ PR #71:
 SUPERSEDED / CLOSED
 
 PR #72:
-OPEN / Draft — https://github.com/emrahozcelik/servora-med/pull/72
+MERGED — https://github.com/emrahozcelik/servora-med/pull/72
 
 U3:
-NOT STARTED
+COMPLETE / INTEGRATED — PR #76 merged at f43e48fcb9875082b605c357343916d4c8007c84
 
 T5:
-NOT STARTED
+COMPLETE / MERGED — PR #77
+
+T5 approved head:
+e19b937c017d880ae65a630bd8515e0961c65219
+
+T5 merge commit:
+41f893a9cd90dc7c62b5047c6946a3de5b6a40d1
+
+T5 resulting-main CI:
+30470763526 — SUCCESS
+
+Next product phase:
+PRODUCT DECISION REQUIRED
+
+No next implementation phase is automatically authorized.
+A bounded product decision and canonical plan are required.
 
 Staging/production:
 NOT AUTHORIZED
