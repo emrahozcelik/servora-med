@@ -16,7 +16,6 @@ export type OverviewRecentNote = Readonly<{
   id: string;
   jobCardId: string;
   jobTitle: string;
-  preview: string;
   authorName: string;
   createdAt: string;
 }>;

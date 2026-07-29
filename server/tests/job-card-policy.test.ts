@@ -105,10 +105,10 @@ describe('JobCard policy', () => {
       'VIEW_NOTES', 'ADD_NOTE',
     ]);
     expect(getAllowedJobActions(manager, { ...meeting, status: 'WAITING_APPROVAL' })).toEqual([
-      'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'VIEW_NOTES',
+      'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'VIEW_NOTES', 'ADD_NOTE',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' })).toEqual([
-      'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE',
+      'EDIT_JOB_FIELDS', 'VIEW_NOTES',
     ]);
     expect(getAllowedJobActions(staff, { ...meeting, status: 'ACCEPTED' })).toEqual([
       'EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE',
@@ -118,13 +118,31 @@ describe('JobCard policy', () => {
     ]);
   });
 
-  it('exposes assignment-stage notes for assigned Staff and conceals other Staff', () => {
+  it('exposes accepted-stage notes for assigned Staff and conceals other Staff', () => {
     const meeting = { ...job, type: 'SALES_MEETING' as const };
-    for (const status of ['NEW', 'ACCEPTED'] as const) {
-      expect(getAllowedJobActions(staff, { ...meeting, status }))
-        .toEqual(expect.arrayContaining(['VIEW_NOTES', 'ADD_NOTE']));
-      expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, { ...meeting, status }))
-        .toEqual([]);
+    expect(getAllowedJobActions(staff, { ...meeting, status: 'ACCEPTED' }))
+      .toEqual(expect.arrayContaining(['VIEW_NOTES', 'ADD_NOTE']));
+    expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' }))
+      .toEqual(expect.arrayContaining(['VIEW_NOTES']));
+    expect(getAllowedJobActions(staff, { ...meeting, status: 'NEW' }))
+      .not.toContain('ADD_NOTE');
+    expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, { ...meeting, status: 'ACCEPTED' }))
+      .toEqual([]);
+  });
+
+  it('uses actor and stage for standalone note mutation without job-type drift', () => {
+    for (const type of ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const) {
+      for (const status of JOB_CARD_STATUSES) {
+        const candidate = { ...job, type, status };
+        const staffCanAdd = ['ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED']
+          .includes(status);
+        expect(getAllowedJobActions(staff, candidate).includes('ADD_NOTE'))
+          .toBe(staffCanAdd);
+        expect(getAllowedJobActions(manager, candidate)).toContain('ADD_NOTE');
+        expect(getAllowedJobActions(admin, candidate)).toContain('ADD_NOTE');
+        expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, candidate))
+          .not.toContain('ADD_NOTE');
+      }
     }
   });
 

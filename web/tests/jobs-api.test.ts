@@ -35,7 +35,16 @@ const job = {
 };
 const note = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
-  author: related('s1', 'Ayşe Personel'), createdAt: '2026-07-13T10:00:00.000Z',
+  author: {
+    ...related('s1', 'Ayşe Personel'),
+    role: 'STAFF',
+    source: 'SNAPSHOT',
+  },
+  workflowStage: 'IN_PROGRESS',
+  context: 'GENERAL',
+  relatedActivityId: 'activity-1',
+  recordVersion: 1,
+  createdAt: '2026-07-13T10:00:00.000Z',
 };
 
 function json(body: unknown, status = 200) {
@@ -244,12 +253,18 @@ describe('JobCard workspace transport', () => {
     await expect(getJobCardBoard({ priority: 'urgent', limit: 10 })).resolves.toEqual(board);
   });
 
-  it('runtime-validates paginated notes and always parses the fixed 201 note response', async () => {
+  it('runtime-validates cursor-paged operational notes and the fixed 201 response', async () => {
+    const nextCursor = {
+      createdAt: '2026-07-13T10:00:00.000Z',
+      id: '00000000-0000-4000-8000-000000000001',
+    };
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(json({ items: [note], total: 1, limit: 25, offset: 0 }))
+      .mockResolvedValueOnce(json({ items: [note], limit: 25, nextCursor }))
       .mockResolvedValueOnce(json(note, 201));
     vi.stubGlobal('fetch', fetchMock);
-    await expect(listJobCardNotes('job-1')).resolves.toEqual({ items: [note], total: 1, limit: 25, offset: 0 });
+    await expect(listJobCardNotes('job-1')).resolves.toEqual({
+      items: [note], limit: 25, nextCursor,
+    });
     const input = { clientActionId: 'note-action', note: 'Klinik arandı' };
     await expect(addJobCardNote('job-1', input)).resolves.toEqual(note);
     expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/job-cards/job-1/notes', expect.objectContaining({

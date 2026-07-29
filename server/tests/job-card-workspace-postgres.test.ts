@@ -35,6 +35,8 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         '015_job_card_engagement_kind.sql',
         '016_google_reverse_geocoding.sql',
         '017_calendar.sql',
+        '018_messaging.sql',
+        '019_job_card_operational_note_context.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await pool.query(await readFile(path, 'utf8'));
@@ -160,7 +162,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         clientActionId: 'approve-general-task', expectedVersion: generalTask.version,
       });
       expect(generalTask).toMatchObject({ status: 'COMPLETED', version: 7 });
-      const generalTaskNote = await service.addNote(staff, generalTask.id, {
+      const generalTaskNote = await service.addNote(manager, generalTask.id, {
         clientActionId: 'note-general-task', note: 'Klinik dönüşü alındı.',
       });
       expect(generalTaskNote.note).toBe('Klinik dönüşü alındı.');
@@ -323,10 +325,10 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
 
       const completedVersion = completed.version;
       const [noteOne, noteTwo] = await Promise.all([
-        service.addNote(staff, completedJobId, { clientActionId: 'note-one', note: 'Birinci not' }),
-        service.addNote(staff, completedJobId, { clientActionId: 'note-two', note: 'İkinci not' }),
+        service.addNote(manager, completedJobId, { clientActionId: 'note-one', note: 'Birinci not' }),
+        service.addNote(manager, completedJobId, { clientActionId: 'note-two', note: 'İkinci not' }),
       ]);
-      await expect(service.addNote(staff, completedJobId, { clientActionId: 'note-one', note: 'Birinci not' })).resolves.toEqual(noteOne);
+      await expect(service.addNote(manager, completedJobId, { clientActionId: 'note-one', note: 'Birinci not' })).resolves.toEqual(noteOne);
       expect(noteTwo.id).not.toBe(noteOne.id);
       expect((await service.detail(staff, completedJobId)).version).toBe(completedVersion);
       await expect(service.patch(staff, completedJobId, { expectedVersion: completedVersion, title: 'Değişmemeli' }))

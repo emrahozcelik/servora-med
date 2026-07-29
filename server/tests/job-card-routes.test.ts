@@ -43,7 +43,7 @@ function serviceDouble() {
     resume: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
     listActivity: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
-    listNotes: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 25, offset: 0 }),
+    listNotes: vi.fn().mockResolvedValue({ items: [], limit: 25, nextCursor: null }),
     addNote: vi.fn().mockResolvedValue({
       id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
       author: { id: 'staff-1', name: 'Staff' }, createdAt: '2026-07-13T12:00:00.000Z',
@@ -368,19 +368,36 @@ describe('JobCard routes', () => {
     expect(service.listActivity).not.toHaveBeenCalled();
   });
 
-  it('lists notes with the default and explicit canonical page', async () => {
+  it('lists notes with the default and compound older cursor page', async () => {
     const { app, service } = await createApp();
     const first = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/notes' });
     expect(first.statusCode).toBe(200);
-    expect(first.json()).toEqual({ items: [], total: 0, limit: 25, offset: 0 });
-    expect(service.listNotes).toHaveBeenNthCalledWith(1, expect.anything(), 'job-1', { limit: 25, offset: 0 });
+    expect(first.json()).toEqual({ items: [], limit: 25, nextCursor: null });
+    expect(service.listNotes).toHaveBeenNthCalledWith(1, expect.anything(), 'job-1', {
+      limit: 25, before: null,
+    });
 
-    const page = { items: [{ id: 'note-2' }, { id: 'note-1' }], total: 4, limit: 2, offset: 1 };
+    const beforeCreatedAt = '2026-07-29T12:00:00.000Z';
+    const beforeId = '00000000-0000-4000-8000-000000000002';
+    const page = {
+      items: [{ id: 'note-1' }],
+      limit: 2,
+      nextCursor: {
+        createdAt: '2026-07-29T11:00:00.000Z',
+        id: '00000000-0000-4000-8000-000000000001',
+      },
+    };
     service.listNotes.mockResolvedValueOnce(page);
-    const second = await app.inject({ method: 'GET', url: '/api/job-cards/job-1/notes?limit=2&offset=1' });
+    const second = await app.inject({
+      method: 'GET',
+      url: `/api/job-cards/job-1/notes?limit=2&beforeCreatedAt=${encodeURIComponent(beforeCreatedAt)}&beforeId=${beforeId}`,
+    });
     expect(second.statusCode).toBe(200);
     expect(second.json()).toEqual(page);
-    expect(service.listNotes).toHaveBeenNthCalledWith(2, expect.anything(), 'job-1', { limit: 2, offset: 1 });
+    expect(service.listNotes).toHaveBeenNthCalledWith(2, expect.anything(), 'job-1', {
+      limit: 2,
+      before: { createdAt: beforeCreatedAt, id: beforeId },
+    });
   });
 
   it.each([
@@ -388,8 +405,11 @@ describe('JobCard routes', () => {
     '/api/job-cards/job-1/notes?limit=1&limit=2',
     '/api/job-cards/job-1/notes?limit=0',
     '/api/job-cards/job-1/notes?limit=101',
-    '/api/job-cards/job-1/notes?offset=-1',
-    '/api/job-cards/job-1/notes?offset=1.5',
+    '/api/job-cards/job-1/notes?offset=0',
+    '/api/job-cards/job-1/notes?beforeCreatedAt=2026-07-29T12%3A00%3A00.000Z',
+    '/api/job-cards/job-1/notes?beforeId=00000000-0000-4000-8000-000000000001',
+    '/api/job-cards/job-1/notes?beforeCreatedAt=not-a-date&beforeId=00000000-0000-4000-8000-000000000001',
+    '/api/job-cards/job-1/notes?beforeCreatedAt=2026-07-29T12%3A00%3A00.000Z&beforeId=not-a-uuid',
   ])('rejects invalid notes query %s', async (url) => {
     const { app, service } = await createApp();
     const response = await app.inject({ method: 'GET', url });

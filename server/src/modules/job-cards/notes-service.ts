@@ -1,6 +1,8 @@
+import { randomUUID } from 'node:crypto';
+
 import { AppError } from '../../errors/index.js';
 import { assertCanAccessNotes, assertCanAddNote } from './policy.js';
-import type { JobCardRepository, PageQuery } from './repository.js';
+import type { JobCardRepository, NotePageQuery } from './repository.js';
 import type { JobCard, JobCardActor } from './types.js';
 import { boundedTrimmedString, requireActionId } from './validation.js';
 
@@ -9,7 +11,7 @@ export type CreateNoteInput = { clientActionId: string; note: string };
 export class JobCardNotesService {
   constructor(private readonly repository: JobCardRepository) {}
 
-  async listNotes(actor: JobCardActor, jobCardId: string, page: PageQuery) {
+  async listNotes(actor: JobCardActor, jobCardId: string, page: NotePageQuery) {
     const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
     this.assertVisible(actor, job);
     return this.repository.listNotes(actor.organizationId, jobCardId, page);
@@ -27,12 +29,29 @@ export class JobCardNotesService {
         const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
         this.assertVisible(actor, job);
         assertCanAddNote(actor, job);
-        const created = await transaction.createNote({
-          organizationId: actor.organizationId, jobCardId, authorId: actor.id, note,
-        });
-        await transaction.appendActivity({
+        const author = await transaction.getNoteAuthorSnapshot(
+          actor.organizationId,
+          actor.id,
+        );
+        if (!author?.isActive) {
+          throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+        }
+        const noteId = randomUUID();
+        const activity = await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId, actorId: actor.id,
-          event: 'NOTE_ADDED', clientActionId, metadata: { noteId: created.id },
+          event: 'NOTE_ADDED', clientActionId, metadata: { noteId },
+        });
+        const created = await transaction.createNote({
+          id: noteId,
+          organizationId: actor.organizationId,
+          jobCardId,
+          authorId: actor.id,
+          authorNameSnapshot: author.name,
+          authorRoleSnapshot: author.role,
+          workflowStage: job.status,
+          context: 'GENERAL',
+          relatedActivityId: activity.id,
+          note,
         });
         return { response: created, realtimeEvents: [] };
       },

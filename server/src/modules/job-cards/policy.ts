@@ -56,8 +56,17 @@ export function getAllowedJobActions(
   const actions: JobWorkflowAction[] = [];
   const terminal = job.status === 'COMPLETED' || job.status === 'CANCELLED';
   if (!terminal && job.status !== 'WAITING_APPROVAL') actions.push('EDIT_JOB_FIELDS');
+  const addNoteActions = () => {
+    actions.push('VIEW_NOTES');
+    if (
+      actor.role !== 'STAFF'
+      || ['ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)
+    ) {
+      actions.push('ADD_NOTE');
+    }
+  };
   if (job.type !== 'SALES_MEETING') {
-    actions.push('VIEW_NOTES', 'ADD_NOTE');
+    addNoteActions();
     if (
       job.type === 'PRODUCT_DELIVERY'
       && !terminal
@@ -77,10 +86,7 @@ export function getAllowedJobActions(
   if (['IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) {
     actions.push('EDIT_MEETING_RESULT');
   }
-  actions.push('VIEW_NOTES');
-  if (['NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)) {
-    actions.push('ADD_NOTE');
-  }
+  addNoteActions();
   return actions;
 }
 

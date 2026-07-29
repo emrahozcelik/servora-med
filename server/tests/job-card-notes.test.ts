@@ -10,7 +10,7 @@ import type {
   CriticalActionClaim,
   JobCardRepository,
   JobCardTransaction,
-  PageQuery,
+  NotePageQuery,
 } from '../src/modules/job-cards/repository.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
@@ -20,13 +20,16 @@ const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STA
 const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
 const admin: JobCardActor = { id: 'admin-1', organizationId: 'org-1', role: 'ADMIN' };
 const baseJob: JobCard = {
-  id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 7,
+  id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'ACCEPTED', version: 7,
   title: 'Teslim', description: null, customerId: 'customer-1', contactId: null,
   assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
 };
 
 type CreateNoteRecord = {
-  organizationId: string; jobCardId: string; authorId: string; note: string;
+  id: string; organizationId: string; jobCardId: string; authorId: string;
+  authorNameSnapshot: string; authorRoleSnapshot: JobCardActor['role'];
+  workflowStage: JobCardStatus; context: 'GENERAL'; relatedActivityId: string;
+  note: string;
 };
 
 class NotesRepository {
@@ -39,7 +42,7 @@ class NotesRepository {
   completed = new Map<string, unknown>();
   processing = new Set<string>();
   claims: CriticalActionClaim[] = [];
-  listCalls: Array<{ organizationId: string; jobCardId: string; page: PageQuery }> = [];
+  listCalls: Array<{ organizationId: string; jobCardId: string; page: NotePageQuery }> = [];
   failActivity = false;
 
   private tx(): JobCardTransaction {
@@ -48,10 +51,24 @@ class NotesRepository {
         const job = this.jobs.get(jobCardId);
         return job?.organizationId === organizationId ? { ...job } : null;
       },
+      getNoteAuthorSnapshot: async (organizationId, authorId) => (
+        organizationId === 'org-1' && authorId === 'staff-1'
+          ? { id: authorId, name: 'Ayşe Personel', role: 'STAFF', isActive: true }
+          : null
+      ),
       createNote: async (input: CreateNoteRecord) => {
         const note = {
-          id: `note-${this.notes.length + 1}`, jobCardId: input.jobCardId, note: input.note,
-          author: { id: input.authorId, name: input.authorId === 'staff-1' ? 'Ayşe Personel' : 'Yönetici' },
+          id: input.id, jobCardId: input.jobCardId, note: input.note,
+          author: {
+            id: input.authorId,
+            name: input.authorNameSnapshot,
+            role: input.authorRoleSnapshot,
+            source: 'SNAPSHOT' as const,
+          },
+          workflowStage: input.workflowStage,
+          context: input.context,
+          relatedActivityId: input.relatedActivityId,
+          recordVersion: 1 as const,
           createdAt: new Date(1_720_000_000_000 + this.notes.length).toISOString(),
         };
         this.notes.push(note);
@@ -90,13 +107,22 @@ class NotesRepository {
     return job?.organizationId === organizationId ? { ...job } : null;
   }
 
-  async listNotes(organizationId: string, jobCardId: string, page: PageQuery) {
+  async listNotes(organizationId: string, jobCardId: string, page: NotePageQuery) {
     this.listCalls.push({ organizationId, jobCardId, page });
-    const items = this.notes.filter((note) => note.jobCardId === jobCardId).reverse()
-      .slice(page.offset, page.offset + page.limit);
+    const candidates = this.notes.filter((note) => note.jobCardId === jobCardId)
+      .filter((note) => !page.before
+        || note.createdAt < page.before.createdAt
+        || (note.createdAt === page.before.createdAt && note.id < page.before.id))
+      .toReversed();
+    const hasMore = candidates.length > page.limit;
+    const selected = candidates.slice(0, page.limit);
+    const oldest = selected.at(-1);
     return {
-      items, total: this.notes.filter((note) => note.jobCardId === jobCardId).length,
-      limit: page.limit, offset: page.offset,
+      items: selected.toReversed(),
+      limit: page.limit,
+      nextCursor: hasMore && oldest
+        ? { createdAt: oldest.createdAt, id: oldest.id }
+        : null,
     };
   }
 }
@@ -136,8 +162,8 @@ describe('append-only JobCard notes service', () => {
       const repository = new NotesRepository();
       repository.jobs.set('job-1', { ...baseJob, type: 'SALES_MEETING', status });
       await expect(new JobCardService(repository as never).listNotes(staff, 'job-1', {
-        limit: 25, offset: 0,
-      })).resolves.toMatchObject({ items: [], total: 0, limit: 25, offset: 0 });
+        limit: 25, before: null,
+      })).resolves.toMatchObject({ items: [], limit: 25, nextCursor: null });
     },
   );
 
@@ -157,7 +183,7 @@ describe('append-only JobCard notes service', () => {
     },
   );
 
-  it.each(['NEW', 'ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
+  it.each(['ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'] as const)(
     'allows Sales Meeting note creation in %s',
     async (status) => {
       const repository = new NotesRepository();
@@ -201,18 +227,20 @@ describe('append-only JobCard notes service', () => {
     expect(repository.claims).toHaveLength(1);
   });
 
-  it('adds one note and NOTE_ADDED metadata atomically without version bump or note text', async () => {
+  it('adds one version 1 note with frozen author, stage, context, and activity relation', async () => {
     const repository = new NotesRepository(); const service = new JobCardService(repository as never);
     const result = await service.addNote(staff, 'job-1', { clientActionId: 'add-1', note: ' Klinik arandı ' });
 
     expect(result).toEqual({
-      id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
-      author: { id: 'staff-1', name: 'Ayşe Personel' },
+      id: expect.any(String), jobCardId: 'job-1', note: 'Klinik arandı',
+      author: { id: 'staff-1', name: 'Ayşe Personel', role: 'STAFF', source: 'SNAPSHOT' },
+      workflowStage: 'ACCEPTED', context: 'GENERAL',
+      relatedActivityId: 'activity-1', recordVersion: 1,
       createdAt: new Date(1_720_000_000_000).toISOString(),
     });
     expect(repository.jobs.get('job-1')!.version).toBe(7);
     expect(repository.activities).toEqual([expect.objectContaining({
-      event: 'NOTE_ADDED', metadata: { noteId: 'note-1' },
+      event: 'NOTE_ADDED', metadata: { noteId: result.id },
     })]);
     expect(JSON.stringify(repository.activities)).not.toContain('Klinik arandı');
     expect(repository.claims[0]!.operationKey).toBe('JOB_NOTE_ADD:job-1');
@@ -224,7 +252,7 @@ describe('append-only JobCard notes service', () => {
     const first = await service.addNote(staff, 'job-1', input);
     await expect(service.addNote(staff, 'job-1', input)).resolves.toEqual(first);
     const second = await service.addNote(staff, 'job-2', input);
-    expect(second).toMatchObject({ id: 'note-2', jobCardId: 'job-2' });
+    expect(second).toMatchObject({ id: expect.any(String), jobCardId: 'job-2' });
     await expect(service.addNote(staff, 'job-2', input)).resolves.toEqual(second);
     expect(repository.notes).toHaveLength(2); expect(repository.activities).toHaveLength(2);
   });
@@ -251,17 +279,20 @@ describe('append-only JobCard notes service', () => {
     expect(repository.completed.size).toBe(0);
   });
 
-  it('enforces hidden Staff visibility for read/append and pages newest-first', async () => {
+  it('enforces hidden Staff visibility for read/append and returns the latest page ascending', async () => {
     const repository = new NotesRepository(); const service = new JobCardService(repository as never);
     await service.addNote(staff, 'job-1', { clientActionId: 'n1', note: 'Bir' });
     await service.addNote(staff, 'job-1', { clientActionId: 'n2', note: 'İki' });
-    await expect(service.listNotes(staff, 'job-1', { limit: 1, offset: 0 })).resolves.toMatchObject({
-      items: [{ note: 'İki' }], total: 2, limit: 1, offset: 0,
+    await expect(service.listNotes(staff, 'job-1', { limit: 1, before: null })).resolves.toMatchObject({
+      items: [{ note: 'İki' }], limit: 1,
+      nextCursor: { createdAt: expect.any(String), id: expect.any(String) },
     });
     expect(repository.listCalls[0]).toEqual({
-      organizationId: 'org-1', jobCardId: 'job-1', page: { limit: 1, offset: 0 },
+      organizationId: 'org-1', jobCardId: 'job-1', page: { limit: 1, before: null },
     });
-    await expect(service.listNotes({ ...staff, id: 'staff-2' }, 'job-1', { limit: 25, offset: 0 }))
+    await expect(service.listNotes({ ...staff, id: 'staff-2' }, 'job-1', {
+      limit: 25, before: null,
+    }))
       .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
     await expect(service.addNote({ ...staff, id: 'staff-2' }, 'job-1', {
       clientActionId: 'hidden', note: 'Not',
@@ -276,30 +307,68 @@ describe('append-only JobCard notes service', () => {
 });
 
 describe('Postgres JobCard note reads', () => {
-  it('returns a deterministic organization-scoped canonical page with author names', async () => {
+  it('returns the latest page ascending with a stable compound older cursor', async () => {
     const calls: Array<{ sql: string; values: unknown[] }> = [];
     const pool = { query: async (sql: string, values: unknown[] = []) => {
       calls.push({ sql, values });
-      if (sql.includes('COUNT(*)')) return { rows: [{ total: 4 }] };
-      return { rows: [{
-        id: 'note-1', job_card_id: 'job-1', note: 'Not', author_id: 'staff-1',
-        author_name: 'Ayşe Personel', created_at: new Date('2026-07-13T12:00:00Z'),
-      }] };
+      return { rows: [
+        {
+          id: '00000000-0000-4000-8000-000000000003',
+          job_card_id: 'job-1',
+          note: 'En yeni',
+          author_id: 'staff-1',
+          author_name: 'Ayşe Personel',
+          author_name_snapshot: 'Ayşe Personel',
+          author_role_snapshot: 'STAFF',
+          workflow_stage: 'IN_PROGRESS',
+          context: 'GENERAL',
+          related_activity_id: 'activity-3',
+          record_version: 1,
+          created_at: new Date('2026-07-13T12:02:00Z'),
+        },
+        {
+          id: '00000000-0000-4000-8000-000000000002',
+          job_card_id: 'job-1',
+          note: 'Orta',
+          author_id: 'staff-1',
+          author_name: 'Ayşe Personel',
+          author_name_snapshot: 'Ayşe Personel',
+          author_role_snapshot: 'STAFF',
+          workflow_stage: 'IN_PROGRESS',
+          context: 'GENERAL',
+          related_activity_id: 'activity-2',
+          record_version: 1,
+          created_at: new Date('2026-07-13T12:01:00Z'),
+        },
+        {
+          id: '00000000-0000-4000-8000-000000000001',
+          job_card_id: 'job-1',
+          note: 'Daha eski cursor satırı',
+          author_id: 'staff-1',
+          author_name: 'Ayşe Personel',
+          author_name_snapshot: null,
+          author_role_snapshot: null,
+          workflow_stage: null,
+          context: null,
+          related_activity_id: null,
+          record_version: 0,
+          created_at: new Date('2026-07-13T12:00:00Z'),
+        },
+      ] };
     } };
     const result = await new PostgresJobCardRepository(pool as never)
-      .listNotes('org-1', 'job-1', { limit: 2, offset: 1 });
+      .listNotes('org-1', 'job-1', { limit: 2, before: null } as never);
 
-    expect(result).toEqual({
-      items: [{ id: 'note-1', jobCardId: 'job-1', note: 'Not',
-        author: { id: 'staff-1', name: 'Ayşe Personel' }, createdAt: '2026-07-13T12:00:00.000Z' }],
-      total: 4, limit: 2, offset: 1,
+    expect(result.items.map((note) => note.note)).toEqual(['Orta', 'En yeni']);
+    expect(result.nextCursor).toEqual({
+      createdAt: '2026-07-13T12:01:00.000Z',
+      id: '00000000-0000-4000-8000-000000000002',
     });
-    expect(calls[0]!.sql).toContain('organization_id=$1 AND job_card_id=$2');
-    expect(calls[1]!.sql).toContain('JOIN users u');
-    expect(calls[1]!.sql).toContain('u.organization_id = n.organization_id AND u.id = n.author_id');
-    expect(calls[1]!.sql).toContain('ORDER BY n.created_at DESC, n.id DESC');
-    expect(calls[1]!.sql).toContain('LIMIT $3 OFFSET $4');
-    expect(calls[1]!.values).toEqual(['org-1', 'job-1', 2, 1]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0]!.sql).toContain('u.organization_id = n.organization_id AND u.id = n.author_id');
+    expect(calls[0]!.sql).toContain('ORDER BY n.created_at DESC, n.id DESC');
+    expect(calls[0]!.sql).not.toContain('OFFSET');
+    expect(calls[0]!.values).toEqual(['org-1', 'job-1', 3]);
   });
 });
 
@@ -325,6 +394,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
         '015_job_card_engagement_kind.sql',
         '016_google_reverse_geocoding.sql',
         '017_calendar.sql',
+        '018_messaging.sql',
+        '019_job_card_operational_note_context.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await scopedPool.query(await readFile(path, 'utf8'));
@@ -340,8 +411,12 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
       );
       const userId = user.rows[0]!.id;
       const job = await scopedPool.query<{ id: string }>(
-        `INSERT INTO job_cards (organization_id, type, title, assigned_to, created_by)
-         VALUES ($1, 'PRODUCT_DELIVERY', 'Teslim', $2, $2) RETURNING id`,
+        `INSERT INTO job_cards (
+           organization_id, type, status, title, assigned_to, created_by,
+           accepted_at, accepted_by
+         )
+         VALUES ($1, 'PRODUCT_DELIVERY', 'ACCEPTED', 'Teslim', $2, $2, NOW(), $2)
+         RETURNING id`,
         [organizationId, userId],
       );
       const jobCardId = job.rows[0]!.id;
@@ -370,6 +445,31 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
            (SELECT COUNT(*)::int FROM processed_actions) AS actions`,
       )).resolves.toMatchObject({ rows: [{ notes: 0, activities: 0, actions: 0 }] });
 
+      const noteFailingPool = {
+        connect: async () => {
+          const client = await databasePool.connect();
+          return {
+            query: async (sql: string, values?: unknown[]) => {
+              if (sql.includes('INSERT INTO job_card_notes')) throw new Error('note failed');
+              return client.query(sql, values);
+            },
+            release: () => client.release(),
+          };
+        },
+      };
+      const noteFailingService = new JobCardService(
+        new PostgresJobCardRepository(noteFailingPool as never),
+      );
+      await expect(noteFailingService.addNote(actor, jobCardId, {
+        clientActionId: 'note-rollback', note: 'Activity geri alınmalı',
+      })).rejects.toThrow('note failed');
+      await expect(databasePool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM job_card_notes) AS notes,
+           (SELECT COUNT(*)::int FROM job_card_activity_logs) AS activities,
+           (SELECT COUNT(*)::int FROM processed_actions) AS actions`,
+      )).resolves.toMatchObject({ rows: [{ notes: 0, activities: 0, actions: 0 }] });
+
       const service = new JobCardService(new PostgresJobCardRepository(databasePool));
       const input = { clientActionId: 'replay', note: 'Tek kez kaydedilir' };
       const first = await service.addNote(actor, jobCardId, input);
@@ -389,6 +489,70 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
         notes: 1, activities: 1, actions: 1, version: 1, metadata: { noteId: first.id },
       });
       expect(JSON.stringify(persisted.rows[0]!.metadata)).not.toContain(input.note);
+
+      const sameTimestamp = '2025-01-01T12:00:00.000Z';
+      const seededIds = [
+        '00000000-0000-4000-8000-000000000001',
+        '00000000-0000-4000-8000-000000000002',
+        '00000000-0000-4000-8000-000000000003',
+      ];
+      for (const [index, noteId] of seededIds.entries()) {
+        const activity = await databasePool.query<{ id: string }>(
+          `INSERT INTO job_card_activity_logs (
+             organization_id, job_card_id, actor_id, event_type, metadata, created_at
+           ) VALUES ($1, $2, $3, 'NOTE_ADDED', $4, $5) RETURNING id`,
+          [organizationId, jobCardId, userId, { noteId }, sameTimestamp],
+        );
+        await databasePool.query(
+          `INSERT INTO job_card_notes (
+             id, organization_id, job_card_id, author_id, note,
+             author_name_snapshot, author_role_snapshot, workflow_stage,
+             context, related_activity_id, record_version, created_at
+           ) VALUES (
+             $1, $2, $3, $4, $5,
+             'Ayşe Personel', 'STAFF', 'ACCEPTED',
+             'GENERAL', $6, 1, $7
+           )`,
+          [
+            noteId,
+            organizationId,
+            jobCardId,
+            userId,
+            `Seed ${index + 1}`,
+            activity.rows[0]!.id,
+            sameTimestamp,
+          ],
+        );
+      }
+
+      const repository = new PostgresJobCardRepository(databasePool);
+      const initialPage = await repository.listNotes(
+        organizationId,
+        jobCardId,
+        { limit: 2, before: null },
+      );
+      expect(initialPage.items.map((note) => note.id)).toEqual([
+        seededIds[2],
+        first.id,
+      ]);
+      expect(initialPage.nextCursor).toEqual({
+        createdAt: sameTimestamp,
+        id: seededIds[2],
+      });
+
+      await service.addNote(actor, jobCardId, {
+        clientActionId: 'concurrent-new', note: 'Concurrent live-tail note',
+      });
+      const olderPage = await repository.listNotes(
+        organizationId,
+        jobCardId,
+        { limit: 2, before: initialPage.nextCursor },
+      );
+      expect(olderPage.items.map((note) => note.id)).toEqual(seededIds.slice(0, 2));
+      expect(new Set([
+        ...initialPage.items.map((note) => note.id),
+        ...olderPage.items.map((note) => note.id),
+      ]).size).toBe(4);
     } finally {
       await scopedPool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
