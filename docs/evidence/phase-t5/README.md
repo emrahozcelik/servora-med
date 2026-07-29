@@ -2,6 +2,7 @@
 
 **T5A capture source SHA:** `1499b5cc44d5d4cba2cc676770024c257f51812f`
 **T5B capture source SHA:** `2432358eef3b1db19e9248d31c6cfcb6fafcc56e`
+**T5C closeout SHA:** (pending commit — see PR #77 head)
 
 ## Safety
 
@@ -48,3 +49,41 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 - Console errors: 0 (excluding benign favicon 404)
 - Responsive smoke test PASS (all combinations)
 - Visual-verifier verdict: PASS
+
+## T5C — Closeout
+
+### Implementation Summary
+
+| Checkpoint | Source SHA | Evidence SHA | CI Run | Verdict |
+|-----------|-----------|-------------|--------|---------|
+| T5A — State-dialect cleanup | `1499b5c` | `2432358` | `30439243680` | PASS |
+| T5B — Responsive regression | (no source change) | `276bfac` | `30445082087` | PASS |
+| T5C — Evidence & plan closeout | (docs only) | pending | pending | PENDING |
+
+### Final Validation Matrix
+
+| Check | Result |
+|-------|--------|
+| `rg 'workspace-message' web/src` | EMPTY |
+| Web tests | 96 files / 1127 tests PASS |
+| Web build | PASS |
+| Bundle check | PASS (55 chunks ≤ 500KB) |
+| Smoke responsive | PASS (all viewport/scale combinations) |
+| Visual-verifier (T5A) | PASS (3 state scenarios) |
+| Visual-verifier (T5B) | PASS (5 responsive scenarios) |
+| Independent-reviewer (T5A) | PASS (4 rounds) |
+| Independent-reviewer (T5B) | PASS |
+| T5B regression count | 0 |
+| Server code changes | 0 |
+
+### Gates
+
+| Gate | Status |
+|------|--------|
+| T5A | APPROVED |
+| T5B | APPROVED |
+| T5C | IMPLEMENTATION COMPLETE |
+| PR #77 | OPEN / READY |
+| Merge | AWAITING EXTERNAL GPT-5.6 AUTHORIZATION |
+| Resulting-main CI | NOT AVAILABLE |
+| Staging/production | NOT AUTHORIZED |

@@ -417,9 +417,16 @@ T4C (product/people): implementation complete, PR pending
 
 ## T5 — States and visual regression (closeout)
 
-**Status:** NOT STARTED
+**Status:** IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
 
-Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot matrix; implementation-plan closeout note.
+**T5A** — Residual state-dialect cleanup: workspace-message → ResultState/EmptyState across 10 source files.
+**T5B** — Responsive regression matrix audit: 390–1440, 200% text, 400% reflow. Zero regressions found.
+**T5C** — Evidence index and plan closeout.
+
+PR: [#77](https://github.com/emrahozcelik/servora-med/pull/77) — OPEN / READY
+
+Source: `1499b5c` | Evidence: `2432358`, `276bfac`
+CI: `30445082087` — server/web SUCCESS
 
 ---
 
@@ -449,7 +456,7 @@ Loading/empty/error/success; 390–1440; 200% text / 400% reflow; screenshot mat
 | T4B | CRM customer and contact surfaces | COMPLETE — integrated into main |
 | T4C | Product, staff/user and T4 implementation closeout | IMPLEMENTATION COMPLETE — Draft PR pending |
 | T4 | CRM / product / people / forms | IMPLEMENTATION COMPLETE / INTEGRATION PENDING |
-| T5 | States + regression closeout | NOT STARTED |
+| T5 | States + regression closeout | IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE |
 
 ---
 

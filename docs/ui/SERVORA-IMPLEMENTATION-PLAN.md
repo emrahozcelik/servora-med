@@ -13,11 +13,11 @@ Ant evaluation/spike: NOT NEEDED
 
 Phase T — Visual Consistency and Screen Polish
 T0 audit/docs/baseline: COMPLETE
-T1 token and shared language: NOT STARTED
-T2 AppShell and navigation polish: NOT STARTED
-T3 Jobs and JobDetail polish: NOT STARTED
-T4 CRM/product/staff/forms polish: NOT STARTED
-T5 states and visual regression: NOT STARTED
+T1 token and shared language: COMPLETE
+T2 AppShell and navigation polish: COMPLETE
+T3 Jobs and JobDetail polish: COMPLETE
+T4 CRM/product/staff/forms polish: IMPLEMENTATION COMPLETE / INTEGRATED
+T5 states and visual regression: IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
 
 P0 defect track:
 RecordDescriptions container reflow: OPEN
