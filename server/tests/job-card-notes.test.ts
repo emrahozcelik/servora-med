@@ -1,9 +1,11 @@
 import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
+import Fastify, { type FastifyReply, type FastifyRequest } from 'fastify';
 import { Pool } from 'pg';
 import { describe, expect, it, vi } from 'vitest';
 
+import { toErrorResponse } from '../src/errors/index.js';
 import { assertCanAccessNotes } from '../src/modules/job-cards/policy.js';
 import type {
   ActivityInput,
@@ -13,6 +15,7 @@ import type {
   NotePageQuery,
 } from '../src/modules/job-cards/repository.js';
 import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.js';
+import { jobCardRoutes } from '../src/modules/job-cards/routes.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import type { JobCard, JobCardActor, JobCardNoteDto, JobCardStatus } from '../src/modules/job-cards/types.js';
 
@@ -325,6 +328,7 @@ describe('Postgres JobCard note reads', () => {
           related_activity_id: 'activity-3',
           record_version: 1,
           created_at: new Date('2026-07-13T12:02:00Z'),
+          cursor_created_at: '2026-07-13T12:02:00.123900Z',
         },
         {
           id: '00000000-0000-4000-8000-000000000002',
@@ -338,7 +342,8 @@ describe('Postgres JobCard note reads', () => {
           context: 'GENERAL',
           related_activity_id: 'activity-2',
           record_version: 1,
-          created_at: new Date('2026-07-13T12:01:00Z'),
+          created_at: new Date('2026-07-13T12:01:00.123Z'),
+          cursor_created_at: '2026-07-13T12:01:00.123900Z',
         },
         {
           id: '00000000-0000-4000-8000-000000000001',
@@ -353,6 +358,7 @@ describe('Postgres JobCard note reads', () => {
           related_activity_id: null,
           record_version: 0,
           created_at: new Date('2026-07-13T12:00:00Z'),
+          cursor_created_at: '2026-07-13T12:00:00.123100Z',
         },
       ] };
     } };
@@ -361,12 +367,13 @@ describe('Postgres JobCard note reads', () => {
 
     expect(result.items.map((note) => note.note)).toEqual(['Orta', 'En yeni']);
     expect(result.nextCursor).toEqual({
-      createdAt: '2026-07-13T12:01:00.000Z',
+      createdAt: '2026-07-13T12:01:00.123900Z',
       id: '00000000-0000-4000-8000-000000000002',
     });
     expect(calls).toHaveLength(1);
     expect(calls[0]!.sql).toContain('u.organization_id = n.organization_id AND u.id = n.author_id');
     expect(calls[0]!.sql).toContain('ORDER BY n.created_at DESC, n.id DESC');
+    expect(calls[0]!.sql).toContain('AS cursor_created_at');
     expect(calls[0]!.sql).not.toContain('OFFSET');
     expect(calls[0]!.values).toEqual(['org-1', 'job-1', 3]);
   });
@@ -536,7 +543,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
         first.id,
       ]);
       expect(initialPage.nextCursor).toEqual({
-        createdAt: sameTimestamp,
+        createdAt: '2025-01-01T12:00:00.000000Z',
         id: seededIds[2],
       });
 
@@ -553,6 +560,149 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
         ...initialPage.items.map((note) => note.id),
         ...olderPage.items.map((note) => note.id),
       ]).size).toBe(4);
+
+      const cursorJob = await databasePool.query<{ id: string }>(
+        `INSERT INTO job_cards (
+           organization_id, type, status, title, assigned_to, created_by,
+           accepted_at, accepted_by
+         )
+         VALUES ($1, 'GENERAL_TASK', 'ACCEPTED', 'Cursor integrity', $2, $2, NOW(), $2)
+         RETURNING id`,
+        [organizationId, userId],
+      );
+      const cursorJobCardId = cursorJob.rows[0]!.id;
+      const cursorIds = [
+        '00000000-0000-4000-8000-000000000101',
+        '00000000-0000-4000-8000-000000000102',
+        '00000000-0000-4000-8000-000000000103',
+      ];
+      const cursorTimestamps = [
+        '2026-07-29T12:00:00.123100Z',
+        '2026-07-29T12:00:00.123500Z',
+        '2026-07-29T12:00:00.123900Z',
+      ];
+      const insertVersionOneNote = async (
+        noteId: string,
+        note: string,
+        createdAt: string,
+      ) => {
+        const activity = await databasePool.query<{ id: string }>(
+          `INSERT INTO job_card_activity_logs (
+             organization_id, job_card_id, actor_id, event_type, metadata, created_at
+           ) VALUES ($1, $2, $3, 'NOTE_ADDED', $4, $5) RETURNING id`,
+          [organizationId, cursorJobCardId, userId, { noteId }, createdAt],
+        );
+        await databasePool.query(
+          `INSERT INTO job_card_notes (
+             id, organization_id, job_card_id, author_id, note,
+             author_name_snapshot, author_role_snapshot, workflow_stage,
+             context, related_activity_id, record_version, created_at
+           ) VALUES (
+             $1, $2, $3, $4, $5,
+             'Ayşe Personel', 'STAFF', 'ACCEPTED',
+             'GENERAL', $6, 1, $7
+           )`,
+          [
+            noteId,
+            organizationId,
+            cursorJobCardId,
+            userId,
+            note,
+            activity.rows[0]!.id,
+            createdAt,
+          ],
+        );
+      };
+      for (const [index, noteId] of cursorIds.entries()) {
+        await insertVersionOneNote(noteId, `Microsecond ${index + 1}`, cursorTimestamps[index]!);
+      }
+
+      const cursorService = new JobCardService(
+        new PostgresJobCardRepository(databasePool),
+      );
+      const app = Fastify({ logger: false });
+      let authenticatedUserId = userId;
+      app.setErrorHandler((error, _request, reply) => {
+        const response = toErrorResponse(error);
+        reply.code(response.statusCode).send(response.body);
+      });
+      const authenticate = async (request: FastifyRequest, _reply: FastifyReply) => {
+        request.currentUser = {
+          id: authenticatedUserId,
+          organizationId,
+          role: 'STAFF',
+          name: 'Ayşe Personel',
+          email: 'ayse@test.local',
+          mustChangePassword: false,
+        };
+      };
+      await app.register(jobCardRoutes, {
+        prefix: '/api/job-cards',
+        service: cursorService,
+        authenticate,
+      });
+      try {
+        const chronological = await app.inject({
+          method: 'GET',
+          url: `/api/job-cards/${cursorJobCardId}/notes?limit=3`,
+        });
+        expect(chronological.statusCode).toBe(200);
+        expect(chronological.json().items.map((note: { id: string }) => note.id))
+          .toEqual(cursorIds);
+
+        const firstCursorPage = await app.inject({
+          method: 'GET',
+          url: `/api/job-cards/${cursorJobCardId}/notes?limit=1`,
+        });
+        expect(firstCursorPage.statusCode).toBe(200);
+        const firstCursorBody = firstCursorPage.json();
+        expect(firstCursorBody.items.map((note: { id: string }) => note.id))
+          .toEqual([cursorIds[2]]);
+        expect(firstCursorBody.nextCursor).toEqual({
+          createdAt: cursorTimestamps[2],
+          id: cursorIds[2],
+        });
+        expect(firstCursorBody.nextCursor.createdAt)
+          .toMatch(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/);
+
+        await insertVersionOneNote(
+          '00000000-0000-4000-8000-000000000104',
+          'Concurrent newer',
+          '2026-07-29T12:00:01.000100Z',
+        );
+
+        const traversedIds = [firstCursorBody.items[0].id];
+        let cursor = firstCursorBody.nextCursor;
+        while (cursor) {
+          const pageResponse = await app.inject({
+            method: 'GET',
+            url: `/api/job-cards/${cursorJobCardId}/notes?limit=1`
+              + `&beforeCreatedAt=${encodeURIComponent(cursor.createdAt)}`
+              + `&beforeId=${cursor.id}`,
+          });
+          expect(pageResponse.statusCode).toBe(200);
+          const body = pageResponse.json();
+          traversedIds.push(...body.items.map((note: { id: string }) => note.id));
+          cursor = body.nextCursor;
+        }
+        expect(traversedIds).toEqual(cursorIds.toReversed());
+        expect(new Set(traversedIds).size).toBe(cursorIds.length);
+
+        const unassignedStaff = await databasePool.query<{ id: string }>(
+          `INSERT INTO users (organization_id, name, email, password_hash, role)
+           VALUES ($1, 'Atanmamış Personel', $2, 'test-hash', 'STAFF') RETURNING id`,
+          [organizationId, `${randomUUID()}@test.local`],
+        );
+        authenticatedUserId = unassignedStaff.rows[0]!.id;
+        const unauthorized = await app.inject({
+          method: 'GET',
+          url: `/api/job-cards/${cursorJobCardId}/notes`,
+        });
+        expect(unauthorized.statusCode).toBe(404);
+        expect(unauthorized.json()).toMatchObject({ code: 'JOB_CARD_NOT_FOUND' });
+      } finally {
+        await app.close();
+      }
     } finally {
       await scopedPool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

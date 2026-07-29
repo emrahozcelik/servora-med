@@ -5,7 +5,12 @@ import type { JobCardService } from './service.js';
 import type { JobCardActor } from './types.js';
 import { parseJobCardCreateInput } from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
-import { isoInstant, uuidString, validation } from './validation.js';
+import {
+  isoInstant,
+  operationalNoteCursorTimestamp,
+  uuidString,
+  validation,
+} from './validation.js';
 import { parseJobCardBoardQuery, parseJobCardListQuery } from './workspace-query.js';
 
 type Params = { id: string; itemId?: string };
@@ -69,7 +74,10 @@ function notePage(raw: unknown, defaultLimit: number) {
     limit,
     before: hasCreatedAt
       ? {
-          createdAt: isoInstant(value.beforeCreatedAt, 'beforeCreatedAt'),
+          createdAt: operationalNoteCursorTimestamp(
+            value.beforeCreatedAt,
+            'beforeCreatedAt',
+          ),
           id: uuidString(value.beforeId, 'beforeId'),
         }
       : null,

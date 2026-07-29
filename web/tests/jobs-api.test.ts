@@ -255,7 +255,7 @@ describe('JobCard workspace transport', () => {
 
   it('runtime-validates cursor-paged operational notes and the fixed 201 response', async () => {
     const nextCursor = {
-      createdAt: '2026-07-13T10:00:00.000Z',
+      createdAt: '2026-07-13T10:00:00.123900Z',
       id: '00000000-0000-4000-8000-000000000001',
     };
     const fetchMock = vi.fn()

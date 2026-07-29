@@ -122,6 +122,121 @@ describe.skipIf(!databaseUrl)('019 operational note PostgreSQL contract', () => 
         [organizationId, firstJobId, userId],
       );
       const activityId = activity.rows[0]!.id;
+      const insertV1 = (
+        note: string,
+        authorName: string | null,
+        authorRole: string | null,
+        workflowStage: string | null,
+        context: string | null,
+        relatedActivityId: string | null,
+      ) => client.query(
+        `INSERT INTO job_card_notes (
+           organization_id, job_card_id, author_id, note,
+           author_name_snapshot, author_role_snapshot, workflow_stage,
+           context, related_activity_id, record_version
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, 1)`,
+        [
+          organizationId, firstJobId, userId, note, authorName, authorRole,
+          workflowStage, context, relatedActivityId,
+        ],
+      );
+
+      await expect(client.query(
+        `INSERT INTO job_card_notes (
+           organization_id, job_card_id, author_id, note,
+           author_name_snapshot, author_role_snapshot, workflow_stage,
+           context, related_activity_id, record_version
+         ) VALUES (
+           $1, $2, $3, 'Null ad snapshot',
+           NULL, 'STAFF', 'ACCEPTED',
+           'GENERAL', $4, 1
+         )`,
+        [organizationId, firstJobId, userId, activityId],
+      )).rejects.toMatchObject({ code: '23514' });
+
+      await expect(insertV1(
+        'Null activity ilişkisi',
+        'Ayşe Personel',
+        'STAFF',
+        'ACCEPTED',
+        'GENERAL',
+        null,
+      )).rejects.toMatchObject({ code: '23514' });
+
+      await expect(insertV1(
+        'Boş author snapshot',
+        '   ',
+        'STAFF',
+        'ACCEPTED',
+        'GENERAL',
+        activityId,
+      )).rejects.toMatchObject({ code: '23514' });
+
+      await expect(insertV1(
+        'Geçersiz rol',
+        'Ayşe Personel',
+        'OWNER',
+        'ACCEPTED',
+        'GENERAL',
+        activityId,
+      )).rejects.toMatchObject({ code: '23514' });
+
+      await expect(insertV1(
+        'Geçersiz aşama',
+        'Ayşe Personel',
+        'STAFF',
+        'PLANNED',
+        'GENERAL',
+        activityId,
+      )).rejects.toMatchObject({ code: '23514' });
+
+      await expect(insertV1(
+        'Geçersiz context',
+        'Ayşe Personel',
+        'STAFF',
+        'ACCEPTED',
+        'TRANSITION',
+        activityId,
+      )).rejects.toMatchObject({ code: '23514' });
+
+      await expect(client.query(
+        `INSERT INTO job_card_notes (
+           organization_id, job_card_id, author_id, note,
+           author_name_snapshot, author_role_snapshot, workflow_stage,
+           context, related_activity_id, record_version
+         ) VALUES (
+           $1, $2, $3, 'Null context',
+           'Ayşe Personel', 'STAFF', 'ACCEPTED',
+           NULL, $4, 1
+         )`,
+        [organizationId, firstJobId, userId, activityId],
+      )).rejects.toMatchObject({ code: '23514' });
+
+      await expect(client.query(
+        `INSERT INTO job_card_notes (
+           organization_id, job_card_id, author_id, note,
+           author_name_snapshot, author_role_snapshot, workflow_stage,
+           context, related_activity_id, record_version
+         ) VALUES (
+           $1, $2, $3, 'Null aşama snapshot',
+           'Ayşe Personel', 'STAFF', NULL,
+           'GENERAL', $4, 1
+         )`,
+        [organizationId, firstJobId, userId, activityId],
+      )).rejects.toMatchObject({ code: '23514' });
+
+      await expect(client.query(
+        `INSERT INTO job_card_notes (
+           organization_id, job_card_id, author_id, note,
+           author_name_snapshot, author_role_snapshot, workflow_stage,
+           context, related_activity_id, record_version
+         ) VALUES (
+           $1, $2, $3, 'Null rol snapshot',
+           'Ayşe Personel', NULL, 'ACCEPTED',
+           'GENERAL', $4, 1
+         )`,
+        [organizationId, firstJobId, userId, activityId],
+      )).rejects.toMatchObject({ code: '23514' });
 
       await expect(client.query(
         `INSERT INTO job_card_notes (

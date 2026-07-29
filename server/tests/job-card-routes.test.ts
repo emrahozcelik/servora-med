@@ -377,7 +377,7 @@ describe('JobCard routes', () => {
       limit: 25, before: null,
     });
 
-    const beforeCreatedAt = '2026-07-29T12:00:00.000Z';
+    const beforeCreatedAt = '2026-07-29T12:00:00.123900Z';
     const beforeId = '00000000-0000-4000-8000-000000000002';
     const page = {
       items: [{ id: 'note-1' }],
@@ -409,6 +409,7 @@ describe('JobCard routes', () => {
     '/api/job-cards/job-1/notes?beforeCreatedAt=2026-07-29T12%3A00%3A00.000Z',
     '/api/job-cards/job-1/notes?beforeId=00000000-0000-4000-8000-000000000001',
     '/api/job-cards/job-1/notes?beforeCreatedAt=not-a-date&beforeId=00000000-0000-4000-8000-000000000001',
+    '/api/job-cards/job-1/notes?beforeCreatedAt=2026-07-29T12%3A00%3A00.000Z&beforeId=00000000-0000-4000-8000-000000000001',
     '/api/job-cards/job-1/notes?beforeCreatedAt=2026-07-29T12%3A00%3A00.000Z&beforeId=not-a-uuid',
   ])('rejects invalid notes query %s', async (url) => {
     const { app, service } = await createApp();

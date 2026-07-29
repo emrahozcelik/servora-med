@@ -24,12 +24,16 @@ ALTER TABLE job_card_notes
     OR
     (
       record_version = 1
+      AND author_name_snapshot IS NOT NULL
       AND length(trim(author_name_snapshot)) > 0
+      AND author_role_snapshot IS NOT NULL
       AND author_role_snapshot IN ('ADMIN', 'MANAGER', 'STAFF')
+      AND workflow_stage IS NOT NULL
       AND workflow_stage IN (
         'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
         'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED'
       )
+      AND context IS NOT NULL
       AND context = 'GENERAL'
       AND related_activity_id IS NOT NULL
     )

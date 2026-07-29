@@ -378,6 +378,7 @@ type NoteRow = {
   record_version: 0 | 1;
   created_at: Date;
 };
+type NoteListRow = NoteRow & { cursor_created_at: string };
 type MeetingDetailsRow = {
   job_card_id: string;
   meeting_at: Date | null;
@@ -1537,10 +1538,14 @@ implements JobCardRepository, ApprovalQueueItemPort {
           page.limit + 1,
         ]
       : [organizationId, jobCardId, page.limit + 1];
-    const result = await this.pool.query<NoteRow>(
+    const result = await this.pool.query<NoteListRow>(
       `SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name,
          n.author_name_snapshot, n.author_role_snapshot, n.workflow_stage,
-         n.context, n.related_activity_id, n.record_version, n.created_at
+         n.context, n.related_activity_id, n.record_version, n.created_at,
+         to_char(
+           n.created_at AT TIME ZONE 'UTC',
+           'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+         ) AS cursor_created_at
        FROM job_card_notes n
        JOIN users u
          ON u.organization_id = n.organization_id AND u.id = n.author_id
@@ -1557,7 +1562,7 @@ implements JobCardRepository, ApprovalQueueItemPort {
       items: pageRows.map(mapNote).reverse(),
       limit: page.limit,
       nextCursor: hasMore && oldest
-        ? { createdAt: oldest.created_at.toISOString(), id: oldest.id }
+        ? { createdAt: oldest.cursor_created_at, id: oldest.id }
         : null,
     };
   }
