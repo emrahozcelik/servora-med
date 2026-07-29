@@ -63,12 +63,17 @@ const commandDependencies: CommandDependencies = {
   createActionId: () => crypto.randomUUID(),
 };
 
-export async function runStaffJobCommand(job: JobCard, command: StaffCommand, dependencies: CommandDependencies = commandDependencies) {
+export async function runStaffJobCommand(
+  job: JobCard,
+  command: StaffCommand,
+  dependencies: CommandDependencies = commandDependencies,
+  note = '',
+) {
   const input = { clientActionId: dependencies.createActionId(), expectedVersion: job.version };
   try {
     const updated = command === 'start'
       ? await dependencies.start(job.id, input)
-      : await dependencies.submit(job.id, input);
+      : await dependencies.submit(job.id, { ...input, note: note.trim() });
     return { kind: 'success' as const, job: updated };
   } catch (error) {
     if (error instanceof ApiError && error.code === 'VERSION_CONFLICT') {
@@ -94,7 +99,9 @@ export async function runManagerJobCommand(job: JobCard, command: ManagerCommand
   const base = { clientActionId: dependencies.createActionId(), expectedVersion: job.version };
   try {
     const updated = command === 'approve'
-      ? await dependencies.approve(job.id, base)
+      ? await dependencies.approve(job.id, revisionReason.trim()
+        ? { ...base, note: revisionReason.trim() }
+        : base)
       : await dependencies.revise(job.id, { ...base, revisionReason: revisionReason.trim() });
     return { kind: 'success' as const, job: updated };
   } catch (error) {
@@ -651,9 +658,9 @@ async function executeLifecycleCommand(
     case 'START':
       return startJobCard(jobId, input);
     case 'SUBMIT_FOR_APPROVAL':
-      return submitJobCardForApproval(jobId, input);
+      return submitJobCardForApproval(jobId, { ...input, note: reason.trim() });
     case 'APPROVE':
-      return approveJobCard(jobId, input);
+      return approveJobCard(jobId, reason.trim() ? { ...input, note: reason.trim() } : input);
     case 'REQUEST_REVISION':
       return requestJobCardRevision(jobId, { ...input, revisionReason: reason });
     case 'WITHDRAW_FROM_APPROVAL':
@@ -683,8 +690,10 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
   const [meetingSubmissionError, setMeetingSubmissionError] = useState<ApiError | null>(null);
   const [reloadKey, setReloadKey] = useState(0);
   const [timelineKey, setTimelineKey] = useState(0);
+  const [lifecycleNoteKey, setLifecycleNoteKey] = useState(0);
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
+  const dialogFocusRestoreEnabledRef = useRef(true);
   const mutationInFlight = useRef(false);
   const actionIds = useRef<Partial<Record<PendingInteraction, string>>>({});
   const startCapture = useRef<{
@@ -719,12 +728,14 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
 
   function closeDialog() {
     // Focus restoration is owned by ConfirmationAction / ReasonDialog.
+    dialogFocusRestoreEnabledRef.current = true;
     setDialog(null);
   }
   async function refreshTruth() {
     const detail = await loadJobDetail(jobId);
     setState({ kind: 'ready', detail });
     setTimelineKey((value) => value + 1);
+    setLifecycleNoteKey((value) => value + 1);
   }
   async function reconcileRealtimeTruth() {
     if (pending || editing || mutationInFlight.current) {
@@ -806,6 +817,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       delete actionIds.current[command];
       if (command === 'START') startCapture.current = null;
       setTimelineKey((value) => value + 1);
+      setLifecycleNoteKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) setDialog(null);
       const transition = findTransition(presentation, command);
@@ -829,6 +841,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
         setMessageIsError(true);
         if (caught instanceof ApiError && caught.code === 'MEETING_NOT_READY') {
           setMeetingSubmissionError(caught);
+          dialogFocusRestoreEnabledRef.current = false;
+          setDialog(null);
         }
         setFeedbackFocusRequest((value) => value + 1);
       }
@@ -1017,13 +1031,23 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       const transition = findTransition(presentation, 'APPROVE');
       if (!transition) return;
       dialogTriggerRef.current = trigger;
+      dialogFocusRestoreEnabledRef.current = true;
       setDialog({ kind: 'approve', presentation: transition });
+      return;
+    }
+    if (commandName === 'SUBMIT_FOR_APPROVAL') {
+      const transition = findTransition(presentation, 'SUBMIT_FOR_APPROVAL');
+      if (!transition) return;
+      dialogTriggerRef.current = trigger;
+      dialogFocusRestoreEnabledRef.current = true;
+      setDialog({ kind: 'submit', presentation: transition });
       return;
     }
     if (commandName === 'REQUEST_REVISION') {
       const transition = findTransition(presentation, 'REQUEST_REVISION');
       if (!transition) return;
       dialogTriggerRef.current = trigger;
+      dialogFocusRestoreEnabledRef.current = true;
       setDialog({ kind: 'revision', presentation: transition });
       return;
     }
@@ -1031,6 +1055,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       const transition = findTransition(presentation, 'CANCEL');
       if (!transition) return;
       dialogTriggerRef.current = trigger;
+      dialogFocusRestoreEnabledRef.current = true;
       setDialog({ kind: 'cancel', presentation: transition });
       return;
     }
@@ -1040,7 +1065,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
   function confirmDialog(reason: string) {
     if (!dialog) return;
     if (dialog.kind === 'approve') {
-      void execute('APPROVE');
+      void execute('APPROVE', reason);
+      return;
+    }
+    if (dialog.kind === 'submit') {
+      void execute('SUBMIT_FOR_APPROVAL', reason);
       return;
     }
     if (dialog.kind === 'revision') {
@@ -1126,6 +1155,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
         jobId={jobId}
         canAdd={addNote}
         hideWhenEmpty={detail.job.status === 'CANCELLED'}
+        refreshKey={lifecycleNoteKey}
         onAdded={() => setTimelineKey((value) => value + 1)}
       />
     ) : undefined}
@@ -1137,6 +1167,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       onClose={closeDialog}
       onConfirm={confirmDialog}
       returnFocusRef={dialogTriggerRef}
+      restoreFocusEnabledRef={dialogFocusRestoreEnabledRef}
     />}
   </JobDetailPanel>;
 }

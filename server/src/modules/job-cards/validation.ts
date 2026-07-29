@@ -99,6 +99,17 @@ export function requireActionId(value: unknown) {
   return boundedTrimmedString(value, 'clientActionId', 1, 255);
 }
 
+export function requireSubmissionNote(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new AppError(
+      'SUBMISSION_NOTE_REQUIRED',
+      400,
+      'Tamamlanma sonucu zorunludur.',
+    );
+  }
+  return boundedTrimmedString(value, 'note', 1, 2_000);
+}
+
 export function optionalLifecycleNote(value: unknown) {
   if (value === undefined) return null;
   const note = boundedTrimmedString(value, 'note', 0, 2_000);

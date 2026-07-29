@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 
 import type {
   ActivityInput,
+  CreateNoteRecord,
   CriticalActionClaim,
   JobCardRepository,
   JobCardTransaction,
@@ -51,6 +52,8 @@ class LifecycleRepository implements JobCardRepository {
   claims: CriticalActionClaim[] = [];
   failTransition = false;
   failActivity = false;
+  failNote = false;
+  notes: CreateNoteRecord[] = [];
   acceptedAt: Date | null = null;
   acceptedBy: string | null = null;
   startedAt: Date | null = null;
@@ -141,6 +144,19 @@ class LifecycleRepository implements JobCardRepository {
         return this.meetingDetails;
       },
       getSubmissionDeliveryItems: async () => this.items,
+      getNoteAuthorSnapshot: async (_organizationId, userId) => userId === 'manager-1'
+        ? { id: userId, name: 'Manager One', role: 'MANAGER' as const, isActive: true }
+        : { id: userId, name: 'Staff One', role: 'STAFF' as const, isActive: true },
+      createNote: async (input) => {
+        if (this.failNote) throw new Error('note failed');
+        this.notes.push(input);
+        return {
+        id: input.id, jobCardId: input.jobCardId, note: input.note, createdAt: '2026-07-19T14:30:00.000Z',
+        recordVersion: 1 as const,
+        author: { id: input.authorId, name: input.authorNameSnapshot, role: input.authorRoleSnapshot, source: 'SNAPSHOT' as const },
+        workflowStage: input.workflowStage, context: input.context, relatedActivityId: input.relatedActivityId,
+      };
+      },
     } as JobCardTransaction;
   }
 
@@ -154,6 +170,7 @@ class LifecycleRepository implements JobCardRepository {
       acceptedAt: this.acceptedAt, acceptedBy: this.acceptedBy, startedAt: this.startedAt,
       lifecycle: { ...this.lifecycle },
       revision: { ...this.revision }, cancellation: { ...this.cancellation },
+      notes: [...this.notes],
     };
     try {
       const completed = await work(this.tx());
@@ -164,6 +181,7 @@ class LifecycleRepository implements JobCardRepository {
       this.acceptedAt = before.acceptedAt; this.acceptedBy = before.acceptedBy;
       this.startedAt = before.startedAt; this.lifecycle = before.lifecycle;
       this.revision = before.revision; this.cancellation = before.cancellation;
+      this.notes = before.notes;
       throw error;
     }
   }
@@ -274,7 +292,7 @@ function twoJobRepository() {
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
 const time = new Date('2026-07-13T12:00:00.000Z');
-const input = (clientActionId: string, expectedVersion = 2) => ({ clientActionId, expectedVersion });
+const input = (clientActionId: string, expectedVersion = 2) => ({ clientActionId, expectedVersion, note: 'Tamamlandı' });
 
 function salesMeetingRepository() {
   const repository = new LifecycleRepository();
@@ -460,7 +478,7 @@ describe('JobCard lifecycle commands', () => {
     await new JobCardService(repo)[method](manager, 'job-1', {
       clientActionId: method, expectedVersion: 2, ...reasonInput,
     } as never);
-    expect(repo.events[0]).toMatchObject({ event, metadata: { reason } });
+    expect(repo.events[0]).toMatchObject({ event, metadata: { noteId: expect.any(String) } });
   });
 
   it('does not attach reason metadata for non-revision non-cancel lifecycle events', async () => {
@@ -576,6 +594,12 @@ describe('JobCard lifecycle commands', () => {
       clientActionId: 'revision-1', expectedVersion: 3, revisionReason: ' İlk neden ',
     });
     expect(repo.revision).toEqual({ at: time, by: 'manager-1', reason: 'İlk neden' });
+    expect(repo.notes[0]).toMatchObject({
+      authorId: 'manager-1', authorNameSnapshot: 'Manager One',
+      authorRoleSnapshot: 'MANAGER', workflowStage: 'WAITING_APPROVAL',
+      context: 'REQUEST_REVISION', note: 'İlk neden', relatedActivityId: 'activity-1',
+    });
+    expect(repo.events[0]?.metadata).toEqual({ noteId: repo.notes[0]?.id });
 
     repo.job.status = 'REVISION_REQUESTED'; repo.job.version = 4;
     await service.resume(staff, 'job-1', input('resume-after-revision', 4));
@@ -592,10 +616,24 @@ describe('JobCard lifecycle commands', () => {
     const repo = new LifecycleRepository(); const service = new JobCardService(repo, () => time);
     await service.submitForApproval(staff, 'job-1', { ...input('submit'), note: ' Bitti ' });
     expect(repo.cancellation).toEqual({ at: null, by: null, reason: null });
+    expect(repo.transitions[0]?.note).toBe('Bitti');
+    expect(repo.notes[0]).toMatchObject({
+      authorId: 'staff-1', authorNameSnapshot: 'Staff One', authorRoleSnapshot: 'STAFF',
+      workflowStage: 'IN_PROGRESS', context: 'SUBMIT_FOR_APPROVAL',
+      relatedActivityId: 'activity-1', note: 'Bitti',
+    });
+    expect(repo.events[0]).toMatchObject({
+      event: 'JOB_SUBMITTED_FOR_APPROVAL', metadata: { noteId: repo.notes[0]?.id },
+    });
+    expect(repo.events.some((event) => event.event === 'NOTE_ADDED')).toBe(false);
 
     repo.job.status = 'IN_PROGRESS'; repo.job.version = 3;
     await service.cancel(manager, 'job-1', { ...input('cancel', 3), cancelReason: ' Müşteri iptal etti ' });
     expect(repo.cancellation).toEqual({ at: time, by: 'manager-1', reason: 'Müşteri iptal etti' });
+    expect(repo.notes[1]).toMatchObject({
+      authorId: 'manager-1', workflowStage: 'IN_PROGRESS', context: 'CANCEL',
+      relatedActivityId: 'activity-2', note: 'Müşteri iptal etti',
+    });
   });
 
   it.each([
@@ -644,6 +682,11 @@ describe('JobCard lifecycle commands', () => {
       expect(repo.events[0]).toMatchObject({
         event: 'JOB_CANCELLED', oldValue: { status }, newValue: { status: 'CANCELLED' },
       });
+      expect(repo.notes).toEqual([expect.objectContaining({
+        workflowStage: status, context: 'CANCEL', note: 'Neden',
+        relatedActivityId: 'activity-1',
+      })]);
+      expect(repo.events[0]?.metadata).toEqual({ noteId: repo.notes[0]?.id });
     }
   });
 
@@ -680,16 +723,35 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.claims).toHaveLength(0);
   });
 
-  it('trims optional notes and accepts their 0/2,000 code-point bounds', async () => {
+  it.each([undefined, null, '  '] as const)(
+    'rejects a missing or blank submission note before claiming an action',
+    async (note) => {
+      const repo = new LifecycleRepository();
+      await expect(new JobCardService(repo).submitForApproval(staff, 'job-1', {
+        ...input('required-submission-note'), note,
+      })).rejects.toMatchObject({ code: 'SUBMISSION_NOTE_REQUIRED', statusCode: 400 });
+      expect(repo.claims).toHaveLength(0);
+    },
+  );
+
+  it('trims optional approval notes and accepts their 0/2,000 code-point bounds', async () => {
     const empty = new LifecycleRepository();
-    await new JobCardService(empty).submitForApproval(staff, 'job-1', { ...input('empty-note'), note: '  ' });
+    empty.job.status = 'WAITING_APPROVAL';
+    await new JobCardService(empty).approve(manager, 'job-1', { ...input('empty-note'), note: '  ' });
     expect(empty.transitions[0]!.note).toBeNull();
+    expect(empty.notes).toHaveLength(0);
+    expect(empty.events[0]?.metadata).toBeUndefined();
 
     const max = new LifecycleRepository();
-    await new JobCardService(max).submitForApproval(staff, 'job-1', {
+    max.job.status = 'WAITING_APPROVAL';
+    await new JobCardService(max).approve(manager, 'job-1', {
       ...input('max-note'), note: ` ${'😀'.repeat(2_000)} `,
     });
     expect(max.transitions[0]!.note).toBe('😀'.repeat(2_000));
+    expect(max.notes).toEqual([expect.objectContaining({
+      authorId: 'manager-1', authorRoleSnapshot: 'MANAGER',
+      workflowStage: 'WAITING_APPROVAL', context: 'APPROVE', note: '😀'.repeat(2_000),
+    })]);
   });
 
   it('returns version conflict and action-in-progress without mutation or activity', async () => {
@@ -712,6 +774,7 @@ describe('JobCard lifecycle commands', () => {
     await expect(service.submitForApproval(staff, 'job-1', input('replay'))).resolves.toEqual(first);
     expect(repo.job.version).toBe(3); expect(repo.transitions).toHaveLength(1);
     expect(repo.events).toHaveLength(1);
+    expect(repo.notes).toHaveLength(1);
   });
 
   it('isolates same-command action replay by target JobCard', async () => {
@@ -745,6 +808,15 @@ describe('JobCard lifecycle commands', () => {
       .rejects.toThrow('activity failed');
     expect(failed.job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
     expect(failed.events).toHaveLength(0); expect(failed.transitions).toHaveLength(0);
+
+    const noteFailed = new LifecycleRepository(); noteFailed.failNote = true;
+    await expect(new JobCardService(noteFailed).submitForApproval(
+      staff, 'job-1', input('note-fails'),
+    )).rejects.toThrow('note failed');
+    expect(noteFailed.job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
+    expect(noteFailed.events).toHaveLength(0);
+    expect(noteFailed.transitions).toHaveLength(0);
+    expect(noteFailed.notes).toHaveLength(0);
   });
 
   it('keeps product-delivery readiness checks on submission', async () => {

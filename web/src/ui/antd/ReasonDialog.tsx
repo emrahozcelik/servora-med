@@ -21,6 +21,8 @@ export type ReasonDialogProps = {
   title: string;
   description: ReactNode;
   reasonLabel: string;
+  helperText?: ReactNode;
+  requiredMessage?: string;
   confirmLabel: string;
   cancelLabel?: string;
   maxLength: number;
@@ -31,6 +33,7 @@ export type ReasonDialogProps = {
   onConfirm: (reason: string) => void;
   onCancel: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  restoreFocusEnabledRef?: RefObject<boolean>;
 };
 
 /**
@@ -42,6 +45,8 @@ export function ReasonDialog({
   title,
   description,
   reasonLabel,
+  helperText,
+  requiredMessage = 'Neden alanı zorunludur.',
   confirmLabel,
   cancelLabel = 'Vazgeç',
   maxLength,
@@ -52,9 +57,12 @@ export function ReasonDialog({
   onConfirm,
   onCancel,
   returnFocusRef,
+  restoreFocusEnabledRef,
 }: ReasonDialogProps): ReactNode {
   const titleId = useId();
   const errorId = useId();
+  const helpId = useId();
+  const counterId = useId();
   const reasonId = useId();
   const dialogRef = useRef<HTMLDivElement>(null);
   const cancelRef = useRef<HTMLButtonElement>(null);
@@ -82,9 +90,11 @@ export function ReasonDialog({
     document.addEventListener('focusin', keepFocusInside);
     return () => {
       document.removeEventListener('focusin', keepFocusInside);
-      restoreFocus(returnFocusRef, openerRef.current);
+      if (restoreFocusEnabledRef?.current !== false) {
+        restoreFocus(returnFocusRef, openerRef.current);
+      }
     };
-  }, [open, returnFocusRef]);
+  }, [open, restoreFocusEnabledRef, returnFocusRef]);
 
   useEffect(() => {
     if (!open || !pending) return;
@@ -113,14 +123,25 @@ export function ReasonDialog({
     if (required) {
       const normalized = reason.trim();
       if (!normalized) {
-        setError('Neden alanı zorunludur.');
+        setError(requiredMessage);
+        requestAnimationFrame(() => reasonRef.current?.focus());
+        return;
+      }
+      if (Array.from(normalized).length > maxLength) {
+        setError(`${reasonLabel} en fazla ${maxLength.toLocaleString('tr-TR')} karakter olmalıdır.`);
         requestAnimationFrame(() => reasonRef.current?.focus());
         return;
       }
       onConfirm(normalized);
       return;
     }
-    onConfirm(reason.trim());
+    const normalized = reason.trim();
+    if (Array.from(normalized).length > maxLength) {
+      setError(`${reasonLabel} en fazla ${maxLength.toLocaleString('tr-TR')} karakter olmalıdır.`);
+      requestAnimationFrame(() => reasonRef.current?.focus());
+      return;
+    }
+    onConfirm(normalized);
   }
 
   // Only pending locks the confirm button; empty reason is validated on submit.
@@ -146,18 +167,27 @@ export function ReasonDialog({
               ref={reasonRef}
               id={reasonId}
               rows={4}
-              maxLength={maxLength}
               value={reason}
               disabled={pending}
               required={required}
               aria-invalid={error ? 'true' : undefined}
-              aria-describedby={error ? errorId : undefined}
+              aria-describedby={[
+                helperText ? helpId : null,
+                counterId,
+                error ? errorId : null,
+              ].filter(Boolean).join(' ')}
               onChange={(event) => {
                 setReason(event.target.value);
-                setError('');
+                setError(Array.from(event.target.value.trim()).length > maxLength
+                  ? `${reasonLabel} en fazla ${maxLength.toLocaleString('tr-TR')} karakter olmalıdır.`
+                  : '');
               }}
             />
           </div>
+          {helperText && <p id={helpId} className="form-help">{helperText}</p>}
+          <p id={counterId} className="form-help" aria-live="polite">
+            {Math.max(0, maxLength - Array.from(reason.trim()).length).toLocaleString('tr-TR')} karakter kaldı
+          </p>
           {error && (
             <p id={errorId} className="field-error" role="alert">{error}</p>
           )}

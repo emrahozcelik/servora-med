@@ -141,7 +141,7 @@ describe('tracer API client', () => {
     await patchDeliveryItem('job-1', 'i1', { expectedVersion: 2, quantity: 3 });
     await removeDeliveryItem('job-1', 'i1', 3);
     await startJobCard('job-1', { clientActionId: 's1', expectedVersion: 2 });
-    await submitJobCardForApproval('job-1', { clientActionId: 's2', expectedVersion: 3 });
+    await submitJobCardForApproval('job-1', { clientActionId: 's2', expectedVersion: 3, note: 'Tamamlandı' });
     await approveJobCard('job-1', { clientActionId: 's3', expectedVersion: 4 });
     await requestJobCardRevision('job-1', { clientActionId: 's4', expectedVersion: 4, revisionReason: 'Düzeltin' });
     await expect(listActivity('job-1')).resolves.toMatchObject({ items: [expect.objectContaining({ id: 'e1' })] });

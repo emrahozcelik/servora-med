@@ -272,6 +272,24 @@ describe('JobCard workspace transport', () => {
     }));
   });
 
+  it.each([
+    'GENERAL', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION', 'CANCEL',
+  ] as const)('accepts the canonical %s operational note context', async (context) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...note, context }], limit: 25, nextCursor: null,
+    })));
+    await expect(listJobCardNotes('job-1')).resolves.toMatchObject({
+      items: [{ context }],
+    });
+  });
+
+  it('rejects an unknown operational note context', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [{ ...note, context: 'START' }], limit: 25, nextCursor: null,
+    })));
+    await expect(listJobCardNotes('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it('accepts unknown activity event strings, validates known details, and exposes no raw JSONB', async () => {
     const activities = [
       { id: 'a2', jobCardId: 'job-1', eventType: 'FUTURE_EVENT', actor: null,
@@ -460,6 +478,12 @@ describe('JobCard workspace transport', () => {
       '/api/job-cards/job-1/resume',
       '/api/job-cards/job-1/cancel',
     ]);
+    expect(JSON.parse(String((fetchMock.mock.calls[2]?.[1] as RequestInit).body))).toEqual({
+      ...versioned, note: 'Bitti',
+    });
+    expect(JSON.parse(String((fetchMock.mock.calls[3]?.[1] as RequestInit).body))).toEqual({
+      ...versioned, note: 'Uygun',
+    });
   });
 
   it.each([

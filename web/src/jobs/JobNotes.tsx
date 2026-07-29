@@ -18,6 +18,13 @@ const roleLabels = {
   MANAGER: 'Yönetici',
   STAFF: 'Personel',
 } as const;
+const contextLabels = {
+  GENERAL: 'Operasyon notu',
+  SUBMIT_FOR_APPROVAL: 'Tamamlanma sonucu',
+  APPROVE: 'Yönetici onayı',
+  REQUEST_REVISION: 'Revizyon isteği',
+  CANCEL: 'İptal',
+} as const;
 
 type NotesState =
   | { kind: 'loading' }
@@ -32,6 +39,7 @@ export function JobNotes({
   onAdded = () => {},
   canAdd = true,
   hideWhenEmpty = false,
+  refreshKey = 0,
 }: {
   jobId: string;
   load?: typeof listJobCardNotes;
@@ -40,6 +48,7 @@ export function JobNotes({
   onAdded?: () => void;
   canAdd?: boolean;
   hideWhenEmpty?: boolean;
+  refreshKey?: number;
 }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState<NotesState>({ kind: 'loading' });
@@ -62,7 +71,7 @@ export function JobNotes({
         setState({ kind: 'error', message: error.message, retryable: error.retryable });
       });
     return () => { active = false; };
-  }, [jobId, load, reloadKey]);
+  }, [jobId, load, reloadKey, refreshKey]);
 
   function updateDraft(value: string) {
     if (actionRef.current && actionRef.current.note !== value.trim()) actionRef.current = null;
@@ -171,6 +180,7 @@ export function JobNotes({
       : <ul className="job-note-list">{state.page.items.map((note) => <li key={note.id}>
         <p className="job-note-body">{note.note}</p><div className="job-note-meta"><strong>{note.author.name}</strong>
           {note.recordVersion === 1 && <>
+            <span>{contextLabels[note.context]}</span>
             <span>{roleLabels[note.author.role]}</span>
             <span>{jobCardStatusLabel(note.workflowStage)}</span>
           </>}

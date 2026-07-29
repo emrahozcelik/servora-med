@@ -37,6 +37,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         '017_calendar.sql',
         '018_messaging.sql',
         '019_job_card_operational_note_context.sql',
+        '020_job_card_transition_note_contexts.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await pool.query(await readFile(path, 'utf8'));
@@ -147,6 +148,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       });
       generalTask = await service.submitForApproval(staff, generalTask.id, {
         clientActionId: 'submit-general-task', expectedVersion: generalTask.version,
+        note: 'Takip sonucu kaydedildi.',
       });
       generalTask = await service.requestRevision(manager, generalTask.id, {
         clientActionId: 'revise-general-task', expectedVersion: generalTask.version,
@@ -157,6 +159,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       });
       generalTask = await service.submitForApproval(staff, generalTask.id, {
         clientActionId: 'resubmit-general-task', expectedVersion: generalTask.version,
+        note: 'Düzeltme tamamlandı.',
       });
       generalTask = await service.approve(manager, generalTask.id, {
         clientActionId: 'approve-general-task', expectedVersion: generalTask.version,
@@ -214,6 +217,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       salesMeeting = await service.submitForApproval(staff, salesMeeting.id, {
         clientActionId: 'submit-sales-meeting',
         expectedVersion: meetingDetails.jobCardVersion,
+        note: 'Kontrol ziyareti tamamlandı.',
       });
       const waitingReports = new PostgresReportsRepository(pool);
       await expect(waitingReports.getApprovalSummary({
@@ -280,6 +284,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       );
       completed = await service.submitForApproval(staff, completedJobId, {
         clientActionId: 'submit', expectedVersion: completedActual.jobCardVersion,
+        note: 'Teslim tamamlandı.',
       });
       completed = await service.approve(manager, completedJobId, { clientActionId: 'approve', expectedVersion: completed.version });
       expect(completed).toMatchObject({ status: 'COMPLETED', version: 7 });
@@ -297,7 +302,10 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       );
       revised = { ...revised, version: revisedActual.jobCardVersion };
       const firstStartedAt = (await pool.query<{ started_at: Date }>('SELECT started_at FROM job_cards WHERE id=$1', [cancelledJobId])).rows[0]!.started_at;
-      revised = await service.submitForApproval(staff, cancelledJobId, { clientActionId: 'submit-revision', expectedVersion: revised.version });
+      revised = await service.submitForApproval(staff, cancelledJobId, {
+        clientActionId: 'submit-revision', expectedVersion: revised.version,
+        note: 'Teslim sonucu kaydedildi.',
+      });
       revised = await service.requestRevision(manager, cancelledJobId, {
         clientActionId: 'revision', expectedVersion: revised.version, revisionReason: 'Miktarı doğrulayın',
       });

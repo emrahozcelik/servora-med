@@ -86,7 +86,7 @@ describe('ReasonDialog', () => {
     const textarea = host.querySelector('textarea')!;
     expect(alert?.textContent).toContain('Neden alanı zorunludur.');
     expect(textarea.getAttribute('aria-invalid')).toBe('true');
-    expect(textarea.getAttribute('aria-describedby')).toBe(alert?.id);
+    expect(textarea.getAttribute('aria-describedby')?.split(' ')).toContain(alert?.id);
     expect(document.activeElement).toBe(textarea);
   });
 
@@ -119,9 +119,16 @@ describe('ReasonDialog', () => {
     expect(onConfirm).toHaveBeenCalledWith('Miktarı düzeltin');
   });
 
-  it('enforces maxLength of 2000', async () => {
-    await renderReason();
-    expect(host.querySelector('textarea')?.getAttribute('maxLength')).toBe('2000');
+  it('enforces the 2,000 Unicode code-point limit', async () => {
+    const onConfirm = vi.fn();
+    await renderReason({ onConfirm });
+    const textarea = host.querySelector('textarea')!;
+    await act(async () => { typeInTextarea(textarea, '😀'.repeat(2_001)); });
+    expect(host.querySelector('[role="alert"]')?.textContent).toContain('en fazla 2.000 karakter');
+    const submit = Array.from(host.querySelectorAll('button'))
+      .find((b) => b.textContent === 'Gönder') as HTMLButtonElement;
+    await act(async () => { submit.click(); });
+    expect(onConfirm).not.toHaveBeenCalled();
   });
 
   it('clears draft when reopened', async () => {
