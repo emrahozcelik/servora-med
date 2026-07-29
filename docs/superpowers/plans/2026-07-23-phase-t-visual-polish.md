@@ -425,8 +425,8 @@ T4C (product/people): implementation complete, PR pending
 
 PR: [#77](https://github.com/emrahozcelik/servora-med/pull/77) — OPEN / READY
 
-Source: `1499b5c` | Evidence: `2432358`, `276bfac` | Closeout: `71aa541`
-CI: `30448515844` — server/web SUCCESS
+Source: `1499b5c` | Evidence: `2432358`, `276bfac`
+T5C: docs-only closeout (see PR #77 for exact head and CI)
 
 ---
 
