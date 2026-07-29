@@ -420,7 +420,7 @@ T4C (product/people): implementation complete, PR pending
 **Status:** IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
 
 **T5A** — Residual state-dialect cleanup: workspace-message → ResultState/EmptyState across 10 source files.
-**T5B** — Responsive regression matrix audit: 390–1440, 200% text, 400% reflow. Zero regressions found.
+**T5B** — Responsive regression matrix audit: 390–1440, 200% text, 400% reflow. 1 regression found (bottom-nav label collision at 320px/400%), 1 fixed, 0 open.
 **T5C** — Evidence index and plan closeout.
 
 PR: [#77](https://github.com/emrahozcelik/servora-med/pull/77) — OPEN / READY

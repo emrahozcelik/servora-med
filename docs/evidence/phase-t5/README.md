@@ -73,7 +73,7 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 | Visual-verifier (T5B) | PASS (5 responsive scenarios) |
 | Independent-reviewer (T5A) | PASS (4 rounds) |
 | Independent-reviewer (T5B) | PASS |
-| T5B regression count | 0 |
+| T5B regression count | 1 found, 1 fixed, 0 open |
 | Server code changes | 0 |
 
 ### Gates
