@@ -529,7 +529,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 /* One primary create: hide toolbar Yeni iş when sticky mobile create is present. */
 @media (width < 64rem) {
-  .workspace-create-actions--toolbar {
+  .workspace-create-actions.workspace-create-actions--toolbar {
     display: none;
   }
   .authenticated-shell--mobile .workspace-heading h1 {
