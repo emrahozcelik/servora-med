@@ -496,6 +496,16 @@ button:disabled { cursor: wait; opacity: 0.65; }
   hyphens: auto;
   cursor: pointer;
 }
+
+@media (max-width: 22rem) {
+  .mobile-bottom-nav {
+    gap: 0;
+  }
+  .mobile-bottom-nav-item {
+    padding: 0.35rem 0.15rem;
+    font-size: 0.72rem;
+  }
+}
 /* Active destination uses accent soft + weight (not color alone). */
 .mobile-bottom-nav-item--active,
 .mobile-bottom-nav a[aria-current="page"],
