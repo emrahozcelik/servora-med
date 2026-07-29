@@ -57,7 +57,7 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 | Checkpoint | Source SHA | Evidence SHA | CI Run | Verdict |
 |-----------|-----------|-------------|--------|---------|
 | T5A — State-dialect cleanup | `1499b5c` | `2432358` | `30439243680` | PASS |
-| T5B — Responsive regression | (no source change) | `276bfac` | `30445082087` | PASS |
+| T5B — Responsive regression | (CSS fix `e350da6`) | `ce0c068` | `30455485740` | PASS (1 found/fixed) |
 | T5C — Evidence & plan closeout | (docs only) | (see PR #77) | (see PR #77) | IMPLEMENTATION COMPLETE |
 
 ### Final Validation Matrix
