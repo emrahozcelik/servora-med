@@ -1,7 +1,7 @@
 # Phase U — Servora Workspace Implementation Plan
 ## Three product slices with required visual correction checkpoints
 
-**Status:** Active implementation plan — Ant visual documentation reconciled 2026-07-26
+**Status:** COMPLETE / INTEGRATED — post-T5 factual closeout reconciled 2026-07-29
 **Date:** 2026-07-25
 **Design spec:** `docs/superpowers/specs/2026-07-25-phase-u-servora-workspace-design.md`
 **Prerequisite:** Phase T4 complete, merged, and resulting `main` CI successful
@@ -686,10 +686,11 @@ Exact visual code/capture head:
 2e353a461729b483668c36ae914a4ff580a8991b
 ```
 
-Remaining U1 acceptance steps:
+U1 closeout:
 
-1. Obtain separate PR Ready authorization after external review.
-2. Obtain separate merge authorization and verify resulting-main CI.
+1. External review and PR Ready gate completed.
+2. PR #70 merged at `5d5ee5dc15638b94ed3c3267971839b4c6fa36dd`.
+3. Resulting-main CI completed successfully.
 
 ---
 
@@ -1017,7 +1018,7 @@ Final reviewed head before documentation-only closure:
 
 ## U2 calendar visual closeout — post-merge corrective checkpoint
 
-The merged U2 calendar is functionally complete. The remaining visual/product closure is a post-merge corrective PR tracked by:
+The merged U2 calendar is functionally complete. Its visual/product closure was completed and integrated through PR #74 at `293b7a56284e991dcc69c9c75f06405ab0aeffc0`; the governing historical plan is:
 
 ```text
 docs/superpowers/plans/2026-07-26-phase-u2-calendar-visual-closeout.md
@@ -1056,13 +1057,13 @@ U2 resulting-main CI:
 SUCCESS
 
 U2 Calendar post-merge visual correction:
-NOT AUTHORIZED until reconciliation approval
+COMPLETE / INTEGRATED — PR #74 merged at 293b7a56284e991dcc69c9c75f06405ab0aeffc0
 
 Workspace Visual Composition:
-NOT AUTHORIZED until Calendar corrective merge and resulting-main CI
+COMPLETE / INTEGRATED — PR #75 merged at f48c9d01b7cd67dfe7598aea180daf50e3d9e184
 
 U3:
-NOT AUTHORIZED until Workspace Visual Composition merge, resulting-main CI and external visual approval
+COMPLETE / INTEGRATED — PR #76 merged at f43e48fcb9875082b605c357343916d4c8007c84
 ```
 
 ---
@@ -1116,16 +1117,16 @@ docs/superpowers/plans/2026-07-26-phase-u-workspace-visual-composition.md
 
 ```text
 UV implementation:
-NOT AUTHORIZED until Calendar corrective merge and resulting-main CI
+COMPLETE
 
 UV Ready:
-NOT AUTHORIZED by this plan
+COMPLETE
 
 UV Merge:
-NOT AUTHORIZED by this plan
+COMPLETE — PR #75 merged at f48c9d01b7cd67dfe7598aea180daf50e3d9e184
 
 U3:
-NOT AUTHORIZED until UV merge/main-CI external acceptance
+COMPLETE / INTEGRATED — PR #76
 ```
 
 ---
@@ -1383,19 +1384,19 @@ manager-staff-performance
 
 ```text
 U3 implementation:
-NOT AUTHORIZED until Workspace Visual Composition merge, resulting-main CI and external visual approval
+COMPLETE
 
 U3 Ready:
-NOT AUTHORIZED by this plan
+COMPLETE
 
 U3 Merge:
-NOT AUTHORIZED by this plan
+COMPLETE — PR #76 merged at f43e48fcb9875082b605c357343916d4c8007c84
 
 Phase U complete:
-ONLY after U3 merge and resulting-main CI success
+COMPLETE / INTEGRATED
 
 T5:
-IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE until Phase U external closeout
+COMPLETE / MERGED — PR #77
 ```
 
 ---
@@ -1429,10 +1430,22 @@ U3:
 COMPLETE
 
 Phase U:
-READY_FOR_EXTERNAL_REVIEW
+COMPLETE / INTEGRATED
 
 T5:
-IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
+COMPLETE / MERGED — PR #77
+
+T5 merge commit:
+41f893a9cd90dc7c62b5047c6946a3de5b6a40d1
+
+T5 resulting-main CI:
+30470763526 — SUCCESS
+
+Next product phase:
+PRODUCT DECISION REQUIRED
+
+No next implementation phase is automatically authorized.
+A bounded product decision and canonical plan are required.
 
 Staging/production:
 NOT AUTHORIZED

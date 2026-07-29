@@ -41,11 +41,11 @@ T3 Jobs and JobDetail polish: COMPLETE
   T3C Job board lanes / responsive geometry: COMPLETE
   T3D JobDetail information / workflow hierarchy: COMPLETE
   T3E Decisions / notes / timeline / T3 closeout: COMPLETE
-T4 CRM/product/staff/forms polish: IMPLEMENTATION COMPLETE / INTEGRATION PENDING
+T4 CRM/product/staff/forms polish: COMPLETE / INTEGRATED
 T4A Operational create form chrome: COMPLETE (integrated into main)
 T4B CRM customer and contact surfaces: COMPLETE (integrated into main)
-T4C Product, staff/user and T4 closeout: IMPLEMENTATION COMPLETE (Draft PR pending)
-T5 states and visual regression: IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
+T4C Product, staff/user and T4 closeout: COMPLETE (integrated via PR #68)
+T5 states and visual regression: COMPLETE / MERGED via PR #77
 
 P0 defect track:
 RecordDescriptions container reflow: COMPLETE
@@ -344,7 +344,7 @@ T3 overall: **COMPLETE** after this closeout lands on main.
 
 ## T4 — CRM, product, staff/user + forms
 
-**Status:** COMPLETE (IMPLEMENTATION) / INTEGRATION PENDING
+**Status:** COMPLETE / INTEGRATED
 
 ### T4A — Operational create form chrome (COMPLETE — integrated into main)
 
@@ -354,7 +354,7 @@ Shared action-footer contract: Cancel secondary first, Submit primary second in 
 
 Customer-create form adopts T4A `create-heading` + `form-actions` contract. Cancel button removed from heading (duplicate). Customer-edit and contact-edit forms gain `form-actions` wrapper with Cancel before Save. Contact-create form `inline-record-form .form-actions` uses column (not column-reverse) at compact width. Landed on main as PR #67.
 
-### T4C — Product, staff/user and T4 implementation closeout (IMPLEMENTATION COMPLETE — Draft PR)
+### T4C — Product, staff/user and T4 implementation closeout (COMPLETE — integrated via PR #68)
 
 **Product list/detail/create/edit polish:**
 - `ProductForm` gains `useCreateHeading` prop; create route uses `create-heading` (T4 contract), edit route keeps `detail-heading`
@@ -398,7 +398,7 @@ Customer-create form adopts T4A `create-heading` + `form-actions` contract. Canc
 
 **Browser verification:** PERFORMED — 11/11 surfaces PASS (Playwright + Chromium, synthetic data, admin + staff roles). All surfaces verified at 390px and/or 1024px viewports with zero console errors, zero horizontal overflow.
 **Evidence:** `docs/ui/screenshots/phase-t-t4c/` — 12 persistent PNG screenshots + README.md, all captured from final visual code head `7fdf70b`.
-**Draft PR:** #68 (Draft) — integration into main pending
+**Integration:** PR #68 merged at `0f47841ea23d744c188a7fecf12050f585296f34`
 
 **Known limitations:**
 - Product list compact row treatment and form-actions column verified via CSS contract tests only
@@ -407,26 +407,28 @@ Customer-create form adopts T4A `create-heading` + `form-actions` contract. Canc
 
 ### T4 — CRM / product / people / forms (overall)
 
-IMPLEMENTATION COMPLETE / INTEGRATION PENDING
+COMPLETE / INTEGRATED
 
 T4A (form chrome): integrated into main
 T4B (CRM): integrated into main  
-T4C (product/people): implementation complete, PR pending
+T4C (product/people): integrated into main via PR #68
 
 ---
 
 ## T5 — States and visual regression (closeout)
 
-**Status:** IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
+**Status:** COMPLETE / MERGED
 
 **T5A** — Residual state-dialect cleanup: workspace-message → ResultState/EmptyState across 10 source files.
 **T5B** — Responsive regression matrix audit: 390–1440, 200% text, 400% reflow. 2 regressions found, 2 fixed, 0 open.
 **T5C** — Evidence index and plan closeout.
 
-PR: [#77](https://github.com/emrahozcelik/servora-med/pull/77) — OPEN / READY
+PR: [#77](https://github.com/emrahozcelik/servora-med/pull/77) — MERGED
 
 Source: `1499b5c` | Evidence: `2432358`, `276bfac`
-T5C: docs-only closeout (see PR #77 for exact head and CI)
+Approved head: `e19b937c017d880ae65a630bd8515e0961c65219`
+Merge commit: `41f893a9cd90dc7c62b5047c6946a3de5b6a40d1`
+Resulting-main CI: `30470763526` — SUCCESS
 
 ---
 
@@ -454,9 +456,9 @@ T5C: docs-only closeout (see PR #77 for exact head and CI)
 | T3 | Jobs + JobDetail (overall) | **COMPLETE** |
 | T4A | Operational create form chrome | COMPLETE |
 | T4B | CRM customer and contact surfaces | COMPLETE — integrated into main |
-| T4C | Product, staff/user and T4 implementation closeout | IMPLEMENTATION COMPLETE — Draft PR pending |
-| T4 | CRM / product / people / forms | IMPLEMENTATION COMPLETE / INTEGRATION PENDING |
-| T5 | States + regression closeout | IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE |
+| T4C | Product, staff/user and T4 implementation closeout | COMPLETE — integrated via PR #68 |
+| T4 | CRM / product / people / forms | COMPLETE / INTEGRATED |
+| T5 | States + regression closeout | COMPLETE / MERGED via PR #77 |
 
 ---
 
