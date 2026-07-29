@@ -39,10 +39,10 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 
 ### T5B Results
 
-- Zero regressions found
+- Regressions found: 1 (bottom-nav label collision at 320px/400% reflow — fixed in `e350da6`)
 - All viewports: scrollWidth === clientWidth (no horizontal overflow)
 - 200% text resize: bottom nav labels visible and intact
-- 400% reflow: single-column layout, no page-level overflow
+- 400% reflow: single-column layout, no page-level overflow, bottom nav labels distinct
 - Mobile shell: bottom nav 4 controls with short labels and aria-labels
 - Dense detail at 390: all sections visible, action buttons reachable
 - workspace-message count: 0 (all scenarios)
