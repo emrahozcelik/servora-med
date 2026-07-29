@@ -5,6 +5,7 @@ import { ApiError, type CurrentUser } from './services/api';
 import {
   getProduct, updateProduct, type CreateProductInput, type Product,
 } from './services/products-api';
+import { ResultState } from './ui/antd/ResultState';
 
 type ProductDetailState =
   | { kind: 'loading' }
@@ -32,20 +33,18 @@ function ProductLoadError({ state, onRetry }: {
   onRetry: () => void;
 }) {
   if (state.code === 'PRODUCT_NOT_FOUND') return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p><div className="workspace-message" role="alert">
-      <h1>Ürün bulunamadı</h1><p>Bu ürün kaldırılmış veya bağlantı değişmiş olabilir.</p>
-    </div>
+    <p className="eyebrow">Ürün kataloğu</p>
+    <ResultState status="404" title="Ürün bulunamadı" description="Bu ürün kaldırılmış veya bağlantı değişmiş olabilir." headingLevel={1} />
   </main>;
   if (state.code === 'FORBIDDEN') return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p><div className="workspace-message" role="alert">
-      <h1>Bu ürünü görüntüleme yetkiniz yok</h1><p>{state.message}</p>
-    </div>
+    <p className="eyebrow">Ürün kataloğu</p>
+    <ResultState status="403" title="Bu ürünü görüntüleme yetkiniz yok" description={state.message} headingLevel={1} />
   </main>;
   return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p><div className="workspace-message" role="alert">
-      <h1>Ürün yüklenemedi</h1><p>{state.message}</p>
-      {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}
-    </div>
+    <p className="eyebrow">Ürün kataloğu</p>
+    <ResultState status="error" title="Ürün yüklenemedi" description={state.message} headingLevel={1}
+      action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
+    />
   </main>;
 }
 

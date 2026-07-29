@@ -11,6 +11,7 @@ import {
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
+import { ResultState } from './ui/antd/ResultState';
 
 const typeLabels: Record<CustomerType, string> = { clinic: 'Klinik', hospital: 'Hastane', dealer: 'Bayi', company: 'Firma', other: 'Diğer' };
 const statusLabels = { prospect: 'Aday', active: 'Aktif', inactive: 'Pasif' } as const;
@@ -110,7 +111,7 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
   useEffect(() => { void load(); return () => { requestGate.current.next(); }; }, [customerId, user.role]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   if (loading) return <main className="customer-detail" aria-busy="true"><h1>Müşteri detayı yükleniyor</h1></main>;
-  if (!customer) return <main className="customer-detail"><div className="workspace-message" role="alert"><h1>Müşteri yüklenemedi</h1><p>{error}</p><button className="secondary-button" onClick={() => void load()}>Tekrar dene</button></div></main>;
+  if (!customer) return <main className="customer-detail"><ResultState status="error" title="Müşteri yüklenemedi" description={error} headingLevel={1} action={<button className="secondary-button" onClick={() => void load()}>Tekrar dene</button>} /></main>;
   async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (conflict) return;
     const generation = requestGate.current.current(); setPending(true); setError(''); setNotice('');
     try {

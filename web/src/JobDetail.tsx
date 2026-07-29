@@ -27,6 +27,7 @@ import {
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './jobs/scheduling';
+import { ResultState } from './ui/antd/ResultState';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
 import { JobDecisionPanel } from './jobs/JobDecisionPanel';
 import {
@@ -1057,8 +1058,9 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     return <main className="job-detail" aria-busy="true"><p>İş detayları yükleniyor</p></main>;
   }
   if (state.kind === 'error') {
-    return <main className="job-detail"><div className="workspace-message" role="alert"><h1>İş yüklenemedi</h1><p>{state.message}</p>
-      {state.retryable && <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button>}</div></main>;
+    return <main className="job-detail"><ResultState status="error" title="İş yüklenemedi" description={state.message} headingLevel={1}
+      action={state.retryable ? <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button> : undefined}
+    /></main>;
   }
   const { detail } = state;
   const actions = detail.job.workflowContext.allowedActions;

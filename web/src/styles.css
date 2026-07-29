@@ -496,6 +496,16 @@ button:disabled { cursor: wait; opacity: 0.65; }
   hyphens: auto;
   cursor: pointer;
 }
+
+@media (max-width: 22rem) {
+  .mobile-bottom-nav {
+    gap: 0;
+  }
+  .mobile-bottom-nav-item {
+    padding: 0.35rem 0.15rem;
+    font-size: 0.72rem;
+  }
+}
 /* Active destination uses accent soft + weight (not color alone). */
 .mobile-bottom-nav-item--active,
 .mobile-bottom-nav a[aria-current="page"],
@@ -519,7 +529,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 /* One primary create: hide toolbar Yeni iş when sticky mobile create is present. */
 @media (width < 64rem) {
-  .workspace-create-actions--toolbar {
+  .workspace-create-actions.workspace-create-actions--toolbar {
     display: none;
   }
   .authenticated-shell--mobile .workspace-heading h1 {
@@ -956,9 +966,6 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .workspace-actions { display: flex; align-items: center; gap: 1rem; }
 
 .scope-note { color: var(--muted); font-size: 0.8125rem; }
-.workspace-message { max-width: 40rem; padding-block: 2rem; border-top: 1px solid var(--rule); }
-.workspace-message h1, .workspace-message h2 { margin: 0; font-size: 1.25rem; }
-.workspace-message p { color: var(--muted); line-height: 1.6; }
 .job-workspace { min-width: 0; }
 .job-workspace-heading { margin-bottom: 1.35rem; }
 .job-quick-views {

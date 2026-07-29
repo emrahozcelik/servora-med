@@ -7,6 +7,8 @@ import {
   resetUserPassword, updateUser, type ManagedUser,
 } from './services/people-api';
 import { PASSWORD_LENGTH_HINT_TR } from './ui/password-policy';
+import { EmptyState } from './ui/antd/EmptyState';
+import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 
 const roleLabel = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
@@ -23,7 +25,7 @@ function openCardIfEmpty(
 export function UserListView({ users, onCreate, onOpen }: { users: ManagedUser[]; onCreate: () => void; onOpen: (id: string) => void }) {
   return <main className="workspace"><div className="workspace-heading"><div><p className="eyebrow">Yönetim</p><h1>Kullanıcılar</h1></div>
     <button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button></div>
-    {users.length === 0 ? <div className="workspace-message"><h2>Henüz kullanıcı yok</h2><p>İlk kullanıcıyı oluşturarak başlayın.</p></div>
+    {users.length === 0 ? <EmptyState title="Henüz kullanıcı yok" description="İlk kullanıcıyı oluşturarak başlayın." />
       : <ul className="people-list">{users.map((user) => <li key={user.id}>
         <article className="people-row people-list-card" data-user-id={user.id}
           onClick={(event) => openCardIfEmpty(event, onOpen, user.id)}>
@@ -95,7 +97,7 @@ export function UserListScreen() {
   const load = () => { setState('loading'); listUsers().then((value) => { setUsers(value); setState('ready'); }).catch(() => setState('error')); };
   useEffect(load, []);
   if (state === 'loading') return <main className="workspace" aria-busy="true"><h1>Kullanıcılar yükleniyor</h1></main>;
-  if (state === 'error') return <main className="workspace"><div role="alert" className="workspace-message"><h1>Kullanıcılar yüklenemedi</h1><button className="secondary-button" onClick={load}>Tekrar dene</button></div></main>;
+  if (state === 'error') return <main className="workspace"><ResultState status="error" title="Kullanıcılar yüklenemedi" headingLevel={1} action={<button className="secondary-button" onClick={load}>Tekrar dene</button>} /></main>;
   return <>
     <button className="back-link" type="button" onClick={() => navigate(paths.jobs)}>İşlere dön</button>
     <UserListView users={users} onCreate={() => navigate(paths.newUser)}
@@ -112,8 +114,8 @@ export function UserCreateScreen() {
       .catch(() => setState('error'));
   }, []);
   if (state === 'loading') return <main className="workspace" aria-busy="true"><h1>Kullanıcı formu yükleniyor</h1></main>;
-  if (state === 'error') return <main className="workspace"><div role="alert" className="workspace-message"><h1>Kullanıcı formu yüklenemedi</h1>
-    <button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button></div></main>;
+  if (state === 'error') return <main className="workspace"><ResultState status="error" title="Kullanıcı formu yüklenemedi" headingLevel={1}
+    action={<button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button>} /></main>;
   return <UserCreateForm managers={managers} onCancel={() => navigate(paths.users)}
     onCreated={(created) => navigate(paths.user(created.id))} />;
 }
@@ -138,10 +140,10 @@ export function UserDetailScreen() {
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
   }, [userId]);
-  if (!userId) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Kullanıcı bulunamadı</h1></div></main>;
+  if (!userId) return <main className="workspace"><ResultState status="404" title="Kullanıcı bulunamadı" headingLevel={1} /></main>;
   if (loading) return <main className="workspace" aria-busy="true"><h1>Kullanıcı yükleniyor</h1></main>;
-  if (!user) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Kullanıcı yüklenemedi</h1><p>{error}</p>
-    <button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button></div></main>;
+  if (!user) return <main className="workspace"><ResultState status="error" title="Kullanıcı yüklenemedi" description={error} headingLevel={1}
+    action={<button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button>} /></main>;
   return <UserDetailView user={user} onBack={() => navigate(paths.users)} onChanged={setUser} />;
 }
 
