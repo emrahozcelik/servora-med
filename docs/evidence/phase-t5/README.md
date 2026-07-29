@@ -2,7 +2,7 @@
 
 **T5A capture source SHA:** `1499b5cc44d5d4cba2cc676770024c257f51812f`
 **T5B capture source SHA:** `2432358eef3b1db19e9248d31c6cfcb6fafcc56e`
-**T5C closeout SHA:** (pending commit — see PR #77 head)
+**T5C closeout SHA:** `71aa541b0e631ec913d4f789ac5c43821b73be92`
 
 ## Safety
 
@@ -58,7 +58,7 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 |-----------|-----------|-------------|--------|---------|
 | T5A — State-dialect cleanup | `1499b5c` | `2432358` | `30439243680` | PASS |
 | T5B — Responsive regression | (no source change) | `276bfac` | `30445082087` | PASS |
-| T5C — Evidence & plan closeout | (docs only) | pending | pending | PENDING |
+| T5C — Evidence & plan closeout | (docs only) | `71aa541` | `30448515844` | PASS |
 
 ### Final Validation Matrix
 
