@@ -1,7 +1,7 @@
 # Phase T5 Evidence — Visual Acceptance
 
 **T5A capture source SHA:** `1499b5cc44d5d4cba2cc676770024c257f51812f`
-**T5B capture source SHA:** `e350da60f4a46804b2828795c378465a9a3c5b27`
+**T5B capture source SHA:** `b50bf4fc623440713fd7980baf0452b4836022d7`
 **T5C closeout:** (docs-only — see PR #77 for current exact head and CI)
 
 ## Safety
@@ -58,7 +58,7 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 | Checkpoint | Source SHA | Evidence SHA | CI Run | Verdict |
 |-----------|-----------|-------------|--------|---------|
 | T5A — State-dialect cleanup | `1499b5c` | `2432358` | `30439243680` | PASS |
-| T5B — Responsive regression | (CSS fixes) | `060a4b5` | `30462337121` | PASS (2 found, 2 fixed, 0 open) |
+| T5B — Responsive regression | (CSS fixes) | `b50bf4f` | `30465980117` | PASS (2 found, 2 fixed, 0 open) |
 | T5C — Evidence & plan closeout | (docs only) | (see PR #77) | (see PR #77) | IMPLEMENTATION COMPLETE |
 
 ### Final Validation Matrix
