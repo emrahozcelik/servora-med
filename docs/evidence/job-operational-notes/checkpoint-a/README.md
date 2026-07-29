@@ -6,18 +6,23 @@
 - Docs commit: `a66c85b3d740e185e805ff79d86ec3145951f80c`
 - Main source commit: `19e9d1b8456a43f5ad4ab21ea8acbe4def88bcad`
 - Responsive source repair: `d6b5f628161a0876cfba325195e3dd0718790e62`
-- Evidence source SHA: `d6b5f628161a0876cfba325195e3dd0718790e62`
+- Original visual capture SHA: `d6b5f628161a0876cfba325195e3dd0718790e62`
+- Review repair source SHA: `f1f9727ef3732872e2730a2d23276fccf28b5852`
 - Migration: `019_job_card_operational_note_context.sql`
 - Capture date: 2026-07-29
 
-The evidence uses only synthetic organization, user, JobCard, and note data.
+The screenshots remain the original visual captures from `d6b5f628161a0876cfba325195e3dd0718790e62`;
+they were not recaptured or relabelled as repair-source captures. Review-repair API assertions and
+automated validation were regenerated on `f1f9727ef3732872e2730a2d23276fccf28b5852`.
+All evidence uses only synthetic organization, user, JobCard, and note data.
 
 ## Runtime
 
 - PostgreSQL: disposable local database with migrations 001–019
+- Review-repair PostgreSQL: isolated PostgreSQL 16 SCRAM/password-auth cluster on loopback
 - API: real Fastify server on loopback
 - Web: real Vite server on loopback
-- Browser: Playwright MCP
+- Browser: original screenshots via Playwright MCP; current responsive regression via the repository smoke runner
 - Capability configuration: Overview enabled; Calendar, Messaging, Web Push, and action-scoped geolocation disabled
 
 ## Browser and API assertions
@@ -37,17 +42,34 @@ The evidence uses only synthetic organization, user, JobCard, and note data.
 | HTML-like body | `<b>örnek</b> — 1 < 2` is visible as text; rendered `<b>` element count is `0` |
 | Responsive | 390 px, 200% text, and 320 px/400% reflow have no horizontal overflow after the bounded JobDetail repair |
 
+## Review-repair assertions
+
+| Scenario | Result on repair source |
+| --- | --- |
+| Complete v1 database context | Real PostgreSQL rejects `NULL` separately for author name, author role, workflow stage, context, and related activity |
+| v1 value constraints | Real PostgreSQL rejects blank author name and invalid role, stage, or context |
+| Compatibility and ownership | Complete v1 and legacy v0 inserts succeed; wrong-JobCard activity relation is rejected |
+| Exact cursor format | Repository emits `YYYY-MM-DDTHH:mm:ss.ffffffZ` from PostgreSQL without JavaScript `Date` normalization |
+| Microsecond dataset | `.123900Z`, `.123500Z`, and `.123100Z`, page size 1 |
+| HTTP cursor round-trip | Real Fastify query parser preserves each six-digit cursor unchanged |
+| Concurrent newer insert | `.000100Z` in the next second does not enter or shift older-page traversal |
+| Traversal integrity | Latest page is chronological; older traversal returns each seeded note exactly once with no duplicate or gap |
+| Staff authorization | An unassigned active Staff request reaches the real Fastify route and returns `404 JOB_CARD_NOT_FOUND` |
+| Note creation and replay | Real Fastify API returns `201` twice with the same note and related activity identity |
+| Overview bodyless privacy | Real Overview response includes only note id, JobCard id/title, author name, and timestamp; the synthetic note body is absent |
+| Vite availability | Real Vite source server returns `200` on loopback |
+
 ## Automated validation
 
-- Focused server: 6 files, 168 tests passed.
-- Focused web: 4 files, 69 tests passed.
+- Focused server on password-auth PostgreSQL: 3 files, 96 tests passed.
+- Focused web: 2 files, 56 tests passed.
 - Full web: 96 files, 1129 tests passed.
-- Full server on local trust-auth PostgreSQL: 116 files and 1381 tests passed; the sole failure is the pre-existing password-auth contract because local PostgreSQL accepts an intentionally wrong password under trust authentication.
+- Full server on password-auth PostgreSQL: 117 files, 1383 tests passed.
 - Server build: passed.
 - Web build: passed.
 - Bundle budget: passed, 55 chunks, each below 500000 bytes.
-- Local responsive smoke script: browser launch produced no output and was stopped; the required responsive cases were then exercised against the real application through Playwright MCP.
-- Local network audits: not run because the execution policy rejected sending dependency metadata to npm. Exact-head GitHub CI is the authoritative audit and responsive-smoke gate.
+- Local responsive smoke: passed.
+- High-severity dependency audit: `PASS_WITH_WAIVER`; only the policy-approved RSC-only `GHSA-qwww-vcr4-c8h2` waiver applied.
 
 ## Screenshot index
 
