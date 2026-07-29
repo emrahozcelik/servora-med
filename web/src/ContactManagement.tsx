@@ -9,6 +9,8 @@ import {
 } from './services/crm-api';
 import { createRequestGate } from './services/request-gate';
 import { CompactConfirmationAction } from './ui/antd';
+import { EmptyState } from './ui/antd/EmptyState';
+import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 
 export type ContactListState =
@@ -38,9 +40,10 @@ export function ContactListView({ state, canManage, createButtonRef, onRetry, on
     <div className="section-heading"><h2 id="contacts-title">İlgili kişiler</h2>
       {canManage && <button className="secondary-button" type="button" ref={createButtonRef} onClick={onCreate}>İlgili kişi ekle</button>}</div>
     {state.kind === 'loading' && <div className="contact-loading" aria-busy="true" aria-live="polite">İlgili kişiler yükleniyor</div>}
-    {state.kind === 'error' && <div className="workspace-message" role="alert"><h3>İlgili kişiler yüklenemedi</h3><p>{state.message}</p>
-      {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}</div>}
-    {state.kind === 'ready' && state.contacts.length === 0 && <div className="workspace-message"><h3>Henüz ilgili kişi yok</h3><p>Doktor, satın alma sorumlusu veya sekreter bilgileri burada görünür.</p></div>}
+    {state.kind === 'error' && <ResultState status="error" title="İlgili kişiler yüklenemedi" description={state.message} headingLevel={3}
+      action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
+    />}
+    {state.kind === 'ready' && state.contacts.length === 0 && <EmptyState title="Henüz ilgili kişi yok" description="Doktor, satın alma sorumlusu veya sekreter bilgileri burada görünür." headingLevel={3} />}
     {state.kind === 'ready' && state.contacts.length > 0 && <ul className="contact-list">{state.contacts.map((contact) => <li key={contact.id}>
       <article className="contact-row contact-list-card" data-contact-id={contact.id}
         onClick={(event) => openCardIfEmpty(event, onOpenContact, contact.customerId, contact.id)}>
@@ -142,7 +145,7 @@ export function ContactDetailScreen({ customerId, contactId, canManage }: { cust
   useEffect(() => { void load(); return () => { requestGate.current.next(); }; }, [customerId, contactId]);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   if (loading) return <main className="customer-detail" aria-busy="true"><h1>İlgili kişi yükleniyor</h1></main>;
-  if (!contact) return <main className="customer-detail"><div className="workspace-message" role="alert"><h1>İlgili kişi yüklenemedi</h1><p>{error}</p><button className="secondary-button" onClick={() => void load()}>Tekrar dene</button></div></main>;
+  if (!contact) return <main className="customer-detail"><ResultState status="error" title="İlgili kişi yüklenemedi" description={error} headingLevel={1} action={<button className="secondary-button" onClick={() => void load()}>Tekrar dene</button>} /></main>;
   async function save(event: FormEvent<HTMLFormElement>) { event.preventDefault(); if (conflict) return;
     const generation = requestGate.current.current(); setPending(true); setError(''); setNotice('');
     try {

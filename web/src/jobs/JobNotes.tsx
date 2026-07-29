@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError } from '../services/api';
+import { ResultState } from '../ui/antd/ResultState';
 import {
   addJobCardNote, listJobCardNotes, type JobCardNote, type Paginated,
 } from './jobs-api';
@@ -113,9 +114,9 @@ export function JobNotes({
     </form>}
 
     {state.kind === 'loading' && <div aria-busy="true"><p>Notlar yükleniyor</p></div>}
-    {state.kind === 'error' && <div className="workspace-message" role="alert"><p>{state.message}</p>
-      {state.retryable && <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button>}
-    </div>}
+    {state.kind === 'error' && <ResultState status="error" title="Notlar yüklenemedi" description={state.message} headingLevel={3}
+      action={state.retryable ? <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button> : undefined}
+    />}
     {state.kind === 'ready' && (state.page.items.length === 0
       ? <p className="detail-empty">Henüz iş notu yok.</p>
       : <ul className="job-note-list">{state.page.items.map((note) => <li key={note.id}>

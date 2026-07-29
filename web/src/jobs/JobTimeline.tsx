@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 
 import { ApiError } from '../services/api';
 import { ActivityTimeline, type ActivityTimelineItem } from '../ui/antd';
+import { ResultState } from '../ui/antd/ResultState';
 import { historicalJobStatusLabels, isKnownJobCardActivityEvent, jobActivityLabel } from './job-labels';
 import { listActivity, type JobCardActivity, type JobCardActivityDetails, type Paginated } from './jobs-api';
 
@@ -116,9 +117,9 @@ export function JobTimeline({ jobId, refreshKey = 0, load = listActivity }: {
     <h2 id="job-timeline-title">İşlem geçmişi</h2>
     <p className="timeline-order-note">En yeni işlem üstte</p>
     {state.kind === 'loading' && <div aria-busy="true"><p>İşlem geçmişi yükleniyor</p></div>}
-    {state.kind === 'error' && <div className="workspace-message" role="alert"><p>{state.message}</p>
-      {state.retryable && <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button>}
-    </div>}
+    {state.kind === 'error' && <ResultState status="error" title="İşlem geçmişi yüklenemedi" description={state.message} headingLevel={3}
+      action={state.retryable ? <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button> : undefined}
+    />}
     {state.kind === 'ready' && (state.page.items.length === 0
       ? <p className="detail-empty">Henüz işlem geçmişi yok.</p>
       : <ActivityTimeline items={state.page.items.map(presentActivity)} />)}

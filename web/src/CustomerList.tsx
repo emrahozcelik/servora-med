@@ -12,6 +12,8 @@ import {
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
 import { ConfirmationAction } from './ui/antd';
+import { EmptyState } from './ui/antd/EmptyState';
+import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
 
@@ -260,12 +262,15 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
     </div>
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
     <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
-    {actionError && <div className="workspace-message" role="alert"><p>{actionError}</p></div>}
+    {actionError && <div role="alert"><p>{actionError}</p></div>}
     {state.kind === 'loading' && <section className="customer-loading" aria-busy="true" aria-live="polite"><h2>Müşteriler yükleniyor</h2><span /><span /><span /></section>}
-    {state.kind === 'error' && <div className="workspace-message" role="alert"><h2>Müşteriler yüklenemedi</h2><p>{state.message}</p>
-      {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}</div>}
-    {state.kind === 'ready' && state.customers.length === 0 && <div className="workspace-message"><h2>{hasFilters ? 'Filtrelere uygun müşteri bulunamadı' : 'Henüz müşteri kaydı yok'}</h2>
-      <p>{hasFilters ? 'Filtreleri değiştirerek yeniden deneyin.' : 'İlk müşteri kaydı eklendiğinde burada görünecek.'}</p></div>}
+    {state.kind === 'error' && <ResultState status="error" title="Müşteriler yüklenemedi" description={state.message}
+      action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
+    />}
+    {state.kind === 'ready' && state.customers.length === 0 && <EmptyState
+      title={hasFilters ? 'Filtrelere uygun müşteri bulunamadı' : 'Henüz müşteri kaydı yok'}
+      description={hasFilters ? 'Filtreleri değiştirerek yeniden deneyin.' : 'İlk müşteri kaydı eklendiğinde burada görünecek.'}
+    />}
     {state.kind === 'ready' && state.customers.length > 0 && <ul className="customer-list">{state.customers.map((customer) => <li key={customer.id}>
       <article className="customer-row customer-list-card" data-customer-id={customer.id}
         onClick={(event) => openCardIfEmpty(event, onOpenCustomer, customer.id)}>

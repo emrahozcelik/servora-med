@@ -6,6 +6,8 @@ import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import type { CurrentUser } from './services/api';
 import { getOwnStaffProfile, getStaffProfile, listStaff, listUsers, updateStaffProfile, type ManagedUser, type StaffProfile } from './services/people-api';
 import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
+import { EmptyState } from './ui/antd/EmptyState';
+import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 
 const counterLabels = { open: 'Açık işler', waitingApproval: 'Onay bekliyor', revisionRequested: 'Düzeltme istendi', completedThisMonth: 'Bu ay tamamlandı', overdue: 'Geciken' } as const;
@@ -36,7 +38,7 @@ export function StaffDirectoryView({ profiles, onOpen, onBack }: {
 }) {
   return <main className="workspace"><button className="back-link" onClick={onBack}>İşlere dön</button>
     <div className="workspace-heading"><div><p className="eyebrow">Ekip</p><h1>Personel</h1></div></div>
-    {profiles.length === 0 ? <div className="workspace-message"><h2>Personel bulunamadı</h2><p>Aktif personel profili yok.</p></div>
+    {profiles.length === 0 ? <EmptyState title="Personel bulunamadı" description="Aktif personel profili yok." />
       : <ul className="people-list">{profiles.map((profile) => <li key={profile.id}>
         <article className="people-row people-list-card" data-staff-id={profile.user.id}
           onClick={(event) => openCardIfEmpty(event, onOpen, profile.user.id)}>
@@ -101,7 +103,7 @@ export function StaffProfilesScreen({ user, onBack, initialStaffUserId, onOpenPr
   }, [user, initialStaffUserId, reload]);
   useRealtimeInvalidation(realtimeResourceKeys, () => { setReload((value) => value + 1); });
   if (loading) return <main className="workspace" aria-busy="true"><h1>{initialStaffUserId ? 'Personel profili yükleniyor' : 'Personel bilgileri yükleniyor'}</h1></main>;
-  if (error) return <main className="workspace"><div className="workspace-message" role="alert"><h1>Personel bilgileri yüklenemedi</h1><p>{error}</p></div></main>;
+  if (error) return <main className="workspace"><ResultState status="error" title="Personel bilgileri yüklenemedi" description={error} headingLevel={1} /></main>;
   if (user.role === 'STAFF' && own) return <OwnStaffProfileView profile={own} onBack={onBack} />;
   if (selected) return <StaffProfileEditRoute profile={selected} managers={managers} onBack={() => { setSelected(null); onProfileBack?.(); }} onChanged={(next) => setProfiles((all) => all.map((p) => p.id === next.id ? next : p))} onOpenReport={onOpenReport ? () => onOpenReport(selected.user.id) : undefined} />;
   return <StaffDirectoryView profiles={profiles} onBack={onBack}

@@ -9,6 +9,8 @@ import {
   deleteProduct, listProducts, type Paginated, type Product, type ProductFilters,
 } from './services/products-api';
 import { ConfirmationAction } from './ui/antd';
+import { EmptyState } from './ui/antd/EmptyState';
+import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
 
 const PAGE_SIZE = 25;
@@ -74,7 +76,8 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   const canManage = user.role !== 'STAFF';
 
   if (state.kind === 'error' && state.code === 'FORBIDDEN') return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p><div className="workspace-message" role="alert"><h1>Bu alana erişim yetkiniz yok</h1><p>{state.message}</p></div>
+    <p className="eyebrow">Ürün kataloğu</p>
+    <ResultState status="403" title="Bu alana erişim yetkiniz yok" description={state.message} headingLevel={1} />
   </main>;
 
   return <main className="workspace product-workspace">
@@ -82,13 +85,12 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
       {canManage && <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link>}</div>
     <ProductFiltersView filters={filters} onChange={onFilterChange} />
     <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
-    {actionError && <div className="workspace-message" role="alert"><p>{actionError}</p></div>}
+    {actionError && <div role="alert"><p>{actionError}</p></div>}
     {state.kind === 'loading' ? <div className="product-results" aria-busy="true" aria-live="polite">
       <h2 className="sr-only">Ürünler yükleniyor</h2><div className="product-loading" aria-hidden="true"><span /><span /><span /></div>
-    </div> : state.kind === 'error' ? <div className="product-results"><div className="workspace-message" role="alert">
-      <h2>Ürünler yüklenemedi</h2><p>{state.message}</p>
-      {state.retryable && <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button>}
-    </div></div> : <ProductResults page={state.page} canManage={canManage} hasFilters={hasFilters}
+    </div> : state.kind === 'error' ? <div className="product-results"><ResultState status="error" title="Ürünler yüklenemedi" description={state.message}
+      action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
+    /></div> : <ProductResults page={state.page} canManage={canManage} hasFilters={hasFilters}
       onOffsetChange={onOffsetChange} onOpenProduct={onOpenProduct} onRequestDelete={onRequestDelete} />}
   </main>;
 }
@@ -104,8 +106,10 @@ function ProductResults({ page, canManage, hasFilters, onOffsetChange, onOpenPro
   const first = page.total === 0 ? 0 : page.offset + 1;
   const last = Math.min(page.offset + page.limit, page.total);
   return <div className="product-results">
-    {page.items.length === 0 ? <div className="workspace-message"><h2>{hasFilters ? 'Filtrelere uygun ürün bulunamadı' : 'Henüz ürün kaydı yok'}</h2>
-      <p>{hasFilters ? 'Arama metnini değiştirin.' : 'Ürünler eklendiğinde katalog burada görünecek.'}</p></div>
+    {page.items.length === 0 ? <EmptyState
+      title={hasFilters ? 'Filtrelere uygun ürün bulunamadı' : 'Henüz ürün kaydı yok'}
+      description={hasFilters ? 'Arama metnini değiştirin.' : 'Ürünler eklendiğinde katalog burada görünecek.'}
+    />
       : <ul className="product-list">{page.items.map((product) => <li key={product.id}>
         <article className="product-row product-list-card" data-product-id={product.id}
           onClick={(event) => openCardIfEmpty(event, onOpenProduct, product.id)}>
