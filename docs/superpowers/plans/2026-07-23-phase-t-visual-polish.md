@@ -45,7 +45,7 @@ T4 CRM/product/staff/forms polish: IMPLEMENTATION COMPLETE / INTEGRATION PENDING
 T4A Operational create form chrome: COMPLETE (integrated into main)
 T4B CRM customer and contact surfaces: COMPLETE (integrated into main)
 T4C Product, staff/user and T4 closeout: IMPLEMENTATION COMPLETE (Draft PR pending)
-T5 states and visual regression: NOT STARTED
+T5 states and visual regression: IMPLEMENTATION COMPLETE — PENDING EXTERNAL MERGE GATE
 
 P0 defect track:
 RecordDescriptions container reflow: COMPLETE
