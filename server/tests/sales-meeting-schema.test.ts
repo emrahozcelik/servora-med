@@ -141,14 +141,14 @@ async function expectConstraintViolation(
 }
 
 describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
-  it('runs clean 001-018, preserves exact vocabularies and does not reapply', async () => {
+  it('runs clean 001-019, preserves exact vocabularies and does not reapply', async () => {
     await withIsolatedDatabase(async (pool, store) => {
       const firstRun = await runMigrations({
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(18);
-      expect(firstRun.appliedVersions.at(-1)).toBe('018_messaging');
+      expect(firstRun.appliedVersions).toHaveLength(19);
+      expect(firstRun.appliedVersions.at(-1)).toBe('019_job_card_operational_note_context');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -192,6 +192,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '016_google_reverse_geocoding',
           '017_calendar',
           '018_messaging',
+          '019_job_card_operational_note_context',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();

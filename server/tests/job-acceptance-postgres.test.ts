@@ -162,6 +162,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '016_google_reverse_geocoding',
           '017_calendar',
           '018_messaging',
+          '019_job_card_operational_note_context',
         ],
       });
 

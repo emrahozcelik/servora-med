@@ -29,7 +29,7 @@ const staffOverview: OverviewResponse = {
   recentCompletedWork: [{ id: 'j-1', title: 'Ürün teslimi', customerName: 'Klinik A', assigneeName: 'Ayşe Personel', completedAt: '2026-07-25' }],
   recentNotes: [{
     id: 'note-1', jobCardId: 'job-1', jobTitle: 'Klinik ziyareti',
-    preview: 'Teslim saati klinikle doğrulandı.', authorName: 'Ayşe Personel',
+    authorName: 'Ayşe Personel',
     createdAt: '2026-07-25T10:00:00.000Z',
   }],
 };
@@ -44,7 +44,7 @@ const managementOverview: OverviewResponse = {
   recentCompletedWork: [{ id: 'j-2', title: 'Muayene ziyareti', customerName: 'Klinik B', assigneeName: 'Ahmet Yönetici', completedAt: '2026-07-24' }],
   recentNotes: [{
     id: 'note-2', jobCardId: 'job-2', jobTitle: 'Toplantı',
-    preview: 'Haftalık değerlendirme yapıldı.', authorName: 'Ahmet Yönetici',
+    authorName: 'Ahmet Yönetici',
     createdAt: '2026-07-24T14:00:00.000Z',
   }],
 };
@@ -136,7 +136,8 @@ describe('OverviewPage', () => {
 
   it('renders OperationalCards for recent notes', async () => {
     const html = await render(staffOverview);
-    expect(html).toContain('Teslim saati klinikle doğrulandı.');
+    expect(html).toContain('Operasyon notu eklendi');
+    expect(html).not.toContain('Teslim saati klinikle doğrulandı.');
     expect(html).toContain('Ayşe Personel');
   });
 

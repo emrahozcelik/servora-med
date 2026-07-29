@@ -921,7 +921,7 @@ describe('Staff JobCard detail', () => {
             id: 'note-1', jobCardId: 'job-1', note: 'Kayıtlı not',
             author: { id: 's1', name: 'Ayşe' }, createdAt: '2026-07-17T09:30:00.000Z',
           }],
-          total: 1, limit: 25, offset: 0,
+          limit: 25, nextCursor: null,
         },
       }));
       expect(host.textContent).toContain('Kayıtlı not');
@@ -940,7 +940,9 @@ describe('Staff JobCard detail', () => {
         cancelledFromStatus: 'IN_PROGRESS',
       }),
     };
-    await renderScreen(card, staffUser, mockDetailFetch(card, { notes: emptyPage }));
+    await renderScreen(card, staffUser, mockDetailFetch(card, {
+      notes: { items: [], limit: 25, nextCursor: null },
+    }));
     expect(host.querySelector('.job-notes')).toBeNull();
     expect(host.textContent).not.toContain('Henüz iş notu yok');
   });

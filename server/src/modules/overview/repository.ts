@@ -40,7 +40,6 @@ type RecentNoteRow = {
   id: string;
   job_card_id: string;
   job_title: string;
-  preview: string;
   author_name: string;
   created_at: Date;
 };
@@ -63,8 +62,8 @@ ORDER BY j.manager_approved_at DESC, j.id DESC
 LIMIT 10`;
 
 const RECENT_NOTES_SQL = `
-SELECT n.id, n.job_card_id, j.title AS job_title, left(n.note, 160) AS preview,
-  author.name AS author_name, n.created_at
+SELECT n.id, n.job_card_id, j.title AS job_title,
+  COALESCE(n.author_name_snapshot, author.name) AS author_name, n.created_at
 FROM job_card_notes n
 JOIN job_cards j
   ON j.organization_id = n.organization_id AND j.id = n.job_card_id
@@ -240,7 +239,6 @@ export class PostgresOverviewRepository implements OverviewReadModel {
         id: row.id,
         jobCardId: row.job_card_id,
         jobTitle: row.job_title,
-        preview: row.preview,
         authorName: row.author_name,
         createdAt: row.created_at.toISOString(),
       })),

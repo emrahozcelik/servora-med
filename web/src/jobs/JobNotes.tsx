@@ -1,17 +1,27 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError } from '../services/api';
-import { ResultState } from '../ui/antd/ResultState';
+import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
 import {
-  addJobCardNote, listJobCardNotes, type JobCardNote, type Paginated,
+  addJobCardNote,
+  listJobCardNotes,
+  type JobCardNote,
+  type JobCardNoteCursor,
+  type JobCardNotePage,
 } from './jobs-api';
+import { jobCardStatusLabel } from './job-labels';
 
 const PAGE_SIZE = 25;
 const codePointLength = (value: string) => Array.from(value).length;
+const roleLabels = {
+  ADMIN: 'Sistem yöneticisi',
+  MANAGER: 'Yönetici',
+  STAFF: 'Personel',
+} as const;
 
 type NotesState =
   | { kind: 'loading' }
-  | { kind: 'ready'; page: Paginated<JobCardNote> }
+  | { kind: 'ready'; page: JobCardNotePage }
   | { kind: 'error'; message: string; retryable: boolean };
 
 export function JobNotes({
@@ -31,9 +41,9 @@ export function JobNotes({
   canAdd?: boolean;
   hideWhenEmpty?: boolean;
 }) {
-  const [offset, setOffset] = useState(0);
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState<NotesState>({ kind: 'loading' });
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [draft, setDraft] = useState('');
   const [draftError, setDraftError] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -43,7 +53,7 @@ export function JobNotes({
   useEffect(() => {
     let active = true;
     setState({ kind: 'loading' });
-    load(jobId, { limit: PAGE_SIZE, offset })
+    load(jobId, { limit: PAGE_SIZE, before: null })
       .then((page) => { if (active) setState({ kind: 'ready', page }); })
       .catch((caught) => {
         if (!active) return;
@@ -52,7 +62,7 @@ export function JobNotes({
         setState({ kind: 'error', message: error.message, retryable: error.retryable });
       });
     return () => { active = false; };
-  }, [jobId, load, offset, reloadKey]);
+  }, [jobId, load, reloadKey]);
 
   function updateDraft(value: string) {
     if (actionRef.current && actionRef.current.note !== value.trim()) actionRef.current = null;
@@ -75,17 +85,56 @@ export function JobNotes({
     setPending(true);
     setSubmitError('');
     try {
-      await add(jobId, { clientActionId: action.id, note });
+      const created = await add(jobId, { clientActionId: action.id, note });
       actionRef.current = null;
       setDraft('');
-      setOffset(0);
-      setReloadKey((value) => value + 1);
+      setState((current) => current.kind !== 'ready'
+        ? current
+        : {
+            ...current,
+            page: {
+              ...current.page,
+              items: [
+                ...current.page.items.filter((item) => item.id !== created.id),
+                created,
+              ],
+            },
+          });
       onAdded();
     } catch (caught) {
       const error = caught instanceof Error ? caught.message : 'Not kaydedilemedi.';
       setSubmitError(error);
     } finally {
       setPending(false);
+    }
+  }
+
+  async function loadOlder(before: JobCardNoteCursor) {
+    if (loadingOlder || state.kind !== 'ready') return;
+    setLoadingOlder(true);
+    setSubmitError('');
+    try {
+      const older = await load(jobId, { limit: PAGE_SIZE, before });
+      setState((current) => {
+        if (current.kind !== 'ready') return current;
+        const existingIds = new Set(current.page.items.map((note) => note.id));
+        return {
+          kind: 'ready',
+          page: {
+            items: [
+              ...older.items.filter((note) => !existingIds.has(note.id)),
+              ...current.page.items,
+            ],
+            limit: current.page.limit,
+            nextCursor: older.nextCursor,
+          },
+        };
+      });
+    } catch (caught) {
+      const error = caught instanceof Error ? caught.message : 'Eski notlar yüklenemedi.';
+      setSubmitError(error);
+    } finally {
+      setLoadingOlder(false);
     }
   }
 
@@ -113,20 +162,33 @@ export function JobNotes({
       </button>
     </form>}
 
-    {state.kind === 'loading' && <div aria-busy="true"><p>Notlar yükleniyor</p></div>}
+    {state.kind === 'loading' && <LoadingSkeleton title="Notlar yükleniyor" headingLevel={3} rows={2} />}
     {state.kind === 'error' && <ResultState status="error" title="Notlar yüklenemedi" description={state.message} headingLevel={3}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={() => setReloadKey((value) => value + 1)}>Tekrar dene</button> : undefined}
     />}
     {state.kind === 'ready' && (state.page.items.length === 0
-      ? <p className="detail-empty">Henüz iş notu yok.</p>
+      ? <EmptyState title="Henüz iş notu yok" />
       : <ul className="job-note-list">{state.page.items.map((note) => <li key={note.id}>
         <p className="job-note-body">{note.note}</p><div className="job-note-meta"><strong>{note.author.name}</strong>
+          {note.recordVersion === 1 && <>
+            <span>{roleLabels[note.author.role]}</span>
+            <span>{jobCardStatusLabel(note.workflowStage)}</span>
+          </>}
+          {note.recordVersion === 0 && <>
+            <span>Legacy kimlik</span>
+            <span>Aşama kaydı mevcut değil</span>
+          </>}
           <time dateTime={note.createdAt}>{new Intl.DateTimeFormat('tr-TR', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(note.createdAt))}</time></div>
       </li>)}</ul>)}
-    {state.kind === 'ready' && state.page.total > state.page.limit && <nav className="job-pagination" aria-label="Not sayfaları">
-      <button type="button" className="secondary-button" disabled={offset === 0} onClick={() => setOffset(Math.max(0, offset - PAGE_SIZE))}>Önceki</button>
-      <span>{offset + 1}–{Math.min(offset + state.page.items.length, state.page.total)} / {state.page.total}</span>
-      <button type="button" className="secondary-button" disabled={offset + PAGE_SIZE >= state.page.total} onClick={() => setOffset(offset + PAGE_SIZE)}>Sonraki</button>
-    </nav>}
+    {state.kind === 'ready' && state.page.nextCursor && <div className="job-pagination">
+      <button
+        type="button"
+        className="secondary-button"
+        disabled={loadingOlder}
+        onClick={() => void loadOlder(state.page.nextCursor!)}
+      >
+        {loadingOlder ? 'Yükleniyor…' : 'Daha eski notları yükle'}
+      </button>
+    </div>}
   </section>;
 }

@@ -167,8 +167,8 @@ export function OverviewPage({
                     title={<Link to={paths.job(note.jobCardId)}>{note.jobTitle}</Link>}
                     tone="default"
                   >
-                    <p>{note.preview}</p>
-                    <span>{note.authorName}</span>
+                    <p>Operasyon notu eklendi</p>
+                    <span>{note.authorName} · {new Date(note.createdAt).toLocaleString('tr-TR')}</span>
                   </OperationalCard>
                 ))}
               </div>

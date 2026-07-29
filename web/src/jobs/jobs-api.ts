@@ -33,6 +33,7 @@ export const LIFECYCLE_COMMANDS = [
   'ACCEPT_ASSIGNMENT', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION',
   'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
 ] as const;
+export const USER_ROLES = ['ADMIN', 'MANAGER', 'STAFF'] as const;
 export type LifecycleCommand = (typeof LIFECYCLE_COMMANDS)[number];
 export const JOB_WORKFLOW_ACTIONS = [
   'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
@@ -130,8 +131,33 @@ export type JobCardBoard = {
   }>;
   closedCounts: { COMPLETED: number; CANCELLED: number };
 };
-export type JobCardNote = {
-  id: string; jobCardId: string; note: string; author: RelatedName; createdAt: string;
+type JobCardNoteBase = {
+  id: string; jobCardId: string; note: string; createdAt: string;
+};
+export type JobCardNote = JobCardNoteBase & (
+  | {
+      recordVersion: 0;
+      author: RelatedName & { role: null; source: 'LEGACY_CURRENT' };
+      workflowStage: null;
+      context: null;
+      relatedActivityId: null;
+    }
+  | {
+      recordVersion: 1;
+      author: RelatedName & {
+        role: (typeof USER_ROLES)[number];
+        source: 'SNAPSHOT';
+      };
+      workflowStage: JobCardStatus;
+      context: 'GENERAL';
+      relatedActivityId: string;
+    }
+);
+export type JobCardNoteCursor = { createdAt: string; id: string };
+export type JobCardNotePage = {
+  items: JobCardNote[];
+  limit: number;
+  nextCursor: JobCardNoteCursor | null;
 };
 export type JobCardActivityDetails =
   | {
@@ -421,8 +447,57 @@ function parseBoard(value: unknown): JobCardBoard {
 }
 function parseNote(value: unknown): JobCardNote {
   const v = object(value);
-  return { id: string(v.id, 'id'), jobCardId: string(v.jobCardId, 'jobCardId'), note: string(v.note, 'note'),
-    author: related(v.author, 'author'), createdAt: string(v.createdAt, 'createdAt') };
+  const base = {
+    id: string(v.id, 'id'),
+    jobCardId: string(v.jobCardId, 'jobCardId'),
+    note: string(v.note, 'note'),
+    createdAt: string(v.createdAt, 'createdAt'),
+  };
+  const author = object(v.author);
+  const identity = {
+    id: string(author.id, 'author.id'),
+    name: string(author.name, 'author.name'),
+  };
+  if (v.recordVersion === undefined || v.recordVersion === 0) {
+    return {
+      ...base,
+      recordVersion: 0,
+      author: { ...identity, role: null, source: 'LEGACY_CURRENT' },
+      workflowStage: null,
+      context: null,
+      relatedActivityId: null,
+    };
+  }
+  if (v.recordVersion !== 1) {
+    throw new ApiError(0, 'INVALID_RESPONSE', 'Not kayıt sürümü geçersiz.');
+  }
+  return {
+    ...base,
+    recordVersion: 1,
+    author: {
+      ...identity,
+      role: oneOf(author.role, 'author.role', USER_ROLES),
+      source: oneOf(author.source, 'author.source', ['SNAPSHOT'] as const),
+    },
+    workflowStage: oneOf(v.workflowStage, 'workflowStage', JOB_CARD_STATUSES),
+    context: oneOf(v.context, 'context', ['GENERAL'] as const),
+    relatedActivityId: string(v.relatedActivityId, 'relatedActivityId'),
+  };
+}
+
+function parseNotePage(value: unknown): JobCardNotePage {
+  const v = object(value);
+  const cursor = v.nextCursor === null ? null : object(v.nextCursor);
+  return {
+    items: items(v).map(parseNote),
+    limit: positiveCount(v.limit, 'limit'),
+    nextCursor: cursor === null
+      ? null
+      : {
+          createdAt: string(cursor.createdAt, 'nextCursor.createdAt'),
+          id: string(cursor.id, 'nextCursor.id'),
+        },
+  };
 }
 function parseDetails(value: unknown): JobCardActivityDetails {
   const v = object(value); const kind = string(v.kind, 'details.kind');
@@ -549,8 +624,14 @@ export const getMeetingDetails = async (id: string) =>
 export const patchMeetingDetails = async (id: string, input: PatchMeetingDetailsInput) =>
   parseMeetingDetails(await request(`${jobPath(id)}/meeting-details`, json('PATCH', input)));
 
-export const listJobCardNotes = async (id: string, page: Partial<{ limit: number; offset: number }> = {}) =>
-  parsePage(await request(`${jobPath(id)}/notes${query(page)}`), parseNote);
+export const listJobCardNotes = async (
+  id: string,
+  page: Partial<{ limit: number; before: JobCardNoteCursor | null }> = {},
+) => parseNotePage(await request(`${jobPath(id)}/notes${query({
+  limit: page.limit,
+  beforeCreatedAt: page.before?.createdAt,
+  beforeId: page.before?.id,
+})}`));
 export const addJobCardNote = async (id: string, input: { clientActionId: string; note: string }) =>
   parseNote(await request(`${jobPath(id)}/notes`, json('POST', input)));
 export const listActivity = async (id: string, page: Partial<{ limit: number; offset: number }> = {}) =>

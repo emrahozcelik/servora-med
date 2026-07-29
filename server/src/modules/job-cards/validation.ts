@@ -58,6 +58,38 @@ export function isoInstant(value: unknown, field: string): string {
   return parsed.toISOString();
 }
 
+const NOTE_CURSOR_TIMESTAMP_PATTERN =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})\.(\d{6})Z$/;
+
+/** Validate the exact server-generated operational-note cursor without precision normalization. */
+export function operationalNoteCursorTimestamp(value: unknown, field: string): string {
+  if (typeof value !== 'string') throw validation(field);
+  const match = NOTE_CURSOR_TIMESTAMP_PATTERN.exec(value);
+  if (!match) throw validation(field);
+  const [, year, month, day, hour, minute, second] = match;
+  const yearNumber = Number(year);
+  const monthNumber = Number(month);
+  const dayNumber = Number(day);
+  const leapYear = yearNumber % 4 === 0
+    && (yearNumber % 100 !== 0 || yearNumber % 400 === 0);
+  const daysInMonth = [
+    31, leapYear ? 29 : 28, 31, 30, 31, 30,
+    31, 31, 30, 31, 30, 31,
+  ][monthNumber - 1];
+  if (
+    yearNumber < 1
+    || daysInMonth === undefined
+    || dayNumber < 1
+    || dayNumber > daysInMonth
+    || Number(hour) > 23
+    || Number(minute) > 59
+    || Number(second) > 59
+  ) {
+    throw validation(field);
+  }
+  return value;
+}
+
 export function uuidString(value: unknown, field: string) {
   if (typeof value !== 'string' || !UUID_PATTERN.test(value)) throw validation(field);
   return value;

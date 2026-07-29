@@ -6,14 +6,24 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobNotes } from '../src/jobs/JobNotes';
 import { ApiError } from '../src/services/api';
-import type { JobCardNote, Paginated } from '../src/jobs/jobs-api';
+import type { JobCardNote, JobCardNotePage } from '../src/jobs/jobs-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const emptyPage: Paginated<JobCardNote> = { items: [], total: 0, limit: 25, offset: 0 };
+const emptyPage: JobCardNotePage = { items: [], limit: 25, nextCursor: null };
 const savedNote: JobCardNote = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik tekrar aranacak.',
-  author: { id: 'staff-1', name: 'Ayşe Personel' }, createdAt: '2026-07-14T08:00:00.000Z',
+  author: {
+    id: 'staff-1',
+    name: 'Ayşe Personel',
+    role: 'STAFF',
+    source: 'SNAPSHOT',
+  },
+  workflowStage: 'IN_PROGRESS',
+  context: 'GENERAL',
+  relatedActivityId: 'activity-1',
+  recordVersion: 1,
+  createdAt: '2026-07-14T08:00:00.000Z',
 };
 
 describe('JobCard operational notes', () => {
@@ -127,7 +137,7 @@ describe('JobCard operational notes', () => {
     });
     const add = vi.fn();
     await renderNotes({ load, add, canAdd: false });
-    expect(load).toHaveBeenCalledWith('job-1', { limit: 25, offset: 0 });
+    expect(load).toHaveBeenCalledWith('job-1', { limit: 25, before: null });
     expect(host.textContent).toContain(savedNote.note);
     expect(host.querySelector('form')).toBeNull();
     expect(add).not.toHaveBeenCalled();
@@ -168,6 +178,41 @@ describe('JobCard operational notes', () => {
     expect(meta?.querySelector('time')).not.toBeNull();
   });
 
+  it('shows the frozen author role and workflow stage for a version 1 note', async () => {
+    const load = vi.fn().mockResolvedValue({
+      items: [savedNote], limit: 25, nextCursor: null,
+    });
+    await renderNotes({ load });
+    const meta = host.querySelector('.job-note-list .job-note-meta');
+    expect(meta?.textContent).toContain('Personel');
+    expect(meta?.textContent).toContain('Uygulanıyor');
+  });
+
+  it('labels legacy identity and missing stage without inventing history', async () => {
+    const legacy: JobCardNote = {
+      id: 'legacy-note',
+      jobCardId: 'job-1',
+      note: 'Eski operasyon kaydı',
+      author: {
+        id: 'staff-1',
+        name: 'Güncel profil adı',
+        role: null,
+        source: 'LEGACY_CURRENT',
+      },
+      workflowStage: null,
+      context: null,
+      relatedActivityId: null,
+      recordVersion: 0,
+      createdAt: '2026-07-13T08:00:00.000Z',
+    };
+    const load = vi.fn().mockResolvedValue({
+      items: [legacy], limit: 25, nextCursor: null,
+    });
+    await renderNotes({ load });
+    expect(host.textContent).toContain('Legacy kimlik');
+    expect(host.textContent).toContain('Aşama kaydı mevcut değil');
+  });
+
   it('keeps the composer distinct from the note list without structural overlap', async () => {
     const load = vi.fn().mockResolvedValue({
       items: [savedNote], total: 1, limit: 25, offset: 0,
@@ -181,29 +226,23 @@ describe('JobCard operational notes', () => {
     expect(composer?.compareDocumentPosition(list!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
   });
 
-  it('returns to and reloads the first page after adding a note from a later page', async () => {
+  it('prepends a stable older cursor page without replacing the live tail', async () => {
     const older = { ...savedNote, id: 'note-old', note: 'Eski sayfa notu' };
-    const firstPage = { items: [{ ...savedNote, id: 'note-first', note: 'İlk sayfa notu' }], total: 30, limit: 25, offset: 0 };
-    const secondPage = { items: [older], total: 30, limit: 25, offset: 25 };
-    const refreshed = { items: [savedNote], total: 31, limit: 25, offset: 0 };
+    const latest = { ...savedNote, id: 'note-latest', note: 'Canlı uç notu' };
+    const cursor = {
+      createdAt: '2026-07-13T08:00:00.000Z',
+      id: '00000000-0000-4000-8000-000000000001',
+    };
     const load = vi.fn()
-      .mockResolvedValueOnce(firstPage)
-      .mockResolvedValueOnce(secondPage)
-      .mockResolvedValueOnce(refreshed);
+      .mockResolvedValueOnce({ items: [latest], limit: 25, nextCursor: cursor })
+      .mockResolvedValueOnce({ items: [older], limit: 25, nextCursor: null });
     await renderNotes({ load });
-    const next = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Sonraki')!;
-    await act(async () => { next.click(); await Promise.resolve(); });
-    expect(host.textContent).toContain('Eski sayfa notu');
+    const olderButton = Array.from(host.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Daha eski notları yükle')!;
+    await act(async () => { olderButton.click(); await Promise.resolve(); });
 
-    const textarea = host.querySelector<HTMLTextAreaElement>('textarea')!;
-    await act(async () => {
-      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, savedNote.note);
-      textarea.dispatchEvent(new Event('input', { bubbles: true }));
-      host.querySelector('form')!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
-      await Promise.resolve(); await Promise.resolve();
-    });
-    expect(load).toHaveBeenLastCalledWith('job-1', { limit: 25, offset: 0 });
-    expect(host.textContent).toContain(savedNote.note);
-    expect(host.textContent).not.toContain('Eski sayfa notu');
+    expect(load).toHaveBeenNthCalledWith(2, 'job-1', { limit: 25, before: cursor });
+    expect(Array.from(host.querySelectorAll('.job-note-body')).map((node) => node.textContent))
+      .toEqual(['Eski sayfa notu', 'Canlı uç notu']);
   });
 });

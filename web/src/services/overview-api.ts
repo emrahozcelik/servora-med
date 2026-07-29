@@ -18,7 +18,6 @@ export type OverviewRecentNote = {
   id: string;
   jobCardId: string;
   jobTitle: string;
-  preview: string;
   authorName: string;
   createdAt: string;
 };
@@ -105,7 +104,6 @@ function parseCommon(value: Record<string, unknown>): OverviewCommon {
         id: string(item.id, 'recentNotes.id'),
         jobCardId: string(item.jobCardId, 'recentNotes.jobCardId'),
         jobTitle: string(item.jobTitle, 'recentNotes.jobTitle'),
-        preview: string(item.preview, 'recentNotes.preview'),
         authorName: string(item.authorName, 'recentNotes.authorName'),
         createdAt: string(item.createdAt, 'recentNotes.createdAt'),
       };

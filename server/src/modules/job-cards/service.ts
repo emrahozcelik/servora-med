@@ -16,6 +16,7 @@ import type {
   DeliveryItemRecord,
   JobCardRepository,
   JobCardTransaction,
+  NotePageQuery,
   PageQuery,
   ProductReference,
   SubmissionReader,
@@ -290,7 +291,7 @@ export class JobCardService {
     return [realtimeEvent];
   }
 
-  async listNotes(actor: JobCardActor, jobCardId: string, page: PageQuery) {
+  async listNotes(actor: JobCardActor, jobCardId: string, page: NotePageQuery) {
     return this.notesService.listNotes(actor, jobCardId, page);
   }
 

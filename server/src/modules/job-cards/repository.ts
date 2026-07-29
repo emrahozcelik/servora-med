@@ -17,6 +17,8 @@ import {
   type PersistedJobCardDetail,
   type PersistedJobCardListItem,
   type JobCardNoteDto,
+  type JobCardNoteCursor,
+  type PaginatedJobCardNotes,
   type MeetingDetailsCandidate,
   type MeetingOutcome,
   type RelatedIdentity,
@@ -87,7 +89,19 @@ export type ActivityInput = {
 };
 
 export type CreateNoteRecord = {
-  organizationId: string; jobCardId: string; authorId: string; note: string;
+  id: string;
+  organizationId: string;
+  jobCardId: string;
+  authorId: string;
+  authorNameSnapshot: string;
+  authorRoleSnapshot: JobCardAssignee['role'];
+  workflowStage: JobCardStatus;
+  context: 'GENERAL';
+  relatedActivityId: string;
+  note: string;
+};
+export type NoteAuthorSnapshot = Pick<JobCardAssignee, 'id' | 'role' | 'isActive'> & {
+  name: string;
 };
 
 export type CreateJobCardRecord = {
@@ -149,6 +163,10 @@ export type ActivityRecord = {
   };
 };
 export type PageQuery = { limit: number; offset: number };
+export type NotePageQuery = {
+  limit: number;
+  before: JobCardNoteCursor | null;
+};
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
 export type ActiveManagementRecipient = {
@@ -196,6 +214,10 @@ export interface JobCardTransaction extends SubmissionReader {
   appendWebPushDeliveries(
     input: AppendWebPushDeliveriesInput,
   ): Promise<readonly string[]>;
+  getNoteAuthorSnapshot(
+    organizationId: string,
+    authorId: string,
+  ): Promise<NoteAuthorSnapshot | null>;
   createNote(input: CreateNoteRecord): Promise<JobCardNoteDto>;
   getAssigneeForUpdate(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
   getCustomerForUpdate(organizationId: string, customerId: string): Promise<JobCustomerReference | null>;
@@ -276,8 +298,8 @@ export interface JobCardRepository extends SubmissionReader {
   listNotes(
     organizationId: string,
     jobCardId: string,
-    page: PageQuery,
-  ): Promise<Paginated<JobCardNoteDto>>;
+    page: NotePageQuery,
+  ): Promise<PaginatedJobCardNotes>;
   listReferenceCustomers(organizationId: string): Promise<ReferenceCustomer[]>;
 }
 
@@ -348,8 +370,15 @@ type DeliveryRow = {
 };
 type NoteRow = {
   id: string; job_card_id: string; note: string; author_id: string;
-  author_name: string; created_at: Date;
+  author_name: string; author_name_snapshot: string | null;
+  author_role_snapshot: JobCardAssignee['role'] | null;
+  workflow_stage: JobCardStatus | null;
+  context: 'GENERAL' | null;
+  related_activity_id: string | null;
+  record_version: 0 | 1;
+  created_at: Date;
 };
+type NoteListRow = NoteRow & { cursor_created_at: string };
 type MeetingDetailsRow = {
   job_card_id: string;
   meeting_at: Date | null;
@@ -418,9 +447,39 @@ function mapJobActionLocation(row: JobActionLocationRow): JobActionLocationRecor
   };
 }
 function mapNote(row: NoteRow): JobCardNoteDto {
+  if (row.record_version === 1) {
+    return {
+      id: row.id,
+      jobCardId: row.job_card_id,
+      note: row.note,
+      author: {
+        id: row.author_id,
+        name: row.author_name_snapshot!,
+        role: row.author_role_snapshot!,
+        source: 'SNAPSHOT',
+      },
+      workflowStage: row.workflow_stage!,
+      context: row.context!,
+      relatedActivityId: row.related_activity_id!,
+      recordVersion: 1,
+      createdAt: row.created_at.toISOString(),
+    };
+  }
   return {
-    id: row.id, jobCardId: row.job_card_id, note: row.note,
-    author: { id: row.author_id, name: row.author_name }, createdAt: row.created_at.toISOString(),
+    id: row.id,
+    jobCardId: row.job_card_id,
+    note: row.note,
+    author: {
+      id: row.author_id,
+      name: row.author_name,
+      role: null,
+      source: 'LEGACY_CURRENT',
+    },
+    workflowStage: null,
+    context: null,
+    relatedActivityId: null,
+    recordVersion: 0,
+    createdAt: row.created_at.toISOString(),
   };
 }
 const DELIVERY_COLUMNS = `id, organization_id, job_card_id, product_id, delivery_purpose,
@@ -794,17 +853,55 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     return this.webPush.appendDeliveries(input);
   }
 
+  async getNoteAuthorSnapshot(organizationId: string, authorId: string) {
+    const result = await this.client.query<{
+      id: string;
+      name: string;
+      role: JobCardAssignee['role'];
+      is_active: boolean;
+    }>(
+      `SELECT id, name, role, is_active
+         FROM users
+        WHERE organization_id = $1 AND id = $2
+        FOR SHARE`,
+      [organizationId, authorId],
+    );
+    const row = result.rows[0];
+    return row
+      ? { id: row.id, name: row.name, role: row.role, isActive: row.is_active }
+      : null;
+  }
+
   async createNote(input: CreateNoteRecord) {
     const result = await this.client.query<NoteRow>(
       `WITH inserted AS (
-         INSERT INTO job_card_notes (organization_id, job_card_id, author_id, note)
-         VALUES ($1, $2, $3, $4)
-         RETURNING id, organization_id, job_card_id, author_id, note, created_at
+         INSERT INTO job_card_notes (
+           id, organization_id, job_card_id, author_id, note,
+           author_name_snapshot, author_role_snapshot, workflow_stage,
+           context, related_activity_id, record_version
+         )
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1)
+         RETURNING id, organization_id, job_card_id, author_id, note,
+           author_name_snapshot, author_role_snapshot, workflow_stage,
+           context, related_activity_id, record_version, created_at
        )
-       SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name, n.created_at
+       SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name,
+         n.author_name_snapshot, n.author_role_snapshot, n.workflow_stage,
+         n.context, n.related_activity_id, n.record_version, n.created_at
        FROM inserted n
        JOIN users u ON u.organization_id = n.organization_id AND u.id = n.author_id`,
-      [input.organizationId, input.jobCardId, input.authorId, input.note],
+      [
+        input.id,
+        input.organizationId,
+        input.jobCardId,
+        input.authorId,
+        input.note,
+        input.authorNameSnapshot,
+        input.authorRoleSnapshot,
+        input.workflowStage,
+        input.context,
+        input.relatedActivityId,
+      ],
     );
     return mapNote(result.rows[0]!);
   }
@@ -1427,25 +1524,46 @@ implements JobCardRepository, ApprovalQueueItemPort {
     };
   }
 
-  async listNotes(organizationId: string, jobCardId: string, page: PageQuery) {
-    const count = await this.pool.query<{ total: number }>(
-      `SELECT COUNT(*)::int AS total FROM job_card_notes
-       WHERE organization_id=$1 AND job_card_id=$2`,
-      [organizationId, jobCardId],
-    );
-    const result = await this.pool.query<NoteRow>(
-      `SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name, n.created_at
+  async listNotes(organizationId: string, jobCardId: string, page: NotePageQuery) {
+    const cursorPredicate = page.before
+      ? 'AND (n.created_at, n.id) < ($3::timestamptz, $4::uuid)'
+      : '';
+    const limitPosition = page.before ? '$5' : '$3';
+    const values = page.before
+      ? [
+          organizationId,
+          jobCardId,
+          page.before.createdAt,
+          page.before.id,
+          page.limit + 1,
+        ]
+      : [organizationId, jobCardId, page.limit + 1];
+    const result = await this.pool.query<NoteListRow>(
+      `SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name,
+         n.author_name_snapshot, n.author_role_snapshot, n.workflow_stage,
+         n.context, n.related_activity_id, n.record_version, n.created_at,
+         to_char(
+           n.created_at AT TIME ZONE 'UTC',
+           'YYYY-MM-DD"T"HH24:MI:SS.US"Z"'
+         ) AS cursor_created_at
        FROM job_card_notes n
        JOIN users u
          ON u.organization_id = n.organization_id AND u.id = n.author_id
        WHERE n.organization_id=$1 AND n.job_card_id=$2
+       ${cursorPredicate}
        ORDER BY n.created_at DESC, n.id DESC
-       LIMIT $3 OFFSET $4`,
-      [organizationId, jobCardId, page.limit, page.offset],
+       LIMIT ${limitPosition}`,
+      values,
     );
+    const hasMore = result.rows.length > page.limit;
+    const pageRows = result.rows.slice(0, page.limit);
+    const oldest = pageRows.at(-1);
     return {
-      items: result.rows.map(mapNote), total: Number(count.rows[0]?.total ?? 0),
-      limit: page.limit, offset: page.offset,
+      items: pageRows.map(mapNote).reverse(),
+      limit: page.limit,
+      nextCursor: hasMore && oldest
+        ? { createdAt: oldest.cursor_created_at, id: oldest.id }
+        : null,
     };
   }
 

@@ -47,7 +47,7 @@ class MemoryMigrationStore implements MigrationStore {
 }
 
 describe('runMigrations', () => {
-  it('ships the complete ordered migration set through calendar storage', async () => {
+  it('ships the complete ordered migration set through operational-note storage', async () => {
     const migrationsDirectory = fileURLToPath(
       new URL('../src/db/migrations', import.meta.url),
     );
@@ -78,9 +78,10 @@ describe('runMigrations', () => {
       '016_google_reverse_geocoding.sql',
       '017_calendar.sql',
       '018_messaging.sql',
+      '019_job_card_operational_note_context.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('018_messaging.sql');
-    expect(expectedSchemaVersion).toBe(18);
+    expect(migrations.at(-1)?.name).toBe('019_job_card_operational_note_context.sql');
+    expect(expectedSchemaVersion).toBe(19);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

@@ -5,7 +5,12 @@ import type { JobCardService } from './service.js';
 import type { JobCardActor } from './types.js';
 import { parseJobCardCreateInput } from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
-import { validation } from './validation.js';
+import {
+  isoInstant,
+  operationalNoteCursorTimestamp,
+  uuidString,
+  validation,
+} from './validation.js';
 import { parseJobCardBoardQuery, parseJobCardListQuery } from './workspace-query.js';
 
 type Params = { id: string; itemId?: string };
@@ -42,6 +47,41 @@ function page(raw: unknown, defaultLimit: number) {
     return parsed;
   };
   return { limit: integer('limit', defaultLimit, 1, 100), offset: integer('offset', 0, 0) };
+}
+
+function notePage(raw: unknown, defaultLimit: number) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) throw validation('query');
+  const value = raw as Record<string, unknown>;
+  for (const [key, entry] of Object.entries(value)) {
+    if (!['limit', 'beforeCreatedAt', 'beforeId'].includes(key) || Array.isArray(entry)) {
+      throw validation(key);
+    }
+  }
+  let limit = defaultLimit;
+  if (value.limit !== undefined) {
+    if (typeof value.limit !== 'string' || !/^\d+$/.test(value.limit)) {
+      throw validation('limit');
+    }
+    limit = Number(value.limit);
+    if (!Number.isSafeInteger(limit) || limit < 1 || limit > 100) {
+      throw validation('limit');
+    }
+  }
+  const hasCreatedAt = value.beforeCreatedAt !== undefined;
+  const hasId = value.beforeId !== undefined;
+  if (hasCreatedAt !== hasId) throw validation('cursor');
+  return {
+    limit,
+    before: hasCreatedAt
+      ? {
+          createdAt: operationalNoteCursorTimestamp(
+            value.beforeCreatedAt,
+            'beforeCreatedAt',
+          ),
+          id: uuidString(value.beforeId, 'beforeId'),
+        }
+      : null,
+  };
 }
 
 const PATCH_FIELDS = [
@@ -100,7 +140,7 @@ export function createJobCardHandlers(service: JobCardService) {
     activity: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listActivity(actor(request), request.params.id, page(request.query, 50)),
     listNotes: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.listNotes(actor(request), request.params.id, page(request.query, 25)),
+      service.listNotes(actor(request), request.params.id, notePage(request.query, 25)),
     addNote: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) =>
       reply.code(201).send(await service.addNote(
         actor(request), request.params.id, body(request, ['clientActionId', 'note']) as never,

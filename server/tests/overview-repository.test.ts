@@ -42,6 +42,8 @@ describe('PostgresOverviewRepository', () => {
     expect(sql).toContain('LIMIT 10');
     expect(sql).toContain('ORDER BY j.manager_approved_at DESC, j.id DESC');
     expect(sql).toContain('ORDER BY n.created_at DESC, n.id DESC');
+    expect(sql).not.toContain('n.note');
+    expect(sql).not.toContain('preview');
     expect(query.mock.calls[0]![1]).toEqual([
       '22222222-2222-4222-8222-222222222222',
       '2026-07-01',

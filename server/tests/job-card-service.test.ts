@@ -73,6 +73,12 @@ class MemoryJobCardRepository implements JobCardRepository {
               },
             }
           : null,
+      getNoteAuthorSnapshot: async () => ({
+        id: 'staff-1',
+        name: 'Staff One',
+        role: 'STAFF' as const,
+        isActive: true,
+      }),
       transitionWithVersion: async (input) => {
         if (this.job.id !== input.jobCardId || this.job.version !== input.expectedVersion) return null;
         this.job = { ...this.job, status: input.status, version: this.job.version + 1 };
@@ -80,10 +86,19 @@ class MemoryJobCardRepository implements JobCardRepository {
       },
       createMeetingDetails: async () => { throw new Error('unused'); },
       createNote: async (input) => ({
-        id: 'note-1',
+        id: input.id,
         jobCardId: input.jobCardId,
         note: input.note,
-        author: { id: input.authorId, name: 'Staff One' },
+        author: {
+          id: input.authorId,
+          name: input.authorNameSnapshot,
+          role: input.authorRoleSnapshot,
+          source: 'SNAPSHOT' as const,
+        },
+        workflowStage: input.workflowStage,
+        context: input.context,
+        relatedActivityId: input.relatedActivityId,
+        recordVersion: 1 as const,
         createdAt: '2026-07-19T14:30:00.000Z',
       }),
       appendActivity: async (input) => {

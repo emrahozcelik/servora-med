@@ -284,15 +284,50 @@ export type JobCardBoard = {
   closedCounts: { COMPLETED: number; CANCELLED: number };
 };
 
-export type JobCardNoteDto = {
+type JobCardNoteBase = {
   id: string;
   jobCardId: string;
   note: string;
-  author: { id: string; name: string };
   createdAt: string;
 };
 
-export type PaginatedJobCardNotes = Paginated<JobCardNoteDto>;
+export type JobCardNoteDto = JobCardNoteBase & (
+  | {
+      recordVersion: 0;
+      author: {
+        id: string;
+        name: string;
+        role: null;
+        source: 'LEGACY_CURRENT';
+      };
+      workflowStage: null;
+      context: null;
+      relatedActivityId: null;
+    }
+  | {
+      recordVersion: 1;
+      author: {
+        id: string;
+        name: string;
+        role: UserRole;
+        source: 'SNAPSHOT';
+      };
+      workflowStage: JobCardStatus;
+      context: 'GENERAL';
+      relatedActivityId: string;
+    }
+);
+
+export type JobCardNoteCursor = {
+  createdAt: string;
+  id: string;
+};
+
+export type PaginatedJobCardNotes = {
+  items: JobCardNoteDto[];
+  limit: number;
+  nextCursor: JobCardNoteCursor | null;
+};
 
 export type ActivityRecord = {
   id: string;

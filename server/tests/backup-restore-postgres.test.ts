@@ -120,7 +120,7 @@ describe.skipIf(!databaseUrl)('PostgreSQL backup and restore acceptance', () => 
           const versions = await targetPool.query<{ version: string }>(
             'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
           );
-          expect(versions.rows[0]?.version).toBe('018_messaging');
+          expect(versions.rows[0]?.version).toBe('019_job_card_operational_note_context');
           const users = await targetPool.query<{ count: string }>(
             'SELECT COUNT(*)::text AS count FROM users',
           );
