@@ -85,7 +85,7 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
       {canManage && <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link>}</div>
     <ProductFiltersView filters={filters} onChange={onFilterChange} />
     <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
-    {actionError && <div role="alert"><p>{actionError}</p></div>}
+    {actionError && <div className="form-error" role="alert"><p>{actionError}</p></div>}
     {state.kind === 'loading' ? <div className="product-results" aria-busy="true" aria-live="polite">
       <h2 className="sr-only">Ürünler yükleniyor</h2><div className="product-loading" aria-hidden="true"><span /><span /><span /></div>
     </div> : state.kind === 'error' ? <div className="product-results"><ResultState status="error" title="Ürünler yüklenemedi" description={state.message}

@@ -262,7 +262,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
     </div>
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
     <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
-    {actionError && <div role="alert"><p>{actionError}</p></div>}
+    {actionError && <div className="form-error" role="alert"><p>{actionError}</p></div>}
     {state.kind === 'loading' && <section className="customer-loading" aria-busy="true" aria-live="polite"><h2>Müşteriler yükleniyor</h2><span /><span /><span /></section>}
     {state.kind === 'error' && <ResultState status="error" title="Müşteriler yüklenemedi" description={state.message}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}

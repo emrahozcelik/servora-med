@@ -39,7 +39,8 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 
 ### T5B Results
 
-- Regressions found: 1 (bottom-nav label collision at 320px/400% reflow — fixed in `e350da6`)
+- Regressions found: 2 (bottom-nav collision at 320px — `e350da6`, mobile dual create button — `8c388eb`)
+- Regressions fixed: 2, open: 0
 - All viewports: scrollWidth === clientWidth (no horizontal overflow)
 - 200% text resize: bottom nav labels visible and intact
 - 400% reflow: single-column layout, no page-level overflow, bottom nav labels distinct
@@ -57,7 +58,7 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 | Checkpoint | Source SHA | Evidence SHA | CI Run | Verdict |
 |-----------|-----------|-------------|--------|---------|
 | T5A — State-dialect cleanup | `1499b5c` | `2432358` | `30439243680` | PASS |
-| T5B — Responsive regression | (CSS fix) | `91099ca` | `30456906446` | PASS (1 found, 1 fixed, 0 open) |
+| T5B — Responsive regression | (CSS fixes) | `060a4b5` | `30462337121` | PASS (2 found, 2 fixed, 0 open) |
 | T5C — Evidence & plan closeout | (docs only) | (see PR #77) | (see PR #77) | IMPLEMENTATION COMPLETE |
 
 ### Final Validation Matrix
@@ -73,7 +74,7 @@ All smoke:responsive viewport/scale combinations pass with `overflowX: false` (1
 | Visual-verifier (T5B) | PASS (5 responsive scenarios) |
 | Independent-reviewer (T5A) | PASS (4 rounds) |
 | Independent-reviewer (T5B) | PASS |
-| T5B regression count | 1 found, 1 fixed, 0 open |
+| T5B regression count | 2 found, 2 fixed, 0 open |
 | Server code changes | 0 |
 
 ### Gates
