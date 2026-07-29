@@ -1377,7 +1377,7 @@ manager-staff-performance
 - exact-head CI green,
 - PR merged with resulting-main CI successful,
 - Phase U design and plan docs updated factually,
-- Phase T5 remains not started until external authorization.
+- Phase T5 implementation complete — pending external merge gate (PR #77).
 
 ## U3 gates
 
