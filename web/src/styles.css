@@ -1630,6 +1630,14 @@ button:disabled { cursor: wait; opacity: 0.65; }
   min-width: 0;
   overflow-wrap: anywhere;
 }
+.detail-summary .servora-record-descriptions-view table {
+  width: 100%;
+  table-layout: fixed;
+}
+.detail-summary .servora-ant-descriptions-item-label,
+.detail-summary .servora-ant-descriptions-item-content {
+  overflow-wrap: anywhere;
+}
 .detail-heading {
   display: flex;
   flex-wrap: wrap;
