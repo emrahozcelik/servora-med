@@ -97,7 +97,10 @@ export function JobNotes({
             page: {
               ...current.page,
               items: [...current.page.items, ...newItems],
-              nextCursor: page.nextCursor,
+              // Preserve existing pagination cursor — do NOT replace with
+              // the freshly fetched first-page cursor which would discard
+              // previously loaded older page state.
+              nextCursor: current.page.nextCursor,
             },
           };
         });

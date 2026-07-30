@@ -19,15 +19,34 @@ export async function appendStandaloneNoteProjection(
   tx: JobCardTransaction,
   input: StandaloneNoteProjectionInput,
 ): Promise<RealtimeEventRecord> {
-  const audience = {
-    roles: ['ADMIN', 'MANAGER'] as const,
-    userIds: [input.assigneeId],
-  };
+  // Resolve notification recipients before creating the realtime event so
+  // we can conditionally include the "notifications" resource key.
+  const managementRecipients = await tx.listActiveManagementRecipients(
+    input.organizationId,
+  );
+  const assignee = await tx.getAssignee(input.organizationId, input.assigneeId);
+  const assigneeActive = assignee?.isActive === true;
 
-  const resourceKeys = [
+  const drafts = createNoteAddedNotificationDrafts({
+    actorUserId: input.actorId,
+    assigneeId: assigneeActive ? input.assigneeId : input.actorId,
+    jobCardId: input.jobCardId,
+    managementRecipients,
+  });
+
+  // Build resource keys. Always include the dedicated notes invalidation.
+  // Include "notifications" only when at least one eligible draft exists.
+  const resourceKeys = new Set<string>([
     `job-notes:${input.jobCardId}`,
     `staff-profile:${input.assigneeId}`,
-  ].sort();
+  ]);
+  if (drafts.length > 0) {
+    resourceKeys.add('notifications');
+  }
+
+  // Build audience. Admin/Manager roles always see job-card events.
+  // Include the assignee user ID only when the assignee is active.
+  const audienceUserIds = assigneeActive ? [input.assigneeId] : ([] as string[]);
 
   const realtimeEvent = await tx.appendRealtimeEvent({
     organizationId: input.organizationId,
@@ -36,23 +55,12 @@ export async function appendStandaloneNoteProjection(
     entityType: 'job-card',
     entityId: input.jobCardId,
     actorUserId: input.actorId,
-    audience,
-    resourceKeys,
+    audience: {
+      roles: ['ADMIN', 'MANAGER'] as const,
+      userIds: audienceUserIds,
+    },
+    resourceKeys: [...resourceKeys].sort(),
     occurredAt: input.activity.createdAt,
-  });
-
-  const managementRecipients = await tx.listActiveManagementRecipients(
-    input.organizationId,
-  );
-
-  // Verify assignee is active before including in notifications.
-  const assignee = await tx.getAssignee(input.organizationId, input.assigneeId);
-
-  const drafts = createNoteAddedNotificationDrafts({
-    actorUserId: input.actorId,
-    assigneeId: assignee?.isActive ? input.assigneeId : input.actorId,
-    jobCardId: input.jobCardId,
-    managementRecipients,
   });
 
   if (drafts.length > 0) {
