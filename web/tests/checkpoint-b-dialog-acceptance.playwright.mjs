@@ -267,7 +267,7 @@ async function runTests() {
 
     try {
       await dialog.waitFor({ state: 'hidden', timeout: 8000 });
-      const aClosed = true; record('A', 'dialog closes on success', aClosed ? 'PASS' : 'FAIL');
+      const aClosed = await dialog.isHidden(); record('A', 'dialog closes on success', aClosed ? 'PASS' : 'FAIL');
     } catch {
       record('A', 'dialog closes on success', 'FAIL');
     }
@@ -351,7 +351,7 @@ async function runTests() {
 
     try {
       await bDialog.waitFor({ state: 'hidden', timeout: 8000 });
-      const bClosed = true; record('B', 'dialog closes', bClosed ? 'PASS' : 'FAIL');
+      const bClosed = await bDialog.isHidden(); record('B', 'dialog closes', bClosed ? 'PASS' : 'FAIL');
     } catch {
       record('B', 'dialog closes', 'FAIL');
     }
@@ -407,7 +407,7 @@ async function runTests() {
 
     try {
       await cDialog.waitFor({ state: 'hidden', timeout: 8000 });
-      const cClosed = true; record('C', 'dialog closes', cClosed ? 'PASS' : 'FAIL');
+      const cClosed = await cDialog.isHidden(); record('C', 'dialog closes', cClosed ? 'PASS' : 'FAIL');
     } catch {
       record('C', 'dialog closes', 'FAIL');
     }
@@ -494,7 +494,7 @@ async function runTests() {
 
     try {
       await dDialog.waitFor({ state: 'hidden', timeout: 8000 });
-      const dClosed = true; record('D', 'dialog closes', dClosed ? 'PASS' : 'FAIL');
+      const dClosed = await dDialog.isHidden(); record('D', 'dialog closes', dClosed ? 'PASS' : 'FAIL');
     } catch {
       record('D', 'dialog closes', 'FAIL');
     }
@@ -586,7 +586,7 @@ async function runTests() {
 
     try {
       await eDialog.waitFor({ state: 'hidden', timeout: 8000 });
-      const eClosed = true; record('E', 'dialog closes', eClosed ? 'PASS' : 'FAIL');
+      const eClosed = await eDialog.isHidden(); record('E', 'dialog closes', eClosed ? 'PASS' : 'FAIL');
     } catch {
       record('E', 'dialog closes', 'FAIL');
     }

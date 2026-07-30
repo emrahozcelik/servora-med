@@ -147,7 +147,8 @@ async function run() {
 
     try {
       await dialog.waitFor({ state: 'hidden', timeout: 8000 });
-      const dClosed = true; record('lifecycle dialog closes', dClosed ? 'PASS' : 'FAIL');
+      const dClosed = await dialog.isHidden();
+      record('lifecycle dialog closes', dClosed ? 'PASS' : 'FAIL');
     } catch {
       record('lifecycle dialog closes', 'FAIL');
     }
