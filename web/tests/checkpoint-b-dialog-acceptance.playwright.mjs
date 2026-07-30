@@ -176,9 +176,8 @@ async function runTests() {
         '[data-job-decision-panel="true"] button.primary-button', { hasText: 'Kontrole' },
       );
       const btnVisible = await mobileBtn.isVisible().catch(() => false);
+      record('RESPONSIVE', 'mobile: submit button visible', btnVisible ? 'PASS' : 'FAIL');
       if (!btnVisible) {
-        record('RESPONSIVE', 'mobile: submit button visible for dialog test', 'FAIL', 'button not found');
-      } else {
         await mobileBtn.click();
         const mDialog = mobilePage.locator('.reason-dialog');
         await mDialog.waitFor({ state: 'visible', timeout: 5000 });
