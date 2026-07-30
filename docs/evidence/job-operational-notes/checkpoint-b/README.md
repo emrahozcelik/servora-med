@@ -55,8 +55,8 @@ These 3 failures are NOT classified as PASS.
 - Database: PostgreSQL 17, local, database: `servora_med_checkpoint_b_j`
 - Server: Fastify on port 3000
 - Web: Vite dev server on port 5173
-- Actors: Admin (`admin@servora.local`), Manager (`manager@servora.local`), Staff (`staff@servora.local`)
-- Password: `checkpoint-b-pass`
+- Actors: Admin, Manager, Staff (synthetic, seeded via db:seed:dev)
+- Credentials: supplied through local environment variables (`CHECKPOINT_B_TEST_PASSWORD`, `CHECKPOINT_B_TEST_EMAIL_STAFF`, `CHECKPOINT_B_TEST_EMAIL_ADMIN`). No password, token or secret is stored in this evidence or acceptance harness.
 
 ### Scenarios A–I: API-level runtime acceptance (Node.js fetch against Fastify)
 
@@ -99,7 +99,8 @@ All scenarios A–G verified with real PostgreSQL + Fastify runtime. Scenarios H
 - Note left blank, confirm through dialog → dialog closes — PASS
 - Status = `COMPLETED` — PASS
 - No APPROVE operational note created (blank) — PASS
-- No NOTE_ADDED transition activity — PASS
+- 1 JOB_APPROVED activity, 0 NOTE_ADDED activities — PASS
+- Focus containment verified via `dialog.contains(document.activeElement)` — PASS
 
 **APPROVE nonblank (Admin):**
 - Click approve button → dialog opens, label `Onay notu` — PASS
@@ -141,7 +142,8 @@ All scenarios A–G verified with real PostgreSQL + Fastify runtime. Scenarios H
 
 **NOTE_ADDED absence:**
 - SUBMIT J1: 0 NOTE_ADDED activities — PASS
-- APPROVE J3: 0 NOTE_ADDED activities — PASS
+- APPROVE blank J2: 0 NOTE_ADDED activities — PASS
+- APPROVE nonblank J3: 0 NOTE_ADDED activities — PASS
 - REVISION J4: 0 NOTE_ADDED activities — PASS
 - CANCEL J5: 0 NOTE_ADDED activities — PASS
 
@@ -151,12 +153,12 @@ All scenarios A–G verified with real PostgreSQL + Fastify runtime. Scenarios H
 
 - 27 seeded notes, PAGE_SIZE=25 → initial page shows 25 notes, "Daha eski notları yükle" button visible — PASS
 - Click "Daha eski notları yükle" → all 27 notes visible — PASS
-- Older note identifiers recorded (27 seed notes in DOM) — PASS
+- Older note identifiers recorded (26 unique IDs via full note body Set) — PASS
 - Add standalone GENERAL note through real JobNotes composer UI (`textarea#job-note` + "Not ekle" button) — PASS
-- New GENERAL note appears, note count increases 27→28 — PASS
-- All 27 older-page seed notes remain present after GENERAL add — PASS (key invariant preserved)
+- New GENERAL note appears, note count increases 26→27 — PASS
+- All 26 older-page identifiers verified individually — 0 missing (key invariant preserved) — PASS
 - Lifecycle transition (SUBMIT_FOR_APPROVAL) performed through real dialog UI — PASS
-- Lifecycle transition note appears after page reload — PASS
+- Lifecycle transition note appears after manual page reload — PASS
 - GENERAL note and lifecycle note coexist — PASS
 - Lifecycle refresh resets cursor to latest 25 (by design); seed notes still present via DB — PASS
 - No duplicate notes in final display — PASS
@@ -164,16 +166,22 @@ All scenarios A–G verified with real PostgreSQL + Fastify runtime. Scenarios H
 
 ### Responsive and accessibility
 
-| Viewport | Result |
-| --- | --- |
-| Desktop 1280×900 | No horizontal overflow, dialog usable — PASS |
-| Mobile 390×844 | No horizontal overflow, dialog usable — PASS |
-| 200% zoom (2x deviceScaleFactor) | No horizontal overflow — PASS |
-| Labels associated with inputs | `label[for]` links verified — PASS |
-| Validation errors accessible | `aria-invalid`, `role="alert"`, `.field-error` — PASS |
-| Keyboard Tab within dialog | Focus containment verified — PASS |
-| Focus restoration after close | `document.activeElement` non-null — PASS |
-| Pending protection | Confirm button disabled during pending — PASS |
+| Viewport | Method | Result |
+| --- | --- | --- |
+| Desktop 1280×900 | Playwright Chromium real viewport | No horizontal overflow — PASS |
+| Mobile 390×844 | Playwright Chromium real viewport | No horizontal overflow — PASS |
+| 200% zoom/reflow | NOT EXERCISED (genuine browser zoom not available in harness) | See CI responsive fixture smoke below |
+| Labels | `label[for]` association verified — PASS |
+| Validation errors | `aria-invalid`, `role="alert"`, `.field-error` — PASS |
+| Keyboard focus containment | `dialog.contains(document.activeElement)` assertion — PASS |
+| Focus restoration post-transition | Assert focus on `.detail-feedback` or decision panel after trigger replaced — PASS |
+
+### Pending protection
+
+| Category | Method | Result |
+| --- | --- | --- |
+| Runtime browser pending | Safe request delay injection not practical without altering production behavior | NOT EXERCISED |
+| Vitest/jsdom coverage | Automated component tests | PASS |
 
 ### Database assertions (direct PostgreSQL)
 
@@ -191,9 +199,11 @@ All scenarios A–G verified with real PostgreSQL + Fastify runtime. Scenarios H
 | Category | Method | Result |
 | --- | --- | --- |
 | Runtime API acceptance | Node.js fetch + real PostgreSQL + Fastify | PASS |
-| Runtime browser dialog acceptance | Playwright Chromium + real UI dialogs (no fetch for lifecycle) | PASS (68/68) |
-| Runtime pagination preservation | Playwright Chromium + real JobNotes UI composer | PASS (19/19) |
-| Responsive & accessibility | Playwright multi-viewport + zoom | PASS |
+| Runtime browser dialog acceptance | Playwright Chromium + real UI dialogs (no fetch for lifecycle) | PASS (79/79 + 2 NOT EXERCISED) |
+| Runtime pagination preservation | Playwright Chromium + real JobNotes UI composer | PASS (21/21) |
+| Desktop overflow 1280×900 | Playwright Chromium real viewport | PASS |
+| Mobile overflow 390×844 | Playwright Chromium real viewport | PASS |
+| 200% zoom/reflow | NOT EXERCISED (genuine browser zoom not available) | See CI fixture smoke below |
 | Vitest/jsdom component coverage | `npm test -- --run` (web) | PASS (149 tests) |
 | Responsive fixture smoke | CI `npm run smoke:responsive` | PASS (CI) |
 | Exact-head CI | GitHub Actions | SUCCESS |
@@ -214,5 +224,5 @@ All scenarios A–G verified with real PostgreSQL + Fastify runtime. Scenarios H
 ## Acceptance test scripts
 
 Located in `web/tests/`:
-- `checkpoint-b-dialog-acceptance.playwright.mjs` — Real UI dialog lifecycle flows (68 assertions)
-- `checkpoint-b-pagination-acceptance.playwright.mjs` — Real UI pagination preservation (19 assertions)
+- `checkpoint-b-dialog-acceptance.playwright.mjs` — Real UI dialog lifecycle flows (79 PASS, 2 NOT EXERCISED)
+- `checkpoint-b-pagination-acceptance.playwright.mjs` — Real UI pagination preservation (21 PASS)
