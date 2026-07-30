@@ -80,9 +80,10 @@ describe('runMigrations', () => {
       '018_messaging.sql',
       '019_job_card_operational_note_context.sql',
       '020_job_card_transition_note_contexts.sql',
+      '021_job_card_note_added_notification_kind.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('020_job_card_transition_note_contexts.sql');
-    expect(expectedSchemaVersion).toBe(20);
+    expect(migrations.at(-1)?.name).toBe('021_job_card_note_added_notification_kind.sql');
+    expect(expectedSchemaVersion).toBe(21);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

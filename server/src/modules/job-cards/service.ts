@@ -301,7 +301,14 @@ export class JobCardService {
   }
 
   async addNote(actor: JobCardActor, jobCardId: string, input: CreateNoteInput) {
-    return this.notesService.addNote(actor, jobCardId, input);
+    const result = await this.notesService.addNote(actor, jobCardId, input);
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') {
+      this.publishRealtime(result.realtimeEvents);
+    }
+    return result.response;
   }
 
   async create(actor: JobCardActor, input: NormalizedJobCardCreateInput) {

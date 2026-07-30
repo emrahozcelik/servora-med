@@ -456,15 +456,20 @@ describe('JobCardService realtime event emission', () => {
     expect(published).toEqual([]);
   });
 
-  it('does not persist or publish excluded note events', async () => {
+  it('persists and publishes a note realtime event after successful note add', async () => {
     const { repository, published, service } = withPublisher();
     await service.addNote(staff, 'job-1', {
       clientActionId: 'note-action',
       note: 'Kapıya bırakıldı.',
     });
 
-    expect(repository.realtimeEvents).toEqual([]);
-    expect(published).toEqual([]);
+    expect(repository.realtimeEvents).toHaveLength(1);
+    expect(repository.realtimeEvents[0]).toMatchObject({
+      type: 'job.updated',
+      entityId: 'job-1',
+    });
+    expect(repository.realtimeEvents[0]!.resourceKeys).toContain('job-notes:job-1');
+    expect(published).toEqual(repository.realtimeEvents);
   });
 
   it('persists notification drafts before publishing an approval submission event', async () => {
