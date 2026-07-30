@@ -6,7 +6,7 @@ Operational Notes feature: realtime projection, pagination, Web Push, Notificati
 ## Branch & PR
 - Branch: `feat/job-operational-notes-realtime-c`
 - Base: `327f460f59718b7afcb77f0a8c8c581503d3a501`
-- Head: `60bdbefd507634280578beda4a0c0ed14aadb96c` (exact head, pushed to PR)
+- Head: `81e61666eb79f824f853d54665d00cd1054752cc` (exact head, pushed to PR)
 - PR: #81 (Draft)
 
 ## Test Results
@@ -82,7 +82,7 @@ cd web && npm run lint
 - Keyboard accessible ✅
 
 ## CI
-- Run #30576418222: SUCCESS (server PASS 2m51s, web PASS 2m7s) ✅
+- Run #30576980357: SUCCESS (server PASS, web PASS) ✅
 
 ## Files Changed (base-to-head diff)
 
@@ -90,7 +90,7 @@ cd web && npm run lint
 - `server/src/db/migrations/021_job_card_note_added_notification_kind.sql` — migration adding `job.note_added` kind
 - `server/src/modules/job-cards/note-realtime-projection.ts` — realtime projection with conditional `notifications` resource key, inactive assignee exclusion
 - `server/tests/note-realtime-projection.test.ts` — 7 focused tests
-- `web/tests/job-notes.test.tsx` — 4 realtime merge/pagination tests
+- `web/tests/job-notes.test.tsx` — 4 realtime merge/pagination tests (modified)
 
 ### Modified files
 - `server/src/modules/job-cards/notes-service.ts` — calls projection helper in transaction
@@ -113,3 +113,14 @@ cd web && npm run lint
 - `web/src/JobDetail.tsx` — `useRealtimeInvalidation(['job-notes:' + jobId])`
 - `web/src/jobs/JobNotes.tsx` — `realtimeKey` prop with merge, `nextCursor` preservation
 - `web/src/services/notifications-api.ts` — `job.note_added` added to frontend validation
+
+## Verification Commands
+```bash
+cd server && npm test -- --run       # 1402/1405 pass
+cd web && npm test -- --run          # 1141/1141 pass
+cd server && npm run build           # compiles
+cd web && npm run build              # compiles
+cd server && npm run lint            # no errors
+cd web && npm run lint               # no errors
+git diff --check                     # clean
+```
