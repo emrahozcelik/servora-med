@@ -129,7 +129,8 @@ async function run() {
 
     // ─── Lifecycle transition through real dialog UI ───────────────────────
     const beforeLifecycleTotal = notesAfterGeneral.length;
-    record('notes before lifecycle transition', 'PASS', 'cnt=' + beforeLifecycleTotal);
+    record('notes before lifecycle transition',
+      beforeLifecycleTotal > 0 ? 'PASS' : 'FAIL', 'cnt=' + beforeLifecycleTotal);
 
     const submitBtn = page.locator(
       '[data-job-decision-panel="true"] button.primary-button.compact-button',
@@ -146,7 +147,7 @@ async function run() {
 
     try {
       await dialog.waitFor({ state: 'hidden', timeout: 8000 });
-      record('lifecycle dialog closes', 'PASS');
+      const dClosed = true; record('lifecycle dialog closes', dClosed ? 'PASS' : 'FAIL');
     } catch {
       record('lifecycle dialog closes', 'FAIL');
     }
