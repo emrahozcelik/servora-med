@@ -68,7 +68,7 @@ const manager: CurrentUser = {
   role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1,
 };
 const staff: CurrentUser = { ...manager, id: 's1', name: 'Ayşe Personel', role: 'STAFF' };
-const page = { items: [], total: 0, limit: 25, offset: 0 };
+const page = { items: [], total: 0, limit: 25, offset: 0, nextCursor: null };
 
 const approvePresentation: TransitionPresentation = {
   command: 'APPROVE',
@@ -419,7 +419,7 @@ describe('Manager review', () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
     expect(html).toContain('Düzeltme nedeni');
-    expect(html).toContain('maxLength="2000"');
+    expect(html).toContain('2.000 karakter kaldı');
     expect(html).toContain('Vazgeç');
     expect(html).toContain('Düzeltme için geri gönder');
     expect(html).not.toContain('>Onayla<');
@@ -769,6 +769,15 @@ describe('Manager review', () => {
       });
       const submit = buttonByName(host, 'Kontrole gönder')!;
       await act(async () => { submit.click(); await flush(); });
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      const textarea = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
+      await act(async () => {
+        Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+          ?.set?.call(textarea, 'Görüşme sonucu kaydedildi');
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        buttonByName(dialog, 'Kontrole gönder')!.click();
+        await flush();
+      });
 
       const alert = host.querySelector<HTMLElement>('[role="alert"]')!;
       expect(alert).toBe(document.activeElement);

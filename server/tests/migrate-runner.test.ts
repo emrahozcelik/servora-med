@@ -79,9 +79,10 @@ describe('runMigrations', () => {
       '017_calendar.sql',
       '018_messaging.sql',
       '019_job_card_operational_note_context.sql',
+      '020_job_card_transition_note_contexts.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('019_job_card_operational_note_context.sql');
-    expect(expectedSchemaVersion).toBe(19);
+    expect(migrations.at(-1)?.name).toBe('020_job_card_transition_note_contexts.sql');
+    expect(expectedSchemaVersion).toBe(20);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

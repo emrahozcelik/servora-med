@@ -34,6 +34,8 @@ const MIGRATIONS = [
   '016_google_reverse_geocoding.sql',
   '017_calendar.sql',
   '018_messaging.sql',
+  '019_job_card_operational_note_context.sql',
+  '020_job_card_transition_note_contexts.sql',
 ] as const;
 
 type Fixture = {

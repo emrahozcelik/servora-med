@@ -24,6 +24,9 @@ async function applyMigrations(pool: Pool) {
     '015_job_card_engagement_kind.sql',
     '016_google_reverse_geocoding.sql',
     '017_calendar.sql',
+    '018_messaging.sql',
+    '019_job_card_operational_note_context.sql',
+    '020_job_card_transition_note_contexts.sql',
   ]) {
     const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
     await pool.query(await readFile(path, 'utf8'));
@@ -144,14 +147,17 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       await pool.query(`UPDATE users SET is_active = FALSE WHERE id = $1`, [staffId]);
       await expect(service.submitForApproval(staff, meeting.id, {
         clientActionId: 'submit-customer-priority', expectedVersion: details.jobCardVersion,
+        note: 'Görüşme sonucu kaydedildi.',
       })).rejects.toMatchObject({ code: 'CUSTOMER_INACTIVE', statusCode: 409 });
       await pool.query(`UPDATE customers SET status = 'active' WHERE id = $1`, [customerId]);
       await expect(service.submitForApproval(staff, meeting.id, {
         clientActionId: 'submit-assignee-priority', expectedVersion: details.jobCardVersion,
+        note: 'Görüşme sonucu kaydedildi.',
       })).rejects.toMatchObject({ code: 'ASSIGNEE_NOT_ELIGIBLE', statusCode: 400 });
       await pool.query(`UPDATE users SET is_active = TRUE WHERE id = $1`, [staffId]);
       await expect(service.submitForApproval(staff, meeting.id, {
         clientActionId: 'submit-meeting-readiness', expectedVersion: details.jobCardVersion,
+        note: 'Görüşme sonucu kaydedildi.',
       })).rejects.toMatchObject({ code: 'MEETING_NOT_READY', statusCode: 400 });
 
       details = await service.patchMeetingDetails(staff, meeting.id, {
@@ -161,6 +167,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       });
       meeting = await service.submitForApproval(staff, meeting.id, {
         clientActionId: 'meeting-submit', expectedVersion: details.jobCardVersion,
+        note: 'Takip görüşmesi planlanacak.',
       });
       const withdrawn = await service.withdrawFromApproval(staff, meeting.id, {
         clientActionId: 'meeting-withdraw', expectedVersion: meeting.version,
@@ -174,6 +181,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       });
       meeting = await service.submitForApproval(staff, meeting.id, {
         clientActionId: 'meeting-after-withdraw-submit', expectedVersion: details.jobCardVersion,
+        note: 'Geri çekilen kayıt düzeltildi.',
       });
       meeting = await service.requestRevision(manager, meeting.id, {
         clientActionId: 'meeting-revision', expectedVersion: meeting.version,
@@ -188,6 +196,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       });
       meeting = await service.submitForApproval(staff, meeting.id, {
         clientActionId: 'meeting-resubmit', expectedVersion: details.jobCardVersion,
+        note: 'Görüşme olumlu tamamlandı.',
       });
       meeting = await service.approve(manager, meeting.id, {
         clientActionId: 'meeting-approve', expectedVersion: meeting.version,
@@ -204,6 +213,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       });
       generalTask = await service.submitForApproval(staff, generalTask.id, {
         clientActionId: 'general-submit', expectedVersion: generalTask.version,
+        note: 'Genel görev tamamlandı.',
       });
       generalTask = await service.approve(manager, generalTask.id, {
         clientActionId: 'general-approve', expectedVersion: generalTask.version,
@@ -226,6 +236,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       });
       delivery = await service.submitForApproval(staff, delivery.id, {
         clientActionId: 'delivery-submit', expectedVersion: deliveryActual.jobCardVersion,
+        note: 'Numune teslim edildi.',
       });
       delivery = await service.approve(manager, delivery.id, {
         clientActionId: 'delivery-approve', expectedVersion: delivery.version,
@@ -268,6 +279,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         });
         return service.submitForApproval(staff, task.id, {
           clientActionId: `race-${suffix}-submit`, expectedVersion: task.version,
+          note: `Race ${suffix} sonucu`,
         });
       }
 

@@ -186,6 +186,39 @@ describe('JobCard operational notes', () => {
     const meta = host.querySelector('.job-note-list .job-note-meta');
     expect(meta?.textContent).toContain('Personel');
     expect(meta?.textContent).toContain('Uygulanıyor');
+    expect(meta?.textContent).toContain('Operasyon notu');
+  });
+
+  it('renders every canonical transition-note label with frozen identity and source stage', async () => {
+    const contexts = [
+      ['SUBMIT_FOR_APPROVAL', 'Tamamlanma sonucu'],
+      ['APPROVE', 'Yönetici onayı'],
+      ['REQUEST_REVISION', 'Revizyon isteği'],
+      ['CANCEL', 'İptal'],
+    ] as const;
+    const load = vi.fn().mockResolvedValue({
+      items: contexts.map(([context], index) => ({
+        ...savedNote,
+        id: `note-${index}`,
+        context,
+        workflowStage: context === 'CANCEL' ? 'WAITING_APPROVAL' as const : savedNote.workflowStage,
+      })),
+      limit: 25,
+      nextCursor: null,
+    });
+    await renderNotes({ load, canAdd: false });
+    for (const [, label] of contexts) expect(host.textContent).toContain(label);
+    expect(host.textContent).toContain('Ayşe Personel');
+    expect(host.textContent).toContain('Yönetici kontrolü');
+  });
+
+  it('reloads notes when a lifecycle transition refresh key changes', async () => {
+    const load = vi.fn().mockResolvedValue(emptyPage);
+    await act(async () => root.render(<JobNotes jobId="job-1" load={load} refreshKey={0} />));
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => root.render(<JobNotes jobId="job-1" load={load} refreshKey={1} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(load).toHaveBeenCalledTimes(2);
   });
 
   it('labels legacy identity and missing stage without inventing history', async () => {

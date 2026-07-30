@@ -8,6 +8,7 @@ import {
   type JobCardBoard,
   type JobCardBoardQuery,
   type JobCardListQuery,
+  type JobCardOperationalNoteContext,
   type JobCardPriority,
   type JobCardStatus,
   type JobCardStatusFilter,
@@ -96,7 +97,7 @@ export type CreateNoteRecord = {
   authorNameSnapshot: string;
   authorRoleSnapshot: JobCardAssignee['role'];
   workflowStage: JobCardStatus;
-  context: 'GENERAL';
+  context: JobCardOperationalNoteContext;
   relatedActivityId: string;
   note: string;
 };
@@ -373,7 +374,7 @@ type NoteRow = {
   author_name: string; author_name_snapshot: string | null;
   author_role_snapshot: JobCardAssignee['role'] | null;
   workflow_stage: JobCardStatus | null;
-  context: 'GENERAL' | null;
+  context: JobCardOperationalNoteContext | null;
   related_activity_id: string | null;
   record_version: 0 | 1;
   created_at: Date;

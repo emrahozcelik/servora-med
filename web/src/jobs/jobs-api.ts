@@ -34,7 +34,11 @@ export const LIFECYCLE_COMMANDS = [
   'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
 ] as const;
 export const USER_ROLES = ['ADMIN', 'MANAGER', 'STAFF'] as const;
+export const JOB_CARD_OPERATIONAL_NOTE_CONTEXTS = [
+  'GENERAL', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION', 'CANCEL',
+] as const;
 export type LifecycleCommand = (typeof LIFECYCLE_COMMANDS)[number];
+export type JobCardOperationalNoteContext = (typeof JOB_CARD_OPERATIONAL_NOTE_CONTEXTS)[number];
 export const JOB_WORKFLOW_ACTIONS = [
   'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',
   'EDIT_MEETING_RESULT', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE',
@@ -149,7 +153,7 @@ export type JobCardNote = JobCardNoteBase & (
         source: 'SNAPSHOT';
       };
       workflowStage: JobCardStatus;
-      context: 'GENERAL';
+      context: JobCardOperationalNoteContext;
       relatedActivityId: string;
     }
 );
@@ -480,7 +484,7 @@ function parseNote(value: unknown): JobCardNote {
       source: oneOf(author.source, 'author.source', ['SNAPSHOT'] as const),
     },
     workflowStage: oneOf(v.workflowStage, 'workflowStage', JOB_CARD_STATUSES),
-    context: oneOf(v.context, 'context', ['GENERAL'] as const),
+    context: oneOf(v.context, 'context', JOB_CARD_OPERATIONAL_NOTE_CONTEXTS),
     relatedActivityId: string(v.relatedActivityId, 'relatedActivityId'),
   };
 }
@@ -653,7 +657,7 @@ const lifecycle = async (id: string, command: string, input: object) =>
   parseJobCard(await request(`${jobPath(id)}/${command}`, json('POST', input)));
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
 export const startJobCard = (id: string, input: StartJobCardInput) => lifecycle(id, 'start', input);
-export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'submit-for-approval', input);
+export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note: string }) => lifecycle(id, 'submit-for-approval', input);
 export const approveJobCard = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'approve', input);
 export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);
 export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);

@@ -291,6 +291,13 @@ type JobCardNoteBase = {
   createdAt: string;
 };
 
+export type JobCardOperationalNoteContext =
+  | 'GENERAL'
+  | 'SUBMIT_FOR_APPROVAL'
+  | 'APPROVE'
+  | 'REQUEST_REVISION'
+  | 'CANCEL';
+
 export type JobCardNoteDto = JobCardNoteBase & (
   | {
       recordVersion: 0;
@@ -313,7 +320,7 @@ export type JobCardNoteDto = JobCardNoteBase & (
         source: 'SNAPSHOT';
       };
       workflowStage: JobCardStatus;
-      context: 'GENERAL';
+      context: JobCardOperationalNoteContext;
       relatedActivityId: string;
     }
 );

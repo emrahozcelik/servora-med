@@ -1,4 +1,5 @@
 import { AppError } from '../../errors/index.js';
+import { randomUUID } from 'node:crypto';
 import { presentActivity } from './activity-presenter.js';
 import {
   assertCanCreateForAssignee,
@@ -28,6 +29,7 @@ import {
   type DeliveryPurpose,
   type JobCard,
   type JobCardActor,
+  type JobCardAssignee,
   type JobCardBoard,
   type JobCardBoardQuery,
   type JobCardActivityEvent,
@@ -35,6 +37,7 @@ import {
   type JobCardEngagementKind,
   type JobCardListItem,
   type JobCardListQuery,
+  type JobCardOperationalNoteContext,
   type JobCardStatus,
   type JobPermissionSubject,
   type LifecycleCommand,
@@ -52,6 +55,7 @@ import {
   optionalLifecycleNote,
   requireActionId,
   requireLifecycleReason,
+  requireSubmissionNote,
   validation,
 } from './validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
@@ -111,6 +115,7 @@ type LifecycleDefinition = {
   note: string | null;
   revisionReason: string | null;
   cancelReason: string | null;
+  noteContext: JobCardOperationalNoteContext | null;
 };
 
 function parseDeliveredAt(value: string | null): Date | null {
@@ -902,6 +907,7 @@ export class JobCardService {
       command: 'ACCEPT_ASSIGNMENT', operationKey: 'JOB_ACCEPT_ASSIGNMENT',
       target: 'ACCEPTED', event: 'JOB_ACCEPTED',
       note: null, revisionReason: null, cancelReason: null,
+      noteContext: null,
     });
   }
 
@@ -910,6 +916,7 @@ export class JobCardService {
     const definition: LifecycleDefinition = {
       command: 'START', operationKey: 'JOB_START', target: 'IN_PROGRESS', event: 'JOB_STARTED',
       note: null, revisionReason: null, cancelReason: null,
+      noteContext: null,
     };
     if (!this.geolocation.enabled) {
       return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
@@ -940,7 +947,8 @@ export class JobCardService {
     return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
       command: 'SUBMIT_FOR_APPROVAL', operationKey: 'JOB_SUBMIT_FOR_APPROVAL',
       target: 'WAITING_APPROVAL', event: 'JOB_SUBMITTED_FOR_APPROVAL',
-      note: optionalLifecycleNote(input.note), revisionReason: null, cancelReason: null,
+      note: requireSubmissionNote(input.note), revisionReason: null, cancelReason: null,
+      noteContext: 'SUBMIT_FOR_APPROVAL',
     });
   }
 
@@ -948,6 +956,7 @@ export class JobCardService {
     return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
       command: 'APPROVE', operationKey: 'JOB_APPROVE', target: 'COMPLETED', event: 'JOB_APPROVED',
       note: optionalLifecycleNote(input.note), revisionReason: null, cancelReason: null,
+      noteContext: 'APPROVE',
     });
   }
 
@@ -956,6 +965,7 @@ export class JobCardService {
       command: 'REQUEST_REVISION', operationKey: 'JOB_REQUEST_REVISION', target: 'REVISION_REQUESTED',
       event: 'JOB_REVISION_REQUESTED', note: null,
       revisionReason: lifecycleReason(input.revisionReason, 'revisionReason'), cancelReason: null,
+      noteContext: 'REQUEST_REVISION',
     });
   }
 
@@ -964,6 +974,7 @@ export class JobCardService {
       command: 'WITHDRAW_FROM_APPROVAL', operationKey: 'JOB_WITHDRAW_FROM_APPROVAL',
       target: 'IN_PROGRESS', event: 'JOB_APPROVAL_WITHDRAWN',
       note: null, revisionReason: null, cancelReason: null,
+      noteContext: null,
     });
   }
 
@@ -971,6 +982,7 @@ export class JobCardService {
     return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
       command: 'RESUME', operationKey: 'JOB_RESUME', target: 'IN_PROGRESS', event: 'JOB_RESUMED',
       note: null, revisionReason: null, cancelReason: null,
+      noteContext: null,
     });
   }
 
@@ -979,6 +991,7 @@ export class JobCardService {
       command: 'CANCEL', operationKey: 'JOB_CANCEL', target: 'CANCELLED', event: 'JOB_CANCELLED',
       note: null, revisionReason: null,
       cancelReason: lifecycleReason(input.cancelReason, 'cancelReason'),
+      noteContext: 'CANCEL',
     });
   }
 
@@ -1037,7 +1050,26 @@ export class JobCardService {
           });
         }
         const reason = definition.revisionReason ?? definition.cancelReason;
-        const metadata = reason === null ? undefined : { reason };
+        const transitionNoteBody = definition.note ?? reason;
+        let noteId: string | null = null;
+        let authorNameSnapshot: string | null = null;
+        let authorRoleSnapshot: JobCardAssignee['role'] | null = null;
+        let metadata: unknown = undefined;
+
+        if (definition.noteContext && transitionNoteBody) {
+          const author = await tx.getNoteAuthorSnapshot(
+            actor.organizationId,
+            actor.id,
+          );
+          if (!author?.isActive) {
+            throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+          }
+          authorNameSnapshot = author.name;
+          authorRoleSnapshot = author.role;
+          noteId = randomUUID();
+          metadata = { noteId };
+        }
+
         const activity = await tx.appendActivity({
           organizationId: actor.organizationId,
           jobCardId,
@@ -1048,6 +1080,22 @@ export class JobCardService {
           newValue: { status: updated.status, version: updated.version },
           metadata,
         });
+
+        if (noteId && definition.noteContext && transitionNoteBody
+          && authorNameSnapshot && authorRoleSnapshot) {
+          await tx.createNote({
+            id: noteId,
+            organizationId: actor.organizationId,
+            jobCardId,
+            authorId: actor.id,
+            authorNameSnapshot,
+            authorRoleSnapshot,
+            workflowStage: job.status,
+            context: definition.noteContext,
+            relatedActivityId: activity.id,
+            note: transitionNoteBody,
+          });
+        }
         if (startLocation) {
           await tx.appendJobActionLocation({
             organizationId: actor.organizationId,

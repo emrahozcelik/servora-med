@@ -8,10 +8,29 @@ const path = fileURLToPath(new URL(
   '../src/db/migrations/019_job_card_operational_note_context.sql',
   import.meta.url,
 ));
+const transitionContextPath = fileURLToPath(new URL(
+  '../src/db/migrations/020_job_card_transition_note_contexts.sql',
+  import.meta.url,
+));
 let sql = '';
+let transitionContextSql = '';
 
 beforeAll(async () => {
   sql = await readFile(path, 'utf8');
+  transitionContextSql = await readFile(transitionContextPath, 'utf8');
+});
+
+describe('020 JobCard transition note contexts migration', () => {
+  it('replaces only the record-version check with the approved canonical contexts', () => {
+    expect(transitionContextSql).toContain('DROP CONSTRAINT job_card_notes_record_version_check');
+    for (const context of [
+      'GENERAL', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION', 'CANCEL',
+    ]) {
+      expect(transitionContextSql).toContain(`'${context}'`);
+    }
+    expect(transitionContextSql).not.toContain("'START'");
+    expect(transitionContextSql).not.toContain("'ACCEPT_ASSIGNMENT'");
+  });
 });
 
 describe('019 JobCard operational note context migration', () => {
@@ -267,6 +286,54 @@ describe.skipIf(!databaseUrl)('019 operational note PostgreSQL contract', () => 
            $1, $2, $3, 'Yanlış iş ilişkisi',
            'Ayşe Personel', 'STAFF', 'ACCEPTED',
            'GENERAL', $4, 1
+         )`,
+        [organizationId, secondJobId, userId, activityId],
+      )).rejects.toMatchObject({ code: '23503' });
+
+      await client.query(transitionContextSql);
+      for (const context of [
+        'GENERAL', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION', 'CANCEL',
+      ]) {
+        await expect(insertV1(
+          `${context} notu`,
+          'Ayşe Personel',
+          'STAFF',
+          'ACCEPTED',
+          context,
+          activityId,
+        )).resolves.toMatchObject({ rowCount: 1 });
+      }
+      await expect(insertV1(
+        'Bilinmeyen context',
+        'Ayşe Personel',
+        'STAFF',
+        'ACCEPTED',
+        'START',
+        activityId,
+      )).rejects.toMatchObject({ code: '23514' });
+      await expect(insertV1(
+        'Null context',
+        'Ayşe Personel',
+        'STAFF',
+        'ACCEPTED',
+        null,
+        activityId,
+      )).rejects.toMatchObject({ code: '23514' });
+      await expect(client.query(
+        `INSERT INTO job_card_notes (
+           organization_id, job_card_id, author_id, note, record_version
+         ) VALUES ($1, $2, $3, 'Eksik v1 after 020', 1)`,
+        [organizationId, firstJobId, userId],
+      )).rejects.toMatchObject({ code: '23514' });
+      await expect(client.query(
+        `INSERT INTO job_card_notes (
+           organization_id, job_card_id, author_id, note,
+           author_name_snapshot, author_role_snapshot, workflow_stage,
+           context, related_activity_id, record_version
+         ) VALUES (
+           $1, $2, $3, 'Yanlış iş ilişkisi after 020',
+           'Ayşe Personel', 'STAFF', 'ACCEPTED',
+           'CANCEL', $4, 1
          )`,
         [organizationId, secondJobId, userId, activityId],
       )).rejects.toMatchObject({ code: '23503' });

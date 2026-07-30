@@ -1688,9 +1688,11 @@ describe('Staff JobCard detail', () => {
     await runStaffJobCommand(job, 'start', { start, submit, refresh, createActionId: () => 'action-1' });
     await runStaffJobCommand({ ...job, status: 'IN_PROGRESS', version: 3 }, 'submit', {
       start, submit, refresh, createActionId: () => 'action-2',
-    });
+    }, 'Teslim tamamlandı');
     expect(start).toHaveBeenCalledWith('job-1', { clientActionId: 'action-1', expectedVersion: 2 });
-    expect(submit).toHaveBeenCalledWith('job-1', { clientActionId: 'action-2', expectedVersion: 3 });
+    expect(submit).toHaveBeenCalledWith('job-1', {
+      clientActionId: 'action-2', expectedVersion: 3, note: 'Teslim tamamlandı',
+    });
   });
 
   it('refetches and explains a stale-version conflict', async () => {
@@ -1752,7 +1754,9 @@ describe('Staff JobCard detail', () => {
               submittedAt: '2026-07-17T12:00:00.000Z',
             }, { allowedActions: [] }),
           },
-          needsDialog: false as const,
+          confirm: 'Kontrole gönder',
+          reason: 'Teslim tamamlandı',
+          needsDialog: true as const,
         };
       },
     },
@@ -1877,7 +1881,7 @@ describe('Staff JobCard detail', () => {
         };
       },
     },
-  ])('uses presentation success copy for $command', async ({ expected, setup }) => {
+  ])('uses presentation success copy for $command', async ({ command, expected, setup }) => {
     const scenario = setup();
     const flush = async () => {
       await Promise.resolve();
@@ -1919,6 +1923,21 @@ describe('Staff JobCard detail', () => {
     if (scenario.needsDialog) {
       const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
       expect(dialog).not.toBeNull();
+      if (command === 'SUBMIT_FOR_APPROVAL') {
+        expect(dialog.textContent).toContain('Tamamlanma sonucu');
+        expect(dialog.textContent).toContain(
+          'Bu açıklama, yönetici kontrolüne gönderilen iş kaydında saklanır.',
+        );
+        await act(async () => {
+          buttonByName(dialog, scenario.confirm!)!.click();
+          await flush();
+        });
+        expect(dialog.querySelector('[role="alert"]')?.textContent)
+          .toContain('Tamamlanma sonucu zorunludur.');
+        expect(vi.mocked(fetch).mock.calls.some(([url]) => String(url).endsWith(scenario.endpoint)))
+          .toBe(false);
+      }
+      if (command === 'APPROVE') expect(dialog.textContent).toContain('Onay notu');
       if ('reason' in scenario && scenario.reason) {
         const textarea = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
         await act(async () => {
@@ -1932,6 +1951,17 @@ describe('Staff JobCard detail', () => {
         await flush();
       });
     }
+
+    const transitionCall = vi.mocked(fetch).mock.calls.find(([url, init]) =>
+      String(url).endsWith(scenario.endpoint) && (init as RequestInit | undefined)?.method === 'POST');
+    const transitionBody = transitionCall
+      ? JSON.parse(String((transitionCall[1] as RequestInit).body))
+      : null;
+    if (command === 'SUBMIT_FOR_APPROVAL') {
+      expect(transitionBody).toMatchObject({ note: 'Teslim tamamlandı' });
+      expect(Object.keys(transitionBody).filter((key) => key === 'note')).toHaveLength(1);
+    }
+    if (command === 'APPROVE') expect(transitionBody).not.toHaveProperty('note');
 
     const feedback = host.querySelector<HTMLElement>('[role="status"]');
     expect(feedback?.textContent).toBe(expected);
