@@ -199,7 +199,7 @@ All scenarios A–G verified with real PostgreSQL + Fastify runtime. Scenarios H
 | Category | Method | Result |
 | --- | --- | --- |
 | Runtime API acceptance | Node.js fetch + real PostgreSQL + Fastify | PASS |
-| Runtime browser dialog acceptance | Playwright Chromium + real UI dialogs (no fetch for lifecycle) | PASS (79/79 + 2 NOT EXERCISED) |
+| Runtime browser dialog acceptance | Playwright Chromium + real UI dialogs (no fetch for lifecycle) | PASS (80 PASS, 2 NOT EXERCISED) |
 | Runtime pagination preservation | Playwright Chromium + real JobNotes UI composer | PASS (21/21) |
 | Desktop overflow 1280×900 | Playwright Chromium real viewport | PASS |
 | Mobile overflow 390×844 | Playwright Chromium real viewport | PASS |
@@ -224,5 +224,5 @@ All scenarios A–G verified with real PostgreSQL + Fastify runtime. Scenarios H
 ## Acceptance test scripts
 
 Located in `web/tests/`:
-- `checkpoint-b-dialog-acceptance.playwright.mjs` — Real UI dialog lifecycle flows (79 PASS, 2 NOT EXERCISED)
+- `checkpoint-b-dialog-acceptance.playwright.mjs` — Real UI dialog lifecycle flows (80 PASS, 2 NOT EXERCISED)
 - `checkpoint-b-pagination-acceptance.playwright.mjs` — Real UI pagination preservation (21 PASS)
