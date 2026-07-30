@@ -469,6 +469,7 @@ describe('JobCardService realtime event emission', () => {
       entityId: 'job-1',
     });
     expect(repository.realtimeEvents[0]!.resourceKeys).toContain('job-notes:job-1');
+    expect(repository.realtimeEvents[0]!.resourceKeys).not.toContain('job-detail:job-1');
     expect(published).toEqual(repository.realtimeEvents);
   });
 

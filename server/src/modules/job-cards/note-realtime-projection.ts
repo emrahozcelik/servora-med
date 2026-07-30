@@ -25,12 +25,7 @@ export async function appendStandaloneNoteProjection(
   };
 
   const resourceKeys = [
-    `job-detail:${input.jobCardId}`,
     `job-notes:${input.jobCardId}`,
-    'job-board',
-    'job-list',
-    'reports',
-    'overview',
     `staff-profile:${input.assigneeId}`,
   ].sort();
 
@@ -50,9 +45,12 @@ export async function appendStandaloneNoteProjection(
     input.organizationId,
   );
 
+  // Verify assignee is active before including in notifications.
+  const assignee = await tx.getAssignee(input.organizationId, input.assigneeId);
+
   const drafts = createNoteAddedNotificationDrafts({
     actorUserId: input.actorId,
-    assigneeId: input.assigneeId,
+    assigneeId: assignee?.isActive ? input.assigneeId : input.actorId,
     jobCardId: input.jobCardId,
     managementRecipients,
   });

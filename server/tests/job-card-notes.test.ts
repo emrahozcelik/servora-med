@@ -98,6 +98,11 @@ class NotesRepository {
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
       appendWebPushDeliveries: async () => [],
+      getAssignee: async (organizationId: string, userId: string) => (
+        organizationId === 'org-1' && userId === 'staff-1'
+          ? { id: userId, organizationId, role: 'STAFF' as const, isActive: true }
+          : null
+      ),
     } as JobCardTransaction;
   }
 
