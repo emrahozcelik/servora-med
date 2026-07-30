@@ -21,7 +21,7 @@ const PASSWORD = process.env.CHECKPOINT_B_TEST_PASSWORD;
 if (!EMAIL_STAFF) throw new Error('CHECKPOINT_B_TEST_EMAIL_STAFF is required');
 if (!PASSWORD) throw new Error('CHECKPOINT_B_TEST_PASSWORD is required');
 
-const JOB_ID = 'f0b0c75b-2d5a-4e92-ac04-11cb9f0e6ee3'; // J6 Pagination test
+const JOB_ID = '8e7df92e-4377-41f9-bc67-325006ca883b'; // J6 Pagination test
 
 const results = [];
 

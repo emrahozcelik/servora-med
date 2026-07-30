@@ -30,11 +30,11 @@ if (!PASSWORD) throw new Error('CHECKPOINT_B_TEST_PASSWORD is required');
 
 // ─── Synthetic JobCard IDs (seeded via SQL, not credentials) ─────────────────
 const JOBS = {
-  submit: '537ce803-a4d1-4d1c-95f6-d5250fe30469',
-  approveBlank: '46b85555-fad3-46ce-9a31-6d626b4e54e6',
-  approveNonblank: '2704734d-5ea1-485f-8699-8262bf6a5d5e',
-  revision: '79534786-1e3e-440e-9ae1-6ce4bf60c3d6',
-  cancel: '9b87dd9d-e8ac-47f0-910b-901101a88e7f',
+  submit: '630dabbe-72d6-49bb-8988-24bea27b4200',
+  approveBlank: '2f02cde1-2eee-4aa7-bae5-4f43ba29f026',
+  approveNonblank: '610a1697-99ea-4f1b-86f9-652700330d65',
+  revision: '467effc2-150a-4cba-8e50-12320533162d',
+  cancel: '1453ed3b-fbc8-4ab8-bba5-b1e57f74e322',
 };
 
 const results = [];
@@ -113,18 +113,20 @@ async function assertFocusReturnedToTrigger(page, triggerLocator, label) {
       focused ? 'trigger focused' : 'trigger exists but not focused');
     return focused;
   } catch {
-    // Trigger replaced by transition — assert focus on decision panel or detail-feedback
+    // Trigger replaced by transition — assert focus on a permitted canonical target
     const targetInfo = await page.evaluate(() => {
       const el = document.activeElement;
       if (!el) return 'none';
       if (el.closest('[data-job-decision-panel]')) return 'decision-panel';
       if (el.closest('.detail-feedback')) return 'detail-feedback';
       if (el.closest('.job-notes')) return 'job-notes';
-      return el.tagName + (el.className ? '.' + el.className.split(' ')[0] : '');
+      // BODY alone without any permitted ancestor is not sufficient
+      return 'unexpected:' + el.tagName + (el.className ? '.' + el.className.split(' ')[0] : '');
     });
-    record(label, 'focus restoration (post-transition)', targetInfo !== 'none' ? 'PASS' : 'FAIL',
+    const isPermitted = targetInfo === 'decision-panel' || targetInfo === 'detail-feedback' || targetInfo === 'job-notes';
+    record(label, 'focus restoration (post-transition)', isPermitted ? 'PASS' : 'FAIL',
       'target=' + targetInfo);
-    return targetInfo !== 'none';
+    return isPermitted;
   }
 }
 
@@ -140,6 +142,62 @@ async function runTests() {
   page.on('pageerror', err => console.log('  PAGE ERROR:', err.message));
 
   try {
+
+    // ═══════════════════════════════════════════════════════════════════════════
+    // RESPONSIVE: mobile viewport — run BEFORE any scenarios mutate state
+    // ═══════════════════════════════════════════════════════════════════════════
+    console.log('\n=== RESPONSIVE (mobile) ===');
+
+    // Use a separate context for mobile — reuse EMAIL_STAFF and JOBS.submit (still IN_PROGRESS)
+    {
+      const mobileCtx = await browser.newContext({ viewport: { width: 390, height: 844 } });
+      const mobilePage = await mobileCtx.newPage();
+
+      await mobilePage.goto(BASE + '/');
+      await mobilePage.waitForSelector('input[type="email"]', { timeout: 8000 });
+      await mobilePage.fill('input[type="email"]', EMAIL_STAFF);
+      await mobilePage.fill('input[type="password"]', PASSWORD);
+      await mobilePage.click('button[type="submit"]');
+      await mobilePage.waitForURL('**/jobs', { timeout: 10000 });
+
+      // Check overflow on JobDetail page (J1 still IN_PROGRESS at this point)
+      await mobilePage.goto(BASE + '/jobs/' + JOBS.submit);
+      await mobilePage.waitForSelector('[data-job-decision-panel="true"]', { timeout: 10000 });
+      await mobilePage.waitForTimeout(500);
+
+      const mobilePageOverflow = await mobilePage.evaluate(
+        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+      );
+      record('RESPONSIVE', 'mobile 390x844: JobDetail page no horizontal overflow',
+        !mobilePageOverflow ? 'PASS' : 'FAIL', 'overflow=' + mobilePageOverflow);
+
+      // Open a dialog and verify it doesn't cause overflow
+      const mobileBtn = mobilePage.locator(
+        '[data-job-decision-panel="true"] button.primary-button', { hasText: 'Kontrole' },
+      );
+      const btnVisible = await mobileBtn.isVisible().catch(() => false);
+      if (!btnVisible) {
+        record('RESPONSIVE', 'mobile: submit button visible for dialog test', 'FAIL', 'button not found');
+      } else {
+        await mobileBtn.click();
+        const mDialog = mobilePage.locator('.reason-dialog');
+        await mDialog.waitFor({ state: 'visible', timeout: 5000 });
+        const mDialogOverflow = await mobilePage.evaluate(
+          () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
+        );
+        record('RESPONSIVE', 'mobile: dialog does not cause horizontal overflow',
+          !mDialogOverflow ? 'PASS' : 'FAIL', 'overflow=' + mDialogOverflow);
+        // Close dialog without submitting
+        const cancelBtn = mDialog.locator('button.secondary-button');
+        await cancelBtn.click();
+        await mDialog.waitFor({ state: 'hidden', timeout: 3000 });
+      }
+      await mobileCtx.close();
+    }
+
+    // 200% zoom classification
+    record('RESPONSIVE', '200% zoom/reflow',
+      'NOT EXERCISED', 'genuine browser zoom not available in MCP/Playwright harness');
 
     // ═══════════════════════════════════════════════════════════════════════════
     // SCENARIO A: SUBMIT_FOR_APPROVAL — real UI dialog (Staff)
@@ -213,13 +271,19 @@ async function runTests() {
       record('A', 'dialog closes on success', 'FAIL');
     }
 
-    // Focus restoration: submit button should be gone (page refreshed), verify some element has focus
+    // Focus restoration: submit button replaced by page re-render.
+    // Verify focus lands on a permitted canonical target.
     await page.waitForTimeout(1000);
-    const submitFocusAfter = await page.evaluate(() => {
+    const submitFocus = await page.evaluate(() => {
       const el = document.activeElement;
-      return el ? el.tagName : 'none';
+      if (!el) return 'none';
+      if (el.closest('.detail-feedback')) return 'detail-feedback';
+      if (el.closest('[data-job-decision-panel]')) return 'decision-panel';
+      if (el.closest('.job-notes')) return 'job-notes';
+      return 'unexpected:' + el.tagName;
     });
-    record('A', 'post-submit focus exists', submitFocusAfter !== 'none' ? 'PASS' : 'FAIL', submitFocusAfter);
+    const isPermitted = submitFocus === 'detail-feedback' || submitFocus === 'decision-panel' || submitFocus === 'job-notes';
+    record('A', 'post-submit focus target', isPermitted ? 'PASS' : 'FAIL', submitFocus);
 
     await page.waitForTimeout(1500);
     const j1After = await apiRead(page, '/job-cards/' + JOBS.submit);
@@ -590,55 +654,6 @@ async function runTests() {
       'NOT EXERCISED', 'safe request delay injection not practical without altering production behavior');
     record('PENDING', 'Vitest/jsdom pending protection coverage',
       'PASS', 'covered by automated component tests');
-
-    // ═══════════════════════════════════════════════════════════════════════════
-    // Responsive: mobile viewport overflow check
-    // ═══════════════════════════════════════════════════════════════════════════
-    console.log('\n=== RESPONSIVE ===');
-
-    // Mobile viewport (390×844) on a fresh page
-    const mobileCtx = await browser.newContext({ viewport: { width: 390, height: 844 } });
-    const mobilePage = await mobileCtx.newPage();
-
-    await mobilePage.goto(BASE + '/');
-    await mobilePage.waitForSelector('input[type="email"]', { timeout: 8000 });
-    await mobilePage.fill('input[type="email"]', EMAIL_STAFF);
-    await mobilePage.fill('input[type="password"]', PASSWORD);
-    await mobilePage.click('button[type="submit"]');
-    await mobilePage.waitForURL('**/jobs', { timeout: 10000 });
-
-    // Check overflow on JobDetail page
-    await mobilePage.goto(BASE + '/jobs/' + JOBS.submit);
-    await mobilePage.waitForSelector('[data-job-decision-panel="true"]', { timeout: 10000 });
-    await mobilePage.waitForTimeout(500);
-
-    const mobileOverflow = await mobilePage.evaluate(
-      () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-    );
-    record('RESPONSIVE', 'mobile 390x844: no horizontal overflow',
-      !mobileOverflow ? 'PASS' : 'FAIL', 'overflow=' + mobileOverflow);
-
-    // Open a dialog on mobile and verify it's usable
-    const mobileBtn = mobilePage.locator(
-      '[data-job-decision-panel="true"] button.primary-button', { hasText: 'Kontrole' },
-    );
-    if (await mobileBtn.isVisible().catch(() => false)) {
-      await mobileBtn.click();
-      const mDialog = mobilePage.locator('.reason-dialog');
-      await mDialog.waitFor({ state: 'visible', timeout: 5000 });
-      const mOverflow = await mobilePage.evaluate(
-        () => document.documentElement.scrollWidth > document.documentElement.clientWidth,
-      );
-      record('RESPONSIVE', 'mobile: dialog does not cause overflow',
-        !mOverflow ? 'PASS' : 'FAIL', 'overflow=' + mOverflow);
-      await mDialog.locator('button.secondary-button').click();
-      await mDialog.waitFor({ state: 'hidden', timeout: 3000 });
-    }
-    await mobileCtx.close();
-
-    // 200% zoom classification
-    record('RESPONSIVE', '200% zoom/reflow',
-      'NOT EXERCISED', 'genuine browser zoom not available in MCP/Playwright harness');
 
   } finally {
     await browser.close();
