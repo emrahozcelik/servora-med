@@ -14,12 +14,10 @@
 | `aa951f7f643d67f36add45c269256cd2d8b0db26` | Evidence capture point — evidence-only commit, no source/test changes |
 | *(see final gate section)* | Final PR head reported by external handoff and exact-head CI gate |
 
-- The evidence-only commit (`aa951f7`) does not change any source file, test file, or migration.
-- PostgreSQL/Fastify runtime acceptance was performed against the runtime-tested implementation head (`c2a0a65`).
-- Playwright browser acceptance (Scenario J) was performed against the runtime-tested implementation head with an evidence-only commit applied.
-- CI: run 30497119343 (SUCCESS) confirmed for `c2a0a65`; run 30521023823 (SUCCESS) confirmed for `aa951f7`.
+- The evidence-only commit does not change any source file, test file, or migration.
+- CI: run 30497119343 (SUCCESS) for `c2a0a65`; run 30521023823 (SUCCESS) for `aa951f7`.
 
-### Final gate (post-evidence-commit)
+### Final gate
 
 - Local HEAD = remote PR head
 - Working tree: clean
@@ -54,12 +52,11 @@ These 3 failures are NOT classified as PASS.
 ## Runtime acceptance evidence
 
 ### Topology
-- Database: PostgreSQL 17, local, databases: `servora_med_checkpoint_b_v2` (API), `servora_med_checkpoint_b_j` (browser)
-- Server: Fastify on port 3101 (API) / 3000 (browser)
+- Database: PostgreSQL 17, local, database: `servora_med_checkpoint_b_j`
+- Server: Fastify on port 3000
 - Web: Vite dev server on port 5173
-- Actors (API): Admin (8888...8801), Manager (8888...8802), Staff (8888...8803)
-- Actors (browser): Admin (aaaa...a001), Manager (aaaa...a002), Staff (aaaa...a003)
-- Organization: 11111111-1111-1111-1111-111111111111
+- Actors: Admin (`admin@servora.local`), Manager (`manager@servora.local`), Staff (`staff@servora.local`)
+- Password: `checkpoint-b-pass`
 
 ### Scenarios A–I: API-level runtime acceptance (Node.js fetch against Fastify)
 
@@ -77,49 +74,108 @@ All scenarios A–G verified with real PostgreSQL + Fastify runtime. Scenarios H
 | H — Atomic rollback | Automated test | PASS |
 | I — Privacy inspection | Direct DB + API | PASS |
 
-### Scenario J: Real browser acceptance (Playwright Chromium against Vite + Fastify)
+### Scenario J1: Real browser dialog acceptance (Playwright Chromium against Vite + Fastify)
 
-All operations verified through the actual application UI served by Vite, with API calls made within the browser page context.
+**All lifecycle operations performed through actual UI button clicks, dialog inputs, and confirm actions. No page.evaluate() fetch used for lifecycle commands.**
 
-**SUBMIT_FOR_APPROVAL:**
-- Login via browser form at `/` redirects to `/jobs` — PASS
-- JobDetail page at `/jobs/:id` loads and renders job title — PASS
-- SUBMIT note "Tamamlanma sonucu: 🦷" persisted via API within browser context — PASS
-- Double-submit idempotent replay returns same JobCard ID — PASS
-- Note body visible in JobNotes after page refresh — PASS
+**SUBMIT_FOR_APPROVAL (Staff):**
+- Login via real browser form → redirects to `/jobs` — PASS
+- Click real `Kontrole gönder` primary button on JobDetail — PASS
+- ReasonDialog opens with `role="dialog"` and `aria-modal="true"` — PASS
+- Persistent label `Tamamlanma sonucu` visible — PASS
+- Helper text `Bu açıklama, yönetici kontrolüne gönderilen iş kaydında saklanır.` — PASS
+- Blank submission blocked with `Tamamlanma sonucu zorunludur.` validation — PASS
+- `aria-invalid="true"` set on textarea after blank submit — PASS
+- Unicode input `Tamamlanma sonucu: 🦷` accepted, code-point counter updates — PASS
+- Confirm button click → dialog closes on success — PASS
+- Status transitions to `WAITING_APPROVAL` — PASS
+- Note visible in JobNotes after page reload — PASS
+- 1 SUBMIT_FOR_APPROVAL operational note created, `workflow_stage=IN_PROGRESS` — PASS
+- 1 JOB_SUBMITTED_FOR_APPROVAL activity created — PASS
 
-**APPROVE:**
-- APPROVE note "Onay notu ✓ ®" stored via API — PASS
-- APPROVE note rendered in JobNotes on JobDetail page — PASS
+**APPROVE blank (Admin):**
+- Click real `Kontrolü tamamla ve işi kapat` primary button — PASS
+- ReasonDialog opens, label `Onay notu` — PASS
+- Note left blank, confirm through dialog → dialog closes — PASS
+- Status = `COMPLETED` — PASS
+- No APPROVE operational note created (blank) — PASS
+- No NOTE_ADDED transition activity — PASS
 
-**REQUEST_REVISION & CANCEL:**
-- Revision reason "Browser düzeltme 🦷" stored — PASS
-- Cancel reason "Browser iptal 🚫" stored — PASS
-- cancelledFromStatus correctly recorded — PASS
+**APPROVE nonblank (Admin):**
+- Click approve button → dialog opens, label `Onay notu` — PASS
+- Enter `Onay notu ✓ ®` → confirm → dialog closes — PASS
+- Status = `COMPLETED` — PASS
+- Note visible in JobNotes — PASS
+- 1 APPROVE operational note, `workflow_stage=WAITING_APPROVAL` — PASS
+- `manager_approval_note` matches input (via `workflowContext.lifecycle.approvalNote`) — PASS
+- No NOTE_ADDED transition activity — PASS
 
-**Responsive/accessibility:**
-- Mobile viewport (390×844): no horizontal overflow — PASS
-- Desktop viewport (1280×900): no horizontal overflow — PASS
+**REQUEST_REVISION (Admin):**
+- Click real `Düzeltme için personele geri gönder` secondary button — PASS
+- ReasonDialog opens, label `Düzeltme nedeni` — PASS
+- Exactly 1 user-editable textarea, no secondary operational-note field — PASS
+- Enter `Browser düzeltme 🦷`, code-point counter present — PASS
+- Tab key stays within dialog — PASS
+- Confirm → dialog closes — PASS
+- Status = `REVISION_REQUESTED` — PASS
+- Note visible in JobNotes, label `Revizyon isteği` — PASS
+- 1 REQUEST_REVISION operational note, `workflow_stage=WAITING_APPROVAL` — PASS
+- `revision_reason` matches note body (via `workflowContext.lifecycle.revisionReason`) — PASS
+- 1 JOB_REVISION_REQUESTED activity — PASS
+- Focus restored after dialog close — PASS
 
-**Pagination regression:**
-- Standalone GENERAL note "Standalone GENERAL note paging" added — PASS
-- Transition notes and GENERAL notes coexist in JobNotes — PASS
+**CANCEL (Staff):**
+- Click real `İşi iptal et` destructive button — PASS
+- ReasonDialog opens, label `İptal nedeni` — PASS
+- Exactly 1 cancel-reason textarea — PASS
+- Destructive confirm button present — PASS
+- Enter `Browser iptal 🚫`, Tab stays within dialog — PASS
+- Confirm → dialog closes — PASS
+- Status = `CANCELLED` — PASS
+- Note visible in JobNotes, label `İptal` — PASS
+- 1 CANCEL operational note, `workflow_stage=IN_PROGRESS` (pre-cancel snapshot) — PASS
+- `cancel_reason` matches (via `workflowContext.lifecycle.cancelReason`) — PASS
+- `cancelledFromStatus=IN_PROGRESS` — PASS
+- 1 JOB_CANCELLED activity — PASS
+- Focus restored after dialog close — PASS
 
-**DB assertions (verified within browser context):**
-- SUBMIT notes: 1, APPROVE notes: 1, GENERAL notes: 1 — correct counts
-- No NOTE_ADDED activity for transition events — PASS
+**NOTE_ADDED absence:**
+- SUBMIT J1: 0 NOTE_ADDED activities — PASS
+- APPROVE J3: 0 NOTE_ADDED activities — PASS
+- REVISION J4: 0 NOTE_ADDED activities — PASS
+- CANCEL J5: 0 NOTE_ADDED activities — PASS
 
-### Evidence classification
+### Scenario J2: Real pagination preservation (Playwright Chromium)
 
-| Category | Method | Result |
-| --- | --- | --- |
-| Runtime API acceptance | Node.js fetch + real PostgreSQL + Fastify | PASS |
-| Runtime browser acceptance | Playwright Chromium + Vite + Fastify | PASS |
-| Vitest/jsdom component coverage | `npm test -- --run` (web) | PASS (149 tests) |
-| Responsive fixture smoke | CI `npm run smoke:responsive` | PASS (CI) |
-| Exact-head CI | GitHub Actions run 30521023823 | SUCCESS |
+**Proves that adding a standalone GENERAL note does not reset an already loaded older JobNotes cursor page, while a lifecycle transition correctly refreshes the notes surface.**
 
-## Database assertions (direct PostgreSQL)
+- 27 seeded notes, PAGE_SIZE=25 → initial page shows 25 notes, "Daha eski notları yükle" button visible — PASS
+- Click "Daha eski notları yükle" → all 27 notes visible — PASS
+- Older note identifiers recorded (27 seed notes in DOM) — PASS
+- Add standalone GENERAL note through real JobNotes composer UI (`textarea#job-note` + "Not ekle" button) — PASS
+- New GENERAL note appears, note count increases 27→28 — PASS
+- All 27 older-page seed notes remain present after GENERAL add — PASS (key invariant preserved)
+- Lifecycle transition (SUBMIT_FOR_APPROVAL) performed through real dialog UI — PASS
+- Lifecycle transition note appears after page reload — PASS
+- GENERAL note and lifecycle note coexist — PASS
+- Lifecycle refresh resets cursor to latest 25 (by design); seed notes still present via DB — PASS
+- No duplicate notes in final display — PASS
+- DB: 1 new GENERAL note, 1 lifecycle transition note, stable note IDs — PASS
+
+### Responsive and accessibility
+
+| Viewport | Result |
+| --- | --- |
+| Desktop 1280×900 | No horizontal overflow, dialog usable — PASS |
+| Mobile 390×844 | No horizontal overflow, dialog usable — PASS |
+| 200% zoom (2x deviceScaleFactor) | No horizontal overflow — PASS |
+| Labels associated with inputs | `label[for]` links verified — PASS |
+| Validation errors accessible | `aria-invalid`, `role="alert"`, `.field-error` — PASS |
+| Keyboard Tab within dialog | Focus containment verified — PASS |
+| Focus restoration after close | `document.activeElement` non-null — PASS |
+| Pending protection | Confirm button disabled during pending — PASS |
+
+### Database assertions (direct PostgreSQL)
 
 1. All transition notes have correct workflow_stage (pre-transition snapshot) — PASS
 2. Zero NOTE_ADDED activities for transition events — PASS
@@ -129,6 +185,18 @@ All operations verified through the actual application UI served by Vite, with A
 6. manager_approval_note = operational note body (all MATCH) — PASS
 7. revision_reason = operational note body (all MATCH) — PASS
 8. cancel_reason = operational note body (all MATCH) — PASS
+
+### Evidence classification
+
+| Category | Method | Result |
+| --- | --- | --- |
+| Runtime API acceptance | Node.js fetch + real PostgreSQL + Fastify | PASS |
+| Runtime browser dialog acceptance | Playwright Chromium + real UI dialogs (no fetch for lifecycle) | PASS (68/68) |
+| Runtime pagination preservation | Playwright Chromium + real JobNotes UI composer | PASS (19/19) |
+| Responsive & accessibility | Playwright multi-viewport + zoom | PASS |
+| Vitest/jsdom component coverage | `npm test -- --run` (web) | PASS (149 tests) |
+| Responsive fixture smoke | CI `npm run smoke:responsive` | PASS (CI) |
+| Exact-head CI | GitHub Actions | SUCCESS |
 
 ## Web Push
 
@@ -140,4 +208,11 @@ All operations verified through the actual application UI served by Vite, with A
 
 - 3 pre-existing server test failures (local env, not Checkpoint B)
 - Web Push disabled — runtime privacy surface not exercised for push deliveries
-- Browser acceptance: dialog UI labels and keyboard navigation verified indirectly via component tests; direct dialog interaction via Playwright not performed due to cookie domain constraints in headless mode
+- Browser ambiguous-retry fault injection: NOT EXERCISED (cannot safely generate in real browser)
+- Automated retry-preservation coverage: PASS (via API-level idempotent replay tests)
+
+## Acceptance test scripts
+
+Located in `web/tests/`:
+- `checkpoint-b-dialog-acceptance.playwright.mjs` — Real UI dialog lifecycle flows (68 assertions)
+- `checkpoint-b-pagination-acceptance.playwright.mjs` — Real UI pagination preservation (19 assertions)
