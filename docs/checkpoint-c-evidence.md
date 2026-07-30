@@ -6,7 +6,7 @@ Operational Notes feature: realtime projection, pagination, Web Push, Notificati
 ## Branch & PR
 - Branch: `feat/job-operational-notes-realtime-c`
 - Base: `327f460f59718b7afcb77f0a8c8c581503d3a501`
-- Head: `7c1e4d92b71368958b1e1f41f55b15e50ad6afc4` (exact head, pushed to PR)
+- Head: `60bdbefd507634280578beda4a0c0ed14aadb96c` (exact head, pushed to PR)
 - PR: #81 (Draft)
 
 ## Test Results
@@ -82,7 +82,7 @@ cd web && npm run lint
 - Keyboard accessible ✅
 
 ## CI
-- Run #30572395811: SUCCESS ✅
+- Run #30576418222: SUCCESS (server PASS 2m51s, web PASS 2m7s) ✅
 
 ## Files Changed (base-to-head diff)
 
@@ -90,7 +90,6 @@ cd web && npm run lint
 - `server/src/db/migrations/021_job_card_note_added_notification_kind.sql` — migration adding `job.note_added` kind
 - `server/src/modules/job-cards/note-realtime-projection.ts` — realtime projection with conditional `notifications` resource key, inactive assignee exclusion
 - `server/tests/note-realtime-projection.test.ts` — 7 focused tests
-- `server/tests/notification-policy.test.ts` — 12 policy tests
 - `web/tests/job-notes.test.tsx` — 4 realtime merge/pagination tests
 
 ### Modified files
