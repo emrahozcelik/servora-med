@@ -177,7 +177,7 @@ async function runTests() {
       );
       const btnVisible = await mobileBtn.isVisible().catch(() => false);
       record('RESPONSIVE', 'mobile: submit button visible', btnVisible ? 'PASS' : 'FAIL');
-      if (!btnVisible) {
+      if (btnVisible) {
         await mobileBtn.click();
         const mDialog = mobilePage.locator('.reason-dialog');
         await mDialog.waitFor({ state: 'visible', timeout: 5000 });
