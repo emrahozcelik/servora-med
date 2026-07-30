@@ -6,7 +6,7 @@ Operational Notes feature: realtime projection, pagination, Web Push, Notificati
 ## Branch & PR
 - Branch: `feat/job-operational-notes-realtime-c`
 - Base: `327f460f59718b7afcb77f0a8c8c581503d3a501`
-- Head: `996847ce2ffffebd7e4dfad5a75288db01603e3b`
+- Head: `7c1e4d92b71368958b1e1f41f55b15e50ad6afc4` (exact head, pushed to PR)
 - PR: #81 (Draft)
 
 ## Test Results
@@ -15,13 +15,13 @@ Operational Notes feature: realtime projection, pagination, Web Push, Notificati
 ```
 cd server && npm test -- --run
 ```
-- **Result:** 1398/1405 pass (7 pre-existing failures, unrelated)
+- **Result:** 1402/1405 pass (3 pre-existing failures, unrelated to checkpoint)
 
 ### Web Tests
 ```
 cd web && npm test -- --run
 ```
-- **Result:** 1137/1137 pass
+- **Result:** 1141/1141 pass
 
 ### Build
 ```
@@ -84,5 +84,33 @@ cd web && npm run lint
 ## CI
 - Run #30572395811: SUCCESS ✅
 
-## Files Changed
-- `web/tests/job-notes.test.tsx` — 4 new focused tests for realtime merge, pagination, deduplication, lifecycle separation
+## Files Changed (base-to-head diff)
+
+### New files
+- `server/src/db/migrations/021_job_card_note_added_notification_kind.sql` — migration adding `job.note_added` kind
+- `server/src/modules/job-cards/note-realtime-projection.ts` — realtime projection with conditional `notifications` resource key, inactive assignee exclusion
+- `server/tests/note-realtime-projection.test.ts` — 7 focused tests
+- `server/tests/notification-policy.test.ts` — 12 policy tests
+- `web/tests/job-notes.test.tsx` — 4 realtime merge/pagination tests
+
+### Modified files
+- `server/src/modules/job-cards/notes-service.ts` — calls projection helper in transaction
+- `server/src/modules/job-cards/service.ts` — publishes realtime events post-commit
+- `server/src/modules/notifications/policy.ts` — `createNoteAddedNotificationDrafts()` with actor exclusion
+- `server/src/modules/notifications/presenter.ts` — "Operasyon notu eklendi" message
+- `server/src/modules/notifications/types.ts` — `job.note_added` added to `NOTIFICATION_KINDS`
+- `server/tests/backup-restore-postgres.test.ts` — migration test update
+- `server/tests/job-acceptance-postgres.test.ts` — acceptance test update
+- `server/tests/job-card-notes.test.ts` — notes test update
+- `server/tests/job-card-service.test.ts` — service test update
+- `server/tests/job-card-workspace-postgres.test.ts` — workspace test update
+- `server/tests/migrate-runner.test.ts` — migration runner test update
+- `server/tests/notification-delivery-projection.test.ts` — delivery projection test update
+- `server/tests/notification-policy.test.ts` — policy test update
+- `server/tests/realtime-job-card-integration.test.ts` — realtime integration test update
+- `server/tests/sales-meeting-postgres.test.ts` — sales meeting test update
+- `server/tests/sales-meeting-schema.test.ts` — schema test update
+- `server/tests/web-push-integrated-normal-path.test.ts` — web push test update
+- `web/src/JobDetail.tsx` — `useRealtimeInvalidation(['job-notes:' + jobId])`
+- `web/src/jobs/JobNotes.tsx` — `realtimeKey` prop with merge, `nextCursor` preservation
+- `web/src/services/notifications-api.ts` — `job.note_added` added to frontend validation
