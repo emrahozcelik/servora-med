@@ -348,16 +348,15 @@ All note creation (`addNote`) and its projection (`appendStandaloneNoteProjectio
 
 ### Reviewer-fix commit `2289a35` (in PR diff)
 
-Modifies `server/src/modules/job-cards/note-realtime-projection.ts` and
-`server/tests/note-realtime-projection.test.ts` (both already listed in the inventory
-above): the `notifications` resource key became unconditional, and the zero-recipient
-test now requires the key.
+Modifies note-realtime-projection.ts and note-realtime-projection.test.ts (both already
+listed in the inventory above): the `notifications` resource key became unconditional,
+and the zero-recipient test now requires the key.
 
 ### Evidence-only commits (docs-only, after the implementation head)
 
 - `docs/evidence/job-operational-notes/checkpoint-c/README.md` — canonical evidence file (this file)
-- The old path `docs/checkpoint-c-evidence.md` was deleted in the evidence commit; it
-  did not exist at base, so it is net-zero and does not appear in the base-to-head diff.
+- The old path docs/checkpoint-c-evidence.md was deleted in the evidence commit; it did
+  not exist at base, so it is net-zero and does not appear in the base-to-head diff.
 
 These commits change documentation only; they do not affect source code, tests, or migrations. The implementation head (`f1b0137c0f393d82d699ad197ee525368dc1a389`) referenced by the implementation-head CI run 30577288701 is unchanged by them.
 
