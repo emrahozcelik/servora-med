@@ -34,15 +34,15 @@ export async function appendStandaloneNoteProjection(
     managementRecipients,
   });
 
-  // Build resource keys. Always include the dedicated notes invalidation.
-  // Include "notifications" only when at least one eligible draft exists.
-  const resourceKeys = new Set<string>([
+  // Build resource keys. The keys are a deterministic set for every
+  // standalone-note event so consumers can rely on them; the "notifications"
+  // key is included even when actor exclusion leaves no eligible draft (a
+  // client refetch is harmless and returns the unchanged canonical state).
+  const resourceKeys = [
     `job-notes:${input.jobCardId}`,
+    'notifications',
     `staff-profile:${input.assigneeId}`,
-  ]);
-  if (drafts.length > 0) {
-    resourceKeys.add('notifications');
-  }
+  ];
 
   // Build audience. Admin/Manager roles always see job-card events.
   // Include the assignee user ID only when the assignee is active.

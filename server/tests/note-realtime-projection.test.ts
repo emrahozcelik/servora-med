@@ -71,9 +71,9 @@ describe('appendStandaloneNoteProjection', () => {
     expect(realtimeEvents[0]!.resourceKeys).toContain('notifications');
   });
 
-  it('does NOT include notifications resource key when all eligible recipients are the actor', async () => {
+  it('includes notifications resource key even when all eligible recipients are the actor', async () => {
     const { realtimeEvents, transaction } = tx({
-      // admin-1 is the only active mgmt AND the actor
+      // admin-1 is the only active mgmt AND the actor → no eligible drafts
       activeManagement: [{ id: 'admin-1', role: 'ADMIN', isActive: true }],
       assigneeId: 'admin-1',
     });
@@ -82,7 +82,7 @@ describe('appendStandaloneNoteProjection', () => {
       assigneeId: 'admin-1', activity,
     });
     expect(realtimeEvents[0]!.resourceKeys).toContain('job-notes:job-1');
-    expect(realtimeEvents[0]!.resourceKeys).not.toContain('notifications');
+    expect(realtimeEvents[0]!.resourceKeys).toContain('notifications');
   });
 
   it('includes active assignee in realtime audience userIds', async () => {
