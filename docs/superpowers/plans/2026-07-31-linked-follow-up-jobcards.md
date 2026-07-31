@@ -110,7 +110,7 @@ CREATE INDEX job_cards_follow_up_source_idx
   WHERE source_job_card_id IS NOT NULL;
 ```
 
-Note: the iff CHECK is same-row (`source_job_card_id` lives on the same row), so it is fully expressible — consistent with existing CHECK style (`002`, `007`). The length/whitespace constraint stays separate so the iff CHECK stays purely structural.
+Note: the iff CHECK is same-row (`source_job_card_id` lives on the same row), so it is fully expressible — consistent with existing CHECK style (`002`, `007`). The length/whitespace constraint stays separate so the iff CHECK stays purely structural. Cross-row rules (completed-source eligibility, chain depth ≤ 10, same-customer consistency) are enforced in the **service**, not claimed for PostgreSQL alone — no trigger is planned.
 
 **Contract test:** extend `server/tests/migrate-runner.test.ts` migration list with `022_job_card_follow_up_links.sql` and `expectedSchemaVersion` to 22. Migration behavior tests must prove all four cases: `root + instructions → rejected`, `follow-up + null instructions → rejected`, `root + null instructions → accepted`, `follow-up + valid instructions → accepted`.
 
@@ -120,20 +120,27 @@ Note: the iff CHECK is same-row (`source_job_card_id` lives on the same row), so
 
 | File | Change |
 |---|---|
-| `server/src/modules/job-cards/types.ts` | `JobCard` + `sourceJobCardId: string \| null`, `followUpInstructions: string \| null`; `JobCardDetail` + `sourceAccess: 'FULL' \| 'RESTRICTED'`, `sourceJobPath: string \| null`. New `FollowUpCreateInput`; new `RestrictedSourceContext` DTO (canonical time model + access mode); `FollowUpListItem`; `JobCardHistoryItem` link metadata (`followUp: { sourceJobCardId } \| null`, `childCount: number \| null`). |
-| `server/src/modules/job-cards/create-input.ts` | `normalizeFollowUpCreateInput` — validates instructions presence/length, type-specific `scheduledAt`/`dueDate`, `engagementKind` against the real enum, contact ownership against the **inherited** customer, assignee existence via existing lookups. No `customerId` in the input: the server copies `source.customerId` (design R6). |
+| `server/src/modules/job-cards/types.ts` | `JobCard` + `sourceJobCardId: string \| null`, `followUpInstructions: string \| null`; `JobCardDetail` + `followUpContext: JobCardFollowUpContext` (nullable nested DTO, Repair 1: `null` for roots; `{ sourceJobCardId, followUpInstructions, sourceAccess: 'FULL' \| 'RESTRICTED', sourceJobPath: string \| null, sourceContext: RestrictedSourceContext \| null }` for follow-ups — replaces top-level `sourceAccess`/`sourceJobPath` fields). New `FollowUpCreateInput` (no `customerId`, no `scheduledEndsAt` — Repair 4); new `RestrictedSourceContext` DTO (canonical time model + access mode); `FollowUpListItem`; `JobCardHistoryItem` link metadata (`followUp: { sourceJobCardId } \| null`, `childCount: number \| null`). |
+| `server/src/modules/job-cards/create-input.ts` | `normalizeFollowUpCreateInput` — validates instructions presence/length, type-specific `scheduledAt`/`dueDate`, `engagementKind` against the real enum, contact ownership against the **inherited** customer, assignee existence via existing lookups. No `customerId` in the input: the server copies `source.customerId` (design R6). **Customer-null × type matrix** (Repair 2): source with customer → `GENERAL_TASK`/`PRODUCT_DELIVERY`/`SALES_MEETING`; customerless source → `GENERAL_TASK` only, others → `409 FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED`. No `scheduledEndsAt` field exists in the input (Repair 4). |
 | `server/src/modules/job-cards/policy.ts` | `assertCanCreateFollowUp(actor)` → `STAFF` forbidden; `assertSourceEligible(source)` → `COMPLETED` only; `resolveSourceAccess(actor, source)` → `FULL` for management or the source card's current assignee, else `RESTRICTED`. |
-| `server/src/modules/job-cards/repository.ts` | Row mappers + SQL: `getFollowUpSource(...)` (status, customer, contact, `scheduled_at`, `started_at`, `staff_completed_at`, `manager_approved_at`, `type`, meeting outcome), `listFollowUps(...)` (children, reach-filtered), `getSourceContext(...)` (follow-up → source → meeting details), `childCount` subquery. Implements `JobHistoryReadPort` (F3; interface in new `history-port.ts`). |
-| `server/src/modules/job-cards/history-port.ts` (new) | `interface JobHistoryReadPort { listCustomerJobs(...); countCustomerJobs(...); listStaffJobs(...) }` — narrow read port owned by the job-cards domain, implemented by `PostgresJobCardRepository`. |
-| `server/src/modules/job-cards/service.ts` | `createFollowUp(actor, sourceId, input)` — claim `JOB_FOLLOW_UP_CREATE:<sourceId>`; eligibility + chain-depth walk (max persisted depth 10); insert with inherited customer + link; `JOB_CREATED` activity with `metadata.sourceJobCardId`; existing notifications path; realtime with extra keys. `listFollowUps(actor, jobCardId)`, `getSourceContext(actor, jobCardId)` (returns `sourceAccess` + `sourceJobPath`). |
-| `server/src/modules/job-cards/handlers.ts` + `routes.ts` | `POST /api/job-cards/:sourceId/follow-ups`, `GET /api/job-cards/:id/follow-ups`, `GET /api/job-cards/:id/source-context`. **No** `/source` endpoint (design R9: full access reuses the existing `GET /api/job-cards/:sourceId`). |
-| `server/src/modules/crm/types.ts` + `repository.ts` + `service.ts` + `handlers.ts` + `routes.ts` | `CustomerDetail` gains `openJobCount`, `completedJobCount` (staffScope-filtered); embedded arrays removed; `GET /api/customers/:customerId/jobs`; `CrmService` constructor gains `JobHistoryReadPort`. |
-| `server/src/modules/people/repository.ts` + `service.ts` + `handlers.ts` + `routes.ts` | `GET /api/staff/me/jobs` + `GET /api/staff/:userId/jobs` (Admin/Manager any; STAFF self-only via existing guard style); `PeopleService` constructor gains `JobHistoryReadPort`. |
-| `server/src/modules/calendar/repository.ts` + `types.ts` | `CALENDAR_LIST_SQL` LEFT JOIN to source `job_cards src` + `job_card_meeting_details md` (for `sourceOccurredAt`); `followUp` payload per canonical time model + management-only `sourceJobPath`. |
+| `server/src/modules/job-cards/repository.ts` | Row mappers + SQL: `getFollowUpSource(...)` (status, customer, contact, `scheduled_at`, `started_at`, `staff_completed_at`, `manager_approved_at`, `type`, meeting outcome), `listFollowUps(...)` (children, reach-filtered), `getSourceContext(...)` (follow-up → source → meeting details), `childCount` subquery. Implements `JobHistoryReadPort` (F3; interface in new `history-port.ts`) via `listCustomerJobHistory` / `listStaffJobHistory`. |
+| `server/src/modules/job-cards/history-port.ts` (new) | ```typescript
+interface JobHistoryReadPort {
+  listCustomerJobHistory(input: CustomerJobHistoryInput): Promise<PaginatedJobHistory>;
+  listStaffJobHistory(input: StaffJobHistoryInput): Promise<PaginatedJobHistory>;
+}
+type PaginatedJobHistory = { items: JobCardHistoryItem[]; total: number; limit: number; offset: number };
+```
+Narrow read port owned by the job-cards domain, implemented by `PostgresJobCardRepository`. No `countCustomerJobs`/`countStaffJobs` methods — counts are derived from `total` of status-filtered lists (Repair 5). `PaginatedJobHistory` uses the crm-consistent `{ items, total, limit, offset }` shape. |
+| `server/src/modules/job-cards/service.ts` | `createFollowUp(actor, sourceId, input)` — claim `JOB_FOLLOW_UP_CREATE:<sourceId>`; eligibility + chain-depth walk (max persisted depth 10; `409 FOLLOW_UP_MAX_DEPTH_REACHED`); insert with inherited customer + link; `JOB_CREATED` activity with `metadata.sourceJobCardId`; existing notifications path; realtime with extra keys. `listFollowUps(actor, jobCardId)`, `getSourceContext(actor, jobCardId)` (returns `sourceAccess` + `sourceJobPath`). **Access lifetime** (design §6.5): mode derived per request from current role/`assigned_to`; former assignee loses access after reassignment unless own-history rules preserve it; inactive users have no access. Follow-up `customerId` is **not** changeable via the generic PATCH (Repair R25) — the source owns customer/contact. |
+| `server/src/modules/job-cards/handlers.ts` + `routes.ts` | `POST /api/job-cards/:sourceId/follow-ups`, `GET /api/job-cards/:id/follow-ups`, `GET /api/job-cards/:id/source-context`. **No** `/source` endpoint (design R9: full access reuses the existing `GET /api/job-cards/:sourceId`). Detail responses embed `followUpContext` (nullable; root → `null`). |
+| `server/src/modules/crm/types.ts` + `repository.ts` + `service.ts` + `handlers.ts` + `routes.ts` | `CustomerDetail` gains `openJobCount`, `completedJobCount` (staffScope-filtered, derived from port totals); embedded arrays removed; `GET /api/customers/:customerId/jobs`; `CrmService` constructor gains `JobHistoryReadPort` (optional dependency; the `/jobs` route registers only when the port is present — existing CRM endpoints stay available without it, Repair 5). |
+| `server/src/modules/people/repository.ts` + `service.ts` + `handlers.ts` + `routes.ts` | `GET /api/staff/me/jobs` + `GET /api/staff/:userId/jobs` (Admin/Manager any; STAFF self-only via existing guard style); `PeopleService` constructor gains `JobHistoryReadPort` (optional; same conditional registration rule). |
+| `server/src/modules/calendar/repository.ts` + `types.ts` | `CALENDAR_LIST_SQL` LEFT JOIN to source `job_cards src` + `job_card_meeting_details md` (for `sourceOccurredAt`); additive nullable `followUpContext: { sourceAccess, sourceJobPath, sourcePlannedAt, sourceOccurredAt, sourceCompletedAt } | null` using **the same source-access decision as `JobCardDetail`** (no instructions, no note bodies, no chain — Repair 1/calendar). |
 | `server/src/modules/realtime/event-mapper.ts` | `JOB_CREATED` mapping appends `job-detail:<sourceJobCardId>`, `customer-detail:<customerId>` when present. |
 | `server/src/modules/job-cards/activity-presenter.ts` | No behavioral change required; `JOB_CREATED` metadata (`sourceJobCardId`) is bodyless-presented (verify in F1 with a test). |
 | `server/src/modules/job-cards/validation.ts` | Register new route input schemas (Fastify JSON schema style used by the module). |
-| `server/src/app.ts` | F1: `LOGGER_REDACT_PATHS` += `'req.body.followUpInstructions'` (next to existing `'req.body.body'`). F3: constructor wiring — `new CrmService(dependencies.crmRepository, jobCardRepository)` and `new PeopleService(dependencies.peopleRepository, ..., dependencies.reportsRepository, jobCardRepository)` where `jobCardRepository` satisfies `JobHistoryReadPort`; update `AppDependencies` shape only if needed. |
+| `server/src/app.ts` | F1: `LOGGER_REDACT_PATHS` += `'req.body.followUpInstructions'` (next to existing `'req.body.body'`). F3: `AppDependencies` gains `jobHistoryReadPort?: JobHistoryReadPort`; production composition passes `{ jobCardRepository, jobHistoryReadPort: jobCardRepository }`; `CrmService`/`PeopleService` receive the port and register the history routes conditionally; unit-test wiring asserts construction with and without the port. |
 
 ---
 
@@ -150,7 +157,8 @@ Request (`FollowUpCreateInput`):
   "title": "string 1..255 non-whitespace",
   "followUpInstructions": "string 1..4000 non-whitespace",   // REQUIRED (D3); immutable after creation (D15)
   "scheduledAt": "ISO | null",                    // required for PRODUCT_DELIVERY, SALES_MEETING
-  "scheduledEndsAt": "ISO | null",
+  // NO scheduledEndsAt: creation accepts scheduledAt only (Repair 4);
+  // end time is owned by the existing scheduling/update flow.
   "assignedTo": "uuid",
   "priority": "low | normal | high | urgent",     // default normal
   "dueDate": "YYYY-MM-DD | null",                 // not allowed for SALES_MEETING
@@ -164,17 +172,32 @@ Request (`FollowUpCreateInput`):
 }
 ```
 
+**Customer-null × type matrix (Repair 2):**
+
+```text
+source.customerId != null  →  GENERAL_TASK | PRODUCT_DELIVERY | SALES_MEETING  (allowed)
+source.customerId == null  →  GENERAL_TASK only
+                              PRODUCT_DELIVERY / SALES_MEETING → 409 FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED
+```
+
+The web create form disables incompatible types for a customerless source with the exact explanation: "Bu takip işi için müşteri bağlantısı bulunmadığından yalnız Genel Görev oluşturulabilir."
+
 Responses:
 
-- `201` — full `JobCardDetail` (now including `sourceJobCardId`, `followUpInstructions`, `sourceAccess`, `sourceJobPath`).
-- `400 VALIDATION_ERROR`, `400 FOLLOW_UP_INSTRUCTIONS_REQUIRED`.
-- `403 FORBIDDEN` — STAFF or cross-org.
-- `404 JOB_CARD_NOT_FOUND` — source id not found / other org (anti-enumeration).
+- `201` — full `JobCardDetail` including `followUpContext` (Repair 1: `null` only for roots; a follow-up always carries the nested DTO with `sourceAccess`/`sourceJobPath`/`sourceContext`).
+- `400 VALIDATION_ERROR` — schema/type/engagement/title/length/dueDate violations (existing validation helper, `server/src/modules/job-cards/validation.ts`); `400 FOLLOW_UP_INSTRUCTIONS_REQUIRED` — instructions missing.
+- `403 FORBIDDEN` — actor is `STAFF`, or assignee is inactive / not a `STAFF` role (existing `assertCanCreateForAssignee`, `policy.ts:107-110`).
+- `404 JOB_CARD_NOT_FOUND` — source id not found or other org (anti-enumeration).
+- `404 ASSIGNEE_NOT_FOUND` — assignee missing or other org (`getAssigneeForUpdate` null path, `service.ts:334-336`).
+- `404 CUSTOMER_NOT_FOUND` — inherited source customer missing/other org; `409 CUSTOMER_INACTIVE` — inherited customer inactive.
+- `404 CONTACT_NOT_FOUND` — contact missing/other org; `409 CONTACT_INACTIVE` — contact inactive; `409 CONTACT_NOT_IN_CUSTOMER` — contact does not belong to the inherited customer (existing rules, `service.ts:763-777`); `409 FOLLOW_UP_CONTACT_REQUIRES_CUSTOMER` — customerless source + `contactId` in request.
 - `409 FOLLOW_UP_SOURCE_NOT_COMPLETED` — source not `COMPLETED`.
-- `409 CONTACT_NOT_IN_CUSTOMER`, `409 CUSTOMER_INACTIVE`, `409 CONTACT_INACTIVE`, `409 ASSIGNEE_NOT_FOUND`.
-- `409 JOB_FOLLOW_UP_CHAIN_DEPTH_EXCEEDED`.
+- `409 FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED` — customerless source with `PRODUCT_DELIVERY`/`SALES_MEETING` type (matrix above).
+- `409 FOLLOW_UP_MAX_DEPTH_REACHED` — source at depth 10; the child would be depth 11.
 - `409 ACTION_IN_PROGRESS` — duplicate concurrent claim.
-- Idempotent replay — `201` with stored response.
+- Idempotent replay — `201` with stored response (same `followUpContext`).
+
+Exact contract tests must assert status + error code + response shape for every row above (no silent enum drift).
 
 ### 6.2 `GET /api/job-cards/:id/follow-ups` (new)
 
@@ -182,24 +205,30 @@ Responses:
 
 ### 6.3 Source access mode (replaces any dedicated full-source endpoint)
 
-No `/source` endpoint exists (design R9). Every follow-up-carrying response (follow-up detail, source-context) exposes:
+No `/source` endpoint exists (design R9). `JobCardDetail` carries the nullable nested `followUpContext` (Repair 1):
 
 ```ts
-sourceAccess: 'FULL' | 'RESTRICTED'
-sourceJobPath: string | null   // non-null IFF sourceAccess === 'FULL'
+followUpContext: null | {
+  sourceJobCardId: string
+  followUpInstructions: string
+  sourceAccess: 'FULL' | 'RESTRICTED'
+  sourceJobPath: string | null   // non-null IFF sourceAccess === 'FULL'
+  sourceContext: RestrictedSourceContext | null
+}
 ```
 
-- `FULL` — `ADMIN`/`MANAGER`, or the **source card's current assignee** (own-history reach via `actorCanReachJob`). The client navigates with `sourceJobPath` to the **existing** `GET /api/job-cards/:sourceId` route.
-- `RESTRICTED` — everyone else with follow-up reach; no path is delivered; only the source-context DTO is available.
-- Mode is derived per request from current role/assignment — no stored grants.
+- **Root JobCard:** `followUpContext: null` (an impossible access state is never exposed).
+- **Follow-up, `FULL`** — `ADMIN`/`MANAGER`, or the **source card's current assignee** (own-history reach via `actorCanReachJob`). `sourceJobPath` = `/jobs/<sourceId>`; `sourceContext` may carry the safe summary required by the UI. The client navigates with `sourceJobPath` to the **existing** `GET /api/job-cards/:sourceId` route.
+- **Follow-up, `RESTRICTED`** — everyone else with follow-up reach. `sourceJobPath: null`; only `sourceContext` (the restricted source DTO) is available.
+- Mode is derived per request from current role/assignment — no stored grants. Presenter, API schema, web parser, and replay behavior are identical for the nested DTO and the standalone endpoint.
 
 ### 6.4 `GET /api/job-cards/:id/source-context` (new, restricted DTO)
 
-Contract per design §6.2 (canonical time model: `sourcePlannedAt` = `scheduled_at`, `sourceOccurredAt` = `SALES_MEETING → meeting_at`, else `started_at`, fallback `staff_completed_at`, `sourceCompletedAt` = `manager_approved_at`; exact UI labels "Planlanan tarih" / "Gerçekleşme tarihi" / "Tamamlanma tarihi"). Response includes `sourceAccess` and `sourceJobPath` (§6.3). Reach: actor must reach `:id` (the follow-up). `404` when not a follow-up or source unreachable. Access mode derived from **current** `assigned_to`; reassignment re-derives.
+Contract per design §6.2 (canonical time model: `sourcePlannedAt` = `scheduled_at`, `sourceOccurredAt` = `SALES_MEETING → meeting_at`, else `started_at`, fallback `staff_completed_at`, `sourceCompletedAt` = `manager_approved_at`; exact UI labels "Planlanan tarih" / "Gerçekleşme tarihi" / "Tamamlanma tarihi"). Response includes `sourceAccess` and `sourceJobPath` (§6.3) — the same DTO is embedded in `JobCardDetail.followUpContext.sourceContext`, so the UI needs no extra fetch. Reach: actor must reach `:id` (the follow-up). `404` when not a follow-up or source unreachable. Access mode derived from **current** `assigned_to`; reassignment re-derives (design §6.5).
 
 ### 6.5 `GET /api/customers/:customerId/jobs` (new)
 
-Query: `status=open|completed|all` (default `all`), `limit` (default 20, max 100), `offset`. Response `Paginated<CustomerJobHistoryItem>` (shape per design §8.2). `staffScope` applied for `STAFF`; `childCount` `null` for `STAFF`. `404` when customer not found/other org. Data via `JobHistoryReadPort` (§5, F3). `CustomerDetail` DTO gains `openJobCount`/`completedJobCount`; embedded `openJobs`/`completedJobs` arrays are removed in the same slice.
+Query: `status=open|completed|all` (default `all`), `limit` (default 20, max 100), `offset`. Response `PaginatedJobHistory` (`{ items, total, limit, offset }`, crm-consistent shape, Repair 5). `staffScope` applied for `STAFF`; `childCount` `null` for `STAFF`. `404` when customer not found/other org. Data via `JobHistoryReadPort.listCustomerJobHistory` (§5, F3); the route registers only when the port is wired (`AppDependencies.jobHistoryReadPort`), and existing CRM endpoints stay available without it. `CustomerDetail` DTO gains `openJobCount`/`completedJobCount` derived from the port's status-filtered `total` (no separate count method); embedded `openJobs`/`completedJobs` arrays are removed in the same slice.
 
 ### 6.6 Staff history (new)
 
@@ -208,11 +237,23 @@ Canonical routes (consistent with existing `/api/staff`, `/api/staff/me`, `/api/
 - `GET /api/staff/me/jobs?status=open|completed|all&limit&offset` — own history; `STAFF` and management.
 - `GET /api/staff/:userId/jobs?status=open|completed|all&limit&offset` — any org staff; `ADMIN`/`MANAGER` only; `STAFF` on another user's id → `404` (existing own-profile guard style).
 
-Same query/response shape as §6.5; `childCount` management-only; data via `JobHistoryReadPort`.
+Same query/response shape as §6.5 (`PaginatedJobHistory`); `childCount` management-only; data via `JobHistoryReadPort.listStaffJobHistory`; same conditional registration rule.
 
 ### 6.7 Calendar payload change
 
-`JobCalendarEvent` gains `followUp: null | { sourceJobCardId, sourcePlannedAt, sourceOccurredAt, sourceCompletedAt, instructions }` (canonical time model, design §6.2) and management-only `sourceJobPath`. Backwards-compatible additive change (web parser tolerates optional fields).
+`JobCalendarEvent` gains an additive, nullable `followUpContext` using **the same source-access decision as `JobCardDetail`** (Repair 1/calendar):
+
+```ts
+followUpContext: null | {
+  sourceAccess: 'FULL' | 'RESTRICTED'
+  sourceJobPath: string | null          // non-null IFF FULL
+  sourcePlannedAt: string | null
+  sourceOccurredAt: string | null
+  sourceCompletedAt: string | null
+}
+```
+
+`FULL` (management / source card's current assignee) → `sourceJobPath` = `/jobs/<sourceId>` + dates; `RESTRICTED` (follow-up owner not authorized for the source) → `sourceJobPath: null`, dates only; unrelated staff → `null` (no source knowledge; event visibility unchanged by the existing calendar reach rule). No instructions, no note bodies, no activity, no chain ids. Backwards-compatible additive change (web parser tolerates optional fields).
 
 ---
 
@@ -222,12 +263,12 @@ Same query/response shape as §6.5; `childCount` management-only; data via `JobH
 |---|---|
 | `web/src/paths.ts` | `newFollowUp: (sourceId: string) => \`/jobs/new-follow-up?source=${sourceId}\``. |
 | `web/src/AppRouter.tsx` | Route for `/jobs/new-follow-up` → `FollowUpCreatePage` (management-guarded like the other create routes). |
-| `web/src/jobs/jobs-api.ts` | `JobCard` parser gains `sourceJobCardId`, `followUpInstructions`, `sourceAccess`, `sourceJobPath`; new `createFollowUp()`; new parsers for `FollowUpListItem`, `RestrictedSourceContext`, `JobCardHistoryItem`. |
-| `web/src/JobDetail.tsx` | (a) Management + `COMPLETED`: primary action "Takip işi oluştur" + (SALES_MEETING with `FOLLOW_UP_REQUIRED`) recommendation panel (Emphasized Card); (b) follow-up detail: "Takip" badge; (c) children panel "Takip işleri" (reach-filtered server-side); (d) chain breadcrumb (management only; staff see own reachable ancestors); (e) source panel: `sourceAccess: 'FULL'` → normal link via `sourceJobPath`; `'RESTRICTED'` → safe context panel with exact date labels ("Planlanan tarih" / "Gerçekleşme tarihi" / "Tamamlanma tarihi") and no source link. |
-| `web/src/FollowUpCreatePage.tsx` (new, under `web/src/jobs/`) | Form per contract 6.1; source summary panel (safe structured info); pre-fills `scheduledAt = nextFollowUpAt` when source is SALES_MEETING with proposal and `engagementKind` from the source (or `FOLLOW_UP`); customer shown read-only (inherited server-side, never sent); loading/success/error states; mobile-first layout per visual language; 403/404/409 error mapping incl. `FOLLOW_UP_SOURCE_NOT_COMPLETED` and `ACTION_IN_PROGRESS`. |
+| `web/src/jobs/jobs-api.ts` | `JobCard` parser gains `sourceJobCardId`, `followUpInstructions`, and nullable `followUpContext` (nested DTO incl. `sourceAccess`/`sourceJobPath`/`sourceContext` — Repair 1); new `createFollowUp()`; new parsers for `FollowUpListItem`, `RestrictedSourceContext`, `JobCardHistoryItem`. Root cards parse `followUpContext: null`; a follow-up never renders without the nested DTO. |
+| `web/src/JobDetail.tsx` | (a) Management + `COMPLETED`: primary action "Takip işi oluştur" + (SALES_MEETING with `FOLLOW_UP_REQUIRED`) recommendation panel (Emphasized Card); (b) follow-up detail: "Takip" badge; (c) children panel "Takip işleri" (reach-filtered server-side); (d) chain breadcrumb (**management only** — staff see no ancestor breadcrumb, no siblings, no hidden chain length, Repair 6); (e) source panel from `followUpContext`: `null` (root) → no panel; `'FULL'` → normal link via `sourceJobPath`; `'RESTRICTED'` → safe context panel with exact date labels ("Planlanan tarih" / "Gerçekleşme tarihi" / "Tamamlanma tarihi") and no source link. |
+| `web/src/FollowUpCreatePage.tsx` (new, under `web/src/jobs/`) | Form per contract 6.1; source summary panel (safe structured info); pre-fills `scheduledAt = nextFollowUpAt` when source is SALES_MEETING with proposal and `engagementKind` from the source (or `FOLLOW_UP`); customer shown read-only (inherited server-side, never sent); **type selector disables `PRODUCT_DELIVERY`/`SALES_MEETING` for a customerless source** with exact explanation "Bu takip işi için müşteri bağlantısı bulunmadığından yalnız Genel Görev oluşturulabilir." (Repair 2); no `scheduledEndsAt` field (Repair 4); loading/success/error states; mobile-first layout per visual language; 403/404/409 error mapping incl. `FOLLOW_UP_SOURCE_NOT_COMPLETED`, `FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED`, `FOLLOW_UP_MAX_DEPTH_REACHED`, `ACTION_IN_PROGRESS`. |
 | `web/src/CustomerDetail.tsx` | Replace embedded slices with paginated history (tabs open/completed/all, "Takip" badge, pagination controls); counts from new DTO fields. |
 | `web/src/StaffProfiles.tsx` | "İş geçmişi" paginated section (self + management view), using `/api/staff/me/jobs` and `/api/staff/:userId/jobs`. |
-| `web/src/calendar/CalendarPage.tsx` + `web/src/services/calendar-api.ts` | Follow-up indicator + management source deep link (`sourceJobPath`) / staff restricted context inline (planned/occurred/completed dates with exact labels + instructions, no source link). |
+| `web/src/calendar/CalendarPage.tsx` + `web/src/services/calendar-api.ts` | Follow-up indicator + `followUpContext` handling: management/source-assignee deep link (`sourceJobPath`) or restricted dates-only context inline (planned/occurred/completed dates with exact labels, **no instructions, no source link**), per §6.7. |
 | `web/src/realtime/RealtimeProvider.tsx` | No change needed; existing invalidation by resource key covers new keys automatically (verify in runtime). |
 
 ---
@@ -243,11 +284,14 @@ Same query/response shape as §6.5; `childCount` management-only; data via `JobH
 | Source access mode (`sourceAccess`) | `FULL` + path | `FULL` + path | `FULL` + path (own history) | `RESTRICTED`, no path | ❌ 404 (no context either) |
 | View full source (existing `GET /api/job-cards/:sourceId`) | ✅ | ✅ | ✅ (own history) | ❌ 404 | ❌ 404 |
 | View restricted context (`/source-context`) | ✅ (FULL supersedes) | ✅ | ✅ | ✅ | ❌ 404 |
+| Chain navigation (breadcrumb over authorized ancestors) | ✅ full | ✅ full | ❌ none | ❌ none | ❌ none |
 | View customer history | ✅ all | ✅ all | ✅ own rows/counts | ✅ own rows/counts | ✅ own rows/counts |
 | View staff history (`/api/staff/me/jobs`, `/api/staff/:userId/jobs`) | ✅ any | ✅ any | ✅ self only | ✅ self only | ✅ self only |
 | Calendar: follow-up event | ✅ all | ✅ all | ✅ own + context | ✅ own + context | ✅ own only |
-| Calendar: `sourceJobPath` | ✅ | ✅ | ❌ | ❌ | ❌ |
+| Calendar: `followUpContext.sourceJobPath` | ✅ | ✅ | ❌ (FULL only if source assignee) | ❌ | ❌ |
 | `childCount` in history payloads | ✅ | ✅ | ❌ (null) | ❌ (null) | ❌ (null) |
+
+Access lifetime (design §6.5): after reassignment the old assignee loses the follow-up (and its source context) unless existing own-history rules independently preserve it; the new assignee immediately receives the appropriate `FULL`/`RESTRICTED` mode. `COMPLETED` keeps restricted context for the final assignee's own work history. `CANCELLED` keeps only what explains the historical assigned task. Inactive users have no access.
 
 All cross-org access resolves to `404`/`403` via existing reach rules; no new role logic beyond `assertCanCreateFollowUp` (design D2, D7) and `resolveSourceAccess` (design R9).
 
@@ -256,7 +300,7 @@ All cross-org access resolves to `404`/`403` via existing reach rules; no new ro
 ## 9. Idempotency
 
 - **Claim:** `JOB_FOLLOW_UP_CREATE:<sourceJobCardId>` + `clientActionId` per actor — follows the `JOB_NOTE_ADD:<jobCardId>` precedent and reuses `executeCriticalAction` (`processed_actions` claim → insert → `JOB_CREATED` activity with the same `clientActionId` → notifications → realtime).
-- Duplicate request → stored `201` response replay; concurrent duplicate → `409 ACTION_IN_PROGRESS`.
+- Duplicate request → stored `201` response replay (full `JobCardDetail` including the identical `followUpContext`); concurrent duplicate → `409 ACTION_IN_PROGRESS`.
 - The chain-depth walk happens inside the critical work; depth check failures mark the claim `failed` (existing pattern).
 - No other new mutations: follow-up lifecycle uses existing per-command keys. **`follow_up_instructions` is immutable after creation (design D15): it is not part of the generic PATCH field set at all** — a patch attempting it yields `400 VALIDATION_ERROR` (unknown field), and no `JOB_FIELDS_UPDATED` path can touch it. F1 tests cover this.
 
@@ -290,32 +334,32 @@ SSE and web-push payloads remain bodyless (`entityId` only). Audience unchanged 
 - **Scope:** migration `022`; `types.ts`; `create-input.ts`; `policy.ts`; `repository.ts` (source/link queries); `service.ts` `createFollowUp` + `listFollowUps` + `getSourceContext`; `handlers.ts`/`routes.ts` (3 new routes; **no** `/source` route); validation schemas; activity presenter test; `migrate-runner.test.ts` update; **log redaction** in `server/src/app.ts`.
 - **Changed files (server):** as listed; plus `server/src/app.ts` (`LOGGER_REDACT_PATHS` += `'req.body.followUpInstructions'`), `server/tests/migrate-runner.test.ts`, new `server/tests/job-card-follow-up.test.ts`, `server/tests/job-card-follow-up-activity.test.ts`, `server/tests/job-card-follow-up-policy.test.ts`, `server/tests/job-card-follow-up-idempotency.test.ts`, `server/tests/job-card-follow-up-log-privacy.test.ts`.
 - **Tests:**
-  - Migration contract: `022` in the exact ordered list, `expectedSchemaVersion` 22; behavior cases `root + instructions → rejected`, `follow-up + null instructions → rejected`, `root + null → accepted`, `follow-up + valid → accepted`.
-  - Creation happy path (each type); instructions required (400); `engagementKind` enum validation + default; STAFF create → 403; source not COMPLETED → 409; contact not-in-inherited-customer → 409; **no `customerId` in the request (rejected as unknown field); server inherits source customer**; chain: **source at depth 10 rejects creation of depth-11 child** (409); self-link impossible; children list reach filtering; restricted context content + exclusions; `sourceAccess: 'RESTRICTED'` + `sourceJobPath: null` for non-source assignee; `'FULL'` + path for management **and for the source card's current assignee**; follow-up detail carries `sourceAccess`/`sourceJobPath`; instructions immutable (patch attempt → 400); replay + concurrent claim; activity record with `metadata.sourceJobCardId` only (not in `new_value`); realtime keys `job-detail:<source>` / `customer-detail:<customer>`; notification `job.assigned` (no new kind).
+  - Migration contract: `022` in the exact ordered list, `expectedSchemaVersion` 22; behavior cases `root + instructions → rejected`, `follow-up + null instructions → rejected`, `root + null → accepted`, `follow-up + valid → accepted`. The iff CHECK is same-row, so PostgreSQL alone enforces it; cross-row rules (completed-source eligibility, depth, same-customer) are service-enforced and must NOT be claimed as DB-guaranteed without a trigger.
+  - Creation happy path (each type); instructions required (400); `engagementKind` enum validation + default; STAFF create → 403; source not COMPLETED → 409; **customer-null × type matrix** (Repair 2): customerless source + `PRODUCT_DELIVERY`/`SALES_MEETING` → `409 FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED`, customerless + `GENERAL_TASK` → 201; contact not-in-inherited-customer → 409; **no `customerId` in the request (rejected as unknown field); no `scheduledEndsAt` in the request (rejected as unknown field, Repair 4); server inherits source customer**; chain: **source at depth 10 rejects creation of depth-11 child** (409 `FOLLOW_UP_MAX_DEPTH_REACHED`); self-link impossible; children list reach filtering; restricted context content + exclusions; `followUpContext` DTO tests: root detail → `null`; follow-up detail → nested DTO with `sourceAccess: 'RESTRICTED'` + `sourceJobPath: null` for non-source assignee; `'FULL'` + path for management **and for the source card's current assignee**; `sourceContext` parity with the standalone `/source-context` endpoint (same DTO); instructions immutable (patch attempt → 400); replay + concurrent claim; activity record with `metadata.sourceJobCardId` only (not in `new_value`); realtime keys `job-detail:<source>` / `customer-detail:<customer>`; notification `job.assigned` (no new kind); exact error-contract sweep (status + code + shape for every §6.1 row, incl. `404 ASSIGNEE_NOT_FOUND`, `403 FORBIDDEN` for inactive/non-STAFF assignee, `404/409` customer and contact rows).
   - Log privacy: unique instruction marker → request/error logs must not contain it (with and without `LOGGER_REDACT_PATHS` regression guard).
 - **Runtime scenarios:** seeded org; ADMIN creates follow-up for COMPLETED delivery; verify board/detail/activity; verify restricted context + access mode as second staff user and as the source's own assignee; verify 400/403/404/409 paths.
 - **Completion gate:** `cd server && npm run build`, `cd server && npm test -- --run`, `cd server && npm run lint`; all green; contract tests updated.
-- **Non-goals:** no web changes; no customer/staff/calendar endpoints (F3); no instruction editing.
+- **Non-goals:** no web changes; no customer/staff/calendar endpoints (F3); no instruction editing; no `scheduledEndsAt` in the create contract.
 - **PR:** single PR `feat: linked follow-up JobCard server contract` against `main`.
 
 ### F2 — Follow-up creation + JobDetail continuity UI
 
-- **Scope:** `paths.ts`, `AppRouter.tsx`, `FollowUpCreatePage.tsx` (new), `JobDetail.tsx` (create action, badge, children panel, chain breadcrumb, source panel with `sourceAccess`/`sourceJobPath` modes), `jobs-api.ts` parsers; `MeetingDetails.tsx` untouched except navigation constants.
+- **Scope:** `paths.ts`, `AppRouter.tsx`, `FollowUpCreatePage.tsx` (new), `JobDetail.tsx` (create action, badge, children panel, **management-only chain breadcrumb**, source panel with nullable `followUpContext` modes), `jobs-api.ts` parsers; `MeetingDetails.tsx` untouched except navigation constants.
 - **Changed files (web):** as listed; new `web/src/jobs/FollowUpCreatePage.tsx`, `web/src/jobs/follow-up-presentation.ts` (labels/badges incl. exact date labels "Planlanan tarih" / "Gerçekleşme tarihi" / "Tamamlanma tarihi"), new web tests for parser + form validation.
-- **Tests:** web build; parser tests for new fields (`sourceAccess`, `sourceJobPath`, time model); form error mapping (409s); management-only action visibility; RESTRICTED panel renders no source link (component-level).
-- **Runtime scenarios:** as ADMIN create follow-up from completed SALES_MEETING with `FOLLOW_UP_REQUIRED`; as STAFF open the follow-up: restricted panel visible with exact date labels, no source link; as the source card's own assignee: `FULL` mode with working link; as second STAFF (not assignee): 404 page; mobile viewport check.
+- **Tests:** web build; parser tests for nullable `followUpContext` (root → `null`, follow-up → nested DTO incl. `sourceAccess`/`sourceJobPath`/`sourceContext` parity with the endpoint DTO, time model); form error mapping (409s incl. `FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED`); **type disabling for customerless source** (exact explanation string asserted); management-only action visibility; **no staff ancestor breadcrumb rendered for staff actors**; root `followUpContext: null` renders no source panel; RESTRICTED panel renders no source link (component-level).
+- **Runtime scenarios:** as ADMIN create follow-up from completed SALES_MEETING with `FOLLOW_UP_REQUIRED`; as STAFF open the follow-up: restricted panel visible with exact date labels, no source link; as the source card's own assignee: `FULL` mode with working link; as second STAFF (not assignee): 404 page; as STAFF on a chain card: no ancestor breadcrumb; mobile viewport check.
 - **Completion gate:** `cd web && npm run build`, `cd web && npm run lint`; server contract from F1 still green; manual flows verified (see §15).
-- **Non-goals:** customer/staff/calendar surfaces (F3); instruction editing (immutable by design).
+- **Non-goals:** customer/staff/calendar surfaces (F3); instruction editing (immutable by design); any staff chain navigation UI.
 - **PR:** `feat: linked follow-up JobCard creation UI`.
 
 ### F3 — Customer / Staff / Calendar history integration
 
-- **Scope:** new `server/src/modules/job-cards/history-port.ts` (`JobHistoryReadPort`) implemented by `PostgresJobCardRepository`; crm `types.ts`/`repository.ts`/`service.ts`/`handlers.ts`/`routes.ts` (constructor wiring, counts + `/jobs` endpoint, embedded arrays removed); people `repository.ts`/`service.ts`/`handlers.ts`/`routes.ts` (constructor wiring, `/api/staff/me/jobs` + `/api/staff/:userId/jobs`); **`server/src/app.ts` dependency wiring** for `CrmService` and `PeopleService` (+ test wiring in unit-test constructors); calendar `repository.ts`/`types.ts` (`followUp` payload per canonical time model, `sourceJobPath`); web `CustomerDetail.tsx`, `StaffProfiles.tsx`, `CalendarPage.tsx`, `calendar-api.ts`; realtime key `customer-detail:<id>`.
-- **Changed files:** as listed; new `server/tests/crm-job-history.test.ts`, `server/tests/people-job-history.test.ts`, `server/tests/calendar-follow-up.test.ts`; updated `server/tests/crm-routes.test.ts` (embedded arrays removed), web parser/history tests.
-- **Tests:** role-filtered rows + counts (staff sees only own); `childCount` null for STAFF; pagination (limit clamp, offset); staff self-only history (`/api/staff/:userId/jobs` → 404 for STAFF on others, `/api/staff/me/jobs` works); calendar payload (time model fields + management-only `sourceJobPath`); realtime invalidation; app-level wiring smoke test (services constructed with the port).
-- **Runtime scenarios:** staff user opens customer with other staff's completed jobs → own rows only, counts exclude others; manager sees all + childCount; calendar shows follow-up indicator for manager with source link, staff without; staff profile history pagination.
+- **Scope:** new `server/src/modules/job-cards/history-port.ts` (`JobHistoryReadPort` with `listCustomerJobHistory`/`listStaffJobHistory` → `PaginatedJobHistory { items, total, limit, offset }`, Repair 5) implemented by `PostgresJobCardRepository`; crm `types.ts`/`repository.ts`/`service.ts`/`handlers.ts`/`routes.ts` (constructor wiring, counts derived from port totals + `/jobs` endpoint, embedded arrays removed); people `repository.ts`/`service.ts`/`handlers.ts`/`routes.ts` (constructor wiring, `/api/staff/me/jobs` + `/api/staff/:userId/jobs`); **`server/src/app.ts` dependency wiring** — `AppDependencies` gains optional `jobHistoryReadPort?: JobHistoryReadPort`, production composition passes `{ jobCardRepository, jobHistoryReadPort: jobCardRepository }`, history routes register only when the port is present, `CrmService`/`PeopleService` receive the port (+ wiring smoke tests with and without the port); calendar `repository.ts`/`types.ts` (additive nullable `followUpContext` per §6.7, same source-access decision as `JobCardDetail`); web `CustomerDetail.tsx`, `StaffProfiles.tsx`, `CalendarPage.tsx`, `calendar-api.ts`; realtime key `customer-detail:<id>`.
+- **Changed files:** as listed; new `server/tests/crm-job-history.test.ts`, `server/tests/people-job-history.test.ts`, `server/tests/calendar-follow-up.test.ts`, `server/tests/history-wiring.test.ts` (app-level construction with and without the port); updated `server/tests/crm-routes.test.ts` (embedded arrays removed), web parser/history tests.
+- **Tests:** role-filtered rows + counts (staff sees only own; counts equal status-filtered list totals — no hidden count leakage); `childCount` null for STAFF; pagination (limit clamp, offset, `PaginatedJobHistory` shape); staff self-only history (`/api/staff/:userId/jobs` → 404 for STAFF on others, `/api/staff/me/jobs` works); calendar payload (`followUpContext` modes + management-only `sourceJobPath`, RESTRICTED without path, unrelated staff `null`, no instructions field); calendar/detail access-mode consistency test (same actor → same `sourceAccess` on both endpoints); realtime invalidation; wiring smoke test.
+- **Runtime scenarios:** staff user opens customer with other staff's completed jobs → own rows only, counts exclude others; manager sees all + childCount; calendar shows follow-up indicator for manager with source link, staff without; staff profile history pagination; calendar/detail mode parity for the same actor.
 - **Completion gate:** full command battery (server build/test/lint, web build/lint); no compatibility fallbacks retained.
-- **Non-goals:** no new notification kinds; no calendar schema changes.
+- **Non-goals:** no new notification kinds; no calendar schema changes; no `JobHistoryReadPort` count methods (derived from list totals).
 - **PR:** `feat: role-filtered follow-up history surfaces`.
 
 ### F4 — Runtime acceptance & evidence closeout
@@ -324,10 +368,10 @@ SSE and web-push payloads remain bodyless (`entityId` only). Audience unchanged 
 - **Steps:**
   1. Fresh schema via migrations 001–022; seed org with ADMIN, MANAGER, staff A, staff B, customer+contacts, products.
   2. As staff A: complete a PRODUCT_DELIVERY and a SALES_MEETING (`FOLLOW_UP_REQUIRED` + `nextFollowUpAt`).
-  3. As ADMIN: create follow-ups (same assignee, different assignee, chain of 2, sibling); verify notifications (`job.assigned`) and realtime invalidation in two browser sessions.
-  4. As staff B (follow-up assignee, not source): verify restricted context contents/exclusions, `sourceAccess: 'RESTRICTED'` with no `sourceJobPath`, calendar restricted context, customer history own-only.
-  5. As staff A (source assignee): verify `sourceAccess: 'FULL'` + working source link.
-  6. Negative sweep: staff create → 403; source not completed → 409; instructions missing → 400; instruction patch → 400; duplicate `clientActionId` → replay; source at depth 10 rejects depth-11 child → 409.
+  3. As ADMIN: create follow-ups (same assignee, different assignee, chain of 2, sibling); verify notifications (`job.assigned`) and realtime invalidation in two browser sessions; verify root detail renders `followUpContext: null`.
+  4. As staff B (follow-up assignee, not source): verify restricted context contents/exclusions, `followUpContext.sourceAccess: 'RESTRICTED'` with no `sourceJobPath` (detail + calendar), customer history own-only, no ancestor breadcrumb on a chain card.
+  5. As staff A (source assignee): verify `followUpContext.sourceAccess: 'FULL'` + working source link (detail + calendar parity).
+  6. Negative sweep: staff create → 403; source not completed → 409; instructions missing → 400; instruction patch → 400; duplicate `clientActionId` → replay; source at depth 10 rejects depth-11 child → 409 `FOLLOW_UP_MAX_DEPTH_REACHED`; **customerless source: `GENERAL_TASK` accepted, `PRODUCT_DELIVERY`/`SALES_MEETING` rejected → 409 `FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED` (and the UI disables those types with the exact explanation string)**; inactive/non-STAFF assignee → 403; reassigned follow-up → old assignee loses context, new assignee gains the appropriate mode; cancelled follow-up visibility for its assignee; inactive user has no access.
   7. Capture evidence: test logs, browser screenshots of restricted panel/calendar/customer history, network payload checks (bodyless SSE/notification payloads), **log-file check (instruction marker absent)**.
 - **Completion gate:** all acceptance scenarios pass; `docs/evidence/linked-follow-up-jobcards/f4/README.md` committed with the evidence; `git diff --check` clean.
 - **PR:** `test: linked follow-up JobCard runtime acceptance` (separate; includes the canonical evidence artifact — this decision is fixed, not deferred).
@@ -340,7 +384,7 @@ SSE and web-push payloads remain bodyless (`entityId` only). Audience unchanged 
 
 Server (new): `server/src/db/migrations/022_job_card_follow_up_links.sql`, `server/src/modules/job-cards/history-port.ts`, `server/tests/job-card-follow-up.test.ts`, `server/tests/job-card-follow-up-activity.test.ts`, `server/tests/job-card-follow-up-policy.test.ts`, `server/tests/job-card-follow-up-idempotency.test.ts`, `server/tests/job-card-follow-up-log-privacy.test.ts`, `server/tests/crm-job-history.test.ts`, `server/tests/people-job-history.test.ts`, `server/tests/calendar-follow-up.test.ts`.
 
-Server (modified): `server/src/app.ts` (F1: `LOGGER_REDACT_PATHS` += `req.body.followUpInstructions`; F3: `CrmService`/`PeopleService` constructor wiring), `server/src/modules/job-cards/types.ts`, `create-input.ts`, `policy.ts`, `repository.ts`, `service.ts`, `handlers.ts`, `routes.ts`, `validation.ts`, `activity-presenter.ts` (only if presenter test demands); `server/src/modules/crm/{types,repository,service,handlers,routes}.ts`; `server/src/modules/people/{repository,service,handlers,routes}.ts`; `server/src/modules/calendar/{repository,types}.ts`; `server/src/modules/realtime/event-mapper.ts`; `server/tests/migrate-runner.test.ts`; `server/tests/crm-routes.test.ts` (embedded arrays removed).
+Server (modified): `server/src/app.ts` (F1: `LOGGER_REDACT_PATHS` += `req.body.followUpInstructions`; F3: `AppDependencies.jobHistoryReadPort?` + conditional history-route registration + `CrmService`/`PeopleService` constructor wiring), `server/src/modules/job-cards/types.ts`, `create-input.ts`, `policy.ts`, `repository.ts`, `service.ts`, `handlers.ts`, `routes.ts`, `validation.ts`, `activity-presenter.ts` (only if presenter test demands); `server/src/modules/crm/{types,repository,service,handlers,routes}.ts`; `server/src/modules/people/{repository,service,handlers,routes}.ts`; `server/src/modules/calendar/{repository,types}.ts`; `server/src/modules/realtime/event-mapper.ts`; `server/tests/migrate-runner.test.ts`; `server/tests/crm-routes.test.ts` (embedded arrays removed).
 
 Web (new): `web/src/jobs/FollowUpCreatePage.tsx`, `web/src/jobs/follow-up-presentation.ts`, web test files for parsers/form.
 
@@ -359,8 +403,8 @@ No dependency, package, or lockfile changes (AGENTS.md §10).
 | Priority (AGENTS.md §9 order) | Scenario | Layer |
 |---|---|---|
 | 1 | Auth/role: STAFF create → 403; cross-org → 404/403 | server |
-| 2 | Staff access boundaries: children/reach/context after reassignment | server |
-| 3 | Follow-up creation: each type, management role | server + web |
+| 2 | Staff access boundaries: children/reach/context after reassignment; no hidden chain length; access lifetime (reassignment, cancelled, inactive) | server |
+| 3 | Follow-up creation: each type, management role, customer-null × type matrix (`FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED`) | server + web |
 | 4 | State machine: follow-up lifecycle identical to normal JobCard | server (existing lifecycle tests reused) |
 | 5 | Invalid transition rejection: unchanged for follow-ups | server (existing) |
 | 6 | Manager approval: follow-up needs approval like any card | server (existing) |
@@ -370,9 +414,10 @@ No dependency, package, or lockfile changes (AGENTS.md §10).
 | 10 | Idempotency: replay + concurrent claim (`ACTION_IN_PROGRESS`) | server |
 | 11 | Report correctness: follow-ups appear in existing reports (no report changes; regression only) | server (existing) |
 | 12 | Web vertical flows: create → board → detail → source panel modes → customer history → calendar | runtime (F4) |
-| — | Privacy: restricted context exclusions; `sourceAccess` modes; `childCount` null; bodyless payloads; no `sourceJobPath` for RESTRICTED | server + runtime |
+| — | Privacy: restricted context exclusions; `followUpContext` modes (`null` root / `FULL` / `RESTRICTED`); calendar/detail mode parity; `childCount` null; bodyless payloads; no `sourceJobPath` for RESTRICTED | server + runtime |
 | — | Log privacy: instruction marker absent from request/error logs | server (F1) + runtime (F4) |
 | — | Migration: 001–022 order + schema version 22; iff CHECK behavior (4 cases) | server |
+| — | Exact error contract (§6.1): status + code + shape for every row incl. `404 ASSIGNEE_NOT_FOUND`, `403 FORBIDDEN` (inactive/non-STAFF assignee), `404/409` customer/contact rows, `FOLLOW_UP_MAX_DEPTH_REACHED` | server |
 
 ---
 
@@ -382,10 +427,12 @@ No dependency, package, or lockfile changes (AGENTS.md §10).
 2. `cd server && npm run build && npm test -- --run && npm run lint` — green.
 3. `cd web && npm run build && npm run lint` — green.
 4. Browser walkthrough (Chrome): flows listed in §12-F4 with two staff sessions + one manager session.
-5. Network tab: notification/SSE payloads contain ids only; `/source-context` payload matches contract exactly (incl. `sourceAccess`/`sourceJobPath` and the three date fields).
+5. Network tab: notification/SSE payloads contain ids only; `/source-context` payload matches contract exactly (incl. `sourceAccess`/`sourceJobPath` and the three date fields); follow-up detail payload carries nested `followUpContext`; root detail carries `followUpContext: null`.
 6. Log files: a unique instruction marker sent during F1/F4 flows is absent from request and error logs (redaction proof).
 7. Mobile viewport (375px): create form, restricted panel, calendar event, customer history usable.
 8. Console: no errors/warnings on the touched pages.
+9. Access-lifetime sweep: reassigned follow-up (old assignee loses context, new assignee gains appropriate mode); cancelled follow-up visible to its assignee without new source permissions; inactive user cannot authenticate into any context.
+10. Chain-visibility sweep: staff on a chain card sees the immediate source relationship only — no ancestor breadcrumb, no sibling cards, no chain length hint; management sees the full breadcrumb.
 
 ---
 
@@ -393,7 +440,7 @@ No dependency, package, or lockfile changes (AGENTS.md §10).
 
 - Every slice PR description lists: changed files, commands run with outputs, runtime scenario results.
 - F4 PR commits the canonical evidence artifact `docs/evidence/linked-follow-up-jobcards/f4/README.md` (screenshots, payload/log captures, command outputs) — evidence is a committed file, not only a description.
-- This documentation checkpoint's own evidence: `git diff --check` output, `git status --short` (only the two docs), PR URL + state, base/head SHAs, and the external-review revision commit resolving blockers 1–9 (see the PR description and the final handoff).
+- This documentation checkpoint's own evidence: `git diff --check` output, `git status --short` (only the two docs), PR URL + state, base/head SHAs, and the external-review revision commits resolving blockers 1–9 and the second-review repairs 1–6 (see the PR description and the final handoff).
 
 ---
 
@@ -409,6 +456,9 @@ No dependency, package, or lockfile changes (AGENTS.md §10).
 | Migration drift (migrate-runner) | F1 updates the exact-list test in the same PR as the migration. |
 | Counts revealing other staff work in customer detail | Counts reuse the exact `staffScope` predicate; F3 tests assert equality with filtered list. |
 | Log leakage of `follow_up_instructions` | `LOGGER_REDACT_PATHS` entry + dedicated log-capture test (F1) + runtime log check (F4). |
+| Generic PATCH changing a follow-up's inherited `customerId` (breaks same-customer chain rule) | Follow-up `customerId` is immutable via PATCH — the source remains the single owner of customer/contact (design R25); F1 test asserts the patch attempt yields `400 VALIDATION_ERROR`. |
+| History routes registered without the read port | `jobHistoryReadPort?` optional in `AppDependencies`; routes register only when present; wiring smoke test covers both states (F3). |
+| Calendar/detail access-mode drift | Single `resolveSourceAccess` shared by both presenters; consistency test asserts same actor → same mode on both endpoints (F3). |
 | History read-model wiring drift | `JobHistoryReadPort` owned by job-cards; constructor injection in `app.ts` + unit-test wiring asserted in F3. |
 | Web payload regression (calendar additive field) | Optional-field parsing; runtime check in F4. |
 | Scope creep during implementation | Slice non-goals are binding; PRs must not touch unrelated modules (AGENTS.md §3). |
@@ -442,3 +492,19 @@ No dependency, package, or lockfile changes (AGENTS.md §10).
 | Design status wording | Now "Ready for external review" (design header). |
 | Route inconsistency | Canonical `/api/staff/me/jobs` + `/api/staff/:userId/jobs` everywhere (design §9.2, plan §6.6). |
 | Activity duplicate field | `sourceJobCardId` in `metadata` only, not `new_value` (design §13.5, plan §10). |
+
+2026-07-31 — Second GPT-5.6 review returned a new repair set; this revision resolves it as follows:
+
+| Repair | Resolution |
+|---|---|
+| Repair 1 — nullable `followUpContext` DTO | `JobCardDetail` gains nullable nested `JobCardFollowUpContext` (`null` for roots; `{ sourceJobCardId, followUpInstructions, sourceAccess, sourceJobPath, sourceContext }` otherwise); presenter/API/web parser/replay identical for the nested DTO and the standalone endpoint (design §6.2, R21; plan §5/§6.3, F1/F2). |
+| Repair 2 — null-customer × type matrix | Customerless source → `GENERAL_TASK` only; other types → `409 FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED`; UI disables incompatible types with the exact explanation string (design §15 R22/R2, plan §6.1, F1/F2). |
+| Repair 3 — exact error contract | Canonical table with status + code for actor/source/assignee/customer/contact/type rows; verified against real code (`ASSIGNEE_NOT_FOUND` 404 `service.ts:335`, `assertCanCreateForAssignee` 403 `policy.ts:107-110`, `validateJobReferences` `service.ts:763-777`); exact contract tests required (plan §6.1, F1). |
+| Repair 4 — `scheduledEndsAt` removal | Creation accepts `scheduledAt` only; end time stays in the existing scheduling/update flow; `scheduledEndsAt` rejected as unknown field (plan §6.1, F1/F2 non-goals). |
+| Repair 5 — complete `JobHistoryReadPort` | `listCustomerJobHistory`/`listStaffJobHistory` → `PaginatedJobHistory { items, total, limit, offset }` (crm-consistent); no count methods (totals derived); optional `AppDependencies.jobHistoryReadPort?`; conditional route registration; CRM/People injection; wiring tests (design §8.2/§9.2/R13; plan §5/§6.5-6.6, F3). |
+| Repair 6 — staff chain visibility | Staff see the immediate direct-source relationship only; no ancestor breadcrumb, no siblings, no hidden chain length; management keeps full navigation; journeys, matrix, F2/F3, runtime scenarios updated (design §4.3/R23; plan §7-§8, F2/F4). |
+| Calendar consistency | Same source-access decision as `JobCardDetail`; additive nullable `followUpContext { sourceAccess, sourceJobPath, sourcePlannedAt, sourceOccurredAt, sourceCompletedAt }`; no instructions/notes/chain (design §10.2-10.3; plan §6.7, F3). |
+| Access lifetime | Exact lifecycle/reassignment/cancelled/inactive policy, derived per request, no stored grants (design §6.5, R24; plan §8, F4). |
+| Migration/CHECK verification | iff CHECK two-way same-row + separate length/whitespace CHECK + 4-case behavior test; cross-row rules service-enforced, not claimed as DB-guaranteed without a trigger (plan §4, F1). |
+| F1–F4 slice updates | All slices updated with DTO/matrix/error-contract/port/calendar/access-lifetime scope and tests (plan §12). |
+| Consistency search | `rg` sweep over both docs (§14 of the task contract): `followUpContext` nullable for roots, no `customerId`/`scheduledEndsAt` in create, matrix explicit, cross-org 404, no staff ancestor breadcrumbs, calendar uses JobDetail access mode, port pagination complete, exact error codes. |
