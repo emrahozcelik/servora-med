@@ -8,9 +8,9 @@
 
 ### Head classification
 
-The table lists milestone commits only; the full base-to-head history contains 18
-commits (see `git log 327f460..HEAD`). Intermediate implementation commits of the
-slice are omitted for brevity.
+The table lists milestone commits only; the full base-to-head history contains 19
+commits (`git rev-list --count 327f460..HEAD`). Intermediate implementation commits
+of the slice are omitted for brevity.
 
 | Head | Purpose |
 | --- | --- |
@@ -21,6 +21,7 @@ slice are omitted for brevity.
 | `9ea2acb0fd7b150d4e4723d996fa5310853cdae4` | Docs update — fix verification + true-390px mobile results (docs-only) |
 | `2188d22564ec2a4d21469c4dff6b7136c2deb39c` | Head reclassification + projection comment alignment (docs + comment-only source) |
 | `3284caab3e689619f1f80106d15eea091703950c` | Docs — head alignment (docs-only) |
+| `262b80076a5f6f79cfecfb4261d87fa8c7575944` | Docs — complete head table with base + symbolic HEAD row (docs-only) |
 | `HEAD` (branch tip) | The docs-only head-alignment commit containing this file; resolve with `git rev-parse HEAD` |
 
 - CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head). Commits after `f1b0137`
@@ -305,7 +306,7 @@ All note creation (`addNote`) and its projection (`appendStandaloneNoteProjectio
 | Full web | Vitest | 1141 pass |
 | Server build | `tsc` | PASS |
 | Web build | `vite build` | PASS |
-| Exact-head CI | GitHub Actions | SUCCESS |
+| Implementation-head CI (run 30577288701 for `f1b0137`) | GitHub Actions | SUCCESS; final-head CI runs after the final push — NOT VERIFIED yet |
 
 ## Known limitations
 
@@ -347,15 +348,18 @@ All note creation (`addNote`) and its projection (`appendStandaloneNoteProjectio
 
 ### Reviewer-fix commit `2289a35` (in PR diff)
 
-- `server/src/modules/job-cards/note-realtime-projection.ts` — `notifications` resource key unconditional
-- `server/tests/note-realtime-projection.test.ts` — zero-recipient test updated to require the key
+Modifies `server/src/modules/job-cards/note-realtime-projection.ts` and
+`server/tests/note-realtime-projection.test.ts` (both already listed in the inventory
+above): the `notifications` resource key became unconditional, and the zero-recipient
+test now requires the key.
 
 ### Evidence-only commits (docs-only, after the implementation head)
 
-- `docs/checkpoint-c-evidence.md` — deleted (moved to canonical path)
 - `docs/evidence/job-operational-notes/checkpoint-c/README.md` — canonical evidence file (this file)
+- The old path `docs/checkpoint-c-evidence.md` was deleted in the evidence commit; it
+  did not exist at base, so it is net-zero and does not appear in the base-to-head diff.
 
-These commits change documentation only; they do not affect source code, tests, or migrations. The implementation head (`f1b0137c0f393d82d699ad197ee525368dc1a389`) referenced by the exact-head CI run 30577288701 is unchanged by them.
+These commits change documentation only; they do not affect source code, tests, or migrations. The implementation head (`f1b0137c0f393d82d699ad197ee525368dc1a389`) referenced by the implementation-head CI run 30577288701 is unchanged by them.
 
 ## Verification commands
 
