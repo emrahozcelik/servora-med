@@ -8,17 +8,19 @@
 
 ### Head classification
 
+The table lists milestone commits only; the full base-to-head history contains 17
+commits (see `git log 327f460..HEAD`). Intermediate implementation commits of the
+slice are omitted for brevity.
+
 | Head | Purpose |
 | --- | --- |
+| `327f460f59718b7afcb77f0a8c8c581503d3a501` | Base (main) |
 | `f1b0137c0f393d82d699ad197ee525368dc1a389` | Implementation head — source, tests, migration |
 | `8673d251caa5b61c5d297f6b6805906277ba44cd` | Evidence commit — canonical evidence relocation + two-browser visual results (docs-only) |
 | `2289a35ded20651826285d38faec0aa9920353ea` | Reviewer-fix commit — `notifications` resource key made unconditional for standalone-note events (code + test) |
 | `9ea2acb0fd7b150d4e4723d996fa5310853cdae4` | Docs update — fix verification + true-390px mobile results (docs-only) |
 | `2188d22564ec2a4d21469c4dff6b7136c2deb39c` | Head reclassification + projection comment alignment (docs + comment-only source) |
-
-The local branch tip at review time is the head-alignment docs commit immediately
-after `2188d22` (this file; docs-only, no content change). Verify with
-`git rev-parse HEAD`.
+| `HEAD` (branch tip) | The docs-only head-alignment commit containing this file; resolve with `git rev-parse HEAD` |
 
 - CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head). Commits after `f1b0137`
   (reviewer fix + docs) get CI verification after the final push (see Final gate).
@@ -26,7 +28,7 @@ after `2188d22` (this file; docs-only, no content change). Verify with
 ### Final gate
 
 - Checkpoint under review: `2188d22564ec2a4d21469c4dff6b7136c2deb39c` — implementation `f1b0137` + evidence `8673d25` + reviewer fix `2289a35` + docs `9ea2acb` + reclassification `2188d22`
-- Branch tip: the docs-only head-alignment commit containing this file (`git rev-parse HEAD`)
+- Branch tip: `HEAD` = the docs-only head-alignment commit containing this file (`git rev-parse HEAD`)
 - Remote PR head = `f1b0137` until the final push (documented; push happens after review PASS)
 - Evidence commits (`8673d25`, `9ea2acb`, head-alignment) are docs-only; the reviewer fix touches only `note-realtime-projection.ts` and its test
 - PR Draft
