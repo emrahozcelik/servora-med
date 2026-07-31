@@ -8,7 +8,7 @@
 
 ### Head classification
 
-The table lists milestone commits only; the full base-to-head history contains 19
+The table lists milestone commits only; the full base-to-head history contains 21
 commits (`git rev-list --count 327f460..HEAD`). Intermediate implementation commits
 of the slice are omitted for brevity.
 
@@ -22,7 +22,10 @@ of the slice are omitted for brevity.
 | `2188d22564ec2a4d21469c4dff6b7136c2deb39c` | Head reclassification + projection comment alignment (docs + comment-only source) |
 | `3284caab3e689619f1f80106d15eea091703950c` | Docs — head alignment (docs-only) |
 | `262b80076a5f6f79cfecfb4261d87fa8c7575944` | Docs — complete head table with base + symbolic HEAD row (docs-only) |
-| `HEAD` (branch tip) | The docs-only head-alignment commit containing this file; resolve with `git rev-parse HEAD` |
+| `21ed6de19df407c27c6e907c1bf5a74b17a92875` | Docs — milestone count, checkpoint definition, file inventory (docs-only) |
+| `9567bcfc9a7514988aef64ae9d1c7dd4eef18294` | Docs — commit count, milestone table, inventory 1:1, CI wording (docs-only) |
+| `88d8c5bcdf2f213891ecf5e996717fb5b0b48885` | Docs — inventory path de-duplication, diff 1:1 (docs-only) |
+| `HEAD` (branch tip) | The docs-only commit containing this file; resolve with `git rev-parse HEAD` |
 
 - CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head). Commits after `f1b0137`
   (reviewer fix + docs) get CI verification after the final push (see Final gate).
@@ -30,9 +33,9 @@ of the slice are omitted for brevity.
 ### Final gate
 
 - Checkpoint under review: `HEAD` (branch tip at review time — milestone chain from base `327f460` to `HEAD` is listed in Head classification above)
-- Branch tip: `HEAD` = the docs-only head-alignment commit containing this file (`git rev-parse HEAD`)
+- Branch tip: `HEAD` = the docs-only commit containing this file (`git rev-parse HEAD`)
 - Remote PR head = `f1b0137` until the final push (documented; push happens after review PASS)
-- Evidence commits (`8673d25`, `9ea2acb`, head-alignment) are docs-only; the reviewer fix touches only `note-realtime-projection.ts` and its test
+- Evidence commits (`8673d25`, `9ea2acb`, `3284caa`, `262b800`, `21ed6de`, `9567bcf`, `88d8c5b`) are docs-only; `2188d22` is docs + comment-only source; the reviewer fix `2289a35` touches only `note-realtime-projection.ts` and its test
 - PR Draft
 - Merge state: CLEAN
 - Mergeability: MERGEABLE
