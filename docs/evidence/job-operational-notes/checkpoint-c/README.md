@@ -1,0 +1,304 @@
+# Operational Notes Checkpoint C evidence
+
+## Provenance
+
+- Base: `327f460f59718b7afcb77f0a8c8c581503d3a501` (main)
+- Branch: `feat/job-operational-notes-realtime-c`
+- PR: [#81](https://github.com/emrahozcelik/servora-med/pull/81) — OPEN, Draft
+
+### Head classification
+
+| Head | Purpose |
+| --- | --- |
+| `f1b0137c0f393d82d699ad197ee525368dc1a389` | Implementation + evidence head — source, tests, migration, evidence |
+
+- CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head).
+
+### Final gate
+
+- Local HEAD = remote PR head = `f1b0137c0f393d82d699ad197ee525368dc1a389`
+- Evidence commit (docs-only, follows the implementation head): relocates evidence from `docs/checkpoint-c-evidence.md` to `docs/evidence/job-operational-notes/checkpoint-c/README.md`. Does not affect source, tests, or migrations.
+- PR Draft
+- Merge state: CLEAN
+- Mergeability: MERGEABLE
+
+## Automated test evidence
+
+| Suite | Files | Tests | Result |
+| --- | --- | --- | --- |
+| Note realtime projection (focused) | 1 | 7 | PASS |
+| Notification policy (focused) | 1 | 17 | PASS |
+| Notification delivery projection (focused) | 1 | — | SKIP (pre-existing) |
+| Migration runner (focused) | 1 | 5 | PASS |
+| Web Push integrated (focused) | 1 | 1 | SKIP (pre-existing) |
+| Job card service (focused) | 1 | 33 | PASS |
+| Job card notes (focused) | 1 | 17 | PASS |
+| Realtime job card integration (focused) | 1 | 7 | SKIP (pre-existing) |
+| Full server | 118 | 1402 pass / **3 fail** | 3 FAIL (pre-existing) |
+| Server build | — | — | PASS |
+| Web test (job-notes) | 1 | 33 | PASS |
+| Web test (notification-center) | 1 | 12 | PASS |
+| Full web | 96 | 1141 | PASS |
+| Web build | — | — | PASS |
+
+### Pre-existing local test failures (not caused by Checkpoint C)
+
+1. `db-auth-contract.test.ts`: local PostgreSQL trust auth accepts wrong password (CI password auth rejects correctly)
+2. `auth-setup-postgres.test.ts` x2: non-empty disposable test database triggers BOOTSTRAP_NOT_ALLOWED
+
+These 3 failures are NOT classified as PASS.
+
+## Runtime acceptance evidence
+
+### Topology
+- Database: PostgreSQL 17, local, database: `servora_med_checkpoint_c`
+- Server: Fastify on port 3000
+- Web: Vite dev server on port 5173
+- Actors: Demo Admin, Demo Manager, Demo Staff (synthetic, seeded via `db:seed:dev`)
+- `WEB_PUSH_ENABLED=true`, 3 active Web Push subscriptions (Admin, Manager, Staff)
+- Password: supplied through local environment variable at seed time
+
+### Scenario C-A: Manager adds standalone note
+
+| Assertion | Method | Result |
+| --- | --- | --- |
+| Notes count: 1 | DB query | PASS |
+| NOTE_ADDED activities: 1 | DB query | PASS |
+| Realtime events: 1 | DB query | PASS |
+| Resource keys: `job-notes:<id>`, `notifications`, `staff-profile:<id>` | DB query | PASS |
+| Audience roles: ADMIN, MANAGER | DB query | PASS |
+| Audience user IDs: [assignee] (Staff) | DB query | PASS |
+| In-app notifications: 2 (Admin, Staff) | DB query | PASS |
+| Manager excluded (actor) | DB query | PASS |
+| Web Push deliveries: 0 | DB query | PASS |
+
+### Scenario C-B: Staff adds standalone note
+
+| Assertion | Method | Result |
+| --- | --- | --- |
+| Notes count: 2 (cumulative) | DB query | PASS |
+| NOTE_ADDED activities: 2 (cumulative) | DB query | PASS |
+| In-app notifications: Admin + Manager (Staff excluded) | DB query | PASS |
+| Web Push deliveries: 0 | DB query | PASS |
+
+### Scenario C-C: Replay (idempotency)
+
+| Assertion | Method | Result |
+| --- | --- | --- |
+| Same result returned (id, createdAt) | API response | PASS |
+| Notes count unchanged: 2 | DB query | PASS |
+| NOTE_ADDED activities unchanged: 2 | DB query | PASS |
+| In-app notifications unchanged: 4 | DB query | PASS |
+
+### Scenario C-D: Inactive assignee
+
+| Assertion | Method | Result |
+| --- | --- | --- |
+| Inactive user excluded from audience_user_ids | DB query (empty `{}`) | PASS |
+| Inactive user receives 0 notifications | DB query | PASS |
+| Resource keys include `staff-profile:<inactive_id>` | DB query | PASS |
+| Web Push deliveries: 0 | DB query | PASS |
+
+### Scenario C-F: Transition regression (SUBMIT_FOR_APPROVAL)
+
+| Assertion | Method | Result |
+| --- | --- | --- |
+| NOTE_ADDED activities unchanged: 2 (standalone only) | DB query | PASS |
+| JOB_SUBMITTED_FOR_APPROVAL activity created: 1 | DB query | PASS |
+| Transition note context: `SUBMIT_FOR_APPROVAL` | DB query | PASS |
+| `job.awaiting_approval` notifications: 2 (Admin, Manager) | DB query | PASS |
+| Web Push for `job.awaiting_approval`: 2 | DB query | PASS (expected — transition creates Web Push) |
+| Web Push for `job.note_added`: 0 | DB query | PASS (policy suppression) |
+
+### Runtime data accumulation (after scenarios C-A..C-F)
+
+The same database was reused for the visual acceptance phase. Final state on job
+`66aafda6-2787-436f-8ff5-a84ffb02bc08`:
+
+| Measure | Value |
+| --- | --- |
+| Total notes | 29 (3 original + 24 pagination seed "Sayfalama notu 1..24" + 2 visual test notes "GÖRSEL KAPANIŞ TESTİ …") |
+| Realtime events | 32 |
+| In-app notifications total | 59 |
+| Unread at close: Admin | 0 (round-2 notification read via UI) |
+| Unread at close: Staff | 2 (assignee notifications from the two visual notes — untouched, expected) |
+| Web Push `job.note_added` deliveries | 0 (suppression intact) |
+| Web Push `job.awaiting_approval` deliveries | 2 |
+
+## Web Push suppression evidence
+
+### Active subscriptions at test time
+
+| User | Role | Subscription | Status |
+| --- | --- | --- | --- |
+| Demo Admin | ADMIN | `fcm.googleapis.com/fake-endpoint-admin` | Active |
+| Demo Manager | MANAGER | `fcm.googleapis.com/fake-endpoint-manager` | Active |
+| Demo Staff | STAFF | `fcm.googleapis.com/fake-endpoint-staff` | Active |
+
+### Delivery summary
+
+| Notification kind | Deliveries | Expected | Result |
+| --- | --- | --- | --- |
+| `job.note_added` (all scenarios) | 0 | 0 (policy suppression) | PASS |
+| `job.awaiting_approval` (transition) | 2 | 2 (transition events allowed) | PASS |
+
+The suppression is implemented at the source level in `appendStandaloneNoteProjection()`:
+- In-app notifications are created for `job.note_added` events
+- Web Push deliveries are explicitly NOT created for `job.note_added`
+- This is a product policy decision, not an environment toggle
+
+## Two-browser visual verification evidence
+
+### Environment
+
+- Tool: Chrome DevTools MCP (installed Chrome; no browser installation)
+- Web: Vite on http://localhost:5173 (proxy to Fastify :3000)
+- Viewports: desktop 1280x900, mobile 390x844
+- Actors: Browser A = Manager (`manager@servora.local`), Browser B = Admin (`admin@servora.local`)
+- Target: `/jobs/66aafda6-2787-436f-8ff5-a84ffb02bc08`
+- Implementation head exercised: `f1b0137c0f393d82d699ad197ee525368dc1a389`
+
+### Round 1 — tooling error, NOT a product failure
+
+The first visual run reported FAIL claiming the backend created no notification. Root
+cause was a verifier session error: its supplementary API checks were executed with the
+Manager session cookie (Manager legitimately has 0 unread and exactly 3 notifications,
+which matched the observed "3 old items"). Backend evidence disproved the claim:
+
+- DB: `in_app_notifications` row `660cba52-0a40-40db-b59d-56ea7e0daba1` for Admin
+  (kind `job.note_added`, entity `66aafda6…`, unread) + row `92e18818…` for Staff
+  (assignee), both created 2026-07-31 09:24:28, same transaction as realtime event 31
+  (resource keys include `notifications`)
+- Admin-session curl: `GET /api/notifications/unread-count` → `{"unreadCount":1}`;
+  `GET /api/notifications?limit=5` → first item `660cba52…`, `readAt: null`
+- Manager-session curl: `{"unreadCount":0}` — exactly what the round-1 verifier saw
+
+### Round 2 — fresh run with correct session discipline (all PASS)
+
+| # | Assertion | Result |
+| --- | --- | --- |
+| 1 | Admin badge shows "1" at login (round-1 unread notification) | PASS |
+| 2 | NC first item: title "Operasyon notu", body "Operasyon notu eklendi.", timestamp rendered | PASS |
+| 3 | Privacy: item contains no note body ("GÖRSEL KAPANIŞ" absent), no actor-name preview, no note text in title | PASS |
+| 4 | Admin-context API: unread-count=1; list first item id `660cba52…` readAt null | PASS |
+| 5 | Click item → navigates to `/jobs/66aafda6-2787-436f-8ff5-a84ffb02bc08`; note body absent from URL | PASS |
+| 6 | After read: badge disappears; Admin-context unread-count=0 | PASS |
+| 7 | "Daha eski notları yükle" loads all 28 notes (round 1 state), no duplicates, button disappears | PASS |
+| 8 | Manager adds "GÖRSEL KAPANIŞ TESTİ 2 20260731-094842" via real UI composer (POST 201) | PASS |
+| 9 | Actor DOM (no reload): new note once, 28 older preserved, no duplicates, pagination button absent, badge stays hidden (actor exclusion) | PASS |
+| 10 | Recipient DOM via SSE (no reload): new note appears, 28 older preserved, no duplicates, pagination button absent | PASS |
+| 11 | Recipient badge 0 → 1 | PASS |
+| 12 | NC live-refresh while open: new item "Operasyon notu" 09:48:51, unread | PASS |
+| 13 | Privacy round 2: note body + actor name absent from notification item | PASS |
+| 14 | Admin-context API: unread-count=1; first item id `88fa2fb3…` kind `job.note_added` readAt null | PASS |
+| 15 | Click round-2 item → correct job URL; note body absent from URL | PASS |
+| 16 | Mobile 390x844: no horizontal overflow (scrollWidth 500 ≤ clientWidth 500), composer reachable, NC reachable, notification navigation works | PASS |
+| 17 | Console errors / failed requests | NONE |
+
+### Round 2 limitations
+
+- Browser-level 200% zoom: NOT EXERCISED (CDP page-scale emulation unavailable in this harness; OS-controlled). CSS zoom is a different mechanism and was not used for acceptance.
+
+## Privacy evidence
+
+### Note body protection
+| Assertion | Method | Result |
+| --- | --- | --- |
+| Note body NOT leaked in activity metadata (only noteId) | DB: `job_card_activity_logs.metadata` inspection | PASS |
+| Author snapshot frozen at creation time (name, role) | DB: `job_card_notes.author_name_snapshot`, `author_role_snapshot` verified | PASS |
+ | Inactive user not reachable (cannot authenticate) | Schema: `is_active=false` blocks login | PASS (schema — not specific to C) |
+| Realtime audience does NOT include inactive users | DB: `audience_user_ids` empty for inactive-assignee event | PASS |
+
+### Data isolation
+| Assertion | Method | Result |
+| --- | --- | --- |
+| Notes scoped to organization_id (no cross-org leak) | Schema: FK constraint on `organization_id` | PASS (schema) |
+| Author snapshot independent of profile rename | Code: snapshot taken at note creation, never re-read | PASS (source review) |
+
+## Rollback evidence
+
+### Transactional integrity
+
+All note creation (`addNote`) and its projection (`appendStandaloneNoteProjection`) execute within a single `executeCriticalAction` transaction. If any step fails:
+
+| Layer | Protection |
+| --- | --- |
+| Database | `BEGIN`/`COMMIT`/`ROLLBACK` via `JobCardTransaction` — all writes (note, activity, realtime event, notifications) atomically committed or fully rolled back |
+| Idempotency | `clientActionId` + `operationKey` prevents duplicate execution — replay returns original result |
+| Idempotency key | `clientActionId` + `operationKey` (`JOB_NOTE_ADD:${jobCardId}`) deduplication via `processed_actions` table |
+
+### Failure scenario coverage
+
+| Scenario | Coverage | Result |
+| --- | --- | --- |
+| Duplicate request with same `clientActionId` | C-C replay test (API + DB) | PASS |
+| Inactive-user author rejection | `notes-service.ts:41-43` checks `author.isActive` and returns 403 | PASS (source review; runtime C-D confirms inactive assignee excluded, but inactive-author scenario not exercised in runtime) |
+| Duplicate note creation prevented | `executeCriticalAction` idempotency (operationKey) + `processed_actions` table constraint | PASS (C-C replay test validates no duplicate notes/activities) |
+| Transaction rollback on invalid data | `note-realtime-projection.ts` runs inside `executeCriticalAction`; any thrown error rolls back all writes | PASS (source review; all writes atomically committed via transaction client) |
+
+## Evidence classification
+
+| Category | Method | Result |
+| --- | --- | --- |
+| Runtime API acceptance | Node.js fetch + real PostgreSQL + Fastify | PASS (all scenarios) |
+| Web Push suppression with active subscriptions | DB + API verification | PASS (0 deliveries for `job.note_added`) |
+| Two-browser visual acceptance (pagination, realtime merge, NC live refresh, badge, privacy, mobile) | Chrome DevTools MCP, real Vite + Fastify | PASS (round 2, 17/17 assertions) |
+| Automated tests (focused) | Vitest | PASS (57 pass, 8 skip) |
+| Full server | Vitest | 1402 pass / 3 pre-existing fail |
+| Full web | Vitest | 1141 pass |
+| Server build | `tsc` | PASS |
+| Web build | `vite build` | PASS |
+| Exact-head CI | GitHub Actions | SUCCESS |
+
+## Known limitations
+
+- 3 pre-existing server test failures (local env, not Checkpoint C)
+- Web Push deliveries for `job.note_added` are suppressed by policy; actual push delivery capability is verified through `job.awaiting_approval` notifications which do create deliveries
+- Browser-level 200% zoom not exercised (CDP scale emulation unavailable; OS-controlled)
+- Round-1 visual run initially reported a notification failure; disproven as a verifier session error (see "Two-browser visual verification evidence" — Round 1), backend and API verified correct via DB + Admin-session API + Round 2
+
+## Files changed (base-to-head PR diff)
+
+### New files
+- `server/src/db/migrations/021_job_card_note_added_notification_kind.sql` — migration adding `job.note_added` kind to notification constraint
+- `server/src/modules/job-cards/note-realtime-projection.ts` — standalone note realtime projection with Web Push suppression, inactive assignee exclusion
+- `server/tests/note-realtime-projection.test.ts` — 7 focused tests
+
+### Modified files
+- `server/src/modules/job-cards/notes-service.ts` — calls projection helper in transaction
+- `server/src/modules/job-cards/service.ts` — publishes realtime events post-commit
+- `server/src/modules/notifications/policy.ts` — `createNoteAddedNotificationDrafts()` with actor exclusion
+- `server/src/modules/notifications/presenter.ts` — "Operasyon notu eklendi" message
+- `server/src/modules/notifications/types.ts` — `job.note_added` added to `NOTIFICATION_KINDS`
+- `server/tests/backup-restore-postgres.test.ts` — migration test update
+- `server/tests/job-acceptance-postgres.test.ts` — acceptance test update
+- `server/tests/job-card-notes.test.ts` — notes test update
+- `server/tests/job-card-service.test.ts` — service test update
+- `server/tests/job-card-workspace-postgres.test.ts` — workspace test update
+- `server/tests/migrate-runner.test.ts` — migration runner test update
+- `server/tests/notification-delivery-projection.test.ts` — delivery projection test update
+- `server/tests/notification-policy.test.ts` — policy test update
+- `server/tests/realtime-job-card-integration.test.ts` — realtime integration test update
+- `server/tests/sales-meeting-postgres.test.ts` — sales meeting test update
+- `server/tests/sales-meeting-schema.test.ts` — schema test update
+- `server/tests/web-push-integrated-normal-path.test.ts` — web push test update
+- `web/src/JobDetail.tsx` — `useRealtimeInvalidation(['job-notes:' + jobId])`
+- `web/src/jobs/JobNotes.tsx` — `realtimeKey` prop with merge, `nextCursor` preservation
+- `web/src/services/notifications-api.ts` — `job.note_added` added to frontend validation
+
+### Evidence-only commit (docs-only, after the implementation head)
+
+- `docs/checkpoint-c-evidence.md` — deleted (moved to canonical path)
+- `docs/evidence/job-operational-notes/checkpoint-c/README.md` — canonical evidence file (this file)
+
+This commit changes documentation only; it does not affect source code, tests, or migrations. The implementation head (`f1b0137c0f393d82d699ad197ee525368dc1a389`) referenced by the exact-head CI run 30577288701 is unchanged by it.
+
+## Verification commands
+
+```bash
+cd server && npm test -- --run       # 1402/1405 pass (3 pre-existing)
+cd web && npm test -- --run          # 1141/1141 pass
+cd server && npm run build           # compiles
+cd web && npm run build              # compiles
+git diff --check                     # clean
+```
