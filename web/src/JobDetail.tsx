@@ -691,6 +691,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
   const [reloadKey, setReloadKey] = useState(0);
   const [timelineKey, setTimelineKey] = useState(0);
   const [lifecycleNoteKey, setLifecycleNoteKey] = useState(0);
+  const [notesRealtimeKey, setNotesRealtimeKey] = useState(0);
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const dialogFocusRestoreEnabledRef = useRef(true);
@@ -767,6 +768,9 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
   }
   useRealtimeInvalidation([`job-detail:${jobId}`], () => {
     void reconcileRealtimeTruth();
+  });
+  useRealtimeInvalidation([`job-notes:${jobId}`], () => {
+    setNotesRealtimeKey((value) => value + 1);
   });
   function presentationFor(detail: LoadedJobDetail): JobWorkflowPresentation {
     return deriveJobWorkflowPresentation({
@@ -1156,6 +1160,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
         canAdd={addNote}
         hideWhenEmpty={detail.job.status === 'CANCELLED'}
         refreshKey={lifecycleNoteKey}
+        realtimeKey={notesRealtimeKey}
         onAdded={() => setTimelineKey((value) => value + 1)}
       />
     ) : undefined}

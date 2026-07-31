@@ -82,10 +82,27 @@ class NotesRepository {
         this.activities.push(input);
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
-      appendRealtimeEvent: async () => { throw new Error('appendRealtimeEvent not implemented'); },
+      appendRealtimeEvent: async (input) => ({
+        id: BigInt(this.notes.length + 1),
+        organizationId: input.organizationId,
+        sourceActivityId: input.sourceActivityId ?? null,
+        messagingActivityId: null,
+        type: input.type,
+        entityType: input.entityType,
+        entityId: input.entityId,
+        actorUserId: input.actorUserId,
+        audience: input.audience,
+        resourceKeys: input.resourceKeys,
+        occurredAt: input.occurredAt,
+      }),
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
       appendWebPushDeliveries: async () => [],
+      getAssignee: async (organizationId: string, userId: string) => (
+        organizationId === 'org-1' && userId === 'staff-1'
+          ? { id: userId, organizationId, role: 'STAFF' as const, isActive: true }
+          : null
+      ),
     } as JobCardTransaction;
   }
 
@@ -404,6 +421,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
         '018_messaging.sql',
         '019_job_card_operational_note_context.sql',
         '020_job_card_transition_note_contexts.sql',
+        '021_job_card_note_added_notification_kind.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await scopedPool.query(await readFile(path, 'utf8'));

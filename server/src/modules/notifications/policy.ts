@@ -53,3 +53,23 @@ export function createJobCardNotificationDrafts(
     input.actorUserId,
   ).map((recipientUserId) => draft(recipientUserId, 'job.awaiting_approval', input.jobCardId));
 }
+
+export type NoteAddedNotificationInput = Readonly<{
+  actorUserId: string;
+  assigneeId: string;
+  jobCardId: string;
+  managementRecipients: readonly ManagementRecipient[];
+}>;
+
+export function createNoteAddedNotificationDrafts(
+  input: NoteAddedNotificationInput,
+): readonly NotificationDraft[] {
+  const recipientIds = new Set(input.managementRecipients
+    .filter((r) => r.isActive)
+    .map((r) => r.id));
+  recipientIds.add(input.assigneeId);
+  recipientIds.delete(input.actorUserId);
+  return [...recipientIds].map((recipientUserId) =>
+    draft(recipientUserId, 'job.note_added', input.jobCardId),
+  );
+}

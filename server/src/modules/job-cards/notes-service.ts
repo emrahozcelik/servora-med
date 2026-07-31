@@ -5,6 +5,7 @@ import { assertCanAccessNotes, assertCanAddNote } from './policy.js';
 import type { JobCardRepository, NotePageQuery } from './repository.js';
 import type { JobCard, JobCardActor } from './types.js';
 import { boundedTrimmedString, requireActionId } from './validation.js';
+import { appendStandaloneNoteProjection } from './note-realtime-projection.js';
 
 export type CreateNoteInput = { clientActionId: string; note: string };
 
@@ -17,10 +18,14 @@ export class JobCardNotesService {
     return this.repository.listNotes(actor.organizationId, jobCardId, page);
   }
 
-  async addNote(actor: JobCardActor, jobCardId: string, input: CreateNoteInput) {
+  async addNote(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: CreateNoteInput,
+  ) {
     const clientActionId = requireActionId(input.clientActionId);
     const note = boundedTrimmedString(input.note, 'note', 1, 4_000);
-    const result = await this.repository.executeCriticalAction(
+    return this.repository.executeCriticalAction(
       {
         organizationId: actor.organizationId, userId: actor.id, clientActionId,
         operationKey: `JOB_NOTE_ADD:${jobCardId}`,
@@ -53,13 +58,16 @@ export class JobCardNotesService {
           relatedActivityId: activity.id,
           note,
         });
-        return { response: created, realtimeEvents: [] };
+        const realtimeEvent = await appendStandaloneNoteProjection(transaction, {
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          assigneeId: job.assignedTo,
+          activity,
+        });
+        return { response: created, realtimeEvents: [realtimeEvent] };
       },
     );
-    if (result.kind === 'processing') {
-      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
-    }
-    return result.response;
   }
 
   private assertVisible(actor: JobCardActor, job: JobCard | null): asserts job is JobCard {

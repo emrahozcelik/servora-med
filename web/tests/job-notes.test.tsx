@@ -278,4 +278,138 @@ describe('JobCard operational notes', () => {
     expect(Array.from(host.querySelectorAll('.job-note-body')).map((node) => node.textContent))
       .toEqual(['Eski sayfa notu', 'Canlı uç notu']);
   });
+
+  describe('realtimeKey merge with loaded older pages', () => {
+    const olderNote = { ...savedNote, id: 'note-old', note: 'Eski not' };
+    const initialLatest = { ...savedNote, id: 'note-a', note: 'İlk not A' };
+    const realtimeNote = { ...savedNote, id: 'note-b', note: 'Realtime yeni not' };
+    const deepCursor = {
+      createdAt: '2026-07-10T08:00:00.000Z',
+      id: '00000000-0000-4000-8000-deep00000001',
+    };
+
+    it('merges new note and preserves older notes with non-null nextCursor', async () => {
+      const load = vi.fn()
+        // Initial load: latest page with cursor
+        .mockResolvedValueOnce({ items: [initialLatest], limit: 25, nextCursor: deepCursor })
+        // Older page load
+        .mockResolvedValueOnce({ items: [olderNote], limit: 25, nextCursor: null })
+        // Realtime refresh: first page returns new note + existing latest
+        .mockResolvedValueOnce({ items: [initialLatest, realtimeNote], limit: 25, nextCursor: deepCursor });
+
+      await act(async () => root.render(
+        <JobNotes jobId="job-1" load={load} realtimeKey={0} />,
+      ));
+      await act(async () => { await Promise.resolve(); });
+
+      // Load older page
+      const olderBtn = Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent === 'Daha eski notları yükle')!;
+      await act(async () => { olderBtn.click(); await Promise.resolve(); });
+
+      // Record state before realtime event
+      const beforeIds = Array.from(host.querySelectorAll('.job-note-body'))
+        .map((n) => n.textContent);
+      expect(beforeIds).toEqual(['Eski not', 'İlk not A']);
+      const nextCursorBefore = host.querySelector('.job-pagination button');
+
+      // Trigger realtimeKey change
+      await act(async () => root.render(
+        <JobNotes jobId="job-1" load={load} realtimeKey={1} />,
+      ));
+      await act(async () => { await Promise.resolve(); });
+
+      // Assertions
+      const afterIds = Array.from(host.querySelectorAll('.job-note-body'))
+        .map((n) => n.textContent);
+      // All three notes present, realtime note appended at end (newest)
+      expect(afterIds).toEqual(['Eski not', 'İlk not A', 'Realtime yeni not']);
+      // No duplicate
+      expect(new Set(afterIds).size).toBe(3);
+      // Older note preserved
+      expect(afterIds).toContain('Eski not');
+
+      // Pagination state: "Daha eski" should NOT reappear when cursor was null
+      // (deepCursor is non-null, so button should still be present)
+    });
+
+    it('merges new note and preserves older notes with null nextCursor', async () => {
+      const load = vi.fn()
+        .mockResolvedValueOnce({ items: [initialLatest], limit: 25, nextCursor: deepCursor })
+        .mockResolvedValueOnce({ items: [olderNote], limit: 25, nextCursor: null })
+        // Realtime refresh returns new note — fresh cursor irrelevant, preserved
+        .mockResolvedValueOnce({ items: [initialLatest, realtimeNote], limit: 25, nextCursor: deepCursor });
+
+      await act(async () => root.render(
+        <JobNotes jobId="job-1" load={load} realtimeKey={0} />,
+      ));
+      await act(async () => { await Promise.resolve(); });
+
+      const olderBtn = Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent === 'Daha eski notları yükle')!;
+      await act(async () => { olderBtn.click(); await Promise.resolve(); });
+
+      // After loading all pages, "Daha eski" button should be gone (nextCursor=null)
+      const afterOlderBtn = Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent === 'Daha eski notları yükle');
+      expect(afterOlderBtn).toBeUndefined();
+
+      // Trigger realtimeKey
+      await act(async () => root.render(
+        <JobNotes jobId="job-1" load={load} realtimeKey={1} />,
+      ));
+      await act(async () => { await Promise.resolve(); });
+
+      const afterIds = Array.from(host.querySelectorAll('.job-note-body'))
+        .map((n) => n.textContent);
+      expect(afterIds).toEqual(['Eski not', 'İlk not A', 'Realtime yeni not']);
+      expect(new Set(afterIds).size).toBe(3);
+
+      // "Daha eski" should NOT reappear after all pages were already loaded
+      const reappeared = Array.from(host.querySelectorAll('button'))
+        .find((b) => b.textContent === 'Daha eski notları yükle');
+      expect(reappeared).toBeUndefined();
+    });
+
+    it('does not duplicate an already-merged note via realtime self-event', async () => {
+      const load = vi.fn()
+        .mockResolvedValueOnce({ items: [initialLatest, realtimeNote], limit: 25, nextCursor: null })
+        // Realtime refresh returns the same items (actor already has realtimeNote from submit)
+        .mockResolvedValueOnce({ items: [initialLatest, realtimeNote], limit: 25, nextCursor: null });
+
+      await act(async () => root.render(
+        <JobNotes jobId="job-1" load={load} realtimeKey={0} />,
+      ));
+      await act(async () => { await Promise.resolve(); });
+
+      // Trigger realtimeKey (simulates self-event arriving after optimistic add)
+      await act(async () => root.render(
+        <JobNotes jobId="job-1" load={load} realtimeKey={1} />,
+      ));
+      await act(async () => { await Promise.resolve(); });
+
+      const ids = Array.from(host.querySelectorAll('.job-note-body'))
+        .map((n) => n.textContent);
+      expect(ids).toEqual(['İlk not A', 'Realtime yeni not']);
+      expect(new Set(ids).size).toBe(2);
+    });
+
+    it('lifecycle refreshKey still triggers full reload independently', async () => {
+      const load = vi.fn()
+        .mockResolvedValue({ items: [savedNote], limit: 25, nextCursor: null });
+
+      await act(async () => root.render(
+        <JobNotes jobId="job-1" load={load} refreshKey={0} />,
+      ));
+      await act(async () => { await Promise.resolve(); });
+      expect(load).toHaveBeenCalledTimes(1);
+
+      // Lifecycle refresh triggers reload (existing behavior preserved)
+      await act(async () => root.render(
+        <JobNotes jobId="job-1" load={load} refreshKey={1} />,
+      ));
+      await act(async () => { await Promise.resolve(); });
+      expect(load).toHaveBeenCalledTimes(2);
+    });
+  });
 });

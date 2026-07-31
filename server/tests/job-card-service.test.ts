@@ -456,14 +456,38 @@ describe('JobCardService realtime event emission', () => {
     expect(published).toEqual([]);
   });
 
-  it('does not persist or publish excluded note events', async () => {
+  it('persists and publishes a note realtime event with notifications resource key', async () => {
     const { repository, published, service } = withPublisher();
     await service.addNote(staff, 'job-1', {
       clientActionId: 'note-action',
       note: 'Kapıya bırakıldı.',
     });
 
-    expect(repository.realtimeEvents).toEqual([]);
+    expect(repository.realtimeEvents).toHaveLength(1);
+    expect(repository.realtimeEvents[0]).toMatchObject({
+      type: 'job.updated',
+      entityId: 'job-1',
+    });
+    // Always includes dedicated notes invalidation, never job-detail.
+    expect(repository.realtimeEvents[0]!.resourceKeys).toContain('job-notes:job-1');
+    expect(repository.realtimeEvents[0]!.resourceKeys).not.toContain('job-detail:job-1');
+    // notifications key included because non-actor recipients exist
+    // (active management: manager-1 + admin-1; actor staff-1 excluded).
+    expect(repository.realtimeEvents[0]!.resourceKeys).toContain('notifications');
+    // Active assignee (staff-1) is in the realtime audience.
+    expect(repository.realtimeEvents[0]!.audience.userIds).toContain('staff-1');
+    expect(published).toEqual(repository.realtimeEvents);
+  });
+
+  it('does not publish realtime events on idempotent note replay', async () => {
+    const { repository, published, service } = withPublisher();
+    repository.nextCriticalResult = 'replay';
+
+    await service.addNote(staff, 'job-1', {
+      clientActionId: 'note-replay',
+      note: 'Replay notu.',
+    });
+
     expect(published).toEqual([]);
   });
 

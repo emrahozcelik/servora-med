@@ -40,6 +40,7 @@ export function JobNotes({
   canAdd = true,
   hideWhenEmpty = false,
   refreshKey = 0,
+  realtimeKey = 0,
 }: {
   jobId: string;
   load?: typeof listJobCardNotes;
@@ -49,6 +50,7 @@ export function JobNotes({
   canAdd?: boolean;
   hideWhenEmpty?: boolean;
   refreshKey?: number;
+  realtimeKey?: number;
 }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState<NotesState>({ kind: 'loading' });
@@ -72,6 +74,40 @@ export function JobNotes({
       });
     return () => { active = false; };
   }, [jobId, load, reloadKey, refreshKey]);
+
+  // Realtime invalidation: reload first page and merge new notes without losing
+  // older pages or resetting the lifecycle note key.
+  const prevRealtimeKey = useRef(realtimeKey);
+  useEffect(() => {
+    const previous = prevRealtimeKey.current;
+    prevRealtimeKey.current = realtimeKey;
+    if (realtimeKey === 0 || previous === realtimeKey) return;
+    let active = true;
+    load(jobId, { limit: PAGE_SIZE, before: null })
+      .then((page) => {
+        if (!active) return;
+        setState((current) => {
+          if (current.kind !== 'ready') return { kind: 'ready', page };
+          const existingIds = new Set(current.page.items.map((n) => n.id));
+          const newItems = page.items.filter((n) => !existingIds.has(n.id));
+          // Preserve all previously loaded items; append genuinely new ones
+          // deduplicating by stable note ID.
+          return {
+            ...current,
+            page: {
+              ...current.page,
+              items: [...current.page.items, ...newItems],
+              // Preserve existing pagination cursor — do NOT replace with
+              // the freshly fetched first-page cursor which would discard
+              // previously loaded older page state.
+              nextCursor: current.page.nextCursor,
+            },
+          };
+        });
+      })
+      .catch(() => {});
+    return () => { active = false; };
+  }, [realtimeKey, jobId, load]);
 
   function updateDraft(value: string) {
     if (actionRef.current && actionRef.current.note !== value.trim()) actionRef.current = null;

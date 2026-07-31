@@ -29,6 +29,7 @@ const MIGRATIONS = [
   '018_messaging.sql',
   '019_job_card_operational_note_context.sql',
   '020_job_card_transition_note_contexts.sql',
+  '021_job_card_note_added_notification_kind.sql',
 ] as const;
 
 type DeliveryFixture = {
