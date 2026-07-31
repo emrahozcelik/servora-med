@@ -397,4 +397,23 @@ describe('responsive authenticated AppShell', () => {
     // No Ant Layout/Menu.
     expect(css).not.toMatch(/ant-layout|ant-menu/);
   });
+
+  it('keeps the compact header in normal flow instead of a sticky content overlay', () => {
+    const css = readFileSync(
+      new URL('../src/styles.css', 'file://' + __dirname + '/'),
+      'utf8',
+    );
+
+    const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const escaped = '.compact-shell-header'.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm');
+    const body = cleaned.match(pattern)?.[1];
+    if (!body) throw new Error('Missing exact CSS rule for .compact-shell-header');
+
+    // The compact header must participate in normal document flow: no sticky
+    // pinning, no top anchor, and no overlay stacking that would cover content.
+    expect(body).not.toMatch(/\bposition:\s*sticky/);
+    expect(body).not.toMatch(/\btop:\s*0\s*;/);
+    expect(body).not.toMatch(/\bz-index:/);
+  });
 });

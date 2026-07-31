@@ -1073,6 +1073,37 @@ try {
       );
     }
     if (!m.sidebarBrandFitted) failures.push(`${vp.name}: sidebar brand fit failure`);
+    if (vp.width < 1024) {
+      // Compact topbar must leave the viewport on scroll instead of sticking
+      // over content as an opaque overlay.
+      const scrollProbe = await page.evaluate(async () => {
+        window.scrollTo(0, document.documentElement.scrollHeight);
+        await new Promise((resolve) => requestAnimationFrame(() => resolve()));
+        const topbar = document.getElementById('mobile-topbar');
+        if (!topbar || getComputedStyle(topbar).display === 'none') {
+          window.scrollTo(0, 0);
+          return { applicable: false };
+        }
+        const rect = topbar.getBoundingClientRect();
+        const style = getComputedStyle(topbar);
+        const result = {
+          applicable: true,
+          position: style.position,
+          bottom: rect.bottom,
+          stuck: style.position === 'sticky' && rect.bottom > 0,
+        };
+        window.scrollTo(0, 0);
+        return result;
+      });
+      if (scrollProbe.applicable) {
+        if (scrollProbe.position === 'sticky' || scrollProbe.bottom > 2) {
+          failures.push(
+            `${vp.name}: mobile topbar must scroll out of view`
+            + ` (position=${scrollProbe.position} bottom=${scrollProbe.bottom})`,
+          );
+        }
+      }
+    }
     await page.click('[data-smoke-notification] .notification-settings-trigger');
     await page.waitForSelector('[data-smoke-notification] .notification-settings');
     const settings = await measure(page);
