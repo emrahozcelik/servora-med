@@ -8,7 +8,7 @@
 
 ### Head classification
 
-The table lists milestone commits only; the full base-to-head history contains 17
+The table lists milestone commits only; the full base-to-head history contains 18
 commits (see `git log 327f460..HEAD`). Intermediate implementation commits of the
 slice are omitted for brevity.
 
@@ -20,6 +20,7 @@ slice are omitted for brevity.
 | `2289a35ded20651826285d38faec0aa9920353ea` | Reviewer-fix commit — `notifications` resource key made unconditional for standalone-note events (code + test) |
 | `9ea2acb0fd7b150d4e4723d996fa5310853cdae4` | Docs update — fix verification + true-390px mobile results (docs-only) |
 | `2188d22564ec2a4d21469c4dff6b7136c2deb39c` | Head reclassification + projection comment alignment (docs + comment-only source) |
+| `3284caab3e689619f1f80106d15eea091703950c` | Docs — head alignment (docs-only) |
 | `HEAD` (branch tip) | The docs-only head-alignment commit containing this file; resolve with `git rev-parse HEAD` |
 
 - CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head). Commits after `f1b0137`
@@ -27,7 +28,7 @@ slice are omitted for brevity.
 
 ### Final gate
 
-- Checkpoint under review: `2188d22564ec2a4d21469c4dff6b7136c2deb39c` — implementation `f1b0137` + evidence `8673d25` + reviewer fix `2289a35` + docs `9ea2acb` + reclassification `2188d22`
+- Checkpoint under review: `HEAD` (branch tip at review time — milestone chain from base `327f460` to `HEAD` is listed in Head classification above)
 - Branch tip: `HEAD` = the docs-only head-alignment commit containing this file (`git rev-parse HEAD`)
 - Remote PR head = `f1b0137` until the final push (documented; push happens after review PASS)
 - Evidence commits (`8673d25`, `9ea2acb`, head-alignment) are docs-only; the reviewer fix touches only `note-realtime-projection.ts` and its test
@@ -342,6 +343,7 @@ All note creation (`addNote`) and its projection (`appendStandaloneNoteProjectio
 - `web/src/JobDetail.tsx` — `useRealtimeInvalidation(['job-notes:' + jobId])`
 - `web/src/jobs/JobNotes.tsx` — `realtimeKey` prop with merge, `nextCursor` preservation
 - `web/src/services/notifications-api.ts` — `job.note_added` added to frontend validation
+- `web/tests/job-notes.test.tsx` — JobNotes realtime merge / pagination tests (33 pass)
 
 ### Reviewer-fix commit `2289a35` (in PR diff)
 
