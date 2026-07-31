@@ -1,6 +1,6 @@
 # Linked Follow-up JobCards — Design
 
-- **Status:** Ready for external review (product direction approved; binding decisions confirmed; implementation gated on external review and PR #83 approval — revised per first and second external review findings, 2026-07-31)
+- **Status:** Ready for external review (product direction approved; binding decisions confirmed; implementation gated on external review and PR #83 approval — revised per first, second and third external review findings, 2026-07-31)
 - **Date:** 2026-07-31
 - **Scope:** Product design and binding decisions for Linked Follow-up JobCards. The implementation plan lives in [`2026-07-31-linked-follow-up-jobcards.md`](../plans/2026-07-31-linked-follow-up-jobcards.md).
 - **Predecessors:**
@@ -99,7 +99,7 @@ The system treats every JobCard as a first-class standalone unit of work. The li
 ### 4.6 Calendar
 
 1. A follow-up scheduled for a future date appears in the calendar as a normal event.
-2. Management events show a follow-up indicator and a link to the source; staff events show the restricted context (planned/occurred/completed dates with exact labels) inline, never a source link and never instructions (the calendar `followUpContext` carries dates and access mode only — §10.2).
+2. The calendar event derives its source access mode from the **same resolver as `JobCardDetail`** (§10.2): management and source-authorized Staff see a follow-up indicator with a working source link (`sourceJobPath`); a follow-up assignee who is not authorized for the source sees the restricted dates-only context (planned/occurred/completed dates with exact labels) inline, never a source link and never instructions; unrelated Staff see no event/context at all.
 
 ---
 
@@ -109,14 +109,15 @@ The system treats every JobCard as a first-class standalone unit of work. The li
 |---|---|---|---|---|---|---|---|---|
 | `ADMIN` | ✅ any org card | `FULL` + `sourceJobPath` | ✅ | ✅ | ✅ any completed | ✅ all + counts | ✅ any staff | ✅ all |
 | `MANAGER` | ✅ any org card | `FULL` + `sourceJobPath` | ✅ | ✅ | ✅ any completed | ✅ all + counts | ✅ any staff | ✅ all |
-| `STAFF` (assignee of follow-up, performed source) | ✅ (existing detail route, own-history reach) | `FULL` + `sourceJobPath` | ✅ | ✅ (own cards) | ❌ `403` | ✅ own cards only | ✅ self only | ✅ own cards |
-| `STAFF` (assignee of follow-up, did not perform source) | ❌ `404` (no path delivered) | `RESTRICTED` (no path) | ✅ | ✅ (own cards) | ❌ `403` | ✅ own cards only | ✅ self only | ✅ own cards + restricted context |
-| `STAFF` (not assignee) | ❌ `404` | ❌ `404` (context also `404`) | ❌ `404` | ❌ `404` | ❌ `403` | ✅ own cards only | ✅ self only | ✅ own cards only |
+| `STAFF` (assignee of follow-up, performed source) | ✅ (existing detail route, own-history reach) | `FULL` + `sourceJobPath` | ✅ | ✅ (own cards) | ❌ `403` | ✅ own cards only | ✅ self only | ✅ own cards + `FULL` link |
+| `STAFF` (assignee of follow-up, did not perform source) | ❌ `404` (no path delivered) | `RESTRICTED` (no path) | ✅ | ✅ (own cards) | ❌ `403` | ✅ own cards only | ✅ self only | ✅ own cards + restricted dates-only context, no link |
+| `STAFF` (not assignee) | ❌ `404` | ❌ `404` (context also `404`) | ❌ `404` | ❌ `404` | ❌ `403` | ✅ own cards only | ✅ self only | ❌ event/context not visible |
 
 Notes:
 
 - "Own cards" for a staff user means `assigned_to = self` (existing `actorCanReachJob` rule in `server/src/modules/job-cards/policy.ts`).
-- **No dedicated full-source endpoint exists.** `FULL` access is served by the existing `GET /api/job-cards/:sourceId` route under the existing `actorCanReachJob` rule; follow-up responses carry the nested `followUpContext` DTO (`sourceAccess` `FULL`/`RESTRICTED`, `sourceJobPath` non-null **iff** `FULL`).
+- **No dedicated full-source endpoint exists.** `FULL` access is served by the existing `GET /api/job-cards/:sourceId` route under the existing `actorCanReachJob` rule; follow-up responses carry the nested `followUpContext` DTO (`sourceAccess` `FULL`/`RESTRICTED`, `sourceJobPath` non-null **iff** `FULL`). The standalone `/source-context` endpoint is **not** part of the initial version (Repair 2).
+- **Calendar uses the same resolver**: a Staff member who is the source card's current assignee legitimately receives a `FULL` source link in the calendar (Repair 3); a different-assignee Staff member receives `RESTRICTED` dates-only context with no link; unrelated Staff see nothing.
 - A follow-up that is `COMPLETED` or `CANCELLED` remains reachable by its assignee (own work history), and the restricted context stays available to that assignee.
 - Reassignment of a follow-up transfers reach; the previous assignee loses access (existing reassignment semantics).
 - All cross-organization attempts resolve to `404` / `403` exactly like existing routes (no enumeration).
@@ -131,26 +132,34 @@ Notes:
 
 ### 6.2 Contract (stable, canonical)
 
-`JobCardDetail` carries a **nullable nested context** so root JobCards never expose an impossible access state:
+One deterministic DTO. `JobCardDetail` carries a **nullable nested context** so root JobCards never expose an impossible access state:
 
 ```typescript
-type JobCardFollowUpContext =
-  | null
-  | {
-      sourceJobCardId: string;
-      followUpInstructions: string;
-      sourceAccess: 'FULL' | 'RESTRICTED';
-      sourceJobPath: string | null;
-      sourceContext: RestrictedSourceContext | null;
-    };
+type FollowUpSourceSummary = {
+  sourceType: JobCardType;
+  sourcePlannedAt: string | null;
+  sourceOccurredAt: string | null;
+  sourceCompletedAt: string;
+  customer: ReferenceCustomer | null;
+  contact: ReferenceContact | null;
+  outcome: MeetingOutcome | null;
+};
+
+type JobCardFollowUpContext = {
+  sourceJobCardId: string;
+  followUpInstructions: string;
+  sourceAccess: 'FULL' | 'RESTRICTED';
+  sourceJobPath: string | null;
+  sourceSummary: FollowUpSourceSummary;
+};
 
 type JobCardDetail = {
   // existing fields
-  followUpContext: JobCardFollowUpContext;
+  followUpContext: JobCardFollowUpContext | null;
 };
 ```
 
-Canonical behavior:
+Rules:
 
 ```text
 root JobCard:
@@ -158,16 +167,20 @@ followUpContext = null
 
 follow-up with FULL source access (management, or source card's current assignee):
 sourceAccess = 'FULL'
-sourceJobPath = /jobs/<sourceId>
-sourceContext may contain the safe summary required by the UI
+sourceJobPath = /jobs/<sourceJobCardId>
+sourceSummary is present
 
 follow-up with RESTRICTED source access (current follow-up assignee, not otherwise authorized for the source):
 sourceAccess = 'RESTRICTED'
 sourceJobPath = null
-sourceContext contains the restricted source DTO
+sourceSummary is present
 ```
 
-The standalone endpoint `GET /api/job-cards/:id/source-context` remains canonical (it returns `RestrictedSourceContext` including `sourceAccess`/`sourceJobPath`); the detail embeds the same DTO via `followUpContext.sourceContext` so the UI needs no extra fetch. Reach: actor must reach `:id` (the follow-up). Returns `404` when the card is not a follow-up or the source is unreachable/removed.
+`sourceSummary` is the single safe source summary and **must not repeat** the envelope fields: it never contains `sourceAccess`, `sourceJobPath`, `followUpInstructions`, or `sourceJobCardId`. There is **no second `RestrictedSourceContext` DTO** with overlapping envelope fields; if an internal name is needed for the summary shape, it represents only the safe summary fields above.
+
+**Standalone endpoint decision:** `GET /api/job-cards/:id/source-context` is **removed from the initial version**. `JobDetail` already receives `followUpContext`; the calendar receives its own narrow additive context (§10.2); no approved independent consumer requires an additional endpoint. Removing it eliminates a second authorization/presenter path and prevents DTO drift. The endpoint is **not** retained "for future use".
+
+**Replay-safety note (Repair 1):** `followUpContext` is always derived from **current** role, source reachability, and assignment at presentation time. Idempotent replays of the create action never return a stored presentation — see §6.6 and plan §6.4/§9.
 
 Canonical source time model (never a single "previous visit date"):
 
@@ -180,13 +193,13 @@ Canonical source time model (never a single "previous visit date"):
 UI labels are exact: **"Planlanan tarih"**, **"Gerçekleşme tarihi"**, **"Tamamlanma tarihi"**. A single field must never be presented as "önceki ziyaret tarihi".
 
 ```jsonc
+// JobCardDetail.followUpContext — RESTRICTED variant (sourceJobPath null)
 {
-  "jobCardId": "uuid",                    // the follow-up
-  "isFollowUp": true,
-  "sourceAccess": "FULL | RESTRICTED",    // derived per §5
-  "sourceJobPath": "/jobs/<sourceId> | null",  // non-null IFF sourceAccess === 'FULL'
-  "source": {
-    "sourceJobCardId": "uuid",
+  "sourceJobCardId": "uuid",
+  "followUpInstructions": "management-provided instructions",
+  "sourceAccess": "RESTRICTED",
+  "sourceJobPath": null,
+  "sourceSummary": {
     "sourceType": "SALES_MEETING",
     "sourcePlannedAt": "2026-07-12T08:00:00.000Z",   // source.scheduled_at (planlanan tarih), may be null
     "sourceOccurredAt": "2026-07-12T09:15:00.000Z",  // meeting_at | started_at | staff_completed_at (gerçekleşme tarihi), may be null
@@ -194,17 +207,21 @@ UI labels are exact: **"Planlanan tarih"**, **"Gerçekleşme tarihi"**, **"Tamam
     "customer": { "id": "uuid", "name": "..." },     // null only when source had no customer
     "contact": { "id": "uuid", "name": "..." },      // null when source had no contact
     "outcome": "FOLLOW_UP_REQUIRED"                  // SALES_MEETING sources only; else null
-  },
-  "followUpInstructions": "management-provided instructions",
-  "followUpCreatedAt": "2026-07-31T10:00:00.000Z"
+  }
 }
+
+// FULL variant differs only in: "sourceAccess": "FULL", "sourceJobPath": "/jobs/<sourceId>"
 ```
 
-`FULL` access does not need this endpoint's source fields for navigation: the client uses `sourceJobPath` with the **existing** `GET /api/job-cards/:sourceId` route (subject to the existing `actorCanReachJob` rule). No dedicated full-source endpoint exists.
+`FULL` navigation uses `sourceJobPath` with the **existing** `GET /api/job-cards/:sourceId` route (subject to the existing `actorCanReachJob` rule). No dedicated full-source endpoint and no standalone source-context endpoint exist.
 
 ### 6.3 Explicit exclusions
 
-The restricted context **never** contains: note bodies, timeline/activity events, approval reasons, revision reasons, delivery items, attachments, engagement history, other follow-ups (siblings), chain navigation, `assignedTo`/`createdBy` identity, or any free-text beyond `follow_up_instructions`.
+`FollowUpSourceSummary` contains **only** approved structured information: source type, planned/occurred/completed times, customer reference (where already authorized), contact reference (where already authorized), and safe structured meeting `outcome` (where applicable).
+
+It **never** contains: note bodies, `meetingSummary`, free-text result text, timeline/activity events, approval reasons, revision reasons, delivery items, attachments, other follow-ups (siblings), chain depth, hidden ancestor/sibling data, previous Staff history, or any free-text beyond `follow_up_instructions` (which lives on the envelope, not the summary).
+
+**Source Staff identity is excluded.** No approved product requirement exposes the source card's Staff name; the summary deliberately omits `assignedTo`/`createdBy` identity.
 
 ### 6.4 Access lifecycle
 
@@ -250,6 +267,48 @@ new assignee:  receives the appropriate FULL/RESTRICTED source context immediate
 ```
 
 All modes are derived per request from current persisted state — no stored grants, no access-duration concepts.
+
+### 6.6 Create response and replay contract (Repair 1)
+
+**Stable mutation receipt** — the only thing the processed-action store (`processed_actions`) persists for the create action:
+
+```ts
+type FollowUpCreateReceipt = { jobCardId: string };
+```
+
+Never persisted as the action result: `sourceAccess`, `sourceJobPath`, `sourceSummary`, `followUpInstructions` presentation, the full `JobCardDetail`, or actor-specific navigation links. The persisted JobCard row may keep `follow_up_instructions`; the receipt must not duplicate actor-dependent response content.
+
+**First completion flow:**
+
+```text
+processed-action claim
+→ validate and create the follow-up atomically
+→ store FollowUpCreateReceipt
+→ commit
+→ publish committed realtime once (design §12.2)
+→ read the current JobCard
+→ present the current JobCardDetail with current actor authorization
+→ 201 with that current JobCardDetail (always carries followUpContext for a follow-up)
+```
+
+**Replay flow (same `clientActionId`):**
+
+```text
+read stored FollowUpCreateReceipt
+→ create/publish nothing (no JobCard, no link, no activity, no notification, no realtime/SSE)
+→ read the current JobCard state
+→ derive followUpContext from current role, source reachability and assignment
+→ return the current presenter result
+```
+
+**Response contract:** first completion returns `201` + the **current** `JobCardDetail`. A replay returns the same mutation identity (same `jobCardId`, single committed mutation, no duplicate side effects) with the **current actor-safe `JobCardDetail`** — there is **no byte-identical response guarantee** for actor-dependent presentation:
+
+```text
+idempotent mutation identity:            stable
+authorization-dependent presentation:    recomputed on every response
+```
+
+If the actor is no longer authorized at replay time, the canonical current `403`/`404` result is returned (anti-enumeration) — the stored mutation response is never exposed.
 
 ---
 
@@ -387,39 +446,41 @@ Item shape mirrors `CustomerJobHistoryItem` (including `followUp` link metadata 
 
 ### 10.2 Target
 
-- `CALENDAR_LIST_SQL` gains a `LEFT JOIN` to the follow-up source (`job_cards src` on `src.organization_id = j.organization_id AND src.id = j.source_job_card_id`) and, for `sourceOccurredAt`, a `LEFT JOIN` to `job_card_meeting_details md` on the source card; selecting `j.source_job_card_id`, `j.follow_up_instructions`, `src.scheduled_at`, `src.started_at`, `src.staff_completed_at`, `src.manager_approved_at`, `md.meeting_at`.
-- `JobCalendarEvent` gains an additive, nullable `followUpContext` using **exactly the same source-access decision as `JobCardDetail`** (§6.2, Repair 1):
+- `CALENDAR_LIST_SQL` gains a `LEFT JOIN` to the follow-up source (`job_cards src` on `src.organization_id = j.organization_id AND src.id = j.source_job_card_id`) and, for `sourceOccurredAt`, a `LEFT JOIN` to `job_card_meeting_details md` on the source card; selecting `j.source_job_card_id`, `src.scheduled_at`, `src.started_at`, `src.staff_completed_at`, `src.manager_approved_at`, `md.meeting_at`. (`j.follow_up_instructions` is **not** selected — calendar payloads never carry instructions.)
+- `JobCalendarEvent` gains an additive, nullable **`CalendarFollowUpContext`** (narrow, calendar-specific):
 
 ```typescript
-followUpContext:
+type CalendarFollowUpContext =
   | null
   | {
       sourceAccess: 'FULL' | 'RESTRICTED';
       sourceJobPath: string | null;
       sourcePlannedAt: string | null;
       sourceOccurredAt: string | null;
-      sourceCompletedAt: string | null;
+      sourceCompletedAt: string;
     };
 ```
+
+- The calendar presenter derives `sourceAccess` from the **same canonical source-access resolver used by `JobCardDetail`** (`resolveSourceAccess(actor, source)`) — no calendar-only authorization exception:
 
 ```text
 ADMIN/MANAGER:                    FULL → sourceJobPath = /jobs/<sourceId> + dates
 STAFF authorized for the source
-  (source card's current assignee): FULL → sourceJobPath + dates
+  (source card's current assignee): FULL → sourceJobPath + dates (legitimate source link)
 Follow-up owner not authorized
   for the source:                 RESTRICTED → sourceJobPath = null, dates only
-Unrelated STAFF:                  null (no source knowledge; the event itself is
-                                  visible only per the existing calendar reach rule)
+Unrelated STAFF:                  event and source context not visible (existing
+                                  calendar reach rule; no knowledge leak)
 ```
 
-- `followUpContext` is strictly additive calendar metadata: it contains no note bodies, no activity, no chain, and no other follow-up ids.
+- `CalendarFollowUpContext` is strictly additive calendar metadata: it contains no instructions, no note bodies, no `meetingSummary`, no activity, no chain data, no other follow-up ids, no hidden counts, and no Staff history.
 - No schema change, no new calendar entry type: the follow-up is a normal scheduled JobCard event.
 
 ### 10.3 Guardrails
 
-- The restricted context rule applies: calendar payloads never carry instructions or source free-text.
+- The calendar payload never carries instructions or source free-text.
 - Date fields come from the source row/`job_card_meeting_details` only, with exact labels ("Planlanan tarih", "Gerçekleşme tarihi", "Tamamlanma tarihi") — no notes, no outcome in calendar payloads; the calendar shows date context only.
-- `sourceJobPath` presence must match the detail view exactly (`FULL` yes, `RESTRICTED` no) — the two endpoints cannot disagree about access.
+- `sourceAccess`/`sourceJobPath` must match the detail view exactly (`FULL` yes, `RESTRICTED` no) because both presenters share one resolver — the two surfaces cannot disagree about access.
 
 ---
 
@@ -460,6 +521,8 @@ Reuse `job.created` (`server/src/modules/realtime/event-mapper.ts`, `JOB_CREATED
 
 Existing keys already cover `job-board`, `job-list`, `overview`, `reports`, `staff-profile:<afterAssigneeId>`. Audience rules (`audience.ts`, `buildJobCardAudience`) stay unchanged: `afterAssigneeId` + `ADMIN`/`MANAGER` roles, org-scoped. No event ever carries source content.
 
+**Replay behavior (Repair 1):** the post-commit SSE publish happens **only on the first successful completion** of the create action. An idempotent replay of the same `clientActionId` publishes no realtime event, creates no notification, creates no activity, and creates no JobCard — it reads the current state and returns a current presentation (design §6.6, plan §6.4/§9).
+
 ---
 
 ## 13. Privacy
@@ -467,10 +530,13 @@ Existing keys already cover `job-board`, `job-list`, `overview`, `reports`, `sta
 1. **Bodyless by construction**: notification and realtime payloads carry ids only; the UI fetches data through permission-checked endpoints. This matches the existing architecture (AGENTS.md §5).
 2. **Structured data beats free text**: `follow_up_instructions` is the *only* new free-text field, it is management-only and per-card, and it is the canonical substitute for copying source notes (D9).
 3. **Role-filtered lists and counts**: customer history, staff history, children lists, and calendar payloads apply `actorCanReachJob`-equivalent filtering server-side. `childCount` is management-only.
-4. **No source-path leakage**: a `RESTRICTED` actor never receives `sourceJobPath` in any payload (follow-up detail, source-context, calendar, history lists). A `STAFF` actor who cannot reach the source card gets `404` from the existing source detail route — consistent with existing `forbidden()`→`404` handling in `handlers.ts`/`policy.ts`.
-5. **No activity leakage**: the `JOB_CREATED` activity on the follow-up carries `sourceJobCardId` in **one canonical place only**: `metadata` (`metadata.sourceJobCardId`). It is not duplicated into `new_value`. No source content is written into activity metadata.
+4. **No source-path leakage**: a `RESTRICTED` actor never receives `sourceJobPath` in any payload (follow-up detail, calendar, history lists). A `STAFF` actor who cannot reach the source card gets `404` from the existing source detail route — consistent with existing `forbidden()`→`404` handling in `handlers.ts`/`policy.ts`.
+5. **No activity leakage**: the `JOB_CREATED` activity on the follow-up carries `sourceJobCardId` in **one canonical place only**: `metadata` (`metadata.sourceJobCardId`). It is not duplicated into `new_value`. No source content is written into activity metadata. **Actor-dependent values are never persisted**: `sourceAccess`, `sourceJobPath`, `followUpInstructions`, and `sourceSummary` are never stored in activity metadata — only stable identifiers (`sourceJobCardId`, `followUpJobCardId`).
 6. **No source mutation**: creating a follow-up never writes to the source row (no counters, no flags), so history stays append-only.
 7. **Log privacy**: `follow_up_instructions` is added to the logger redaction paths (`LOGGER_REDACT_PATHS` in `server/src/app.ts`: `req.body.followUpInstructions`), and a log-capture test proves a unique instruction marker never appears in request/error logs.
+8. **Stale-replay threat (Repair 1)**: a processed-action replay must never leak an old `FULL` source path or stale context after authorization changes. Mitigation: the processed-action store keeps only the stable `FollowUpCreateReceipt` (`{ jobCardId }`); every completion *and* replay response re-runs the current read authorization and the current presenter (design §6.6, plan §6.4/§9).
+9. **DTO-drift threat (Repair 2)**: duplicated `sourceAccess`/`sourceJobPath` fields in overlapping DTOs could disagree. Mitigation: one `JobCardFollowUpContext` envelope (with `sourceSummary`), one source-access resolver, and a web parser that rejects impossible combinations (`FULL` + null path, `RESTRICTED` + non-null path, follow-up + null summary).
+10. **Calendar-parity threat (Repair 3)**: Calendar and JobDetail must not independently derive different access modes. Mitigation: both presenters call the same `resolveSourceAccess`; parity tests assert the same actor gets the same mode on both surfaces; no calendar-only authorization widening.
 
 ---
 
@@ -489,6 +555,7 @@ Not authorized in this design (explicit non-goals for the future implementation)
 - Customer/contact UI changes beyond role-filtered pagination and link badges.
 - Chain depth above 10 or UI for arbitrary chain graphs (management-only breadcrumb; staff see only the immediate direct-source relationship).
 - `scheduledEndsAt` in the follow-up **create** request — creation accepts `scheduledAt` only; end time stays owned by the existing scheduling/update flow (Repair 4).
+- A standalone `GET /api/job-cards/:id/source-context` endpoint — removed from the initial version (Repair 2); the detail carries `followUpContext` and the calendar carries its own narrow context; no unused endpoint is retained "for future use".
 - Any new notification kind, realtime event type, or web-push surface.
 - Mobile-native, offline, or drag/drop behavior changes.
 
@@ -506,16 +573,18 @@ Not authorized in this design (explicit non-goals for the future implementation)
 | R6 | Customer | Inherited server-side from the source (`source.customerId` copied by the server; client never sends `customerId`; both null allowed); contact must belong to the inherited customer. Customer-null × type matrix: source with customer → `GENERAL_TASK`/`PRODUCT_DELIVERY`/`SALES_MEETING` allowed; customerless source → `GENERAL_TASK` only, other types → `409 FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED` (Repair 2). |
 | R7 | Multi-source | Not supported; one direct parent per card. |
 | R8 | Chains | Supported; depth model root=0, max persisted depth=10 (source at 10 rejects depth-11 child, `409 FOLLOW_UP_MAX_DEPTH_REACHED`); siblings allowed; cycles impossible. |
-| R9 | Staff visibility of source | No dedicated full-source endpoint. `JobCardDetail` carries nullable `followUpContext` (`null` for roots; `{sourceJobCardId, followUpInstructions, sourceAccess: 'FULL' \| 'RESTRICTED', sourceJobPath, sourceContext}` otherwise, Repair 1). `FULL` = management or the source card's current assignee, served by the existing `GET /api/job-cards/:sourceId` under `actorCanReachJob`; otherwise `RESTRICTED` via the source-context DTO. |
+| R9 | Staff visibility of source | No dedicated full-source endpoint. `JobCardDetail` carries nullable `followUpContext` (`null` for roots; `{sourceJobCardId, followUpInstructions, sourceAccess: 'FULL' \| 'RESTRICTED', sourceJobPath, sourceSummary}` otherwise, Repair 1/2). `FULL` = management or the source card's current assignee, served by the existing `GET /api/job-cards/:sourceId` under `actorCanReachJob`; otherwise `RESTRICTED` with `sourceJobPath: null`. |
 | R10 | Proposal → decision | `nextFollowUpAt` pre-fills `scheduledAt`; no auto-create. |
 | R11 | Notifications | Reuse `job.assigned` / `job.reassigned`; no new kind. |
 | R12 | Realtime | Reuse `job.created`; add `job-detail:<source>` and `customer-detail:<customer>` invalidation keys. |
 | R13 | History surfaces | New paginated role-filtered endpoints `GET /api/customers/:customerId/jobs`, `GET /api/staff/me/jobs`, `GET /api/staff/:userId/jobs`; management-only child counts; read via a shared `JobHistoryReadPort` (`listCustomerJobHistory`/`listStaffJobHistory` → `PaginatedJobHistory { items, total, limit, offset }`); routes register only when the optional port is wired (see plan §5). |
-| R21 | Detail DTO | `followUpContext` is nullable and nested in `JobCardDetail` (null for roots, Repair 1); the standalone source-context endpoint stays canonical; presenter/API schema/web parser/replay behave identically. |
+| R21 | Detail DTO | `followUpContext` is nullable and nested in `JobCardDetail` (null for roots, Repair 1); **the standalone `/source-context` endpoint is removed from the initial version** — one canonical `JobCardFollowUpContext` with `FollowUpSourceSummary`; no second restricted DTO with overlapping envelope fields (Repair 2). |
 | R22 | Create contract | No `customerId` in the create request (server inherits from source); no `scheduledEndsAt` in the create request (Repair 4); `clientActionId` required. |
 | R23 | Chain visibility | Staff see only the immediate direct source (FULL link or RESTRICTED panel); no ancestor breadcrumb, no siblings, no other-staff children, no hidden chain length; management keeps full chain navigation (Repair 6). |
 | R24 | Access lifetime | Derive mode per request from current role + `assigned_to`: FULL (management/source assignee), RESTRICTED (follow-up assignee not authorized for source), none (former assignee after reassignment, unrelated staff, inactive users); COMPLETED keeps restricted context for own history; CANCELLED keeps only what explains the historical assigned task (Repair-access). |
 | R25 | Follow-up PATCH | Management may not change the inherited `customerId` on a follow-up via the generic PATCH (would break the same-customer chain rule); the source remains the single owner of customer/contact. |
+| R26 | Replay safety | Processed-action storage keeps only the stable `FollowUpCreateReceipt = { jobCardId }` — never a full presenter response. Every completion *and* replay response re-reads the current JobCard and re-presents it with **current** authorization (`followUpContext` derived from current role, source reachability, assignment). Unauthorized at replay time → canonical current 403/404, never the stored mutation response. Replay publishes no realtime, creates no notification/activity/JobCard (Repair 1). |
+| R27 | Calendar context | Narrow additive `CalendarFollowUpContext { sourceAccess, sourceJobPath, sourcePlannedAt, sourceOccurredAt, sourceCompletedAt } | null`; mode derived from the **same** `resolveSourceAccess` as JobDetail; source-authorized Staff receive a `FULL` link, different-assignee Staff `RESTRICTED` no-link, unrelated Staff nothing (Repair 3). |
 | R14 | Activity | `JOB_CREATED` with `sourceJobCardId` in `metadata` only (single canonical field; not duplicated into `new_value`), on the follow-up only. |
 | R15 | Rollback path | Only for pre-production reset tasks explicitly approved by the user: `UPDATE job_cards SET source_job_card_id = NULL, follow_up_instructions = NULL WHERE ...` — never in production migrations. |
 | R16 | Primary UI entry | Source JobCard detail (management); secondary: customer history rows, `FOLLOW_UP_REQUIRED` recommendation panel. |
@@ -534,4 +603,4 @@ This checkpoint is **documentation-only**. The design and its decisions are cons
 2. The implementation plan cites exact repository facts (files, functions, migration numbers) that match the current tree at `33aa7997a24a335a773017e521002db86ff2bd90`.
 3. `git diff --check` passes and the commit contains only the two documentation files.
 4. External review (GPT-5.6) confirms the design before implementation starts.
-5. All external-review blockers are resolved in the documentation (this revision resolves blockers 1–9 and the consistency findings of the 2026-07-31 review).
+5. All external-review blockers are resolved in the documentation (this revision resolves blockers 1–9, the consistency findings of the 2026-07-31 review, the second-review repairs 1–6, and the third-review repairs 1–3 on replay safety, DTO normalization, and calendar parity).
