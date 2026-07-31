@@ -10,14 +10,17 @@
 
 | Head | Purpose |
 | --- | --- |
-| `f1b0137c0f393d82d699ad197ee525368dc1a389` | Implementation + evidence head — source, tests, migration, evidence |
+| `f1b0137c0f393d82d699ad197ee525368dc1a389` | Implementation head — source, tests, migration |
+| `8673d251caa5b61c5d297f6b6805906277ba44cd` | Evidence commit — canonical evidence relocation + two-browser visual results (docs-only) |
+| `2289a35ded20651826285d38faec0aa9920353ea` (local head) | Reviewer-fix commit — `notifications` resource key made unconditional for standalone-note events (code + test) |
 
-- CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head).
+- CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head). The reviewer-fix commit `2289a35` changes two files (projection + its test); its CI verification runs after the final push (see Final gate).
 
 ### Final gate
 
-- Local HEAD = remote PR head = `f1b0137c0f393d82d699ad197ee525368dc1a389`
-- Evidence commit (docs-only, follows the implementation head): relocates evidence from `docs/checkpoint-c-evidence.md` to `docs/evidence/job-operational-notes/checkpoint-c/README.md`. Does not affect source, tests, or migrations.
+- Local HEAD = `2289a35ded20651826285d38faec0aa9920353ea` (implementation `f1b0137` + evidence `8673d25` + reviewer fix `2289a35`)
+- Remote PR head = `f1b0137` until the final push (documented; push happens after review PASS)
+- Evidence commits (`8673d25`, plus the README update) are docs-only; the reviewer fix touches only `note-realtime-projection.ts` and its test
 - PR Draft
 - Merge state: CLEAN
 - Mergeability: MERGEABLE
@@ -28,18 +31,21 @@
 | --- | --- | --- | --- |
 | Note realtime projection (focused) | 1 | 7 | PASS |
 | Notification policy (focused) | 1 | 17 | PASS |
-| Notification delivery projection (focused) | 1 | — | SKIP (pre-existing) |
+| Notification delivery projection (focused) | 1 | 0 pass / 14 skip | SKIP (pre-existing) |
 | Migration runner (focused) | 1 | 5 | PASS |
-| Web Push integrated (focused) | 1 | 1 | SKIP (pre-existing) |
-| Job card service (focused) | 1 | 33 | PASS |
-| Job card notes (focused) | 1 | 17 | PASS |
-| Realtime job card integration (focused) | 1 | 7 | SKIP (pre-existing) |
+| Web Push integrated (focused) | 1 | 0 pass / 1 skip | SKIP (pre-existing) |
+| Job card service (focused) | 1 | 21 | PASS |
+| Job card notes (focused) | 1 | 36 pass / 1 skip | PASS |
+| Realtime job card integration (focused) | 1 | 0 pass / 7 skip | SKIP (pre-existing) |
+| Focused aggregate | 8 | **86 pass / 23 skip / 0 fail** | PASS |
 | Full server | 118 | 1402 pass / **3 fail** | 3 FAIL (pre-existing) |
 | Server build | — | — | PASS |
 | Web test (job-notes) | 1 | 33 | PASS |
 | Web test (notification-center) | 1 | 12 | PASS |
 | Full web | 96 | 1141 | PASS |
 | Web build | — | — | PASS |
+
+Focused counts above were re-run after the reviewer-fix commit `2289a35` (10:13 local).
 
 ### Pre-existing local test failures (not caused by Checkpoint C)
 
@@ -117,11 +123,12 @@ The same database was reused for the visual acceptance phase. Final state on job
 
 | Measure | Value |
 | --- | --- |
-| Total notes | 29 (3 original + 24 pagination seed "Sayfalama notu 1..24" + 2 visual test notes "GÖRSEL KAPANIŞ TESTİ …") |
-| Realtime events | 32 |
-| In-app notifications total | 59 |
-| Unread at close: Admin | 0 (round-2 notification read via UI) |
-| Unread at close: Staff | 2 (assignee notifications from the two visual notes — untouched, expected) |
+| Total notes | 30 (3 original + 24 pagination seed "Sayfalama notu 1..24" + 3 visual/fix test notes "GÖRSEL KAPANIŞ …") |
+| Realtime events | 33 (incl. event 33 from the reviewer-fix runtime check) |
+| In-app notifications total | 61 |
+| Unread at close: Admin | 1 (fix-check notification, not opened in UI) |
+| Unread at close: Staff | 3 (assignee notifications from visual/fix notes — untouched, expected) |
+| Unread at close: Manager | 0 (actor exclusion holds) |
 | Web Push `job.note_added` deliveries | 0 (suppression intact) |
 | Web Push `job.awaiting_approval` deliveries | 2 |
 
@@ -192,12 +199,51 @@ which matched the observed "3 old items"). Backend evidence disproved the claim:
 | 13 | Privacy round 2: note body + actor name absent from notification item | PASS |
 | 14 | Admin-context API: unread-count=1; first item id `88fa2fb3…` kind `job.note_added` readAt null | PASS |
 | 15 | Click round-2 item → correct job URL; note body absent from URL | PASS |
-| 16 | Mobile 390x844: no horizontal overflow (scrollWidth 500 ≤ clientWidth 500), composer reachable, NC reachable, notification navigation works | PASS |
+| 16 | Mobile 390x844: composer reachable, NC reachable, notification navigation works (see "True-390px mobile re-verification" below) | PASS |
 | 17 | Console errors / failed requests | NONE |
 
 ### Round 2 limitations
 
 - Browser-level 200% zoom: NOT EXERCISED (CDP page-scale emulation unavailable in this harness; OS-controlled). CSS zoom is a different mechanism and was not used for acceptance.
+
+### Reviewer-fix verification (notifications resource key unconditional)
+
+Independent final review BLOCKED the conditional `notifications` resource key
+(`note-realtime-projection.ts` added it only when at least one eligible notification
+draft existed; the acceptance criterion requires the key on every standalone-note
+event). Fix commit `2289a35`:
+
+- `server/src/modules/job-cards/note-realtime-projection.ts` — resource keys are now a
+  deterministic set (`job-notes:<jobId>`, `notifications`, `staff-profile:<assigneeId>`)
+  for every standalone-note event; notification creation itself still honors actor
+  exclusion and inactive-assignee suppression
+- `server/tests/note-realtime-projection.test.ts` — zero-recipient case updated to
+  require the `notifications` key (red → green verified)
+
+Runtime verification after the fix (Manager adds note via API, event 33):
+
+| Assertion | Result |
+| --- | --- |
+| Event resource keys = `job-notes:66aafda6…`, `notifications`, `staff-profile:5f2e1522…` | PASS |
+| In-app notifications: Admin + Staff (Manager actor excluded) | PASS |
+| Web Push `job.note_added` deliveries: 0 | PASS |
+
+### True-390px mobile re-verification
+
+The round-2 mobile measurement (scrollWidth 500 = clientWidth 500) did not prove the
+390px case (the emulated CSS viewport was 500px). Re-verified with
+`Emulation.setDeviceMetricsOverride width=390, height=844, deviceScaleFactor=1,
+mobile=true` and confirmed `document.documentElement.clientWidth = 390`:
+
+| Check (job detail, 390x844) | Result |
+| --- | --- |
+| `scrollWidth` 390 ≤ `clientWidth` 390 (no horizontal overflow) | PASS |
+| `body.scrollWidth` 390 ≤ 390 | PASS |
+| Composer `textarea#job-note` rect fully within viewport (35.39–354.61) | PASS |
+| "Daha eski notları yükle" rect within viewport; loads all 30 notes, 0 duplicates, button disappears | PASS |
+| NC trigger rect within viewport; dialog rect 46.81–390 x 0–844 (no overflow) | PASS |
+| `/jobs` list page: no horizontal overflow | PASS |
+| Console errors / failed requests | NONE |
 
 ## Privacy evidence
 
@@ -242,8 +288,8 @@ All note creation (`addNote`) and its projection (`appendStandaloneNoteProjectio
 | --- | --- | --- |
 | Runtime API acceptance | Node.js fetch + real PostgreSQL + Fastify | PASS (all scenarios) |
 | Web Push suppression with active subscriptions | DB + API verification | PASS (0 deliveries for `job.note_added`) |
-| Two-browser visual acceptance (pagination, realtime merge, NC live refresh, badge, privacy, mobile) | Chrome DevTools MCP, real Vite + Fastify | PASS (round 2, 17/17 assertions) |
-| Automated tests (focused) | Vitest | PASS (57 pass, 8 skip) |
+| Two-browser visual acceptance (pagination, realtime merge, NC live refresh, badge, privacy, mobile) | Chrome DevTools MCP, real Vite + Fastify | PASS (round 2 + true-390px re-verification) |
+| Automated tests (focused) | Vitest | PASS (86 pass, 23 pre-existing skip) |
 | Full server | Vitest | 1402 pass / 3 pre-existing fail |
 | Full web | Vitest | 1141 pass |
 | Server build | `tsc` | PASS |
@@ -256,6 +302,7 @@ All note creation (`addNote`) and its projection (`appendStandaloneNoteProjectio
 - Web Push deliveries for `job.note_added` are suppressed by policy; actual push delivery capability is verified through `job.awaiting_approval` notifications which do create deliveries
 - Browser-level 200% zoom not exercised (CDP scale emulation unavailable; OS-controlled)
 - Round-1 visual run initially reported a notification failure; disproven as a verifier session error (see "Two-browser visual verification evidence" — Round 1), backend and API verified correct via DB + Admin-session API + Round 2
+- The zero-eligible-recipient runtime case (single active management user who is also the actor + inactive assignee) is covered by the updated unit test; it cannot be produced with the seeded organization (two active management users)
 
 ## Files changed (base-to-head PR diff)
 
@@ -286,17 +333,23 @@ All note creation (`addNote`) and its projection (`appendStandaloneNoteProjectio
 - `web/src/jobs/JobNotes.tsx` — `realtimeKey` prop with merge, `nextCursor` preservation
 - `web/src/services/notifications-api.ts` — `job.note_added` added to frontend validation
 
-### Evidence-only commit (docs-only, after the implementation head)
+### Reviewer-fix commit `2289a35` (in PR diff)
+
+- `server/src/modules/job-cards/note-realtime-projection.ts` — `notifications` resource key unconditional
+- `server/tests/note-realtime-projection.test.ts` — zero-recipient test updated to require the key
+
+### Evidence-only commits (docs-only, after the implementation head)
 
 - `docs/checkpoint-c-evidence.md` — deleted (moved to canonical path)
 - `docs/evidence/job-operational-notes/checkpoint-c/README.md` — canonical evidence file (this file)
 
-This commit changes documentation only; it does not affect source code, tests, or migrations. The implementation head (`f1b0137c0f393d82d699ad197ee525368dc1a389`) referenced by the exact-head CI run 30577288701 is unchanged by it.
+These commits change documentation only; they do not affect source code, tests, or migrations. The implementation head (`f1b0137c0f393d82d699ad197ee525368dc1a389`) referenced by the exact-head CI run 30577288701 is unchanged by them.
 
 ## Verification commands
 
 ```bash
 cd server && npm test -- --run       # 1402/1405 pass (3 pre-existing)
+cd server && npm test -- --run tests/note-realtime-projection.test.ts tests/notification-policy.test.ts tests/migrate-runner.test.ts tests/web-push-integrated-normal-path.test.ts tests/job-card-service.test.ts tests/job-card-notes.test.ts tests/realtime-job-card-integration.test.ts tests/notification-delivery-projection.test.ts   # focused: 86 pass / 23 skip
 cd web && npm test -- --run          # 1141/1141 pass
 cd server && npm run build           # compiles
 cd web && npm run build              # compiles
