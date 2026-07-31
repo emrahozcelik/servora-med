@@ -8,9 +8,9 @@
 
 ### Head classification
 
-The table lists milestone commits only; the full base-to-head history contains 22
-commits (`git rev-list --count 327f460..HEAD`). Intermediate implementation commits
-of the slice are omitted for brevity.
+The table lists milestone commits only; the full base-to-head history contains 24
+commits (`git rev-list --count 327f460..HEAD`), including the current tip. Intermediate
+implementation commits of the slice are omitted for brevity.
 
 | Head | Purpose |
 | --- | --- |
@@ -26,7 +26,8 @@ of the slice are omitted for brevity.
 | `9567bcfc9a7514988aef64ae9d1c7dd4eef18294` | Docs — commit count, milestone table, inventory 1:1, CI wording (docs-only) |
 | `88d8c5bcdf2f213891ecf5e996717fb5b0b48885` | Docs — inventory path de-duplication, diff 1:1 (docs-only) |
 | `091dfd2dbf9ef931a1b5a6c430d368cf68588d82` | Docs — commit count and milestone table aligned with repository history (docs-only) |
-| `HEAD` (branch tip) | The docs-only commit containing this file; resolve with `git rev-parse HEAD` |
+| `369cd3cf82eeb23ce041a079accb96da337c9c3f` | Docs — final head table state captured for the checkpoint gate (docs-only) |
+| `HEAD` (branch tip) | The docs-only commit containing this file (the gate-finalizing commit); resolve with `git rev-parse HEAD` |
 
 - CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head). Commits after `f1b0137`
   (reviewer fix + docs) get CI verification after the final push (see Final gate).
