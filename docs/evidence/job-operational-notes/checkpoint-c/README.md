@@ -12,15 +12,16 @@
 | --- | --- |
 | `f1b0137c0f393d82d699ad197ee525368dc1a389` | Implementation head — source, tests, migration |
 | `8673d251caa5b61c5d297f6b6805906277ba44cd` | Evidence commit — canonical evidence relocation + two-browser visual results (docs-only) |
-| `2289a35ded20651826285d38faec0aa9920353ea` (local head) | Reviewer-fix commit — `notifications` resource key made unconditional for standalone-note events (code + test) |
+| `2289a35ded20651826285d38faec0aa9920353ea` | Reviewer-fix commit — `notifications` resource key made unconditional for standalone-note events (code + test) |
+| `9ea2acb0fd7b150d4e4723d996fa5310853cdae4` | Docs update — fix verification + true-390px mobile results + head reclassification (docs-only; then the local head became `9ea2acb`) |
 
-- CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head). The reviewer-fix commit `2289a35` changes two files (projection + its test); its CI verification runs after the final push (see Final gate).
+- CI: run 30577288701 (SUCCESS) for `f1b0137` (exact-head). Commits after `f1b0137` (fix + docs) get CI verification after the final push (see Final gate).
 
 ### Final gate
 
-- Local HEAD = `2289a35ded20651826285d38faec0aa9920353ea` (implementation `f1b0137` + evidence `8673d25` + reviewer fix `2289a35`)
+- Local HEAD = `9ea2acb0fd7b150d4e4723d996fa5310853cdae4` (implementation `f1b0137` + evidence `8673d25` + reviewer fix `2289a35` + docs `9ea2acb`)
 - Remote PR head = `f1b0137` until the final push (documented; push happens after review PASS)
-- Evidence commits (`8673d25`, plus the README update) are docs-only; the reviewer fix touches only `note-realtime-projection.ts` and its test
+- Evidence commits (`8673d25`, `9ea2acb`) are docs-only; the reviewer fix touches only `note-realtime-projection.ts` and its test
 - PR Draft
 - Merge state: CLEAN
 - Mergeability: MERGEABLE

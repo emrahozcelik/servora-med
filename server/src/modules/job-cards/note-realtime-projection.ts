@@ -19,8 +19,9 @@ export async function appendStandaloneNoteProjection(
   tx: JobCardTransaction,
   input: StandaloneNoteProjectionInput,
 ): Promise<RealtimeEventRecord> {
-  // Resolve notification recipients before creating the realtime event so
-  // we can conditionally include the "notifications" resource key.
+  // Resolve notification recipients before creating the realtime event. The
+  // event carries the "notifications" resource key unconditionally; the drafts
+  // below determine only whether any in-app notification rows are appended.
   const managementRecipients = await tx.listActiveManagementRecipients(
     input.organizationId,
   );
