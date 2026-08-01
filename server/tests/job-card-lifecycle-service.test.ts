@@ -227,6 +227,27 @@ function twoJobRepository() {
   ]);
   const completed = new Map<string, unknown>();
   const events: ActivityInput[] = [];
+  const detailFor = (organizationId: string, id: string) => {
+    const job = jobs.get(id);
+    return job?.organizationId === organizationId
+      ? {
+          ...job,
+          assignee: { id: job.assignedTo, name: 'Staff One' },
+          customer: job.customerId ? { id: job.customerId, name: 'Demo Klinik' } : null,
+          contact: null,
+          lifecycle: {
+            createdAt: '2026-07-13T10:00:00.000Z',
+            acceptedAt: job.status === 'ACCEPTED' ? time.toISOString() : null,
+            acceptedBy: job.status === 'ACCEPTED' ? { id: 'staff-1', name: 'Staff One' } : null,
+            startedAt: null, submittedAt: null, submittedBy: null,
+            submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
+            revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
+            cancelledAt: null, cancelledBy: null, cancelReason: null,
+            cancelledFromStatus: null,
+          },
+        }
+      : null;
+  };
   const repository = {
     async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<T>) {
       const key = `${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
@@ -236,27 +257,7 @@ function twoJobRepository() {
           const job = jobs.get(id);
           return job?.organizationId === organizationId ? { ...job } : null;
         },
-        getJobDetail: async (organizationId: string, id: string) => {
-          const job = jobs.get(id);
-          return job?.organizationId === organizationId
-            ? {
-                ...job,
-                assignee: { id: job.assignedTo, name: 'Staff One' },
-                customer: job.customerId ? { id: job.customerId, name: 'Demo Klinik' } : null,
-                contact: null,
-                lifecycle: {
-                  createdAt: '2026-07-13T10:00:00.000Z',
-                  acceptedAt: job.status === 'ACCEPTED' ? time.toISOString() : null,
-                  acceptedBy: job.status === 'ACCEPTED' ? { id: 'staff-1', name: 'Staff One' } : null,
-                  startedAt: null, submittedAt: null, submittedBy: null,
-                  submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
-                  revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
-                  cancelledAt: null, cancelledBy: null, cancelReason: null,
-                  cancelledFromStatus: null,
-                },
-              }
-            : null;
-        },
+        getJobDetail: async (organizationId: string, id: string) => detailFor(organizationId, id),
         transitionWithVersion: async (input: TransitionInput) => {
           const job = jobs.get(input.jobCardId);
           if (!job || job.version !== input.expectedVersion) return null;
@@ -285,6 +286,7 @@ function twoJobRepository() {
       completed.set(key, completedResult.response);
       return { kind: 'completed' as const, response: completedResult.response, realtimeEvents: completedResult.realtimeEvents };
     },
+    findJobCardDetail: async (organizationId: string, id: string) => detailFor(organizationId, id),
   } as JobCardRepository;
   return { repository, jobs, events };
 }
@@ -467,6 +469,65 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.events).toHaveLength(1);
     expect(repo.events[0]).toMatchObject({ event: 'JOB_ACCEPTED' });
     expect(repo.claims[0]?.operationKey).toBe('JOB_ACCEPT_ASSIGNMENT:job-1');
+    expect(repo.completed.get('staff-1:accept-replay:JOB_ACCEPT_ASSIGNMENT:job-1'))
+      .toEqual({ jobCardId: 'job-1' });
+  });
+
+  it('rechecks current assignment before replaying a completed acceptance', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'NEW';
+    repo.job.version = 1;
+    const service = new JobCardService(repo, () => time);
+    const command = input('accept-reassigned-replay', 1);
+    await service.acceptAssignment(staff, 'job-1', command);
+    repo.job = { ...repo.job, assignedTo: 'staff-2' };
+
+    await expect(service.acceptAssignment(staff, 'job-1', command))
+      .rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+    expect(repo.transitions).toHaveLength(1);
+    expect(repo.events).toHaveLength(1);
+  });
+
+  it('rechecks current role before replaying a completed management lifecycle action', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'WAITING_APPROVAL';
+    repo.job.version = 2;
+    const service = new JobCardService(repo, () => time);
+    const command = {
+      clientActionId: 'revision-demoted-replay',
+      expectedVersion: 2,
+      revisionReason: 'Teslim miktarını düzeltin.',
+    };
+    await service.requestRevision(manager, 'job-1', command);
+
+    await expect(service.requestRevision(
+      { ...manager, role: 'STAFF' },
+      'job-1',
+      command,
+    )).rejects.toMatchObject({ code: 'JOB_CARD_NOT_FOUND', statusCode: 404 });
+    expect(repo.transitions).toHaveLength(1);
+    expect(repo.events).toHaveLength(1);
+  });
+
+  it('decodes a legacy lifecycle detail response and runs the current presenter', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'NEW';
+    repo.job.version = 1;
+    repo.completed.set(
+      'staff-1:legacy-accept-replay:JOB_ACCEPT_ASSIGNMENT:job-1',
+      repo.persistedDetail,
+    );
+    const service = new JobCardService(repo, () => time);
+
+    const replay = await service.acceptAssignment(
+      staff,
+      'job-1',
+      input('legacy-accept-replay', 1),
+    );
+
+    expect(replay).toMatchObject({ id: 'job-1', followUpContext: null });
+    expect(repo.transitions).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
   });
 
   it.each([
@@ -851,7 +912,10 @@ describe('JobCard lifecycle commands', () => {
     )).resolves.toMatchObject({
       type: 'SALES_MEETING', status: 'WAITING_APPROVAL', version: 3,
     });
-    expect(repo.submissionReads).toEqual(['assignee', 'customer', 'meeting_details']);
+    expect(repo.submissionReads).toEqual([
+      'assignee', 'customer', 'meeting_details',
+      'assignee', 'customer', 'meeting_details',
+    ]);
   });
 
   it('keeps FOLLOW_UP_REQUIRED follow-up optional and accepts valid chronology', async () => {

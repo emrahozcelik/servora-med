@@ -34,6 +34,25 @@ class MemoryJobCardRepository implements JobCardRepository {
   beforeCriticalWork?: () => void;
   locationAppends: AppendJobActionLocationInput[] = [];
 
+  private persistedDetail() {
+    return {
+      ...this.job,
+      assignee: { id: this.job.assignedTo, name: 'Staff One' },
+      customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
+      contact: null,
+      lifecycle: {
+        createdAt: '2026-07-13T10:00:00.000Z',
+        acceptedAt: '2026-07-13T10:05:00.000Z',
+        acceptedBy: { id: 'staff-1', name: 'Staff One' },
+        startedAt: null, submittedAt: null, submittedBy: null,
+        submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
+        revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
+        cancelledAt: null, cancelledBy: null, cancelReason: null,
+        cancelledFromStatus: null,
+      },
+    };
+  }
+
   async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
     return (this.completed.get(key) as T | undefined) ?? null;
@@ -42,6 +61,24 @@ class MemoryJobCardRepository implements JobCardRepository {
   async findJobCard(organizationId: string, id: string) {
     return this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null;
   }
+
+  async findJobCardDetail(organizationId: string, id: string) {
+    return this.job.organizationId === organizationId && this.job.id === id
+      ? this.persistedDetail() as never
+      : null;
+  }
+
+  async getAssignee() {
+    return { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true };
+  }
+
+  async getSubmissionCustomer() {
+    return { id: 'customer-1', organizationId: 'org-1', status: 'active' as const };
+  }
+
+  async getSubmissionMeetingDetails() { return null; }
+
+  async getSubmissionDeliveryItems() { return []; }
 
   async executeCriticalAction<T>(claim: CriticalActionClaim, work: (tx: JobCardTransaction) => Promise<CriticalActionWorkResult<T>>) {
     const key = `${claim.organizationId}:${claim.userId}:${claim.clientActionId}:${claim.operationKey}`;
@@ -56,22 +93,7 @@ class MemoryJobCardRepository implements JobCardRepository {
         this.job.organizationId === organizationId && this.job.id === id ? { ...this.job } : null,
       getJobDetail: async (organizationId, id) =>
         this.job.organizationId === organizationId && this.job.id === id
-          ? {
-              ...this.job,
-              assignee: { id: this.job.assignedTo, name: 'Staff One' },
-              customer: this.job.customerId ? { id: this.job.customerId, name: 'Demo Klinik' } : null,
-              contact: null,
-              lifecycle: {
-                createdAt: '2026-07-13T10:00:00.000Z',
-                acceptedAt: '2026-07-13T10:05:00.000Z',
-                acceptedBy: { id: 'staff-1', name: 'Staff One' },
-                startedAt: null, submittedAt: null, submittedBy: null,
-                submissionNote: null, approvedAt: null, approvedBy: null, approvalNote: null,
-                revisionRequestedAt: null, revisionRequestedBy: null, revisionReason: null,
-                cancelledAt: null, cancelledBy: null, cancelReason: null,
-                cancelledFromStatus: null,
-              },
-            }
+          ? this.persistedDetail() as never
           : null,
       getNoteAuthorSnapshot: async () => ({
         id: 'staff-1',

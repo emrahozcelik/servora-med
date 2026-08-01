@@ -352,6 +352,25 @@ describe('JobCardService create and reads', () => {
     const first = await service.create(staff, generalTaskInput);
 
     await expect(service.create(staff, generalTaskInput)).resolves.toEqual(first);
+    expect(repository.completed.get('org-1:staff-1:task-create-1:JOB_CREATE'))
+      .toEqual({ jobCardId: first.id });
+    expect(repository.jobs).toHaveLength(1);
+    expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+
+  it('decodes a legacy JOB_CREATE detail response and presents the current root DTO', async () => {
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
+    const first = await service.create(staff, generalTaskInput);
+    const { followUpContext: _followUpContext, ...legacyDetail } = first;
+    const legacyInput = { ...generalTaskInput, clientActionId: 'legacy-create-replay' };
+    repository.completed.set(
+      'org-1:staff-1:legacy-create-replay:JOB_CREATE',
+      legacyDetail,
+    );
+
+    const replay = await service.create(staff, legacyInput);
+
+    expect(replay).toMatchObject({ id: first.id, followUpContext: null });
     expect(repository.jobs).toHaveLength(1);
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });

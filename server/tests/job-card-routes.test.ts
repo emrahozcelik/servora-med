@@ -13,6 +13,8 @@ function serviceDouble() {
   const page = { items: [result], total: 1, limit: 25, offset: 0 };
   return {
     create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
+    createFollowUp: vi.fn().mockResolvedValue(result),
+    listFollowUps: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
     board: vi.fn().mockResolvedValue({
       columns: {
         NEW: { items: [], count: 0 }, ACCEPTED: { items: [], count: 0 },
@@ -109,6 +111,75 @@ describe('JobCard routes', () => {
       ...body, description: null, customerId: null, contactId: null,
       priority: 'normal', dueDate: null, scheduledAt: null,
     });
+  });
+
+  it('registers exactly the create and management children follow-up routes', async () => {
+    const { app, service } = await createApp();
+    const sourceId = '44444444-4444-4444-8444-444444444444';
+    const payload = {
+      clientActionId: 'follow-up-route-1',
+      type: 'SALES_MEETING',
+      title: 'Kontrol görüşmesi',
+      followUpInstructions: 'Karar durumunu teyit edin.',
+      scheduledAt: '2026-08-03T12:00:00+03:00',
+      assignedTo: '11111111-1111-4111-8111-111111111111',
+      engagementKind: 'FOLLOW_UP',
+    };
+
+    const created = await app.inject({
+      method: 'POST',
+      url: `/api/job-cards/${sourceId}/follow-ups`,
+      payload,
+    });
+    const children = await app.inject({
+      method: 'GET',
+      url: `/api/job-cards/${sourceId}/follow-ups?limit=10&offset=2`,
+    });
+
+    expect(created.statusCode).toBe(201);
+    expect(children.statusCode).toBe(200);
+    expect(service.createFollowUp).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1' }),
+      sourceId,
+      {
+        ...payload,
+        scheduledAt: '2026-08-03T09:00:00.000Z',
+        priority: 'normal',
+        dueDate: null,
+        contactId: null,
+      },
+    );
+    expect(service.listFollowUps).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1' }),
+      sourceId,
+      { limit: 10, offset: 2 },
+    );
+    expect((await app.inject({
+      method: 'GET',
+      url: `/api/job-cards/${sourceId}/source-context`,
+    })).statusCode).toBe(404);
+  });
+
+  it('rejects forbidden follow-up create fields before calling the service', async () => {
+    const { app, service } = await createApp();
+    const sourceId = '44444444-4444-4444-8444-444444444444';
+    for (const field of ['customerId', 'scheduledEndsAt', 'sourceJobCardId']) {
+      const response = await app.inject({
+        method: 'POST',
+        url: `/api/job-cards/${sourceId}/follow-ups`,
+        payload: {
+          clientActionId: 'follow-up-route-invalid',
+          type: 'GENERAL_TASK',
+          title: 'Takip',
+          followUpInstructions: 'Arayın.',
+          assignedTo: '11111111-1111-4111-8111-111111111111',
+          [field]: '55555555-5555-4555-8555-555555555555',
+        },
+      });
+      expect(response.statusCode).toBe(400);
+      expect(response.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
+    }
+    expect(service.createFollowUp).not.toHaveBeenCalled();
   });
 
   it('returns the canonical page and forwards the parsed list query', async () => {

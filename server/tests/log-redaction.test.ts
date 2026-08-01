@@ -86,6 +86,7 @@ describe('buildApp serialized logger redaction', () => {
         temporaryPassword: 'temp-secret',
         token: 'raw-token-value',
         sessionToken: 'raw-session-token',
+        followUpInstructions: 'FOLLOW_UP_LOG_PRIVACY_MARKER_8f62a1',
         locationCapture: {
           outcome: 'captured',
           latitude: 39.92077,
@@ -116,6 +117,7 @@ describe('buildApp serialized logger redaction', () => {
       'secret-token-value',
       'raw-token-value',
       'raw-session-token',
+      'FOLLOW_UP_LOG_PRIVACY_MARKER_8f62a1',
       '39.92077',
       '32.85411',
       '24.5',

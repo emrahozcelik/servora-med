@@ -34,6 +34,11 @@ const MIGRATIONS = [
   '015_job_card_engagement_kind.sql',
   '016_google_reverse_geocoding.sql',
   '017_calendar.sql',
+  '018_messaging.sql',
+  '019_job_card_operational_note_context.sql',
+  '020_job_card_transition_note_contexts.sql',
+  '021_job_card_note_added_notification_kind.sql',
+  '022_job_card_follow_up_links.sql',
 ] as const;
 
 type ReportFixture = {
@@ -81,7 +86,7 @@ function toSafeUser(row: {
   };
 }
 
-async function applyMigrations001Through009(pool: Pool) {
+async function applyCurrentMigrations(pool: Pool) {
   for (const migration of MIGRATIONS) {
     const path = fileURLToPath(
       new URL(`../src/db/migrations/${migration}`, import.meta.url),
@@ -953,7 +958,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
 }
 
 describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
-  it('derives trusted reports from migrations 001 through 009', async () => {
+  it('derives trusted reports from the current schema', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `reports_${randomUUID().replaceAll('-', '')}`;
     let pool: Pool | null = null;
@@ -963,7 +968,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
         connectionString: databaseUrl,
         options: `-c search_path=${schema},public`,
       });
-      await applyMigrations001Through009(pool);
+      await applyCurrentMigrations(pool);
       const fixture = await seedReportFixture(pool);
       await verifyReports(pool, fixture);
     } finally {

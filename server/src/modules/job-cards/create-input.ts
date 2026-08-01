@@ -1,11 +1,13 @@
 import {
   JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
+  type FollowUpCreateInput,
   type JobCardCreateInput,
   type JobCardEngagementKind,
   type JobCardPriority,
   type NormalizedJobCardCreateInput,
 } from './types.js';
+import { AppError } from '../../errors/index.js';
 import {
   boundedTrimmedString,
   isoDate,
@@ -115,6 +117,87 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
     type: input.type,
     customerId: optionalUuid(input.customerId, 'customerId'),
     scheduledAt: optionalScheduledAt(input.scheduledAt),
+  };
+}
+
+const FOLLOW_UP_COMMON_FIELDS = [
+  'clientActionId', 'type', 'title', 'followUpInstructions', 'scheduledAt',
+  'assignedTo', 'priority', 'dueDate', 'contactId',
+] as const;
+
+const FOLLOW_UP_FIELDS_BY_TYPE = {
+  PRODUCT_DELIVERY: FOLLOW_UP_COMMON_FIELDS,
+  GENERAL_TASK: FOLLOW_UP_COMMON_FIELDS,
+  SALES_MEETING: [...FOLLOW_UP_COMMON_FIELDS, 'engagementKind'] as const,
+} as const;
+
+function exactFollowUpRecord(value: unknown): Record<string, unknown> & { type: CreateType } {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw validation('body');
+  const record = value as Record<string, unknown>;
+  if (record.type !== 'PRODUCT_DELIVERY' && record.type !== 'GENERAL_TASK'
+    && record.type !== 'SALES_MEETING') {
+    throw validation('type');
+  }
+  const allowed = FOLLOW_UP_FIELDS_BY_TYPE[record.type];
+  if (Object.keys(record).some((key) => !allowed.includes(key as never))) {
+    throw validation('body');
+  }
+  return record as Record<string, unknown> & { type: CreateType };
+}
+
+function followUpInstructions(value: unknown) {
+  if (typeof value !== 'string' || !value.trim()) {
+    throw new AppError(
+      'FOLLOW_UP_INSTRUCTIONS_REQUIRED',
+      400,
+      'Takip talimatları zorunludur.',
+    );
+  }
+  return boundedTrimmedString(value, 'followUpInstructions', 1, 4_000);
+}
+
+function requiredEngagementKind(value: unknown): JobCardEngagementKind {
+  if (!JOB_CARD_ENGAGEMENT_KINDS.includes(value as JobCardEngagementKind)) {
+    throw validation('engagementKind');
+  }
+  return value as JobCardEngagementKind;
+}
+
+export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
+  const input = exactFollowUpRecord(value);
+  const common = {
+    clientActionId: requireActionId(input.clientActionId),
+    type: input.type,
+    title: boundedTrimmedString(input.title, 'title', 1, 255),
+    followUpInstructions: followUpInstructions(input.followUpInstructions),
+    assignedTo: uuidString(input.assignedTo, 'assignedTo'),
+    priority: priority(input.priority),
+    dueDate: dueDate(input.dueDate),
+    contactId: optionalUuid(input.contactId, 'contactId'),
+  };
+  if (input.type === 'PRODUCT_DELIVERY') {
+    return {
+      ...common,
+      type: input.type,
+      scheduledAt: requiredScheduledAt(input.scheduledAt),
+      engagementKind: null,
+    };
+  }
+  if (input.type === 'SALES_MEETING') {
+    if (input.dueDate !== undefined && input.dueDate !== null) throw validation('dueDate');
+    return {
+      ...common,
+      type: input.type,
+      dueDate: null,
+      scheduledAt: requiredScheduledAt(input.scheduledAt),
+      engagementKind: requiredEngagementKind(input.engagementKind),
+    };
+  }
+  return {
+    ...common,
+    type: input.type,
+    scheduledAt: optionalScheduledAt(input.scheduledAt),
+    engagementKind: null,
   };
 }
 

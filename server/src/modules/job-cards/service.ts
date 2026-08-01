@@ -3,23 +3,29 @@ import { randomUUID } from 'node:crypto';
 import { presentActivity } from './activity-presenter.js';
 import {
   assertCanCreateForAssignee,
+  assertCanCreateFollowUp,
+  assertCanListFollowUps,
   assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
   assertCanViewMeetingResult,
   assertCreateAssignmentRequest,
   assertProductDeliveryJob,
+  assertFollowUpSourceEligible,
   assertSalesMeetingJob,
   getAllowedJobActions,
   getAllowedLifecycleCommands,
+  resolveSourceAccess,
 } from './policy.js';
 import type {
   DeliveryItemRecord,
+  FollowUpSourceReference,
   JobCardRepository,
   JobCardTransaction,
   NotePageQuery,
   PageQuery,
   ProductReference,
+  PersistedFollowUpListItem,
   SubmissionReader,
 } from './repository.js';
 import {
@@ -35,8 +41,13 @@ import {
   type JobCardActivityEvent,
   type JobCardDetail,
   type JobCardEngagementKind,
+  type FollowUpCreateInput,
+  type FollowUpCreateReceipt,
+  type FollowUpSourceSummary,
   type JobCardListItem,
   type JobCardListQuery,
+  type JobCardMutationReceipt,
+  type PaginatedFollowUpList,
   type JobCardOperationalNoteContext,
   type JobCardStatus,
   type JobPermissionSubject,
@@ -107,6 +118,11 @@ type LifecycleInput = { expectedVersion: number; clientActionId: string; note?: 
 type StartInput = LifecycleInput & { locationCapture?: unknown };
 type RevisionInput = LifecycleInput & { revisionReason: string };
 type CancelInput = LifecycleInput & { cancelReason: string };
+const JOB_CARD_PATCH_FIELDS = [
+  'expectedVersion', 'title', 'description', 'customerId', 'contactId',
+  'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'scheduledEndsAt',
+  'engagementKind',
+] as const;
 type LifecycleDefinition = {
   command: LifecycleCommand;
   operationKey: string;
@@ -155,6 +171,26 @@ function invariantViolation(): never {
     500,
     'İş kaydının yapılandırılmış görüşme bilgileri bulunamadı.',
   );
+}
+
+function followUpInvariantViolation(): never {
+  throw new AppError(
+    'INVARIANT_VIOLATION',
+    500,
+    'Takip işinin kaynak bağlantısı geçersizdir.',
+  );
+}
+
+function decodeJobCardMutationReceipt(value: unknown): JobCardMutationReceipt {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError('INVARIANT_VIOLATION', 500, 'JobCard işlem sonucu geçersizdir.');
+  }
+  const record = value as Record<string, unknown>;
+  const jobCardId = Object.hasOwn(record, 'jobCardId') ? record.jobCardId : record.id;
+  if (typeof jobCardId !== 'string' || !jobCardId) {
+    throw new AppError('INVARIANT_VIOLATION', 500, 'JobCard işlem sonucu geçersizdir.');
+  }
+  return { jobCardId };
 }
 
 function assertStaffStartActor(actor: JobCardActor) {
@@ -229,6 +265,8 @@ export class JobCardService {
       afterAssigneeId: string;
       calendarAffected?: boolean;
       notifyCalendarRescheduled?: boolean;
+      sourceJobCardId?: string | null;
+      customerId?: string | null;
     },
   ): Promise<RealtimeEventRecord[]> {
     const mapped = mapJobCardActivityToRealtime({
@@ -240,6 +278,8 @@ export class JobCardService {
       occurredAt: input.activity.createdAt,
       beforeAssigneeId: input.beforeAssigneeId,
       afterAssigneeId: input.afterAssigneeId,
+      sourceJobCardId: input.sourceJobCardId,
+      customerId: input.customerId,
     });
     if (!mapped) return [];
 
@@ -325,7 +365,7 @@ export class JobCardService {
     }
     assertCreateAssignmentRequest(actor, input.assignedTo);
     const requestTime = this.now();
-    const result = await this.repository.executeCriticalAction(
+    const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
       {
         organizationId: actor.organizationId, userId: actor.id,
         clientActionId: input.clientActionId, operationKey: 'JOB_CREATE',
@@ -350,6 +390,8 @@ export class JobCardService {
           engagementKind,
           acceptedAt: selfAccepted ? requestTime : null,
           acceptedBy: selfAccepted ? actor.id : null,
+          sourceJobCardId: null,
+          followUpInstructions: null,
         });
         if (this.calendar.enabled) {
           await transaction.synchronizeCalendarReminder({
@@ -394,10 +436,8 @@ export class JobCardService {
           afterAssigneeId: job.assignedTo,
           calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
         });
-        const detail = await transaction.getJobDetail(actor.organizationId, job.id);
-        if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         return {
-          response: await this.presentDetail(transaction, actor, detail, requestTime),
+          response: { jobCardId: job.id },
           realtimeEvents,
         };
       },
@@ -408,7 +448,161 @@ export class JobCardService {
     if (result.kind === 'completed') {
       this.publishRealtime(result.realtimeEvents);
     }
-    return result.response;
+    return this.detail(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
+  }
+
+  async createFollowUp(
+    actor: JobCardActor,
+    sourceJobCardId: string,
+    input: FollowUpCreateInput,
+  ) {
+    const requestTime = this.now();
+    const result = await this.repository.executeCriticalAction<FollowUpCreateReceipt>(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId: input.clientActionId,
+        operationKey: `JOB_FOLLOW_UP_CREATE:${sourceJobCardId}`,
+      },
+      async (transaction) => {
+        assertCanCreateFollowUp(actor);
+        const source = await transaction.getFollowUpSource(
+          actor.organizationId,
+          sourceJobCardId,
+        );
+        if (!source) {
+          throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        }
+        assertFollowUpSourceEligible(source);
+        await this.assertFollowUpDepth(transaction, source);
+
+        if (source.customerId === null) {
+          if (input.contactId !== null) {
+            throw new AppError(
+              'FOLLOW_UP_CONTACT_REQUIRES_CUSTOMER',
+              409,
+              'Müşterisiz takip işinde ilgili kişi seçilemez.',
+            );
+          }
+          if (input.type !== 'GENERAL_TASK') {
+            throw new AppError(
+              'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED',
+              409,
+              'Bu takip işi türü için kaynak JobCard müşteriye bağlı olmalıdır.',
+            );
+          }
+        } else {
+          await this.validateJobReferences(
+            transaction,
+            actor.organizationId,
+            source.customerId,
+            input.contactId,
+          );
+        }
+
+        const assignee = await transaction.getAssigneeForUpdate(
+          actor.organizationId,
+          input.assignedTo,
+        );
+        if (!assignee) {
+          throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+        }
+        assertCanCreateForAssignee(actor, assignee);
+
+        const job = await transaction.createJobCard({
+          organizationId: actor.organizationId,
+          type: input.type,
+          status: 'NEW',
+          title: input.title,
+          description: null,
+          customerId: source.customerId,
+          contactId: input.contactId,
+          assignedTo: input.assignedTo,
+          createdBy: actor.id,
+          priority: input.priority,
+          dueDate: input.dueDate,
+          scheduledAt: input.scheduledAt,
+          scheduledEndsAt: null,
+          engagementKind: input.type === 'SALES_MEETING' ? input.engagementKind : null,
+          acceptedAt: null,
+          acceptedBy: null,
+          sourceJobCardId,
+          followUpInstructions: input.followUpInstructions,
+        });
+        if (this.calendar.enabled) {
+          await transaction.synchronizeCalendarReminder({
+            organizationId: actor.organizationId,
+            jobCardId: job.id,
+            assignedUserId: job.assignedTo,
+            startsAt: job.scheduledAt,
+            endsAt: job.scheduledEndsAt,
+            version: job.version,
+            active: true,
+            now: requestTime,
+            reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+          });
+        }
+        if (input.type === 'SALES_MEETING') {
+          await transaction.createMeetingDetails({
+            organizationId: actor.organizationId,
+            jobCardId: job.id,
+          });
+        }
+        const createdValue: Record<string, unknown> = {
+          status: job.status,
+          assignedTo: job.assignedTo,
+          version: job.version,
+        };
+        if (job.scheduledAt !== null) createdValue.scheduledAt = job.scheduledAt;
+        if (job.engagementKind !== null) createdValue.engagementKind = job.engagementKind;
+        const activity = await transaction.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId: job.id,
+          actorId: actor.id,
+          event: 'JOB_CREATED',
+          clientActionId: input.clientActionId,
+          newValue: createdValue,
+          metadata: { sourceJobCardId },
+        });
+        const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId: job.id,
+          actorUserId: actor.id,
+          event: 'JOB_CREATED',
+          beforeAssigneeId: null,
+          afterAssigneeId: job.assignedTo,
+          calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
+          sourceJobCardId,
+          customerId: source.customerId,
+        });
+        return { response: { jobCardId: job.id }, realtimeEvents };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    return this.detail(actor, result.response.jobCardId);
+  }
+
+  async listFollowUps(
+    actor: JobCardActor,
+    sourceJobCardId: string,
+    page: PageQuery,
+  ): Promise<PaginatedFollowUpList> {
+    assertCanListFollowUps(actor);
+    const source = await this.repository.findJobCard(actor.organizationId, sourceJobCardId);
+    if (!source) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    const result = await this.repository.listFollowUps(
+      actor.organizationId,
+      sourceJobCardId,
+      page,
+    );
+    return {
+      ...result,
+      items: result.items.map((item) => this.presentFollowUpListItem(actor, item)),
+    };
   }
 
   async list(actor: JobCardActor, query: JobCardListQuery) {
@@ -584,6 +778,7 @@ export class JobCardService {
   }
 
   async patch(actor: JobCardActor, jobCardId: string, input: PatchInput) {
+    assertKnownFields(input, JOB_CARD_PATCH_FIELDS);
     if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
       throw new AppError('VALIDATION_ERROR', 400, 'expectedVersion pozitif bir tam sayı olmalıdır.');
     }
@@ -614,6 +809,13 @@ export class JobCardService {
       if (!snapshot) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       if (snapshot.version !== input.expectedVersion) {
         throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+      }
+      if (snapshot.sourceJobCardId != null && fields.customerId !== undefined) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          400,
+          'Takip işinin kaynak müşterisi değiştirilemez.',
+        );
       }
       if (fields.engagementKind !== undefined && snapshot.type !== 'SALES_MEETING') {
         throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
@@ -758,6 +960,30 @@ export class JobCardService {
       this.publishRealtime(committed.realtimeEvents);
       return committed.response;
     });
+  }
+
+  private async assertFollowUpDepth(
+    transaction: JobCardTransaction,
+    source: FollowUpSourceReference,
+  ) {
+    let ancestorId = source.sourceJobCardId;
+    let sourceDepth = 0;
+    const visited = new Set([source.id]);
+    while (ancestorId !== null) {
+      sourceDepth += 1;
+      if (sourceDepth >= 10) {
+        throw new AppError(
+          'FOLLOW_UP_MAX_DEPTH_REACHED',
+          409,
+          'Takip işi zinciri izin verilen azami derinliğe ulaştı.',
+        );
+      }
+      if (visited.has(ancestorId)) followUpInvariantViolation();
+      visited.add(ancestorId);
+      const ancestor = await transaction.getJob(source.organizationId, ancestorId);
+      if (!ancestor) followUpInvariantViolation();
+      ancestorId = ancestor.sourceJobCardId;
+    }
   }
 
   private async validateJobReferences(tx: JobCardTransaction, organizationId: string, customerId: string | null, contactId: string | null) {
@@ -931,8 +1157,10 @@ export class JobCardService {
 
     const capture = parseStartLocationCapture(input.locationCapture);
     const claim = this.lifecycleClaim(actor, jobCardId, lifecycleInput.clientActionId, definition);
-    const completed = await this.repository.findCompletedCriticalAction<JobCardDetail>(claim);
-    if (completed) return completed;
+    const completed = await this.repository.findCompletedCriticalAction<unknown>(claim);
+    if (completed) {
+      return this.detail(actor, decodeJobCardMutationReceipt(completed).jobCardId);
+    }
 
     const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
     if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -1018,7 +1246,7 @@ export class JobCardService {
     startLocation?: JobActionLocationCapture,
   ) {
     const requestTime = this.now();
-    const result = await this.repository.executeCriticalAction(
+    const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
       this.lifecycleClaim(actor, jobCardId, input.clientActionId, definition),
       async (tx) => {
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
@@ -1029,9 +1257,8 @@ export class JobCardService {
           actor, job, definition.command,
           definition.revisionReason ?? definition.cancelReason ?? undefined,
         );
-        let precomputed: SubmissionEvaluation | undefined;
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
-          precomputed = await validateSubmission(tx, actor, job, requestTime);
+          await validateSubmission(tx, actor, job, requestTime);
         }
         const occurredAt = requestTime;
         const updated = await tx.transitionWithVersion({
@@ -1123,16 +1350,14 @@ export class JobCardService {
           afterAssigneeId: updated.assignedTo,
           calendarAffected: this.calendar.enabled && calendarTerminal,
         });
-        const detail = await tx.getJobDetail(actor.organizationId, jobCardId);
-        if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         return {
-          response: await this.presentDetail(tx, actor, detail, requestTime, precomputed),
+          response: { jobCardId },
           realtimeEvents,
         };
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
-    return result.response;
+    return this.detail(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
   }
 
   private lifecycleClaim(
@@ -1227,31 +1452,75 @@ export class JobCardService {
   }
 
   private async presentDetail(
-    reader: SubmissionReader,
+    reader: SubmissionReader & Pick<JobCardRepository, 'getFollowUpSource'>,
     actor: JobCardActor,
     persisted: PersistedJobCardDetail,
     evaluatedAt: Date,
     precomputed?: SubmissionEvaluation,
   ): Promise<JobCardDetail> {
-    const { lifecycle, ...job } = persisted;
+    const { lifecycle, ...persistedJob } = persisted;
+    const {
+      sourceJobCardId,
+      followUpInstructions,
+      ...job
+    } = persistedJob;
     const readinessStatuses: JobCardStatus[] = [
       'IN_PROGRESS', 'REVISION_REQUESTED', 'WAITING_APPROVAL',
     ];
     const evaluation = readinessStatuses.includes(job.status)
-      ? precomputed ?? await evaluateSubmission(reader, actor, job, evaluatedAt)
+      ? precomputed ?? await evaluateSubmission(reader, actor, persistedJob, evaluatedAt)
       : null;
-    const allowedCommands = getAllowedLifecycleCommands(actor, job);
+    const allowedCommands = getAllowedLifecycleCommands(actor, persistedJob);
+    let followUpContext: JobCardDetail['followUpContext'] = null;
+    if (sourceJobCardId != null) {
+      if (followUpInstructions == null) followUpInvariantViolation();
+      const source = await reader.getFollowUpSource(actor.organizationId, sourceJobCardId);
+      if (!source || source.managerApprovedAt === null) followUpInvariantViolation();
+      if (source.customerId !== null && source.customer === null) followUpInvariantViolation();
+      if (source.contactId !== null && source.contact === null) followUpInvariantViolation();
+      const sourceAccess = resolveSourceAccess(actor, source);
+      const sourceSummary: FollowUpSourceSummary = {
+        sourceType: source.type,
+        sourcePlannedAt: source.scheduledAt,
+        sourceOccurredAt: (source.type === 'SALES_MEETING'
+          ? source.meetingAt
+          : source.startedAt) ?? source.staffCompletedAt,
+        sourceCompletedAt: source.managerApprovedAt,
+        customer: source.customer,
+        contact: source.contact,
+        outcome: source.type === 'SALES_MEETING' ? source.outcome : null,
+      };
+      followUpContext = {
+        sourceJobCardId,
+        followUpInstructions,
+        sourceAccess,
+        sourceJobPath: sourceAccess === 'FULL' ? `/jobs/${sourceJobCardId}` : null,
+        sourceSummary,
+      };
+    }
     return {
       ...job,
       workflowContext: {
         allowedCommands,
-        allowedActions: getAllowedJobActions(actor, job),
+        allowedActions: getAllowedJobActions(actor, persistedJob),
         startLocationCaptureEnabled: this.geolocation.enabled
           && actor.role === 'STAFF'
           && allowedCommands.includes('START'),
         lifecycle,
         submissionReadiness: evaluation?.readiness ?? null,
       },
+      followUpContext,
+    };
+  }
+
+  private presentFollowUpListItem(
+    actor: JobCardActor,
+    item: PersistedFollowUpListItem,
+  ) {
+    const { sourceJobCardId, ...job } = item;
+    return {
+      ...this.presentListItem(actor, job),
+      followUp: { sourceJobCardId },
     };
   }
 

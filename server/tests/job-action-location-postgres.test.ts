@@ -27,6 +27,11 @@ const migrations = [
   '015_job_card_engagement_kind.sql',
   '016_google_reverse_geocoding.sql',
   '017_calendar.sql',
+  '018_messaging.sql',
+  '019_job_card_operational_note_context.sql',
+  '020_job_card_transition_note_contexts.sql',
+  '021_job_card_note_added_notification_kind.sql',
+  '022_job_card_follow_up_links.sql',
 ] as const;
 
 async function applyMigrations(pool: Pool) {
