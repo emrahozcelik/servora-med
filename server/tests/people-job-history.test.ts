@@ -29,12 +29,15 @@ describe('PeopleService JobCard history integration', () => {
     }));
   });
 
-  it('forbids Staff from requesting another user history and allows management targets', async () => {
+  it('conceals parameterized Staff history targets and allows management targets', async () => {
     const history = { listCustomerJobHistory: vi.fn(), listStaffJobHistory: vi.fn().mockResolvedValue(page(3)) };
     const service = new PeopleService(repository as never, credentials, summaries, history);
     await expect(service.listStaffJobHistory(staff, 'staff-2', {
       status: 'all', type: undefined, limit: 20, offset: 0,
-    })).rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    })).rejects.toMatchObject({ code: 'STAFF_PROFILE_NOT_FOUND', statusCode: 404 });
+    await expect(service.listStaffJobHistory(staff, 'missing', {
+      status: 'all', type: undefined, limit: 20, offset: 0,
+    })).rejects.toMatchObject({ code: 'STAFF_PROFILE_NOT_FOUND', statusCode: 404 });
     await expect(service.listStaffJobHistory(manager, 'staff-2', {
       status: 'completed', type: undefined, limit: 20, offset: 0,
     })).resolves.toMatchObject({ total: 3 });

@@ -1,10 +1,11 @@
-import { useEffect, useState, type FormEvent, type MouseEvent } from 'react';
+import { useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import { Link } from 'react-router-dom';
 
 import { paths } from './paths';
 import { jobCardStatusLabel, jobTypeLabels } from './jobs/job-labels';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import type { CurrentUser } from './services/api';
+import { createRequestGate } from './services/request-gate';
 import {
   getOwnStaffProfile, getStaffProfile, listOwnStaffJobs, listStaff, listStaffJobs, listUsers,
   updateStaffProfile, type JobHistoryItem, type ManagedUser, type StaffProfile,
@@ -21,21 +22,32 @@ function ProfileFacts({ profile }: { profile: StaffProfile }) { return <dl class
 
 type StaffHistoryStatus = 'open' | 'completed' | 'all';
 
-function StaffJobHistory({ actor, staffUserId }: { actor: CurrentUser; staffUserId: string }) {
+export function StaffJobHistory({ actor, staffUserId }: { actor: CurrentUser; staffUserId: string }) {
   const [status, setStatus] = useState<StaffHistoryStatus>('all');
   const [page, setPage] = useState<Paginated<JobHistoryItem> | null>(null);
   const [loading, setLoading] = useState(true); const [error, setError] = useState('');
+  const requestGate = useRef(createRequestGate());
   const load = async (nextStatus = status, offset = 0) => {
+    const generation = requestGate.current.next();
     setLoading(true); setError('');
     try {
       const result = actor.role === 'STAFF'
         ? await listOwnStaffJobs({ status: nextStatus, limit: 20, offset })
         : await listStaffJobs(staffUserId, { status: nextStatus, limit: 20, offset });
+      if (!requestGate.current.isCurrent(generation)) return;
       setPage(result);
-    } catch (caught) { setError(caught instanceof Error ? caught.message : 'İş geçmişi yüklenemedi.'); }
-    finally { setLoading(false); }
+    } catch (caught) {
+      if (requestGate.current.isCurrent(generation)) {
+        setError(caught instanceof Error ? caught.message : 'İş geçmişi yüklenemedi.');
+      }
+    } finally {
+      if (requestGate.current.isCurrent(generation)) setLoading(false);
+    }
   };
-  useEffect(() => { void load(status, 0); }, [actor.role, staffUserId, status]);
+  useEffect(() => {
+    void load(status, 0);
+    return () => { requestGate.current.next(); };
+  }, [actor.role, staffUserId, status]);
   useRealtimeInvalidation([`staff-profile:${staffUserId}`], () => { void load(status, page?.offset ?? 0); });
   const items = page?.items ?? [];
   const hasNext = page ? page.offset + page.items.length < page.total : false;

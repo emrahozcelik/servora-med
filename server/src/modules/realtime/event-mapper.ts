@@ -49,6 +49,7 @@ export function mapJobCardActivityToRealtime(
   if (!type) return null;
 
   const keys = new Set<string>([
+    'calendar',
     'job-board',
     `job-detail:${input.jobCardId}`,
     'job-list',

@@ -84,6 +84,7 @@ describe('realtime JobCard contract', () => {
 
     expect(event?.resourceKeys).toEqual([
       'approval-queue',
+      'calendar',
       'job-board',
       'job-detail:job-1',
       'job-list',
@@ -135,5 +136,20 @@ describe('realtime JobCard contract', () => {
       customerId: 'customer-1',
     });
     expect(event?.resourceKeys).toContain('customer-detail:customer-1');
+  });
+
+  it.each([
+    'JOB_CREATED', 'JOB_PLANNED', 'JOB_FIELDS_UPDATED', 'JOB_ASSIGNED', 'JOB_CANCELLED', 'JOB_APPROVED',
+  ] as const)('invalidates Calendar for %s without carrying private source data', (activity) => {
+    const event = mapJobCardActivityToRealtime({
+      ...base,
+      event: activity,
+      customerId: 'customer-1',
+      sourceJobCardId: 'source-1',
+    });
+    expect(event?.resourceKeys).toContain('calendar');
+    expect(JSON.stringify(event)).not.toContain('followUpInstructions');
+    expect(JSON.stringify(event)).not.toContain('sourceSummary');
+    expect(JSON.stringify(event)).not.toContain('note');
   });
 });

@@ -294,6 +294,7 @@ export class PeopleService {
     userId: string,
     input: StaffJobHistoryInput,
   ): Promise<PaginatedJobHistory> {
+    if (actor.role === 'STAFF') throw profileNotFound();
     requireAdminOrManager(actor);
     if (!this.jobHistoryReadPort) {
       throw new AppError('HISTORY_UNAVAILABLE', 404, 'İş geçmişi kullanılamıyor.');
