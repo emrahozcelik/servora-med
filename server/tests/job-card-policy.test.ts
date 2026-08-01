@@ -4,12 +4,16 @@ import {
   assertAllowedJobAction,
   assertCreateAssignmentRequest,
   assertCanCreateForAssignee,
+  assertCanCreateFollowUp,
+  assertCanListFollowUps,
   assertCanEdit,
   assertCanTransition,
   assertDeliveryReadyForSubmission,
+  assertFollowUpSourceEligible,
   assertSalesMeetingJob,
   getAllowedJobActions,
   getAllowedLifecycleCommands,
+  resolveSourceAccess,
 } from '../src/modules/job-cards/policy.js';
 import {
   JOB_CARD_STATUSES,
@@ -31,6 +35,33 @@ const item: DeliveryItem = {
 };
 
 describe('JobCard policy', () => {
+  it('restricts follow-up creation and children listing to management', () => {
+    for (const actor of [manager, admin]) {
+      expect(() => assertCanCreateFollowUp(actor)).not.toThrow();
+      expect(() => assertCanListFollowUps(actor)).not.toThrow();
+    }
+    expect(() => assertCanCreateFollowUp(staff))
+      .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+    expect(() => assertCanListFollowUps(staff))
+      .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+  });
+
+  it('accepts only completed sources and derives current FULL/RESTRICTED access', () => {
+    expect(() => assertFollowUpSourceEligible({ status: 'COMPLETED' })).not.toThrow();
+    for (const status of JOB_CARD_STATUSES.filter((value) => value !== 'COMPLETED')) {
+      expect(() => assertFollowUpSourceEligible({ status }))
+        .toThrowError(expect.objectContaining({
+          code: 'FOLLOW_UP_SOURCE_NOT_COMPLETED',
+          statusCode: 409,
+        }));
+    }
+    const source = { organizationId: 'org-1', assignedTo: 'staff-1' };
+    expect(resolveSourceAccess(manager, source)).toBe('FULL');
+    expect(resolveSourceAccess(admin, source)).toBe('FULL');
+    expect(resolveSourceAccess(staff, source)).toBe('FULL');
+    expect(resolveSourceAccess({ ...staff, id: 'staff-2' }, source)).toBe('RESTRICTED');
+  });
+
   it('rejects a Staff assignment request for another identifier before assignee lookup', () => {
     expect(() => assertCreateAssignmentRequest(staff, 'staff-1')).not.toThrow();
     expect(() => assertCreateAssignmentRequest(staff, 'staff-2'))

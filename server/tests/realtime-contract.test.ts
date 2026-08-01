@@ -101,4 +101,30 @@ describe('realtime JobCard contract', () => {
     expect(event?.resourceKeys).toContain('overview');
     expect(JSON.stringify(event)).not.toContain('note');
   });
+
+  it('adds source and conditional customer invalidations for follow-up creation', () => {
+    const withCustomer = mapJobCardActivityToRealtime({
+      ...base,
+      beforeAssigneeId: null,
+      event: 'JOB_CREATED',
+      sourceJobCardId: 'source-1',
+      customerId: 'customer-1',
+    });
+    expect(withCustomer?.resourceKeys).toEqual(expect.arrayContaining([
+      'job-detail:source-1',
+      'customer-detail:customer-1',
+    ]));
+
+    const customerless = mapJobCardActivityToRealtime({
+      ...base,
+      beforeAssigneeId: null,
+      event: 'JOB_CREATED',
+      sourceJobCardId: 'source-2',
+      customerId: null,
+    });
+    expect(customerless?.resourceKeys).toContain('job-detail:source-2');
+    expect(customerless?.resourceKeys.some((key) => key.startsWith('customer-detail:')))
+      .toBe(false);
+    expect(JSON.stringify(customerless)).not.toContain('followUpInstructions');
+  });
 });

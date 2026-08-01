@@ -14,6 +14,8 @@ type MappingInput = Readonly<{
   occurredAt: Date;
   beforeAssigneeId: string | null;
   afterAssigneeId: string;
+  sourceJobCardId?: string | null;
+  customerId?: string | null;
 }>;
 
 const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
@@ -59,6 +61,10 @@ export function mapJobCardActivityToRealtime(
   }
   if (APPROVAL_EVENTS.has(input.event)) {
     keys.add('approval-queue');
+  }
+  if (input.event === 'JOB_CREATED' && input.sourceJobCardId) {
+    keys.add(`job-detail:${input.sourceJobCardId}`);
+    if (input.customerId) keys.add(`customer-detail:${input.customerId}`);
   }
 
   return {

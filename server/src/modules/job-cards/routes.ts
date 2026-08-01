@@ -12,6 +12,8 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   app.post('/', secured, h.create);
   app.get('/board', secured, h.board);
   app.get<{ Params: { id: string } }>('/:id', secured, h.detail);
+  app.get<{ Params: { id: string } }>('/:id/follow-ups', secured, h.listFollowUps);
+  app.post<{ Params: { id: string } }>('/:id/follow-ups', secured, h.createFollowUp);
   app.patch<{ Params: { id: string } }>('/:id', secured, h.patch);
   app.get<{ Params: { id: string } }>('/:id/meeting-details', secured, h.meetingDetails);
   app.patch<{ Params: { id: string } }>('/:id/meeting-details', secured, h.patchMeetingDetails);

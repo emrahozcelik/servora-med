@@ -58,6 +58,8 @@ export type JobCard = {
   scheduledAt: string | null;
   scheduledEndsAt: string | null;
   engagementKind: JobCardEngagementKind | null;
+  sourceJobCardId: string | null;
+  followUpInstructions: string | null;
 };
 
 export type JobCardCreateInput =
@@ -125,6 +127,19 @@ export type PatchMeetingDetailsInput = {
 
 export type RelatedIdentity = { id: string; name: string };
 
+export type ReferenceCustomer = {
+  id: string;
+  name: string;
+  customerType: string;
+  status: string;
+};
+
+export type ReferenceContact = {
+  id: string;
+  name: string;
+  title: string | null;
+};
+
 export type JobLifecycleFacts = {
   createdAt: string;
   acceptedAt: string | null;
@@ -160,8 +175,32 @@ export type JobWorkflowContext = {
   submissionReadiness: SubmissionReadiness | null;
 };
 
-export type JobCardDetail = Omit<PersistedJobCardDetail, 'lifecycle'> & {
+export type FollowUpSourceSummary = {
+  sourceType: JobCardType;
+  sourcePlannedAt: string | null;
+  sourceOccurredAt: string | null;
+  sourceCompletedAt: string;
+  customer: ReferenceCustomer | null;
+  contact: ReferenceContact | null;
+  outcome: MeetingOutcome | null;
+};
+
+export type FollowUpSourceAccess = 'FULL' | 'RESTRICTED';
+
+export type JobCardFollowUpContext = {
+  sourceJobCardId: string;
+  followUpInstructions: string;
+  sourceAccess: FollowUpSourceAccess;
+  sourceJobPath: string | null;
+  sourceSummary: FollowUpSourceSummary;
+};
+
+export type JobCardDetail = Omit<
+  PersistedJobCardDetail,
+  'lifecycle' | 'sourceJobCardId' | 'followUpInstructions'
+> & {
   workflowContext: JobWorkflowContext;
+  followUpContext: JobCardFollowUpContext | null;
 };
 
 export type DeliveryItem = {
@@ -271,6 +310,27 @@ export type Paginated<T> = {
 };
 
 export type PaginatedJobCardList = Paginated<JobCardListItem>;
+
+export type FollowUpListItem = JobCardListItem & {
+  followUp: { sourceJobCardId: string } | null;
+};
+
+export type PaginatedFollowUpList = Paginated<FollowUpListItem>;
+
+export type FollowUpCreateReceipt = { jobCardId: string };
+
+export type FollowUpCreateInput = {
+  clientActionId: string;
+  type: JobCardType;
+  title: string;
+  followUpInstructions: string;
+  scheduledAt: string | null;
+  assignedTo: string;
+  priority: JobCardPriority;
+  dueDate: string | null;
+  contactId: string | null;
+  engagementKind: JobCardEngagementKind | null;
+};
 
 export type JobCardBoardColumn = { items: JobCardListItem[]; count: number };
 export type JobCardBoard = {

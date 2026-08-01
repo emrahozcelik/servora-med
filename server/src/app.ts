@@ -76,6 +76,7 @@ export const LOGGER_REDACT_PATHS = [
   'req.body.token',
   'req.body.sessionToken',
   'req.body.locationCapture',
+  'req.body.followUpInstructions',
   'req.body.endpoint',
   'req.body.keys',
   'req.body.payload',

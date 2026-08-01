@@ -12,6 +12,7 @@ import {
   type JobCardPriority,
   type JobCardStatus,
   type JobCardStatusFilter,
+  type JobCardType,
   type JobLifecycleFacts,
   type LifecycleCommand,
   type Paginated,
@@ -22,6 +23,8 @@ import {
   type PaginatedJobCardNotes,
   type MeetingDetailsCandidate,
   type MeetingOutcome,
+  type ReferenceContact,
+  type ReferenceCustomer,
   type RelatedIdentity,
 } from './types.js';
 import type { Pool, PoolClient } from 'pg';
@@ -113,6 +116,7 @@ export type CreateJobCardRecord = {
   scheduledEndsAt: string | null;
   engagementKind: JobCard['engagementKind'];
   acceptedAt: Date | null; acceptedBy: string | null;
+  sourceJobCardId: string | null; followUpInstructions: string | null;
 };
 export type MeetingDetailsRecord = MeetingDetailsCandidate & {
   organizationId: string;
@@ -168,7 +172,6 @@ export type NotePageQuery = {
   limit: number;
   before: JobCardNoteCursor | null;
 };
-export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 export type JobCustomerReference = { id: string; status: 'prospect' | 'active' | 'inactive' };
 export type ActiveManagementRecipient = {
   id: string;
@@ -177,6 +180,35 @@ export type ActiveManagementRecipient = {
 };
 export type SubmissionCustomer = JobCustomerReference & { organizationId: string };
 export type JobContactReference = { id: string; customerId: string; isActive: boolean };
+
+/**
+ * Read-only snapshot of the direct follow-up source card plus the minimal
+ * customer/contact references and meeting outcome needed for eligibility
+ * checks and the restricted source summary (design §6.2, §7).
+ */
+export type FollowUpSourceReference = {
+  id: string;
+  organizationId: string;
+  type: JobCardType;
+  status: JobCardStatus;
+  customerId: string | null;
+  contactId: string | null;
+  sourceJobCardId: string | null;
+  assignedTo: string;
+  scheduledAt: string | null;
+  startedAt: string | null;
+  staffCompletedAt: string | null;
+  managerApprovedAt: string | null;
+  customer: ReferenceCustomer | null;
+  contact: ReferenceContact | null;
+  meetingAt: string | null;
+  outcome: MeetingOutcome | null;
+};
+
+/** Persisted children-list row: every child carries its direct source link. */
+export type PersistedFollowUpListItem = PersistedJobCardListItem & {
+  sourceJobCardId: string;
+};
 
 export interface SubmissionReader {
   getAssignee(organizationId: string, userId: string): Promise<JobCardAssignee | null>;
@@ -198,6 +230,10 @@ export interface JobCardTransaction extends SubmissionReader {
   getJob(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobForUpdate(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   getJobDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
+  getFollowUpSource(
+    organizationId: string,
+    sourceJobCardId: string,
+  ): Promise<FollowUpSourceReference | null>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
   appendActivity(input: ActivityInput): Promise<AppendedActivity>;
   appendJobActionLocation(
@@ -285,6 +321,15 @@ export interface JobCardRepository extends SubmissionReader {
   }>;
   findJobCard(organizationId: string, jobCardId: string): Promise<JobCard | null>;
   findJobCardDetail(organizationId: string, jobCardId: string): Promise<PersistedJobCardDetail | null>;
+  getFollowUpSource(
+    organizationId: string,
+    sourceJobCardId: string,
+  ): Promise<FollowUpSourceReference | null>;
+  listFollowUps(
+    organizationId: string,
+    sourceJobCardId: string,
+    page: PageQuery,
+  ): Promise<Paginated<PersistedFollowUpListItem>>;
   findMeetingDetails(
     organizationId: string,
     jobCardId: string,
@@ -312,6 +357,8 @@ type JobCardRow = {
   scheduled_at: Date | null;
   scheduled_ends_at: Date | null;
   engagement_kind: JobCard['engagementKind'];
+  source_job_card_id: string | null;
+  follow_up_instructions: string | null;
 };
 type JobCardDetailRow = JobCardRow & {
   assignee_id: string; assignee_name: string;
@@ -361,6 +408,7 @@ type JobCardListRow = {
   assignee_id: string;
   assignee_name: string;
   delivery_item_count: number;
+  source_job_card_id: string | null;
 };
 type DeliveryRow = {
   id: string; organization_id: string; job_card_id: string; product_id: string;
@@ -503,6 +551,69 @@ function mapJobCard(row: JobCardRow): JobCard {
     scheduledAt: mapInstant(row.scheduled_at),
     scheduledEndsAt: mapInstant(row.scheduled_ends_at),
     engagementKind: row.engagement_kind,
+    sourceJobCardId: row.source_job_card_id,
+    followUpInstructions: row.follow_up_instructions,
+  };
+}
+
+const JOB_CARD_BASE_COLUMNS = `id, organization_id, type, status, version, title, description,
+  customer_id, contact_id, assigned_to, created_by, priority, due_date, scheduled_at,
+  scheduled_ends_at, engagement_kind, source_job_card_id, follow_up_instructions`;
+
+const FOLLOW_UP_SOURCE_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
+       j.customer_id, j.contact_id, j.assigned_to, j.source_job_card_id,
+       j.scheduled_at, j.started_at, j.staff_completed_at, j.manager_approved_at,
+       c.id AS customer_id_join, c.name AS customer_name, c.customer_type, c.status AS customer_status,
+       ct.id AS contact_id_join, ct.name AS contact_name, ct.title AS contact_title,
+       md.meeting_at, md.outcome
+  FROM job_cards j
+  LEFT JOIN customers c
+    ON c.organization_id = j.organization_id AND c.id = j.customer_id
+  LEFT JOIN contacts ct
+    ON ct.organization_id = j.organization_id AND ct.id = j.contact_id
+  LEFT JOIN job_card_meeting_details md
+    ON md.organization_id = j.organization_id AND md.job_card_id = j.id
+ WHERE j.organization_id = $1 AND j.id = $2`;
+
+type FollowUpSourceRow = {
+  id: string; organization_id: string; type: JobCard['type']; status: JobCardStatus;
+  customer_id: string | null; contact_id: string | null; assigned_to: string;
+  source_job_card_id: string | null;
+  scheduled_at: Date | null; started_at: Date | null;
+  staff_completed_at: Date | null; manager_approved_at: Date | null;
+  customer_id_join: string | null; customer_name: string | null;
+  customer_type: string | null; customer_status: string | null;
+  contact_id_join: string | null; contact_name: string | null; contact_title: string | null;
+  meeting_at: Date | null; outcome: MeetingOutcome | null;
+};
+
+function mapFollowUpSource(row: FollowUpSourceRow): FollowUpSourceReference {
+  return {
+    id: row.id,
+    organizationId: row.organization_id,
+    type: row.type,
+    status: row.status,
+    customerId: row.customer_id,
+    contactId: row.contact_id,
+    sourceJobCardId: row.source_job_card_id,
+    assignedTo: row.assigned_to,
+    scheduledAt: mapInstant(row.scheduled_at),
+    startedAt: mapInstant(row.started_at),
+    staffCompletedAt: mapInstant(row.staff_completed_at),
+    managerApprovedAt: mapInstant(row.manager_approved_at),
+    customer: row.customer_id_join === null
+      ? null
+      : {
+          id: row.customer_id_join,
+          name: row.customer_name ?? '',
+          customerType: row.customer_type ?? '',
+          status: row.customer_status ?? '',
+        },
+    contact: row.contact_id_join === null
+      ? null
+      : { id: row.contact_id_join, name: row.contact_name ?? '', title: row.contact_title },
+    meetingAt: mapInstant(row.meeting_at),
+    outcome: row.outcome,
   };
 }
 
@@ -517,6 +628,7 @@ function mapCalendarDate(value: string | Date | null) {
 const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
        j.title, j.description, j.customer_id, j.contact_id, j.assigned_to, j.created_by,
        j.priority, j.due_date, j.scheduled_at, j.scheduled_ends_at, j.engagement_kind,
+       j.source_job_card_id, j.follow_up_instructions,
        j.created_at, j.accepted_at, j.started_at,
        j.staff_completed_at, j.staff_completion_note,
        j.manager_approved_at, j.manager_approval_note,
@@ -654,6 +766,7 @@ const WORKSPACE_JOINS = `FROM job_cards j
 
 const JOB_CARD_LIST_COLUMNS = `j.id, j.type, j.status, j.version, j.title, j.priority, j.due_date,
   j.scheduled_at, j.scheduled_ends_at, j.engagement_kind, j.created_at, j.updated_at, j.staff_completed_at,
+  j.source_job_card_id,
   c.id AS customer_id, c.name AS customer_name,
   ct.id AS contact_id, ct.name AS contact_name,
   u.id AS assignee_id, u.name AS assignee_name,
@@ -719,8 +832,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
 
   async getJob(organizationId: string, jobCardId: string) {
     const result = await this.client.query<JobCardRow>(
-      `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind
+      `SELECT ${JOB_CARD_BASE_COLUMNS}
        FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
@@ -728,8 +840,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
 
   async getJobForUpdate(organizationId: string, jobCardId: string) {
     const result = await this.client.query<JobCardRow>(
-      `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind
+      `SELECT ${JOB_CARD_BASE_COLUMNS}
        FROM job_cards WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
       [organizationId, jobCardId],
     );
@@ -742,6 +853,14 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
+  }
+
+  async getFollowUpSource(organizationId: string, sourceJobCardId: string) {
+    const result = await this.client.query<FollowUpSourceRow>(
+      `${FOLLOW_UP_SOURCE_QUERY} FOR UPDATE OF j`,
+      [organizationId, sourceJobCardId],
+    );
+    return result.rows[0] ? mapFollowUpSource(result.rows[0]) : null;
   }
 
   async transitionWithVersion(input: TransitionInput) {
@@ -766,8 +885,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
            cancel_reason = CASE WHEN $10 = 'CANCEL' THEN $9 ELSE cancel_reason END,
            updated_at = $5
        WHERE organization_id = $1 AND id = $2 AND version = $3
-       RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind`,
+       RETURNING ${JOB_CARD_BASE_COLUMNS}`,
       [input.organizationId, input.jobCardId, input.expectedVersion, input.status, input.occurredAt,
         input.actorId ?? null, input.note ?? null, input.revisionReason ?? null,
         input.cancelReason ?? null, input.command],
@@ -973,14 +1091,13 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       `INSERT INTO job_cards
          (organization_id, type, status, title, description, customer_id, contact_id,
           assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at,
-          engagement_kind, accepted_at, accepted_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
-       RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind`,
+          engagement_kind, accepted_at, accepted_by, source_job_card_id, follow_up_instructions)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16, $17, $18)
+       RETURNING ${JOB_CARD_BASE_COLUMNS}`,
       [input.organizationId, input.type, input.status, input.title, input.description,
         input.customerId, input.contactId, input.assignedTo, input.createdBy, input.priority,
         input.dueDate, input.scheduledAt, input.scheduledEndsAt, input.engagementKind,
-        input.acceptedAt, input.acceptedBy],
+        input.acceptedAt, input.acceptedBy, input.sourceJobCardId, input.followUpInstructions],
     );
     return mapJobCard(result.rows[0]!);
   }
@@ -1038,9 +1155,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const result = await this.client.query<JobCardRow>(
       `UPDATE job_cards SET ${assignments.join(', ')}, version = version + 1, updated_at = NOW()
        WHERE organization_id = $1 AND id = $2 AND version = $3
-       RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at,
-                 scheduled_ends_at, engagement_kind`, values,
+       RETURNING ${JOB_CARD_BASE_COLUMNS}`, values,
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
@@ -1186,8 +1301,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const result = await this.client.query<JobCardRow>(
       `UPDATE job_cards SET version=version+1, updated_at=NOW()
        WHERE organization_id=$1 AND id=$2 AND version=$3
-       RETURNING id, organization_id, type, status, version, title, description, customer_id, contact_id,
-                 assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind`, [organizationId, jobCardId, expectedVersion]);
+       RETURNING ${JOB_CARD_BASE_COLUMNS}`, [organizationId, jobCardId, expectedVersion]);
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
 
@@ -1377,8 +1491,7 @@ implements JobCardRepository, ApprovalQueueItemPort {
 
   async findJobCard(organizationId: string, jobCardId: string) {
     const result = await this.pool.query<JobCardRow>(
-      `SELECT id, organization_id, type, status, version, title, description, customer_id, contact_id,
-              assigned_to, created_by, priority, due_date, scheduled_at, scheduled_ends_at, engagement_kind
+      `SELECT ${JOB_CARD_BASE_COLUMNS}
        FROM job_cards WHERE organization_id = $1 AND id = $2`, [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
@@ -1390,6 +1503,44 @@ implements JobCardRepository, ApprovalQueueItemPort {
       [organizationId, jobCardId],
     );
     return result.rows[0] ? mapJobCardDetail(result.rows[0]) : null;
+  }
+
+  async getFollowUpSource(organizationId: string, sourceJobCardId: string) {
+    const result = await this.pool.query<FollowUpSourceRow>(
+      FOLLOW_UP_SOURCE_QUERY,
+      [organizationId, sourceJobCardId],
+    );
+    return result.rows[0] ? mapFollowUpSource(result.rows[0]) : null;
+  }
+
+  async listFollowUps(
+    organizationId: string,
+    sourceJobCardId: string,
+    page: PageQuery,
+  ): Promise<Paginated<PersistedFollowUpListItem>> {
+    const count = await this.pool.query<{ total: number }>(
+      `SELECT COUNT(*)::int AS total
+       FROM job_cards
+       WHERE organization_id = $1 AND source_job_card_id = $2`,
+      [organizationId, sourceJobCardId],
+    );
+    const items = await this.pool.query<JobCardListRow>(
+      `SELECT ${JOB_CARD_LIST_COLUMNS}
+       ${WORKSPACE_ITEM_JOINS}
+       WHERE j.organization_id = $1 AND j.source_job_card_id = $2
+       ORDER BY j.created_at DESC, j.id
+       LIMIT $3 OFFSET $4`,
+      [organizationId, sourceJobCardId, page.limit, page.offset],
+    );
+    return {
+      items: items.rows.map((row) => ({
+        ...mapJobCardListItem(row),
+        sourceJobCardId: row.source_job_card_id!,
+      })),
+      total: Number(count.rows[0]?.total ?? 0),
+      limit: page.limit,
+      offset: page.offset,
+    };
   }
 
   async findMeetingDetails(organizationId: string, jobCardId: string) {

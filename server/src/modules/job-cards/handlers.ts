@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError } from '../../errors/index.js';
 import type { JobCardService } from './service.js';
 import type { JobCardActor } from './types.js';
-import { parseJobCardCreateInput } from './create-input.js';
+import { parseFollowUpCreateInput, parseJobCardCreateInput } from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
 import {
   isoInstant,
@@ -98,6 +98,20 @@ export function createJobCardHandlers(service: JobCardService) {
   return {
     create: async (request: FastifyRequest, reply: FastifyReply) =>
       reply.code(201).send(await service.create(actor(request), parseJobCardCreateInput(request.body))),
+    createFollowUp: async (
+      request: FastifyRequest<{ Params: Params }>,
+      reply: FastifyReply,
+    ) => reply.code(201).send(await service.createFollowUp(
+      actor(request),
+      uuidString(request.params.id, 'sourceJobCardId'),
+      parseFollowUpCreateInput(request.body),
+    )),
+    listFollowUps: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.listFollowUps(
+        actor(request),
+        uuidString(request.params.id, 'sourceJobCardId'),
+        page(request.query, 20),
+      ),
     list: async (request: FastifyRequest) =>
       service.list(actor(request), parseJobCardListQuery(request.query)),
     board: async (request: FastifyRequest) =>

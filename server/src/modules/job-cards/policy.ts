@@ -5,6 +5,7 @@ import {
   type JobCard,
   type JobCardActor,
   type JobCardAssignee,
+  type FollowUpSourceAccess,
   type JobPermissionSubject,
   type JobWorkflowAction,
   type LifecycleCommand,
@@ -110,7 +111,35 @@ export function assertCanCreateForAssignee(actor: JobCardActor, assignee: JobCar
   if (actor.role === 'STAFF' && actor.id !== assignee.id) forbidden();
 }
 
-export function assertProductDeliveryJob(job: JobCard) {
+export function assertCanCreateFollowUp(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
+export function assertCanListFollowUps(actor: JobCardActor) {
+  if (actor.role === 'STAFF') forbidden();
+}
+
+export function assertFollowUpSourceEligible(job: Pick<JobCard, 'status'>) {
+  if (job.status !== 'COMPLETED') {
+    throw new AppError(
+      'FOLLOW_UP_SOURCE_NOT_COMPLETED',
+      409,
+      'Takip işi yalnız tamamlanmış bir JobCard üzerinden oluşturulabilir.',
+    );
+  }
+}
+
+export function resolveSourceAccess(
+  actor: JobCardActor,
+  source: Pick<JobCard, 'organizationId' | 'assignedTo'>,
+): FollowUpSourceAccess {
+  return actor.organizationId === source.organizationId
+    && (actor.role !== 'STAFF' || actor.id === source.assignedTo)
+    ? 'FULL'
+    : 'RESTRICTED';
+}
+
+export function assertProductDeliveryJob(job: Pick<JobCard, 'type'>) {
   if (job.type !== 'PRODUCT_DELIVERY') {
     throw new AppError(
       'INVALID_JOB_TYPE',
