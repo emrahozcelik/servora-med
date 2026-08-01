@@ -1489,6 +1489,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .follow-up-children h2 { margin: 0; }
 .follow-up-create-action p { margin-top: 0.3rem; color: var(--muted); }
 .follow-up-child-list { display: grid; gap: 0.75rem; margin: 1rem 0 0; padding: 0; list-style: none; }
+.follow-up-children-pagination { display: flex; align-items: center; justify-content: space-between; gap: 1rem; margin-top: 1rem; }
+.follow-up-children-pagination p { margin: 0; }
 .follow-up-child-row { min-width: 0; padding: 1rem; border: 1px solid var(--rule); border-radius: var(--radius-control); }
 .follow-up-child-row > div { display: flex; flex-wrap: wrap; align-items: center; gap: 0.55rem; min-width: 0; }
 .follow-up-child-row a { min-width: 0; color: var(--ink); overflow-wrap: anywhere; }
@@ -2466,6 +2468,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .detail-action .destructive-button { width: 100%; }
   .follow-up-create-action { align-items: stretch; flex-direction: column; }
   .follow-up-create-action .primary-button { width: 100%; }
+  .follow-up-children-pagination { align-items: stretch; flex-direction: column; }
+  .follow-up-children-pagination .secondary-button { width: 100%; }
   .follow-up-child-row dl { grid-template-columns: 1fr 1fr; }
   .servora-workflow-steps { padding: 0.9rem; }
   .revision-loop-facts, .completed-job-facts, .cancelled-job-facts { grid-template-columns: 1fr; }

@@ -169,6 +169,31 @@ describe('Follow-up create page', () => {
     expect(host.textContent).not.toContain('Source Staff Marker');
   });
 
+  it('clears form state and action identity when the source changes on the same route', async () => {
+    await render();
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Klinik A talimatı');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Klinik A özel kapsamı');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    change(host.querySelector('#follow-up-priority') as HTMLSelectElement, 'urgent');
+
+    const nextSource = {
+      ...source, id: '22222222-2222-4222-8222-222222222222', type: 'GENERAL_TASK' as const,
+      customerId: null, contactId: null, customer: null, contact: null, engagementKind: null,
+    };
+    jobs.getJobCard.mockResolvedValue(nextSource);
+    await act(async () => root.render(<FollowUpCreatePage sourceId={nextSource.id} user={manager}
+      onCancel={() => {}} onCreated={onCreated} />));
+    await flush();
+
+    expect((host.querySelector('#follow-up-title') as HTMLInputElement).value).toBe('');
+    expect((host.querySelector('#follow-up-instructions') as HTMLTextAreaElement).value).toBe('');
+    expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('');
+    expect((host.querySelector('#follow-up-priority') as HTMLSelectElement).value).toBe('normal');
+    expect((host.querySelector('#follow-up-contact') as HTMLSelectElement).value).toBe('');
+    expect((host.querySelector('#follow-up-contact') as HTMLSelectElement).disabled).toBe(true);
+    expect(host.textContent).toContain(CUSTOMERLESS_FOLLOW_UP_EXPLANATION);
+  });
+
   it('forces customerless sources to GENERAL_TASK with the exact explanation', async () => {
     await render(manager, {
       ...source, type: 'GENERAL_TASK', customerId: null, contactId: null,
@@ -243,5 +268,22 @@ describe('Follow-up create page', () => {
     await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createFollowUp.mock.calls[2]?.[1].clientActionId).toBe('action-2');
     expect(onCreated).toHaveBeenCalledWith('created-2');
+  });
+
+  it('keeps the same action id when a committed response is invalid', async () => {
+    jobs.createFollowUp
+      .mockRejectedValueOnce(new ApiError(0, 'INVALID_RESPONSE', 'invalid response'))
+      .mockResolvedValueOnce({ ...source, id: 'created-3' });
+    await render();
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Yeni görüşme');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Yeni talimat');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+
+    expect(jobs.createFollowUp.mock.calls[0]?.[1].clientActionId).toBe('action-1');
+    expect(jobs.createFollowUp.mock.calls[1]?.[1].clientActionId).toBe('action-1');
+    expect(onCreated).toHaveBeenCalledWith('created-3');
   });
 });

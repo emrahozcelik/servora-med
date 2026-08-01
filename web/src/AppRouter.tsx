@@ -275,7 +275,7 @@ export function FollowUpCreateRoute({ user, navigate }: {
       action={<button className="secondary-button" type="button" onClick={() => navigate(paths.jobs)}>İşlere dön</button>}
     /></main>;
   }
-  return <FollowUpCreatePage sourceId={sourceId} user={user}
+  return <FollowUpCreatePage key={sourceId} sourceId={sourceId} user={user}
     onCancel={() => navigate(paths.job(sourceId))}
     onCreated={(jobCardId) => navigate(paths.job(jobCardId))} />;
 }

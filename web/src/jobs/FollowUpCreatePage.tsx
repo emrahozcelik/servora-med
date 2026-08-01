@@ -95,7 +95,27 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const [fatalError, setFatalError] = useState<{ status: '403' | '404' | 'error'; message: string } | null>(null);
   const attempt = useRef<Attempt | null>(null);
   const pendingRef = useRef(false);
+  const sourceRef = useRef(sourceId);
   const errorRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    sourceRef.current = sourceId;
+    setType('GENERAL_TASK');
+    setTitle('');
+    setInstructions('');
+    setScheduledLocal('');
+    setDueDate('');
+    setAssignedTo('');
+    setContactId('');
+    setPriority('normal');
+    setEngagementKind('FOLLOW_UP');
+    setPending(false);
+    setSubmitError('');
+    setFieldErrors({});
+    setFatalError(null);
+    attempt.current = null;
+    pendingRef.current = false;
+  }, [sourceId]);
 
   useEffect(() => {
     if (user.role === 'STAFF') return;
@@ -218,15 +238,21 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setFieldErrors({});
     setSubmitError('');
     try {
+      const requestSourceId = sourceId;
       const input: FollowUpCreateInput = type === 'SALES_MEETING'
         ? { ...base, type, engagementKind, clientActionId: attempt.current.id }
         : { ...base, type, clientActionId: attempt.current.id };
-      const created = await createFollowUp(sourceId, input);
+      const created = await createFollowUp(requestSourceId, input);
+      if (sourceRef.current !== requestSourceId) return;
       attempt.current = null;
       onCreated(created.id);
     } catch (error) {
+      if (sourceRef.current !== sourceId) return;
       const apiError = error instanceof ApiError ? error : null;
-      if (!apiError?.retryable && apiError?.code !== 'ACTION_IN_PROGRESS') attempt.current = null;
+      const preserveAttempt = apiError?.status === 0
+        || apiError?.retryable
+        || apiError?.code === 'ACTION_IN_PROGRESS';
+      if (!preserveAttempt) attempt.current = null;
       if (apiError?.status === 403 || apiError?.code === 'FORBIDDEN') {
         setFatalError({ status: '403', message: 'Takip işi oluşturma yetkiniz artık bulunmuyor.' });
       } else if (apiError?.code === 'JOB_CARD_NOT_FOUND') {

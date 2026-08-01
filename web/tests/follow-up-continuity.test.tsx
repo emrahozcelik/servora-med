@@ -4,17 +4,17 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDetailPanel, JobDetailScreen } from '../src/JobDetail';
-import { FollowUpBreadcrumb } from '../src/jobs/FollowUpContinuity';
+import { FollowUpBreadcrumb, FollowUpChildrenPanel } from '../src/jobs/FollowUpContinuity';
 import type { CurrentUser } from '../src/services/api';
 import type { JobCard, MeetingDetails } from '../src/jobs/jobs-api';
 import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const api = vi.hoisted(() => ({ getJobCard: vi.fn() }));
+const api = vi.hoisted(() => ({ getJobCard: vi.fn(), listFollowUps: vi.fn() }));
 vi.mock('../src/jobs/jobs-api', async (original) => ({
   ...await original<typeof import('../src/jobs/jobs-api')>(),
-  getJobCard: api.getJobCard,
+  getJobCard: api.getJobCard, listFollowUps: api.listFollowUps,
 }));
 
 const staff: CurrentUser = {
@@ -81,6 +81,7 @@ describe('JobDetail follow-up continuity', () => {
       addEventListener: vi.fn(), removeEventListener: vi.fn(),
       addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
     }));
+    api.listFollowUps.mockResolvedValue({ items: [], total: 0, limit: 100, offset: 0 });
     host = document.createElement('div'); document.body.append(host); root = createRoot(host);
   });
   afterEach(async () => { await act(async () => root.unmount()); host.remove(); vi.unstubAllGlobals(); });
@@ -158,6 +159,7 @@ describe('JobDetail follow-up continuity', () => {
       sourceStaffName: 'SOURCE_STAFF_MARKER',
       deliveryDetails: 'DELIVERY_DETAIL_MARKER',
     };
+    api.listFollowUps.mockResolvedValue({ items: [child], total: 1, limit: 100, offset: 0 });
     vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
       const url = String(input); requests.push(url);
       if (url.includes('/activity?')) return Response.json({ items: [], total: 0, limit: 50, offset: 0 });
@@ -176,7 +178,7 @@ describe('JobDetail follow-up continuity', () => {
     await act(async () => root.render(<JobDetailScreen jobId="job-1" user={manager}
       onBack={() => {}} onChanged={() => {}} />));
     await flush();
-    expect(requests.some((url) => url.endsWith('/follow-ups?limit=100&offset=0'))).toBe(true);
+    expect(api.listFollowUps).toHaveBeenCalledWith('job-1', { limit: 100, offset: 0 });
     expect(host.textContent).toContain('Takip işleri');
     expect(host.textContent).toContain('Güvenli takip satırı');
     for (const marker of [
@@ -198,5 +200,27 @@ describe('JobDetail follow-up continuity', () => {
     const labels = Array.from(host.querySelectorAll('.follow-up-breadcrumb li')).map((item) => item.textContent);
     expect(labels).toEqual(['Kök iş', 'Orta iş', 'Bağlantılı takip']);
     expect(api.getJobCard).toHaveBeenCalledTimes(2);
+  });
+
+  it('shows and loads the next children page when the total exceeds the first page', async () => {
+    const firstPage = Array.from({ length: 100 }, (_, index) => ({
+      ...rootJob, id: `child-${index}`, title: `Takip ${index + 1}`,
+      followUp: { sourceJobCardId: rootJob.id },
+    }));
+    const secondPage = [{ ...rootJob, id: 'child-101', title: 'Takip 101', followUp: { sourceJobCardId: rootJob.id } }];
+    api.listFollowUps
+      .mockResolvedValueOnce({ items: firstPage, total: 101, limit: 100, offset: 0 })
+      .mockResolvedValueOnce({ items: secondPage, total: 101, limit: 100, offset: 100 });
+    await act(async () => root.render(<FollowUpChildrenPanel sourceId={rootJob.id} />));
+    await flush();
+
+    expect(host.textContent).toContain('100 / 101 takip işi gösteriliyor.');
+    const more = Array.from(host.querySelectorAll('button')).find((button) => button.textContent === 'Daha fazla göster');
+    expect(more).toBeTruthy();
+    await act(async () => { (more as HTMLButtonElement).click(); await Promise.resolve(); });
+    expect(api.listFollowUps).toHaveBeenNthCalledWith(2, rootJob.id, { limit: 100, offset: 100 });
+    expect(host.textContent).toContain('101 / 101 takip işi gösteriliyor.');
+    expect(host.textContent).toContain('Takip 101');
+    expect(host.querySelector('button')).toBeNull();
   });
 });

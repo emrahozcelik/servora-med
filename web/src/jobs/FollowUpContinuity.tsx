@@ -90,17 +90,45 @@ function ChildRow({ item }: { item: FollowUpListItem }) {
 
 export function FollowUpChildrenPanel({ sourceId }: { sourceId: string }) {
   const [state, setState] = useState<
-    { kind: 'loading' } | { kind: 'ready'; items: FollowUpListItem[] } | { kind: 'error'; message: string }
+    | { kind: 'loading' }
+    | { kind: 'ready'; items: FollowUpListItem[]; total: number; limit: number; offset: number; loadingMore: boolean }
+    | { kind: 'error'; message: string }
   >({ kind: 'loading' });
   const [reloadKey, setReloadKey] = useState(0);
   useEffect(() => {
     let active = true;
     setState({ kind: 'loading' });
     listFollowUps(sourceId, { limit: 100, offset: 0 })
-      .then((page) => { if (active) setState({ kind: 'ready', items: page.items }); })
+      .then((page) => {
+        if (active) setState({
+          kind: 'ready', items: page.items, total: page.total, limit: page.limit,
+          offset: page.offset, loadingMore: false,
+        });
+      })
       .catch(() => { if (active) setState({ kind: 'error', message: 'Takip işleri yüklenemedi.' }); });
     return () => { active = false; };
   }, [reloadKey, sourceId]);
+
+  async function loadMore() {
+    if (state.kind !== 'ready' || state.loadingMore || state.items.length >= state.total) return;
+    const nextOffset = state.offset + state.limit;
+    setState({ ...state, loadingMore: true });
+    try {
+      const page = await listFollowUps(sourceId, { limit: state.limit, offset: nextOffset });
+      setState((current) => current.kind === 'ready' ? {
+        kind: 'ready',
+        items: [...current.items, ...page.items],
+        total: page.total,
+        limit: page.limit,
+        offset: page.offset,
+        loadingMore: false,
+      } : current);
+    } catch {
+      setState((current) => current.kind === 'ready' ? { ...current, loadingMore: false } : current);
+    }
+  }
+
+  const hasMore = state.kind === 'ready' && state.items.length < state.total;
   return <section className="follow-up-children" aria-labelledby="follow-up-children-title">
     <h2 id="follow-up-children-title">{FOLLOW_UP_CHILDREN_TITLE}</h2>
     {state.kind === 'loading' && <p role="status">Takip işleri yükleniyor…</p>}
@@ -110,6 +138,12 @@ export function FollowUpChildrenPanel({ sourceId }: { sourceId: string }) {
     {state.kind === 'ready' && state.items.length > 0 && <ul className="follow-up-child-list">
       {state.items.map((item) => <ChildRow key={item.id} item={item} />)}
     </ul>}
+    {state.kind === 'ready' && <div className="follow-up-children-pagination">
+      <p className="field-status">{state.items.length} / {state.total} takip işi gösteriliyor.</p>
+      {hasMore && <button className="secondary-button" type="button" onClick={() => void loadMore()} disabled={state.loadingMore}>
+        {state.loadingMore ? 'Yükleniyor…' : 'Daha fazla göster'}
+      </button>}
+    </div>}
   </section>;
 }
 
