@@ -49,6 +49,14 @@ import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
 import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
+import {
+  FollowUpBadge,
+  FollowUpBreadcrumb,
+  FollowUpChildrenPanel,
+  FollowUpCreateAction,
+  FollowUpRecommendation,
+  FollowUpSourcePanel,
+} from './jobs/FollowUpContinuity';
 
 type StaffCommand = 'start' | 'submit';
 type PendingInteraction = LifecycleCommand | 'WITHDRAW_AND_EDIT_JOB_FIELDS';
@@ -321,7 +329,7 @@ export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
-  pendingLabel,
+  pendingLabel, continuity, onCreateFollowUp,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -344,6 +352,8 @@ export function JobDetailPanel({
   notes?: ReactNode;
   timeline?: ReactNode;
   children?: ReactNode;
+  continuity?: ReactNode;
+  onCreateFollowUp?: () => void;
 }) {
   const presentation = deriveJobWorkflowPresentation({
     job,
@@ -397,6 +407,15 @@ export function JobDetailPanel({
   const typeLabel = job.type === 'SALES_MEETING'
     ? jobEngagementLabel(job.engagementKind)
     : jobTypeLabels[job.type];
+  const showFollowUpRecommendation = isManagementUser(user)
+    && job.status === 'COMPLETED'
+    && job.type === 'SALES_MEETING'
+    && meetingDetails?.outcome === 'FOLLOW_UP_REQUIRED'
+    && onCreateFollowUp !== undefined;
+  const showFollowUpCreateAction = isManagementUser(user)
+    && job.status === 'COMPLETED'
+    && onCreateFollowUp !== undefined
+    && !showFollowUpRecommendation;
 
   return (
     <main className="job-detail" data-job-detail="true">
@@ -408,6 +427,7 @@ export function JobDetailPanel({
           <div className="detail-heading-meta" data-job-detail-meta="true">
             <StatusChip status={job.status} />
             <PriorityChip priority={job.priority} longLabel />
+            <FollowUpBadge visible={job.followUpContext !== null} />
           </div>
         </div>
         <button
@@ -431,6 +451,7 @@ export function JobDetailPanel({
         </div>
       )}
       {realtimeStaleNotice}
+      {continuity}
       {/* DOM order: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management review → actions → notes → timeline */}
       <div data-job-detail-section="lifecycle">
         <WorkflowSteps
@@ -440,6 +461,14 @@ export function JobDetailPanel({
           currentKey={presentation.currentPhase}
         />
       </div>
+
+      <FollowUpSourcePanel job={job} />
+      {showFollowUpRecommendation && onCreateFollowUp && (
+        <FollowUpRecommendation job={job} details={meetingDetails} onCreate={onCreateFollowUp} />
+      )}
+      {showFollowUpCreateAction && onCreateFollowUp && (
+        <FollowUpCreateAction onCreate={onCreateFollowUp} />
+      )}
       {presentation.revisionLoop && (
         <div data-job-detail-section="revision">
           <RevisionLoopPanel loop={presentation.revisionLoop} />
@@ -676,11 +705,12 @@ async function executeLifecycleCommand(
   }
 }
 
-export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
+export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollowUp }: {
   jobId: string;
   user: CurrentUser;
   onBack: () => void;
   onChanged: () => void;
+  onCreateFollowUp?: () => void;
 }) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
   const [pending, setPending] = useState(false);
@@ -1145,6 +1175,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
       <button className="secondary-button" type="button" disabled={pending}
         onClick={() => void reloadStaleTruth()}>En güncel bilgileri yükle</button>
     </div> : undefined}
+    continuity={isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
     onBack={onBack}
     meetingDetails={detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null}
     onCommand={(name, trigger) => command(name, trigger)}
@@ -1153,6 +1184,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     }}
     onSaveSchedule={saveSchedule}
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
+    onCreateFollowUp={onCreateFollowUp}
     records={recordContent}
     notes={viewNotes ? (
       <JobNotes
@@ -1166,6 +1198,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged }: {
     ) : undefined}
     timeline={<JobTimeline jobId={jobId} refreshKey={timelineKey} />}
   >
+    {isManagementUser(user) && <FollowUpChildrenPanel sourceId={jobId} />}
     {dialog && <JobWorkflowDialog
       dialog={dialog}
       pending={pending}
