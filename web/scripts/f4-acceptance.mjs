@@ -471,16 +471,21 @@ try {
   await staffD.page.goto('/calendar'); await staffD.page.waitForSelector('.servora-calendar-cell[data-date="2026-08-06"]'); await staffD.page.waitForTimeout(500);
   const calendarTab = await tabUntil(staffD.page, (snapshot) => snapshot.title === '2026-08-06' || snapshot.ariaLabel?.includes('2026-08-06') || snapshot.text === '6');
   if (calendarTab.snapshot) {
-    expect(true, 'KEYBOARD-CALENDAR-CELL', `Calendar date/event control is reachable with Tab: ${JSON.stringify(calendarTab.snapshot)}`);
+    const dateControlFocusVisible = calendarTab.snapshot.outline !== 'none 0px' || calendarTab.snapshot.boxShadow !== 'none';
+    expect(dateControlFocusVisible, 'KEYBOARD-CALENDAR-CELL', `Calendar date control is Tab-reachable with visible focus: ${JSON.stringify(calendarTab.snapshot)}`);
+    await staffD.page.keyboard.press('Tab');
+    const eventSummaryFocus = await focusSnapshot(staffD.page);
+    expect(Boolean(eventSummaryFocus) && eventSummaryFocus.tag === 'BUTTON' && eventSummaryFocus.text.includes('F1 — Admin restricted follow-up'), 'KEYBOARD-CALENDAR-EVENT', `Calendar event summary is a Tab-reachable button: ${JSON.stringify(eventSummaryFocus)}`);
     await staffD.page.keyboard.press('Enter'); await staffD.page.waitForTimeout(500);
     const calendarKeyboardText = await staffD.page.locator('body').innerText();
     const calendarFocusAfter = await focusSnapshot(staffD.page);
-    expect(calendarKeyboardText.includes('F1 — Admin restricted follow-up') && Boolean(calendarFocusAfter), 'KEYBOARD-CALENDAR-EVENT', `Calendar keyboard activation opens the selected event detail and retains focus context: ${JSON.stringify(calendarFocusAfter)}`);
-    keyboard.calendar = { tab: calendarTab.snapshot, after: calendarFocusAfter };
+    expect(calendarKeyboardText.includes('F1 — Admin restricted follow-up') && Boolean(calendarFocusAfter), 'KEYBOARD-CALENDAR-EVENT-ACTIVATED', `Calendar keyboard activation opens the selected event detail and retains focus context: ${JSON.stringify(calendarFocusAfter)}`);
+    keyboard.calendar = { tab: calendarTab.snapshot, event: eventSummaryFocus, after: calendarFocusAfter };
   } else {
     const calendarKeyboardFailure = `Calendar date/event control was absent from the first ${calendarTab.visited.length} real Tab stops`;
     record('KEYBOARD-CALENDAR-CELL', 'FAIL', calendarKeyboardFailure);
     record('KEYBOARD-CALENDAR-EVENT', 'FAIL', 'Enter activation could not be exercised because no Calendar date/event control received keyboard focus');
+    record('KEYBOARD-CALENDAR-EVENT-ACTIVATED', 'FAIL', 'Event activation could not be exercised because no Calendar event button received keyboard focus');
     keyboard.calendar = { tab: null, after: null, visited: calendarTab.visited, blocker: calendarKeyboardFailure };
   }
 

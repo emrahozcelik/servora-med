@@ -3018,14 +3018,35 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 
 .servora-calendar-date {
+  background: none;
+  border: none;
+  border-radius: 0.3rem;
+  color: var(--muted);
+  cursor: pointer;
+  font: inherit;
   font-size: 0.78rem;
   font-weight: 700;
-  color: var(--muted);
   line-height: 1.2;
+  padding: 0.05rem 0.3rem;
+}
+
+.servora-calendar-date--selected {
+  background: var(--accent);
+  color: var(--on-accent);
+}
+
+.servora-calendar-date:focus-visible,
+.servora-calendar-event-summary:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 
 .servora-calendar-cell--today .servora-calendar-date {
   color: var(--accent);
+}
+
+.servora-calendar-cell--today .servora-calendar-date--selected {
+  color: var(--on-accent);
 }
 
 .servora-calendar-events {
@@ -3038,13 +3059,18 @@ button:disabled { cursor: wait; opacity: 0.65; }
 
 .servora-calendar-event-summary {
   align-items: center;
+  background: none;
+  border: none;
   border-radius: 0.3rem;
+  cursor: pointer;
   display: flex;
+  font: inherit;
   font-size: 0.68rem;
   gap: 0.25rem;
   line-height: 1.25;
   overflow: hidden;
   padding: 0.1rem 0.3rem;
+  text-align: start;
   white-space: nowrap;
 }
 

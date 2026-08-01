@@ -5,11 +5,33 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobDetailPanel, JobDetailScreen } from '../src/JobDetail';
 import { FollowUpBreadcrumb, FollowUpChildrenPanel } from '../src/jobs/FollowUpContinuity';
+import { RealtimeProvider, type RealtimeEventSource } from '../src/realtime/RealtimeProvider';
 import type { CurrentUser } from '../src/services/api';
 import type { JobCard, MeetingDetails } from '../src/jobs/jobs-api';
 import { workflowContext } from './fixtures/job-workflow';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+class FakeEventSource implements RealtimeEventSource {
+  readonly listeners = new Map<string, Set<EventListener>>();
+  addEventListener(type: string, listener: EventListener) {
+    const listeners = this.listeners.get(type) ?? new Set<EventListener>();
+    listeners.add(listener);
+    this.listeners.set(type, listeners);
+  }
+  removeEventListener(type: string, listener: EventListener) { this.listeners.get(type)?.delete(listener); }
+  close() {}
+  emit(type: string, data: string) {
+    this.listeners.get(type)?.forEach((listener) => listener(new MessageEvent(type, { data })));
+  }
+}
+
+function changeEnvelope(id: string, resourceKeys: string[]) {
+  return JSON.stringify({
+    id, type: 'job.created', entity: { type: 'job-card', id: 'child-1' }, resourceKeys,
+    occurredAt: '2026-08-01T12:00:00.000Z',
+  });
+}
 
 const api = vi.hoisted(() => ({ getJobCard: vi.fn(), listFollowUps: vi.fn() }));
 vi.mock('../src/jobs/jobs-api', async (original) => ({
@@ -222,5 +244,80 @@ describe('JobDetail follow-up continuity', () => {
     expect(host.textContent).toContain('101 / 101 takip işi gösteriliyor.');
     expect(host.textContent).toContain('Takip 101');
     expect(host.querySelector('button')).toBeNull();
+  });
+
+  describe('FollowUpChildrenPanel realtime invalidation', () => {
+    const child = {
+      id: 'child-1', type: 'GENERAL_TASK', status: 'NEW', version: 1,
+      title: 'Realtime takip', priority: 'normal', dueDate: null, scheduledAt: null,
+      engagementKind: null, createdAt: '2026-08-01T12:00:00.000Z',
+      updatedAt: '2026-08-01T12:00:00.000Z', staffCompletedAt: null,
+      customer: { id: 'customer-1', name: 'Klinik' }, contact: null,
+      assignee: { id: 'staff-2', name: 'Bora' }, deliveryItemCount: 0,
+      allowedCommands: [], followUp: { sourceJobCardId: rootJob.id },
+    };
+
+    async function renderWithRealtime(ui: React.ReactNode) {
+      const source = new FakeEventSource();
+      await act(async () => root.render(
+        <RealtimeProvider eventSourceFactory={() => source}>{ui}</RealtimeProvider>,
+      ));
+      return source;
+    }
+
+    it('refreshes the panel when job-detail:<sourceId> invalidation arrives', async () => {
+      api.listFollowUps.mockResolvedValueOnce({ items: [], total: 0, limit: 100, offset: 0 })
+        .mockResolvedValueOnce({ items: [child], total: 1, limit: 100, offset: 0 });
+      const source = await renderWithRealtime(<FollowUpChildrenPanel sourceId={rootJob.id} />);
+      await flush();
+      expect(host.textContent).toContain('0 / 0 takip işi gösteriliyor.');
+      await act(async () => source.emit('servora.change', changeEnvelope('1', [`job-detail:${rootJob.id}`])));
+      await flush();
+      expect(api.listFollowUps).toHaveBeenCalledTimes(2);
+      expect(host.textContent).toContain('1 / 1 takip işi gösteriliyor.');
+      expect(host.textContent).toContain('Realtime takip');
+    });
+
+    it('ignores a duplicate event cursor so no refresh loop is created', async () => {
+      api.listFollowUps.mockResolvedValue({ items: [child], total: 1, limit: 100, offset: 0 });
+      const source = await renderWithRealtime(<FollowUpChildrenPanel sourceId={rootJob.id} />);
+      await flush();
+      await act(async () => source.emit('servora.change', changeEnvelope('1', [`job-detail:${rootJob.id}`])));
+      await flush();
+      await act(async () => source.emit('servora.change', changeEnvelope('1', [`job-detail:${rootJob.id}`])));
+      await flush();
+      expect(api.listFollowUps).toHaveBeenCalledTimes(2);
+      expect(host.textContent).toContain('1 / 1 takip işi gösteriliyor.');
+    });
+
+    it('does not let a slow stale response overwrite a fresh refresh', async () => {
+      let resolveStale!: (page: { items: typeof child[]; total: number; limit: number; offset: number }) => void;
+      api.listFollowUps.mockReturnValueOnce(new Promise((resolve) => { resolveStale = resolve; }))
+        .mockResolvedValueOnce({ items: [child], total: 1, limit: 100, offset: 0 });
+      const source = await renderWithRealtime(<FollowUpChildrenPanel sourceId={rootJob.id} />);
+      await flush();
+      await act(async () => source.emit('servora.change', changeEnvelope('2', [`job-detail:${rootJob.id}`])));
+      await flush();
+      expect(host.textContent).toContain('1 / 1 takip işi gösteriliyor.');
+      await act(async () => resolveStale({ items: [], total: 0, limit: 100, offset: 0 }));
+      await flush();
+      expect(host.textContent).toContain('1 / 1 takip işi gösteriliyor.');
+      expect(host.textContent).toContain('Realtime takip');
+    });
+
+    it('subscribes the panel only while the source is open', async () => {
+      api.listFollowUps.mockResolvedValue({ items: [child], total: 1, limit: 100, offset: 0 });
+      const source = await renderWithRealtime(<FollowUpChildrenPanel sourceId={rootJob.id} />);
+      await flush();
+      await act(async () => source.emit('servora.change', changeEnvelope('3', [`job-detail:${rootJob.id}`])));
+      await flush();
+      expect(api.listFollowUps).toHaveBeenCalledTimes(2);
+      await act(async () => root.render(<RealtimeProvider eventSourceFactory={() => source}><div /></RealtimeProvider>));
+      await flush();
+      api.listFollowUps.mockClear();
+      await act(async () => source.emit('servora.change', changeEnvelope('4', [`job-detail:${rootJob.id}`])));
+      await flush();
+      expect(api.listFollowUps).not.toHaveBeenCalled();
+    });
   });
 });

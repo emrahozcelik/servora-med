@@ -342,7 +342,7 @@ function EventItem({
 const MAX_VISIBLE_PER_DAY = 3;
 
 export function CalendarPage({ user }: { user: CurrentUser }) {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const selectedEventId = searchParams.get('event');
   const [month, setMonth] = useState(() => new Date());
   const [selectedDate, setSelectedDate] = useState(() => new Date());
@@ -407,6 +407,11 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
 
   const onMonthChange = useCallback((m: Date) => setMonth(m), []);
   const onDateSelect = useCallback((d: Date) => setSelectedDate(d), []);
+  const onEventSelect = useCallback((eventId: string) => {
+    const next = new URLSearchParams(searchParams);
+    next.set('event', eventId);
+    setSearchParams(next);
+  }, [searchParams, setSearchParams]);
   const openNewPlan = useCallback(() => setEditing('new'), []);
 
   return (
@@ -472,6 +477,7 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
                 maxVisibleEventsPerDay={MAX_VISIBLE_PER_DAY}
                 onMonthChange={onMonthChange}
                 onDateSelect={onDateSelect}
+                onEventSelect={onEventSelect}
               />
             </section>
             <section className="calendar-agenda-section" aria-label="Seçili gün planları">

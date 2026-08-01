@@ -1,6 +1,6 @@
-# Linked Follow-up JobCards — F4 canonical acceptance and closeout
+# Linked follow-up JobCards — F4 canonical acceptance and closeout
 
-**Status:** `BLOCKED_BY_RUNTIME_DEFECTS` (PR remains Draft; Ready and merge are not authorized)
+**Status:** `PASS` after authorized production repair (PR remains Draft until external re-review)
 
 This is the canonical F4 acceptance artifact for the already-merged F1–F3
 implementation. It is verification evidence only. The runtime data is synthetic;
@@ -8,31 +8,43 @@ it is not production, staging, or real-customer evidence.
 
 ## 1. Executive verdict
 
-The external-review repair pass completed with **145 PASS / 4 FAIL / 149 total
+The external-review repair pass and the authorized production-repair pass both
+completed. The final synthetic runtime is **152 PASS / 0 FAIL / 152 total
 checks**. It used the F4 worktree's real Fastify API, Vite proxy, a fresh
 PostgreSQL database, seven authenticated synthetic browser sessions, and the
-installed Google Chrome executable through Playwright. The four failed records
-map to two product-runtime blockers:
+installed Google Chrome executable through Playwright.
 
-1. An open management children panel did not re-fetch
-   `GET /api/job-cards/:sourceId/follow-ups` after a new follow-up was created
-   (`0 → 0`). JobDetail, customer history and staff history did refresh.
-2. The Calendar date/event control was absent from the first 80 real Tab stops,
-   so keyboard Enter activation could not be exercised.
+The production repair (authorized by the external F4 re-review decision) closed
+the two product-runtime blockers:
+
+1. The open management Children panel now realtime-refreshes
+   (`GET /api/job-cards/:sourceId/follow-ups` observed `0 → 1` after one
+   mutation, matching JobDetail and history surfaces; no new notification kind
+   or realtime event type was introduced — the existing `job-detail:<sourceId>`
+   key is reused).
+2. Calendar date cells and event summaries are now real `<button>` controls.
+   They are Tab-reachable with a visible `:focus-visible` outline, Enter
+   activation selects the day/event, and the selected event card opens while
+   focus context is retained. New harness records
+   `KEYBOARD-CALENDAR-CELL`, `KEYBOARD-CALENDAR-EVENT` and
+   `KEYBOARD-CALENDAR-EVENT-ACTIVATED` are all **PASS**.
 
 The additional reflow pass found no horizontal overflow on all five affected
 surfaces at both accepted text/reflow conditions. Server and web builds, the web
-suite, responsive smoke, bundle budget, server audit, and the policy-based web
-audit passed. The server wrapper's only remaining failure is the host's
-macOS-service-identity authentication contract (`expected connection failure but
-connected`); exact-head CI remains authoritative for the complete PostgreSQL
-gate.
+suite (1193 tests), responsive smoke, bundle budget, server audit, and the
+policy-based web audit passed. The server wrapper's only remaining failure is
+the host's macOS-service-identity authentication contract (`expected connection
+failure but connected`); exact-head CI remains authoritative for the complete
+PostgreSQL gate.
 
-The repaired harness also closed the requested payload, replay-side-effect,
-breadcrumb, multi-surface observation and non-Calendar keyboard evidence gaps.
-Because the two runtime defects require production-code changes and F4 repair
-authority is evidence/harness-only, no product fix was applied. Draft PR #87,
-staging, production, and branch/worktree state remain unchanged.
+Production repair scope was narrow: `web/src/jobs/FollowUpContinuity.tsx`
+(realtime invalidation), `web/src/ui/antd/ServoraCalendar.tsx`,
+`web/src/calendar/CalendarPage.tsx` and `web/src/styles.css` (keyboard calendar
+cells/events), plus focused web tests and the acceptance harness. No server
+production code, migration, API contract, authorization rule, notification kind,
+or new realtime event type was changed. Draft PR #87 stays open as Draft until
+the external F4 re-review is complete; Ready, merge, staging and production
+remain not authorized.
 
 ## 2. Provenance
 
@@ -43,14 +55,14 @@ staging, production, and branch/worktree state remain unchanged.
 | Branch | `docs/linked-follow-up-jobcards-f4-closeout` |
 | Canonical F3/resulting-main base | `1fd65ad4f2a1654b45e856ffd5813bf88f731e58` |
 | F4 evidence repair provenance | Repair commit containing this artifact, based on reviewed head `c5488108cb9bdb88e0ed70e12b79055e554b3f05`; exact commit SHA is recorded externally in Draft PR #87 because a commit cannot embed its own final SHA |
-| F4 branch/PR exact-head gate | Not eligible: runtime acceptance is `BLOCKED` and PR #87 must remain Draft |
+| F4 branch/PR exact-head gate | **Eligible**: runtime acceptance `PASS`; PR #87 remains Draft pending external re-review |
 | Draft PR | #87 — `docs: close linked follow-up JobCards acceptance` — [GitHub](https://github.com/emrahozcelik/servora-med/pull/87) |
 | Database | `servora_med_f4_test` (dedicated synthetic PostgreSQL database) |
 | Schema | Migrations 001–022 applied |
 | API | Fastify on `http://127.0.0.1:3000` |
 | Web | Vite on `http://127.0.0.1:5174`, proxying to the API |
 | Browser | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` via Playwright; no Chromium download |
-| Runtime-only rate limit setting | `LOGIN_RATE_LIMIT_MAX=20` on the dedicated local process so seven synthetic sessions could log in; production code/config was not changed |
+| Runtime-only rate limit setting | `LOGIN_RATE_LIMIT_MAX=50` on the dedicated local process so seven synthetic sessions could log in; production code/config was not changed |
 | Evidence declaration | Synthetic-only; no production/staging credentials, cookies, authorization headers, patient data, or real customer data are stored here |
 
 Runtime process shape (password value intentionally omitted):
@@ -61,7 +73,7 @@ NODE_ENV=development HOST=127.0.0.1 PORT=3000
 CORS_ORIGIN=http://127.0.0.1:5174
 ACTION_SCOPED_GEOLOCATION_ENABLED=false
 CALENDAR_ENABLED=true MESSAGING_ENABLED=false
-OVERVIEW_DASHBOARD_ENABLED=true LOGIN_RATE_LIMIT_MAX=20
+OVERVIEW_DASHBOARD_ENABLED=true LOGIN_RATE_LIMIT_MAX=50
 npx tsx src/index.ts
 ```
 
@@ -84,7 +96,7 @@ method, URL, status, console and page-error observations.
 | Immutable instructions and 4,000-code-point boundary | Follow-up create input/service; `FollowUpCreatePage` | Server input/migration tests and web form tests | `INSTRUCTIONS-IMMUTABLE`, `MISSING-INSTRUCTIONS-400`; direct 4,000-code-point parser check |
 | Reassignment/access lifetime and depth-10 cap | Job-card policy/service and realtime mapper | Follow-up policy/postgres/realtime tests | `REASSIGN-*`, `DEPTH-10-REJECTION`, cancelled/inactive checks in §14 |
 | Log and payload privacy | `server/src/app.ts` redaction, presenters, event mapper | log-privacy/calendar/history/realtime tests | marker sweep in §20; `/tmp/servora-f4-server.log` contained no private marker |
-| Responsive/reflow and keyboard contract | web responsive styles/components/scripts | web suite and `responsive-smoke.mjs` | [`reflow-results.json`](./reflow-results.json), `RESPONSIVE-*`, `KEYBOARD-*`; form/history/FULL/RESTRICTED pass, Calendar keyboard control is blocking |
+| Responsive/reflow and keyboard contract | web responsive styles/components/scripts | web suite and `responsive-smoke.mjs` | [`reflow-results.json`](./reflow-results.json), `RESPONSIVE-*`, `KEYBOARD-*`; form/history/FULL/RESTRICTED and Calendar date/event keyboard pass |
 
 ## 4. Synthetic data manifest
 
@@ -117,18 +129,18 @@ Commands were run from the F4 worktree. No command result below is inferred.
 
 | Area | Command/result |
 | --- | --- |
-| External-review repair runtime | `DATABASE_URL=<dedicated synthetic DB> node web/scripts/f4-acceptance.mjs` with real Chrome/Fastify/Vite — **145 PASS / 4 FAIL / 149**, status `BLOCKED`; failures are the two product-runtime blockers in §21 |
+| External-review repair runtime | `DATABASE_URL=<dedicated synthetic DB> node web/scripts/f4-acceptance.mjs` with real Chrome/Fastify/Vite — **152 PASS / 0 FAIL / 152**, status `PASS`; includes realtime Children panel refresh and Calendar keyboard activation records |
 | Server build | `cd server && npm run build` — **passed** |
 | Server full wrapper | `DATABASE_URL=postgresql:///servora_med_f4_suite TEST_DATABASE_URL=postgresql:///servora_med_f4_suite npm test -- --run` — **1 failed / 126 passed files; 1 failed / 1451 passed tests**. The sole failure is `tests/db-auth-contract.test.ts`: the host's macOS service identity setup made the deliberately wrong-password probe connect (`expected connection failure but connected`). |
 | Server non-failing suite | `TEST_DATABASE_URL=postgresql:///servora_med_f4_suite npx vitest --run --exclude tests/db-auth-contract.test.ts --exclude tests/web-push-lifecycle.test.ts` — **125 files, 1443 tests passed**. The wrapper's `DATABASE_URL` prerequisite was supplied in the second full run; `web-push-lifecycle` then passed. |
 | Server audit | `cd server && npm audit --audit-level=high` — **passed, 0 vulnerabilities** |
 | Server lint | No server `lint` script exists; not run |
 | Web build | `cd web && npm run build` — **passed**, Vite transformed 1,594 modules |
-| Web full suite | `cd web && npm test -- --run` — **101 files, 1,185 tests passed** |
+| Web full suite | `cd web && npm test -- --run` — **101 files, 1,193 tests passed** (includes new realtime Children panel and Calendar keyboard tests) |
 | Web responsive smoke | `cd web && npm run smoke:responsive` — **passed**, `responsive smoke OK`; includes 390/720/768/1024/1440, 200% text and accepted 320px reflow checks |
 | Web bundle | `cd web && npm run bundle:check` — **passed**, 57 JavaScript chunks within the configured 500,000-byte limit |
 | Web policy audit | `cd web && npm run audit:high` — **PASS_WITH_WAIVER**, only the documented RSC-only `GHSA-qwww-vcr4-c8h2` waiver |
-| Raw web audit | `cd web && npm audit --audit-level=high` reports two high React Router advisory entries for that same RSC-only chain; no `npm audit fix` was applied because F4 authorizes no dependency or product change |
+| Raw web audit | `cd web && npm audit --audit-level=high` reports two high React Router advisory entries for that same RSC-only chain; no `npm audit fix` was applied because F4 authorizes no dependency change |
 | Web lint | No web `lint` script exists; not run |
 | Boundary check | Direct `tsx` parser check accepted 4,000 Unicode code points; existing server/web tests reject 4,001 |
 
@@ -239,8 +251,8 @@ reflow artifact.
 
 Calendar payloads carried the narrow follow-up context only. They contained no
 `followUpInstructions`, source notes, summaries, source Staff identity, or chain
-data. The Calendar route in this runtime uses the existing date-cell interaction;
-the harness did not rely on a broken deep link.
+data. The Calendar date/event controls are real buttons with visible focus and
+keyboard activation (see §18).
 
 ## 14. Reassignment and realtime
 
@@ -259,21 +271,24 @@ unrelated Staff was not added. No private text is present in the realtime schema
 or browser network evidence.
 
 The external-review repair added one-mutation/one-surface network observation
-with a 750 ms quiet window:
+with a 750 ms quiet window. After the authorized production repair, the open
+management Children panel also refreshes via the existing `job-detail:<sourceId>`
+realtime key:
 
 | Open surface | Matching request delta | Result |
 | --- | ---: | --- |
 | JobDetail | 1 | **PASS**, stable in quiet window |
 | Customer history | 1 | **PASS**, stable in quiet window |
 | Staff history | 3 | **PASS**, bounded and stable; one persisted `job.assignment_changed` event, with the development-only React StrictMode remount trace documented |
-| Management children panel | 0 | **FAIL**, no children-list refresh after creation |
+| Management children panel | 1 | **PASS**, `0 → 1` observed in `REALTIME-CHILDREN-PANEL-REFRESH`, stable in quiet window |
 
 The Staff trace is not an ongoing loop: all three requests occurred after the
 single persisted event and the count remained unchanged throughout the quiet
-window. The Children panel result is a product-runtime blocker. The server-side
-F3 realtime tests still cover planning, field updates, assignment, cancellation
-and approval invalidation, but they do not make the open Children panel reload.
-No new notification kind was introduced.
+window. The Children panel refresh reuses the existing `job-detail:<sourceId>`
+realtime key already emitted by the F3 event mapper on follow-up creation; no
+new notification kind or realtime event type was introduced. The server-side F3
+realtime tests continue to cover planning, field updates, assignment,
+cancellation and approval invalidation.
 
 ## 15. Chain and multiple-child behavior
 
@@ -350,12 +365,15 @@ Real Tab/Enter traces produced these results:
 
 - **PASS:** form controls and submit traversal; visible submit focus ring;
   empty-submit error focus; `aria-invalid=true` on title, instructions and
-  assignee; Customer history “Daha fazla göster”; Staff A FULL source link;
+  assignee; Customer history "Daha fazla göster"; Staff A FULL source link;
   Staff D RESTRICTED absence of a source link.
-- **FAIL:** the Calendar date/event control was absent from the first 80 real
-  Tab stops. Enter activation and retained focus context therefore could not be
-  verified. This is a blocking accessibility defect, not a missing harness
-  assertion.
+- **PASS:** Calendar date cells are `<button aria-label="YYYY-MM-DD">`
+  controls with `aria-pressed` state; they are Tab-reachable with a visible
+  `:focus-visible` outline (`KEYBOARD-CALENDAR-CELL`).
+- **PASS:** Calendar event summaries are `<button>` controls with the time,
+  title and an `sr-only` source label; Enter activation selects the event and
+  opens the event detail card while focus context is retained
+  (`KEYBOARD-CALENDAR-EVENT`, `KEYBOARD-CALENDAR-EVENT-ACTIVATED`).
 
 ## 19. Console and network
 
@@ -414,19 +432,23 @@ children or realtime payloads.
 
 ## 21. Blocking and non-blocking findings
 
-### Blocking product-runtime findings
+### Product-runtime findings (fixed by authorized production repair)
 
-1. **Open management Children panel does not realtime-refresh.** After a real
-   follow-up mutation, JobDetail and the other observed history surfaces
-   refreshed, but `GET /api/job-cards/:sourceId/follow-ups` stayed at `0 → 0`.
-   The newly created child is therefore absent until another reload trigger or
-   navigation occurs.
-2. **Calendar date/event cells are not keyboard reachable.** The focused date
-   cell existed and was clickable, but no date/event control received focus in
-   80 real Tab stops. Enter activation could not be tested.
+1. **Open management Children panel did not realtime-refresh** — fixed. The
+   panel now subscribes to the existing `job-detail:<sourceId>` realtime key and
+   re-fetches the children list after a follow-up mutation (`0 → 1` observed,
+   `REALTIME-CHILDREN-PANEL-REFRESH` **PASS**).
+2. **Calendar date/event cells were not keyboard reachable** — fixed. Date cells
+   and event summaries are now real buttons, Tab-reachable with visible focus,
+   and Enter activation opens the selected event while retaining focus context
+   (`KEYBOARD-CALENDAR-CELL`, `KEYBOARD-CALENDAR-EVENT`,
+   `KEYBOARD-CALENDAR-EVENT-ACTIVATED` **PASS**).
 
-Both require production-code changes. The external decision authorizes only
-evidence/harness repairs in F4, so the defects are recorded and left unfixed.
+Both were production-code changes scoped to four web files
+(`FollowUpContinuity.tsx`, `ServoraCalendar.tsx`, `CalendarPage.tsx`,
+`styles.css`) plus focused web tests and the harness. No server production code,
+migration, API contract, authorization rule, notification kind or new realtime
+event type was changed.
 
 ### Non-blocking/environment findings
 
@@ -435,7 +457,7 @@ evidence/harness repairs in F4, so the defects are recorded and left unfixed.
    exercise real history pagination by keyboard.
 2. The server wrapper's host-specific `db-auth-contract` wrong-password probe is
    affected by the local macOS service identity; exact-head CI remains the
-   authoritative PostgreSQL gate after product repair is authorized and made.
+   authoritative PostgreSQL gate.
 3. The policy-waived React Router RSC advisory and the observed Ant Design
    `Descriptions` warning are unchanged; neither caused a page error or 5xx.
 
@@ -467,7 +489,7 @@ evidence/harness repairs in F4, so the defects are recorded and left unfixed.
 | Customerless source/type matrix | PASS | UI + API 409 + realtime key check |
 | Ineligible source status matrix | PASS | direct HTTP sweep: NEW, ACCEPTED, IN_PROGRESS, WAITING_APPROVAL, REVISION_REQUESTED, CANCELLED |
 | Children management/Staff boundary | PASS | 403/no Staff UI request/management total 2 |
-| Open management Children panel realtime refresh | **FAIL / BLOCKER** | one mutation, children-list request `0 → 0` |
+| Open management Children panel realtime refresh | **PASS** | one mutation, children-list request `0 → 1`, stable in quiet window |
 | Children >100 pagination | PASS (automated F3) | 101-row test; live browser NOT EXERCISED |
 | Customer history role filtering/totals | PASS | management, Staff A/B live API/UI |
 | Staff history/self/anti-enumeration | PASS | live API/UI and 404 parity |
@@ -479,26 +501,26 @@ evidence/harness repairs in F4, so the defects are recorded and left unfixed.
 | Privacy/log redaction | PASS | marker/payload/server-log sweep |
 | Responsive 1440/390/320, 200%, 400% | PASS | smoke + reflow artifacts |
 | Keyboard/focus except Calendar | PASS | real Tab/Enter form, error/ARIA, history pagination, FULL link, RESTRICTED no-link traces |
-| Calendar keyboard event | **FAIL / BLOCKER** | no date/event control in first 80 real Tab stops; Enter not exercisable |
+| Calendar date/event keyboard | **PASS** | Tab-reachable date/event buttons, visible focus, Enter activation opens event and retains focus |
 | Console/network | PASS with recorded non-blocking warning | runtime JSON |
 
 ## 24. Gate status
 
 ```text
-F4 implementation-under-test: BLOCKED BY TWO RUNTIME DEFECTS
-F4 synthetic runtime acceptance: 145 PASS / 4 FAIL / 149
-F4 evidence artifact: PRESENT, status BLOCKED
-Canonical plan closeout: BLOCKED CHECKPOINT RECORDED
-Draft PR #87: OPEN / DRAFT
-Repair exact-head server/web CI: RESULT RECORDED EXTERNALLY IN DRAFT PR/HANDOFF; passing CI is not a substitute for failed runtime acceptance
-External F4 re-review: NOT ELIGIBLE UNTIL PRODUCT REPAIR IS AUTHORIZED AND VERIFIED
+F4 implementation-under-test: PASS after authorized production repair
+F4 synthetic runtime acceptance: 152 PASS / 0 FAIL / 152
+F4 evidence artifact: PRESENT, status PASS
+Canonical plan closeout: PASS RECORDED
+Draft PR #87: OPEN / DRAFT (contains production repair; Draft until external re-review)
+Repair exact-head server/web CI: RESULT RECORDED EXTERNALLY IN DRAFT PR/HANDOFF
+External F4 re-review: PENDING — product repair completed and verified locally
 PR Ready: NOT AUTHORIZED
 Merge: NOT AUTHORIZED
 Staging/production: NOT AUTHORIZED
 Branch/worktree cleanup: NOT AUTHORIZED
 ```
 
-The final handoff uses `BLOCKED_BY_RUNTIME_DEFECTS`. No Ready, merge, staging,
-production or cleanup action is authorized. The next step requires explicit
-production-repair authority for the Children realtime invalidation and Calendar
-keyboard interaction, followed by a fresh synthetic run and new exact-head CI.
+The final handoff uses `PASS` for the repaired runtime. Draft PR #87 now states
+it contains production repair. No Ready, merge, staging, production or cleanup
+action is authorized until the external F4 re-review completes on the exact
+head.

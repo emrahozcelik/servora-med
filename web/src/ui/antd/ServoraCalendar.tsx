@@ -24,6 +24,7 @@ export type ServoraCalendarProps = {
   maxVisibleEventsPerDay: number;
   onMonthChange: (month: Date) => void;
   onDateSelect: (date: Date) => void;
+  onEventSelect?: (eventId: string) => void;
 };
 
 function toDayjs(date: Date): Dayjs {
@@ -52,6 +53,7 @@ export function ServoraCalendar({
   maxVisibleEventsPerDay,
   onMonthChange,
   onDateSelect,
+  onEventSelect,
 }: ServoraCalendarProps): ReactNode {
   const monthDayjs = useMemo(() => toDayjs(month), [month]);
   const selectedDayjs = useMemo(() => toDayjs(selectedDate), [selectedDate]);
@@ -96,13 +98,27 @@ export function ServoraCalendar({
           className={`servora-calendar-cell${isSelected ? ' servora-calendar-cell--selected' : ''}${isToday ? ' servora-calendar-cell--today' : ''}${!isCurrentMonth ? ' servora-calendar-cell--outside' : ''}`}
           data-date={dateKey}
         >
-          <span className="servora-calendar-date">{current.date()}</span>
+          <button
+            type="button"
+            className={`servora-calendar-date${isSelected ? ' servora-calendar-date--selected' : ''}`}
+            aria-label={dateKey}
+            aria-pressed={isSelected}
+            onClick={() => onDateSelect(fromDayjs(current))}
+          >
+            {current.date()}
+          </button>
           {!compact && dayEvents.length > 0 && (
             <div className="servora-calendar-events">
               {dayEvents.slice(0, maxVisibleEventsPerDay).map((event) => (
-                <span
+                <button
                   key={event.id}
+                  type="button"
+                  data-event-id={event.id}
                   className={`servora-calendar-event-summary servora-calendar-event-summary--${event.source.toLowerCase()}`}
+                  onClick={() => {
+                    onDateSelect(fromDayjs(current));
+                    onEventSelect?.(event.id);
+                  }}
                 >
                   <span className="servora-calendar-event-time">
                     {new Date(event.startsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}
@@ -111,7 +127,7 @@ export function ServoraCalendar({
                   <span className="sr-only">
                     {event.source === 'JOB' ? 'İş' : 'Kişisel plan'}
                   </span>
-                </span>
+                </button>
               ))}
               {dayEvents.length > maxVisibleEventsPerDay && (
                 <span className="servora-calendar-overflow" aria-label={`${dayEvents.length - maxVisibleEventsPerDay} plan daha`}>
@@ -128,7 +144,7 @@ export function ServoraCalendar({
         </div>
       );
     },
-    [eventsByDate, monthDayjs, selectedDayjs, today, compact, maxVisibleEventsPerDay],
+    [eventsByDate, monthDayjs, selectedDayjs, today, compact, maxVisibleEventsPerDay, onDateSelect, onEventSelect],
   );
 
   // Custom header: prev / today / next with accessible labels
