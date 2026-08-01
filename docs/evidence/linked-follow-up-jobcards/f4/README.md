@@ -490,7 +490,7 @@ F4 synthetic runtime acceptance: 145 PASS / 4 FAIL / 149
 F4 evidence artifact: PRESENT, status BLOCKED
 Canonical plan closeout: BLOCKED CHECKPOINT RECORDED
 Draft PR #87: OPEN / DRAFT
-New repair exact-head server/web CI: NOT RUN; not a substitute for failed runtime acceptance
+Repair exact-head server/web CI: RESULT RECORDED EXTERNALLY IN DRAFT PR/HANDOFF; passing CI is not a substitute for failed runtime acceptance
 External F4 re-review: NOT ELIGIBLE UNTIL PRODUCT REPAIR IS AUTHORIZED AND VERIFIED
 PR Ready: NOT AUTHORIZED
 Merge: NOT AUTHORIZED
