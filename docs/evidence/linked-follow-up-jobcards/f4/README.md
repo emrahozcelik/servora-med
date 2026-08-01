@@ -34,7 +34,7 @@ branch/worktree cleanup remain unauthorized here.
 | Branch | `docs/linked-follow-up-jobcards-f4-closeout` |
 | Canonical F3/resulting-main base | `1fd65ad4f2a1654b45e856ffd5813bf88f731e58` |
 | F4 evidence snapshot head | `379206b48aa135a38a1f5028aaab321a559f53a8` (harness/evidence commit; CI run `30700951395` passed) |
-| Current F4 branch/PR head | `d9219d551df32e3311fa850cdf3f1f5f4656f877` (docs-only exact-head metadata; CI run `30701132146` passed for server and web) |
+| F4 branch/PR exact-head gate | Authenticated equality and the final server/web CI result are recorded on Draft PR #87 and in the closing handoff; the evidence snapshot is `379206b48aa135a38a1f5028aaab321a559f53a8` (CI run `30700951395` passed) |
 | Draft PR | #87 — `docs: close linked follow-up JobCards acceptance` — [GitHub](https://github.com/emrahozcelik/servora-med/pull/87) |
 | Database | `servora_med_f4_test` (dedicated synthetic PostgreSQL database) |
 | Schema | Migrations 001–022 applied |
@@ -445,7 +445,7 @@ F4 synthetic runtime acceptance: COMPLETE for the matrix above
 F4 evidence artifact: PRESENT
 Canonical plan closeout: RECORDED
 Draft PR #87: OPEN / DRAFT
-Exact-head server/web CI: SUCCESS (run 30701132146, head d9219d…)
+Exact-head server/web CI: SUCCESS (authenticated final head/run recorded on Draft PR #87 and in the closing handoff)
 External F4 review: REQUESTED / PENDING
 PR Ready: NOT AUTHORIZED
 Merge: NOT AUTHORIZED
