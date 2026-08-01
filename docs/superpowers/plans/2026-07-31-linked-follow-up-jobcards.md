@@ -465,6 +465,13 @@ SSE and web-push payloads remain bodyless (`entityId` only). Audience unchanged 
 - **Completion gate:** all acceptance scenarios pass; `docs/evidence/linked-follow-up-jobcards/f4/README.md` committed with the evidence; `git diff --check` clean.
 - **PR:** `test: linked follow-up JobCard runtime acceptance` (separate; includes the canonical evidence artifact — this decision is fixed, not deferred).
 
+#### F4 closeout checkpoint (2026-08-01)
+
+- **Runtime acceptance:** The F4 worktree ran the canonical synthetic matrix against real PostgreSQL (`servora_med_f4_test`), Fastify and Vite using the installed Google Chrome executable. The focused browser harness recorded **100/100 PASS**; the five-surface 200%/400% reflow artifact recorded no horizontal overflow. Evidence is canonical at [`docs/evidence/linked-follow-up-jobcards/f4/README.md`](../../evidence/linked-follow-up-jobcards/f4/README.md), with sanitized runtime results, reflow measurements and focused screenshots.
+- **Automated verification:** Web build, 101-file/1,185-test suite, bundle check, responsive smoke and policy audit passed; server build, 0-vulnerability audit and the non-failing 125-file/1,443-test suite passed. The full server wrapper reached 126/127 files and 1,451/1,452 tests; its sole failure is the host-specific `db-auth-contract` wrong-password probe (`expected connection failure but connected`) caused by the local macOS service identity. Exact-head CI remains authoritative for the complete PostgreSQL gate.
+- **Scope:** F4 added only synthetic seed/verification harnesses and evidence documentation. No migration, production behavior, API contract, notification kind, or F1/F2/F3 design decision changed. F2/F3 evidence and worktrees remain preserved.
+- **Gate:** Implementation/runtime evidence is complete, but the F4 branch is still **Draft/blocked pending push, Draft PR creation and exact-head server/web CI**. External review is pending; PR Ready, merge, staging, production and cleanup remain unauthorized.
+
 **PR sequencing rule:** F1 → F2 → F3 → F4, each against `main`, each gated by its completion gate. Design doc decisions are not re-negotiable in PR review unless a real defect is found (then a follow-up design amendment PR updates this document).
 
 ---

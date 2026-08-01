@@ -1,0 +1,4653 @@
+{
+  "syntheticOnly": true,
+  "runtime": {
+    "browser": "Google Chrome application executable via Playwright",
+    "vite": "http://127.0.0.1:5174",
+    "fastify": "http://127.0.0.1:3000",
+    "database": "servora_med_f4_test"
+  },
+  "jobs": {
+    "f1": "7c479268-09d6-40d7-83c5-bdb6b9f3bffb",
+    "f2": "084a0c9a-5778-466c-968a-e66013698298",
+    "gf1": "ae2ac83b-de27-44d6-8021-ee6e006f3c42",
+    "c2": "cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe"
+  },
+  "responsive": {
+    "320": {
+      "scrollWidth": 320,
+      "clientWidth": 320,
+      "overflow": false
+    },
+    "390": {
+      "scrollWidth": 390,
+      "clientWidth": 390,
+      "overflow": false
+    }
+  },
+  "results": [
+    {
+      "id": "REPO-RUNTIME",
+      "status": "PASS",
+      "observed": "Chrome application executable with real Fastify/Vite proxy runtime",
+      "reference": null
+    },
+    {
+      "id": "HTTP-JOB-DETAIL",
+      "status": "PASS",
+      "observed": "843521a9-7f23-4b8b-b455-6dd95410eb07 returned 200",
+      "reference": null
+    },
+    {
+      "id": "ROOT-FOLLOW-UP-CONTEXT",
+      "status": "PASS",
+      "observed": "S1 root detail has followUpContext null",
+      "reference": null
+    },
+    {
+      "id": "ROOT-RAW-FIELDS",
+      "status": "PASS",
+      "observed": "S1 public detail has no top-level raw source fields",
+      "reference": null
+    },
+    {
+      "id": "ADMIN-SOURCE-ACTION",
+      "status": "PASS",
+      "observed": "Admin sees completed-source follow-up action",
+      "reference": null
+    },
+    {
+      "id": "ADMIN-CREATE-F1",
+      "status": "PASS",
+      "observed": "Admin created F1 7c479268-09d6-40d7-83c5-bdb6b9f3bffb",
+      "reference": null
+    },
+    {
+      "id": "ADMIN-CREATE-PAYLOAD",
+      "status": "PASS",
+      "observed": "Form submitted type/title/instructions/assignee/scheduledAt; customerId/sourceJobCardId/scheduledEndsAt/source text were not form fields",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-INITIAL-LOAD",
+      "status": "PASS",
+      "observed": "Calendar list loaded (2)",
+      "reference": null
+    },
+    {
+      "id": "MANAGER-CREATE-F2",
+      "status": "PASS",
+      "observed": "Manager created F2 084a0c9a-5778-466c-968a-e66013698298",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-REALTIME-REFRESH",
+      "status": "PASS",
+      "observed": "servora.change caused Calendar refresh (2 → 3)",
+      "reference": null
+    },
+    {
+      "id": "CUSTOMERLESS-CREATE",
+      "status": "PASS",
+      "observed": "Customerless source created GENERAL_TASK ae2ac83b-de27-44d6-8021-ee6e006f3c42",
+      "reference": null
+    },
+    {
+      "id": "CUSTOMERLESS-EXPLANATION",
+      "status": "PASS",
+      "observed": "Exact customerless explanation rendered",
+      "reference": null
+    },
+    {
+      "id": "CUSTOMERLESS-TYPE-DISABLE",
+      "status": "PASS",
+      "observed": "Product delivery and sales meeting options disabled",
+      "reference": null
+    },
+    {
+      "id": "CHAIN-CREATE",
+      "status": "PASS",
+      "observed": "Completed C1 produced independent C2 cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe",
+      "reference": null
+    },
+    {
+      "id": "HTTP-JOB-DETAIL",
+      "status": "PASS",
+      "observed": "7c479268-09d6-40d7-83c5-bdb6b9f3bffb returned 200",
+      "reference": null
+    },
+    {
+      "id": "HTTP-JOB-DETAIL",
+      "status": "PASS",
+      "observed": "7c479268-09d6-40d7-83c5-bdb6b9f3bffb returned 200",
+      "reference": null
+    },
+    {
+      "id": "HTTP-JOB-DETAIL",
+      "status": "PASS",
+      "observed": "084a0c9a-5778-466c-968a-e66013698298 returned 200",
+      "reference": null
+    },
+    {
+      "id": "ADMIN-FULL",
+      "status": "PASS",
+      "observed": "Admin sees FULL source access and source link",
+      "reference": null
+    },
+    {
+      "id": "STAFF-B-RESTRICTED",
+      "status": "PASS",
+      "observed": "Staff B sees RESTRICTED context with no source link",
+      "reference": null
+    },
+    {
+      "id": "STAFF-A-FULL",
+      "status": "PASS",
+      "observed": "Source assignee Staff A sees FULL context and source link",
+      "reference": null
+    },
+    {
+      "id": "RESTRICTED-NO-PRIVATE_SOURCE_NOTE_F4",
+      "status": "PASS",
+      "observed": "PRIVATE_SOURCE_NOTE_F4 absent from Staff B detail",
+      "reference": null
+    },
+    {
+      "id": "RESTRICTED-NO-PRIVATE_MEETING_SUMMARY_F4",
+      "status": "PASS",
+      "observed": "PRIVATE_MEETING_SUMMARY_F4 absent from Staff B detail",
+      "reference": null
+    },
+    {
+      "id": "RESTRICTED-NO-PRIVATE_ACTIVITY_F4",
+      "status": "PASS",
+      "observed": "PRIVATE_ACTIVITY_F4 absent from Staff B detail",
+      "reference": null
+    },
+    {
+      "id": "RESTRICTED-NO-PRIVATE_DELIVERY_DETAIL_F4",
+      "status": "PASS",
+      "observed": "PRIVATE_DELIVERY_DETAIL_F4 absent from Staff B detail",
+      "reference": null
+    },
+    {
+      "id": "RESTRICTED-NO-PRIVATE_SOURCE_STAFF_F4",
+      "status": "PASS",
+      "observed": "PRIVATE_SOURCE_STAFF_F4 absent from Staff B detail",
+      "reference": null
+    },
+    {
+      "id": "RESTRICTED-INSTRUCTIONS",
+      "status": "PASS",
+      "observed": "Authorized follow-up instructions remain visible in restricted context",
+      "reference": null
+    },
+    {
+      "id": "STAFF-C-404",
+      "status": "PASS",
+      "observed": "Unrelated Staff C direct follow-up access is 404",
+      "reference": null
+    },
+    {
+      "id": "STAFF-CHILDREN-403",
+      "status": "PASS",
+      "observed": "Staff source owner receives canonical children 403",
+      "reference": null
+    },
+    {
+      "id": "MANAGEMENT-CHILDREN",
+      "status": "PASS",
+      "observed": "Management children total is 2",
+      "reference": null
+    },
+    {
+      "id": "STAFF-CHILDREN-PANEL-HIDDEN",
+      "status": "PASS",
+      "observed": "Staff source detail has no children panel",
+      "reference": null
+    },
+    {
+      "id": "STAFF-NO-CHILDREN-REQUEST",
+      "status": "PASS",
+      "observed": "Staff source UI makes no children request; observed []",
+      "reference": null
+    },
+    {
+      "id": "MANAGEMENT-CHILDREN-PANEL",
+      "status": "PASS",
+      "observed": "Management source detail renders children panel",
+      "reference": null
+    },
+    {
+      "id": "CUSTOMER-HISTORY-MANAGEMENT",
+      "status": "PASS",
+      "observed": "Management customer history includes unrelated authorized Staff C row",
+      "reference": null
+    },
+    {
+      "id": "CUSTOMER-HISTORY-STAFF-A",
+      "status": "PASS",
+      "observed": "Staff A rows and total are own-assignment filtered",
+      "reference": null
+    },
+    {
+      "id": "CUSTOMER-HISTORY-STAFF-B",
+      "status": "PASS",
+      "observed": "Staff B rows and total are own-assignment filtered",
+      "reference": null
+    },
+    {
+      "id": "CUSTOMER-HISTORY-PRIVACY",
+      "status": "PASS",
+      "observed": "Customer history carries no private source markers",
+      "reference": null
+    },
+    {
+      "id": "STAFF-HISTORY-MANAGEMENT",
+      "status": "PASS",
+      "observed": "Management Staff A history is available",
+      "reference": null
+    },
+    {
+      "id": "STAFF-HISTORY-SELF",
+      "status": "PASS",
+      "observed": "Staff self-history is own-filtered with truthful total",
+      "reference": null
+    },
+    {
+      "id": "STAFF-HISTORY-ANTI-ENUMERATION",
+      "status": "PASS",
+      "observed": "Staff parameterized other-target history is canonical 404",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-HTTP",
+      "status": "PASS",
+      "observed": "calendar returned 200",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-HTTP",
+      "status": "PASS",
+      "observed": "calendar returned 200",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-HTTP",
+      "status": "PASS",
+      "observed": "calendar returned 200",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-ADMIN-FULL",
+      "status": "PASS",
+      "observed": "Management Calendar has FULL source link parity",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-STAFF-A-FULL",
+      "status": "PASS",
+      "observed": "Source-authorized Staff A Calendar has FULL source link parity",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-STAFF-C-HIDDEN",
+      "status": "PASS",
+      "observed": "Unrelated Staff C Calendar omits follow-ups",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-PRIVACY",
+      "status": "PASS",
+      "observed": "Calendar payload has no private source markers",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-NO-INSTRUCTIONS",
+      "status": "PASS",
+      "observed": "Calendar payload has no follow-up instructions field",
+      "reference": null
+    },
+    {
+      "id": "IDEMPOTENT-REPLAY",
+      "status": "PASS",
+      "observed": "Same clientActionId returns same logical JobCard",
+      "reference": null
+    },
+    {
+      "id": "IDEMPOTENT-SIDE-EFFECTS",
+      "status": "PASS",
+      "observed": "Committed server idempotency tests verify no duplicate activity/notification/realtime side effects",
+      "reference": null
+    },
+    {
+      "id": "INSTRUCTIONS-IMMUTABLE",
+      "status": "PASS",
+      "observed": "Generic JobCard PATCH rejects follow_up_instructions",
+      "reference": null
+    },
+    {
+      "id": "STAFF-CREATE-403",
+      "status": "PASS",
+      "observed": "Staff follow-up creation is forbidden",
+      "reference": null
+    },
+    {
+      "id": "MISSING-INSTRUCTIONS-400",
+      "status": "PASS",
+      "observed": "Whitespace-only instructions are rejected",
+      "reference": null
+    },
+    {
+      "id": "DEPTH-10-REJECTION",
+      "status": "PASS",
+      "observed": "Depth-10 source rejects depth-11 child canonically",
+      "reference": null
+    },
+    {
+      "id": "CUSTOMERLESS-TYPE-409",
+      "status": "PASS",
+      "observed": "Customerless product follow-up is rejected canonically",
+      "reference": null
+    },
+    {
+      "id": "HTTP-JOB-DETAIL",
+      "status": "PASS",
+      "observed": "7c479268-09d6-40d7-83c5-bdb6b9f3bffb returned 200",
+      "reference": null
+    },
+    {
+      "id": "REASSIGN-F1",
+      "status": "PASS",
+      "observed": "Admin reassigned F1 from Staff B to Staff D",
+      "reference": null
+    },
+    {
+      "id": "HTTP-JOB-DETAIL",
+      "status": "PASS",
+      "observed": "7c479268-09d6-40d7-83c5-bdb6b9f3bffb returned 200",
+      "reference": null
+    },
+    {
+      "id": "REASSIGN-OLD-LOSS",
+      "status": "PASS",
+      "observed": "Old Staff B loses F1 access after reassignment",
+      "reference": null
+    },
+    {
+      "id": "REASSIGN-NEW-MODE",
+      "status": "PASS",
+      "observed": "New Staff D receives current restricted source mode",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-HTTP",
+      "status": "PASS",
+      "observed": "calendar returned 200",
+      "reference": null
+    },
+    {
+      "id": "REASSIGN-CALENDAR-NEW",
+      "status": "PASS",
+      "observed": "Staff D Calendar receives reassigned F1",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-HTTP",
+      "status": "PASS",
+      "observed": "calendar returned 200",
+      "reference": null
+    },
+    {
+      "id": "REASSIGN-CALENDAR-OLD",
+      "status": "PASS",
+      "observed": "Staff B Calendar loses reassigned F1",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-RESTRICTED-UI",
+      "status": "PASS",
+      "observed": "Restricted Calendar UI shows indicator/date context without source link/text",
+      "reference": null
+    },
+    {
+      "id": "JOBDETAIL-FULL-UI",
+      "status": "PASS",
+      "observed": "Staff A FULL JobDetail shows source context and link",
+      "reference": null
+    },
+    {
+      "id": "CALENDAR-HTTP",
+      "status": "PASS",
+      "observed": "calendar returned 200",
+      "reference": null
+    },
+    {
+      "id": "CROSS-ORG-ISOLATION",
+      "status": "PASS",
+      "observed": "Cross-organization Staff receives no customer/job/staff/calendar data",
+      "reference": null
+    },
+    {
+      "id": "CUSTOMER-HISTORY-UI",
+      "status": "PASS",
+      "observed": "Management Customer history UI is rendered",
+      "reference": null
+    },
+    {
+      "id": "STAFF-HISTORY-UI",
+      "status": "PASS",
+      "observed": "Management Staff history UI is rendered",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-admin",
+      "status": "PASS",
+      "observed": "admin pageerror count 0: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-PROHIBITED-admin",
+      "status": "PASS",
+      "observed": "admin prohibited console findings: []",
+      "reference": null
+    },
+    {
+      "id": "HTTP-5XX-admin",
+      "status": "PASS",
+      "observed": "admin 5xx responses: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-FINDINGS-admin",
+      "status": "PASS",
+      "observed": "{\"consoleErrors\":[\"Failed to load resource: the server responded with a status of 404 (Not Found)\",\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.\",\"Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.\",\"Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.\",\"Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.\",\"Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.\",\"Failed to load resource: the server responded with a status of 400 (Bad Request)\",\"Failed to load resource: the server responded with a status of 400 (Bad Request)\",\"Failed to load resource: the server responded with a status of 409 (Conflict)\",\"Failed to load resource: the server responded with a status of 409 (Conflict)\"],\"consoleWarnings\":[]}",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-manager",
+      "status": "PASS",
+      "observed": "manager pageerror count 0: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-PROHIBITED-manager",
+      "status": "PASS",
+      "observed": "manager prohibited console findings: []",
+      "reference": null
+    },
+    {
+      "id": "HTTP-5XX-manager",
+      "status": "PASS",
+      "observed": "manager 5xx responses: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-FINDINGS-manager",
+      "status": "PASS",
+      "observed": "{\"consoleErrors\":[\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.\",\"Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.\"],\"consoleWarnings\":[]}",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-staffA",
+      "status": "PASS",
+      "observed": "staffA pageerror count 0: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-PROHIBITED-staffA",
+      "status": "PASS",
+      "observed": "staffA prohibited console findings: []",
+      "reference": null
+    },
+    {
+      "id": "HTTP-5XX-staffA",
+      "status": "PASS",
+      "observed": "staffA 5xx responses: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-FINDINGS-staffA",
+      "status": "PASS",
+      "observed": "{\"consoleErrors\":[\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 403 (Forbidden)\",\"Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.\",\"Failed to load resource: the server responded with a status of 404 (Not Found)\",\"Failed to load resource: the server responded with a status of 403 (Forbidden)\",\"Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.\"],\"consoleWarnings\":[]}",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-staffB",
+      "status": "PASS",
+      "observed": "staffB pageerror count 0: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-PROHIBITED-staffB",
+      "status": "PASS",
+      "observed": "staffB prohibited console findings: []",
+      "reference": null
+    },
+    {
+      "id": "HTTP-5XX-staffB",
+      "status": "PASS",
+      "observed": "staffB 5xx responses: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-FINDINGS-staffB",
+      "status": "PASS",
+      "observed": "{\"consoleErrors\":[\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 404 (Not Found)\"],\"consoleWarnings\":[]}",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-staffC",
+      "status": "PASS",
+      "observed": "staffC pageerror count 0: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-PROHIBITED-staffC",
+      "status": "PASS",
+      "observed": "staffC prohibited console findings: []",
+      "reference": null
+    },
+    {
+      "id": "HTTP-5XX-staffC",
+      "status": "PASS",
+      "observed": "staffC 5xx responses: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-FINDINGS-staffC",
+      "status": "PASS",
+      "observed": "{\"consoleErrors\":[\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 404 (Not Found)\"],\"consoleWarnings\":[]}",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-staffD",
+      "status": "PASS",
+      "observed": "staffD pageerror count 0: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-PROHIBITED-staffD",
+      "status": "PASS",
+      "observed": "staffD prohibited console findings: []",
+      "reference": null
+    },
+    {
+      "id": "HTTP-5XX-staffD",
+      "status": "PASS",
+      "observed": "staffD 5xx responses: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-FINDINGS-staffD",
+      "status": "PASS",
+      "observed": "{\"consoleErrors\":[\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\"],\"consoleWarnings\":[]}",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-cross",
+      "status": "PASS",
+      "observed": "cross pageerror count 0: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-PROHIBITED-cross",
+      "status": "PASS",
+      "observed": "cross prohibited console findings: []",
+      "reference": null
+    },
+    {
+      "id": "HTTP-5XX-cross",
+      "status": "PASS",
+      "observed": "cross 5xx responses: []",
+      "reference": null
+    },
+    {
+      "id": "CONSOLE-FINDINGS-cross",
+      "status": "PASS",
+      "observed": "{\"consoleErrors\":[\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 401 (Unauthorized)\",\"Failed to load resource: the server responded with a status of 404 (Not Found)\",\"Failed to load resource: the server responded with a status of 404 (Not Found)\",\"Failed to load resource: the server responded with a status of 403 (Forbidden)\"],\"consoleWarnings\":[]}",
+      "reference": null
+    },
+    {
+      "id": "RESPONSIVE-390",
+      "status": "PASS",
+      "observed": "390px JobDetail has no horizontal overflow",
+      "reference": null
+    },
+    {
+      "id": "RESPONSIVE-320",
+      "status": "PASS",
+      "observed": "320px JobDetail has no horizontal overflow",
+      "reference": null
+    },
+    {
+      "id": "KEYBOARD-FOCUS",
+      "status": "PASS",
+      "observed": "Follow-up form control receives keyboard focus",
+      "reference": null
+    }
+  ],
+  "console": {
+    "admin": {
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/ae2ac83b-de27-44d6-8021-ee6e006f3c42"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/ae2ac83b-de27-44d6-8021-ee6e006f3c42"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/45780022-482e-468d-a5de-7dc2c638f82b/follow-ups"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/45780022-482e-468d-a5de-7dc2c638f82b/follow-ups"
+        },
+        {
+          "method": "PATCH",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/45780022-482e-468d-a5de-7dc2c638f82b/follow-ups"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/90000000-0000-4000-8000-000000000010/follow-ups"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "method": "PATCH",
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=20&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=20&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        }
+      ],
+      "responses": [
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 201,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 201,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/ae2ac83b-de27-44d6-8021-ee6e006f3c42"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/ae2ac83b-de27-44d6-8021-ee6e006f3c42"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 201,
+          "url": "http://127.0.0.1:5174/api/job-cards/45780022-482e-468d-a5de-7dc2c638f82b/follow-ups"
+        },
+        {
+          "status": 201,
+          "url": "http://127.0.0.1:5174/api/job-cards/45780022-482e-468d-a5de-7dc2c638f82b/follow-ups"
+        },
+        {
+          "status": 400,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 400,
+          "url": "http://127.0.0.1:5174/api/job-cards/45780022-482e-468d-a5de-7dc2c638f82b/follow-ups"
+        },
+        {
+          "status": 409,
+          "url": "http://127.0.0.1:5174/api/job-cards/90000000-0000-4000-8000-000000000010/follow-ups"
+        },
+        {
+          "status": 409,
+          "url": "http://127.0.0.1:5174/api/job-cards/da3d1aa6-fdd1-4712-8581-2d83561f9ee7/follow-ups"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=20&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=20&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        }
+      ],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.",
+        "Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.",
+        "Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.",
+        "Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.",
+        "Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.",
+        "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+        "Failed to load resource: the server responded with a status of 400 (Bad Request)",
+        "Failed to load resource: the server responded with a status of 409 (Conflict)",
+        "Failed to load resource: the server responded with a status of 409 (Conflict)"
+      ],
+      "consoleWarnings": [],
+      "pageErrors": []
+    },
+    "manager": {
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/follow-ups"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/follow-ups?limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff/6bad0eec-ae61-4a0c-a5da-bb2d7fedc8bd/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        }
+      ],
+      "responses": [
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 201,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/contacts?status=active&limit=200&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff?status=active"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 201,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3/follow-ups"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/5c693c75-f5ae-4c61-8103-323f7aafd0a3"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/cbdd7cfc-b1b4-45dd-a7f4-658b2ab9ecfe/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff/6bad0eec-ae61-4a0c-a5da-bb2d7fedc8bd/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        }
+      ],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.",
+        "Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions."
+      ],
+      "consoleWarnings": [],
+      "pageErrors": []
+    },
+    "staffA": {
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff/me/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff/4228abe0-454c-4607-9db3-a56dcaf77eec/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/reports/staff/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff/me/jobs?status=all&limit=20&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/reports/staff/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff/me/jobs?status=all&limit=20&offset=0"
+        }
+      ],
+      "responses": [
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 403,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups?limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/meeting-details"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff/me/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "status": 404,
+          "url": "http://127.0.0.1:5174/api/staff/4228abe0-454c-4607-9db3-a56dcaf77eec/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        },
+        {
+          "status": 403,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07/follow-ups"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/notes?limit=25"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/084a0c9a-5778-466c-968a-e66013698298/activity?limit=50&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff/me/jobs?status=all&limit=20&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/staff/me/jobs?status=all&limit=20&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/reports/staff/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/reports/staff/me"
+        }
+      ],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions.",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "Warning: [antd: Descriptions] Sum of column `span` in a line not match `column` of Descriptions."
+      ],
+      "consoleWarnings": [],
+      "pageErrors": []
+    },
+    "staffB": {
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        }
+      ],
+      "responses": [
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 404,
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        }
+      ],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)"
+      ],
+      "consoleWarnings": [],
+      "pageErrors": []
+    },
+    "staffC": {
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        }
+      ],
+      "responses": [
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 404,
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        }
+      ],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)"
+      ],
+      "consoleWarnings": [],
+      "pageErrors": []
+    },
+    "staffD": {
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        }
+      ],
+      "responses": [
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/job-cards/7c479268-09d6-40d7-83c5-bdb6b9f3bffb"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar/assignees"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-07-26T21%3A00%3A00.000Z&to=2026-09-06T21%3A00%3A00.000Z"
+        }
+      ],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)"
+      ],
+      "consoleWarnings": [],
+      "pageErrors": []
+    },
+    "cross": {
+      "requests": [
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "method": "POST",
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/staff/6bad0eec-ae61-4a0c-a5da-bb2d7fedc8bd"
+        },
+        {
+          "method": "GET",
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        }
+      ],
+      "responses": [
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 401,
+          "url": "http://127.0.0.1:5174/api/auth/me"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/auth/login"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/realtime/events"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/web-push/status"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/notifications/unread-count"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/overview"
+        },
+        {
+          "status": 404,
+          "url": "http://127.0.0.1:5174/api/customers/fd70e6be-655d-44a3-a73f-d78844ff31c5/jobs?status=all&limit=100&offset=0"
+        },
+        {
+          "status": 404,
+          "url": "http://127.0.0.1:5174/api/job-cards/843521a9-7f23-4b8b-b455-6dd95410eb07"
+        },
+        {
+          "status": 403,
+          "url": "http://127.0.0.1:5174/api/staff/6bad0eec-ae61-4a0c-a5da-bb2d7fedc8bd"
+        },
+        {
+          "status": 200,
+          "url": "http://127.0.0.1:5174/api/calendar?from=2026-08-01T00%3A00%3A00.000Z&to=2026-08-31T23%3A59%3A59.999Z"
+        }
+      ],
+      "consoleErrors": [
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 404 (Not Found)",
+        "Failed to load resource: the server responded with a status of 403 (Forbidden)"
+      ],
+      "consoleWarnings": [],
+      "pageErrors": []
+    }
+  }
+}
