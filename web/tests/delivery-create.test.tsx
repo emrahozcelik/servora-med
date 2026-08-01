@@ -37,7 +37,7 @@ describe('Product Delivery creation', () => {
 
   it('suggests only active primary Contact and active responsible Staff for management', () => {
     const detail = { ...customers[0], organizationId: 'org-1', taxNumber: null, phone: null, email: null, city: null, district: null,
-      address: null, assignedStaffUserId: 'staff-2', assignedStaffName: 'Bora', version: 1, primaryContact: null, openJobs: [], completedJobs: [],
+      address: null, assignedStaffUserId: 'staff-2', assignedStaffName: 'Bora', version: 1, primaryContact: null, openJobCount: 0, completedJobCount: 0,
       contacts: [
         { id: 'inactive-primary', organizationId: 'org-1', customerId: 'c1', name: 'Eski Doktor', title: null, phone: null, email: null, isPrimary: true, isActive: false, version: 1 },
         { id: 'active-contact', organizationId: 'org-1', customerId: 'c1', name: 'Yeni Doktor', title: null, phone: null, email: null, isPrimary: true, isActive: true, version: 1 },

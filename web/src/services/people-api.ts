@@ -2,6 +2,8 @@ import {
   ApiError, boolean, json, nullableString, number, object, request, string,
   type UserRole,
 } from './api';
+import { request as apiRequest } from './api';
+import { parseJobHistoryItem, type JobHistoryItem, type Paginated } from './crm-api';
 
 export type ManagedUser = {
   id: string; organizationId: string; name: string; email: string; role: UserRole;
@@ -15,6 +17,7 @@ export type StaffProfile = {
 };
 export type StaffProfileFields = { title: string | null; phone: string | null; region: string | null; managerUserId: string | null };
 export type CreateUserInput = { name: string; email: string; role: UserRole; temporaryPassword: string; staffProfile?: StaffProfileFields };
+export type { JobHistoryItem } from './crm-api';
 
 function parseUser(value: unknown): ManagedUser {
   const v = object(value);
@@ -49,3 +52,26 @@ export const listStaff = async (status: 'active' | 'inactive' | 'all' = 'active'
 export const getOwnStaffProfile = async () => parseProfile(await request('/api/staff/me'));
 export const getStaffProfile = async (id: string) => parseProfile(await request(`/api/staff/${id}`));
 export const updateStaffProfile = async (id: string, input: StaffProfileFields & { expectedVersion: number }) => parseProfile(await request(`/api/staff/${id}`, json('PATCH', input)));
+
+function historyQuery(filters: { status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number }) {
+  const params = new URLSearchParams();
+  for (const [key, value] of Object.entries(filters)) {
+    if (value !== undefined) params.set(key, String(value));
+  }
+  const encoded = params.toString();
+  return encoded ? `?${encoded}` : '';
+}
+
+function parseHistoryPage(value: unknown): Paginated<JobHistoryItem> {
+  const raw = object(value);
+  if (!Array.isArray(raw.items)) throw new ApiError(0, 'INVALID_RESPONSE', 'Sunucudan geçersiz iş geçmişi listesi alındı.');
+  return {
+    items: raw.items.map(parseJobHistoryItem),
+    total: number(raw.total, 'total'), limit: number(raw.limit, 'limit'), offset: number(raw.offset, 'offset'),
+  };
+}
+
+export const listOwnStaffJobs = async (filters: { status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number } = {}) =>
+  parseHistoryPage(await apiRequest(`/api/staff/me/jobs${historyQuery(filters)}`));
+export const listStaffJobs = async (id: string, filters: { status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number } = {}) =>
+  parseHistoryPage(await apiRequest(`/api/staff/${encodeURIComponent(id)}/jobs${historyQuery(filters)}`));

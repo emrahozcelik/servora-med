@@ -11,6 +11,7 @@ import type {
   ManualEventCreateInput,
   ManualEventPatchInput,
 } from './types.js';
+import { resolveSourceAccess } from '../job-cards/policy.js';
 
 type CalendarRow = {
   id: string;
@@ -33,6 +34,14 @@ type CalendarRow = {
   created_by_name: string | null;
   updated_by_id: string | null;
   updated_by_name: string | null;
+  source_job_card_id: string | null;
+  source_assigned_to: string | null;
+  source_job_type: string | null;
+  source_planned_at: Date | null;
+  source_started_at: Date | null;
+  source_staff_completed_at: Date | null;
+  source_meeting_at: Date | null;
+  source_completed_at: Date | null;
 };
 
 const CALENDAR_LIST_SQL = `
@@ -42,13 +51,25 @@ SELECT j.id, 'JOB'::text AS source, j.title, NULL::text AS description,
   j.version, j.status, j.type AS job_type, j.status AS job_status, j.priority,
   c.id AS customer_id, c.name AS customer_name,
   NULL::uuid AS created_by_id, NULL::text AS created_by_name,
-  NULL::uuid AS updated_by_id, NULL::text AS updated_by_name
+  NULL::uuid AS updated_by_id, NULL::text AS updated_by_name,
+  j.source_job_card_id,
+  src.assigned_to AS source_assigned_to,
+  src.type AS source_job_type,
+  src.scheduled_at AS source_planned_at,
+  src.started_at AS source_started_at,
+  src.staff_completed_at AS source_staff_completed_at,
+  md.meeting_at AS source_meeting_at,
+  src.manager_approved_at AS source_completed_at
 FROM job_cards j
 JOIN organizations o ON o.id = j.organization_id
 JOIN users assignee
   ON assignee.organization_id = j.organization_id AND assignee.id = j.assigned_to
 LEFT JOIN customers c
   ON c.organization_id = j.organization_id AND c.id = j.customer_id
+LEFT JOIN job_cards src
+  ON src.organization_id = j.organization_id AND src.id = j.source_job_card_id
+LEFT JOIN job_card_meeting_details md
+  ON md.organization_id = src.organization_id AND md.job_card_id = src.id
 WHERE j.organization_id = $1
   AND ($2::uuid IS NULL OR j.assigned_to = $2)
   AND ($5::text <> 'STAFF' OR j.assigned_to = $6)
@@ -66,7 +87,9 @@ SELECT e.id, 'MANUAL'::text AS source, e.title, e.description,
   e.starts_at, e.ends_at, e.timezone,
   e.assigned_user_id, assignee.name, e.version, e.status,
   NULL::text, NULL::text, NULL::text, NULL::uuid, NULL::text,
-  creator.id, creator.name, updater.id, updater.name
+  creator.id, creator.name, updater.id, updater.name,
+  NULL::uuid, NULL::uuid, NULL::text, NULL::timestamptz, NULL::timestamptz,
+  NULL::timestamptz, NULL::timestamptz, NULL::timestamptz
 FROM calendar_events e
 JOIN users assignee
   ON assignee.organization_id = e.organization_id AND assignee.id = e.assigned_user_id
@@ -88,7 +111,7 @@ WHERE e.organization_id = $1
   AND e.ends_at > $3
 ORDER BY starts_at ASC, source ASC, id ASC`;
 
-function event(row: CalendarRow): CalendarEvent {
+function event(row: CalendarRow, actor: CalendarActor): CalendarEvent {
   const common = {
     id: row.id,
     source: row.source,
@@ -113,6 +136,25 @@ function event(row: CalendarRow): CalendarEvent {
         ? { id: row.customer_id, name: row.customer_name! }
         : null,
       relatedJobPath: `/jobs/${row.id}`,
+      followUpContext: row.source_job_card_id === null || row.source_completed_at === null
+        ? null
+        : (() => {
+            const sourceAccess = resolveSourceAccess(actor, {
+              organizationId: actor.organizationId,
+              assignedTo: row.source_assigned_to!,
+            });
+            return {
+              sourceAccess,
+              sourceJobPath: sourceAccess === 'FULL' ? `/jobs/${row.source_job_card_id}` : null,
+              sourcePlannedAt: row.source_planned_at?.toISOString() ?? null,
+              sourceOccurredAt: (row.source_job_type === 'SALES_MEETING'
+                ? row.source_meeting_at
+                : row.source_started_at)?.toISOString()
+                ?? row.source_staff_completed_at?.toISOString()
+                ?? null,
+              sourceCompletedAt: row.source_completed_at.toISOString(),
+            };
+          })(),
     };
   }
   return {
@@ -148,7 +190,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
       CALENDAR_LIST_SQL,
       [actor.organizationId, assignedTo, query.from, query.to, actor.role, actor.id],
     );
-    return result.rows.map(event);
+    return result.rows.map((row) => event(row, actor));
   }
 
   async listAssignableUsers(actor: CalendarActor) {
@@ -198,7 +240,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
        WHERE e.organization_id = $1 AND e.id = $2`,
       [actor.organizationId, eventId],
     );
-    return result.rows[0] ? event(result.rows[0]) : null;
+    return result.rows[0] ? event(result.rows[0], actor) : null;
   }
 
   createManual(actor: CalendarActor, input: ManualEventCreateInput, now: Date) {

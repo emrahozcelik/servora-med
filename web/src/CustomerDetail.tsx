@@ -2,15 +2,16 @@ import { useEffect, useRef, useState, type FormEvent, type RefObject } from 'rea
 import { Link, useNavigate } from 'react-router-dom';
 
 import { addContact, ContactCreateForm, ContactListView } from './ContactManagement';
-import { jobCardStatusLabel } from './jobs/job-labels';
+import { jobCardStatusLabel, jobTypeLabels } from './jobs/job-labels';
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
-  getCustomer, updateCustomer,
-  type Customer, type CustomerDetail, type CustomerJobSummary, type CustomerType,
+  getCustomer, listCustomerJobs, updateCustomer,
+  type Customer, type CustomerDetail, type JobHistoryItem, type CustomerType, type Paginated,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
+import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { ResultState } from './ui/antd/ResultState';
 
 const typeLabels: Record<CustomerType, string> = { clinic: 'Klinik', hospital: 'Hastane', dealer: 'Bayi', company: 'Firma', other: 'Diğer' };
@@ -43,12 +44,51 @@ function CustomerFacts({ customer }: { customer: CustomerDetail }) {
     <div className="record-fact-wide"><dt>Adres</dt><dd>{customer.address ?? 'Belirtilmedi'}</dd></div></dl>;
 }
 
-function JobSummaries({ title, jobs }: { title: string; jobs: CustomerJobSummary[] }) {
-  const visible = jobs.slice(0, 5);
-  const titleId = title === 'Açık işler' ? 'open-jobs-title' : 'completed-jobs-title';
-  return <section className="record-section job-summaries" aria-labelledby={titleId}><h2 id={titleId}>{title}</h2>
-    {visible.length === 0 ? <p className="muted-copy">Bu kapsamda iş kartı yok.</p> : <ul>{visible.map((job) => <li key={job.id}><Link to={paths.job(job.id)}>{job.title}</Link>
-      <span>{jobCardStatusLabel(job.status)}</span>{job.dueDate && <time dateTime={job.dueDate}>{job.dueDate}</time>}</li>)}</ul>}
+type CustomerHistoryStatus = 'open' | 'completed' | 'all';
+
+function CustomerHistory({
+  customer, status, page, loading, error, onStatusChange, onPageChange,
+}: {
+  customer: CustomerDetail;
+  status: CustomerHistoryStatus;
+  page: Paginated<JobHistoryItem> | null;
+  loading: boolean;
+  error: string;
+  onStatusChange: (status: CustomerHistoryStatus) => void;
+  onPageChange: (offset: number) => void;
+}) {
+  const tabs: Array<{ value: CustomerHistoryStatus; label: string; count: number }> = [
+    { value: 'open', label: 'Açık', count: customer.openJobCount },
+    { value: 'completed', label: 'Tamamlanan', count: customer.completedJobCount },
+    // The all tab can also contain cancelled cards, so derive its count from
+    // the same filtered page rather than adding the two status counters.
+    { value: 'all', label: 'Tümü', count: status === 'all' && page ? page.total : customer.openJobCount + customer.completedJobCount },
+  ];
+  const items = page?.items ?? [];
+  const hasPrevious = (page?.offset ?? 0) > 0;
+  const hasNext = page ? page.offset + page.items.length < page.total : false;
+  return <section className="record-section customer-history" aria-labelledby="customer-history-title">
+    <div className="section-heading"><h2 id="customer-history-title">İş geçmişi</h2><span>{page?.total ?? '…'} kayıt</span></div>
+    <div className="history-tabs" role="tablist" aria-label="İş geçmişi kapsamı">
+      {tabs.map((tab) => <button key={tab.value} type="button" role="tab" aria-selected={status === tab.value}
+        className={status === tab.value ? 'secondary-button is-active' : 'secondary-button'} onClick={() => onStatusChange(tab.value)}>
+        {tab.label} ({tab.count})
+      </button>)}
+    </div>
+    {loading && <p className="muted-copy" aria-busy="true">İş geçmişi yükleniyor…</p>}
+    {!loading && error && <p className="form-error" role="alert">{error}</p>}
+    {!loading && !error && items.length === 0 && <p className="muted-copy">Bu müşteri için görüntüleyebileceğiniz iş kaydı bulunmuyor.</p>}
+    {!loading && !error && items.length > 0 && <ul className="job-history-list">
+      {items.map((job) => <li key={job.id} className="job-history-row">
+        <div><Link to={paths.job(job.id)}>{job.title}</Link>{job.followUp && <span className="follow-up-badge">Takip</span>}
+          <p>{jobTypeLabels[job.type]} · {jobCardStatusLabel(job.status)} · {job.assignee.name}</p></div>
+        <time dateTime={job.completedAt ?? job.scheduledAt ?? job.createdAt}>{new Date(job.completedAt ?? job.scheduledAt ?? job.createdAt).toLocaleDateString('tr-TR')}</time>
+      </li>)}
+    </ul>}
+    {(hasPrevious || hasNext) && <div className="pagination-actions">
+      <button type="button" className="secondary-button" disabled={!hasPrevious || loading} onClick={() => onPageChange(Math.max(0, (page?.offset ?? 0) - (page?.limit ?? 20)))}>Önceki</button>
+      <button type="button" className="secondary-button" disabled={!hasNext || loading} onClick={() => onPageChange((page?.offset ?? 0) + (page?.limit ?? 20))}>Daha fazla göster</button>
+    </div>}
   </section>;
 }
 
@@ -68,9 +108,11 @@ function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel 
       <button className="primary-button compact-button" type="submit" disabled={pending || blocked}>Bilgileri kaydet</button></div></form>;
 }
 
-export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, errorRef, createContactButtonRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent }: {
+export function CustomerDetailView({ customer, user, staff, pending, error, notice, conflict = false, formRevision = 0, historyStatus = 'all', historyPage = null, historyLoading = false, historyError = '', onHistoryStatusChange = () => {}, onHistoryPageChange = () => {}, errorRef, createContactButtonRef, onBack, onSave, onCreateContact, onOpenContact, onReloadCurrent }: {
   customer: CustomerDetail; user: CurrentUser; staff: StaffProfile[]; pending: boolean; error: string; notice: string;
   conflict?: boolean; formRevision?: number;
+  historyStatus?: CustomerHistoryStatus; historyPage?: Paginated<JobHistoryItem> | null; historyLoading?: boolean; historyError?: string;
+  onHistoryStatusChange?: (status: CustomerHistoryStatus) => void; onHistoryPageChange?: (offset: number) => void;
   errorRef?: RefObject<HTMLDivElement | null>;
   createContactButtonRef?: RefObject<HTMLButtonElement | null>;
   onBack: () => void; onSave: (event: FormEvent<HTMLFormElement>) => void; onCreateContact: () => void;
@@ -87,7 +129,8 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
       {canManage ? <CustomerEditForm key={`${customer.id}:${formRevision}`} customer={customer} staff={staff} pending={pending} blocked={conflict} onSave={onSave} onCancel={onBack} /> : <CustomerFacts customer={customer} />}</section>
     <ContactListView state={{ kind: 'ready', contacts: customer.contacts }} canManage={canManage} createButtonRef={createContactButtonRef}
       onRetry={() => {}} onCreate={onCreateContact} onOpenContact={onOpenContact} />
-    <div className="job-summary-grid"><JobSummaries title="Açık işler" jobs={customer.openJobs} /><JobSummaries title="Tamamlanan işler" jobs={customer.completedJobs} /></div>
+    <CustomerHistory customer={customer} status={historyStatus} page={historyPage} loading={historyLoading} error={historyError}
+      onStatusChange={onHistoryStatusChange} onPageChange={onHistoryPageChange} />
   </main>;
 }
 
@@ -95,7 +138,9 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
   const navigate = useNavigate(); const [customer, setCustomer] = useState<CustomerDetail | null>(null); const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [loading, setLoading] = useState(true); const [pending, setPending] = useState(false); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   const [conflict, setConflict] = useState(false); const [formRevision, setFormRevision] = useState(0); const [creatingContact, setCreatingContact] = useState(false); const [contactError, setContactError] = useState('');
-  const errorRef = useRef<HTMLDivElement>(null); const createContactButtonRef = useRef<HTMLButtonElement>(null); const requestGate = useRef(createRequestGate());
+  const [historyStatus, setHistoryStatus] = useState<CustomerHistoryStatus>('all'); const [historyPage, setHistoryPage] = useState<Paginated<JobHistoryItem> | null>(null);
+  const [historyLoading, setHistoryLoading] = useState(true); const [historyError, setHistoryError] = useState('');
+  const errorRef = useRef<HTMLDivElement>(null); const createContactButtonRef = useRef<HTMLButtonElement>(null); const requestGate = useRef(createRequestGate()); const historyGate = useRef(createRequestGate());
   async function load() {
     const generation = requestGate.current.next(); setLoading(true); setCustomer(null); setError(''); setNotice(''); setConflict(false);
     try {
@@ -108,7 +153,21 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       if (requestGate.current.isCurrent(generation)) setLoading(false);
     }
   }
+  async function loadHistory(status: CustomerHistoryStatus = historyStatus, offset = 0) {
+    const generation = historyGate.current.next(); setHistoryLoading(true); setHistoryError('');
+    try {
+      const result = await listCustomerJobs(customerId, { status, limit: 20, offset });
+      if (!historyGate.current.isCurrent(generation)) return;
+      setHistoryPage(result);
+    } catch (caught) {
+      if (historyGate.current.isCurrent(generation)) setHistoryError(caught instanceof Error ? caught.message : 'İş geçmişi yüklenemedi.');
+    } finally {
+      if (historyGate.current.isCurrent(generation)) setHistoryLoading(false);
+    }
+  }
   useEffect(() => { void load(); return () => { requestGate.current.next(); }; }, [customerId, user.role]);
+  useEffect(() => { void loadHistory(historyStatus, 0); return () => { historyGate.current.next(); }; }, [customerId, historyStatus]);
+  useRealtimeInvalidation([`customer-detail:${customerId}`], () => { void load(); void loadHistory(historyStatus, historyPage?.offset ?? 0); });
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   if (loading) return <main className="customer-detail" aria-busy="true"><h1>Müşteri detayı yükleniyor</h1></main>;
   if (!customer) return <main className="customer-detail"><ResultState status="error" title="Müşteri yüklenemedi" description={error} headingLevel={1} action={<button className="secondary-button" onClick={() => void load()}>Tekrar dene</button>} /></main>;
@@ -134,7 +193,10 @@ export function CustomerDetailScreen({ customerId, user }: { customerId: string;
       if (requestGate.current.isCurrent(generation)) setContactError(caught instanceof Error ? caught.message : 'İlgili kişi eklenemedi.');
     } finally { if (requestGate.current.isCurrent(generation)) setPending(false); }
   }
-  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision} errorRef={errorRef} createContactButtonRef={createContactButtonRef}
+  return <><CustomerDetailView customer={customer} user={user} staff={staff} pending={pending} error={error} notice={notice} conflict={conflict} formRevision={formRevision}
+    historyStatus={historyStatus} historyPage={historyPage} historyLoading={historyLoading} historyError={historyError}
+    onHistoryStatusChange={(next) => { setHistoryStatus(next); setHistoryPage(null); }} onHistoryPageChange={(offset) => { void loadHistory(historyStatus, offset); }}
+    errorRef={errorRef} createContactButtonRef={createContactButtonRef}
     onBack={() => navigate(paths.customers)} onSave={(event) => void save(event)} onCreateContact={() => setCreatingContact(true)}
     onOpenContact={(customerIdValue, contactIdValue) => navigate(paths.contact(customerIdValue, contactIdValue))}
     onReloadCurrent={() => void load()} />

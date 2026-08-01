@@ -34,6 +34,13 @@ import type {
   RealtimeEventInput,
   RealtimeEventRecord,
 } from '../realtime/types.js';
+import type {
+  CustomerJobHistoryQuery,
+  JobHistoryItem,
+  JobHistoryReadPort,
+  PaginatedJobHistory,
+  StaffJobHistoryQuery,
+} from './history-port.js';
 import {
   PostgresRealtimeEventTransaction,
 } from '../realtime/repository.js';
@@ -819,6 +826,102 @@ function workspaceWhere(
   return { clause: predicates.join(' AND '), values };
 }
 
+type HistoryRow = {
+  id: string;
+  title: string;
+  type: JobCardType;
+  status: JobCardStatus;
+  priority: JobCardPriority;
+  scheduled_at: Date | null;
+  due_date: string | Date | null;
+  created_at: Date;
+  updated_at: Date;
+  manager_approved_at: Date | null;
+  source_job_card_id: string | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  contact_id: string | null;
+  contact_name: string | null;
+  assignee_id: string;
+  assignee_name: string;
+  child_count: number | null;
+};
+
+const HISTORY_ITEM_COLUMNS = `j.id, j.title, j.type, j.status, j.priority,
+  j.scheduled_at, j.due_date, j.created_at, j.updated_at, j.manager_approved_at,
+  j.source_job_card_id,
+  c.id AS customer_id, c.name AS customer_name,
+  ct.id AS contact_id, ct.name AS contact_name,
+  u.id AS assignee_id, u.name AS assignee_name`;
+
+const HISTORY_JOINS = `
+  LEFT JOIN customers c
+    ON c.organization_id = j.organization_id AND c.id = j.customer_id
+  LEFT JOIN contacts ct
+    ON ct.organization_id = j.organization_id AND ct.id = j.contact_id
+  JOIN users u
+    ON u.organization_id = j.organization_id AND u.id = j.assigned_to`;
+
+const HISTORY_OPEN_STATUSES = [
+  'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+] as const;
+
+type HistoryQuery = CustomerJobHistoryQuery | StaffJobHistoryQuery;
+
+function historyWhere(input: HistoryQuery): SqlFilter {
+  const predicates = ['j.organization_id = $1'];
+  const values: unknown[] = [input.actor.organizationId];
+  const add = (sql: (position: number) => string, value: unknown) => {
+    values.push(value);
+    predicates.push(sql(values.length));
+  };
+
+  if ('customerId' in input) {
+    add((position) => `j.customer_id = $${position}`, input.customerId);
+  }
+  if ('targetUserId' in input) {
+    const targetUserId = input.actor.role === 'STAFF' ? input.actor.id : input.targetUserId;
+    add((position) => `j.assigned_to = $${position}`, targetUserId);
+  } else if (input.actor.role === 'STAFF') {
+    add((position) => `j.assigned_to = $${position}`, input.actor.id);
+  }
+
+  if (input.status === 'open') {
+    add((position) => `j.status = ANY($${position}::varchar[])`, [...HISTORY_OPEN_STATUSES]);
+  } else if (input.status === 'completed') {
+    predicates.push("j.status = 'COMPLETED'");
+  } else if (input.status && input.status !== 'all') {
+    const statuses: readonly JobCardStatus[] = Array.isArray(input.status)
+      ? input.status
+      : [input.status as JobCardStatus];
+    add((position) => statuses.length === 1
+      ? `j.status = $${position}`
+      : `j.status = ANY($${position}::varchar[])`, statuses.length === 1 ? statuses[0] : [...statuses]);
+  }
+  if (input.type) add((position) => `j.type = $${position}`, input.type);
+  return { clause: predicates.join(' AND '), values };
+}
+
+function mapHistoryItem(row: HistoryRow): JobHistoryItem {
+  return {
+    id: row.id,
+    title: row.title,
+    type: row.type,
+    status: row.status,
+    priority: row.priority,
+    scheduledAt: mapInstant(row.scheduled_at),
+    dueDate: mapCalendarDate(row.due_date),
+    createdAt: row.created_at.toISOString(),
+    updatedAt: row.updated_at.toISOString(),
+    completedAt: row.manager_approved_at?.toISOString() ?? null,
+    assignee: { id: row.assignee_id, name: row.assignee_name },
+    customer: row.customer_id === null ? null : { id: row.customer_id, name: row.customer_name ?? '' },
+    contact: row.contact_id === null ? null : { id: row.contact_id, name: row.contact_name ?? '' },
+    followUp: row.source_job_card_id === null ? null : { sourceJobCardId: row.source_job_card_id },
+    childCount: row.child_count === null ? null : Number(row.child_count),
+  };
+}
+
 class PostgresJobCardTransaction implements JobCardTransaction {
   private readonly realtime: PostgresRealtimeEventTransaction;
   private readonly notifications: PostgresNotificationTransaction;
@@ -1315,7 +1418,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
 }
 
 export class PostgresJobCardRepository
-implements JobCardRepository, ApprovalQueueItemPort {
+implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
   constructor(private readonly pool: Pool) {}
 
   async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
@@ -1540,6 +1643,48 @@ implements JobCardRepository, ApprovalQueueItemPort {
       total: Number(count.rows[0]?.total ?? 0),
       limit: page.limit,
       offset: page.offset,
+    };
+  }
+
+  async listCustomerJobHistory(input: CustomerJobHistoryQuery): Promise<PaginatedJobHistory> {
+    return this.listJobHistory({ ...input, customerId: input.customerId });
+  }
+
+  async listStaffJobHistory(input: StaffJobHistoryQuery): Promise<PaginatedJobHistory> {
+    return this.listJobHistory({ ...input, targetUserId: input.targetUserId });
+  }
+
+  private async listJobHistory(
+    input: (CustomerJobHistoryQuery & { customerId: string })
+      | (StaffJobHistoryQuery & { targetUserId: string }),
+  ): Promise<PaginatedJobHistory> {
+    const filter = historyWhere(input);
+    const count = await this.pool.query<{ total: string }>(
+      `SELECT COUNT(*)::text AS total FROM job_cards j ${HISTORY_JOINS}
+       WHERE ${filter.clause}`,
+      filter.values,
+    );
+
+    const limitPosition = filter.values.length + 1;
+    const offsetPosition = filter.values.length + 2;
+    const childCount = input.actor.role === 'STAFF'
+      ? 'NULL::int AS child_count'
+      : `(SELECT COUNT(*)::int FROM job_cards child
+           WHERE child.organization_id = j.organization_id
+             AND child.source_job_card_id = j.id) AS child_count`;
+    const result = await this.pool.query<HistoryRow>(
+      `SELECT ${HISTORY_ITEM_COLUMNS}, ${childCount}
+       FROM job_cards j ${HISTORY_JOINS}
+       WHERE ${filter.clause}
+       ORDER BY j.created_at DESC, j.id DESC
+       LIMIT $${limitPosition} OFFSET $${offsetPosition}`,
+      [...filter.values, input.limit, input.offset],
+    );
+    return {
+      items: result.rows.map(mapHistoryItem),
+      total: Number(count.rows[0]?.total ?? 0),
+      limit: input.limit,
+      offset: input.offset,
     };
   }
 

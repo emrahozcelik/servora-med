@@ -14,14 +14,13 @@ import type {
   CustomerFilters,
   CustomerRow,
   CustomerSummary,
-  JobSummaryRow,
   Paginated,
   SetContactActiveRecord,
   SetCustomerStatusRecord,
   UpdateContactRecord,
   UpdateCustomerRecord,
 } from './types.js';
-import { mapContact, mapCustomer, mapCustomerSummary, mapJobSummary, normalizeTaxNumber } from './types.js';
+import { mapContact, mapCustomer, mapCustomerSummary, normalizeTaxNumber } from './types.js';
 
 const CUSTOMER_COLUMNS = `c.id, c.organization_id, c.name, c.customer_type, c.tax_number,
   c.phone, c.email, c.city, c.district, c.address, c.assigned_staff_user_id,
@@ -335,22 +334,7 @@ export class PostgresCrmRepository implements CrmRepository {
       `SELECT ${CONTACT_COLUMNS} FROM contacts WHERE organization_id=$1 AND customer_id=$2
        ORDER BY is_primary DESC, is_active DESC, name, id`, [actor.organizationId, customerId],
     );
-    const jobValues: unknown[] = [actor.organizationId, customerId];
-    const staffScope = actor.role === 'STAFF' ? ` AND assigned_to = $${jobValues.push(actor.id)}` : '';
-    const openJobs = await this.pool.query<JobSummaryRow>(
-      `SELECT id, title, status, assigned_to, due_date, created_at, updated_at, manager_approved_at
-       FROM job_cards WHERE organization_id=$1 AND customer_id=$2${staffScope}
-       AND status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
-       ORDER BY updated_at DESC, id DESC LIMIT 5`, jobValues,
-    );
-    const completedJobs = await this.pool.query<JobSummaryRow>(
-      `SELECT id, title, status, assigned_to, due_date, created_at, updated_at, manager_approved_at
-       FROM job_cards WHERE organization_id=$1 AND customer_id=$2${staffScope}
-       AND status = 'COMPLETED'
-       ORDER BY manager_approved_at DESC NULLS LAST, id DESC LIMIT 5`, jobValues,
-    );
-    return { ...mapCustomerSummary(row), contacts: contacts.rows.map(mapContact),
-      openJobs: openJobs.rows.map(mapJobSummary), completedJobs: completedJobs.rows.map(mapJobSummary) };
+    return { ...mapCustomerSummary(row), contacts: contacts.rows.map(mapContact) };
   }
 
   async listContacts(organizationId: string, customerId: string, filters: ContactFilters) {

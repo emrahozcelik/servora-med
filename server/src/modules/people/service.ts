@@ -3,6 +3,11 @@ import type { CredentialAdministrationPort } from '../auth/admin-ports.js';
 import type { SafeUser } from '../auth/types.js';
 import type { StaffOperationalSummaryPort } from '../reports/ports.js';
 import type { StaffOperationalSummary } from '../reports/types.js';
+import type {
+  JobHistoryReadPort,
+  PaginatedJobHistory,
+  StaffJobHistoryQuery,
+} from '../job-cards/history-port.js';
 import type { PeopleRepository, PeopleTransaction } from './repository.js';
 import type {
   AppendAuditInput,
@@ -16,6 +21,11 @@ import type {
   StaffStatusFilter,
   UpdateStaffProfileInput,
 } from './types.js';
+
+export type StaffJobHistoryInput = Pick<
+  StaffJobHistoryQuery,
+  'status' | 'type' | 'limit' | 'offset'
+>;
 
 const forbidden = () => new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz yok.');
 const userNotFound = () => new AppError('USER_NOT_FOUND', 404, 'Kullanıcı bulunamadı.');
@@ -81,12 +91,24 @@ function withCounters(
 }
 
 export class PeopleService {
+  private readonly jobHistoryReadPort?: JobHistoryReadPort;
+  private readonly now: () => Date;
+
   constructor(
     private readonly repository: PeopleRepository,
     private readonly credentials: CredentialPreparation,
     private readonly staffSummaries: StaffOperationalSummaryPort,
-    private readonly now: () => Date = () => new Date(),
-  ) {}
+    historyOrNow?: JobHistoryReadPort | (() => Date),
+    now?: () => Date,
+  ) {
+    if (typeof historyOrNow === 'function') {
+      this.now = historyOrNow;
+      this.jobHistoryReadPort = undefined;
+    } else {
+      this.jobHistoryReadPort = historyOrNow;
+      this.now = now ?? (() => new Date());
+    }
+  }
 
   async listUsers(actor: SafeUser) {
     requireAdmin(actor);
@@ -250,6 +272,39 @@ export class PeopleService {
   async getStaffProfile(actor: SafeUser, userId: string) {
     requireAdminOrManager(actor);
     return this.loadStaffProfile(actor.organizationId, userId, this.now());
+  }
+
+  async listOwnStaffJobHistory(
+    actor: SafeUser,
+    input: StaffJobHistoryInput,
+  ): Promise<PaginatedJobHistory> {
+    if (!this.jobHistoryReadPort) {
+      throw new AppError('HISTORY_UNAVAILABLE', 404, 'İş geçmişi kullanılamıyor.');
+    }
+    return this.jobHistoryReadPort.listStaffJobHistory({
+      organizationId: actor.organizationId,
+      targetUserId: actor.id,
+      actor: { id: actor.id, organizationId: actor.organizationId, role: actor.role },
+      ...input,
+    });
+  }
+
+  async listStaffJobHistory(
+    actor: SafeUser,
+    userId: string,
+    input: StaffJobHistoryInput,
+  ): Promise<PaginatedJobHistory> {
+    requireAdminOrManager(actor);
+    if (!this.jobHistoryReadPort) {
+      throw new AppError('HISTORY_UNAVAILABLE', 404, 'İş geçmişi kullanılamıyor.');
+    }
+    if (!await this.repository.getStaffProfile(actor.organizationId, userId)) throw profileNotFound();
+    return this.jobHistoryReadPort.listStaffJobHistory({
+      organizationId: actor.organizationId,
+      targetUserId: userId,
+      actor: { id: actor.id, organizationId: actor.organizationId, role: actor.role },
+      ...input,
+    });
   }
 
   async updateStaffProfile(actor: SafeUser, userId: string, input: UpdateStaffProfileInput) {

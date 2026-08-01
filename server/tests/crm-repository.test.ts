@@ -65,7 +65,7 @@ describe('CRM persistence', () => {
     expect(recorded.calls.flatMap((call) => call.values)).not.toContain('%%');
   });
 
-  it('returns deterministic bounded JobCard summaries with Staff scoping', async () => {
+  it('keeps Customer detail free of embedded JobCard arrays for the history port', async () => {
     const recorded = recordingPool((text) => {
       if (text.includes('FROM customers c') && !text.includes('COUNT')) return [{
         id: 'customer-1', organization_id: 'org-1', name: 'Klinik', customer_type: 'clinic',
@@ -82,13 +82,8 @@ describe('CRM persistence', () => {
       'customer-1',
     );
 
-    const summaryCalls = recorded.calls.filter((call) => call.text.includes('FROM job_cards'));
-    expect(summaryCalls).toHaveLength(2);
-    expect(summaryCalls.every((call) => /assigned_to = \$\d+/.test(call.text))).toBe(true);
-    expect(summaryCalls.every((call) => /LIMIT 5/.test(call.text))).toBe(true);
-    expect(summaryCalls[0]!.text).toMatch(/status IN \('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'\)/);
-    expect(summaryCalls[1]!.text).toMatch(/status = 'COMPLETED'/);
-    expect(summaryCalls[1]!.text).toMatch(/manager_approved_at DESC NULLS LAST, id DESC/);
+    expect(recorded.calls.filter((call) => call.text.includes('FROM job_cards'))).toHaveLength(0);
+    expect(recorded.calls).toHaveLength(2);
   });
 
   it('uses version predicates and writes only caller-supplied audit values', async () => {

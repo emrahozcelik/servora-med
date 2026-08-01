@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
+import { JOB_CARD_TYPES } from '../job-cards/types.js';
 import type { PeopleService } from './service.js';
 import type { CreateUserInput, StaffProfileInput, StaffStatusFilter } from './types.js';
 
@@ -42,6 +43,43 @@ function userId(request: FastifyRequest) {
   return requiredString((request.params as { userId?: unknown }).userId, 'userId');
 }
 
+function historyQuery(request: FastifyRequest) {
+  const value = request.query;
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Geçerli sorgu parametreleri gönderin.');
+  }
+  const record = value as Record<string, unknown>;
+  const unknown = Object.keys(record).find((key) => !['status', 'type', 'limit', 'offset'].includes(key));
+  if (unknown) throw new AppError('VALIDATION_ERROR', 400, `Bilinmeyen alan: ${unknown}.`);
+  const status = record.status === undefined ? 'all' : record.status;
+  if (typeof status !== 'string' || !['open', 'completed', 'all'].includes(status)) {
+    throw new AppError('VALIDATION_ERROR', 400, 'status geçersizdir.');
+  }
+  const type = record.type === undefined ? undefined : record.type;
+  if (type !== undefined && (typeof type !== 'string' || !JOB_CARD_TYPES.includes(type as never))) {
+    throw new AppError('VALIDATION_ERROR', 400, 'type geçersizdir.');
+  }
+  const integer = (raw: unknown, field: string, fallback: number, max?: number) => {
+    if (raw === undefined) return fallback;
+    if (typeof raw !== 'string' || !/^\d+$/.test(raw)) {
+      throw new AppError('VALIDATION_ERROR', 400, `${field} geçersizdir.`);
+    }
+    const parsed = Number(raw);
+    if (parsed < 0 || (max !== undefined && parsed > max)) {
+      throw new AppError('VALIDATION_ERROR', 400, `${field} geçersizdir.`);
+    }
+    return parsed;
+  };
+  const limit = integer(record.limit, 'limit', 20, 100);
+  if (limit === 0) throw new AppError('VALIDATION_ERROR', 400, 'limit geçersizdir.');
+  return {
+    status: status as 'open' | 'completed' | 'all',
+    type: type as never,
+    limit,
+    offset: integer(record.offset, 'offset', 0),
+  };
+}
+
 function staffProfile(value: unknown): StaffProfileInput | undefined {
   if (value === undefined) return undefined;
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -59,6 +97,12 @@ function staffProfile(value: unknown): StaffProfileInput | undefined {
 
 export function createPeopleHandlers(service: PeopleService) {
   return {
+    listOwnStaffJobHistory: (request: FastifyRequest) => service.listOwnStaffJobHistory(
+      request.currentUser!, historyQuery(request),
+    ),
+    listStaffJobHistory: (request: FastifyRequest) => service.listStaffJobHistory(
+      request.currentUser!, userId(request), historyQuery(request),
+    ),
     listUsers: (request: FastifyRequest) => service.listUsers(request.currentUser!),
     getUser: (request: FastifyRequest) => service.getUser(request.currentUser!, userId(request)),
     createUser: async (request: FastifyRequest, reply: FastifyReply) => {

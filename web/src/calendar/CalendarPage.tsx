@@ -263,6 +263,7 @@ function EventItem({
   };
 
   const sourceLabel = event.source === 'JOB' ? 'İŞ' : 'KİŞİSEL PLAN';
+  const followUpContext = event.source === 'JOB' ? event.followUpContext : null;
   const timeText = new Date(event.startsAt).toLocaleString('tr-TR')
     + (event.endsAt
       ? ` – ${new Date(event.endsAt).toLocaleTimeString('tr-TR', { hour: '2-digit', minute: '2-digit' })}`
@@ -271,6 +272,7 @@ function EventItem({
   const actionBar = (
     <div className="calendar-event-actions">
       {event.source === 'JOB' && <Link to={event.relatedJobPath}>İşi aç</Link>}
+      {followUpContext?.sourceJobPath && <Link to={followUpContext.sourceJobPath}>Önceki işi aç</Link>}
       {event.canEdit && <button type="button" className="secondary-button" onClick={onEdit}>Düzenle</button>}
       {event.canCancel && (
         <button
@@ -296,9 +298,17 @@ function EventItem({
           <span className={`calendar-source calendar-source--${event.source.toLowerCase()}`}>
             {sourceLabel}
           </span>
+          {followUpContext && <span className="calendar-follow-up-badge">Takip</span>}
           <h3>{event.title}</h3>
           <p className="calendar-event-time">{timeText}</p>
           <p>{event.assignedUser.name}</p>
+          {followUpContext && (
+            <dl className="calendar-follow-up-context">
+              {followUpContext.sourcePlannedAt && <div><dt>Planlanan tarih</dt><dd>{new Date(followUpContext.sourcePlannedAt).toLocaleString('tr-TR')}</dd></div>}
+              {followUpContext.sourceOccurredAt && <div><dt>Gerçekleşme tarihi</dt><dd>{new Date(followUpContext.sourceOccurredAt).toLocaleString('tr-TR')}</dd></div>}
+              <div><dt>Tamamlanma tarihi</dt><dd>{new Date(followUpContext.sourceCompletedAt).toLocaleString('tr-TR')}</dd></div>
+            </dl>
+          )}
           {error && <p className="form-error" role="alert">{error}</p>}
         </OperationalCard>
       </article>

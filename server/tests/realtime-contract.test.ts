@@ -127,4 +127,13 @@ describe('realtime JobCard contract', () => {
       .toBe(false);
     expect(JSON.stringify(customerless)).not.toContain('followUpInstructions');
   });
+
+  it('invalidates Customer history for ordinary customer-linked JobCard activity too', () => {
+    const event = mapJobCardActivityToRealtime({
+      ...base,
+      event: 'JOB_FIELDS_UPDATED',
+      customerId: 'customer-1',
+    });
+    expect(event?.resourceKeys).toContain('customer-detail:customer-1');
+  });
 });

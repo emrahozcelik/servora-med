@@ -64,8 +64,8 @@ export function mapJobCardActivityToRealtime(
   }
   if (input.event === 'JOB_CREATED' && input.sourceJobCardId) {
     keys.add(`job-detail:${input.sourceJobCardId}`);
-    if (input.customerId) keys.add(`customer-detail:${input.customerId}`);
   }
+  if (input.customerId) keys.add(`customer-detail:${input.customerId}`);
 
   return {
     organizationId: input.organizationId,

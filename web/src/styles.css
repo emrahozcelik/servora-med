@@ -2243,6 +2243,21 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-summaries li { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.4rem 1rem; align-items: baseline; padding: 0.8rem 0.2rem; border-bottom: 1px solid var(--rule); }
 .job-summaries li span, .job-summaries li time { color: var(--muted); font-size: 0.78rem; }
 .job-summaries li time { grid-column: 1 / -1; }
+.history-tabs { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 1rem; }
+.history-tabs .is-active { border-color: var(--accent); background: var(--accent-soft); color: var(--ink); }
+.job-history-list { margin: 1rem 0 0; padding: 0; border-top: 1px solid var(--rule); list-style: none; }
+.job-history-row { display: flex; align-items: baseline; justify-content: space-between; gap: 1rem; padding: 0.85rem 0.2rem; border-bottom: 1px solid var(--rule); }
+.job-history-row > div { min-width: 0; }
+.job-history-row a { color: var(--ink); text-decoration-thickness: 1px; text-underline-offset: 0.2rem; overflow-wrap: anywhere; }
+.job-history-row p { margin: 0.25rem 0 0; color: var(--muted); font-size: 0.8rem; }
+.job-history-row time { flex: 0 0 auto; color: var(--muted); font-size: 0.78rem; white-space: nowrap; }
+.follow-up-badge, .calendar-follow-up-badge { display: inline-flex; align-items: center; margin-left: 0.5rem; padding: 0.15rem 0.45rem; border: 1px solid var(--accent); border-radius: var(--radius-chip); color: var(--accent-hover); font-size: 0.7rem; font-weight: 700; }
+.pagination-actions { display: flex; flex-wrap: wrap; gap: 0.65rem; margin-top: 1rem; }
+.calendar-follow-up-badge { margin: 0 0 0 0.45rem; }
+.calendar-follow-up-context { display: grid; gap: 0.35rem; margin: 0.7rem 0 0; padding-top: 0.7rem; border-top: 1px solid var(--rule); }
+.calendar-follow-up-context div { display: flex; justify-content: space-between; gap: 0.75rem; font-size: 0.78rem; }
+.calendar-follow-up-context dt { color: var(--muted); }
+.calendar-follow-up-context dd { margin: 0; text-align: right; }
 .muted-copy { color: var(--muted); }
 
 .product-workspace, .product-create { min-width: 0; }
@@ -2525,6 +2540,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .record-facts, .job-summary-grid { grid-template-columns: 1fr; }
   .record-fact-wide { grid-column: auto; }
   .section-heading { align-items: flex-start; }
+  .job-history-row { align-items: flex-start; flex-direction: column; gap: 0.35rem; }
+  .job-history-row time { white-space: normal; }
   .contact-list > li { align-items: stretch; flex-direction: column; }
   .product-filters { grid-template-columns: 1fr; }
   .product-row { grid-template-columns: 1fr; gap: 0.9rem; padding-block: 1.1rem; }

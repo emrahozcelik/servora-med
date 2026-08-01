@@ -2,14 +2,23 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 import { createPeopleHandlers } from './handlers.js';
 import type { PeopleService } from './service.js';
+import type { JobHistoryReadPort } from '../job-cards/history-port.js';
 
 type Authenticate = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-export type PeopleRoutesOptions = { service: PeopleService; authenticate: Authenticate };
+export type PeopleRoutesOptions = {
+  service: PeopleService;
+  authenticate: Authenticate;
+  jobHistoryReadPort?: JobHistoryReadPort;
+};
 
 export const peopleRoutes: FastifyPluginAsync<PeopleRoutesOptions> = async (app, options) => {
   const handlers = createPeopleHandlers(options.service);
   const auth = { preHandler: options.authenticate };
 
+  if (options.jobHistoryReadPort) {
+    app.get('/staff/me/jobs', auth, handlers.listOwnStaffJobHistory);
+    app.get('/staff/:userId/jobs', auth, handlers.listStaffJobHistory);
+  }
   app.get('/users', auth, handlers.listUsers);
   app.post('/users', auth, handlers.createUser);
   app.get('/users/:userId', auth, handlers.getUser);

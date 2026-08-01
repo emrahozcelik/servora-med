@@ -1,5 +1,4 @@
 import type { UserRole } from '../auth/types.js';
-import type { JobCardStatus } from '../job-cards/types.js';
 
 export const CUSTOMER_TYPES = ['clinic', 'hospital', 'dealer', 'company', 'other'] as const;
 export type CustomerType = (typeof CUSTOMER_TYPES)[number];
@@ -48,21 +47,10 @@ export type CustomerSummary = Customer & {
   primaryContact: Pick<Contact, 'id' | 'name' | 'title'> | null;
 };
 
-export type CustomerJobSummary = {
-  id: string;
-  title: string;
-  status: JobCardStatus;
-  assignedTo: string;
-  dueDate: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-  managerApprovedAt: Date | null;
-};
-
 export type CustomerDetail = CustomerSummary & {
   contacts: Contact[];
-  openJobs: CustomerJobSummary[];
-  completedJobs: CustomerJobSummary[];
+  openJobCount?: number;
+  completedJobCount?: number;
 };
 
 export type CustomerRow = {
@@ -80,12 +68,6 @@ export type ContactRow = {
   title: string | null; phone: string | null; email: string | null;
   is_primary: boolean; is_active: boolean; version: number;
   created_at: Date; updated_at: Date;
-};
-
-export type JobSummaryRow = {
-  id: string; title: string; status: JobCardStatus; assigned_to: string;
-  due_date: string | null; created_at: Date; updated_at: Date;
-  manager_approved_at: Date | null;
 };
 
 export function mapCustomer(row: CustomerRow): Customer {
@@ -114,14 +96,6 @@ export function mapContact(row: ContactRow): Contact {
     name: row.name, title: row.title, phone: row.phone, email: row.email,
     isPrimary: row.is_primary, isActive: row.is_active, version: row.version,
     createdAt: row.created_at, updatedAt: row.updated_at,
-  };
-}
-
-export function mapJobSummary(row: JobSummaryRow): CustomerJobSummary {
-  return {
-    id: row.id, title: row.title, status: row.status, assignedTo: row.assigned_to,
-    dueDate: row.due_date, createdAt: row.created_at, updatedAt: row.updated_at,
-    managerApprovedAt: row.manager_approved_at,
   };
 }
 

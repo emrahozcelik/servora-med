@@ -1,6 +1,7 @@
 import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
+import { JOB_CARD_TYPES } from '../job-cards/types.js';
 import type { CrmService } from './service.js';
 import { CUSTOMER_STATUSES, CUSTOMER_TYPES, type CrmActor } from './types.js';
 
@@ -109,6 +110,19 @@ function contactInput(value: Record<string, unknown>) {
 
 export function createCrmHandlers(service: CrmService) {
   return {
+    listCustomerJobHistory: (request: FastifyRequest) => {
+      const value = query(request, ['status', 'type', 'limit', 'offset']);
+      const status = optionalQueryString(value.status, 'status') ?? 'all';
+      if (!['open', 'completed', 'all'].includes(status)) validation('status geçersizdir.');
+      const type = optionalQueryString(value.type, 'type');
+      if (type !== null && !JOB_CARD_TYPES.includes(type as never)) validation('type geçersizdir.');
+      return service.listCustomerJobHistory(actor(request), params(request).customerId, {
+        status: status as 'open' | 'completed' | 'all',
+        type: type as never,
+        limit: integerQuery(value.limit, 'limit', 20, 1, 100),
+        offset: integerQuery(value.offset, 'offset', 0, 0),
+      });
+    },
     listCustomers: (request: FastifyRequest) => {
       const value = query(request, ['q', 'status', 'customerType', 'assignedStaffUserId', 'city',
         'unassigned', 'limit', 'offset']);

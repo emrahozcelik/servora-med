@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ApiError } from '../src/services/api';
 import {
   activateContact, activateCustomer, createContact, createCustomer, deactivateContact,
-  deactivateCustomer, deleteCustomer, getContact, getCustomer, listContacts, listCustomers,
+  deactivateCustomer, deleteCustomer, getContact, getCustomer, listContacts, listCustomerJobs, listCustomers,
   makePrimaryContact, updateContact, updateCustomer,
 } from '../src/services/crm-api';
 
@@ -24,6 +24,20 @@ const customer = {
 };
 
 describe('CRM API client', () => {
+  it('fetches paginated Customer JobCard history with exact filters and parses the narrow row', async () => {
+    const history = {
+      id: 'job-1', title: 'Takip', type: 'GENERAL_TASK', status: 'COMPLETED', priority: 'normal',
+      scheduledAt: null, dueDate: null, createdAt: '2026-07-12T08:00:00Z', updatedAt: '2026-07-12T08:00:00Z',
+      completedAt: '2026-07-13T08:00:00Z', assignee: { id: 'staff-1', name: 'Ayşe' },
+      customer: { id: 'customer/1', name: 'Klinik' }, contact: null,
+      followUp: { sourceJobCardId: 'source-1' }, childCount: 2,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(json({ items: [history], total: 1, limit: 10, offset: 20 }));
+    vi.stubGlobal('fetch', fetchMock);
+    await expect(listCustomerJobs('customer/1', { status: 'completed', type: 'GENERAL_TASK', limit: 10, offset: 20 }))
+      .resolves.toMatchObject({ total: 1, items: [{ followUp: { sourceJobCardId: 'source-1' }, childCount: 2 }] });
+    expect(fetchMock).toHaveBeenCalledWith('/api/customers/customer%2F1/jobs?status=completed&type=GENERAL_TASK&limit=10&offset=20', expect.anything());
+  });
   it('encodes every Customer filter, omits empty values, and includes credentials', async () => {
     const response = {
       items: [{ ...customer, assignedStaffName: null, primaryContact: { id: 'p1', name: 'Başhekim', title: null } }],
@@ -60,7 +74,7 @@ describe('CRM API client', () => {
 
   it('encodes the top-level Customer detail route', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({ ...customer, assignedStaffName: null,
-      primaryContact: null, contacts: [], openJobs: [], completedJobs: [] }));
+      primaryContact: null, contacts: [], openJobCount: 0, completedJobCount: 0 }));
     vi.stubGlobal('fetch', fetchMock);
     await getCustomer('customer/1 + özel');
     expect(fetchMock).toHaveBeenCalledWith('/api/customers/customer%2F1%20%2B%20%C3%B6zel',
@@ -124,13 +138,9 @@ describe('CRM API client', () => {
       .rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
-  it('rejects an unknown JobCard status in Customer detail summaries', async () => {
+  it('rejects malformed Customer detail history counts', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ ...customer, assignedStaffName: null,
-      primaryContact: null, contacts: [], completedJobs: [], openJobs: [{
-        id: 'job-1', title: 'Teslimat', status: 'BOGUS', assignedTo: 'staff-1', dueDate: null,
-        createdAt: '2026-07-12T08:00:00Z', updatedAt: '2026-07-12T08:00:00Z',
-        managerApprovedAt: null,
-      }] })));
+      primaryContact: null, contacts: [], openJobCount: 'BOGUS', completedJobCount: 0 })));
     await expect(getCustomer('customer-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 

@@ -24,20 +24,42 @@ function serviceDouble() {
     resetPassword: vi.fn().mockResolvedValue({ ...user, version: 2 }),
     listStaff: vi.fn().mockResolvedValue([staff]), getOwnStaffProfile: vi.fn().mockResolvedValue(staff),
     getStaffProfile: vi.fn().mockResolvedValue(staff), updateStaffProfile: vi.fn().mockResolvedValue({ ...staff, version: 2 }),
+    listOwnStaffJobHistory: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
+    listStaffJobHistory: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
   };
 }
 
-async function createApp(current = actor) {
+async function createApp(current = actor, withHistory = false) {
   const app = Fastify({ logger: false }); const service = serviceDouble();
   app.setErrorHandler((error, _request, reply) => { const result = toErrorResponse(error); reply.code(result.statusCode).send(result.body); });
   const authenticate = async (request: FastifyRequest, _reply: FastifyReply) => { request.currentUser = current; };
-  await app.register(peopleRoutes, { prefix: '/api', service: service as never, authenticate });
+  await app.register(peopleRoutes, { prefix: '/api', service: service as never, authenticate,
+    ...(withHistory ? { jobHistoryReadPort: {} as never } : {}) });
   apps.push(app); return { app, service };
 }
 
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe('People HTTP routes', () => {
+  it('registers Staff history routes only with the read port and preserves exact query validation', async () => {
+    const withoutPort = await createApp();
+    expect((await withoutPort.app.inject({ method: 'GET', url: '/api/staff/me/jobs' })).statusCode).toBe(404);
+    const { app, service } = await createApp(actor, true);
+    expect((await app.inject({ method: 'GET', url: '/api/staff/me/jobs?status=open&limit=5&offset=10' })).statusCode).toBe(200);
+    expect(service.listOwnStaffJobHistory).toHaveBeenCalledWith(expect.objectContaining({ id: 'admin-1' }), {
+      status: 'open', type: undefined, limit: 5, offset: 10,
+    });
+    expect((await app.inject({ method: 'GET', url: '/api/staff/staff-1/jobs?status=completed&type=GENERAL_TASK' })).statusCode).toBe(200);
+    expect(service.listStaffJobHistory).toHaveBeenCalledWith(expect.objectContaining({ id: 'admin-1' }), 'staff-1', {
+      status: 'completed', type: 'GENERAL_TASK', limit: 20, offset: 0,
+    });
+    for (const url of ['/api/staff/me/jobs?unknown=x', '/api/staff/me/jobs?status=closed',
+      '/api/staff/me/jobs?limit=0', '/api/staff/me/jobs?limit=101', '/api/staff/me/jobs?offset=-1',
+      '/api/staff/me/jobs?type=UNKNOWN']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(400);
+    }
+  });
+
   it('registers Admin user list, create, detail, and name update', async () => {
     const { app, service } = await createApp();
     expect((await app.inject({ method: 'GET', url: '/api/users' })).statusCode).toBe(200);

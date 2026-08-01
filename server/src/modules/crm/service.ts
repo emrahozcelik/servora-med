@@ -1,6 +1,11 @@
 import { AppError } from '../../errors/index.js';
 import type { CrmRepository, CrmTransaction } from './repository.js';
 import type {
+  CustomerJobHistoryQuery,
+  JobHistoryReadPort,
+  PaginatedJobHistory,
+} from '../job-cards/history-port.js';
+import type {
   AppendCrmAuditInput,
   Contact,
   ContactFilters,
@@ -24,6 +29,10 @@ export type CreateContactInput = {
 };
 export type UpdateContactInput = CreateContactInput & { expectedVersion: number };
 export type PrimaryContactResult = { contact: Contact; previousPrimaryContactId: string | null };
+export type CustomerJobHistoryInput = Pick<
+  CustomerJobHistoryQuery,
+  'status' | 'type' | 'limit' | 'offset'
+>;
 
 const forbidden = () => new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz yok.');
 const customerNotFound = () => new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
@@ -70,14 +79,55 @@ function isTaxConflict(error: unknown) {
 }
 
 export class CrmService {
-  constructor(private readonly repository: CrmRepository) {}
+  constructor(
+    private readonly repository: CrmRepository,
+    private readonly jobHistoryReadPort?: JobHistoryReadPort,
+  ) {}
 
   listCustomers(actor: CrmActor, filters: CustomerFilters) {
     return this.repository.listCustomers(actor.organizationId, filters);
   }
 
   async getCustomer(actor: CrmActor, customerId: string) {
-    return (await this.repository.getCustomerDetail(actor, customerId)) ?? Promise.reject(customerNotFound());
+    const detail = await this.repository.getCustomerDetail(actor, customerId);
+    if (!detail) throw customerNotFound();
+    if (!this.jobHistoryReadPort) return detail;
+    const [open, completed] = await Promise.all([
+      this.jobHistoryReadPort.listCustomerJobHistory({
+        organizationId: actor.organizationId,
+        customerId,
+        actor,
+        status: 'open',
+        limit: 1,
+        offset: 0,
+      }),
+      this.jobHistoryReadPort.listCustomerJobHistory({
+        organizationId: actor.organizationId,
+        customerId,
+        actor,
+        status: 'completed',
+        limit: 1,
+        offset: 0,
+      }),
+    ]);
+    return { ...detail, openJobCount: open.total, completedJobCount: completed.total };
+  }
+
+  async listCustomerJobHistory(
+    actor: CrmActor,
+    customerId: string,
+    input: CustomerJobHistoryInput,
+  ): Promise<PaginatedJobHistory> {
+    if (!this.jobHistoryReadPort) {
+      throw new AppError('HISTORY_UNAVAILABLE', 404, 'İş geçmişi kullanılamıyor.');
+    }
+    if (!await this.repository.getCustomerDetail(actor, customerId)) throw customerNotFound();
+    return this.jobHistoryReadPort.listCustomerJobHistory({
+      organizationId: actor.organizationId,
+      customerId,
+      actor,
+      ...input,
+    });
   }
 
   async createCustomer(actor: CrmActor, input: CreateCustomerInput) {
