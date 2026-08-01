@@ -11,8 +11,33 @@ import type { NotificationAppendInput } from '../src/modules/notifications/types
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
 import type { RealtimeEventRecord } from '../src/modules/realtime/types.js';
 import { JobCardService } from '../src/modules/job-cards/service.js';
-import type { JobCard, JobCardActivityEvent, JobCardActor } from '../src/modules/job-cards/types.js';
+import type {
+  JobCard,
+  JobCardActivityEvent,
+  JobCardActor,
+  JobCardDetail,
+} from '../src/modules/job-cards/types.js';
 import type { AppendJobActionLocationInput } from '../src/modules/job-cards/location-types.js';
+
+const DYNAMIC_EVALUATED_AT = '<dynamic-evaluated-at>';
+
+function normalizeReplayDetail(detail: JobCardDetail): JobCardDetail {
+  const readiness = detail.workflowContext.submissionReadiness;
+  return {
+    ...detail,
+    workflowContext: {
+      ...detail.workflowContext,
+      submissionReadiness: readiness === null
+        ? null
+        : { ...readiness, evaluatedAt: DYNAMIC_EVALUATED_AT },
+    },
+  };
+}
+
+function advancingClock(): () => Date {
+  let step = 0;
+  return () => new Date(Date.UTC(2026, 6, 19, 14, 30, 0, step++));
+}
 
 type Activity = { event: JobCardActivityEvent; jobCardId: string; actorId: string; clientActionId: string };
 
@@ -185,12 +210,15 @@ describe('JobCardService critical command foundation', () => {
     expect(repository.activities).toEqual([{ event: 'JOB_STARTED', jobCardId: 'job-1', actorId: 'staff-1', clientActionId: 'action-1' }]);
   });
 
-  it('replays the original response without another mutation or event', async () => {
+  it('replays the completed mutation without another mutation or event', async () => {
     const repository = new MemoryJobCardRepository();
-    const service = new JobCardService(repository);
+    const service = new JobCardService(repository, advancingClock());
     const first = await service.start(staff, 'job-1', input);
     const duplicate = await service.start(staff, 'job-1', input);
-    expect(duplicate).toEqual(first);
+
+    expect(duplicate.workflowContext.submissionReadiness?.evaluatedAt)
+      .not.toBe(first.workflowContext.submissionReadiness?.evaluatedAt);
+    expect(normalizeReplayDetail(duplicate)).toEqual(normalizeReplayDetail(first));
     expect(repository.job.version).toBe(2);
     expect(repository.activities).toHaveLength(1);
   });
@@ -238,6 +266,7 @@ describe('JobCardService action-scoped start location', () => {
     repository = new MemoryJobCardRepository(),
     options: {
       quota?: { reserve: ReturnType<typeof vi.fn> };
+      now?: () => Date;
     } = {},
   ) {
     const reverse = vi.fn().mockResolvedValue({
@@ -251,7 +280,7 @@ describe('JobCardService action-scoped start location', () => {
         allowed: true, userUsed: 1, organizationUsed: 1, globalUsed: 1,
       }),
     };
-    const service = new JobCardService(repository, undefined, undefined, {
+    const service = new JobCardService(repository, options.now, undefined, {
       enabled: true,
       reverseGeocoder: { reverse },
       quotaGuard: quota,
@@ -347,12 +376,16 @@ describe('JobCardService action-scoped start location', () => {
   });
 
   it('returns a completed replay before calling provider again', async () => {
-    const { repository, reverse, service, quota } = enabledService();
+    const { repository, reverse, service, quota } = enabledService(undefined, {
+      now: advancingClock(),
+    });
     const request = { ...input, locationCapture: captured };
     const first = await service.start(staff, 'job-1', request);
     const replay = await service.start(staff, 'job-1', request);
 
-    expect(replay).toEqual(first);
+    expect(replay.workflowContext.submissionReadiness?.evaluatedAt)
+      .not.toBe(first.workflowContext.submissionReadiness?.evaluatedAt);
+    expect(normalizeReplayDetail(replay)).toEqual(normalizeReplayDetail(first));
     expect(reverse).toHaveBeenCalledOnce();
     expect(quota.reserve).toHaveBeenCalledOnce();
     expect(repository.locationAppends).toHaveLength(1);
