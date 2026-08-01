@@ -1,6 +1,6 @@
 # Linked Follow-up JobCards — F4 canonical acceptance and closeout
 
-**Status:** `READY_FOR_EXTERNAL_LINKED_FOLLOW_UP_F4_REVIEW` (PR remains Draft; merge is not authorized)
+**Status:** `BLOCKED_BY_RUNTIME_DEFECTS` (PR remains Draft; Ready and merge are not authorized)
 
 This is the canonical F4 acceptance artifact for the already-merged F1–F3
 implementation. It is verification evidence only. The runtime data is synthetic;
@@ -8,10 +8,17 @@ it is not production, staging, or real-customer evidence.
 
 ## 1. Executive verdict
 
-The focused live-runtime acceptance pass completed with **100/100 checks
-passing**. It used the F4 worktree's real Fastify API, Vite proxy, a dedicated
+The external-review repair pass completed with **145 PASS / 4 FAIL / 149 total
+checks**. It used the F4 worktree's real Fastify API, Vite proxy, a fresh
 PostgreSQL database, seven authenticated synthetic browser sessions, and the
-installed Google Chrome executable through Playwright.
+installed Google Chrome executable through Playwright. The four failed records
+map to two product-runtime blockers:
+
+1. An open management children panel did not re-fetch
+   `GET /api/job-cards/:sourceId/follow-ups` after a new follow-up was created
+   (`0 → 0`). JobDetail, customer history and staff history did refresh.
+2. The Calendar date/event control was absent from the first 80 real Tab stops,
+   so keyboard Enter activation could not be exercised.
 
 The additional reflow pass found no horizontal overflow on all five affected
 surfaces at both accepted text/reflow conditions. Server and web builds, the web
@@ -21,9 +28,11 @@ macOS-service-identity authentication contract (`expected connection failure but
 connected`); exact-head CI remains authoritative for the complete PostgreSQL
 gate.
 
-The evidence snapshot and its exact-head CI gate are complete. External review is
-now requested through Draft PR #87. PR Ready, merge, staging, production, and
-branch/worktree cleanup remain unauthorized here.
+The repaired harness also closed the requested payload, replay-side-effect,
+breadcrumb, multi-surface observation and non-Calendar keyboard evidence gaps.
+Because the two runtime defects require production-code changes and F4 repair
+authority is evidence/harness-only, no product fix was applied. Draft PR #87,
+staging, production, and branch/worktree state remain unchanged.
 
 ## 2. Provenance
 
@@ -33,15 +42,15 @@ branch/worktree cleanup remain unauthorized here.
 | Worktree | `/Users/emrah/Documents/Servora-Med-Linked-Follow-Up-F4` |
 | Branch | `docs/linked-follow-up-jobcards-f4-closeout` |
 | Canonical F3/resulting-main base | `1fd65ad4f2a1654b45e856ffd5813bf88f731e58` |
-| F4 evidence snapshot head | `379206b48aa135a38a1f5028aaab321a559f53a8` (harness/evidence commit; CI run `30700951395` passed) |
-| F4 branch/PR exact-head gate | Authenticated equality and the final server/web CI result are recorded on Draft PR #87 and in the closing handoff; the evidence snapshot is `379206b48aa135a38a1f5028aaab321a559f53a8` (CI run `30700951395` passed) |
+| F4 evidence repair provenance | Repair commit containing this artifact, based on reviewed head `c5488108cb9bdb88e0ed70e12b79055e554b3f05`; exact commit SHA is recorded externally in Draft PR #87 because a commit cannot embed its own final SHA |
+| F4 branch/PR exact-head gate | Not eligible: runtime acceptance is `BLOCKED` and PR #87 must remain Draft |
 | Draft PR | #87 — `docs: close linked follow-up JobCards acceptance` — [GitHub](https://github.com/emrahozcelik/servora-med/pull/87) |
 | Database | `servora_med_f4_test` (dedicated synthetic PostgreSQL database) |
 | Schema | Migrations 001–022 applied |
 | API | Fastify on `http://127.0.0.1:3000` |
 | Web | Vite on `http://127.0.0.1:5174`, proxying to the API |
 | Browser | `/Applications/Google Chrome.app/Contents/MacOS/Google Chrome` via Playwright; no Chromium download |
-| Runtime-only rate limit setting | `LOGIN_RATE_LIMIT_MAX=50` on the dedicated local process so seven synthetic sessions could log in; production code/config was not changed |
+| Runtime-only rate limit setting | `LOGIN_RATE_LIMIT_MAX=20` on the dedicated local process so seven synthetic sessions could log in; production code/config was not changed |
 | Evidence declaration | Synthetic-only; no production/staging credentials, cookies, authorization headers, patient data, or real customer data are stored here |
 
 Runtime process shape (password value intentionally omitted):
@@ -52,13 +61,15 @@ NODE_ENV=development HOST=127.0.0.1 PORT=3000
 CORS_ORIGIN=http://127.0.0.1:5174
 ACTION_SCOPED_GEOLOCATION_ENABLED=false
 CALENDAR_ENABLED=true MESSAGING_ENABLED=false
-OVERVIEW_DASHBOARD_ENABLED=true LOGIN_RATE_LIMIT_MAX=50
+OVERVIEW_DASHBOARD_ENABLED=true LOGIN_RATE_LIMIT_MAX=20
 npx tsx src/index.ts
 ```
 
 The Vite process served the F4 worktree's `web/` directory. The browser harness
-does not persist request bodies or credentials; `runtime-results.json` contains
-method, URL, status, console and page-error observations only.
+does not persist raw request bodies or credentials. For the follow-up POST it
+persists only the sorted field names plus instruction presence, Unicode
+code-point length and SHA-256 fingerprint; other network evidence contains
+method, URL, status, console and page-error observations.
 
 ## 3. Canonical decision traceability
 
@@ -69,11 +80,11 @@ method, URL, status, console and page-error observations only.
 | Customerless source permits only `GENERAL_TASK`; no `customer-detail:null` | Follow-up validation/service and realtime mapper | Follow-up policy/event-mapper tests | `CUSTOMERLESS-*`; direct realtime query recorded in §14/§19 |
 | Role-filtered customer/staff history, truthful totals, anti-enumeration | `server/src/modules/crm`, `server/src/modules/people`, history port | CRM/People history and wiring tests | `CUSTOMER-HISTORY-*`, `STAFF-HISTORY-*` |
 | Calendar uses the same source-access decision as JobDetail | `server/src/modules/calendar`, realtime mapper, `web/src/calendar` | Calendar parity/realtime tests | `CALENDAR-ADMIN-FULL`, `CALENDAR-STAFF-A-FULL`, restricted UI screenshot and `CALENDAR-PRIVACY` |
-| Receipt-only idempotency and current-view replay | Job-card service/repository and `FollowUpCreatePage` | Server idempotency tests; `web/tests/follow-up-create.test.tsx` | `IDEMPOTENT-REPLAY`, `IDEMPOTENT-SIDE-EFFECTS`; ambiguous-response test in web suite |
+| Receipt-only idempotency and current-view replay | Job-card service/repository and `FollowUpCreatePage` | Server idempotency tests; `web/tests/follow-up-create.test.tsx` | `REPLAY-ACCESS-*`, `REPLAY-NO-*`, `REPLAY-*-SIDE-EFFECTS`; live FULL → RESTRICTED → FULL replay with stable receipt and unchanged activity/notification/realtime observations |
 | Immutable instructions and 4,000-code-point boundary | Follow-up create input/service; `FollowUpCreatePage` | Server input/migration tests and web form tests | `INSTRUCTIONS-IMMUTABLE`, `MISSING-INSTRUCTIONS-400`; direct 4,000-code-point parser check |
 | Reassignment/access lifetime and depth-10 cap | Job-card policy/service and realtime mapper | Follow-up policy/postgres/realtime tests | `REASSIGN-*`, `DEPTH-10-REJECTION`, cancelled/inactive checks in §14 |
 | Log and payload privacy | `server/src/app.ts` redaction, presenters, event mapper | log-privacy/calendar/history/realtime tests | marker sweep in §20; `/tmp/servora-f4-server.log` contained no private marker |
-| Responsive/reflow and keyboard contract | web responsive styles/components/scripts | web suite and `responsive-smoke.mjs` | [`reflow-results.json`](./reflow-results.json), `RESPONSIVE-*`, `KEYBOARD-FOCUS`, screenshots |
+| Responsive/reflow and keyboard contract | web responsive styles/components/scripts | web suite and `responsive-smoke.mjs` | [`reflow-results.json`](./reflow-results.json), `RESPONSIVE-*`, `KEYBOARD-*`; form/history/FULL/RESTRICTED pass, Calendar keyboard control is blocking |
 
 ## 4. Synthetic data manifest
 
@@ -93,6 +104,7 @@ Stable graph fixtures:
 | U1 | Customer A row assigned to unrelated Staff C | `8b22d285-7934-4085-882f-d169d2d25221` |
 | X1 | Cross-organization JobCard | `6c5bc242-e710-449c-a94b-7d353a25832f` |
 | Depth 0–10 | Fixed chain for the maximum-depth rejection | `90000000-0000-4000-8000-000000000000` … `90000000-0000-4000-8000-000000000010` |
+| History 01–22 | Completed Customer A / Staff A jobs for real keyboard pagination | `70000000-0000-4000-8000-000000000001` … `70000000-0000-4000-8000-000000000022` |
 
 The browser run created F1, F2, GF1, C2 and an idempotent replay fixture; the
 created IDs are recorded in `runtime-results.json`. After the acceptance run,
@@ -105,6 +117,7 @@ Commands were run from the F4 worktree. No command result below is inferred.
 
 | Area | Command/result |
 | --- | --- |
+| External-review repair runtime | `DATABASE_URL=<dedicated synthetic DB> node web/scripts/f4-acceptance.mjs` with real Chrome/Fastify/Vite — **145 PASS / 4 FAIL / 149**, status `BLOCKED`; failures are the two product-runtime blockers in §21 |
 | Server build | `cd server && npm run build` — **passed** |
 | Server full wrapper | `DATABASE_URL=postgresql:///servora_med_f4_suite TEST_DATABASE_URL=postgresql:///servora_med_f4_suite npm test -- --run` — **1 failed / 126 passed files; 1 failed / 1451 passed tests**. The sole failure is `tests/db-auth-contract.test.ts`: the host's macOS service identity setup made the deliberately wrong-password probe connect (`expected connection failure but connected`). |
 | Server non-failing suite | `TEST_DATABASE_URL=postgresql:///servora_med_f4_suite npx vitest --run --exclude tests/db-auth-contract.test.ts --exclude tests/web-push-lifecycle.test.ts` — **125 files, 1443 tests passed**. The wrapper's `DATABASE_URL` prerequisite was supplied in the second full run; `web-push-lifecycle` then passed. |
@@ -245,11 +258,22 @@ event had Admin/Manager role audience plus the old/new assignee user audience;
 unrelated Staff was not added. No private text is present in the realtime schema
 or browser network evidence.
 
-The focused live Calendar page refreshed on F2 creation without a refresh loop.
-The server-side F3 realtime tests cover planning, field updates, assignment,
-cancellation and approval invalidation. No new notification kind was introduced;
-the dedicated synthetic run observed only existing `job.assigned`,
-`job.reassigned` and `job.cancelled` kinds.
+The external-review repair added one-mutation/one-surface network observation
+with a 750 ms quiet window:
+
+| Open surface | Matching request delta | Result |
+| --- | ---: | --- |
+| JobDetail | 1 | **PASS**, stable in quiet window |
+| Customer history | 1 | **PASS**, stable in quiet window |
+| Staff history | 3 | **PASS**, bounded and stable; one persisted `job.assignment_changed` event, with the development-only React StrictMode remount trace documented |
+| Management children panel | 0 | **FAIL**, no children-list refresh after creation |
+
+The Staff trace is not an ongoing loop: all three requests occurred after the
+single persisted event and the count remained unchanged throughout the quiet
+window. The Children panel result is a product-runtime blocker. The server-side
+F3 realtime tests still cover planning, field updates, assignment, cancellation
+and approval invalidation, but they do not make the open Children panel reload.
+No new notification kind was introduced.
 
 ## 15. Chain and multiple-child behavior
 
@@ -257,10 +281,12 @@ the dedicated synthetic run observed only existing `job.assigned`,
 `STAFF-CHILDREN-403`, `STAFF-CHILDREN-PANEL-HIDDEN`,
 `STAFF-NO-CHILDREN-REQUEST`, `DEPTH-10-REJECTION` — **PASS**.
 
-The browser run created C2 from completed C1; C1 remained independent and the
-staff UI exposed no arbitrary ancestor traversal. S1 had two direct children and
-management returned `total: 2`; Staff source ownership still returned canonical
-403 and the UI made no children request. The fixed depth-0…10 fixture rejected a
+The browser run created C2 from completed C1; C1 remained independent. Management
+received a working C2 → C1 breadcrumb with the source title and path. Staff saw
+no ancestor breadcrumb and issued zero ancestor-detail requests. S1 had two
+direct children at the initial boundary assertion and management returned
+`total: 2`; Staff source ownership still returned canonical 403 and the UI made
+no children request. The fixed depth-0…10 fixture rejected a
 depth-11 child with `409 FOLLOW_UP_MAX_DEPTH_REACHED`. The >100 direct-child
 pagination behavior is an automated F3 proof, not a browser claim (see §11).
 
@@ -280,14 +306,18 @@ GF1 was created successfully. A direct `PRODUCT_DELIVERY` attempt returned
 
 ## 17. Idempotency and instructions contract
 
-**Scenario IDs:** `IDEMPOTENT-REPLAY`, `IDEMPOTENT-SIDE-EFFECTS`,
+**Scenario IDs:** `IDEMPOTENT-REPLAY`, `REPLAY-ACCESS-*`,
+`REPLAY-NO-ACTIVITY-DUPLICATE`, `REPLAY-NO-NOTIFICATION-DUPLICATE`,
+`REPLAY-NO-REALTIME-DUPLICATE`, `REPLAY-*-SIDE-EFFECTS`,
 `INSTRUCTIONS-IMMUTABLE`, `MISSING-INSTRUCTIONS-400` — **PASS**.
 
 Two identical API requests using one `clientActionId` produced one logical
-`P1 — idempotent F4 replay` JobCard (`REPLAY_ROWS=1`). The merged server tests
-verify no duplicate activity, notification or realtime side effects. The web
-form tests cover double-submit suppression, `ACTION_IN_PROGRESS`, material-edit
-action-ID replacement, and status-0/`INVALID_RESPONSE` replay preservation.
+`P1 — idempotent F4 replay` JobCard (`REPLAY_ROWS=1`). The live repair harness
+then changed the replay actor's source access through `FULL → RESTRICTED → FULL`
+using only synthetic DB controls. Every replay returned the same receipt/job ID,
+recomputed the current presentation mode, and left activity IDs/totals,
+notification IDs and realtime refresh counts unchanged. The actor role and
+assignments were restored in a `finally` path.
 
 Whitespace-only instructions returned 400; the generic JobCard PATCH rejected
 instruction mutation. The direct parser boundary check accepted 4,000 Unicode
@@ -316,11 +346,16 @@ surfaces at the accepted methodology:
 | Staff history | false | false |
 | Restricted Calendar | false | false |
 
-Keyboard focus moved to the follow-up title control. Labels, the submit control,
-role-correct source links and management children controls were exercised by the
-browser harness and existing web tests. A dedicated error-focus audit and a
-separate Calendar keyboard-event trace were not added; the existing component
-tests cover form validation and navigation semantics.
+Real Tab/Enter traces produced these results:
+
+- **PASS:** form controls and submit traversal; visible submit focus ring;
+  empty-submit error focus; `aria-invalid=true` on title, instructions and
+  assignee; Customer history “Daha fazla göster”; Staff A FULL source link;
+  Staff D RESTRICTED absence of a source link.
+- **FAIL:** the Calendar date/event control was absent from the first 80 real
+  Tab stops. Enter activation and retained focus context therefore could not be
+  verified. This is a blocking accessibility defect, not a missing harness
+  assertion.
 
 ## 19. Console and network
 
@@ -377,24 +412,32 @@ The only deliberate authorized instruction marker is present in the synthetic
 follow-up detail assertion; it is not copied to source notes, Calendar, history,
 children or realtime payloads.
 
-## 21. Known limitations and non-blocking findings
+## 21. Blocking and non-blocking findings
 
-1. The browser fixture used two direct children. The 101-row children page is
-   proven by merged F3 tests (`100 + 1`), not by a 101-row live browser run.
-2. The server full wrapper cannot pass the host-specific `db-auth-contract` wrong
-   password probe because the local macOS service identity is already connected;
-   this is an environment/test-precondition failure, not a linked-follow-up
-   production defect. Exact-head CI is required for the authoritative gate.
-3. `npm audit --audit-level=high` reports the two high React Router advisory
-   entries covered by the repository's explicit RSC-only policy waiver. F4 did
-   not change dependencies or apply a breaking audit fix.
-4. The Ant Design `Descriptions` span warning is observed in real Chrome and is
-   non-blocking for this F4 checkpoint; it is retained in the artifact rather
-   than concealed.
-5. A separate 400% keyboard/error-focus trace was not required by the existing
-   harness; form and navigation semantics remain covered by automated web tests.
+### Blocking product-runtime findings
 
-None of these limitations authorizes a production-code change in F4.
+1. **Open management Children panel does not realtime-refresh.** After a real
+   follow-up mutation, JobDetail and the other observed history surfaces
+   refreshed, but `GET /api/job-cards/:sourceId/follow-ups` stayed at `0 → 0`.
+   The newly created child is therefore absent until another reload trigger or
+   navigation occurs.
+2. **Calendar date/event cells are not keyboard reachable.** The focused date
+   cell existed and was clickable, but no date/event control received focus in
+   80 real Tab stops. Enter activation could not be tested.
+
+Both require production-code changes. The external decision authorizes only
+evidence/harness repairs in F4, so the defects are recorded and left unfixed.
+
+### Non-blocking/environment findings
+
+1. The 101-row children page remains proven by merged F3 tests (`100 + 1`), not
+   by a 101-row live browser run. The repair seed instead adds 22 history rows to
+   exercise real history pagination by keyboard.
+2. The server wrapper's host-specific `db-auth-contract` wrong-password probe is
+   affected by the local macOS service identity; exact-head CI remains the
+   authoritative PostgreSQL gate after product repair is authorized and made.
+3. The policy-waived React Router RSC advisory and the observed Ant Design
+   `Descriptions` warning are unchanged; neither caused a page error or 5xx.
 
 ## 22. F1–F3 evidence reconciliation
 
@@ -423,7 +466,8 @@ None of these limitations authorizes a production-code change in F4.
 | Cross-organization isolation | PASS | cross session API matrix |
 | Customerless source/type matrix | PASS | UI + API 409 + realtime key check |
 | Ineligible source status matrix | PASS | direct HTTP sweep: NEW, ACCEPTED, IN_PROGRESS, WAITING_APPROVAL, REVISION_REQUESTED, CANCELLED |
-| Children management/Staff boundary | PASS | 403/no UI request/management total 2 |
+| Children management/Staff boundary | PASS | 403/no Staff UI request/management total 2 |
+| Open management Children panel realtime refresh | **FAIL / BLOCKER** | one mutation, children-list request `0 → 0` |
 | Children >100 pagination | PASS (automated F3) | 101-row test; live browser NOT EXERCISED |
 | Customer history role filtering/totals | PASS | management, Staff A/B live API/UI |
 | Staff history/self/anti-enumeration | PASS | live API/UI and 404 parity |
@@ -431,29 +475,30 @@ None of these limitations authorizes a production-code change in F4.
 | Reassignment/access lifetime | PASS | Staff B → D live sweep |
 | Chain continuation/max depth | PASS | C2 live; depth-11 API conflict |
 | Cancelled/inactive access lifetime | PASS | GF1 `CANCELLED`; Staff C login 401 after deactivation |
-| Idempotency/ambiguous response | PASS | live replay + web regression tests |
+| Idempotency/current-view replay | PASS | same receipt across FULL → RESTRICTED → FULL; activity/notification/realtime observations unchanged |
 | Privacy/log redaction | PASS | marker/payload/server-log sweep |
 | Responsive 1440/390/320, 200%, 400% | PASS | smoke + reflow artifacts |
-| Keyboard/focus | PASS | title focus and web tests |
+| Keyboard/focus except Calendar | PASS | real Tab/Enter form, error/ARIA, history pagination, FULL link, RESTRICTED no-link traces |
+| Calendar keyboard event | **FAIL / BLOCKER** | no date/event control in first 80 real Tab stops; Enter not exercisable |
 | Console/network | PASS with recorded non-blocking warning | runtime JSON |
 
 ## 24. Gate status
 
 ```text
-F4 implementation-under-test: COMPLETE (F1–F3 merged)
-F4 synthetic runtime acceptance: COMPLETE for the matrix above
-F4 evidence artifact: PRESENT
-Canonical plan closeout: RECORDED
+F4 implementation-under-test: BLOCKED BY TWO RUNTIME DEFECTS
+F4 synthetic runtime acceptance: 145 PASS / 4 FAIL / 149
+F4 evidence artifact: PRESENT, status BLOCKED
+Canonical plan closeout: BLOCKED CHECKPOINT RECORDED
 Draft PR #87: OPEN / DRAFT
-Exact-head server/web CI: SUCCESS (authenticated final head/run recorded on Draft PR #87 and in the closing handoff)
-External F4 review: REQUESTED / PENDING
+New repair exact-head server/web CI: NOT RUN; not a substitute for failed runtime acceptance
+External F4 re-review: NOT ELIGIBLE UNTIL PRODUCT REPAIR IS AUTHORIZED AND VERIFIED
 PR Ready: NOT AUTHORIZED
 Merge: NOT AUTHORIZED
 Staging/production: NOT AUTHORIZED
 Branch/worktree cleanup: NOT AUTHORIZED
 ```
 
-The final handoff uses `READY_FOR_EXTERNAL_LINKED_FOLLOW_UP_F4_REVIEW` because
-Draft PR #87 exists, local/remote/PR heads match at the current F4 head, the
-worktree is clean, and exact-head server and web CI are successful. This is still
-a Draft review handoff; Ready and merge remain separate gates.
+The final handoff uses `BLOCKED_BY_RUNTIME_DEFECTS`. No Ready, merge, staging,
+production or cleanup action is authorized. The next step requires explicit
+production-repair authority for the Children realtime invalidation and Calendar
+keyboard interaction, followed by a fresh synthetic run and new exact-head CI.

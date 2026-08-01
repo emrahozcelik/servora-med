@@ -233,6 +233,14 @@ try {
     id: ids.u1, type: 'GENERAL_TASK', status: 'COMPLETED', title: 'U1 — unrelated Staff C job',
     assignedTo: ids.staffC, customerId: ids.customerA,
   });
+  for (let index = 1; index <= 22; index += 1) {
+    await insertJob({
+      id: `70000000-0000-4000-8000-${String(index).padStart(12, '0')}`,
+      type: 'GENERAL_TASK', status: 'COMPLETED',
+      title: `HISTORY-${String(index).padStart(2, '0')} — keyboard pagination fixture`,
+      assignedTo: ids.staffA, customerId: ids.customerA, contactId: ids.contactA,
+    });
+  }
 
   const ineligible: JobSpec[] = [
     { id: randomUUID(), type: 'GENERAL_TASK', status: 'NEW', title: 'N1 — ineligible NEW', assignedTo: ids.staffA, customerId: ids.customerA },
