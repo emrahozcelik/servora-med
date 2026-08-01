@@ -1,0 +1,106 @@
+{
+  "syntheticOnly": true,
+  "browser": "Google Chrome application executable via Playwright",
+  "results": [
+    {
+      "id": "JOB_DETAIL_FULL",
+      "methodology": "200% html font-size at 390 CSS px; 400% WCAG-equivalent 320 CSS px viewport",
+      "measurements": {
+        "200pct-text": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 7727,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        },
+        "400pct-reflow": {
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "scrollHeight": 4211,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        }
+      }
+    },
+    {
+      "id": "FOLLOW_UP_CREATE_FORM",
+      "methodology": "200% html font-size at 390 CSS px; 400% WCAG-equivalent 320 CSS px viewport",
+      "measurements": {
+        "200pct-text": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 4056,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        },
+        "400pct-reflow": {
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "scrollHeight": 2267,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        }
+      }
+    },
+    {
+      "id": "CUSTOMER_HISTORY",
+      "methodology": "200% html font-size at 390 CSS px; 400% WCAG-equivalent 320 CSS px viewport",
+      "measurements": {
+        "200pct-text": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 9238,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        },
+        "400pct-reflow": {
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "scrollHeight": 4682,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        }
+      }
+    },
+    {
+      "id": "STAFF_HISTORY",
+      "methodology": "200% html font-size at 390 CSS px; 400% WCAG-equivalent 320 CSS px viewport",
+      "measurements": {
+        "200pct-text": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 7339,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        },
+        "400pct-reflow": {
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "scrollHeight": 3726,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        }
+      }
+    },
+    {
+      "id": "CALENDAR_RESTRICTED",
+      "methodology": "200% html font-size at 390 CSS px; 400% WCAG-equivalent 320 CSS px viewport",
+      "measurements": {
+        "200pct-text": {
+          "scrollWidth": 390,
+          "clientWidth": 390,
+          "scrollHeight": 2711,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        },
+        "400pct-reflow": {
+          "scrollWidth": 320,
+          "clientWidth": 320,
+          "scrollHeight": 1440,
+          "clientHeight": 844,
+          "horizontalOverflow": false
+        }
+      }
+    }
+  ]
+}

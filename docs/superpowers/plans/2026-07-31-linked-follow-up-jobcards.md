@@ -465,6 +465,20 @@ SSE and web-push payloads remain bodyless (`entityId` only). Audience unchanged 
 - **Completion gate:** all acceptance scenarios pass; `docs/evidence/linked-follow-up-jobcards/f4/README.md` committed with the evidence; `git diff --check` clean.
 - **PR:** `test: linked follow-up JobCard runtime acceptance` (separate; includes the canonical evidence artifact — this decision is fixed, not deferred).
 
+#### F4 blocked checkpoint (2026-08-01)
+
+- **Runtime acceptance (first external-review pass):** The external-review repair harness ran against fresh PostgreSQL, Fastify, Vite and installed Google Chrome. It recorded **145 PASS / 4 FAIL / 149 total**. The failures mapped to two product-runtime defects: an open management Children panel did not refresh its list after follow-up creation (`0 → 0`), and Calendar date/event cells were absent from the real Tab order, preventing Enter activation. Canonical evidence is [`docs/evidence/linked-follow-up-jobcards/f4/README.md`](../../evidence/linked-follow-up-jobcards/f4/README.md).
+- **Closed evidence gaps (first pass):** The sanitized live POST field set and instruction fingerprint are asserted; receipt replay is exercised across `FULL → RESTRICTED → FULL` with unchanged activity/notification/realtime observations; management breadcrumb and Staff no-breadcrumb/no-fetch are asserted; JobDetail/customer history/staff history realtime refreshes have bounded quiet-window traces; form/error/history/FULL/RESTRICTED keyboard traces are recorded.
+- **Scope (first pass):** F4 changed only synthetic seed/verification harnesses and evidence documentation. No migration, production behavior, API contract, notification kind, or F1/F2/F3 design decision changed.
+
+#### F4 production repair (2026-08-01, external re-review decision)
+
+- **Authority:** The external F4 re-review decision authorized narrow product repair for exactly two runtime defects; scope was limited to `web/src/jobs/FollowUpContinuity.tsx`, `web/src/ui/antd/ServoraCalendar.tsx`, `web/src/calendar/CalendarPage.tsx`, `web/src/styles.css`, focused web tests, and the acceptance harness/evidence. Server production code, migrations, API contracts, authorization rules, notification kinds and new realtime event types were **not** changed.
+- **Repair 1 — Children panel realtime refresh:** `FollowUpContinuity.tsx` now subscribes through `useRealtimeInvalidation` to the existing `job-detail:<sourceId>` key already emitted by the F3 event mapper on follow-up creation. A generation counter guards against stale responses after remount/unsubscribe. Harness record `REALTIME-CHILDREN-PANEL-REFRESH` now observes `0 → 1` with a stable quiet window.
+- **Repair 2 — Calendar keyboard access:** `ServoraCalendar.tsx` renders date cells as `<button aria-label="YYYY-MM-DD" aria-pressed>` and event summaries as `<button data-event-id>`; `CalendarPage.tsx` wires `onEventSelect` to the `event` deep-link URL parameter; `styles.css` adds button reset and `:focus-visible` outline. Harness records `KEYBOARD-CALENDAR-CELL`, `KEYBOARD-CALENDAR-EVENT` and `KEYBOARD-CALENDAR-EVENT-ACTIVATED` all **PASS**.
+- **Final runtime acceptance:** **152 PASS / 0 FAIL / 152**, status `PASS`. Web suite: **101 files, 1193 tests passed**; web build passed. New tests cover realtime invalidation (refresh on invalidation, duplicate-cursor no-loop, stale-response guard, subscription lifecycle) and Calendar keyboard accessibility.
+- **Gate:** Draft PR #87 remains **Draft** and now states it contains production repair. F4 closeout is recorded as PASS; external F4 re-review is **pending** on the exact head. PR Ready, merge, staging, production and cleanup remain not authorized until that re-review completes.
+
 **PR sequencing rule:** F1 → F2 → F3 → F4, each against `main`, each gated by its completion gate. Design doc decisions are not re-negotiable in PR review unless a real defect is found (then a follow-up design amendment PR updates this document).
 
 ---
@@ -477,7 +491,7 @@ Server (modified): `server/src/app.ts` (F1: `LOGGER_REDACT_PATHS` += `req.body.f
 
 Web (new): `web/src/jobs/FollowUpCreatePage.tsx`, `web/src/jobs/follow-up-presentation.ts`, web test files for parsers/form.
 
-Web (modified): `web/src/paths.ts`, `web/src/AppRouter.tsx`, `web/src/JobDetail.tsx`, `web/src/jobs/jobs-api.ts`, `web/src/CustomerDetail.tsx`, `web/src/StaffProfiles.tsx`, `web/src/calendar/CalendarPage.tsx`, `web/src/services/calendar-api.ts`.
+Web (modified): `web/src/paths.ts`, `web/src/AppRouter.tsx`, `web/src/JobDetail.tsx`, `web/src/jobs/jobs-api.ts`, `web/src/CustomerDetail.tsx`, `web/src/StaffProfiles.tsx`, `web/src/calendar/CalendarPage.tsx`, `web/src/services/calendar-api.ts`, `web/src/jobs/FollowUpContinuity.tsx` (F4 repair: realtime children-panel invalidation), `web/src/ui/antd/ServoraCalendar.tsx` (F4 repair: keyboard date/event buttons), `web/src/styles.css` (F4 repair: calendar button/focus styles), `web/tests/calendar-page.test.tsx` + `web/tests/follow-up-continuity.test.tsx` (F4 repair tests).
 
 Docs (new, F4): `docs/evidence/linked-follow-up-jobcards/f4/README.md` — canonical evidence artifact (mandatory persistent change for F4; no empty PRs).
 

@@ -1,6 +1,7 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { paths } from '../paths';
+import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { OperationalCard, RecordDescriptions } from '../ui/antd';
 import { jobCardStatusLabel, jobTypeLabels } from './job-labels';
 import {
@@ -95,26 +96,43 @@ export function FollowUpChildrenPanel({ sourceId }: { sourceId: string }) {
     | { kind: 'error'; message: string }
   >({ kind: 'loading' });
   const [reloadKey, setReloadKey] = useState(0);
+  const requestGeneration = useRef(0);
+
+  const reload = useCallback(() => {
+    setReloadKey((value) => value + 1);
+  }, []);
+
+  useRealtimeInvalidation([`job-detail:${sourceId}`], reload);
+
   useEffect(() => {
-    let active = true;
+    const generation = requestGeneration.current + 1;
+    requestGeneration.current = generation;
     setState({ kind: 'loading' });
     listFollowUps(sourceId, { limit: 100, offset: 0 })
       .then((page) => {
-        if (active) setState({
+        if (requestGeneration.current !== generation) return;
+        setState({
           kind: 'ready', items: page.items, total: page.total, limit: page.limit,
           offset: page.offset, loadingMore: false,
         });
       })
-      .catch(() => { if (active) setState({ kind: 'error', message: 'Takip işleri yüklenemedi.' }); });
-    return () => { active = false; };
+      .catch(() => {
+        if (requestGeneration.current !== generation) return;
+        setState({ kind: 'error', message: 'Takip işleri yüklenemedi.' });
+      });
+    return () => {
+      requestGeneration.current += 1;
+    };
   }, [reloadKey, sourceId]);
 
   async function loadMore() {
     if (state.kind !== 'ready' || state.loadingMore || state.items.length >= state.total) return;
+    const generation = requestGeneration.current;
     const nextOffset = state.offset + state.limit;
     setState({ ...state, loadingMore: true });
     try {
       const page = await listFollowUps(sourceId, { limit: state.limit, offset: nextOffset });
+      if (requestGeneration.current !== generation) return;
       setState((current) => current.kind === 'ready' ? {
         kind: 'ready',
         items: [...current.items, ...page.items],
@@ -124,6 +142,7 @@ export function FollowUpChildrenPanel({ sourceId }: { sourceId: string }) {
         loadingMore: false,
       } : current);
     } catch {
+      if (requestGeneration.current !== generation) return;
       setState((current) => current.kind === 'ready' ? { ...current, loadingMore: false } : current);
     }
   }

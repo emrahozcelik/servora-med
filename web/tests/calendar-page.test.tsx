@@ -100,7 +100,8 @@ describe('CalendarPage', () => {
       { id: 'staff-1', name: 'Ayşe Personel' },
       { id: 'staff-2', name: 'Bora Personel' },
     ]);
-    calendarApi.getCalendarEvent.mockResolvedValue(manualEvent);
+    calendarApi.getCalendarEvent.mockImplementation(async (id: string) =>
+      id === 'job-event-1' ? jobEvent : manualEvent);
     calendarApi.cancelManualEvent.mockResolvedValue(undefined);
     // Reset viewport to desktop
     resizeTo(1024);
@@ -396,5 +397,55 @@ describe('CalendarPage', () => {
     await render();
     const srTexts = container.querySelectorAll('.sr-only');
     expect(srTexts.length).toBeGreaterThan(0);
+  });
+
+  describe('calendar keyboard accessibility', () => {
+    it('renders each date cell as a focusable button with the date aria-label', async () => {
+      await render();
+      const dateButton = container.querySelector<HTMLButtonElement>('button[aria-label="2026-07-29"]');
+      expect(dateButton).toBeTruthy();
+      expect(dateButton!.type).toBe('button');
+      await act(async () => dateButton!.focus());
+      expect(document.activeElement).toBe(dateButton);
+      expect(dateButton!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('date button activation selects the day and updates the agenda', async () => {
+      await render();
+      const dateButton = container.querySelector<HTMLButtonElement>('button[aria-label="2026-07-28"]')!;
+      const agendaBefore = container.querySelector('.calendar-agenda-section')?.textContent ?? '';
+      await act(async () => dateButton.click());
+      await act(async () => {});
+      const agenda = container.querySelector('.calendar-agenda-section')?.textContent ?? '';
+      expect(agenda).not.toBe(agendaBefore);
+      expect(agenda).toContain('28 Temmuz');
+      expect(agenda).toContain('Ürün teslimi');
+      expect(agenda).not.toContain('Klinik hazırlığı');
+    });
+
+    it('event summary is a button and Enter activation selects the event', async () => {
+      await render();
+      const eventButtons = Array.from(container.querySelectorAll<HTMLButtonElement>('button.servora-calendar-event-summary'));
+      expect(eventButtons.length).toBeGreaterThan(0);
+      const first = eventButtons[0]!;
+      expect(first.type).toBe('button');
+      await act(async () => first.focus());
+      expect(document.activeElement).toBe(first);
+      calendarApi.getCalendarEvent.mockClear();
+      await act(async () => first.click());
+      await act(async () => { await Promise.resolve(); });
+      await act(async () => { await Promise.resolve(); });
+      expect(calendarApi.getCalendarEvent).toHaveBeenCalledWith(first.getAttribute('data-event-id'));
+      const selected = container.querySelector('.servora-operational-card--selected');
+      expect(selected).toBeTruthy();
+    });
+
+    it('keeps date and event controls available in compact/mobile mode', async () => {
+      resizeTo(390);
+      await render();
+      expect(container.querySelector('.servora-calendar--compact')).toBeTruthy();
+      expect(container.querySelector('button[aria-label="2026-07-29"]')).toBeTruthy();
+      expect(container.querySelector('.servora-calendar-count')).toBeTruthy();
+    });
   });
 });
