@@ -19,6 +19,7 @@ function serviceDouble() {
   return {
     listCustomers: vi.fn().mockResolvedValue({ items: [customer], total: 1, limit: 25, offset: 5 }),
     getCustomer: vi.fn().mockResolvedValue(customer), createCustomer: vi.fn().mockResolvedValue(customer),
+    listCustomerJobHistory: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
     updateCustomer: vi.fn().mockResolvedValue({ ...customer, version: 2 }),
     activateCustomer: vi.fn().mockResolvedValue({ ...customer, status: 'active', version: 2 }),
     deactivateCustomer: vi.fn().mockResolvedValue({ ...customer, status: 'inactive', version: 2 }),
@@ -32,14 +33,15 @@ function serviceDouble() {
   };
 }
 
-async function createApp(current = manager) {
+async function createApp(current = manager, withHistory = false) {
   const app = Fastify({ logger: false });
   const service = serviceDouble();
   app.setErrorHandler((error, _request, reply) => {
     const response = toErrorResponse(error); reply.code(response.statusCode).send(response.body);
   });
   const authenticate = async (request: FastifyRequest, _reply: FastifyReply) => { request.currentUser = current; };
-  await app.register(crmRoutes, { prefix: '/api', service: service as never, authenticate });
+  await app.register(crmRoutes, { prefix: '/api', service: service as never, authenticate,
+    ...(withHistory ? { jobHistoryReadPort: {} as never } : {}) });
   apps.push(app);
   return { app, service };
 }
@@ -47,6 +49,22 @@ async function createApp(current = manager) {
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
 
 describe('CRM HTTP routes', () => {
+  it('registers the paginated Customer JobCard history route only with the read port', async () => {
+    const withoutPort = await createApp();
+    expect((await withoutPort.app.inject({ method: 'GET', url: '/api/customers/customer-1/jobs' })).statusCode).toBe(404);
+    const { app, service } = await createApp(manager, true);
+    const response = await app.inject({ method: 'GET', url: '/api/customers/customer-1/jobs?status=completed&type=SALES_MEETING&limit=7&offset=14' });
+    expect(response.statusCode).toBe(200);
+    expect(service.listCustomerJobHistory).toHaveBeenCalledWith(expect.objectContaining({ id: 'manager-1' }), 'customer-1', {
+      status: 'completed', type: 'SALES_MEETING', limit: 7, offset: 14,
+    });
+    for (const url of ['/api/customers/customer-1/jobs?unknown=x', '/api/customers/customer-1/jobs?status=closed',
+      '/api/customers/customer-1/jobs?limit=0', '/api/customers/customer-1/jobs?limit=101',
+      '/api/customers/customer-1/jobs?offset=-1', '/api/customers/customer-1/jobs?type=UNKNOWN']) {
+      expect((await app.inject({ method: 'GET', url })).statusCode, url).toBe(400);
+    }
+  });
+
   it.each([
     ['UNAUTHENTICATED', 401],
     ['PASSWORD_CHANGE_REQUIRED', 403],

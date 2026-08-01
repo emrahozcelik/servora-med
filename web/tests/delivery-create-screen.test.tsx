@@ -59,7 +59,7 @@ function detail(id: string, assignedStaffUserId: string | null, primaryName = 'D
     contacts: [
       { id: `${id}-primary`, organizationId: 'org-1', customerId: id, name: primaryName, title: 'Doktor', phone: null, email: null, isPrimary: true, isActive: true, version: 1 },
       { id: `${id}-inactive`, organizationId: 'org-1', customerId: id, name: 'Pasif Kişi', title: null, phone: null, email: null, isPrimary: false, isActive: false, version: 1 },
-    ], openJobs: [], completedJobs: [] };
+    ], openJobCount: 0, completedJobCount: 0 };
 }
 
 function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((next) => { resolve = next; }); return { promise, resolve }; }

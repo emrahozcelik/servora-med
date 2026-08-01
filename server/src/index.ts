@@ -81,6 +81,7 @@ async function main() {
     app = await buildApp(config, {
       authRepository: new PostgresAuthRepository(database.pool),
       jobCardRepository: jobCards,
+      jobHistoryReadPort: jobCards,
       peopleRepository: new PostgresPeopleRepository(
         database.pool, credentials, sessions, customerAssignments,
       ),

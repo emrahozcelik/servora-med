@@ -2,14 +2,22 @@ import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 import { createCrmHandlers } from './handlers.js';
 import type { CrmService } from './service.js';
+import type { JobHistoryReadPort } from '../job-cards/history-port.js';
 
 type Authenticate = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
-export type CrmRoutesOptions = { service: CrmService; authenticate: Authenticate };
+export type CrmRoutesOptions = {
+  service: CrmService;
+  authenticate: Authenticate;
+  jobHistoryReadPort?: JobHistoryReadPort;
+};
 
 export const crmRoutes: FastifyPluginAsync<CrmRoutesOptions> = async (app, options) => {
   const handlers = createCrmHandlers(options.service);
   const auth = { preHandler: options.authenticate };
 
+  if (options.jobHistoryReadPort) {
+    app.get('/customers/:customerId/jobs', auth, handlers.listCustomerJobHistory);
+  }
   app.get('/customers', auth, handlers.listCustomers);
   app.post('/customers', auth, handlers.createCustomer);
   app.get('/customers/:customerId', auth, handlers.getCustomer);

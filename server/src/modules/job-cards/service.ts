@@ -435,6 +435,7 @@ export class JobCardService {
           beforeAssigneeId: null,
           afterAssigneeId: job.assignedTo,
           calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
+          customerId: job.customerId,
         });
         return {
           response: { jobCardId: job.id },
@@ -926,6 +927,7 @@ export class JobCardService {
           beforeAssigneeId: job.assignedTo,
           afterAssigneeId: updated.assignedTo,
           calendarAffected: this.calendar.enabled,
+          customerId: updated.customerId,
         }));
       }
       const nonAssignmentFields = Object.keys(fields).filter(
@@ -948,6 +950,7 @@ export class JobCardService {
           afterAssigneeId: updated.assignedTo,
           calendarAffected: this.calendar.enabled && scheduleChanged,
           notifyCalendarRescheduled: this.calendar.enabled && scheduleChanged,
+          customerId: updated.customerId,
         }));
       }
       const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
@@ -1349,6 +1352,7 @@ export class JobCardService {
           beforeAssigneeId: job.assignedTo,
           afterAssigneeId: updated.assignedTo,
           calendarAffected: this.calendar.enabled && calendarTerminal,
+          customerId: updated.customerId,
         });
         return {
           response: { jobCardId },

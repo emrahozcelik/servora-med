@@ -16,6 +16,7 @@ import type { AuthRepository } from './modules/auth/repository.js';
 import { authRoutes } from './modules/auth/routes.js';
 import { AppError } from './errors/index.js';
 import type { JobCardRepository } from './modules/job-cards/repository.js';
+import type { JobHistoryReadPort } from './modules/job-cards/history-port.js';
 import { JobCardService } from './modules/job-cards/service.js';
 import { jobCardRoutes } from './modules/job-cards/routes.js';
 import { requireAuthentication, requirePasswordChanged } from './modules/auth/middleware.js';
@@ -95,6 +96,7 @@ export const LOGGER_REDACT_PATHS = [
 export type AppDependencies = {
   authRepository?: AuthRepository;
   jobCardRepository?: JobCardRepository;
+  jobHistoryReadPort?: JobHistoryReadPort;
   peopleRepository?: PeopleRepository;
   crmRepository?: CrmRepository;
   productRepository?: ProductRepository;
@@ -212,8 +214,10 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           dependencies.peopleRepository,
           new AuthCredentialAdministration(),
           dependencies.reportsRepository,
+          dependencies.jobHistoryReadPort,
         ),
         authenticate: authenticateDomain,
+        jobHistoryReadPort: dependencies.jobHistoryReadPort,
       });
     }
     if (dependencies.reportsRepository && dependencies.approvalQueueItemPort) {
@@ -269,8 +273,9 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
     if (dependencies.crmRepository) {
       await app.register(crmRoutes, {
         prefix: '/api',
-        service: new CrmService(dependencies.crmRepository),
+        service: new CrmService(dependencies.crmRepository, dependencies.jobHistoryReadPort),
         authenticate: authenticateDomain,
+        jobHistoryReadPort: dependencies.jobHistoryReadPort,
       });
     }
     if (dependencies.productRepository) {

@@ -10,6 +10,13 @@ import {
 } from './api';
 
 export type CalendarAssignee = { id: string; name: string };
+export type CalendarFollowUpContext = {
+  sourceAccess: 'FULL' | 'RESTRICTED';
+  sourceJobPath: string | null;
+  sourcePlannedAt: string | null;
+  sourceOccurredAt: string | null;
+  sourceCompletedAt: string;
+};
 type CalendarCommon = {
   id: string;
   source: 'JOB' | 'MANUAL';
@@ -30,6 +37,7 @@ export type JobCalendarEvent = CalendarCommon & {
   priority: string;
   customer: CalendarAssignee | null;
   relatedJobPath: string;
+  followUpContext: CalendarFollowUpContext | null;
 };
 export type ManualCalendarEvent = CalendarCommon & {
   source: 'MANUAL';
@@ -54,6 +62,27 @@ export type ManualEventPatch = Partial<Omit<ManualEventInput, 'clientActionId'>>
 function identity(value: unknown, field: string): CalendarAssignee {
   const entry = object(value);
   return { id: string(entry.id, `${field}.id`), name: string(entry.name, `${field}.name`) };
+}
+
+function parseFollowUpContext(value: unknown): CalendarFollowUpContext | null {
+  if (value === undefined || value === null) return null;
+  const entry = object(value);
+  const sourceAccess = string(entry.sourceAccess, 'followUpContext.sourceAccess');
+  if (sourceAccess !== 'FULL' && sourceAccess !== 'RESTRICTED') {
+    throw new Error('Takip kaynak erişim durumu geçersiz.');
+  }
+  const sourceJobPath = nullableString(entry.sourceJobPath, 'followUpContext.sourceJobPath');
+  if ((sourceAccess === 'FULL' && sourceJobPath === null)
+    || (sourceAccess === 'RESTRICTED' && sourceJobPath !== null)) {
+    throw new Error('Takip kaynak bağlantısı erişim durumuyla uyuşmuyor.');
+  }
+  return {
+    sourceAccess,
+    sourceJobPath,
+    sourcePlannedAt: nullableString(entry.sourcePlannedAt, 'followUpContext.sourcePlannedAt'),
+    sourceOccurredAt: nullableString(entry.sourceOccurredAt, 'followUpContext.sourceOccurredAt'),
+    sourceCompletedAt: string(entry.sourceCompletedAt, 'followUpContext.sourceCompletedAt'),
+  };
 }
 
 export function parseCalendarEvent(value: unknown): CalendarEvent {
@@ -81,6 +110,7 @@ export function parseCalendarEvent(value: unknown): CalendarEvent {
       priority: string(entry.priority, 'priority'),
       customer,
       relatedJobPath: string(entry.relatedJobPath, 'relatedJobPath'),
+      followUpContext: parseFollowUpContext(entry.followUpContext),
     };
   }
   if (source === 'MANUAL') {

@@ -8,6 +8,14 @@ export type CalendarAssignee = Readonly<{
   name: string;
 }>;
 
+export type CalendarFollowUpContext = Readonly<{
+  sourceAccess: 'FULL' | 'RESTRICTED';
+  sourceJobPath: string | null;
+  sourcePlannedAt: string | null;
+  sourceOccurredAt: string | null;
+  sourceCompletedAt: string;
+}>;
+
 type CalendarEventCommon = Readonly<{
   id: string;
   source: CalendarSource;
@@ -29,6 +37,7 @@ export type JobCalendarEvent = CalendarEventCommon & Readonly<{
   priority: string;
   customer: CalendarAssignee | null;
   relatedJobPath: string;
+  followUpContext: CalendarFollowUpContext | null;
 }>;
 
 export type ManualCalendarEvent = CalendarEventCommon & Readonly<{

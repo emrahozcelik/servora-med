@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  changeUserRole, createUser, getOwnStaffProfile, listStaff, listUsers,
+  changeUserRole, createUser, getOwnStaffProfile, listOwnStaffJobs, listStaff, listStaffJobs, listUsers,
   resetUserPassword, updateStaffProfile,
 } from '../src/services/people-api';
 
@@ -14,6 +14,17 @@ const profile = { id: 'profile-1', user, title: null, phone: null, region: null,
   managerName: null, version: 1, counters: { open: 1, waitingApproval: 2, revisionRequested: 3, completedThisMonth: 4, overdue: 5 } };
 
 describe('People API client', () => {
+  it('fetches own and managed Staff history through the role-scoped routes', async () => {
+    const history = { items: [], total: 0, limit: 20, offset: 0 };
+    const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(json(history)));
+    vi.stubGlobal('fetch', fetchMock);
+    await listOwnStaffJobs({ status: 'open', limit: 20, offset: 0 });
+    await listStaffJobs('staff/1', { status: 'all' });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/staff/me/jobs?status=open&limit=20&offset=0',
+      '/api/staff/staff%2F1/jobs?status=all',
+    ]);
+  });
   it('parses user and Staff responses with included credentials', async () => {
     const fetchMock = vi.fn().mockResolvedValueOnce(json([user])).mockResolvedValueOnce(json([profile])).mockResolvedValueOnce(json(profile));
     vi.stubGlobal('fetch', fetchMock);

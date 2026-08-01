@@ -24,15 +24,21 @@ export type CustomerSummary = Customer & {
   assignedStaffName: string | null;
   primaryContact: Pick<Contact, 'id' | 'name' | 'title'> | null;
 };
-export type CustomerJobSummary = {
-  id: string; title: string; status: JobCardStatus; assignedTo: string;
-  dueDate: string | null; createdAt: string; updatedAt: string;
-  managerApprovedAt: string | null;
-};
 export type CustomerDetail = CustomerSummary & {
-  contacts: Contact[]; openJobs: CustomerJobSummary[]; completedJobs: CustomerJobSummary[];
+  contacts: Contact[]; openJobCount: number; completedJobCount: number;
 };
 export type Paginated<T> = { items: T[]; total: number; limit: number; offset: number };
+
+export type JobHistoryItem = {
+  id: string; title: string; type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' | 'SALES_MEETING';
+  status: JobCardStatus; priority: string; scheduledAt: string | null; dueDate: string | null;
+  createdAt: string; updatedAt: string; completedAt: string | null;
+  assignee: { id: string; name: string };
+  customer: { id: string; name: string } | null;
+  contact: { id: string; name: string } | null;
+  followUp: { sourceJobCardId: string } | null;
+  childCount: number | null;
+};
 
 export type CustomerFilters = Partial<{
   q: string; status: CustomerStatus; customerType: CustomerType;
@@ -95,17 +101,6 @@ function parseCustomerSummary(value: unknown): CustomerSummary {
   };
 }
 
-function parseJobSummary(value: unknown): CustomerJobSummary {
-  const v = object(value);
-  return {
-    id: string(v.id, 'id'), title: string(v.title, 'title'),
-    status: oneOf(v.status, 'status', JOB_CARD_STATUSES), assignedTo: string(v.assignedTo, 'assignedTo'),
-    dueDate: nullableString(v.dueDate, 'dueDate'), createdAt: string(v.createdAt, 'createdAt'),
-    updatedAt: string(v.updatedAt, 'updatedAt'),
-    managerApprovedAt: nullableString(v.managerApprovedAt, 'managerApprovedAt'),
-  };
-}
-
 function array(value: unknown, field: string) {
   if (!Array.isArray(value)) throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
   return value;
@@ -115,8 +110,32 @@ function parseCustomerDetail(value: unknown): CustomerDetail {
   const v = object(value);
   return {
     ...parseCustomerSummary(v), contacts: array(v.contacts, 'contacts').map(parseContact),
-    openJobs: array(v.openJobs, 'openJobs').map(parseJobSummary),
-    completedJobs: array(v.completedJobs, 'completedJobs').map(parseJobSummary),
+    openJobCount: number(v.openJobCount, 'openJobCount'),
+    completedJobCount: number(v.completedJobCount, 'completedJobCount'),
+  };
+}
+
+function parseIdentity(value: unknown, field: string) {
+  const v = object(value);
+  return { id: string(v.id, `${field}.id`), name: string(v.name, `${field}.name`) };
+}
+
+export function parseJobHistoryItem(value: unknown): JobHistoryItem {
+  const v = object(value);
+  const followUp = v.followUp === null ? null : object(v.followUp);
+  const childCount = v.childCount === null ? null : number(v.childCount, 'childCount');
+  return {
+    id: string(v.id, 'id'), title: string(v.title, 'title'),
+    type: oneOf(v.type, 'type', ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING']),
+    status: oneOf(v.status, 'status', JOB_CARD_STATUSES), priority: string(v.priority, 'priority'),
+    scheduledAt: nullableString(v.scheduledAt, 'scheduledAt'), dueDate: nullableString(v.dueDate, 'dueDate'),
+    createdAt: string(v.createdAt, 'createdAt'), updatedAt: string(v.updatedAt, 'updatedAt'),
+    completedAt: nullableString(v.completedAt, 'completedAt'),
+    assignee: parseIdentity(v.assignee, 'assignee'),
+    customer: v.customer === null ? null : parseIdentity(v.customer, 'customer'),
+    contact: v.contact === null ? null : parseIdentity(v.contact, 'contact'),
+    followUp: followUp === null ? null : { sourceJobCardId: string(followUp.sourceJobCardId, 'followUp.sourceJobCardId') },
+    childCount,
   };
 }
 
@@ -144,6 +163,11 @@ export const listCustomers = async (filters: CustomerFilters = {}) => parsePage(
   await request(`/api/customers${query(filters)}`), parseCustomerSummary,
 );
 export const getCustomer = async (id: string) => parseCustomerDetail(await request(customerPath(id)));
+export const listCustomerJobs = async (customerId: string, filters: {
+  status?: 'open' | 'completed' | 'all'; type?: JobHistoryItem['type']; limit?: number; offset?: number;
+} = {}) => parsePage(
+  await request(`${customerPath(customerId)}/jobs${query(filters)}`), parseJobHistoryItem,
+);
 export const createCustomer = async (input: CreateCustomerInput) =>
   parseCustomer(await request('/api/customers', json('POST', input)));
 export const updateCustomer = async (id: string, input: UpdateCustomerInput) =>

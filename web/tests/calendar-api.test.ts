@@ -45,6 +45,33 @@ describe('calendar API', () => {
     })).toMatchObject({ source: 'JOB', relatedJobPath: '/jobs/job-1' });
   });
 
+  it('parses nullable follow-up context and rejects impossible access/path combinations', () => {
+    const followUp = {
+      ...manual,
+      source: 'JOB',
+      jobCardId: 'job-1',
+      jobType: 'GENERAL_TASK',
+      jobStatus: 'NEW',
+      priority: 'normal',
+      customer: null,
+      relatedJobPath: '/jobs/job-1',
+      followUpContext: {
+        sourceAccess: 'RESTRICTED', sourceJobPath: null,
+        sourcePlannedAt: '2026-07-20T09:00:00.000Z', sourceOccurredAt: null,
+        sourceCompletedAt: '2026-07-22T15:00:00.000Z',
+      },
+    };
+    expect(parseCalendarEvent(followUp)).toMatchObject({
+      source: 'JOB', followUpContext: { sourceAccess: 'RESTRICTED', sourceJobPath: null },
+    });
+    expect(() => parseCalendarEvent({ ...followUp, followUpContext: {
+      ...followUp.followUpContext, sourceAccess: 'FULL', sourceJobPath: null,
+    } })).toThrow('Takip kaynak bağlantısı');
+    expect(() => parseCalendarEvent({ ...followUp, followUpContext: {
+      ...followUp.followUpContext, sourceAccess: 'RESTRICTED', sourceJobPath: '/jobs/source-1',
+    } })).toThrow('Takip kaynak bağlantısı');
+  });
+
   it('uses bounded list query and explicit manual create transport', async () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(new Response(JSON.stringify({ items: [manual] }), {

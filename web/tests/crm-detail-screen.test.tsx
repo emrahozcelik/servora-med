@@ -38,7 +38,7 @@ const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: '
 function customer(id: string, name: string, version = 1): CustomerDetail {
   return { id, organizationId: 'org-1', name, customerType: 'clinic', taxNumber: null, phone: null, email: null,
     city: null, district: null, address: null, assignedStaffUserId: null, assignedStaffName: null, status: 'active', version,
-    primaryContact: null, contacts: [], openJobs: [], completedJobs: [] };
+    primaryContact: null, contacts: [], openJobCount: 0, completedJobCount: 0 };
 }
 
 function contact(id: string, name: string, isPrimary = false, version = 1): Contact {

@@ -49,6 +49,7 @@ export function mapJobCardActivityToRealtime(
   if (!type) return null;
 
   const keys = new Set<string>([
+    'calendar',
     'job-board',
     `job-detail:${input.jobCardId}`,
     'job-list',
@@ -64,8 +65,8 @@ export function mapJobCardActivityToRealtime(
   }
   if (input.event === 'JOB_CREATED' && input.sourceJobCardId) {
     keys.add(`job-detail:${input.sourceJobCardId}`);
-    if (input.customerId) keys.add(`customer-detail:${input.customerId}`);
   }
+  if (input.customerId) keys.add(`customer-detail:${input.customerId}`);
 
   return {
     organizationId: input.organizationId,
