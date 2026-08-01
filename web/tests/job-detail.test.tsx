@@ -108,6 +108,7 @@ const job: JobCard = {
   scheduledAt: '2026-07-20T09:00:00.000Z',
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'ABC Klinik' },
   contact: null,
+  followUpContext: null,
   workflowContext: staffContext('NEW', { createdAt: '2026-07-17T08:00:00.000Z' }, {
     allowedActions: [],
     submissionReadiness: null,

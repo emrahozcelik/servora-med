@@ -97,6 +97,22 @@ export type JobWorkflowContext = {
   lifecycle: JobLifecycleFacts;
   submissionReadiness: SubmissionReadiness | null;
 };
+export type FollowUpSourceSummary = {
+  sourceType: JobCardType;
+  sourcePlannedAt: string | null;
+  sourceOccurredAt: string | null;
+  sourceCompletedAt: string;
+  customer: RelatedName | null;
+  contact: RelatedName | null;
+  outcome: MeetingOutcome | null;
+};
+export type JobCardFollowUpContext = {
+  sourceJobCardId: string;
+  followUpInstructions: string;
+  sourceAccess: 'FULL' | 'RESTRICTED';
+  sourceJobPath: string | null;
+  sourceSummary: FollowUpSourceSummary;
+};
 export type JobCard = {
   id: string; organizationId: string; type: JobCardType; status: JobCardStatus;
   version: number; title: string; description: string | null; customerId: string | null;
@@ -105,7 +121,22 @@ export type JobCard = {
   engagementKind: JobCardEngagementKind | null;
   assignee: RelatedName;
   customer: RelatedName | null; contact: RelatedName | null; workflowContext: JobWorkflowContext;
+  followUpContext: JobCardFollowUpContext | null;
 };
+type FollowUpCreateCommon = {
+  clientActionId: string;
+  title: string;
+  followUpInstructions: string;
+  scheduledAt: string | null;
+  assignedTo: string;
+  priority: JobCardPriority;
+  dueDate: string | null;
+  contactId: string | null;
+};
+export type FollowUpCreateInput = FollowUpCreateCommon & (
+  | { type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' }
+  | { type: 'SALES_MEETING'; engagementKind: JobCardEngagementKind }
+);
 export type JobCardCreateInput =
   | { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
     assignedTo: string; scheduledAt: string; description?: string | null; contactId?: string | null;
@@ -128,6 +159,9 @@ export type PersistedJobCardListItem = {
 };
 export type JobCardListItem = PersistedJobCardListItem & {
   allowedCommands: LifecycleCommand[];
+};
+export type FollowUpListItem = JobCardListItem & {
+  followUp: { sourceJobCardId: string } | null;
 };
 export type JobCardBoard = {
   columns: Record<'NEW' | 'ACCEPTED' | 'IN_PROGRESS' | 'WAITING_APPROVAL' | 'REVISION_REQUESTED', {
@@ -376,8 +410,44 @@ function parseEngagementKind(value: unknown, type: JobCardType): JobCardEngageme
   }
   return null;
 }
+function parseFollowUpSourceSummary(value: unknown): FollowUpSourceSummary {
+  const v = exactObject(value, 'sourceSummary', [
+    'sourceType', 'sourcePlannedAt', 'sourceOccurredAt', 'sourceCompletedAt',
+    'customer', 'contact', 'outcome',
+  ]);
+  return {
+    sourceType: oneOf(v.sourceType, 'sourceType', JOB_CARD_TYPES),
+    sourcePlannedAt: nullableCanonicalInstant(v.sourcePlannedAt, 'sourcePlannedAt'),
+    sourceOccurredAt: nullableCanonicalInstant(v.sourceOccurredAt, 'sourceOccurredAt'),
+    sourceCompletedAt: canonicalInstant(v.sourceCompletedAt, 'sourceCompletedAt'),
+    customer: nullableRelated(v.customer, 'customer'),
+    contact: nullableRelated(v.contact, 'contact'),
+    outcome: v.outcome === null ? null : oneOf(v.outcome, 'outcome', MEETING_OUTCOMES),
+  };
+}
+function parseFollowUpContext(value: unknown): JobCardFollowUpContext | null {
+  if (value === null) return null;
+  const v = exactObject(value, 'followUpContext', [
+    'sourceJobCardId', 'followUpInstructions', 'sourceAccess', 'sourceJobPath',
+    'sourceSummary',
+  ]);
+  const sourceAccess = oneOf(v.sourceAccess, 'sourceAccess', ['FULL', 'RESTRICTED'] as const);
+  const sourceJobPath = nullableString(v.sourceJobPath, 'sourceJobPath');
+  if (sourceAccess === 'FULL') {
+    if (!sourceJobPath || !/^\/jobs\/[^/?#]+$/.test(sourceJobPath)) invalid('sourceJobPath');
+  } else if (sourceJobPath !== null) invalid('sourceJobPath');
+  return {
+    sourceJobCardId: string(v.sourceJobCardId, 'sourceJobCardId'),
+    followUpInstructions: string(v.followUpInstructions, 'followUpInstructions'),
+    sourceAccess,
+    sourceJobPath,
+    sourceSummary: parseFollowUpSourceSummary(v.sourceSummary),
+  };
+}
 function parseJobCard(value: unknown): JobCard {
   const v = object(value);
+  if ('sourceJobCardId' in v || 'followUpInstructions' in v) invalid('jobCard');
+  if (!('followUpContext' in v)) invalid('followUpContext');
   const type = oneOf(v.type, 'type', JOB_CARD_TYPES);
   return {
     id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
@@ -395,6 +465,7 @@ function parseJobCard(value: unknown): JobCard {
     assignee: related(v.assignee, 'assignee'), customer: nullableRelated(v.customer, 'customer'),
     contact: nullableRelated(v.contact, 'contact'),
     workflowContext: parseWorkflowContext(v.workflowContext),
+    followUpContext: parseFollowUpContext(v.followUpContext),
   };
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
@@ -425,6 +496,16 @@ export function parseJobCardListItem(value: unknown): JobCardListItem {
         oneOf(entry, 'allowedCommands', LIFECYCLE_COMMANDS)),
       'allowedCommands',
     ),
+  };
+}
+export function parseFollowUpListItem(value: unknown): FollowUpListItem {
+  const v = object(value);
+  const followUp = v.followUp === null ? null : exactObject(v.followUp, 'followUp', ['sourceJobCardId']);
+  return {
+    ...parseJobCardListItem(value),
+    followUp: followUp === null
+      ? null
+      : { sourceJobCardId: string(followUp.sourceJobCardId, 'sourceJobCardId') },
   };
 }
 function parsePage<T>(value: unknown, parser: (entry: unknown) => T): Paginated<T> {
@@ -621,6 +702,15 @@ export const listJobCardBoard = getJobCardBoard;
 export const getJobCard = async (id: string) => parseJobCard(await request(jobPath(id)));
 export const createJobCard = async (input: JobCardCreateInput) =>
   parseJobCard(await request('/api/job-cards', json('POST', input)));
+export const createFollowUp = async (sourceId: string, input: FollowUpCreateInput) =>
+  parseJobCard(await request(`${jobPath(sourceId)}/follow-ups`, json('POST', input)));
+export const listFollowUps = async (
+  sourceId: string,
+  page: Partial<{ limit: number; offset: number }> = {},
+) => parsePage(
+  await request(`${jobPath(sourceId)}/follow-ups${query(page)}`),
+  parseFollowUpListItem,
+);
 export const patchJobCard = async (id: string, input: PatchJobCardInput) =>
   parseJobCard(await request(jobPath(id), json('PATCH', input)));
 export const getMeetingDetails = async (id: string) =>

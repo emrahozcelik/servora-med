@@ -26,6 +26,7 @@ const job = {
   assignee: { id: 'staff-1', name: 'Ayşe Personel' },
   customer: { id: 'customer-1', name: 'Klinik' },
   contact: { id: 'contact-1', name: 'Dr. Deniz' },
+  followUpContext: null,
   workflowContext: {
     allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
     allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],

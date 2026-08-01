@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  acceptJobCard, addJobCardNote, approveJobCard, cancelJobCard, createJobCard, getJobCard,
+  acceptJobCard, addJobCardNote, approveJobCard, cancelJobCard, createFollowUp, createJobCard, getJobCard,
   getJobCardBoard, getMeetingDetails, listActivity, listDeliveryItems, listJobCardNotes,
-  listJobCards, patchJobCard, patchMeetingDetails,
+  listFollowUps, listJobCards, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
 } from '../src/jobs/jobs-api';
@@ -32,6 +32,7 @@ const job = {
   assignee: related('s1', 'Ayşe Personel'), customer: related('c1', 'ABC Klinik'),
   contact: related('ct1', 'Dr. Deniz'),
   workflowContext,
+  followUpContext: null,
 };
 const note = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
@@ -543,5 +544,103 @@ describe('JobCard workspace transport', () => {
     await createJobCard(input);
 
     expect(JSON.parse(String(fetch.mock.calls[0]![1]!.body))).toEqual(input);
+  });
+});
+
+describe('Linked follow-up transport', () => {
+  const sourceSummary = {
+    sourceType: 'SALES_MEETING',
+    sourcePlannedAt: '2026-07-20T09:00:00.000Z',
+    sourceOccurredAt: '2026-07-20T09:15:00.000Z',
+    sourceCompletedAt: '2026-07-20T10:00:00.000Z',
+    customer: related('customer-1', 'Uzun İsimli Klinik'),
+    contact: related('contact-1', 'Dr. Deniz'),
+    outcome: 'FOLLOW_UP_REQUIRED',
+  };
+  const fullContext = {
+    sourceJobCardId: 'source-1',
+    followUpInstructions: 'Yeni ürün ailesini görüş ve sonucu kaydet.',
+    sourceAccess: 'FULL',
+    sourceJobPath: '/jobs/source-1',
+    sourceSummary,
+  };
+
+  it('requires the nullable envelope and parses root, FULL, and RESTRICTED details', async () => {
+    vi.stubGlobal('fetch', vi.fn()
+      .mockResolvedValueOnce(json(job))
+      .mockResolvedValueOnce(json({ ...job, followUpContext: fullContext }))
+      .mockResolvedValueOnce(json({
+        ...job,
+        followUpContext: { ...fullContext, sourceAccess: 'RESTRICTED', sourceJobPath: null },
+      })));
+
+    await expect(getJobCard('root')).resolves.toMatchObject({ followUpContext: null });
+    await expect(getJobCard('full')).resolves.toMatchObject({ followUpContext: fullContext });
+    await expect(getJobCard('restricted')).resolves.toMatchObject({
+      followUpContext: { sourceAccess: 'RESTRICTED', sourceJobPath: null, sourceSummary },
+    });
+  });
+
+  it.each([
+    ['missing envelope', { ...job, followUpContext: undefined }],
+    ['FULL without path', { ...job, followUpContext: { ...fullContext, sourceJobPath: null } }],
+    ['RESTRICTED with path', { ...job, followUpContext: { ...fullContext, sourceAccess: 'RESTRICTED' } }],
+    ['unknown access', { ...job, followUpContext: { ...fullContext, sourceAccess: 'PARTIAL' } }],
+    ['missing summary', { ...job, followUpContext: { ...fullContext, sourceSummary: undefined } }],
+    ['invalid source date', { ...job, followUpContext: {
+      ...fullContext, sourceSummary: { ...sourceSummary, sourceCompletedAt: '2026-07-20' },
+    } }],
+    ['invalid outcome', { ...job, followUpContext: {
+      ...fullContext, sourceSummary: { ...sourceSummary, outcome: 'PRIVATE_RESULT' },
+    } }],
+    ['duplicate envelope field in summary', { ...job, followUpContext: {
+      ...fullContext, sourceSummary: { ...sourceSummary, sourceJobCardId: 'source-1' },
+    } }],
+    ['raw top-level source id', { ...job, sourceJobCardId: 'source-1' }],
+    ['raw top-level instructions', { ...job, followUpInstructions: 'private duplicate' }],
+  ])('rejects malformed %s', async (_label, body) => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(body)));
+    await expect(getJobCard('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
+  it('submits the exact linked request and excludes inherited or prohibited fields', async () => {
+    const input = {
+      clientActionId: 'action-1',
+      type: 'SALES_MEETING' as const,
+      title: 'Yeni görüşme',
+      followUpInstructions: 'Doktorla tekrar görüş.',
+      scheduledAt: '2026-08-10T09:00:00.000Z',
+      assignedTo: 'staff-2',
+      priority: 'normal' as const,
+      dueDate: null,
+      contactId: 'contact-1',
+      engagementKind: 'FOLLOW_UP' as const,
+    };
+    const fetchMock = vi.fn().mockResolvedValue(json({ ...job, followUpContext: fullContext }, 201));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await createFollowUp('source/encoded', input);
+
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/source%2Fencoded/follow-ups', expect.objectContaining({
+      method: 'POST', body: JSON.stringify(input),
+    }));
+    const submitted = JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body));
+    expect(submitted).not.toHaveProperty('customerId');
+    expect(submitted).not.toHaveProperty('scheduledEndsAt');
+    expect(submitted).not.toHaveProperty('sourceJobCardId');
+    expect(Object.keys(submitted).filter((key) => key === 'followUpInstructions')).toHaveLength(1);
+  });
+
+  it('parses the management children page with narrow follow-up metadata', async () => {
+    const child = {
+      ...listItem,
+      followUp: { sourceJobCardId: 'source-1' },
+    };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: [child], total: 1, limit: 100, offset: 0,
+    })));
+    await expect(listFollowUps('source-1', { limit: 100, offset: 0 })).resolves.toMatchObject({
+      items: [{ id: 'job-1', followUp: { sourceJobCardId: 'source-1' } }], total: 1,
+    });
   });
 });

@@ -27,6 +27,12 @@ const SalesMeetingCreateScreen = lazy(() =>
   })),
 );
 
+const FollowUpCreatePage = lazy(() =>
+  import('./jobs/FollowUpCreatePage').then((module) => ({
+    default: module.FollowUpCreatePage,
+  })),
+);
+
 const CustomerListScreen = lazy(() =>
   import('./CustomerList').then((module) => ({
     default: module.CustomerListScreen,
@@ -190,7 +196,8 @@ function JobDetailRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { jobCardId } = useParams();
   const navigate = useNavigate();
   if (!jobCardId) return <NotFoundView />;
-  return <JobDetailScreen jobId={jobCardId} user={user} onBack={() => navigate(paths.jobs)} onChanged={() => {}} />;
+  return <JobDetailScreen jobId={jobCardId} user={user} onBack={() => navigate(paths.jobs)}
+    onCreateFollowUp={() => navigate(paths.followUpCreate(jobCardId))} onChanged={() => {}} />;
 }
 
 function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
@@ -255,6 +262,24 @@ function SalesMeetingCreateRoute({ user, navigate }: { user: CurrentUser; naviga
     onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />;
 }
 
+export function FollowUpCreateRoute({ user, navigate }: {
+  user: CurrentUser;
+  navigate: (path: string) => void;
+}) {
+  const [sp] = useSearchParams();
+  const sourceId = sp.get('source');
+  if (user.role === 'STAFF') return <ForbiddenView />;
+  if (!sourceId || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(sourceId)) {
+    return <main className="workspace"><ResultState status="error" title="Geçersiz takip bağlantısı"
+      description="Takip işi oluşturmak için geçerli bir kaynak iş bağlantısı gerekir."
+      action={<button className="secondary-button" type="button" onClick={() => navigate(paths.jobs)}>İşlere dön</button>}
+    /></main>;
+  }
+  return <FollowUpCreatePage sourceId={sourceId} user={user}
+    onCancel={() => navigate(paths.job(sourceId))}
+    onCreated={(jobCardId) => navigate(paths.job(jobCardId))} />;
+}
+
 export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSessionEnded }: AppRouterProps) {
   const navigate = useNavigate();
   const overviewEnabled = user.capabilities?.overviewDashboard === true;
@@ -288,6 +313,8 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path={paths.newTask} element={<GeneralTaskCreateRoute user={user}
           navigate={navigate} />} />
         <Route path={paths.newMeeting} element={<SalesMeetingCreateRoute user={user}
+          navigate={navigate} />} />
+        <Route path="/jobs/new-follow-up" element={<FollowUpCreateRoute user={user}
           navigate={navigate} />} />
         <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
         <Route path={paths.users} element={user.role === 'ADMIN' ? <UserListScreen /> : <ForbiddenView />} />
