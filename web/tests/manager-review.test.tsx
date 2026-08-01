@@ -55,6 +55,7 @@ const job: JobCard = {
   title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: null, assignedTo: 's1', createdBy: 's1',
   priority: 'normal', dueDate: null, scheduledAt: null,
   assignee: { id: 's1', name: 'Ayşe Personel' }, customer: { id: 'c1', name: 'Klinik' }, contact: null,
+  followUpContext: null,
   workflowContext: waitingContext,
 };
 const item: DeliveryItem = {
