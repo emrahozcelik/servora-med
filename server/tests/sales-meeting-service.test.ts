@@ -187,7 +187,12 @@ class SalesMeetingRepository implements JobCardRepository {
       (job) => job.organizationId === organizationId && job.id === jobCardId,
     ) ?? null;
   }
-  async findJobCardDetail() { return null; }
+  async findJobCardDetail(organizationId: string, jobCardId: string) {
+    const job = this.jobs.find(
+      (candidate) => candidate.organizationId === organizationId && candidate.id === jobCardId,
+    );
+    return job ? this.detail(job) as never : null;
+  }
   async findMeetingDetails(organizationId: string, jobCardId: string) {
     const details = this.meetingDetails.find(
       (details) => details.organizationId === organizationId && details.jobCardId === jobCardId,
@@ -400,7 +405,11 @@ describe('Sales Meeting detail reads and mutations', () => {
     const missingDetailsJob = missingDetails.seedMeeting();
     missingDetails.meetingDetails = [];
     await expect(new JobCardService(missingDetails).getMeetingDetails(manager, missingDetailsJob.id))
-      .rejects.toMatchObject({ code: 'INVARIANT_VIOLATION', statusCode: 500 });
+      .rejects.toMatchObject({
+        code: 'INVARIANT_VIOLATION',
+        statusCode: 500,
+        message: 'İş kaydının yapılandırılmış görüşme bilgileri bulunamadı.',
+      });
   });
 
   it('patches a merged candidate, bumps once and records only canonical changed fields', async () => {

@@ -46,6 +46,7 @@ import {
   type FollowUpSourceSummary,
   type JobCardListItem,
   type JobCardListQuery,
+  type JobCardMutationReceipt,
   type PaginatedFollowUpList,
   type JobCardOperationalNoteContext,
   type JobCardStatus,
@@ -178,6 +179,18 @@ function followUpInvariantViolation(): never {
     500,
     'Takip işinin kaynak bağlantısı geçersizdir.',
   );
+}
+
+function decodeJobCardMutationReceipt(value: unknown): JobCardMutationReceipt {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError('INVARIANT_VIOLATION', 500, 'JobCard işlem sonucu geçersizdir.');
+  }
+  const record = value as Record<string, unknown>;
+  const jobCardId = Object.hasOwn(record, 'jobCardId') ? record.jobCardId : record.id;
+  if (typeof jobCardId !== 'string' || !jobCardId) {
+    throw new AppError('INVARIANT_VIOLATION', 500, 'JobCard işlem sonucu geçersizdir.');
+  }
+  return { jobCardId };
 }
 
 function assertStaffStartActor(actor: JobCardActor) {
@@ -352,7 +365,7 @@ export class JobCardService {
     }
     assertCreateAssignmentRequest(actor, input.assignedTo);
     const requestTime = this.now();
-    const result = await this.repository.executeCriticalAction(
+    const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
       {
         organizationId: actor.organizationId, userId: actor.id,
         clientActionId: input.clientActionId, operationKey: 'JOB_CREATE',
@@ -423,10 +436,8 @@ export class JobCardService {
           afterAssigneeId: job.assignedTo,
           calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
         });
-        const detail = await transaction.getJobDetail(actor.organizationId, job.id);
-        if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         return {
-          response: await this.presentDetail(transaction, actor, detail, requestTime),
+          response: { jobCardId: job.id },
           realtimeEvents,
         };
       },
@@ -437,7 +448,7 @@ export class JobCardService {
     if (result.kind === 'completed') {
       this.publishRealtime(result.realtimeEvents);
     }
-    return result.response;
+    return this.detail(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
   }
 
   async createFollowUp(
@@ -967,10 +978,10 @@ export class JobCardService {
           'Takip işi zinciri izin verilen azami derinliğe ulaştı.',
         );
       }
-      if (visited.has(ancestorId)) invariantViolation();
+      if (visited.has(ancestorId)) followUpInvariantViolation();
       visited.add(ancestorId);
       const ancestor = await transaction.getJob(source.organizationId, ancestorId);
-      if (!ancestor) invariantViolation();
+      if (!ancestor) followUpInvariantViolation();
       ancestorId = ancestor.sourceJobCardId;
     }
   }
@@ -1146,8 +1157,10 @@ export class JobCardService {
 
     const capture = parseStartLocationCapture(input.locationCapture);
     const claim = this.lifecycleClaim(actor, jobCardId, lifecycleInput.clientActionId, definition);
-    const completed = await this.repository.findCompletedCriticalAction<JobCardDetail>(claim);
-    if (completed) return completed;
+    const completed = await this.repository.findCompletedCriticalAction<unknown>(claim);
+    if (completed) {
+      return this.detail(actor, decodeJobCardMutationReceipt(completed).jobCardId);
+    }
 
     const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
     if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
@@ -1233,7 +1246,7 @@ export class JobCardService {
     startLocation?: JobActionLocationCapture,
   ) {
     const requestTime = this.now();
-    const result = await this.repository.executeCriticalAction(
+    const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
       this.lifecycleClaim(actor, jobCardId, input.clientActionId, definition),
       async (tx) => {
         const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
@@ -1244,9 +1257,8 @@ export class JobCardService {
           actor, job, definition.command,
           definition.revisionReason ?? definition.cancelReason ?? undefined,
         );
-        let precomputed: SubmissionEvaluation | undefined;
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
-          precomputed = await validateSubmission(tx, actor, job, requestTime);
+          await validateSubmission(tx, actor, job, requestTime);
         }
         const occurredAt = requestTime;
         const updated = await tx.transitionWithVersion({
@@ -1338,16 +1350,14 @@ export class JobCardService {
           afterAssigneeId: updated.assignedTo,
           calendarAffected: this.calendar.enabled && calendarTerminal,
         });
-        const detail = await tx.getJobDetail(actor.organizationId, jobCardId);
-        if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
         return {
-          response: await this.presentDetail(tx, actor, detail, requestTime, precomputed),
+          response: { jobCardId },
           realtimeEvents,
         };
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
-    return result.response;
+    return this.detail(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
   }
 
   private lifecycleClaim(

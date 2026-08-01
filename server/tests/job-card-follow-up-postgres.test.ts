@@ -404,6 +404,103 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
     });
   });
 
+  it('re-presents lifecycle replays with current follow-up authorization', async () => {
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource({ assignedTo: fixture.staffA.id });
+      const followUp = await fixture.service.createFollowUp(
+        fixture.admin,
+        source,
+        input(fixture.staffB.id),
+      );
+      const command = { clientActionId: randomUUID(), expectedVersion: followUp.version };
+      const accepted = await fixture.service.acceptAssignment(
+        fixture.staffB,
+        followUp.id,
+        command,
+      );
+      expect(accepted.followUpContext).toMatchObject({
+        sourceAccess: 'RESTRICTED',
+        sourceJobPath: null,
+      });
+      const sideEffectsBeforeReplay = await fixture.pool.query<{
+        activities: number;
+        notifications: number;
+        realtime_events: number;
+      }>(
+        `SELECT
+           (SELECT COUNT(*)::int FROM job_card_activity_logs WHERE job_card_id = $1) AS activities,
+           (SELECT COUNT(*)::int FROM in_app_notifications WHERE entity_id = $1) AS notifications,
+           (SELECT COUNT(*)::int FROM realtime_events WHERE entity_id = $1) AS realtime_events`,
+        [followUp.id],
+      );
+
+      await fixture.pool.query(`UPDATE users SET role = 'MANAGER' WHERE id = $1`, [
+        fixture.staffB.id,
+      ]);
+      const promoted = await fixture.service.acceptAssignment(
+        { ...fixture.staffB, role: 'MANAGER' },
+        followUp.id,
+        command,
+      );
+      expect(promoted.followUpContext).toMatchObject({
+        sourceAccess: 'FULL',
+        sourceJobPath: `/jobs/${source}`,
+      });
+      expect((await fixture.pool.query(
+        `SELECT response_body FROM processed_actions
+          WHERE user_id = $1 AND client_action_id = $2
+            AND operation_key = $3`,
+        [fixture.staffB.id, command.clientActionId, `JOB_ACCEPT_ASSIGNMENT:${followUp.id}`],
+      )).rows[0]!.response_body).toEqual({ jobCardId: followUp.id });
+      expect((await fixture.pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM job_card_activity_logs WHERE job_card_id = $1) AS activities,
+           (SELECT COUNT(*)::int FROM in_app_notifications WHERE entity_id = $1) AS notifications,
+           (SELECT COUNT(*)::int FROM realtime_events WHERE entity_id = $1) AS realtime_events`,
+        [followUp.id],
+      )).rows).toEqual(sideEffectsBeforeReplay.rows);
+    });
+
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource({ assignedTo: fixture.staffA.id });
+      const followUp = await fixture.service.createFollowUp(
+        fixture.admin,
+        source,
+        input(fixture.staffB.id),
+      );
+      const command = { clientActionId: randomUUID(), expectedVersion: followUp.version };
+      const accepted = await fixture.service.acceptAssignment(
+        fixture.staffB,
+        followUp.id,
+        command,
+      );
+      await fixture.service.patch(fixture.manager, followUp.id, {
+        expectedVersion: accepted.version,
+        assignedTo: fixture.staffA.id,
+      });
+      const sideEffectsBeforeReplay = await fixture.pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM job_card_activity_logs WHERE job_card_id = $1) AS activities,
+           (SELECT COUNT(*)::int FROM in_app_notifications WHERE entity_id = $1) AS notifications,
+           (SELECT COUNT(*)::int FROM realtime_events WHERE entity_id = $1) AS realtime_events`,
+        [followUp.id],
+      );
+
+      await expect(fixture.service.acceptAssignment(
+        fixture.staffB,
+        followUp.id,
+        command,
+      )).rejects.toMatchObject(appError('JOB_CARD_NOT_FOUND', 404));
+      expect((await fixture.pool.query(
+        `SELECT
+           (SELECT COUNT(*)::int FROM job_card_activity_logs WHERE job_card_id = $1) AS activities,
+           (SELECT COUNT(*)::int FROM in_app_notifications WHERE entity_id = $1) AS notifications,
+           (SELECT COUNT(*)::int FROM realtime_events WHERE entity_id = $1) AS realtime_events`,
+        [followUp.id],
+      )).rows).toEqual(sideEffectsBeforeReplay.rows);
+    });
+  });
+
   it('returns the canonical actor, source, assignee, customer, and contact errors', async () => {
     await withFixture(async (fixture) => {
       const source = await fixture.createSource();
@@ -622,6 +719,52 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         `SELECT 1 FROM processed_actions WHERE client_action_id = $1`,
         [rollbackInput.clientActionId],
       )).rows).toHaveLength(0);
+    });
+  });
+
+  it('uses the follow-up-specific invariant diagnostic for corrupt ancestor chains', async () => {
+    const expected = {
+      code: 'INVARIANT_VIOLATION',
+      statusCode: 500,
+      message: 'Takip işinin kaynak bağlantısı geçersizdir.',
+    };
+    await withFixture(async (fixture) => {
+      const first = await fixture.createSource({ contactId: null });
+      const second = await fixture.createSource({
+        sourceJobCardId: first,
+        contactId: null,
+      });
+      await fixture.pool.query(
+        `UPDATE job_cards
+            SET source_job_card_id = $2, follow_up_instructions = 'Cycle link'
+          WHERE id = $1`,
+        [first, second],
+      );
+
+      await expect(fixture.service.createFollowUp(
+        fixture.admin,
+        first,
+        input(fixture.staffA.id),
+      )).rejects.toMatchObject(expected);
+    });
+
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource({ contactId: null });
+      await fixture.pool.query(
+        'ALTER TABLE job_cards DROP CONSTRAINT job_cards_follow_up_source_fk',
+      );
+      await fixture.pool.query(
+        `UPDATE job_cards
+            SET source_job_card_id = $2, follow_up_instructions = 'Missing ancestor'
+          WHERE id = $1`,
+        [source, randomUUID()],
+      );
+
+      await expect(fixture.service.createFollowUp(
+        fixture.admin,
+        source,
+        input(fixture.staffA.id),
+      )).rejects.toMatchObject(expected);
     });
   });
 });
