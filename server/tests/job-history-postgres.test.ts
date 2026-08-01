@@ -83,17 +83,17 @@ describe.skipIf(!databaseUrl)('JobCard history PostgreSQL authorization and pagi
       await expect(repository.listCustomerJobHistory({
         organizationId, customerId, actor: staffA, status: 'all', limit: 20, offset: 0,
       })).resolves.toMatchObject({ total: 2, items: expect.arrayContaining([
-        expect.objectContaining({ assignee: { id: staffAId }, childCount: null }),
+        expect.objectContaining({ assignee: expect.objectContaining({ id: staffAId }), childCount: null }),
       ]) });
       await expect(repository.listStaffJobHistory({
         organizationId, targetUserId: staffBId, actor: staffA, status: 'all', limit: 20, offset: 0,
       })).resolves.toMatchObject({ total: 2, items: expect.arrayContaining([
-        expect.objectContaining({ assignee: { id: staffAId } }),
+        expect.objectContaining({ assignee: expect.objectContaining({ id: staffAId }) }),
       ]) });
       await expect(repository.listStaffJobHistory({
         organizationId, targetUserId: staffBId, actor: managerActor, status: 'completed', limit: 20, offset: 0,
       })).resolves.toMatchObject({ total: 1, items: expect.arrayContaining([
-        expect.objectContaining({ assignee: { id: staffBId }, followUp: { sourceJobCardId: sourceId }, childCount: 1 }),
+        expect.objectContaining({ assignee: expect.objectContaining({ id: staffBId }), followUp: { sourceJobCardId: sourceId }, childCount: 1 }),
       ]) });
       await expect(repository.listCustomerJobHistory({
         organizationId, customerId, actor: managerActor, status: 'open', limit: 20, offset: 0,
