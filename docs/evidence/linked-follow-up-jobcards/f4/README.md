@@ -1,6 +1,6 @@
 # Linked Follow-up JobCards — F4 canonical acceptance and closeout
 
-**Status:** `BLOCKED — exact-head CI and external review pending`
+**Status:** `READY_FOR_EXTERNAL_LINKED_FOLLOW_UP_F4_REVIEW` (PR remains Draft; merge is not authorized)
 
 This is the canonical F4 acceptance artifact for the already-merged F1–F3
 implementation. It is verification evidence only. The runtime data is synthetic;
@@ -21,9 +21,9 @@ macOS-service-identity authentication contract (`expected connection failure but
 connected`); exact-head CI remains authoritative for the complete PostgreSQL
 gate.
 
-This checkpoint remains blocked until the F4 branch is pushed, a Draft PR is
-created, and the exact F4 head's server/web CI succeeds. PR Ready, merge,
-staging, production, and branch/worktree cleanup are not authorized here.
+The evidence snapshot and its exact-head CI gate are complete. External review is
+now requested through Draft PR #87. PR Ready, merge, staging, production, and
+branch/worktree cleanup remain unauthorized here.
 
 ## 2. Provenance
 
@@ -33,7 +33,8 @@ staging, production, and branch/worktree cleanup are not authorized here.
 | Worktree | `/Users/emrah/Documents/Servora-Med-Linked-Follow-Up-F4` |
 | Branch | `docs/linked-follow-up-jobcards-f4-closeout` |
 | Canonical F3/resulting-main base | `1fd65ad4f2a1654b45e856ffd5813bf88f731e58` |
-| F4 evidence head | The runtime was executed from the clean base above; the F4 evidence/plan head is recorded after commit/push in the Draft PR gate. |
+| F4 evidence head | `379206b48aa135a38a1f5028aaab321a559f53a8` (evidence/harness commit; authenticated exact-head CI run `30700951395` passed for server and web) |
+| Draft PR | #87 — `docs: close linked follow-up JobCards acceptance` — [GitHub](https://github.com/emrahozcelik/servora-med/pull/87) |
 | Database | `servora_med_f4_test` (dedicated synthetic PostgreSQL database) |
 | Schema | Migrations 001–022 applied |
 | API | Fastify on `http://127.0.0.1:3000` |
@@ -441,17 +442,17 @@ None of these limitations authorizes a production-code change in F4.
 F4 implementation-under-test: COMPLETE (F1–F3 merged)
 F4 synthetic runtime acceptance: COMPLETE for the matrix above
 F4 evidence artifact: PRESENT
-Canonical plan closeout: PENDING final exact-head SHA/CI entry
-Draft PR: PENDING push/creation
-Exact-head server/web CI: PENDING
-External F4 review: PENDING
+Canonical plan closeout: RECORDED
+Draft PR #87: OPEN / DRAFT
+Exact-head server/web CI: SUCCESS (run 30700951395, head 379206b…)
+External F4 review: REQUESTED / PENDING
 PR Ready: NOT AUTHORIZED
 Merge: NOT AUTHORIZED
 Staging/production: NOT AUTHORIZED
 Branch/worktree cleanup: NOT AUTHORIZED
 ```
 
-The final handoff may use `READY_FOR_EXTERNAL_LINKED_FOLLOW_UP_F4_REVIEW` only
-after the Draft PR exists, local/remote/PR heads match, the worktree is clean,
-and exact-head server and web CI are both successful. Until then the correct
-state is `STATUS: BLOCKED`.
+The final handoff uses `READY_FOR_EXTERNAL_LINKED_FOLLOW_UP_F4_REVIEW` because
+Draft PR #87 exists, local/remote/PR heads match at the evidence head, the
+worktree is clean, and exact-head server and web CI are successful. This is still
+a Draft review handoff; Ready and merge remain separate gates.
