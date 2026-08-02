@@ -28,6 +28,7 @@
 | staff-calendar-768.png | STAFF | 768×1024 | Tablet transition | Real API | PASS |
 | staff-calendar-1024.png | STAFF | 1024×768 | Desktop calendar | Real API | PASS |
 | manager-calendar-1024.png | MANAGER | 1024×768 | Desktop with staff filter, header single-line | Real API | PASS |
+| manager-creates-for-staff-1024.png | MANAGER | 1024×768 | Manager creates plan assigned to a staff member (fresh capture at `34a05d2`) | Real API | PASS |
 | admin-calendar-1440.png | ADMIN | 1440×900 | Wide desktop with filter | Real API | PASS |
 | calendar-selected-day-card.png | STAFF | 1440×900 | July 15 agenda with 10 OperationalCards | Real API | PASS |
 | calendar-empty-day.png | STAFF | 1440×900 | EmptyState "Bu gün için plan bulunmuyor" | Real API | PASS |

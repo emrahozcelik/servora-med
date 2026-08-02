@@ -48,6 +48,7 @@ Universal contract legend (applies unless otherwise stated per row):
 | `overview-upcoming-staff.png` | STAFF | 390×844 | Overview upcoming-work widget, calendar deep link |
 | `overview-upcoming-manager.png` | MANAGER | 1024×768 | Manager overview, team upcoming work items |
 | `calendar-notification.png` | STAFF | 390×844 | Notification Center, calendar notification kinds |
+| `manager-creates-for-staff-1024.png` | MANAGER | 1024×768 | New-plan form with staff member assigned — manager creates, staff owns (fresh capture at `34a05d2`) |
 
 ## Verified
 
