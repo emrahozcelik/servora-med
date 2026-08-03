@@ -40,15 +40,34 @@ Required production highlights:
 
 ### HEALTH_SCHEMA_VERSION verification
 
-`HEALTH_SCHEMA_VERSION` must equal the exact latest canonical migration identifier
-included in the deployed release. Operator verification against the release (no
-database credentials, no application secrets):
+`HEALTH_SCHEMA_VERSION` must equal the exact latest canonical migration
+identifier included in the deployed release. The immutable release contains no
+Git checkout and no `server/src`; migration SQL lives under
+`server/dist/db/migrations` (copied there by the build). Verify against that
+directory (no database credentials, no application secrets):
 
 ```bash
-git -C "$RELEASE_DIR" ls-files server/src/db/migrations \
-  | sed -n 's|^server/src/db/migrations/\([0-9][0-9]*_[a-z0-9_]*\)\.sql$|\1|p' \
-  | sort | tail -n 1
+MIGRATION_DIR="$RELEASE_DIR/server/dist/db/migrations"
+
+test -d "$MIGRATION_DIR"
+
+LATEST_MIGRATION="$(
+  find "$MIGRATION_DIR" \
+    -maxdepth 1 \
+    -type f \
+    -name '[0-9][0-9][0-9]_*.sql' \
+    -exec basename {} .sql \; |
+  LC_ALL=C sort |
+  tail -n 1
+)"
+
+test -n "$LATEST_MIGRATION"
+printf '%s\n' "$LATEST_MIGRATION"
 ```
+
+A builder-checkout may be verified separately with
+`git ls-files server/src/db/migrations`; a builder checkout is **not** an
+installed release and the two must never be mixed.
 
 Failure behavior — an incorrect or stale `HEALTH_SCHEMA_VERSION` means:
 

@@ -37,6 +37,39 @@ staging import, an operator review gate must confirm the catalog is approved for
 staging use; no real customer, patient, or staff data may ever enter the staging
 database.
 
+## Bootstrap profiles (mutually exclusive)
+
+Staging bootstrap has two profiles. **Exactly one** is selected per staging
+database lifecycle; they are never chained.
+
+```text
+MINIMAL ADMIN PROFILE
+- canonical migration
+- bootstrap-admin (installed release)
+- no other seed or fixture command
+
+ACCEPTANCE FIXTURE PROFILE  ← canonical for the first staging acceptance
+- canonical migration
+- NO bootstrap-admin
+- f4-seed from a separate exact-head tooling checkout
+- synthetic Admin/Manager/Staff/multi-org fixtures
+```
+
+`bootstrap-admin` and `f4-seed` are **not** composable: `bootstrapAdmin` and
+`seedDevelopment` refuse to run when users already exist
+(`BOOTSTRAP_NOT_ALLOWED`), so admin bootstrap followed by any seed always
+fails. Choose one profile and follow it end to end.
+
+### `db:seed:dev` is a local-development tool
+
+`db:seed:dev` (`seedDevelopment`) is **not** part of the staging bootstrap:
+
+- it refuses to run when users already exist (`BOOTSTRAP_NOT_ALLOWED`);
+- it refuses `NODE_ENV=production` outright (`DEV_SEED_FORBIDDEN`), and the
+  staging environment runs with production semantics.
+
+It remains available for local development only.
+
 ## Bootstrap runbook
 
 Canonical order:
@@ -47,70 +80,101 @@ Canonical order:
 3. Create the named staging database
 4. Apply canonical migrations explicitly
 5. Verify migration set = 23/23
-6. Bootstrap synthetic administrator
-7. Seed synthetic Admin/Manager/Staff test actors
-8. Optionally import the approved synthetic pilot product catalog
-9. Verify health schema exact match
-10. Run authenticated staging smoke acceptance
+6. Apply the selected fixture profile (MINIMAL ADMIN or ACCEPTANCE FIXTURE)
+7. Optionally import the approved synthetic pilot product catalog
+8. Verify health schema exact match
+9. Run authenticated staging smoke acceptance
 ```
 
-Step details (canonical commands; do not substitute ad-hoc SQL for these steps):
+### 1. Target identity verification
 
-1. **Target identity verification** — confirm the staging environment file
-   points `DATABASE_URL` at `servora_med_staging` (database name only; never
-   print credentials). Refuse to continue if the target is `servora_med`,
-   `servora_med_test`, or any production-like name.
-2. **Ownership** — the staging DB must be absent, or explicitly recorded as an
-   owned disposable staging database created by this procedure.
-3. **Create** — `createdb` for the exact name `servora_med_staging` (no wildcard
-   patterns).
-4. **Migrate** — from the deployed release directory, using the canonical
-   migration runner only:
+Confirm the staging environment file points `DATABASE_URL` at
+`servora_med_staging` (database name only; never print credentials). Refuse to
+continue if the target is `servora_med`, `servora_med_test`, or any
+production-like name.
 
-   ```bash
-   cd server
-   npm run migrate          # development-style run
-   npm run migrate:prod     # built release run (dist/db/migrate.js)
-   ```
+### 2. Ownership
 
-   Never migrate on application start.
-5. **Verify migration set** — read-only check that
-   `schema_migrations` contains exactly the 23 canonical migrations
-   (`001_auth_foundation` .. `023_staff_confidential_notes`).
-6. **Bootstrap synthetic administrator**:
+The staging DB must be absent, or explicitly recorded as an owned disposable
+staging database created by this procedure.
 
-   ```bash
-   npm run bootstrap:admin
-   # env: BOOTSTRAP_ORGANIZATION_NAME, BOOTSTRAP_ADMIN_NAME,
-   #      BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD
-   ```
+### 3. Create
 
-7. **Seed synthetic test actors** (Admin/Manager/Staff per the staging
-   acceptance fixtures):
+`createdb` for the exact name `servora_med_staging` (no wildcard patterns).
 
-   ```bash
-   npm run db:seed:dev
-   # env: DEV_SEED_ORGANIZATION_NAME, DEV_SEED_PASSWORD
-   ```
+### 4. Canonical migration
 
-   The `f4-seed` script (`F4_SEED_PASSWORD`) is the synthetic acceptance
-   alternative when multi-organization fixtures are required.
-8. **Optional pilot catalog import** (operator-reviewed catalog only):
+From the **deployed release directory**, with the built migration runner (no
+`tsx`, no devDependencies):
 
-   ```bash
-   npm run products:import:pilot -- \
-     --file ../pilot-products.example.json \
-     --organization-id <staging-org-id> \
-     --actor-user-id <admin-user-id> \
-     --apply
-   ```
+```bash
+cd "$RELEASE_DIR/server"
+node dist/db/migrate.js
+```
 
-9. **Health schema exact match** — the staging environment
-   `HEALTH_SCHEMA_VERSION` must equal the exact latest migration in the release
-   (currently `023_staff_confidential_notes`); `GET /api/health` must return
-   `200 {"status":"ok"}`.
-10. **Authenticated smoke acceptance** — see
-    [staging-acceptance.md](./staging-acceptance.md).
+A builder checkout may use `npm run migrate` (`tsx`); a builder checkout is
+**not** an installed release. Never migrate on application start.
+
+### 5. Verify migration set
+
+Read-only check that `schema_migrations` contains exactly the 23 canonical
+migrations (`001_auth_foundation` .. `023_staff_confidential_notes`).
+
+### 6a. MINIMAL ADMIN PROFILE — bootstrap-admin
+
+Installed release (no `tsx`):
+
+```bash
+cd "$RELEASE_DIR/server"
+node dist/db/bootstrap-admin.js
+# env: BOOTSTRAP_ORGANIZATION_NAME, BOOTSTRAP_ADMIN_NAME,
+#      BOOTSTRAP_ADMIN_EMAIL, BOOTSTRAP_ADMIN_PASSWORD
+```
+
+Stop after this step; run no other seed or fixture command in this profile.
+
+### 6b. ACCEPTANCE FIXTURE PROFILE — f4-seed from a tooling checkout
+
+`f4-seed` is **not** part of the installed release: the source lives in
+`server/scripts/f4-seed.ts` (outside the TypeScript build) and its execution
+requires `tsx`, a devDependency absent from the immutable release. It must be
+run as a **separate exact-head tooling checkout**, never from inside the
+installed runtime release:
+
+```text
+- create a clean checkout at the exact deployed commit
+- cd server && npm ci
+- run with the checkout-local tsx binary: npx tsx scripts/f4-seed.ts
+- DATABASE_URL and F4_SEED_PASSWORD come only from the private environment
+- do NOT run it after any bootstrap-admin step (BOOTSTRAP_NOT_ALLOWED)
+```
+
+### 7. Optional pilot catalog import (operator-reviewed)
+
+The catalog file lives in the repository root (`pilot-products.example.json`);
+it is **not** copied into the release. Use an explicit operator-reviewed
+absolute input path — never a release-relative guess:
+
+```bash
+cd "$RELEASE_DIR/server"
+node dist/db/import-pilot-products.js \
+  --file /absolute/path/to/approved-catalog.json \
+  --organization-id <staging-org-id> \
+  --actor-user-id <admin-user-id> \
+  --apply
+```
+
+### 8. Health schema exact match
+
+The staging environment `HEALTH_SCHEMA_VERSION` must equal the exact latest
+migration in the release (currently `023_staff_confidential_notes`); verify
+against `server/dist/db/migrations` (see
+[staging-contract.md](./staging-contract.md)); `GET /api/health` must return
+`200 {"status":"ok"}`.
+
+### 9. Authenticated smoke acceptance
+
+See [staging-acceptance.md](./staging-acceptance.md).
 
 ## Disposable reset runbook
 
@@ -127,7 +191,7 @@ This procedure is not invoked automatically and never during deployment.
 7. Drop only the exact staging DB
 8. Recreate the exact staging DB
 9. Apply all canonical migrations
-10. Recreate synthetic fixtures
+10. Recreate synthetic fixtures via the selected bootstrap profile
 11. Verify health and authenticated smoke
 12. Record reset timestamp, commit and operator
 ```

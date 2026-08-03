@@ -57,13 +57,32 @@ identifier included in the deployed release** — currently
 on every release that adds a migration.
 
 Operator verification against the deployed release (no database credentials, no
-application secrets):
+application secrets). The immutable release contains no Git checkout and no
+`server/src`; migration SQL lives under `server/dist/db/migrations` (copied
+there by the build):
 
 ```bash
-git -C "$RELEASE_DIR" ls-files server/src/db/migrations \
-  | sed -n 's|^server/src/db/migrations/\([0-9][0-9]*_[a-z0-9_]*\)\.sql$|\1|p' \
-  | sort | tail -n 1
+MIGRATION_DIR="$RELEASE_DIR/server/dist/db/migrations"
+
+test -d "$MIGRATION_DIR"
+
+LATEST_MIGRATION="$(
+  find "$MIGRATION_DIR" \
+    -maxdepth 1 \
+    -type f \
+    -name '[0-9][0-9][0-9]_*.sql' \
+    -exec basename {} .sql \; |
+  LC_ALL=C sort |
+  tail -n 1
+)"
+
+test -n "$LATEST_MIGRATION"
+printf '%s\n' "$LATEST_MIGRATION"
 ```
+
+A builder checkout may be verified separately with
+`git ls-files server/src/db/migrations`; a builder checkout is **not** an
+installed release and the two must never be mixed.
 
 Failure behavior:
 
@@ -146,9 +165,9 @@ Used by the bootstrap/seed commands, never by the running application:
 
 | Variable | Purpose |
 |----------|---------|
-| `BOOTSTRAP_ORGANIZATION_NAME`, `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` | synthetic initial administrator (`bootstrap:admin`) |
-| `DEV_SEED_ORGANIZATION_NAME`, `DEV_SEED_PASSWORD` | synthetic development fixtures (`db:seed:dev`) |
-| `F4_SEED_PASSWORD` | synthetic acceptance fixtures (`f4-seed`) |
+| `BOOTSTRAP_ORGANIZATION_NAME`, `BOOTSTRAP_ADMIN_NAME`, `BOOTSTRAP_ADMIN_EMAIL`, `BOOTSTRAP_ADMIN_PASSWORD` | synthetic initial administrator (`bootstrap-admin`) |
+| `DEV_SEED_ORGANIZATION_NAME`, `DEV_SEED_PASSWORD` | **local development only** (`db:seed:dev`); never part of the staging bootstrap |
+| `F4_SEED_PASSWORD` | synthetic acceptance fixtures (`f4-seed` from a separate exact-head tooling checkout) |
 
 ## Remaining blockers (honest inventory)
 
