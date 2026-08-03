@@ -24,12 +24,13 @@ const CHANGE_TYPES = new Set([
   'job.updated',
   'conversation.created',
   'message.sent',
+  'confidential-note.created',
 ]);
 
 type RealtimeChangeEnvelope = Readonly<{
   id: string;
   type: string;
-  entity: Readonly<{ type: 'job-card' | 'calendar-event' | 'conversation'; id: string }>;
+  entity: Readonly<{ type: 'job-card' | 'calendar-event' | 'conversation' | 'confidential-note'; id: string }>;
   resourceKeys: readonly string[];
   occurredAt: string;
 }>;
@@ -99,11 +100,16 @@ function parseEnvelope(input: string): RealtimeEnvelope | null {
   if (typeof record.type !== 'string' || !CHANGE_TYPES.has(record.type)) return null;
   if (!record.entity || typeof record.entity !== 'object') return null;
   const entity = record.entity as Record<string, unknown>;
-  if (entity.type !== 'job-card' || typeof entity.id !== 'string' || entity.id.length === 0) return null;
+  if (
+    (entity.type !== 'job-card' && entity.type !== 'confidential-note')
+    || typeof entity.id !== 'string' || entity.id.length === 0
+  ) {
+    return null;
+  }
   return {
     id: record.id,
     type: record.type,
-    entity: { type: 'job-card', id: entity.id },
+    entity: { type: entity.type, id: entity.id },
     resourceKeys: record.resourceKeys,
     occurredAt: record.occurredAt,
   };

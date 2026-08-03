@@ -3487,3 +3487,45 @@ button:disabled { cursor: wait; opacity: 0.65; }
   color: var(--accent);
   font-weight: 640;
 }
+
+/* Staff confidential management notes (management-only section) */
+.confidential-notes-privacy-hint {
+  margin: 0 0 1rem;
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1.5;
+}
+.confidential-note-form {
+  max-width: 38rem;
+  margin-bottom: 1.25rem;
+}
+.confidential-note-form textarea {
+  min-height: 6rem;
+}
+.confidential-note-list {
+  padding: 0;
+  margin: 1.25rem 0 0;
+  border-top: 1px solid var(--rule);
+  list-style: none;
+}
+.confidential-note-row {
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--rule);
+  min-width: 0;
+}
+.confidential-note-body {
+  margin: 0 0 0.5rem;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+  line-height: 1.55;
+}
+.confidential-note-meta {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 0.5rem 1rem;
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.8125rem;
+}

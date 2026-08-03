@@ -12,6 +12,7 @@ import {
 } from './services/people-api';
 import type { Paginated } from './services/crm-api';
 import { StaffOperationalReportScreen } from './reports/StaffOperationalReport';
+import { StaffConfidentialNotesSection } from './StaffConfidentialNotes';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
@@ -124,7 +125,9 @@ export function StaffProfileEditView({ profile: initial, actor, managers, onBack
       <label className="field-group">Bölge<input name="region" defaultValue={profile.region ?? ''} disabled={pending} /></label>
       <label className="field-group">Yönetici<select name="managerUserId" defaultValue={profile.managerUserId ?? ''} disabled={pending}><option value="">Atanmadı</option>{managers.map((m) => <option key={m.id} value={m.id}>{m.name}</option>)}</select></label>
       <div className="form-actions"><button className="secondary-button" type="button" onClick={onBack} disabled={pending}>Listeye dön</button>
-      <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'Kaydediliyor…' : 'Profili kaydet'}</button></div></form>{actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}</main>;
+      <button className="primary-button compact-button" type="submit" disabled={pending}>{pending ? 'Kaydediliyor…' : 'Profili kaydet'}</button></div></form>
+    {actor && actor.role !== 'STAFF' && <StaffConfidentialNotesSection staffUserId={profile.user.id} actor={actor} />}
+    {actor && <StaffJobHistory actor={actor} staffUserId={profile.user.id} />}</main>;
 }
 
 export function StaffProfileEditRoute(props: {

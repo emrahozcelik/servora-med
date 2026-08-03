@@ -65,6 +65,9 @@ import type { CalendarReminderWorker } from './modules/calendar/reminder-worker.
 import { MessagingService } from './modules/messaging/service.js';
 import { PostgresMessagingRepository } from './modules/messaging/repository.js';
 import { messagingRoutes } from './modules/messaging/routes.js';
+import type { StaffConfidentialNotesRepository } from './modules/staff-confidential-notes/repository.js';
+import { StaffConfidentialNotesService } from './modules/staff-confidential-notes/service.js';
+import { staffConfidentialNotesRoutes } from './modules/staff-confidential-notes/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -113,6 +116,7 @@ export type AppDependencies = {
   overviewRepository?: OverviewReadModel;
   calendarRepository?: CalendarRepository;
   calendarReminderWorker?: CalendarReminderWorker;
+  staffConfidentialNotesRepository?: StaffConfidentialNotesRepository;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
   pool?: import('pg').Pool;
@@ -340,6 +344,16 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: new MessagingService(
           dependencies.pool,
           config.capabilities?.messaging ?? false,
+          dependencies.realtimePublisher,
+        ),
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.staffConfidentialNotesRepository) {
+      await app.register(staffConfidentialNotesRoutes, {
+        prefix: '/api',
+        service: new StaffConfidentialNotesService(
+          dependencies.staffConfidentialNotesRepository,
           dependencies.realtimePublisher,
         ),
         authenticate: authenticateDomain,

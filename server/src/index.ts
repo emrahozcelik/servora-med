@@ -25,6 +25,7 @@ import type { ReverseGeocoder } from './modules/job-cards/reverse-geocoder.js';
 import type { ReverseGeocodingQuotaGuard } from './modules/geocoding/reverse-geocoding-quota.js';
 import { PostgresOverviewRepository } from './modules/overview/repository.js';
 import { PostgresCalendarRepository } from './modules/calendar/repository.js';
+import { PostgresStaffConfidentialNotesRepository } from './modules/staff-confidential-notes/repository.js';
 import {
   PostgresCalendarReminderWorkerRepository,
   createCalendarReminderWorker,
@@ -101,6 +102,9 @@ async function main() {
           publisher: realtimeBus,
           webPushEnabled: config.webPush.enabled,
         },
+      ),
+      staffConfidentialNotesRepository: new PostgresStaffConfidentialNotesRepository(
+        database.pool,
       ),
       healthReadiness: createPostgresReadiness(database.pool, config.healthSchemaVersion),
       realtimeService,
