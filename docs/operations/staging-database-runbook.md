@@ -40,7 +40,7 @@ database.
 ## Bootstrap profiles (mutually exclusive)
 
 Staging bootstrap has two profiles. **Exactly one** is selected per staging
-database lifecycle; they are never chained.
+database lifecycle; they are never chained:
 
 ```text
 MINIMAL ADMIN PROFILE
@@ -55,10 +55,19 @@ ACCEPTANCE FIXTURE PROFILE  ← canonical for the first staging acceptance
 - synthetic Admin/Manager/Staff/multi-org fixtures
 ```
 
-`bootstrap-admin` and `f4-seed` are **not** composable: `bootstrapAdmin` and
-`seedDevelopment` refuse to run when users already exist
-(`BOOTSTRAP_NOT_ALLOWED`), so admin bootstrap followed by any seed always
-fails. Choose one profile and follow it end to end.
+### Profile exclusivity is policy-enforced and fail-closed
+
+The two profiles are **operationally mutually exclusive**. The enforcement is
+not automatic in the tools, so the runbook requires an explicit fail-closed
+precondition:
+
+- `bootstrap-admin` applies an empty-database check
+  (`BOOTSTRAP_NOT_ALLOWED` when users already exist).
+- `f4-seed` does **not** verify that the `users` table is empty on its own; it
+  inserts fixed synthetic organizations and users directly.
+
+Therefore a separately enforced precondition is mandatory before F4 runs
+(read-only gate in [Bootstrap 6b](#6b-acceptance-fixture-profile--f4-seed-from-a-tooling-checkout)).
 
 ### `db:seed:dev` is a local-development tool
 
@@ -139,15 +148,87 @@ Stop after this step; run no other seed or fixture command in this profile.
 `server/scripts/f4-seed.ts` (outside the TypeScript build) and its execution
 requires `tsx`, a devDependency absent from the immutable release. It must be
 run as a **separate exact-head tooling checkout**, never from inside the
-installed runtime release:
+installed runtime release.
+
+**Fail-closed precondition (read-only, mandatory before F4 runs):**
+
+```bash
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -P pager=off <<'SQL'
+SELECT current_database();
+
+SELECT COUNT(*) AS existing_users
+FROM users;
+
+SELECT COUNT(*) AS migration_count,
+       MAX(version) AS latest_migration
+FROM schema_migrations;
+SQL
+```
+
+Required:
 
 ```text
-- create a clean checkout at the exact deployed commit
-- cd server && npm ci
-- run with the checkout-local tsx binary: npx tsx scripts/f4-seed.ts
-- DATABASE_URL and F4_SEED_PASSWORD come only from the private environment
-- do NOT run it after any bootstrap-admin step (BOOTSTRAP_NOT_ALLOWED)
+current_database:
+servora_med_staging
+
+existing_users:
+0
+
+migration_count:
+23
+
+latest_migration:
+023_staff_confidential_notes
 ```
+
+If any value differs:
+
+```text
+STOP
+DO NOT RUN F4-SEED
+DO NOT RESET AUTOMATICALLY
+REQUIRE A SEPARATELY AUTHORIZED STAGING RESET
+```
+
+Execution with the checkout-local deterministic binary (never `npx`, which can
+fall back to network resolution; fail if the local binary is missing):
+
+```bash
+cd "$TOOLING_CHECKOUT/server"
+npm ci
+
+test -x ./node_modules/.bin/tsx
+
+./node_modules/.bin/tsx scripts/f4-seed.ts
+```
+
+`DATABASE_URL` and `F4_SEED_PASSWORD` come only from the private environment.
+
+**Target identity proof.** The `database` field in the f4-seed output JSON is
+currently a fixed, test-oriented label (`servora_med_f4_test`); it is **not**
+staging target proof. Canonical target proof is always:
+
+```bash
+psql "$DATABASE_URL" -X -tAc "SELECT current_database();"
+```
+
+**Post-F4 verification (read-only).** After f4-seed, re-verify target identity
+and synthetic actor counts:
+
+```bash
+psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -P pager=off <<'SQL'
+SELECT current_database();
+
+SELECT COUNT(*) AS synthetic_users
+FROM users;
+
+SELECT COUNT(*) AS synthetic_orgs
+FROM organizations;
+SQL
+```
+
+Expected: `current_database` = `servora_med_staging`; `synthetic_users` and
+`synthetic_orgs` match the f4 fixture plan (multi-org Admin/Manager/Staff).
 
 ### 7. Optional pilot catalog import (operator-reviewed)
 
