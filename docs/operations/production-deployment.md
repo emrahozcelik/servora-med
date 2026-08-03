@@ -36,7 +36,46 @@ Required production highlights:
 - `HOST=127.0.0.1`
 - `CORS_ORIGIN=https://<FQDN>`
 - `TRUSTED_PROXY=loopback`
-- `HEALTH_SCHEMA_VERSION=008_meeting_approval_withdrawal` (exact latest migration name; update each release that adds a migration)
+- `HEALTH_SCHEMA_VERSION=023_staff_confidential_notes` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
+
+### HEALTH_SCHEMA_VERSION verification
+
+`HEALTH_SCHEMA_VERSION` must equal the exact latest canonical migration
+identifier included in the deployed release. The immutable release contains no
+Git checkout and no `server/src`; migration SQL lives under
+`server/dist/db/migrations` (copied there by the build). Verify against that
+directory (no database credentials, no application secrets):
+
+```bash
+MIGRATION_DIR="$RELEASE_DIR/server/dist/db/migrations"
+
+test -d "$MIGRATION_DIR"
+
+LATEST_MIGRATION="$(
+  find "$MIGRATION_DIR" \
+    -maxdepth 1 \
+    -type f \
+    -name '[0-9][0-9][0-9]_*.sql' \
+    -exec basename {} .sql \; |
+  LC_ALL=C sort |
+  tail -n 1
+)"
+
+test -n "$LATEST_MIGRATION"
+printf '%s\n' "$LATEST_MIGRATION"
+```
+
+A builder-checkout may be verified separately with
+`git ls-files server/src/db/migrations`; a builder checkout is **not** an
+installed release and the two must never be mixed.
+
+Failure behavior — an incorrect or stale `HEALTH_SCHEMA_VERSION` means:
+
+```text
+incorrect or stale HEALTH_SCHEMA_VERSION
+→ /api/health returns 503
+→ deployment must be treated as not ready
+```
 - `DATABASE_URL` PostgreSQL only (prefer peer/`PGPASSFILE`, never log the URL)
 
 ## Build release (immutable dependencies)
