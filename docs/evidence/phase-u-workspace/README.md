@@ -38,7 +38,22 @@ Candidate B — Clinical Cool (canonical production palette)
 | calendar-regression-390.png | STAFF | 390×844 | Calendar header single-row | PASS |
 | job-list-regression-1024.png | STAFF | 1024×768 | Job list intact | PASS |
 | job-detail-regression-1440.png | STAFF | 1440×900 | Job detail intact | PASS |
+| overview-staff-full-page-390.png | STAFF | 390×844 | Overview full-page mobile evidence | PASS |
 
+## H1A — Staff Overview full-page mobile evidence
+
+- **Scenario:** Staff Overview full-page mobile evidence
+- **Role:** Staff
+- **Viewport:** 390 × 844
+- **Capture:** full page
+- **Runtime source:** origin/main `aae24712db899b236b88f5c022fbee021b111450`
+- **Evidence:** `overview-staff-full-page-390.png`
+- **Data:** synthetic only
+- **Verified sections:** KPI, upcoming jobs, recent completed jobs, recent notes, unread messages
+- **Runtime:** reload persistence verified
+- **Relationship:** supplements the existing viewport-clipped `overview-staff-390.png`
+- **Provenance:** fresh current-main replacement for an untracked historical full-page capture
+- **Capture note:** The fixed mobile bottom navigation is covered by the existing viewport capture. It was hidden only during this full-page supplemental capture to prevent Chrome fixed-layer occlusion of below-fold evidence. Application behavior is unchanged; only screenshot composition was adjusted.
 ## Verification summary
 
 - **Web tests:** 94/94 PASS (1106 tests)
