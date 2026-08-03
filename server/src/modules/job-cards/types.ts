@@ -317,7 +317,7 @@ export type FollowUpListItem = JobCardListItem & {
 
 export type PaginatedFollowUpList = Paginated<FollowUpListItem>;
 
-export type JobCardMutationReceipt = { jobCardId: string };
+export type JobCardMutationReceipt = { jobCardId: string; evaluatedAt?: string };
 
 export type FollowUpCreateReceipt = JobCardMutationReceipt;
 
