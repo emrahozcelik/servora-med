@@ -13,7 +13,7 @@ type EventRow = {
   source_activity_id: string | null;
   messaging_activity_id: string | null;
   event_type: RealtimeEventType;
-  entity_type: 'job-card' | 'calendar-event' | 'conversation';
+  entity_type: 'job-card' | 'calendar-event' | 'conversation' | 'confidential-note';
   entity_id: string;
   actor_user_id: string | null;
   audience_roles: ('ADMIN' | 'MANAGER')[];
