@@ -4,11 +4,13 @@ import type { Pool, PoolClient } from 'pg';
 export type SessionWithUser = {
   session: SessionRecord;
   user: AuthUserRecord;
+  organizationTimeZone: string;
 };
 
 export interface AuthRepository {
   findUserByEmail(normalizedEmail: string): Promise<AuthUserRecord | null>;
   findUserById(id: string): Promise<AuthUserRecord | null>;
+  findOrganizationTimeZone(organizationId: string): Promise<string>;
   createSession(input: Omit<SessionRecord, 'id' | 'revokedAt'>): Promise<SessionRecord>;
   findSessionWithUser(tokenHash: string): Promise<SessionWithUser | null>;
   revokeSession(tokenHash: string, revokedAt: Date): Promise<void>;
@@ -89,6 +91,14 @@ export class PostgresAuthRepository implements AuthRepository {
     return result.rows[0] ? mapUser(result.rows[0]) : null;
   }
 
+  async findOrganizationTimeZone(organizationId: string) {
+    const result = await this.pool.query<{ timezone: string }>(
+      `SELECT timezone FROM organizations WHERE id = $1`,
+      [organizationId],
+    );
+    return result.rows[0]?.timezone ?? 'Europe/Istanbul';
+  }
+
   async createSession(input: Omit<SessionRecord, 'id' | 'revokedAt'>) {
     const result = await this.pool.query<SessionRow>(
       `INSERT INTO sessions (user_id, token_hash, expires_at)
@@ -100,13 +110,15 @@ export class PostgresAuthRepository implements AuthRepository {
   }
 
   async findSessionWithUser(tokenHash: string) {
-    const result = await this.pool.query<SessionRow & UserRow>(
+    const result = await this.pool.query<SessionRow & UserRow & { organization_timezone: string }>(
       `SELECT
          s.id, s.user_id, s.token_hash, s.expires_at, s.revoked_at,
          u.id AS user_record_id, u.organization_id, u.name, u.email,
-         u.password_hash, u.role, u.must_change_password, u.is_active, u.version
+         u.password_hash, u.role, u.must_change_password, u.is_active, u.version,
+         o.timezone AS organization_timezone
        FROM sessions s
        JOIN users u ON u.id = s.user_id
+       JOIN organizations o ON o.id = u.organization_id
        WHERE s.token_hash = $1
        LIMIT 1`,
       [tokenHash],
@@ -116,6 +128,7 @@ export class PostgresAuthRepository implements AuthRepository {
     return {
       session: mapSession(row),
       user: mapUser({ ...row, id: (row as typeof row & { user_record_id: string }).user_record_id }),
+      organizationTimeZone: row.organization_timezone,
     };
   }
 

@@ -62,6 +62,7 @@ function forcedPasswordAuthRepository() {
         revokedAt: null,
       },
       user,
+      organizationTimeZone: 'Europe/Istanbul',
     }),
   } as never;
 }

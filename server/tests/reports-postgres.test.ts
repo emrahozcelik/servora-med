@@ -376,8 +376,105 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     staffCompletedBy: activeStaff.id,
   });
 
+  // --- Canonical overdue fixtures (Berlin local date at requestTime is 2026-07-14) ---
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'PRODUCT_DELIVERY',
+    status: 'IN_PROGRESS',
+    title: 'Overdue despite future scheduled time',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+    startedAt: new Date('2026-07-13T08:00:00.000Z'),
+    scheduledAt: new Date('2026-07-15T08:00:00.000Z'),
+    dueDate: '2026-07-13',
+  });
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'GENERAL_TASK',
+    status: 'IN_PROGRESS',
+    title: 'Not overdue despite past scheduled time',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+    startedAt: new Date('2026-07-13T08:00:00.000Z'),
+    scheduledAt: new Date('2026-07-13T08:00:00.000Z'),
+    dueDate: '2026-07-14',
+  });
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'GENERAL_TASK',
+    status: 'NEW',
+    title: 'Due tomorrow',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+    dueDate: '2026-07-15',
+  });
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'GENERAL_TASK',
+    status: 'NEW',
+    title: 'No due date',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+  });
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'PRODUCT_DELIVERY',
+    status: 'WAITING_APPROVAL',
+    title: 'Waiting approval overdue by due date',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+    startedAt: new Date(requestTime.getTime() - 2 * 60 * 60 * 1000),
+    staffCompletedAt: new Date(requestTime.getTime() - 60 * 60 * 1000),
+    staffCompletedBy: activeStaff.id,
+    dueDate: '2026-07-13',
+  });
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'GENERAL_TASK',
+    status: 'REVISION_REQUESTED',
+    title: 'Revision overdue by due date',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+    startedAt: new Date('2026-07-12T08:00:00.000Z'),
+    staffCompletedAt: new Date('2026-07-12T09:00:00.000Z'),
+    staffCompletedBy: activeStaff.id,
+    revisionRequestedAt: new Date('2026-07-12T10:00:00.000Z'),
+    revisionRequestedBy: manager.id,
+    revisionReason: 'Eksik teslimat notu',
+    dueDate: '2026-07-13',
+  });
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'PRODUCT_DELIVERY',
+    status: 'COMPLETED',
+    title: 'Completed overdue due date never counts',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+    startedAt: new Date('2026-07-10T08:00:00.000Z'),
+    staffCompletedAt: new Date('2026-07-10T09:00:00.000Z'),
+    staffCompletedBy: activeStaff.id,
+    managerApprovedAt: new Date('2026-07-10T12:00:00.000Z'),
+    managerApprovedBy: manager.id,
+    dueDate: '2026-07-13',
+  });
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'GENERAL_TASK',
+    status: 'CANCELLED',
+    title: 'Cancelled overdue due date never counts',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+    cancelledAt: new Date('2026-07-11T12:00:00.000Z'),
+    cancelledBy: manager.id,
+    cancelReason: 'Müşteri vazgeçti',
+    dueDate: '2026-07-13',
+  });
+
   // NEW + ACCEPTED + IN_PROGRESS + REVISION + 7 aged waiting + 1 future = 12 active
-  const activeAllTypes = 12;
+  // + 2 IN_PROGRESS + 2 NEW + 1 waiting + 1 revision overdue fixtures = 18 active
+  const activeAllTypes = 18;
+  // due_date < Berlin-local 2026-07-14 across five actionable statuses
+  const overdueJobCards = 3;
 
   // --- DST transition deliveries (Europe/Berlin spring 2026) ---
   const dstJobId = await insertJob({
@@ -664,6 +761,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     productId,
     expected: {
       activeAllTypes,
+      overdueJobCards,
       purposeRows,
       groupedRows,
     },
@@ -733,11 +831,37 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   });
   expect(dashboard.counters.activeJobCards).toBe(fixture.expected.activeAllTypes);
   expect(dashboard.range.timezone).toBe('Europe/Berlin');
-  expect(dashboard.counters.waitingApproval).toBe(8);
-  expect(dashboard.counters.revisionRequested).toBe(1);
-  expect(dashboard.counters.cancelledInPeriod).toBe(1);
-  // July completed approvals: reassigned, july variety, rename (DST/leap outside July)
-  expect(dashboard.counters.completedInPeriod).toBe(3);
+  expect(dashboard.counters.waitingApproval).toBe(9);
+  expect(dashboard.counters.revisionRequested).toBe(2);
+  expect(dashboard.counters.cancelledInPeriod).toBe(2);
+  // July completed approvals: reassigned, july variety, rename, completed-fixture
+  expect(dashboard.counters.completedInPeriod).toBe(4);
+  // Canonical overdue: due_date < Berlin-local current date, scheduled_at ignored
+  expect(dashboard.counters.overdueJobCards).toBe(fixture.expected.overdueJobCards);
+
+  // Overdue list total equals the dashboard overdue counter (org-wide, active status).
+  const overdueList = await jobCards.listJobCards(
+    { organizationId: fixture.organizationOne, assignedTo: null },
+    { status: 'active', dueBefore: '2026-07-13', limit: 100, offset: 0 },
+  );
+  expect(overdueList.total).toBe(fixture.expected.overdueJobCards);
+  // dueBefore is inclusive: today's due_date is still before the canonical boundary.
+  const todayInclusiveList = await jobCards.listJobCards(
+    { organizationId: fixture.organizationOne, assignedTo: null },
+    { status: 'active', dueBefore: '2026-07-14', limit: 100, offset: 0 },
+  );
+  expect(todayInclusiveList.total).toBe(fixture.expected.overdueJobCards + 1);
+  // Staff scope preserves assignment: only the assigned staff's overdue jobs.
+  const staffOverdueList = await jobCards.listJobCards(
+    { organizationId: fixture.organizationOne, assignedTo: fixture.activeStaff.id },
+    { status: 'active', dueBefore: '2026-07-13', limit: 100, offset: 0 },
+  );
+  expect(staffOverdueList.total).toBe(fixture.expected.overdueJobCards);
+  const unrelatedStaffOverdueList = await jobCards.listJobCards(
+    { organizationId: fixture.organizationOne, assignedTo: fixture.inactiveStaff.id },
+    { status: 'active', dueBefore: '2026-07-13', limit: 100, offset: 0 },
+  );
+  expect(unrelatedStaffOverdueList.total).toBe(0);
 
   const staffReport = await service.getStaffReport(
     fixture.manager,
@@ -748,9 +872,10 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(staffReport.staff.isActive).toBe(true);
   expect(staffReport.deliveriesByPurpose).toEqual(fixture.expected.purposeRows);
   // GENERAL_TASK revision + open pipeline contribute to Staff counters
-  expect(staffReport.counters.revisionRequested).toBe(1);
-  expect(staffReport.counters.waitingApproval).toBe(8);
-  expect(staffReport.counters.openJobCards).toBe(3); // NEW + ACCEPTED + IN_PROGRESS
+  expect(staffReport.counters.revisionRequested).toBe(2);
+  expect(staffReport.counters.waitingApproval).toBe(9);
+  expect(staffReport.counters.openJobCards).toBe(7); // 3 original + 4 overdue fixtures
+  expect(staffReport.counters.overdueJobCards).toBe(fixture.expected.overdueJobCards);
 
   const inactiveReport = await service.getStaffReport(
     fixture.manager,
@@ -859,9 +984,9 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   });
   expect(approvals.summary.pendingCount).toBe(approvals.total);
   expect(bucketTotal(approvals.summary)).toBe(approvals.total);
-  expect(approvals.total).toBe(8);
+  expect(approvals.total).toBe(9);
   expect(approvals.summary).toMatchObject({
-    under2Hours: 2, // 1h + future (clamped)
+    under2Hours: 3, // 1h + future (clamped) + overdue waiting fixture
     between2And8Hours: 2, // exact 2h + 4h
     between8And24Hours: 2, // exact 8h + 12h
     over24Hours: 2, // exact 24h + 48h
@@ -971,6 +1096,74 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
       await applyCurrentMigrations(pool);
       const fixture = await seedReportFixture(pool);
       await verifyReports(pool, fixture);
+    } finally {
+      await pool?.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
+
+  it('applies the canonical overdue boundary in the organization-local date', async () => {
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `overdue_${randomUUID().replaceAll('-', '')}`;
+    let pool: Pool | null = null;
+    try {
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      await applyCurrentMigrations(pool);
+
+      const boundaryTime = new Date('2026-07-14T20:00:00.000Z');
+      const berlinId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone)
+         VALUES ('Berlin Boundary', 'Europe/Berlin') RETURNING id`,
+      )).rows[0]!.id;
+      const tokyoId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone)
+         VALUES ('Tokyo Boundary', 'Asia/Tokyo') RETURNING id`,
+      )).rows[0]!.id;
+      const berlinUser = (await pool.query<{ id: string; organization_id: string; version: number }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Berlin Staff', $2, 'unused-test-hash', 'STAFF')
+         RETURNING id, organization_id, version`,
+        [berlinId, `${randomUUID()}@test.local`],
+      )).rows[0]!;
+      const tokyoUser = (await pool.query<{ id: string; organization_id: string; version: number }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Tokyo Staff', $2, 'unused-test-hash', 'STAFF')
+         RETURNING id, organization_id, version`,
+        [tokyoId, `${randomUUID()}@test.local`],
+      )).rows[0]!;
+
+      const insertJob = async (organizationId: string, assignedTo: string, dueDate: string) => {
+        await pool.query(
+          `INSERT INTO job_cards (
+             organization_id, type, status, title, assigned_to, created_by, due_date
+           ) VALUES ($1, 'GENERAL_TASK', 'NEW', 'Boundary job', $2, $2, $3::date)`,
+          [organizationId, assignedTo, dueDate],
+        );
+      };
+      // Due 2026-07-14: overdue in Tokyo (local date 07-15) but not in Berlin (local date 07-14).
+      await insertJob(berlinId, berlinUser.id, '2026-07-14');
+      await insertJob(tokyoId, tokyoUser.id, '2026-07-14');
+
+      const reports = new PostgresReportsRepository(pool);
+      const berlinDashboard = await reports.getDashboard({
+        organizationId: berlinId,
+        requestedRange: null,
+        requestTime: boundaryTime,
+      });
+      const tokyoDashboard = await reports.getDashboard({
+        organizationId: tokyoId,
+        requestedRange: null,
+        requestTime: boundaryTime,
+      });
+      expect(berlinDashboard.range.timezone).toBe('Europe/Berlin');
+      expect(berlinDashboard.counters.overdueJobCards).toBe(0);
+      expect(tokyoDashboard.range.timezone).toBe('Asia/Tokyo');
+      expect(tokyoDashboard.counters.overdueJobCards).toBe(1);
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

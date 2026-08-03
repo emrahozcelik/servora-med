@@ -31,6 +31,18 @@ describe('auth API client', () => {
     await expect(getCurrentUser()).resolves.toBeNull();
   });
 
+  it('parses the organization timezone when present and tolerates its absence', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      user: { ...user, organizationTimeZone: 'Europe/Istanbul' },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    await expect(getCurrentUser()).resolves.toMatchObject({ organizationTimeZone: 'Europe/Istanbul' });
+
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      user: { ...user, organizationTimeZone: '  ' },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    await expect(getCurrentUser()).resolves.toMatchObject({ organizationTimeZone: undefined });
+  });
+
   it('handles a legacy missing capability payload fail-closed', async () => {
     const { capabilities: _capabilities, support: _support, ...legacyUser } = user;
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({

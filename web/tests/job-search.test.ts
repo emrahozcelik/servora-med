@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus,
-  updateJobSearch,
+  canonicalJobSearchParams, enterBoard, forceMobileList, overdueJobsSearch, parseJobSearch,
+  selectStatus, statusQuickSearch, updateJobSearch,
 } from '../src/jobs/job-search';
 
 describe('canonical JobCard URL state', () => {
@@ -91,5 +91,28 @@ describe('canonical JobCard URL state', () => {
     expect(mobile.toString()).toBe('q=klinik&priority=urgent&view=list');
     expect(forceMobileList(mobile).toString()).toBe(mobile.toString());
     expect(board.get('view')).toBe('board');
+  });
+
+  it('builds the canonical overdue query with organization-local yesterday', () => {
+    const now = new Date('2026-07-15T22:00:00.000Z');
+    const params = new URLSearchParams(
+      'q=klinik&status=WAITING_APPROVAL&dueBefore=2026-07-31&dueAfter=2026-07-01&offset=25',
+    );
+    // 22:00 UTC = 01:00 next day in Istanbul/Tokyo => org-local yesterday is 07-15 there.
+    expect(overdueJobsSearch(params, 'Europe/Istanbul', now).toString())
+      .toBe('q=klinik&status=active&dueBefore=2026-07-15');
+    expect(overdueJobsSearch(params, 'Asia/Tokyo', now).toString())
+      .toBe('q=klinik&status=active&dueBefore=2026-07-15');
+    // The same instant in UTC is still 07-15: browser timezone must not control the result.
+    expect(overdueJobsSearch(params, 'UTC', now).toString())
+      .toBe('q=klinik&status=active&dueBefore=2026-07-14');
+  });
+
+  it('status quick searches drop stale dueBefore/dueAfter date ranges', () => {
+    const params = new URLSearchParams('q=klinik&status=active&dueBefore=2026-07-31&dueAfter=2026-07-01&offset=25');
+    expect(statusQuickSearch(params, 'WAITING_APPROVAL').toString())
+      .toBe('q=klinik&status=WAITING_APPROVAL');
+    expect(statusQuickSearch(params, 'closed').toString()).toBe('q=klinik&status=closed');
+    expect(statusQuickSearch(params, 'active').toString()).toBe('q=klinik');
   });
 });

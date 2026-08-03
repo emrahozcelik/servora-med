@@ -5,23 +5,28 @@ import type { CurrentUser } from '../services/api';
 import { ApiError } from '../services/api';
 import { createRequestGate } from '../services/request-gate';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
+import { yesterdayYmd } from '../shared/org-calendar';
 import { LoadingSkeleton, ResultState } from '../ui/antd';
 import { JobBoard } from './JobBoard';
 import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
 import type { JobCommandIntent } from './JobRow';
 import { getJobCardBoard, listJobCards, type JobCardBoard } from './jobs-api';
-import { canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus, updateJobSearch, type JobSearchState } from './job-search';
+import { canonicalJobSearchParams, enterBoard, forceMobileList, overdueJobsSearch, parseJobSearch, selectStatus, statusQuickSearch, updateJobSearch, type JobSearchState } from './job-search';
 import { NewJobMenu } from './NewJobMenu';
 
 const PAGE_SIZE = 25;
 
 function filterHref(params: URLSearchParams, status: JobSearchState['status']) {
-  return `?${selectStatus(params, status ?? 'active').toString()}`;
+  return `?${statusQuickSearch(params, status ?? 'active').toString()}`;
 }
 
 function closedFilterHref(params: URLSearchParams) {
-  return `?${selectStatus(params, 'closed').toString()}`;
+  return `?${statusQuickSearch(params, 'closed').toString()}`;
+}
+
+function overdueFilterHref(params: URLSearchParams, timeZone: string) {
+  return `?${overdueJobsSearch(params, timeZone).toString()}`;
 }
 
 type BoardState =
@@ -118,7 +123,12 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
     || filters.dueAfter || filters.dueBefore || filters.status !== 'active');
 
   const quickViews = [
-    { key: 'active' as const, label: 'Aktif işler', href: filterHref(params, 'active'), current: filters.status === 'active' },
+    {
+      key: 'active' as const,
+      label: 'Aktif işler',
+      href: filterHref(params, 'active'),
+      current: filters.status === 'active' && !filters.dueBefore && !filters.dueAfter,
+    },
     ...(user.role !== 'STAFF'
       ? [{
           key: 'WAITING_APPROVAL' as const,
@@ -139,6 +149,15 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       href: closedFilterHref(params),
       current: filters.status === 'closed',
     },
+    ...(user.organizationTimeZone
+      ? [{
+          key: 'overdue' as const,
+          label: 'Geciken',
+          href: overdueFilterHref(params, user.organizationTimeZone),
+          current: filters.status === 'active'
+            && filters.dueBefore === yesterdayYmd(user.organizationTimeZone),
+        }]
+      : []),
   ];
 
   return <main className="workspace job-workspace">

@@ -1,4 +1,5 @@
 import type { JobCardPriority, JobCardStatusFilter, JobCardType } from './jobs-api';
+import { yesterdayYmd } from '../shared/org-calendar';
 
 export type JobSearchState = {
   q?: string;
@@ -113,6 +114,35 @@ export function selectStatus(current: URLSearchParams, status: JobCardStatusFilt
   next.set('status', status);
   next.set('view', 'list');
   next.set('offset', '0');
+  return canonicalJobSearchParams(next);
+}
+
+/**
+ * Canonical overdue query: explicit status=active with dueBefore set to the
+ * organization-local yesterday. Equivalent to due_date < org-local today.
+ * Date-range filters are dropped so no stale dueBefore survives the switch.
+ */
+export function overdueJobsSearch(
+  current: URLSearchParams,
+  timeZone: string,
+  now: Date = new Date(),
+) {
+  const next = canonicalJobSearchParams(current);
+  next.delete('status');
+  next.delete('offset');
+  next.delete('dueBefore');
+  next.delete('dueAfter');
+  next.delete('view');
+  next.set('status', 'active');
+  next.set('dueBefore', yesterdayYmd(timeZone, now));
+  return next;
+}
+
+/** Status shortcut query without overdue/date-range parameters. */
+export function statusQuickSearch(current: URLSearchParams, status: JobCardStatusFilter) {
+  const next = selectStatus(current, status);
+  next.delete('dueBefore');
+  next.delete('dueAfter');
   return canonicalJobSearchParams(next);
 }
 

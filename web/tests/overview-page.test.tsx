@@ -6,6 +6,7 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { OverviewPage } from '../src/overview/OverviewPage';
 import { RealtimeProvider } from '../src/realtime/RealtimeProvider';
+import { yesterdayYmd } from '../src/shared/org-calendar';
 import type { CurrentUser } from '../src/services/api';
 import type { OverviewResponse } from '../src/services/overview-api';
 
@@ -21,7 +22,7 @@ const user: CurrentUser = {
 
 const staffOverview: OverviewResponse = {
   scope: 'staff',
-  range: { from: '2026-07-01', to: '2026-07-26' },
+  range: { from: '2026-07-01', to: '2026-07-26', timezone: 'Europe/Istanbul' },
   openJobCards: 4,
   waitingApproval: 2,
   revisionRequested: 1,
@@ -36,7 +37,7 @@ const staffOverview: OverviewResponse = {
 
 const managementOverview: OverviewResponse = {
   scope: 'management',
-  range: { from: '2026-07-01', to: '2026-07-26' },
+  range: { from: '2026-07-01', to: '2026-07-26', timezone: 'Europe/Istanbul' },
   active: 9, overdue: 2, waitingApproval: 3, revisionRequested: 1,
   completedInPeriod: 6, cancelledInPeriod: 1,
   completionTrend: [{ date: '2026-07-25', count: 2 }],
@@ -114,6 +115,13 @@ describe('OverviewPage', () => {
     expect(html).toContain('Geciken');
     expect(html).toContain('Kontrol bekleyen');
     expect(html).not.toContain('Açık işler');
+  });
+
+  it('links the Geciken KPI to the canonical overdue query, not the range end', async () => {
+    const html = await render(managementOverview);
+    expect(html).toContain('status=active&amp;dueBefore=');
+    expect(html).toContain(`status=active&amp;dueBefore=${yesterdayYmd('Europe/Istanbul')}`);
+    expect(html).not.toContain('dueBefore=2026-07-26');
   });
 
   it('renders management trend and approval summary only for management scope', async () => {
