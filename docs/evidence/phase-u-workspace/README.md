@@ -53,7 +53,7 @@ Candidate B — Clinical Cool (canonical production palette)
 - **Runtime:** reload persistence verified
 - **Relationship:** supplements the existing viewport-clipped `overview-staff-390.png`
 - **Provenance:** fresh current-main replacement for an untracked historical full-page capture
-
+- **Capture note:** The fixed mobile bottom navigation is covered by the existing viewport capture. It was hidden only during this full-page supplemental capture to prevent Chrome fixed-layer occlusion of below-fold evidence. Application behavior is unchanged; only screenshot composition was adjusted.
 ## Verification summary
 
 - **Web tests:** 94/94 PASS (1106 tests)
