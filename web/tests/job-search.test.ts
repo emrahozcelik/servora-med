@@ -93,26 +93,38 @@ describe('canonical JobCard URL state', () => {
     expect(board.get('view')).toBe('board');
   });
 
-  it('builds the canonical overdue query with organization-local yesterday', () => {
-    const now = new Date('2026-07-15T22:00:00.000Z');
+  it('builds the canonical overdue query with server-owned overdue=true', () => {
     const params = new URLSearchParams(
       'q=klinik&status=WAITING_APPROVAL&dueBefore=2026-07-31&dueAfter=2026-07-01&offset=25',
     );
-    // 22:00 UTC = 01:00 next day in Istanbul/Tokyo => org-local yesterday is 07-15 there.
-    expect(overdueJobsSearch(params, 'Europe/Istanbul', now).toString())
-      .toBe('q=klinik&status=active&dueBefore=2026-07-15');
-    expect(overdueJobsSearch(params, 'Asia/Tokyo', now).toString())
-      .toBe('q=klinik&status=active&dueBefore=2026-07-15');
-    // The same instant in UTC is still 07-15: browser timezone must not control the result.
-    expect(overdueJobsSearch(params, 'UTC', now).toString())
-      .toBe('q=klinik&status=active&dueBefore=2026-07-14');
+    expect(overdueJobsSearch(params).toString()).toBe('q=klinik&overdue=true');
+    // No browser clock or timezone input can change the result.
+    expect(overdueJobsSearch(new URLSearchParams()).toString()).toBe('overdue=true');
   });
 
-  it('status quick searches drop stale dueBefore/dueAfter date ranges', () => {
-    const params = new URLSearchParams('q=klinik&status=active&dueBefore=2026-07-31&dueAfter=2026-07-01&offset=25');
-    expect(statusQuickSearch(params, 'WAITING_APPROVAL').toString())
+  it('parses overdue=true state and drops malformed values', () => {
+    expect(parseJobSearch(new URLSearchParams('overdue=true'))).toEqual({
+      overdue: true, status: 'active', view: 'list', offset: 0,
+    });
+    expect(parseJobSearch(new URLSearchParams('overdue=false'))).toEqual({
+      status: 'active', view: 'list', offset: 0,
+    });
+    expect(canonicalJobSearchParams(new URLSearchParams('overdue=false')).toString()).toBe('');
+    expect(canonicalJobSearchParams(new URLSearchParams('overdue=true')).toString())
+      .toBe('overdue=true');
+  });
+
+  it('selecting a status drops overdue and status quick searches clear date ranges', () => {
+    const overdue = new URLSearchParams('q=klinik&overdue=true&offset=25');
+    expect(selectStatus(overdue, 'WAITING_APPROVAL').toString())
       .toBe('q=klinik&status=WAITING_APPROVAL');
-    expect(statusQuickSearch(params, 'closed').toString()).toBe('q=klinik&status=closed');
-    expect(statusQuickSearch(params, 'active').toString()).toBe('q=klinik');
+    expect(statusQuickSearch(overdue, 'active').toString()).toBe('q=klinik');
+    expect(statusQuickSearch(overdue, 'closed').toString()).toBe('q=klinik&status=closed');
+  });
+
+  it('filter changes drop overdue while pagination preserves it', () => {
+    const overdue = new URLSearchParams('overdue=true&offset=25');
+    expect(updateJobSearch(overdue, { q: 'klinik' }).toString()).toBe('q=klinik');
+    expect(updateJobSearch(overdue, {}).toString()).toBe('overdue=true');
   });
 });

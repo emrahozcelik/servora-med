@@ -37,8 +37,6 @@ export type CurrentUser = {
   version: number;
   capabilities: AuthenticatedCapabilities;
   support: AuthenticatedSupport;
-  /** IANA organization timezone for org-local calendar boundaries. */
-  organizationTimeZone?: string;
 };
 export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
 
@@ -145,10 +143,6 @@ function parseCurrentUser(value: unknown): CurrentUser {
         : null,
       helpUrl,
     },
-    organizationTimeZone: typeof user.organizationTimeZone === 'string'
-      && user.organizationTimeZone.trim()
-      ? user.organizationTimeZone
-      : undefined,
   };
 }
 

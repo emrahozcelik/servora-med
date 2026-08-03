@@ -6,7 +6,6 @@ import { describe, expect, it, vi } from 'vitest';
 
 import { OverviewPage } from '../src/overview/OverviewPage';
 import { RealtimeProvider } from '../src/realtime/RealtimeProvider';
-import { yesterdayYmd } from '../src/shared/org-calendar';
 import type { CurrentUser } from '../src/services/api';
 import type { OverviewResponse } from '../src/services/overview-api';
 
@@ -117,10 +116,9 @@ describe('OverviewPage', () => {
     expect(html).not.toContain('Açık işler');
   });
 
-  it('links the Geciken KPI to the canonical overdue query, not the range end', async () => {
+  it('links the Geciken KPI to the server-owned overdue query, not the range end', async () => {
     const html = await render(managementOverview);
-    expect(html).toContain('status=active&amp;dueBefore=');
-    expect(html).toContain(`status=active&amp;dueBefore=${yesterdayYmd('Europe/Istanbul')}`);
+    expect(html).toContain('/jobs?overdue=true');
     expect(html).not.toContain('dueBefore=2026-07-26');
   });
 

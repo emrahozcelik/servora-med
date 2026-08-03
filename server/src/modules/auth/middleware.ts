@@ -15,7 +15,6 @@ export function requireAuthentication(authService: AuthService) {
     request.currentUser = authenticated.user;
     request.sessionTokenHash = authenticated.tokenHash;
     request.currentSessionId = authenticated.sessionId;
-    request.organizationTimeZone = authenticated.organizationTimeZone;
   };
 }
 

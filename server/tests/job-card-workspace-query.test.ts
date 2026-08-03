@@ -32,6 +32,35 @@ describe('JobCard workspace list query', () => {
     expect(parseJobCardListQuery(raw)).toMatchObject(expected);
   });
 
+  it.each([
+    [{ overdue: 'true' }, { overdue: true, status: 'active' }],
+    [{ overdue: 'true', status: 'active' }, { overdue: true, status: 'active' }],
+  ])('parses the server-owned overdue filter %j', (raw, expected) => {
+    expect(parseJobCardListQuery(raw)).toMatchObject(expected);
+  });
+
+  it.each([
+    [{ overdue: 'false' }],
+    [{ overdue: 'TRUE' }],
+    [{ overdue: '1' }],
+    [{ overdue: 'true', status: 'NEW' }],
+    [{ overdue: 'true', status: 'closed' }],
+    [{ overdue: 'true', status: 'all' }],
+    [{ overdue: 'true', dueBefore: '2026-07-31' }],
+    [{ overdue: 'true', dueAfter: '2026-07-01' }],
+    [{ overdue: 'true', dueBefore: '2026-07-31', dueAfter: '2026-07-01' }],
+  ])('rejects invalid overdue combinations %j', (raw) => {
+    expect(() => parseJobCardListQuery(raw)).toThrow(validationError);
+  });
+
+  it('rejects repeated overdue parameters', () => {
+    expect(() => parseJobCardListQuery({ overdue: ['true', 'true'] })).toThrow(validationError);
+  });
+
+  it('rejects overdue on the board query as an unknown key', () => {
+    expect(() => parseJobCardBoardQuery({ overdue: 'true' })).toThrow(validationError);
+  });
+
   it('parses every allowed list key', () => {
     expect(parseJobCardListQuery({
       q: 'Klinik',
@@ -55,6 +84,7 @@ describe('JobCard workspace list query', () => {
       dueAfter: '2026-07-01',
       limit: 100,
       offset: 12,
+      overdue: false,
     });
   });
 

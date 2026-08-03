@@ -17,10 +17,6 @@ class MemoryAuthRepository implements AuthRepository {
     return this.users.find((user) => user.id === id) ?? null;
   }
 
-  async findOrganizationTimeZone() {
-    return 'Europe/Istanbul';
-  }
-
   async createSession(input: Omit<SessionRecord, 'id' | 'revokedAt'>) {
     const session = { ...input, id: `session-${this.sessions.length + 1}`, revokedAt: null };
     this.sessions.push(session);
@@ -30,7 +26,7 @@ class MemoryAuthRepository implements AuthRepository {
   async findSessionWithUser(tokenHash: string) {
     const session = this.sessions.find((candidate) => candidate.tokenHash === tokenHash);
     const user = session && this.users.find((candidate) => candidate.id === session.userId);
-    return session && user ? { session, user, organizationTimeZone: 'Europe/Istanbul' } : null;
+    return session && user ? { session, user } : null;
   }
 
   async revokeSession(tokenHash: string, revokedAt: Date) {
@@ -74,7 +70,6 @@ describe('AuthService', () => {
   it('logs in case-insensitively and persists only the token hash with expiry', async () => {
     const result = await service.login(' ADMIN@EXAMPLE.COM ', 'correct-password');
     expect(result.user).not.toHaveProperty('passwordHash');
-    expect(result.organizationTimeZone).toBe('Europe/Istanbul');
     expect(result.rawToken).toHaveLength(43);
     expect(repository.sessions[0]?.tokenHash).toBe(hashSessionToken(result.rawToken));
     expect(repository.sessions[0]?.expiresAt.toISOString()).toBe('2026-07-11T16:00:00.000Z');
@@ -113,7 +108,6 @@ describe('AuthService', () => {
     const result = await service.authenticateSession(login.rawToken);
     expect(result.user.email).toBe('admin@example.com');
     expect(result.user).not.toHaveProperty('passwordHash');
-    expect(result.organizationTimeZone).toBe('Europe/Istanbul');
     expect(result.tokenHash).toBe(hashSessionToken(login.rawToken));
     expect(result.sessionId).toBe('session-1');
   });

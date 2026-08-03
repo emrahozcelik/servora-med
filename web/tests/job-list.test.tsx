@@ -7,7 +7,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { JobList, type JobListState } from '../src/jobs/JobList';
 import { JobWorkspace } from '../src/jobs/JobWorkspace';
-import { yesterdayYmd } from '../src/shared/org-calendar';
 import type { JobCardBoard, JobCardListItem, LifecycleCommand, Paginated } from '../src/jobs/jobs-api';
 import type { CurrentUser } from '../src/services/api';
 
@@ -15,8 +14,6 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const staff: CurrentUser = { id: '11111111-1111-4111-8111-111111111111', organizationId: 'org-1', name: 'Ayşe Personel', email: 'ayse@example.com', role: 'STAFF', mustChangePassword: false, isActive: true, version: 1 };
 const manager: CurrentUser = { ...staff, id: '22222222-2222-4222-8222-222222222222', name: 'Murat Yönetici', role: 'MANAGER' };
-const managerIstanbul: CurrentUser = { ...manager, organizationTimeZone: 'Europe/Istanbul' };
-const staffIstanbul: CurrentUser = { ...staff, organizationTimeZone: 'Europe/Istanbul' };
 const item: JobCardListItem = {
   id: 'job-1', type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', version: 7,
   engagementKind: null,
@@ -284,13 +281,14 @@ describe('routed JobCard workspace', () => {
     await act(async () => { await Promise.resolve(); });
     const links = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'));
     expect(links.map((link) => link.textContent)).toEqual([
-      'Aktif işler', 'Onay kuyruğu', 'Düzeltme istenenler', 'Biten işler',
+      'Aktif işler', 'Onay kuyruğu', 'Düzeltme istenenler', 'Biten işler', 'Geciken',
     ]);
-    const closed = links.at(-1)!;
+    const closed = links[3]!;
     expect(closed.getAttribute('href')).toBe('/jobs?q=klinik&status=closed&priority=high');
     expect(closed.getAttribute('aria-current')).toBe('page');
     expect(closed.getAttribute('data-state')).toBe('current');
-    expect(links.slice(0, -1).every((link) => link.getAttribute('data-state') === 'idle')).toBe(true);
+    expect(links.filter((link) => link !== closed)
+      .every((link) => link.getAttribute('data-state') === 'idle')).toBe(true);
   });
 
   it('shows Biten işler to Staff without exposing the approval queue', async () => {
@@ -300,62 +298,55 @@ describe('routed JobCard workspace', () => {
     expect(container.textContent).not.toContain('Onay kuyruğu');
   });
 
-  it('renders Geciken quick view with organization-local yesterday for known timezone', async () => {
+  it('renders the Geciken quick view with the server-owned overdue=true query', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
-    const expected = yesterdayYmd('Europe/Istanbul');
-    await mount('/jobs', load, managerIstanbul); await act(async () => { await Promise.resolve(); });
+    await mount('/jobs', load, manager); await act(async () => { await Promise.resolve(); });
     const links = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'));
     expect(links.map((link) => link.textContent)).toEqual([
       'Aktif işler', 'Onay kuyruğu', 'Düzeltme istenenler', 'Biten işler', 'Geciken',
     ]);
     const overdue = links.at(-1)!;
-    expect(overdue.getAttribute('href')).toBe(`/jobs?status=active&dueBefore=${expected}`);
+    expect(overdue.getAttribute('href')).toBe('/jobs?overdue=true');
     expect(overdue.getAttribute('aria-current')).toBeNull();
-    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'active', limit: 25 }));
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 25 }));
   });
 
-  it('shows Geciken to Staff too, and hides it when timezone is unknown', async () => {
+  it('shows Geciken to Staff too without the approval queue', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
-    await mount('/jobs', load, staffIstanbul); await act(async () => { await Promise.resolve(); });
+    await mount('/jobs', load, staff); await act(async () => { await Promise.resolve(); });
     expect(container.textContent).toContain('Geciken');
-    const plain = vi.fn().mockResolvedValue(page([]));
-    await mount('/jobs?q=x', plain, manager); await act(async () => { await Promise.resolve(); });
-    expect(container.textContent).not.toContain('Geciken');
+    expect(container.textContent).not.toContain('Onay kuyruğu');
   });
 
-  it('marks Geciken selected for the canonical overdue query', async () => {
+  it('marks Geciken selected for the overdue query state', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
-    const expected = yesterdayYmd('Europe/Istanbul');
-    await mount(`/jobs?status=active&dueBefore=${expected}`, load, managerIstanbul);
+    await mount('/jobs?overdue=true', load, manager);
     await act(async () => { await Promise.resolve(); });
     const overdue = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
       .find((link) => link.textContent === 'Geciken')!;
     expect(overdue.getAttribute('aria-current')).toBe('page');
     expect(overdue.getAttribute('data-state')).toBe('current');
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ overdue: true, limit: 25 }));
   });
 
-  it('leaves Geciken unselected for a manual non-canonical dueBefore', async () => {
-    const load = vi.fn().mockResolvedValue(page([]));
-    await mount('/jobs?status=active&dueBefore=2026-07-31', load, managerIstanbul);
+  it('leaves Geciken unselected for a manual date-range filter', async () => {
+    const plain = vi.fn().mockResolvedValue(page([]));
+    await mount('/jobs?status=active&dueBefore=2026-07-31', plain, manager);
     await act(async () => { await Promise.resolve(); });
-    const nonCanonical = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
+    const manual = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
       .find((link) => link.textContent === 'Geciken')!;
-    expect(nonCanonical.getAttribute('data-state')).toBe('idle');
+    expect(manual.getAttribute('data-state')).toBe('idle');
   });
 
-  it('drops stale dueBefore when switching away from Geciken', async () => {
+  it('removes overdue when switching to another quick view', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
-    const router = await mount(
-      `/jobs?status=active&dueBefore=${yesterdayYmd('Europe/Istanbul')}`,
-      load,
-      managerIstanbul,
-    );
+    const router = await mount('/jobs?overdue=true', load, manager);
     await act(async () => { await Promise.resolve(); });
     const active = Array.from(container.querySelectorAll<HTMLAnchorElement>('.job-quick-views a'))
       .find((link) => link.textContent === 'Aktif işler')!;
     await act(async () => active.click());
     expect(router.state.location.search).toBe('');
-    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ status: 'active', limit: 25 }));
+    expect(load).toHaveBeenLastCalledWith(expect.objectContaining({ limit: 25 }));
   });
 
   it('canonicalizes a closed board URL and loads only the terminal list', async () => {

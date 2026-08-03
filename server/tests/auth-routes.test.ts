@@ -11,14 +11,13 @@ class MemoryRepository implements AuthRepository {
 
   async findUserByEmail(email: string) { return this.user.email === email ? this.user : null; }
   async findUserById(id: string) { return this.user.id === id ? this.user : null; }
-  async findOrganizationTimeZone() { return 'Europe/Istanbul'; }
   async createSession(input: Omit<SessionRecord, 'id' | 'revokedAt'>) {
     const session = { ...input, id: 'session-1', revokedAt: null };
     this.sessions.push(session); return session;
   }
   async findSessionWithUser(hash: string) {
     const session = this.sessions.find((item) => item.tokenHash === hash);
-    return session ? { session, user: this.user, organizationTimeZone: 'Europe/Istanbul' } : null;
+    return session ? { session, user: this.user } : null;
   }
   async revokeSession(hash: string, at: Date) {
     const session = this.sessions.find((item) => item.tokenHash === hash);
@@ -78,7 +77,6 @@ describe('auth HTTP routes', () => {
       email: 'admin@example.com', role: 'ADMIN', isActive: true, version: 1,
       capabilities: baseConfig.capabilities,
       support: baseConfig.support,
-      organizationTimeZone: 'Europe/Istanbul',
     }) });
     expect(response.body).not.toContain('passwordHash');
     expect(response.headers['set-cookie']).toMatch(/servora_session=.*HttpOnly.*SameSite=Lax/i);
@@ -102,7 +100,6 @@ describe('auth HTTP routes', () => {
     const me = await app.inject({ method: 'GET', url: '/api/auth/me', headers: { cookie } });
     expect(me.statusCode).toBe(200);
     expect(me.json().user.capabilities).toEqual(login.json().user.capabilities);
-    expect(me.json().user.organizationTimeZone).toBe('Europe/Istanbul');
     const logout = await app.inject({ method: 'POST', url: '/api/auth/logout',
       headers: { cookie, origin: baseConfig.corsOrigin } });
     expect(logout.statusCode).toBe(204);

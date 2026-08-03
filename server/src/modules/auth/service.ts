@@ -54,11 +54,7 @@ export class AuthService {
       expiresAt: new Date(issuedAt.getTime() + this.sessionTtlSeconds * 1_000),
     });
 
-    return {
-      user: toSafeUser(user),
-      rawToken,
-      organizationTimeZone: await this.repository.findOrganizationTimeZone(user.organizationId),
-    };
+    return { user: toSafeUser(user), rawToken };
   }
 
   async authenticateSession(rawToken: string) {
@@ -73,12 +69,7 @@ export class AuthService {
       throw UNAUTHENTICATED;
     }
 
-    return {
-      user: toSafeUser(result.user),
-      tokenHash,
-      sessionId: result.session.id,
-      organizationTimeZone: result.organizationTimeZone,
-    };
+    return { user: toSafeUser(result.user), tokenHash, sessionId: result.session.id };
   }
 
   async logout(rawToken: string): Promise<void> {

@@ -32,15 +32,10 @@ export function createAuthHandlers(
         requireString(body?.password, 'password'),
       );
       reply.setCookie(SESSION_COOKIE_NAME, result.rawToken, cookieOptions);
-      return { user: authenticatedUser(result.user, capabilities, support, result.organizationTimeZone) };
+      return { user: authenticatedUser(result.user, capabilities, support) };
     },
     me: async (request: FastifyRequest) => ({
-      user: authenticatedUser(
-        request.currentUser!,
-        capabilities,
-        support,
-        request.organizationTimeZone,
-      ),
+      user: authenticatedUser(request.currentUser!, capabilities, support),
     }),
     logout: async (request: FastifyRequest, reply: FastifyReply) => {
       const token = request.cookies[SESSION_COOKIE_NAME];

@@ -121,7 +121,7 @@ describe('PostgresJobCardRepository board projection', () => {
     const repository = new PostgresJobCardRepository(pool as never);
     const scope = { organizationId: 'org-1', assignedTo: 'staff-1' };
 
-    const list = await repository.listJobCards(scope, listQuery);
+    const list = await repository.listJobCards(scope, listQuery, new Date('2026-07-14T12:00:00.000Z'));
     const board = await repository.listBoard(scope, boardQuery);
 
     const boardItems = Object.values(board.columns).flatMap((column) => column.items);

@@ -5,7 +5,6 @@ import type { CurrentUser } from '../services/api';
 import { ApiError } from '../services/api';
 import { createRequestGate } from '../services/request-gate';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
-import { yesterdayYmd } from '../shared/org-calendar';
 import { LoadingSkeleton, ResultState } from '../ui/antd';
 import { JobBoard } from './JobBoard';
 import { JobFilters } from './JobFilters';
@@ -25,8 +24,8 @@ function closedFilterHref(params: URLSearchParams) {
   return `?${statusQuickSearch(params, 'closed').toString()}`;
 }
 
-function overdueFilterHref(params: URLSearchParams, timeZone: string) {
-  return `?${overdueJobsSearch(params, timeZone).toString()}`;
+function overdueFilterHref(params: URLSearchParams) {
+  return `?${overdueJobsSearch(params).toString()}`;
 }
 
 type BoardState =
@@ -127,7 +126,8 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       key: 'active' as const,
       label: 'Aktif işler',
       href: filterHref(params, 'active'),
-      current: filters.status === 'active' && !filters.dueBefore && !filters.dueAfter,
+      current: filters.status === 'active' && !filters.dueBefore && !filters.dueAfter
+        && !filters.overdue,
     },
     ...(user.role !== 'STAFF'
       ? [{
@@ -149,15 +149,12 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       href: closedFilterHref(params),
       current: filters.status === 'closed',
     },
-    ...(user.organizationTimeZone
-      ? [{
-          key: 'overdue' as const,
-          label: 'Geciken',
-          href: overdueFilterHref(params, user.organizationTimeZone),
-          current: filters.status === 'active'
-            && filters.dueBefore === yesterdayYmd(user.organizationTimeZone),
-        }]
-      : []),
+    {
+      key: 'overdue' as const,
+      label: 'Geciken',
+      href: overdueFilterHref(params),
+      current: filters.overdue === true,
+    },
   ];
 
   return <main className="workspace job-workspace">

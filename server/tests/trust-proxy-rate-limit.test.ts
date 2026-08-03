@@ -12,14 +12,13 @@ class MemoryRepository implements AuthRepository {
 
   async findUserByEmail(email: string) { return this.user.email === email ? this.user : null; }
   async findUserById(id: string) { return this.user.id === id ? this.user : null; }
-  async findOrganizationTimeZone() { return 'Europe/Istanbul'; }
   async createSession(input: Omit<SessionRecord, 'id' | 'revokedAt'>) {
     const session = { ...input, id: `session-${this.sessions.length + 1}`, revokedAt: null };
     this.sessions.push(session); return session;
   }
   async findSessionWithUser(hash: string) {
     const session = this.sessions.find((item) => item.tokenHash === hash);
-    return session ? { session, user: this.user, organizationTimeZone: 'Europe/Istanbul' } : null;
+    return session ? { session, user: this.user } : null;
   }
   async revokeSession(hash: string, at: Date) {
     const session = this.sessions.find((item) => item.tokenHash === hash);

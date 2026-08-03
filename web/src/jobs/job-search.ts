@@ -1,5 +1,4 @@
 import type { JobCardPriority, JobCardStatusFilter, JobCardType } from './jobs-api';
-import { yesterdayYmd } from '../shared/org-calendar';
 
 export type JobSearchState = {
   q?: string;
@@ -10,13 +9,15 @@ export type JobSearchState = {
   priority?: JobCardPriority;
   dueBefore?: string;
   dueAfter?: string;
+  /** Server-owned overdue query state; only `true` is representable. */
+  overdue?: boolean;
   view: 'list' | 'board';
   offset: number;
 };
 
 const ALLOWED_KEYS = [
   'q', 'status', 'type', 'assignedTo', 'customerId', 'priority',
-  'dueBefore', 'dueAfter', 'view', 'offset',
+  'dueBefore', 'dueAfter', 'overdue', 'view', 'offset',
 ] as const;
 const STATUSES = [
   'active', 'closed', 'all', 'NEW', 'ACCEPTED', 'IN_PROGRESS',
@@ -65,6 +66,7 @@ export function parseJobSearch(params: URLSearchParams): JobSearchState {
     if (dueAfter) state.dueAfter = dueAfter;
     if (dueBefore) state.dueBefore = dueBefore;
   }
+  if (scalar(params, 'overdue') === 'true') state.overdue = true;
   if (view === 'list') {
     state.status = STATUSES.includes(status as JobCardStatusFilter)
       ? status as JobCardStatusFilter : 'active';
@@ -93,6 +95,7 @@ export function updateJobSearch(
   changes: Partial<Omit<JobSearchState, 'view' | 'offset'>>,
 ) {
   const next = canonicalJobSearchParams(current);
+  if (Object.keys(changes).length > 0) next.delete('overdue');
   for (const [key, value] of Object.entries(changes)) {
     if (value === undefined || value === '' || (key === 'status' && value === 'active')) next.delete(key);
     else next.set(key, String(value));
@@ -111,30 +114,22 @@ export function enterBoard(current: URLSearchParams) {
 
 export function selectStatus(current: URLSearchParams, status: JobCardStatusFilter) {
   const next = canonicalJobSearchParams(current);
+  next.delete('overdue');
   next.set('status', status);
   next.set('view', 'list');
   next.set('offset', '0');
   return canonicalJobSearchParams(next);
 }
 
-/**
- * Canonical overdue query: explicit status=active with dueBefore set to the
- * organization-local yesterday. Equivalent to due_date < org-local today.
- * Date-range filters are dropped so no stale dueBefore survives the switch.
- */
-export function overdueJobsSearch(
-  current: URLSearchParams,
-  timeZone: string,
-  now: Date = new Date(),
-) {
+/** Canonical overdue query: server-owned overdue=true with no date-range filters. */
+export function overdueJobsSearch(current: URLSearchParams) {
   const next = canonicalJobSearchParams(current);
   next.delete('status');
   next.delete('offset');
   next.delete('dueBefore');
   next.delete('dueAfter');
   next.delete('view');
-  next.set('status', 'active');
-  next.set('dueBefore', yesterdayYmd(timeZone, now));
+  next.set('overdue', 'true');
   return next;
 }
 

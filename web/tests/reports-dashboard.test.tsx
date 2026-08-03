@@ -103,6 +103,6 @@ describe('Reports dashboard presentation', () => {
     expect(html).toContain('süredir bekliyor');
     expect(html).toContain('/reports/approvals');
     expect(html).toContain('status=REVISION_REQUESTED');
-    expect(html).toContain('dueBefore=');
+    expect(html).toContain('overdue=true');
   });
 });

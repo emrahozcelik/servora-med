@@ -19,12 +19,10 @@ export function authenticatedUser(
   user: SafeUser,
   capabilities: AuthenticatedCapabilities | undefined,
   support: AuthenticatedSupport | undefined,
-  organizationTimeZone?: string,
 ) {
   return {
     ...user,
     capabilities: capabilities ?? DEFAULT_CAPABILITIES,
     support: support ?? DEFAULT_SUPPORT,
-    organizationTimeZone,
   };
 }

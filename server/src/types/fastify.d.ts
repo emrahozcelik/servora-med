@@ -6,6 +6,5 @@ declare module 'fastify' {
     currentUser?: SafeUser;
     sessionTokenHash?: string;
     currentSessionId?: string;
-    organizationTimeZone?: string;
   }
 }

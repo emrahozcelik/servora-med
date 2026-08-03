@@ -839,27 +839,34 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   // Canonical overdue: due_date < Berlin-local current date, scheduled_at ignored
   expect(dashboard.counters.overdueJobCards).toBe(fixture.expected.overdueJobCards);
 
+  const baseListQuery = {
+    q: null, status: 'active', type: null, assignedTo: null, customerId: null,
+    priority: null, dueBefore: null, dueAfter: null,
+  };
   // Overdue list total equals the dashboard overdue counter (org-wide, active status).
   const overdueList = await jobCards.listJobCards(
     { organizationId: fixture.organizationOne, assignedTo: null },
-    { status: 'active', dueBefore: '2026-07-13', limit: 100, offset: 0 },
+    { ...baseListQuery, overdue: true, limit: 100, offset: 0 },
+    fixture.requestTime,
   );
   expect(overdueList.total).toBe(fixture.expected.overdueJobCards);
-  // dueBefore is inclusive: today's due_date is still before the canonical boundary.
-  const todayInclusiveList = await jobCards.listJobCards(
-    { organizationId: fixture.organizationOne, assignedTo: null },
-    { status: 'active', dueBefore: '2026-07-14', limit: 100, offset: 0 },
-  );
-  expect(todayInclusiveList.total).toBe(fixture.expected.overdueJobCards + 1);
+  const overdueTitles = overdueList.items.map((item) => item.title);
+  expect(overdueTitles).not.toContain('Not overdue despite past scheduled time');
+  expect(overdueTitles).not.toContain('Due tomorrow');
+  expect(overdueTitles).not.toContain('No due date');
+  expect(overdueTitles).not.toContain('Completed overdue due date never counts');
+  expect(overdueTitles).not.toContain('Cancelled overdue due date never counts');
   // Staff scope preserves assignment: only the assigned staff's overdue jobs.
   const staffOverdueList = await jobCards.listJobCards(
     { organizationId: fixture.organizationOne, assignedTo: fixture.activeStaff.id },
-    { status: 'active', dueBefore: '2026-07-13', limit: 100, offset: 0 },
+    { ...baseListQuery, overdue: true, limit: 100, offset: 0 },
+    fixture.requestTime,
   );
   expect(staffOverdueList.total).toBe(fixture.expected.overdueJobCards);
   const unrelatedStaffOverdueList = await jobCards.listJobCards(
     { organizationId: fixture.organizationOne, assignedTo: fixture.inactiveStaff.id },
-    { status: 'active', dueBefore: '2026-07-13', limit: 100, offset: 0 },
+    { ...baseListQuery, overdue: true, limit: 100, offset: 0 },
+    fixture.requestTime,
   );
   expect(unrelatedStaffOverdueList.total).toBe(0);
 
