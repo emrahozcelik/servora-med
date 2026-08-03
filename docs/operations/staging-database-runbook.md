@@ -150,25 +150,47 @@ requires `tsx`, a devDependency absent from the immutable release. It must be
 run as a **separate exact-head tooling checkout**, never from inside the
 installed runtime release.
 
-**Fail-closed precondition (read-only, mandatory before F4 runs):**
+**Fail-closed precondition (read-only, mandatory before F4 runs).** The
+tooling checkout must already exist at the **exact deployed commit** with
+`npm ci` completed (checkout Git identity is verified in the builder checkout
+— never in the installed release, which contains no Git). All database checks
+below use the checkout-local `pg` dependency and read `DATABASE_URL` **only
+from the process environment**; the URL and its password never appear on a
+process command line and are never printed:
 
 ```bash
-psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -P pager=off <<'SQL'
-SELECT current_database();
+cd "$TOOLING_CHECKOUT/server"
 
-SELECT COUNT(*) AS existing_users
-FROM users;
+test -d node_modules/pg
 
-SELECT COUNT(*) AS migration_count,
-       MAX(version) AS latest_migration
-FROM schema_migrations;
-SQL
+node --input-type=module <<'NODE'
+import pg from "pg";
+
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+try {
+  const result = await pool.query(`
+    SELECT
+      current_database() AS database_name,
+      (SELECT COUNT(*)::integer FROM users) AS existing_users,
+      (SELECT COUNT(*)::integer FROM schema_migrations) AS migration_count,
+      (SELECT MAX(version) FROM schema_migrations) AS latest_migration
+  `);
+
+  console.log(JSON.stringify(result.rows[0]));
+} finally {
+  await pool.end();
+}
+NODE
 ```
 
 Required:
 
 ```text
-current_database:
+database_name:
 servora_med_staging
 
 existing_users:
@@ -206,29 +228,65 @@ test -x ./node_modules/.bin/tsx
 
 **Target identity proof.** The `database` field in the f4-seed output JSON is
 currently a fixed, test-oriented label (`servora_med_f4_test`); it is **not**
-staging target proof. Canonical target proof is always:
+staging target proof. Canonical target proof always comes from the live
+database via the checkout-local `pg` dependency (environment-only
+`DATABASE_URL`, nothing on argv):
 
 ```bash
-psql "$DATABASE_URL" -X -tAc "SELECT current_database();"
+cd "$TOOLING_CHECKOUT/server"
+
+node --input-type=module <<'NODE'
+import pg from "pg";
+
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+try {
+  const { rows } = await pool.query(
+    'SELECT current_database() AS database_name',
+  );
+  console.log(JSON.stringify(rows[0]));
+} finally {
+  await pool.end();
+}
+NODE
 ```
 
 **Post-F4 verification (read-only).** After f4-seed, re-verify target identity
-and synthetic actor counts:
+and synthetic actor counts with the same environment-only `pg` pattern:
 
 ```bash
-psql "$DATABASE_URL" -X -v ON_ERROR_STOP=1 -P pager=off <<'SQL'
-SELECT current_database();
+cd "$TOOLING_CHECKOUT/server"
 
-SELECT COUNT(*) AS synthetic_users
-FROM users;
+node --input-type=module <<'NODE'
+import pg from "pg";
 
-SELECT COUNT(*) AS synthetic_orgs
-FROM organizations;
-SQL
+const { Pool } = pg;
+const pool = new Pool({
+  connectionString: process.env.DATABASE_URL,
+});
+
+try {
+  const result = await pool.query(`
+    SELECT
+      current_database() AS database_name,
+      (SELECT COUNT(*)::integer FROM users) AS synthetic_users,
+      (SELECT COUNT(*)::integer FROM organizations) AS synthetic_orgs
+  `);
+
+  console.log(JSON.stringify(result.rows[0]));
+} finally {
+  await pool.end();
+}
+NODE
 ```
 
-Expected: `current_database` = `servora_med_staging`; `synthetic_users` and
+Expected: `database_name` = `servora_med_staging`; `synthetic_users` and
 `synthetic_orgs` match the f4 fixture plan (multi-org Admin/Manager/Staff).
+All three checks print only database names and aggregates — never the URL or
+any credential.
 
 ### 7. Optional pilot catalog import (operator-reviewed)
 

@@ -29,8 +29,29 @@ restore rehearsal recorded
 
 Detail notes:
 
-- **Exact commit** — the running release SHA is recorded and matches the
-  deployed commit; `git rev-parse HEAD` in the release matches the recorded SHA.
+- **Exact commit** — the installed release contains no Git checkout; the
+  release directory itself carries the SHA
+  (`/opt/servora-med/releases/<git-sha>` with `current` as a symlink).
+  Deployed identity is proven from the resolved symlink basename, never from
+  Git inside the release:
+
+  ```bash
+  EXPECTED_SHA="<approved-exact-sha>"
+
+  ACTIVE_RELEASE="$(
+    realpath /opt/servora-med/current
+  )"
+
+  DEPLOYED_SHA="$(
+    basename "$ACTIVE_RELEASE"
+  )"
+
+  test "$DEPLOYED_SHA" = "$EXPECTED_SHA"
+  printf 'DEPLOYED_SHA=%s\n' "$DEPLOYED_SHA"
+  ```
+
+  The builder checkout Git identity is verified separately at build time (Git
+  tooling in the builder checkout is not the installed-release identity).
 - **Exact-head CI** — the CI run for the deployed commit shows server and web
   jobs `SUCCESS`.
 - **Database** — `DATABASE_URL` resolves to `servora_med_staging`;
