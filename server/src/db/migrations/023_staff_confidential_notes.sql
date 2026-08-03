@@ -17,6 +17,9 @@ CREATE TABLE staff_confidential_notes (
   CONSTRAINT staff_confidential_notes_staff_fk
     FOREIGN KEY (organization_id, staff_user_id)
     REFERENCES users (organization_id, id),
+  CONSTRAINT staff_confidential_notes_staff_profile_fk
+    FOREIGN KEY (staff_user_id)
+    REFERENCES staff_profiles (user_id),
   CONSTRAINT staff_confidential_notes_author_fk
     FOREIGN KEY (organization_id, author_user_id)
     REFERENCES users (organization_id, id),

@@ -26,6 +26,8 @@ function validation(field: string) {
 
 const codePointLength = (value: string) => Array.from(value).length;
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function boundedTrimmedString(
   value: unknown,
   field: string,
@@ -44,7 +46,10 @@ export function requireActionId(value: unknown) {
 }
 
 export function staffUserIdValue(value: unknown) {
-  return boundedTrimmedString(value, 'staffUserId', 1, 64);
+  if (typeof value !== 'string' || !UUID_PATTERN.test(value.trim())) {
+    throw userNotFound();
+  }
+  return value.trim();
 }
 
 export function requireAdminOrManager(actor: SafeUser) {
@@ -69,10 +74,10 @@ export class StaffConfidentialNotesService {
     staffUserId: string,
     input: CreateStaffConfidentialNoteInput,
   ): Promise<StaffConfidentialNoteDto> {
-    const clientActionId = requireActionId(input.clientActionId);
-    const body = boundedTrimmedString(input.body, 'body', 1, 4_000);
     requireAdminOrManager(actor);
     const normalizedStaffUserId = staffUserIdValue(staffUserId);
+    const clientActionId = requireActionId(input.clientActionId);
+    const body = boundedTrimmedString(input.body, 'body', 1, 4_000);
 
     const result = await this.repository.executeCriticalAction<StaffConfidentialNoteDto>(
       {
@@ -86,7 +91,7 @@ export class StaffConfidentialNotesService {
         if (!actorSnapshot?.isActive) throw actorNotActive();
         const subject = await transaction.findSubject(actor.organizationId, normalizedStaffUserId);
         if (!subject) throw userNotFound();
-        if (subject.role !== 'STAFF') throw profileNotFound();
+        if (subject.role !== 'STAFF' || !subject.hasProfile) throw profileNotFound();
 
         const noteId = randomUUID();
         const createdAt = this.now();
@@ -138,7 +143,7 @@ export class StaffConfidentialNotesService {
     const normalizedStaffUserId = staffUserIdValue(staffUserId);
     const subject = await this.repository.findSubject(actor.organizationId, normalizedStaffUserId);
     if (!subject) throw userNotFound();
-    if (subject.role !== 'STAFF') throw profileNotFound();
+    if (subject.role !== 'STAFF' || !subject.hasProfile) throw profileNotFound();
     return this.repository.listNotes(actor.organizationId, normalizedStaffUserId, page);
   }
 }

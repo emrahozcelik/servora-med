@@ -81,7 +81,6 @@ export function StaffConfidentialNotesSection({
     setPending(true);
     setCreateError('');
     setNotice('');
-    const generation = requestGate.current.current();
     const action = actionRef.current?.body === trimmed
       ? actionRef.current
       : { id: crypto.randomUUID(), body: trimmed };
@@ -91,17 +90,15 @@ export function StaffConfidentialNotesSection({
         clientActionId: action.id,
         body: trimmed,
       });
-      if (!requestGate.current.isCurrent(generation)) return;
       actionRef.current = null;
       setBody('');
       setNotice('Gizli not eklendi.');
       window.setTimeout(() => noticeRef.current?.focus(), 0);
       await load(page?.offset ?? 0);
     } catch (caught) {
-      if (!requestGate.current.isCurrent(generation)) return;
       setCreateError(caught instanceof Error ? caught.message : 'Gizli not eklenemedi.');
     } finally {
-      if (requestGate.current.isCurrent(generation)) setPending(false);
+      setPending(false);
     }
   }
 

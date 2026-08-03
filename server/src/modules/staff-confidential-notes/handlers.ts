@@ -17,7 +17,7 @@ function exactFields(body: Record<string, unknown>, allowed: readonly string[]) 
 }
 
 function staffUserId(request: FastifyRequest) {
-  return boundedTrimmedString((request.params as { userId?: unknown }).userId, 'userId', 1, 64);
+  return String((request.params as { userId?: unknown }).userId ?? '');
 }
 
 function pageQuery(request: FastifyRequest) {

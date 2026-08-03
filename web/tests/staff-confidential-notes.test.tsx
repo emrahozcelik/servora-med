@@ -176,6 +176,83 @@ describe('StaffConfidentialNotesSection states', () => {
     expect(host.textContent).toContain('Gizli not eklendi.');
   });
 
+  it('re-enables the form after a successful create and resets body and actionRef', async () => {
+    let resolveCreate: (value: StaffConfidentialNote) => void = () => {};
+    api.createStaffConfidentialNote.mockReturnValue(new Promise((resolve) => { resolveCreate = resolve; }));
+    api.listStaffConfidentialNotes
+      .mockResolvedValueOnce(emptyPage)
+      .mockResolvedValueOnce({ items: [savedNote], total: 1, limit: 10, offset: 0 });
+    await renderSection();
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
+    const form = host.querySelector('form') as HTMLFormElement;
+    const button = host.querySelector('button[type="submit"]') as HTMLButtonElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, 'İlk not');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(button.textContent).toBe('Ekleniyor…');
+    expect(textarea.disabled).toBe(true);
+    await act(async () => { resolveCreate(savedNote); });
+    await act(async () => {});
+    expect(button.textContent).toBe('Not ekle');
+    expect(button.disabled).toBe(false);
+    expect(textarea.disabled).toBe(false);
+    expect(textarea.value).toBe('');
+    expect(host.textContent).toContain('Gizli not eklendi.');
+    expect(host.textContent).toContain('Performans takibi sürüyor.');
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, 'İkinci not');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(api.createStaffConfidentialNote).toHaveBeenCalledTimes(2);
+    const first = api.createStaffConfidentialNote.mock.calls[0]![1].clientActionId;
+    const second = api.createStaffConfidentialNote.mock.calls[1]![1].clientActionId;
+    expect(first).not.toBe(second);
+  });
+
+  it('does not strand pending state when realtime invalidation arrives before the POST resolves', async () => {
+    let resolveCreate: (value: StaffConfidentialNote) => void = () => {};
+    api.createStaffConfidentialNote.mockReturnValue(new Promise((resolve) => { resolveCreate = resolve; }));
+    const list = api.listStaffConfidentialNotes
+      .mockReset()
+      .mockResolvedValueOnce(emptyPage)
+      .mockResolvedValue({ items: [savedNote], total: 1, limit: 10, offset: 0 });
+    const source = new FakeEventSource();
+    await act(async () => {
+      root.render(
+        <RealtimeProvider eventSourceFactory={() => source}>
+          <StaffConfidentialNotesSection staffUserId="staff-1" actor={manager} />
+        </RealtimeProvider>,
+      );
+    });
+    await act(async () => {});
+    const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
+    const form = host.querySelector('form') as HTMLFormElement;
+    const button = host.querySelector('button[type="submit"]') as HTMLButtonElement;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, 'Hızlı not');
+      textarea.dispatchEvent(new Event('input', { bubbles: true }));
+      form.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    expect(button.textContent).toBe('Ekleniyor…');
+    expect(button.disabled).toBe(true);
+    const callsBeforeInvalidation = list.mock.calls.length;
+    await act(async () => {
+      source.emit('servora.change', change('1', ['staff-confidential-notes:staff-1']));
+    });
+    expect(list.mock.calls.length).toBeGreaterThan(callsBeforeInvalidation);
+    await act(async () => { resolveCreate(savedNote); });
+    await act(async () => {});
+    expect(button.textContent).toBe('Not ekle');
+    expect(button.disabled).toBe(false);
+    expect(textarea.disabled).toBe(false);
+    expect(textarea.value).toBe('');
+    expect(host.textContent).toContain('Gizli not eklendi.');
+    expect(host.textContent).toContain('Performans takibi sürüyor.');
+  });
+
   it('rejects an empty note with validation feedback and no API call', async () => {
     await renderSection();
     const form = host.querySelector('form') as HTMLFormElement;
@@ -185,13 +262,14 @@ describe('StaffConfidentialNotesSection states', () => {
     expect(host.textContent).toContain('Not boş olamaz.');
   });
 
-  it('keeps the same clientActionId across retries and resets after success', async () => {
+  it('keeps the same clientActionId across retries, releases the form, and resets after success', async () => {
     const create = api.createStaffConfidentialNote
       .mockRejectedValueOnce(new ApiError(409, 'ACTION_IN_PROGRESS', 'Aynı işlem halen devam ediyor.'))
       .mockResolvedValueOnce(savedNote);
     await renderSection();
     const textarea = host.querySelector('textarea') as HTMLTextAreaElement;
     const form = host.querySelector('form') as HTMLFormElement;
+    const button = host.querySelector('button[type="submit"]') as HTMLButtonElement;
     const submit = async () => {
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set?.call(textarea, 'tekrar denemeli');
@@ -201,9 +279,16 @@ describe('StaffConfidentialNotesSection states', () => {
       });
     };
     await submit();
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(button.textContent).toBe('Not ekle');
+    expect(button.disabled).toBe(false);
+    expect(textarea.disabled).toBe(false);
+    expect(host.textContent).toContain('Aynı işlem halen devam ediyor.');
     await submit();
     expect(create).toHaveBeenCalledTimes(2);
     expect(create.mock.calls[0]![1].clientActionId).toBe(create.mock.calls[1]![1].clientActionId);
+    expect(textarea.value).toBe('');
+    expect(host.textContent).toContain('Gizli not eklendi.');
   });
 
   it('pages through notes with Önceki / Daha fazla göster', async () => {

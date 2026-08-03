@@ -50,6 +50,16 @@ describe.skipIf(!databaseUrl)('Staff confidential notes PostgreSQL integration',
          VALUES ($1, 'SCN Staff', $2, 'hash', 'STAFF') RETURNING id`,
         [organizationId, `${randomUUID()}@test.local`],
       )).rows[0]!.id;
+      const staffProfileId = (await pool.query<{ id: string }>(
+        `INSERT INTO staff_profiles (organization_id, user_id, title)
+         VALUES ($1, $2, 'Satış Temsilcisi') RETURNING id`,
+        [organizationId, staffId],
+      )).rows[0]!.id;
+      const noProfileStaffId = (await pool.query<{ id: string }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'SCN No Profile', $2, 'hash', 'STAFF') RETURNING id`,
+        [organizationId, `${randomUUID()}@test.local`],
+      )).rows[0]!.id;
       const otherOrgId = (await pool.query<{ id: string }>(
         `INSERT INTO organizations (name) VALUES ('SCN other org') RETURNING id`,
       )).rows[0]!.id;
@@ -106,6 +116,14 @@ describe.skipIf(!databaseUrl)('Staff confidential notes PostgreSQL integration',
           WHERE conrelid = 'realtime_events'::regclass AND conname = 'realtime_events_activity_source_check'`,
       )).rows[0]!.def as string;
       expect(sourceCheck).toContain('staff_note_id');
+      const profileFk = (await pool.query(
+        `SELECT pg_get_constraintdef(oid) AS def
+           FROM pg_constraint
+          WHERE conrelid = 'staff_confidential_notes'::regclass
+            AND conname = 'staff_confidential_notes_staff_profile_fk'`,
+      )).rows[0]!.def as string;
+      expect(profileFk).toContain('REFERENCES staff_profiles(user_id)');
+      expect(staffProfileId).toBeTruthy();
       const indexCount = (await pool.query(
         `SELECT COUNT(*)::int AS count FROM pg_indexes
           WHERE schemaname = '${schema}' AND tablename = 'staff_confidential_notes'`,
@@ -233,6 +251,22 @@ describe.skipIf(!databaseUrl)('Staff confidential notes PostgreSQL integration',
         .rejects.toMatchObject({ code: 'USER_NOT_FOUND', statusCode: 404 });
       await expect(service.createNote(admin, managerId, { clientActionId: 'x', body: 'y' }))
         .rejects.toMatchObject({ code: 'STAFF_PROFILE_NOT_FOUND', statusCode: 404 });
+
+      // A real staff profile is required: STAFF-role user without one is 404.
+      await expect(service.createNote(admin, noProfileStaffId, { clientActionId: 'x', body: 'y' }))
+        .rejects.toMatchObject({ code: 'STAFF_PROFILE_NOT_FOUND', statusCode: 404 });
+      await expect(service.listNotes(admin, noProfileStaffId, { limit: 20, offset: 0 }))
+        .rejects.toMatchObject({ code: 'STAFF_PROFILE_NOT_FOUND', statusCode: 404 });
+      expect((await pool.query(
+        `SELECT COUNT(*)::int AS count FROM staff_confidential_notes WHERE organization_id = $1`,
+        [organizationId],
+      )).rows[0]!.count).toBe(2);
+
+      // Malformed userId is rejected before any PostgreSQL query runs (404, never 500).
+      await expect(service.createNote(admin, 'not-a-uuid', { clientActionId: 'x', body: 'y' }))
+        .rejects.toMatchObject({ code: 'USER_NOT_FOUND', statusCode: 404 });
+      await expect(service.listNotes(admin, 'not-a-uuid', { limit: 20, offset: 0 }))
+        .rejects.toMatchObject({ code: 'USER_NOT_FOUND', statusCode: 404 });
 
       // Inactive actor (defense in depth) is FORBIDDEN.
       await pool.query(`UPDATE users SET is_active = FALSE WHERE id = $1`, [managerId]);

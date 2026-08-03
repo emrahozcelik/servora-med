@@ -20,18 +20,27 @@ import { AppError } from '../src/errors/index.js';
 
 const now = new Date('2026-08-03T10:00:00.000Z');
 
+const UUID_ADMIN = 'a0000000-0000-4000-8000-000000000001';
+const UUID_MANAGER = 'a0000000-0000-4000-8000-000000000002';
+const UUID_STAFF = 'a0000000-0000-4000-8000-000000000003';
+const UUID_STAFF2 = 'a0000000-0000-4000-8000-000000000004';
+const UUID_ADMIN_X = 'a0000000-0000-4000-8000-000000000005';
+const UUID_STAFF_NO_PROFILE = 'a0000000-0000-4000-8000-000000000006';
+const UUID_MISSING = 'a0000000-0000-4000-8000-00000000ffff';
+
 const user = (overrides: Partial<SafeUser> = {}): SafeUser => ({
-  id: 'staff-1', organizationId: 'org-1', name: 'Ayşe', email: 'staff@example.com',
+  id: UUID_STAFF, organizationId: 'org-1', name: 'Ayşe', email: 'staff@example.com',
   role: 'STAFF', mustChangePassword: false, isActive: true, version: 1, ...overrides,
 });
 
-const admin = user({ id: 'admin-1', name: 'Admin', email: 'admin@example.com', role: 'ADMIN' });
-const manager = user({ id: 'manager-1', name: 'Manager', email: 'manager@example.com', role: 'MANAGER' });
+const admin = user({ id: UUID_ADMIN, name: 'Admin', email: 'admin@example.com', role: 'ADMIN' });
+const manager = user({ id: UUID_MANAGER, name: 'Manager', email: 'manager@example.com', role: 'MANAGER' });
 const staff = user();
-const crossOrgAdmin = user({ id: 'admin-x', organizationId: 'org-2', role: 'ADMIN' });
+const crossOrgAdmin = user({ id: UUID_ADMIN_X, organizationId: 'org-2', role: 'ADMIN' });
 
-const snapshot = (record: SafeUser): StaffUserSnapshot => ({
-  id: record.id, organizationId: record.organizationId, role: record.role, isActive: record.isActive,
+const snapshot = (record: SafeUser, hasProfile: boolean): StaffUserSnapshot => ({
+  id: record.id, organizationId: record.organizationId, role: record.role,
+  isActive: record.isActive, hasProfile,
 });
 
 type MemoryNote = {
@@ -42,6 +51,7 @@ type MemoryNote = {
 class MemoryStaffConfidentialNotesRepository
 implements StaffConfidentialNotesRepository {
   users: SafeUser[] = [admin, manager, staff];
+  staffProfileIds: string[] = [UUID_STAFF, UUID_STAFF2];
   notes: MemoryNote[] = [];
   audits: StaffConfidentialNoteAuditInput[] = [];
   realtimeEvents: RealtimeEventRecord[] = [];
@@ -85,7 +95,7 @@ implements StaffConfidentialNotesRepository {
 
   async findSubject(organizationId: string, userId: string) {
     const found = this.users.find((item) => item.organizationId === organizationId && item.id === userId);
-    return found ? snapshot(found) : null;
+    return found ? snapshot(found, this.staffProfileIds.includes(userId)) : null;
   }
 
   async listNotes(organizationId: string, staffUserId: string, page: StaffConfidentialNotePageQuery): Promise<StaffConfidentialNotePage> {
@@ -112,11 +122,11 @@ implements StaffConfidentialNotesRepository {
       lockActor: async (organizationId, userId) => {
         if (this.actorLocked) return null;
         const found = this.users.find((item) => item.organizationId === organizationId && item.id === userId);
-        return found ? snapshot(found) : null;
+        return found ? snapshot(found, this.staffProfileIds.includes(userId)) : null;
       },
       findSubject: async (organizationId, userId) => {
         const found = this.users.find((item) => item.organizationId === organizationId && item.id === userId);
-        return found ? snapshot(found) : null;
+        return found ? snapshot(found, this.staffProfileIds.includes(userId)) : null;
       },
       createNote: async (input: CreateStaffConfidentialNoteRecord) => {
         const note: MemoryNote = {
@@ -209,8 +219,8 @@ describe('StaffConfidentialNotesService authorization', () => {
 
   it('does not let STAFF infer existence for any subject', async () => {
     const { service } = setup();
-    await expectForbidden(service.createNote(staff, 'missing-user', { clientActionId: 'a', body: 'x' }));
-    await expectForbidden(service.listNotes(staff, 'missing-user', { limit: 20, offset: 0 }));
+    await expectForbidden(service.createNote(staff, UUID_MISSING, { clientActionId: 'a', body: 'x' }));
+    await expectForbidden(service.listNotes(staff, UUID_MISSING, { limit: 20, offset: 0 }));
   });
 
   it('rejects a cross-org subject with 404 without disclosing existence', async () => {
@@ -251,6 +261,53 @@ describe('StaffConfidentialNotesService authorization', () => {
     await expectForbidden(
       service.createNote(admin, staff.id, { clientActionId: 'action-1', body: 'x' }),
     );
+  });
+
+  it('prefers management authorization over body/action validation for STAFF', async () => {
+    const { repository, service } = setup();
+    await expectForbidden(service.createNote(staff, UUID_STAFF, { clientActionId: '', body: '   ' }));
+    await expectForbidden(service.createNote(staff, UUID_STAFF, { clientActionId: '   ', body: 'x' }));
+    await expectForbidden(service.listNotes(staff, UUID_STAFF, { limit: 0, offset: -1 }));
+    expect(repository.notes).toHaveLength(0);
+    expect(repository.audits).toHaveLength(0);
+    expect(repository.processed).toHaveLength(0);
+  });
+
+  it('keeps STAFF authorization ahead of userId validation', async () => {
+    const { repository, service } = setup();
+    await expectForbidden(service.createNote(staff, 'not-a-uuid', { clientActionId: 'a', body: 'x' }));
+    await expectForbidden(service.listNotes(staff, 'not-a-uuid', { limit: 20, offset: 0 }));
+    expect(repository.notes).toHaveLength(0);
+    expect(repository.processed).toHaveLength(0);
+  });
+
+  it('rejects a malformed staffUserId with USER_NOT_FOUND before any repository call', async () => {
+    const { repository, service } = setup();
+    await expectAppError(
+      service.createNote(admin, 'not-a-uuid', { clientActionId: 'a', body: 'x' }),
+      'USER_NOT_FOUND', 404,
+    );
+    await expectAppError(
+      service.listNotes(manager, 'not-a-uuid', { limit: 20, offset: 0 }),
+      'USER_NOT_FOUND', 404,
+    );
+    expect(repository.notes).toHaveLength(0);
+    expect(repository.audits).toHaveLength(0);
+    expect(repository.processed).toHaveLength(0);
+  });
+
+  it('rejects a STAFF-role subject without a staff profile with 404', async () => {
+    const { repository, service } = setup();
+    repository.users.push(user({ id: UUID_STAFF_NO_PROFILE, email: 'noprofile@example.com' }));
+    await expectAppError(
+      service.createNote(admin, UUID_STAFF_NO_PROFILE, { clientActionId: 'a', body: 'x' }),
+      'STAFF_PROFILE_NOT_FOUND', 404,
+    );
+    await expectAppError(
+      service.listNotes(admin, UUID_STAFF_NO_PROFILE, { limit: 20, offset: 0 }),
+      'STAFF_PROFILE_NOT_FOUND', 404,
+    );
+    expect(repository.notes).toHaveLength(0);
   });
 });
 
@@ -305,7 +362,7 @@ describe('StaffConfidentialNotesService pagination', () => {
 
   it('keeps per-staff isolation across pages', async () => {
     const { repository, service } = setup();
-    const secondStaff = user({ id: 'staff-2', email: 's2@example.com' });
+    const secondStaff = user({ id: UUID_STAFF2, email: 's2@example.com' });
     repository.users.push(secondStaff);
     await service.createNote(admin, staff.id, { clientActionId: 'a', body: 'staff-1 note' });
     await service.createNote(admin, secondStaff.id, { clientActionId: 'b', body: 'staff-2 note' });
@@ -354,7 +411,7 @@ describe('StaffConfidentialNotesService idempotency', () => {
 
   it('scopes the idempotency key per staff member', async () => {
     const { repository, service } = setup();
-    const secondStaff = user({ id: 'staff-2', email: 's2@example.com' });
+    const secondStaff = user({ id: UUID_STAFF2, email: 's2@example.com' });
     repository.users.push(secondStaff);
     const first = await service.createNote(admin, staff.id, { clientActionId: 'action-shared', body: 'staff-1' });
     const second = await service.createNote(admin, secondStaff.id, { clientActionId: 'action-shared', body: 'staff-2' });

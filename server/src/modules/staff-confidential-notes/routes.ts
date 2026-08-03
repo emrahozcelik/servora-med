@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 import { createStaffConfidentialNotesHandlers } from './handlers.js';
+import { requireAdminOrManager } from './service.js';
 import type { StaffConfidentialNotesService } from './service.js';
 
 type Authenticate = (request: FastifyRequest, reply: FastifyReply) => Promise<void>;
@@ -14,7 +15,10 @@ export const staffConfidentialNotesRoutes: FastifyPluginAsync<
   StaffConfidentialNotesRoutesOptions
 > = async (app, options) => {
   const handlers = createStaffConfidentialNotesHandlers(options.service);
-  const auth = { preHandler: options.authenticate };
+  const requireManagement = async (request: FastifyRequest, _reply: FastifyReply) => {
+    requireAdminOrManager(request.currentUser!);
+  };
+  const auth = { preHandler: [options.authenticate, requireManagement] };
   app.post('/staff/:userId/confidential-notes', auth, handlers.create);
   app.get('/staff/:userId/confidential-notes', auth, handlers.list);
 };

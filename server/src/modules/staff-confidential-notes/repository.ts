@@ -18,6 +18,7 @@ export type StaffUserSnapshot = {
   organizationId: string;
   role: UserRole;
   isActive: boolean;
+  hasProfile: boolean;
 };
 
 export type CreateStaffConfidentialNoteRecord = {
@@ -122,19 +123,26 @@ export interface StaffConfidentialNotesRepository {
   ): Promise<StaffConfidentialNotePage>;
 }
 
-const USER_SNAPSHOT_COLUMNS = 'id, organization_id, role, is_active';
+const USER_SNAPSHOT_COLUMNS = 'u.id, u.organization_id, u.role, u.is_active';
+
+const USER_SNAPSHOT_FROM = `
+  FROM users u
+  LEFT JOIN staff_profiles sp
+    ON sp.user_id = u.id`;
 
 function mapUserSnapshot(row: {
   id: string;
   organization_id: string;
   role: UserRole;
   is_active: boolean;
+  has_profile: boolean;
 }): StaffUserSnapshot {
   return {
     id: row.id,
     organizationId: row.organization_id,
     role: row.role,
     isActive: row.is_active,
+    hasProfile: row.has_profile,
   };
 }
 
@@ -148,9 +156,11 @@ implements StaffConfidentialNotesTransaction {
       organization_id: string;
       role: UserRole;
       is_active: boolean;
+      has_profile: boolean;
     }>(
-      `SELECT ${USER_SNAPSHOT_COLUMNS} FROM users
-        WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
+      `SELECT ${USER_SNAPSHOT_COLUMNS}, (sp.user_id IS NOT NULL) AS has_profile
+        ${USER_SNAPSHOT_FROM}
+        WHERE u.organization_id = $1 AND u.id = $2 FOR UPDATE OF u`,
       [organizationId, userId],
     );
     return result.rows[0] ? mapUserSnapshot(result.rows[0]) : null;
@@ -162,9 +172,11 @@ implements StaffConfidentialNotesTransaction {
       organization_id: string;
       role: UserRole;
       is_active: boolean;
+      has_profile: boolean;
     }>(
-      `SELECT ${USER_SNAPSHOT_COLUMNS} FROM users
-        WHERE organization_id = $1 AND id = $2 LIMIT 1`,
+      `SELECT ${USER_SNAPSHOT_COLUMNS}, (sp.user_id IS NOT NULL) AS has_profile
+        ${USER_SNAPSHOT_FROM}
+        WHERE u.organization_id = $1 AND u.id = $2 LIMIT 1`,
       [organizationId, userId],
     );
     return result.rows[0] ? mapUserSnapshot(result.rows[0]) : null;
@@ -265,9 +277,11 @@ implements StaffConfidentialNotesRepository {
       organization_id: string;
       role: UserRole;
       is_active: boolean;
+      has_profile: boolean;
     }>(
-      `SELECT ${USER_SNAPSHOT_COLUMNS} FROM users
-        WHERE organization_id = $1 AND id = $2 LIMIT 1`,
+      `SELECT ${USER_SNAPSHOT_COLUMNS}, (sp.user_id IS NOT NULL) AS has_profile
+        ${USER_SNAPSHOT_FROM}
+        WHERE u.organization_id = $1 AND u.id = $2 LIMIT 1`,
       [organizationId, userId],
     );
     return result.rows[0] ? mapUserSnapshot(result.rows[0]) : null;
