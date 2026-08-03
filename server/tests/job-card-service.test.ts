@@ -15,24 +15,8 @@ import type {
   JobCard,
   JobCardActivityEvent,
   JobCardActor,
-  JobCardDetail,
 } from '../src/modules/job-cards/types.js';
 import type { AppendJobActionLocationInput } from '../src/modules/job-cards/location-types.js';
-
-const DYNAMIC_EVALUATED_AT = '<dynamic-evaluated-at>';
-
-function normalizeReplayDetail(detail: JobCardDetail): JobCardDetail {
-  const readiness = detail.workflowContext.submissionReadiness;
-  return {
-    ...detail,
-    workflowContext: {
-      ...detail.workflowContext,
-      submissionReadiness: readiness === null
-        ? null
-        : { ...readiness, evaluatedAt: DYNAMIC_EVALUATED_AT },
-    },
-  };
-}
 
 function advancingClock(): () => Date {
   let step = 0;
@@ -216,9 +200,7 @@ describe('JobCardService critical command foundation', () => {
     const first = await service.start(staff, 'job-1', input);
     const duplicate = await service.start(staff, 'job-1', input);
 
-    expect(duplicate.workflowContext.submissionReadiness?.evaluatedAt)
-      .not.toBe(first.workflowContext.submissionReadiness?.evaluatedAt);
-    expect(normalizeReplayDetail(duplicate)).toEqual(normalizeReplayDetail(first));
+    expect(duplicate).toEqual(first);
     expect(repository.job.version).toBe(2);
     expect(repository.activities).toHaveLength(1);
   });
@@ -383,9 +365,7 @@ describe('JobCardService action-scoped start location', () => {
     const first = await service.start(staff, 'job-1', request);
     const replay = await service.start(staff, 'job-1', request);
 
-    expect(replay.workflowContext.submissionReadiness?.evaluatedAt)
-      .not.toBe(first.workflowContext.submissionReadiness?.evaluatedAt);
-    expect(normalizeReplayDetail(replay)).toEqual(normalizeReplayDetail(first));
+    expect(replay).toEqual(first);
     expect(reverse).toHaveBeenCalledOnce();
     expect(quota.reserve).toHaveBeenCalledOnce();
     expect(repository.locationAppends).toHaveLength(1);

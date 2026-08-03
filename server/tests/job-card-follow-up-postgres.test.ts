@@ -451,7 +451,10 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
           WHERE user_id = $1 AND client_action_id = $2
             AND operation_key = $3`,
         [fixture.staffB.id, command.clientActionId, `JOB_ACCEPT_ASSIGNMENT:${followUp.id}`],
-      )).rows[0]!.response_body).toEqual({ jobCardId: followUp.id });
+      )).rows[0]!.response_body).toEqual({
+        jobCardId: followUp.id,
+        evaluatedAt: expect.any(String),
+      });
       expect((await fixture.pool.query(
         `SELECT
            (SELECT COUNT(*)::int FROM job_card_activity_logs WHERE job_card_id = $1) AS activities,

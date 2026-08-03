@@ -181,7 +181,9 @@ function followUpInvariantViolation(): never {
   );
 }
 
-function decodeJobCardMutationReceipt(value: unknown): JobCardMutationReceipt {
+type DecodedLifecycleReceipt = { jobCardId: string; evaluatedAt: Date | null };
+
+function decodeJobCardMutationReceipt(value: unknown): DecodedLifecycleReceipt {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new AppError('INVARIANT_VIOLATION', 500, 'JobCard işlem sonucu geçersizdir.');
   }
@@ -190,7 +192,12 @@ function decodeJobCardMutationReceipt(value: unknown): JobCardMutationReceipt {
   if (typeof jobCardId !== 'string' || !jobCardId) {
     throw new AppError('INVARIANT_VIOLATION', 500, 'JobCard işlem sonucu geçersizdir.');
   }
-  return { jobCardId };
+  let evaluatedAt: Date | null = null;
+  if (typeof record.evaluatedAt === 'string') {
+    const parsed = new Date(record.evaluatedAt);
+    if (!Number.isNaN(parsed.valueOf())) evaluatedAt = parsed;
+  }
+  return { jobCardId, evaluatedAt };
 }
 
 function assertStaffStartActor(actor: JobCardActor) {
@@ -660,11 +667,15 @@ export class JobCardService {
   }
 
   async detail(actor: JobCardActor, jobCardId: string) {
+    return this.detailAt(actor, jobCardId, this.now());
+  }
+
+  private async detailAt(actor: JobCardActor, jobCardId: string, evaluatedAt: Date) {
     const job = await this.repository.findJobCardDetail(actor.organizationId, jobCardId);
     if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
       throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
     }
-    return this.presentDetail(this.repository, actor, job, this.now());
+    return this.presentDetail(this.repository, actor, job, evaluatedAt);
   }
 
   async getMeetingDetails(actor: JobCardActor, jobCardId: string) {
@@ -1162,7 +1173,8 @@ export class JobCardService {
     const claim = this.lifecycleClaim(actor, jobCardId, lifecycleInput.clientActionId, definition);
     const completed = await this.repository.findCompletedCriticalAction<unknown>(claim);
     if (completed) {
-      return this.detail(actor, decodeJobCardMutationReceipt(completed).jobCardId);
+      const receipt = decodeJobCardMutationReceipt(completed);
+      return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now());
     }
 
     const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
@@ -1355,13 +1367,14 @@ export class JobCardService {
           customerId: updated.customerId,
         });
         return {
-          response: { jobCardId },
+          response: { jobCardId, evaluatedAt: requestTime.toISOString() },
           realtimeEvents,
         };
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
-    return this.detail(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
+    const receipt = decodeJobCardMutationReceipt(result.response);
+    return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now());
   }
 
   private lifecycleClaim(

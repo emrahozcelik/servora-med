@@ -296,6 +296,11 @@ const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 
 const time = new Date('2026-07-13T12:00:00.000Z');
 const input = (clientActionId: string, expectedVersion = 2) => ({ clientActionId, expectedVersion, note: 'Tamamlandı' });
 
+function advancingClock(): () => Date {
+  let step = 0;
+  return () => new Date(Date.UTC(2026, 6, 19, 14, 30, 0, step++));
+}
+
 function salesMeetingRepository() {
   const repository = new LifecycleRepository();
   repository.job = {
@@ -470,7 +475,7 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.events[0]).toMatchObject({ event: 'JOB_ACCEPTED' });
     expect(repo.claims[0]?.operationKey).toBe('JOB_ACCEPT_ASSIGNMENT:job-1');
     expect(repo.completed.get('staff-1:accept-replay:JOB_ACCEPT_ASSIGNMENT:job-1'))
-      .toEqual({ jobCardId: 'job-1' });
+      .toEqual({ jobCardId: 'job-1', evaluatedAt: time.toISOString() });
   });
 
   it('rechecks current assignment before replaying a completed acceptance', async () => {
@@ -830,10 +835,16 @@ describe('JobCard lifecycle commands', () => {
   });
 
   it('replays the completed response without a second transition or event', async () => {
-    const repo = new LifecycleRepository(); const service = new JobCardService(repo);
+    const repo = new LifecycleRepository();
+    const service = new JobCardService(repo, advancingClock());
     const first = await service.submitForApproval(staff, 'job-1', input('replay'));
     await expect(service.submitForApproval(staff, 'job-1', input('replay'))).resolves.toEqual(first);
-    expect(repo.job.version).toBe(3); expect(repo.transitions).toHaveLength(1);
+    await expect(service.submitForApproval(staff, 'job-1', input('replay'))).resolves.toEqual(first);
+    const evaluatedAt = first.workflowContext.submissionReadiness?.evaluatedAt;
+    expect(evaluatedAt).toBeTypeOf('string');
+    expect(repo.claims).toHaveLength(3);
+    expect(repo.job.version).toBe(3);
+    expect(repo.transitions).toHaveLength(1);
     expect(repo.events).toHaveLength(1);
     expect(repo.notes).toHaveLength(1);
   });
