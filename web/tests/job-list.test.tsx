@@ -338,6 +338,36 @@ describe('routed JobCard workspace', () => {
     expect(manual.getAttribute('data-state')).toBe('idle');
   });
 
+  it('canonicalizes an overdue board URL to the overdue list and never loads the board', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    const loadBoard = vi.fn();
+    const router = createMemoryRouter([{
+      path: '/jobs', element: <JobWorkspace user={manager} load={load} loadBoard={loadBoard} />,
+    }], { initialEntries: ['/jobs?overdue=true&view=board&status=closed&dueBefore=2026-08-01'] });
+    await act(async () => root.render(<RouterProvider router={router} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(router.state.location.search).toBe('?overdue=true');
+    expect(load).toHaveBeenCalledWith(expect.objectContaining({ overdue: true, limit: 25 }));
+    expect(loadBoard).not.toHaveBeenCalled();
+  });
+
+  it('hides the board view control in the overdue view', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    await mount('/jobs?overdue=true', load, manager);
+    await act(async () => { await Promise.resolve(); });
+    expect(container.querySelector('[data-job-view-switcher]')).toBeNull();
+    expect(container.querySelector('#job-view')).toBeNull();
+  });
+
+  it('shows the filtered-empty state for an overdue view without overdue jobs', async () => {
+    const load = vi.fn().mockResolvedValue(page([]));
+    await mount('/jobs?overdue=true', load, manager);
+    await act(async () => { await Promise.resolve(); });
+    expect(container.textContent).toContain('Filtrelere uygun iş bulunamadı');
+    expect(container.textContent).not.toContain('Henüz iş kaydı yok');
+    expect(container.querySelector('[data-job-results-state="filtered-empty"]')).not.toBeNull();
+  });
+
   it('removes overdue when switching to another quick view', async () => {
     const load = vi.fn().mockResolvedValue(page([]));
     const router = await mount('/jobs?overdue=true', load, manager);

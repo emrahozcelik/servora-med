@@ -80,7 +80,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
     if (showBoard) {
       const generation = requestGate.current.next();
       setBoardState({ kind: 'loading' });
-      const { view: _view, status: _status, offset: _offset, ...requestFilters } = filters;
+      const { view: _view, status: _status, offset: _offset, overdue: _overdue, ...requestFilters } = filters;
       if (user.role === 'STAFF') delete requestFilters.assignedTo;
       loadBoard(requestFilters).then((board) => {
         if (requestGate.current.isCurrent(generation)) setBoardState({ kind: 'ready', board });
@@ -119,7 +119,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   }, [canonicalKey, load, loadBoard, queryKey, reload, showBoard, user.id, user.role]);
 
   const hasFilters = Boolean(filters.q || filters.type || filters.assignedTo || filters.customerId || filters.priority
-    || filters.dueAfter || filters.dueBefore || filters.status !== 'active');
+    || filters.dueAfter || filters.dueBefore || filters.status !== 'active' || filters.overdue);
 
   const quickViews = [
     {
@@ -197,7 +197,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       }}
       onChange={(_name, value) => setParams(selectStatus(params, value))}
       onViewChange={(view) => setParams(view === 'board' ? enterBoard(params) : forceMobileList(params))}
-      showViewControl={filters.status !== 'closed'} />
+      showViewControl={filters.status !== 'closed' && filters.overdue !== true} />
     {showBoard
       ? (boardState.kind === 'loading'
         ? (
