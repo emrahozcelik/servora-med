@@ -24,6 +24,7 @@
   --radius-chip: 999px;
   --shadow-raised: 0 8px 24px rgba(30, 37, 43, 0.12);
   --record-description-label-min-width: 200px;
+  --record-description-label-min-width-narrow: 112px;
 
   color: var(--ink);
   background: oklch(97.5% 0.006 235deg);
@@ -1689,17 +1690,19 @@ button:disabled { cursor: wait; opacity: 0.65; }
   overflow-wrap: normal;
 }
 .detail-summary .servora-record-descriptions .servora-ant-descriptions-item-label {
-  min-width: var(--record-description-label-min-width);
+  overflow-wrap: normal;
 }
 .servora-record-descriptions .servora-ant-descriptions-item-content {
   min-width: 0;
   overflow-wrap: break-word;
 }
-.detail-summary .servora-record-descriptions-view table {
+.detail-summary .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-view > table {
   width: 100%;
+  table-layout: fixed;
 }
-.detail-summary .servora-ant-descriptions-item-label {
-  overflow-wrap: normal;
+.detail-summary .servora-ant-descriptions-view .servora-ant-descriptions-item-label {
+  width: var(--record-description-label-min-width-narrow);
+  min-width: 0;
 }
 .detail-summary .servora-ant-descriptions-item-content {
   overflow-wrap: break-word;
@@ -2430,6 +2433,12 @@ button:disabled { cursor: wait; opacity: 0.65; }
   }
   .job-detail-content--rail > .job-detail-work-rail {
     grid-column: 2;
+  }
+}
+
+@media (min-width: 72rem) {
+  .detail-summary .servora-ant-descriptions-view .servora-ant-descriptions-item-label {
+    width: var(--record-description-label-min-width);
   }
 }
 

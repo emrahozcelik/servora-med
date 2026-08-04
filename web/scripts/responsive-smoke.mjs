@@ -121,6 +121,9 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
         </div>
         <section class="job-timeline" data-smoke-timeline><h2>İşlem geçmişi</h2><div id="responsive-timeline-root"></div></section>
       </section>
+      <section class="report-workspace" aria-label="Geniş kayıt alanı responsive fixture" data-smoke-desc-wide>
+        <div class="detail-summary surface"><div id="responsive-descriptions-wide-root"></div></div>
+      </section>
       <div class="sticky-new-job" id="sticky-create" style="display:none">
         <div class="new-job-menu">
           <button type="button" class="primary-button compact-button new-job-menu-trigger">Yeni iş</button>
@@ -444,7 +447,7 @@ async function measure(page) {
     const railBelowMain = Boolean(railRect && railMainRect
       && railRect.top >= railMainRect.bottom - 2);
     const labelCells = Array.from(document.querySelectorAll(
-      '.servora-record-descriptions .servora-ant-descriptions-item-label',
+      '#responsive-descriptions-root .servora-ant-descriptions-item-label',
     ));
     const recordLabelsIntact = labelCells.every((cell) => {
       const lineHeight = Number.parseFloat(getComputedStyle(cell).lineHeight) || 18;
@@ -460,8 +463,61 @@ async function measure(page) {
       if (words.length <= 1) {
         return textHeight <= lineHeight * 1.9;
       }
-      return textHeight <= lineHeight * 2.4;
+      return textHeight <= lineHeight * (words.length + 0.9);
     });
+    const recordHost = document.querySelector(
+      '#responsive-descriptions-root .servora-record-descriptions-host',
+    );
+    const recordColumns = recordHost?.getAttribute('data-column-count') ?? null;
+    const recordValueCells = Array.from(document.querySelectorAll(
+      '#responsive-descriptions-root .servora-ant-descriptions-item-content',
+    ));
+    const recordValuesIntact = recordValueCells.every((cell) => {
+      const words = (cell.textContent ?? '').trim().split(/\s+/).filter(Boolean);
+      if (words.length > 2) return true;
+      const lineHeight = Number.parseFloat(getComputedStyle(cell).lineHeight) || 18;
+      let textHeight = 0;
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        textHeight = range.getBoundingClientRect().height;
+      } catch {
+        textHeight = cell.getBoundingClientRect().height;
+      }
+      return textHeight <= lineHeight * 1.9;
+    });
+    const chips = Array.from(document.querySelectorAll(
+      '#responsive-descriptions-root .status-chip, #responsive-descriptions-root .priority-chip',
+    ));
+    const recordChipsIntact = chips.length > 0 && chips.every((chip) => {
+      const lineHeight = Number.parseFloat(getComputedStyle(chip).lineHeight) || 18;
+      let textHeight = 0;
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(chip);
+        textHeight = range.getBoundingClientRect().height;
+      } catch {
+        textHeight = chip.getBoundingClientRect().height;
+      }
+      return chip.scrollWidth - chip.clientWidth <= 2
+        && chip.getBoundingClientRect().width > 0
+        && textHeight <= lineHeight * 1.9;
+    });
+    const wideRoot = document.querySelector('#responsive-descriptions-wide-root');
+    const wideTable = wideRoot?.querySelector('table');
+    const wideCells = wideRoot
+      ? Array.from(wideRoot.querySelectorAll('.servora-ant-descriptions-item-content'))
+      : [];
+    const wideDescription = wideCells[wideCells.length - 1];
+    const wideTableRect = wideTable?.getBoundingClientRect();
+    const wideDescriptionRect = wideDescription?.getBoundingClientRect();
+    const recordWideDescriptionFullRow = Boolean(
+      wideTableRect && wideDescriptionRect
+      && wideTableRect.width > 0
+      && wideDescriptionRect.width >= wideTableRect.width * 0.5
+      && wideDescriptionRect.left >= wideTableRect.left - 2
+      && wideDescriptionRect.right <= wideTableRect.right + 2,
+    );
     const requirements = document.querySelector('.workflow-requirements');
     const requirementsRect = requirements?.getBoundingClientRect();
     const secondaryRecordRect = document.querySelector(
@@ -697,6 +753,10 @@ async function measure(page) {
       railBesideMain,
       railBelowMain,
       recordLabelsIntact,
+      recordColumns,
+      recordValuesIntact,
+      recordChipsIntact,
+      recordWideDescriptionFullRow,
       descriptionsUseFullWidth,
       timelineAdapterFits,
       timelineRailIntact,
@@ -971,9 +1031,15 @@ try {
     if (m.detailOverflow) failures.push(`${vp.name}: job detail exceeds its workspace`);
     if (!m.actionBeforeTimeline) failures.push(`${vp.name}: detail action must precede Timeline in DOM`);
     if (!m.recordLabelsIntact) failures.push(`${vp.name}: RecordDescriptions labels must not break vertically`);
+    if (!m.recordValuesIntact) failures.push(`${vp.name}: RecordDescriptions short values must not break vertically`);
+    if (!m.recordChipsIntact) failures.push(`${vp.name}: status/priority chips must stay intact`);
+    if (m.recordColumns !== '1') failures.push(`${vp.name}: work-rail facts must use a single descriptions column`);
     if (vp.width >= 1024) {
       if (!m.railBesideMain) failures.push(`${vp.name}: work rail must sit beside the main record area`);
       if (m.railBelowMain) failures.push(`${vp.name}: work rail must not stack below main at desktop`);
+      if (!m.recordWideDescriptionFullRow) {
+        failures.push(`${vp.name}: wide description must own its full row in two-column mode`);
+      }
     } else {
       if (!m.railBelowMain) failures.push(`${vp.name}: work rail must stack below main at narrow widths`);
     }

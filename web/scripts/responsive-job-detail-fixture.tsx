@@ -5,6 +5,36 @@ import {
   RecordDescriptions,
   ServoraAntProvider,
 } from '../src/ui/antd';
+import { PriorityChip } from '../src/ui/PriorityChip';
+import { StatusChip } from '../src/ui/StatusChip';
+
+const descriptionItems = [
+  { key: 'status', label: 'Durum', content: 'Hazırlanıyor' },
+  { key: 'assignee', label: 'Sorumlu personel', content: 'Ayşe Personel' },
+  { key: 'priority', label: 'Öncelik', content: 'Normal' },
+  { key: 'schedule', label: 'Planlanan teslim zamanı', content: 'Belirtilmedi' },
+  { key: 'due-date', label: 'Son tarih', content: 'Belirtilmedi' },
+  { key: 'customer', label: 'Müşteri', content: 'DentArt Ağız ve Diş Sağlığı' },
+  { key: 'contact', label: 'İlgili kişi', content: 'Belirtilmedi' },
+  {
+    key: 'description',
+    label: 'Açıklama',
+    content: 'Xenofill Implant Set teslimi ve uygulama kayıtlarının doğrulanması',
+    wide: true,
+  },
+];
+
+const chipItems = [
+  { key: 'status', label: 'Durum', content: <StatusChip status="NEW" /> },
+  { key: 'priority', label: 'Öncelik', content: <PriorityChip priority="normal" /> },
+  { key: 'schedule', label: 'Planlanan teslim zamanı', content: 'Belirtilmedi' },
+  {
+    key: 'description',
+    label: 'Açıklama',
+    content: 'Uzun teslimat açıklaması normal kelime sınırlarında sarılır ve değer sütununu taşırmaz.',
+    wide: true,
+  },
+];
 
 const descriptionRoot = document.getElementById('responsive-descriptions-root');
 if (descriptionRoot) {
@@ -12,16 +42,20 @@ if (descriptionRoot) {
     <ServoraAntProvider>
       <RecordDescriptions
         ariaLabel="İş kayıt bilgileri"
-        items={[
-          { key: 'status', label: 'Durum', content: 'Uygulanıyor' },
-          { key: 'customer', label: 'Müşteri', content: 'DentArt Ağız ve Diş Sağlığı' },
-          {
-            key: 'description',
-            label: 'Açıklama',
-            content: 'Xenofill Implant Set teslimi ve uygulama kayıtlarının doğrulanması',
-            wide: true,
-          },
-        ]}
+        items={chipItems}
+        maxColumns={1}
+      />
+    </ServoraAntProvider>,
+  );
+}
+
+const wideRoot = document.getElementById('responsive-descriptions-wide-root');
+if (wideRoot) {
+  createRoot(wideRoot).render(
+    <ServoraAntProvider>
+      <RecordDescriptions
+        ariaLabel="Geniş kayıt bilgileri"
+        items={descriptionItems}
       />
     </ServoraAntProvider>,
   );

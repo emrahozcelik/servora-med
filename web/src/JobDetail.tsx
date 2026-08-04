@@ -516,7 +516,11 @@ export function JobDetailPanel({
             data-job-detail-section="facts"
             data-job-detail-block="record-facts"
           >
-            <RecordDescriptions ariaLabel="İş kayıt bilgileri" items={descriptionItems} />
+            <RecordDescriptions
+              ariaLabel="İş kayıt bilgileri"
+              items={descriptionItems}
+              maxColumns={hasRail ? 1 : 2}
+            />
           </section>
 
           {presentation.scheduleEdit && (

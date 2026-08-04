@@ -1,24 +1,27 @@
 {
-  "task": "job-detail-desktop-layout",
+  "task": "job-detail-desktop-layout-r1-record-descriptions-repair",
   "date": "2026-08-04",
   "branch": "fix/job-detail-desktop-layout",
   "base": "852c022746cd4bdd8ea8e624f10b719046e5f3d7",
   "environment": "local dev: API 127.0.0.1:3000 (servora_med), Vite worktree localhost:5173, demo staff user",
+  "columnContract": "RecordDescriptions maxColumns prop; Job Detail facts use 1 column when the work rail is present, responsive 2 columns otherwise; explicit label column width via --record-description-label-min-width (200px >= 72rem) / --record-description-label-min-width-narrow (112px below); table-layout fixed with width 100%; wide items always own their full row (resolveItemSpans)",
   "viewports": {
-    "1440": { "railBesideMain": true, "overflowX": false, "labelsSingleLine": true, "evidence": "screenshots/01-accepted-1440.png" },
-    "1200": { "railBesideMain": true, "overflowX": false, "evidence": "screenshots/02-accepted-1200.png" },
-    "1024": { "railBesideMain": true, "overflowX": false, "evidence": "screenshots/03-accepted-1024.png" },
-    "768": { "railBelowMain": true, "overflowX": false, "evidence": "screenshots/04-accepted-768.png" },
-    "390": { "railBelowMain": true, "overflowX": false, "valueOverflows": 0, "evidence": "screenshots/05-accepted-390.png" },
-    "320-reflow": { "railBelowMain": true, "overflowX": false, "evidence": "screenshots/08-cancelled-320-reflow.png" }
+    "1440": { "factsColumns": 1, "labelsSingleLine": true, "chipsSingleLine": true, "railBesideMain": true, "overflowX": false, "evidence": "screenshots/r1-01-accepted-1440.png" },
+    "1200": { "factsColumns": 1, "labelsSingleLine": true, "chipsSingleLine": true, "railBesideMain": true, "overflowX": false, "evidence": "screenshots/r1-02-accepted-1200.png" },
+    "1024": { "factsColumns": 1, "labelsSingleLine": true, "chipsSingleLine": true, "railBesideMain": true, "overflowX": false, "evidence": "screenshots/r1-03-accepted-1024.png" },
+    "768": { "factsColumns": 1, "labelsSingleLine": true, "chipsSingleLine": true, "railBelowMain": true, "overflowX": false, "evidence": "screenshots/r1-04-accepted-768.png" },
+    "390": { "factsColumns": 1, "labelsSingleLine": true, "chipsSingleLine": true, "railBelowMain": true, "overflowX": false, "evidence": "screenshots/r1-05-accepted-390.png" },
+    "320-reflow": { "railBelowMain": true, "overflowX": false, "evidence": "screenshots/r1-08-cancelled-320-reflow.png" }
   },
   "states": {
-    "staff-assigned": { "job": "NEW (f9e0bef2)", "actions": ["İşi kabul et", "İşi iptal et"], "railBesideMain": true, "evidence": "screenshots/06-new-assigned-1440.png" },
-    "staff-accepted": { "job": "ACCEPTED (feba9991)", "actions": ["İşi başlat", "İşi iptal et"], "railBesideMain": true, "notesInRail": true, "evidence": "screenshots/01-accepted-1440.png" },
-    "cancelled": { "job": "CANCELLED (b08a5b09)", "actions": [], "notesOnly": true, "railBesideMain": true, "evidence": "screenshots/07-cancelled-notes-only-1440.png" }
+    "staff-assigned": { "job": "NEW (f9e0bef2)", "actions": ["İşi kabul et", "İşi iptal et"], "evidence": "screenshots/r1-06-assigned-1440.png" },
+    "staff-accepted": { "job": "ACCEPTED (feba9991)", "actions": ["İşi başlat", "İşi iptal et"], "evidence": "screenshots/r1-01-accepted-1440.png" },
+    "cancelled": { "job": "CANCELLED (b08a5b09)", "notesOnly": true, "evidence": "screenshots/r1-07-cancelled-notes-only-1440.png" }
   },
-  "console": "pre-existing antd Descriptions span warning only; no errors",
+  "wideDescription": "1440'da facts 1 kolon: açıklama kendi tam satırında (506px / 706px table). 2-kolonsuz geniş kök smoke'ta iki kolon modunda tam satır doğrulandı (recordWideDescriptionFullRow).",
+  "antdSpanWarning": "ABSENT (job detail render'ında 0 uyarı; console temiz)",
+  "console": "no errors, no warnings",
   "network": "no unexpected 4xx/5xx (all 200)",
   "not-covered-visually": ["IN_PROGRESS", "WAITING_APPROVAL (manager review)", "REVISION_REQUESTED", "COMPLETED", "GENERAL_TASK", "SALES_MEETING"],
-  "note": "DB read-only per task; missing states covered by jsdom integration tests (job-detail.test.tsx) and responsive smoke fixture"
+  "note": "DB read-only per task; missing states covered by jsdom integration tests and responsive smoke fixture"
 }

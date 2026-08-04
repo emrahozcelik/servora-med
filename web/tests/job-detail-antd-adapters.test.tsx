@@ -3,6 +3,10 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 
 import { ServoraAntProvider } from '../src/ui/antd';
+import {
+  resolveItemSpans,
+  type RecordDescriptionItem,
+} from '../src/ui/antd/RecordDescriptions';
 
 type Boundary = {
   WorkflowSteps?: React.ComponentType<{
@@ -26,6 +30,35 @@ async function boundary(): Promise<Boundary> {
 }
 
 describe('owned JobDetail Ant adapters', () => {
+  it('gives a trailing wide item its own full row in two-column mode', () => {
+    const items: readonly RecordDescriptionItem[] = Array.from({ length: 8 }, (_, index) => ({
+      key: `item-${index}`,
+      label: `Label ${index}`,
+      content: `Value ${index}`,
+      wide: index === 7,
+    }));
+    expect(resolveItemSpans(items, 2)).toEqual([1, 1, 1, 1, 1, 1, 2, 2]);
+  });
+
+  it('keeps a wide item on its own row when it starts a fresh row', () => {
+    const items: readonly RecordDescriptionItem[] = Array.from({ length: 6 }, (_, index) => ({
+      key: `item-${index}`,
+      label: `Label ${index}`,
+      content: `Value ${index}`,
+      wide: index === 3,
+    }));
+    expect(resolveItemSpans(items, 2)).toEqual([1, 1, 2, 2, 1, 1]);
+  });
+
+  it('uses single spans for one-column layouts and closes the row before a wide item', () => {
+    const items: readonly RecordDescriptionItem[] = [
+      { key: 'a', label: 'A', content: '1' },
+      { key: 'b', label: 'B', content: '2', wide: true },
+    ];
+    expect(resolveItemSpans(items, 1)).toEqual([1, 1]);
+    expect(resolveItemSpans(items, 2)).toEqual([2, 2]);
+  });
+
   it('renders prepared workflow phases with current and non-color state semantics', async () => {
     const { WorkflowSteps } = await boundary();
     expect(WorkflowSteps).toBeTypeOf('function');
