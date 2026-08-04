@@ -49,9 +49,12 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.form-intro \{[^}]*overflow-wrap: anywhere;/);
     expect(css).toMatch(/\.form-help \{[^}]*overflow-wrap: anywhere;/);
     expect(css).toMatch(/\.eyebrow \{[^}]*overflow-wrap: anywhere;/);
-    expect(css).toMatch(/\.detail-summary time \{[^}]*overflow-wrap: anywhere;/);
+    expect(css).toMatch(/\.detail-summary time \{[^}]*overflow-wrap: break-word;/);
     expect(css).toMatch(/\.delivery-pair \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.detail-summary \{[^}]*display: block;/);
+    expect(css).toMatch(/\.servora-record-descriptions \.servora-ant-descriptions-item-label \{[^}]*overflow-wrap: normal;/);
+    expect(css).toMatch(/\.servora-record-descriptions \.servora-ant-descriptions-item-content \{[^}]*overflow-wrap: break-word;/);
+    expect(css).not.toMatch(/\.detail-summary \.servora-record-descriptions-view table \{[^}]*table-layout: fixed;/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-note-list li > div \{[^}]*flex-direction: column;/);
     expect(css).toMatch(/\.delivery-lines > ul > li \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.customer-filters \{ grid-template-columns: 1fr;/);

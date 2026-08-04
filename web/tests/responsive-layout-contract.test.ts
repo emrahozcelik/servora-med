@@ -44,15 +44,19 @@ describe('responsive layout CSS contracts (PR B)', () => {
     expect(css).not.toMatch(/\.job-lifecycle-step(?:-|\s|\{)/);
   });
 
-  it('densely packs the desktop detail sidebar without changing mobile-first DOM order', () => {
+  it('places the work rail beside the main record area on desktop without a phantom column', () => {
     expect(css).toMatch(
-      /@media\s*\(\s*min-width:\s*64rem\s*\)[\s\S]*\.job-detail-content\s*\{[^}]*grid-auto-flow:\s*row dense/s,
+      /@media\s*\(\s*min-width:\s*64rem\s*\)[\s\S]*\.job-detail-content--rail\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*2fr\)\s*minmax\(17rem,\s*1fr\)/s,
     );
+    expect(css).toMatch(
+      /\.job-detail-content--rail\s*>\s*\.job-detail-work-rail\s*\{[^}]*grid-column:\s*2/s,
+    );
+    expect(css).not.toMatch(/\.job-detail-content\s*\{[^}]*grid-auto-flow:\s*row dense/s);
   });
 
   it('supports 200% text and 400% reflow at 320 CSS px without page scroll dependence', () => {
     expect(css).toMatch(/body\s*\{[^}]*overflow-x:\s*clip/s);
-    expect(css).toMatch(/\.servora-record-descriptions\s+\.servora-ant-descriptions-item-content\s*\{[^}]*overflow-wrap:\s*anywhere/s);
+    expect(css).toMatch(/\.servora-record-descriptions\s+\.servora-ant-descriptions-item-content\s*\{[^}]*overflow-wrap:\s*break-word/s);
     expect(css).toMatch(/\.compact-workflow\s*\{[^}]*min-width:\s*0/s);
     expect(css).toMatch(/\.compact-workflow\s*\{[^}]*overflow-wrap:\s*anywhere/s);
     expect(css).toMatch(/@media\s*\(\s*max-width:\s*20rem\s*\)[\s\S]*\.servora-workflow-steps/);

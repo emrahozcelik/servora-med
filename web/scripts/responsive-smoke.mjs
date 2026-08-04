@@ -108,11 +108,16 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
       <section class="job-detail" aria-label="İş detayı responsive fixture">
         <div class="servora-workflow-steps">Atandı → Uygulanıyor → Yönetici kontrolü</div>
         <section class="workflow-responsibility surface"><h2>Şimdi sizden beklenen</h2><p>Gerekli kayıtları tamamlayıp işi yönetici kontrolüne gönderin.</p></section>
-        <div class="job-detail-content">
-          <section class="detail-summary surface"><div id="responsive-descriptions-root"></div></section>
-          <section class="delivery-lines"><h2>Teslim bilgileri</h2><p>ProSeal Membran · 2 kutu</p></section>
-          <section class="workflow-requirements surface-flat"><h2>Kontrole hazırlık</h2><p>Ürün, amaç, miktar ve teslim zamanı</p></section>
-          <section class="detail-action surface-flat" data-smoke-action><p class="start-location-notice">İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır. Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine başlar.</p><button class="primary-button">İşi başlat</button></section>
+        <div class="job-detail-content job-detail-content--rail">
+          <div class="job-detail-main">
+            <section class="detail-summary surface"><div id="responsive-descriptions-root"></div></section>
+            <section class="delivery-lines"><h2>Teslim bilgileri</h2><p>ProSeal Membran · 2 kutu</p></section>
+          </div>
+          <aside class="job-detail-work-rail" data-smoke-rail>
+            <section class="workflow-requirements surface-flat"><h2>Kontrole hazırlık</h2><p>Ürün, amaç, miktar ve teslim zamanı</p></section>
+            <section class="detail-action surface-flat" data-smoke-action><p class="start-location-notice">İşi başlattığınızda cihazınızdan bir kez yaklaşık konum alınmaya çalışılır. Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine başlar.</p><button class="primary-button">İşi başlat</button></section>
+            <section class="job-notes"><h2>Notlar</h2><p>Konum alınamazsa iş yine başlar; notlar iş durumunu değiştirmez.</p></section>
+          </aside>
         </div>
         <section class="job-timeline" data-smoke-timeline><h2>İşlem geçmişi</h2><div id="responsive-timeline-root"></div></section>
       </section>
@@ -430,6 +435,33 @@ async function measure(page) {
       : 0;
     const action = document.querySelector('[data-smoke-action]');
     const timeline = document.querySelector('[data-smoke-timeline]');
+    const rail = document.querySelector('[data-smoke-rail]');
+    const railMain = document.querySelector('.job-detail-main');
+    const railRect = rail?.getBoundingClientRect();
+    const railMainRect = railMain?.getBoundingClientRect();
+    const railBesideMain = Boolean(railRect && railMainRect
+      && railRect.left >= railMainRect.right - 2 && railRect.top < railMainRect.bottom - 2);
+    const railBelowMain = Boolean(railRect && railMainRect
+      && railRect.top >= railMainRect.bottom - 2);
+    const labelCells = Array.from(document.querySelectorAll(
+      '.servora-record-descriptions .servora-ant-descriptions-item-label',
+    ));
+    const recordLabelsIntact = labelCells.every((cell) => {
+      const lineHeight = Number.parseFloat(getComputedStyle(cell).lineHeight) || 18;
+      const words = (cell.textContent ?? '').trim().split(/\s+/).filter(Boolean);
+      let textHeight = 0;
+      try {
+        const range = document.createRange();
+        range.selectNodeContents(cell);
+        textHeight = range.getBoundingClientRect().height;
+      } catch {
+        textHeight = cell.getBoundingClientRect().height;
+      }
+      if (words.length <= 1) {
+        return textHeight <= lineHeight * 1.9;
+      }
+      return textHeight <= lineHeight * 2.4;
+    });
     const requirements = document.querySelector('.workflow-requirements');
     const requirementsRect = requirements?.getBoundingClientRect();
     const secondaryRecordRect = document.querySelector(
@@ -662,6 +694,9 @@ async function measure(page) {
       detailCols,
       desktopSidePanelBackfillsFirstRow,
       actionBeforeTimeline,
+      railBesideMain,
+      railBelowMain,
+      recordLabelsIntact,
       descriptionsUseFullWidth,
       timelineAdapterFits,
       timelineRailIntact,
@@ -935,6 +970,13 @@ try {
     if (m.overflowX) failures.push(`${vp.name}: horizontal overflow`);
     if (m.detailOverflow) failures.push(`${vp.name}: job detail exceeds its workspace`);
     if (!m.actionBeforeTimeline) failures.push(`${vp.name}: detail action must precede Timeline in DOM`);
+    if (!m.recordLabelsIntact) failures.push(`${vp.name}: RecordDescriptions labels must not break vertically`);
+    if (vp.width >= 1024) {
+      if (!m.railBesideMain) failures.push(`${vp.name}: work rail must sit beside the main record area`);
+      if (m.railBelowMain) failures.push(`${vp.name}: work rail must not stack below main at desktop`);
+    } else {
+      if (!m.railBelowMain) failures.push(`${vp.name}: work rail must stack below main at narrow widths`);
+    }
     if (!m.reportPresent) failures.push(`${vp.name}: OperationalTable fixture missing`);
     if (m.reportOverflow) failures.push(`${vp.name}: OperationalTable exceeds report workspace`);
     if (!m.approvalPresent) failures.push(`${vp.name}: Approval OperationalTable fixture missing`);
