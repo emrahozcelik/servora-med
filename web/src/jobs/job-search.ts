@@ -9,13 +9,15 @@ export type JobSearchState = {
   priority?: JobCardPriority;
   dueBefore?: string;
   dueAfter?: string;
+  /** Server-owned overdue query state; only `true` is representable. */
+  overdue?: true;
   view: 'list' | 'board';
   offset: number;
 };
 
 const ALLOWED_KEYS = [
   'q', 'status', 'type', 'assignedTo', 'customerId', 'priority',
-  'dueBefore', 'dueAfter', 'view', 'offset',
+  'dueBefore', 'dueAfter', 'overdue', 'view', 'offset',
 ] as const;
 const STATUSES = [
   'active', 'closed', 'all', 'NEW', 'ACCEPTED', 'IN_PROGRESS',
@@ -42,8 +44,9 @@ function date(value: string | undefined) {
 }
 
 export function parseJobSearch(params: URLSearchParams): JobSearchState {
+  const overdue = scalar(params, 'overdue') === 'true';
   const status = scalar(params, 'status');
-  const requestedView = scalar(params, 'view') === 'board' ? 'board' : 'list';
+  const requestedView = overdue ? 'list' : (scalar(params, 'view') === 'board' ? 'board' : 'list');
   const view = status === 'closed' ? 'list' : requestedView;
   const state: JobSearchState = { view, offset: 0 };
   const q = scalar(params, 'q')?.trim();
@@ -56,17 +59,25 @@ export function parseJobSearch(params: URLSearchParams): JobSearchState {
   if (customerId && isValidJobFilterUuid(customerId)) state.customerId = customerId;
   const priority = scalar(params, 'priority');
   if (PRIORITIES.includes(priority as JobCardPriority)) state.priority = priority as JobCardPriority;
-  const dueAfter = date(scalar(params, 'dueAfter'));
-  const dueBefore = date(scalar(params, 'dueBefore'));
-  if (dueAfter && dueBefore && dueAfter > dueBefore) {
-    // Invalid ranges canonicalize by dropping both bounds.
+  if (overdue) {
+    // Overdue is a list-only server-owned view: active status, no manual date bounds.
+    state.overdue = true;
+    state.status = 'active';
   } else {
-    if (dueAfter) state.dueAfter = dueAfter;
-    if (dueBefore) state.dueBefore = dueBefore;
+    const dueAfter = date(scalar(params, 'dueAfter'));
+    const dueBefore = date(scalar(params, 'dueBefore'));
+    if (dueAfter && dueBefore && dueAfter > dueBefore) {
+      // Invalid ranges canonicalize by dropping both bounds.
+    } else {
+      if (dueAfter) state.dueAfter = dueAfter;
+      if (dueBefore) state.dueBefore = dueBefore;
+    }
+    if (view === 'list') {
+      state.status = STATUSES.includes(status as JobCardStatusFilter)
+        ? status as JobCardStatusFilter : 'active';
+    }
   }
   if (view === 'list') {
-    state.status = STATUSES.includes(status as JobCardStatusFilter)
-      ? status as JobCardStatusFilter : 'active';
     const offset = scalar(params, 'offset');
     if (offset && /^\d+$/.test(offset) && Number.isSafeInteger(Number(offset))) {
       state.offset = Number(offset);
@@ -92,6 +103,7 @@ export function updateJobSearch(
   changes: Partial<Omit<JobSearchState, 'view' | 'offset'>>,
 ) {
   const next = canonicalJobSearchParams(current);
+  if (Object.keys(changes).length > 0) next.delete('overdue');
   for (const [key, value] of Object.entries(changes)) {
     if (value === undefined || value === '' || (key === 'status' && value === 'active')) next.delete(key);
     else next.set(key, String(value));
@@ -104,15 +116,37 @@ export function enterBoard(current: URLSearchParams) {
   const next = canonicalJobSearchParams(current);
   next.delete('status');
   next.delete('offset');
+  next.delete('overdue');
   next.set('view', 'board');
   return next;
 }
 
 export function selectStatus(current: URLSearchParams, status: JobCardStatusFilter) {
   const next = canonicalJobSearchParams(current);
+  next.delete('overdue');
   next.set('status', status);
   next.set('view', 'list');
   next.set('offset', '0');
+  return canonicalJobSearchParams(next);
+}
+
+/** Canonical overdue query: server-owned overdue=true with no date-range filters. */
+export function overdueJobsSearch(current: URLSearchParams) {
+  const next = canonicalJobSearchParams(current);
+  next.delete('status');
+  next.delete('offset');
+  next.delete('dueBefore');
+  next.delete('dueAfter');
+  next.delete('view');
+  next.set('overdue', 'true');
+  return next;
+}
+
+/** Status shortcut query without overdue/date-range parameters. */
+export function statusQuickSearch(current: URLSearchParams, status: JobCardStatusFilter) {
+  const next = selectStatus(current, status);
+  next.delete('dueBefore');
+  next.delete('dueAfter');
   return canonicalJobSearchParams(next);
 }
 

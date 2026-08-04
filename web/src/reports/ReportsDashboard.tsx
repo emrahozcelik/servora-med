@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
+import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import {
   CompletedTrendCalendar,
@@ -10,7 +11,6 @@ import {
 } from './report-charts';
 import {
   approvalQueueHref,
-  jobsOverdueHref,
   jobsStatusHref,
 } from './report-action-links';
 import {
@@ -70,7 +70,7 @@ function buildAttentionCards(
       title: `${counters.overdueJobCards} iş gecikmiş`,
       detail: 'Termin tarihi geçmiş açık işler.',
       actionLabel: 'Geciken işleri aç',
-      href: jobsOverdueHref(range.timezone),
+      href: `${paths.jobs}?overdue=true`,
     });
   }
 

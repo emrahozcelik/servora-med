@@ -11,17 +11,21 @@ import { JobFilters } from './JobFilters';
 import { JobList, type JobListState } from './JobList';
 import type { JobCommandIntent } from './JobRow';
 import { getJobCardBoard, listJobCards, type JobCardBoard } from './jobs-api';
-import { canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus, updateJobSearch, type JobSearchState } from './job-search';
+import { canonicalJobSearchParams, enterBoard, forceMobileList, overdueJobsSearch, parseJobSearch, selectStatus, statusQuickSearch, updateJobSearch, type JobSearchState } from './job-search';
 import { NewJobMenu } from './NewJobMenu';
 
 const PAGE_SIZE = 25;
 
 function filterHref(params: URLSearchParams, status: JobSearchState['status']) {
-  return `?${selectStatus(params, status ?? 'active').toString()}`;
+  return `?${statusQuickSearch(params, status ?? 'active').toString()}`;
 }
 
 function closedFilterHref(params: URLSearchParams) {
-  return `?${selectStatus(params, 'closed').toString()}`;
+  return `?${statusQuickSearch(params, 'closed').toString()}`;
+}
+
+function overdueFilterHref(params: URLSearchParams) {
+  return `?${overdueJobsSearch(params).toString()}`;
 }
 
 type BoardState =
@@ -76,7 +80,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
     if (showBoard) {
       const generation = requestGate.current.next();
       setBoardState({ kind: 'loading' });
-      const { view: _view, status: _status, offset: _offset, ...requestFilters } = filters;
+      const { view: _view, status: _status, offset: _offset, overdue: _overdue, ...requestFilters } = filters;
       if (user.role === 'STAFF') delete requestFilters.assignedTo;
       loadBoard(requestFilters).then((board) => {
         if (requestGate.current.isCurrent(generation)) setBoardState({ kind: 'ready', board });
@@ -115,10 +119,16 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
   }, [canonicalKey, load, loadBoard, queryKey, reload, showBoard, user.id, user.role]);
 
   const hasFilters = Boolean(filters.q || filters.type || filters.assignedTo || filters.customerId || filters.priority
-    || filters.dueAfter || filters.dueBefore || filters.status !== 'active');
+    || filters.dueAfter || filters.dueBefore || filters.status !== 'active' || filters.overdue);
 
   const quickViews = [
-    { key: 'active' as const, label: 'Aktif işler', href: filterHref(params, 'active'), current: filters.status === 'active' },
+    {
+      key: 'active' as const,
+      label: 'Aktif işler',
+      href: filterHref(params, 'active'),
+      current: filters.status === 'active' && !filters.dueBefore && !filters.dueAfter
+        && !filters.overdue,
+    },
     ...(user.role !== 'STAFF'
       ? [{
           key: 'WAITING_APPROVAL' as const,
@@ -138,6 +148,12 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       label: 'Biten işler',
       href: closedFilterHref(params),
       current: filters.status === 'closed',
+    },
+    {
+      key: 'overdue' as const,
+      label: 'Geciken',
+      href: overdueFilterHref(params),
+      current: filters.overdue === true,
     },
   ];
 
@@ -181,7 +197,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
       }}
       onChange={(_name, value) => setParams(selectStatus(params, value))}
       onViewChange={(view) => setParams(view === 'board' ? enterBoard(params) : forceMobileList(params))}
-      showViewControl={filters.status !== 'closed'} />
+      showViewControl={filters.status !== 'closed' && filters.overdue !== true} />
     {showBoard
       ? (boardState.kind === 'loading'
         ? (

@@ -114,6 +114,11 @@ describe('PostgresReportsRepository Staff report reads', () => {
     expect(sql).not.toMatch(/staff_completed_by|created_by|manager_approved_by/i);
     expect(sql).not.toMatch(/job_card_activities|activity/i);
     expect(sql).not.toMatch(/jc\.type\s*=/i);
+    expect(sql).toContain('jc.due_date IS NOT NULL');
+    expect(sql).toContain(
+      'jc.due_date < ($4::timestamptz AT TIME ZONE organization_range.timezone)::date',
+    );
+    expect(sql).not.toMatch(/scheduled_at/i);
   });
 
   it('returns approved Product Delivery purpose totals as exact decimal strings', async () => {

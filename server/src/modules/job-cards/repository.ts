@@ -312,6 +312,7 @@ export interface JobCardRepository extends SubmissionReader {
   listJobCards(
     scope: JobCardReadScope,
     query: JobCardListQuery,
+    requestTime: Date,
   ): Promise<Paginated<PersistedJobCardListItem>>;
   listBoard(
     scope: JobCardReadScope,
@@ -1510,26 +1511,43 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
     }));
   }
 
-  async listJobCards(scope: JobCardReadScope, query: JobCardListQuery) {
+  async listJobCards(scope: JobCardReadScope, query: JobCardListQuery, requestTime: Date) {
     const filter = workspaceWhere(scope, query);
+    let countJoins = WORKSPACE_JOINS;
+    let itemJoins = WORKSPACE_ITEM_JOINS;
+    let clause = filter.clause;
+    let values = filter.values;
+    if (query.overdue) {
+      countJoins = `${WORKSPACE_JOINS}
+  JOIN organizations o ON o.id = j.organization_id`;
+      itemJoins = `${WORKSPACE_ITEM_JOINS}
+  JOIN organizations o ON o.id = j.organization_id`;
+      const datePosition = values.length + 1;
+      values = [...values, requestTime];
+      // Parse guarantees status is omitted or 'active'; workspaceWhere already
+      // restricts to the five actionable statuses in that case.
+      clause = `${filter.clause}
+    AND j.due_date IS NOT NULL
+    AND j.due_date < ($${datePosition}::timestamptz AT TIME ZONE o.timezone)::date`;
+    }
     const count = await this.pool.query<{ total: number }>(
       `SELECT COUNT(*)::int AS total
-       ${WORKSPACE_JOINS}
-       WHERE ${filter.clause}`,
-      filter.values,
+       ${countJoins}
+       WHERE ${clause}`,
+      values,
     );
-    const limitPosition = filter.values.length + 1;
-    const offsetPosition = filter.values.length + 2;
+    const limitPosition = values.length + 1;
+    const offsetPosition = values.length + 2;
     const order = query.status === 'WAITING_APPROVAL'
       ? 'j.staff_completed_at ASC, j.id ASC'
       : 'j.updated_at DESC, j.id DESC';
     const items = await this.pool.query<JobCardListRow>(
       `SELECT ${JOB_CARD_LIST_COLUMNS}
-       ${WORKSPACE_ITEM_JOINS}
-       WHERE ${filter.clause}
+       ${itemJoins}
+       WHERE ${clause}
        ORDER BY ${order}
        LIMIT $${limitPosition} OFFSET $${offsetPosition}`,
-      [...filter.values, query.limit, query.offset],
+      [...values, query.limit, query.offset],
     );
     return {
       items: items.rows.map(mapJobCardListItem),

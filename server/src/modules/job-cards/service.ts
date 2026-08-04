@@ -623,6 +623,7 @@ export class JobCardService {
         assignedTo: actor.role === 'STAFF' ? actor.id : null,
       },
       query,
+      this.now(),
     );
     return {
       ...page,

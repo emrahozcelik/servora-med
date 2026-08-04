@@ -254,9 +254,9 @@ export type PatchJobCardInput = {
 export type JobCardListFilters = Partial<{
   q: string; status: JobCardStatusFilter; type: JobCardType; assignedTo: string;
   customerId: string; priority: JobCardPriority; dueBefore: string; dueAfter: string;
-  limit: number; offset: number;
+  overdue: true; limit: number; offset: number;
 }>;
-export type JobCardBoardFilters = Omit<JobCardListFilters, 'status' | 'offset'>;
+export type JobCardBoardFilters = Omit<JobCardListFilters, 'status' | 'offset' | 'overdue'>;
 type DeliveryInput = {
   expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
   deliveredAt: string | null;
@@ -685,7 +685,7 @@ export function parseMeetingDetails(value: unknown): MeetingDetails {
     jobCardVersion: positiveCount(v.jobCardVersion, 'jobCardVersion'),
   };
 }
-function query(filters: Record<string, string | number | undefined>) {
+function query(filters: Record<string, string | number | boolean | undefined>) {
   const params = new URLSearchParams();
   for (const [key, value] of Object.entries(filters)) if (value !== undefined && value !== '') params.set(key, String(value));
   const encoded = params.toString(); return encoded ? `?${encoded}` : '';

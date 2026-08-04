@@ -1,8 +1,9 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
+import { listJobCards, type JobCardBoardFilters } from '../src/jobs/jobs-api';
 import {
-  canonicalJobSearchParams, enterBoard, forceMobileList, parseJobSearch, selectStatus,
-  updateJobSearch,
+  canonicalJobSearchParams, enterBoard, forceMobileList, overdueJobsSearch, parseJobSearch,
+  selectStatus, statusQuickSearch, updateJobSearch,
 } from '../src/jobs/job-search';
 
 describe('canonical JobCard URL state', () => {
@@ -91,5 +92,85 @@ describe('canonical JobCard URL state', () => {
     expect(mobile.toString()).toBe('q=klinik&priority=urgent&view=list');
     expect(forceMobileList(mobile).toString()).toBe(mobile.toString());
     expect(board.get('view')).toBe('board');
+  });
+
+  it('builds the canonical overdue query with server-owned overdue=true', () => {
+    const params = new URLSearchParams(
+      'q=klinik&status=WAITING_APPROVAL&dueBefore=2026-07-31&dueAfter=2026-07-01&offset=25',
+    );
+    expect(overdueJobsSearch(params).toString()).toBe('q=klinik&overdue=true');
+    // No browser clock or timezone input can change the result.
+    expect(overdueJobsSearch(new URLSearchParams()).toString()).toBe('overdue=true');
+  });
+
+  it('parses overdue=true state and drops malformed values', () => {
+    expect(parseJobSearch(new URLSearchParams('overdue=true'))).toEqual({
+      overdue: true, status: 'active', view: 'list', offset: 0,
+    });
+    expect(parseJobSearch(new URLSearchParams('overdue=false'))).toEqual({
+      status: 'active', view: 'list', offset: 0,
+    });
+    expect(canonicalJobSearchParams(new URLSearchParams('overdue=false')).toString()).toBe('');
+    expect(canonicalJobSearchParams(new URLSearchParams('overdue=true')).toString())
+      .toBe('overdue=true');
+  });
+
+  it('selecting a status drops overdue and status quick searches clear date ranges', () => {
+    const overdue = new URLSearchParams('q=klinik&overdue=true&offset=25');
+    expect(selectStatus(overdue, 'WAITING_APPROVAL').toString())
+      .toBe('q=klinik&status=WAITING_APPROVAL');
+    expect(statusQuickSearch(overdue, 'active').toString()).toBe('q=klinik');
+    expect(statusQuickSearch(overdue, 'closed').toString()).toBe('q=klinik&status=closed');
+  });
+
+  it('filter changes drop overdue while pagination preserves it', () => {
+    const overdue = new URLSearchParams('overdue=true&offset=25');
+    expect(updateJobSearch(overdue, { q: 'klinik' }).toString()).toBe('q=klinik');
+    expect(updateJobSearch(overdue, {}).toString()).toBe('overdue=true');
+  });
+
+  it('canonicalizes overdue to a list-only active query without date bounds', () => {
+    const params = new URLSearchParams(
+      'overdue=true&view=board&status=closed&dueBefore=2026-08-01&dueAfter=2026-07-01',
+    );
+    expect(parseJobSearch(params)).toEqual({ overdue: true, status: 'active', view: 'list', offset: 0 });
+    expect(canonicalJobSearchParams(params).toString()).toBe('overdue=true');
+  });
+
+  it('preserves pagination for the overdue query', () => {
+    expect(parseJobSearch(new URLSearchParams('overdue=true&offset=25')))
+      .toEqual({ overdue: true, status: 'active', view: 'list', offset: 25 });
+    expect(canonicalJobSearchParams(new URLSearchParams('overdue=true&offset=25')).toString())
+      .toBe('overdue=true&offset=25');
+  });
+
+  it('removes overdue when entering the board from the overdue view', () => {
+    const next = enterBoard(new URLSearchParams('q=klinik&overdue=true&offset=25'));
+    expect(next.toString()).toBe('q=klinik&view=board');
+  });
+});
+
+describe('JobCard API filter contract', () => {
+  it('accepts and serializes overdue=true on listJobCards', async () => {
+    let captured = '';
+    vi.stubGlobal('fetch', vi.fn(async (url: string) => {
+      captured = String(url);
+      return new Response(JSON.stringify({ items: [], total: 0, limit: 25, offset: 0 }), { status: 200 });
+    }));
+    try {
+      const page = await listJobCards({ overdue: true });
+      expect(page).toEqual({ items: [], total: 0, limit: 25, offset: 0 });
+      expect(captured).toBe('/api/job-cards?overdue=true');
+    } finally {
+      vi.unstubAllGlobals();
+    }
+  });
+
+  it('cannot represent overdue on board filters', () => {
+    const board: JobCardBoardFilters = {};
+    // @ts-expect-error overdue is list-only and not representable on board filters
+    const invalid: JobCardBoardFilters = { overdue: true };
+    void invalid;
+    expect(board).toEqual({});
   });
 });

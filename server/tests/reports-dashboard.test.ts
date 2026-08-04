@@ -152,4 +152,24 @@ describe('PostgresReportsRepository dashboard', () => {
     expect(sql).not.toMatch(/(?:jc\.)?type\s*=/i);
     expect(sql).not.toMatch(/delivered_at|job_card_delivery_items/i);
   });
+
+  it('counts overdue with the canonical due_date predicate only', async () => {
+    const { pool, query } = recordingPool();
+    const repository = new PostgresReportsRepository(pool);
+
+    await repository.getDashboard({
+      organizationId: ORG_ID,
+      requestedRange: null,
+      requestTime,
+    });
+
+    const sql = query.mock.calls[0]?.[0] ?? '';
+    expect(sql).toContain('jc.due_date IS NOT NULL');
+    expect(sql).toContain(
+      'jc.due_date < ($4::timestamptz AT TIME ZONE organization_range.timezone)::date',
+    );
+    expect(sql).not.toMatch(/scheduled_at/i);
+    expect(sql).not.toMatch(/scheduled_ends_at/i);
+    expect(sql).not.toMatch(/planned_at/i);
+  });
 });

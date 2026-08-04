@@ -13,7 +13,7 @@ import { boundedTrimmedString, isoDate, validation } from './validation.js';
 
 const LIST_KEYS = [
   'q', 'status', 'type', 'assignedTo', 'customerId', 'priority',
-  'dueBefore', 'dueAfter', 'limit', 'offset',
+  'dueBefore', 'dueAfter', 'overdue', 'limit', 'offset',
 ] as const;
 const BOARD_KEYS = [
   'q', 'type', 'assignedTo', 'customerId', 'priority', 'dueBefore', 'dueAfter', 'limit',
@@ -97,11 +97,24 @@ function statusFilter(value: unknown): JobCardStatusFilter {
   return value as JobCardStatusFilter;
 }
 
+function optionalOverdue(value: unknown): boolean {
+  if (value === undefined) return false;
+  if (value !== 'true') throw validation('overdue');
+  return true;
+}
+
 export function parseJobCardListQuery(raw: unknown): JobCardListQuery {
   const value = exactQuery(raw, LIST_KEYS);
+  const overdue = optionalOverdue(value.overdue);
+  const base = baseFilters(value);
+  if (overdue) {
+    if (statusFilter(value.status) !== 'active') throw validation('overdue');
+    if (base.dueBefore !== null || base.dueAfter !== null) throw validation('overdue');
+  }
   return {
-    ...baseFilters(value),
+    ...base,
     status: statusFilter(value.status),
+    overdue,
     limit: integerQuery(value.limit, 'limit', 25, 1, 100),
     offset: integerQuery(value.offset, 'offset', 0, 0),
   };

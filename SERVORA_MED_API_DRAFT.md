@@ -462,6 +462,7 @@ customerId
 priority
 dueBefore
 dueAfter
+overdue
 q
 limit
 offset
@@ -469,6 +470,14 @@ offset
 
 `type` accepts exactly `PRODUCT_DELIVERY`, `GENERAL_TASK`, or `SALES_MEETING`. Repeated scalar filters,
 unknown values, and unknown query keys return `400 VALIDATION_ERROR`.
+
+`overdue=true` is a server-owned filter: the backend resolves the authoritative request
+time through the organization timezone and applies `status IN (active statuses)` with
+`due_date IS NOT NULL` and `due_date < (requestTime AT TIME ZONE organization.timezone)::date`.
+Clients never compute the overdue boundary. `overdue=true` may be combined with an omitted
+or `active` status only; any other status or a `dueBefore`/`dueAfter` combination returns
+`400 VALIDATION_ERROR`. `overdue=false`, malformed values, and repeated parameters are
+rejected. The board projection does not accept `overdue`.
 
 The list response is canonical and paginated. Board cards reuse the same item shape,
 group only `NEW`, `ACCEPTED`, `IN_PROGRESS`, `WAITING_APPROVAL`, and

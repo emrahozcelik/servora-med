@@ -19,6 +19,7 @@ const baseQuery: JobCardListQuery = {
   dueAfter: null,
   limit: 25,
   offset: 0,
+  overdue: false,
 };
 
 function poolDouble(itemRows: unknown[] = [], total = 0) {
@@ -54,6 +55,7 @@ describe('PostgresJobCardRepository workspace list', () => {
         limit: 10,
         offset: 20,
       },
+      new Date('2026-07-14T12:00:00.000Z')
     );
 
     expect(calls).toHaveLength(2);
@@ -89,6 +91,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     await new PostgresJobCardRepository(pool as never).listJobCards(
       { organizationId: 'org-1', assignedTo: null },
       { ...baseQuery, status },
+      new Date('2026-07-14T12:00:00.000Z')
     );
     expect(calls[0]!.values).toContainEqual(expected);
   });
@@ -98,6 +101,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     await new PostgresJobCardRepository(pool as never).listJobCards(
       { organizationId: 'org-1', assignedTo: null },
       { ...baseQuery, status: 'all' },
+      new Date('2026-07-14T12:00:00.000Z')
     );
     expect(calls[0]!.sql).not.toContain('j.status = ANY');
     expect(calls[0]!.values).toEqual(['org-1']);
@@ -108,6 +112,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     await new PostgresJobCardRepository(pool as never).listJobCards(
       { organizationId: 'org-1', assignedTo: null },
       { ...baseQuery, assignedTo: 'staff-2', status: 'all' },
+      new Date('2026-07-14T12:00:00.000Z')
     );
     expect(calls[0]!.sql.match(/j\.assigned_to = \$\d+/g)).toHaveLength(1);
     expect(calls[0]!.values).toEqual(['org-1', 'staff-2']);
@@ -127,6 +132,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     const result = await new PostgresJobCardRepository(pool as never).listJobCards(
       { organizationId: 'org-1', assignedTo: null },
       { ...baseQuery, type: 'GENERAL_TASK' },
+      new Date('2026-07-14T12:00:00.000Z')
     );
 
     expect(calls[0]!.sql).toContain('j.type = $2');
@@ -154,6 +160,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     const result = await new PostgresJobCardRepository(pool as never).listJobCards(
       { organizationId: 'org-1', assignedTo: null },
       { ...baseQuery, type: 'SALES_MEETING' },
+      new Date('2026-07-14T12:00:00.000Z')
     );
 
     expect(calls[0]!.values).toContain('SALES_MEETING');
@@ -196,6 +203,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     const page = await new PostgresJobCardRepository(pool as never).listJobCards(
       { organizationId: 'org-1', assignedTo: null },
       { ...baseQuery, limit: 1, offset: 4 },
+      new Date('2026-07-14T12:00:00.000Z')
     );
 
     expect(page).toEqual({
@@ -219,10 +227,40 @@ describe('PostgresJobCardRepository workspace list', () => {
     expect(calls[0]!.values).not.toContain(4);
   });
 
+  it('applies the server-owned overdue filter with organization timezone only', async () => {
+    const requestTime = new Date('2026-07-14T12:00:00.000Z');
+    const { pool, calls } = poolDouble();
+    await new PostgresJobCardRepository(pool as never).listJobCards(
+      { organizationId: 'org-1', assignedTo: null },
+      { ...baseQuery, overdue: true },
+      requestTime,
+    );
+
+    expect(calls).toHaveLength(2);
+    for (const { sql } of calls) {
+      expect(sql).toContain('JOIN organizations o ON o.id = j.organization_id');
+      // The active status restriction comes from the parsed status=active filter.
+      expect(sql).toContain('j.status = ANY($2::varchar[])');
+      expect(sql).toContain('j.due_date IS NOT NULL');
+      expect(sql).toContain(
+        'j.due_date < ($3::timestamptz AT TIME ZONE o.timezone)::date',
+      );
+      expect(sql).not.toMatch(/NOW\(\)/i);
+    }
+    const expectedFilterValues = [
+      'org-1',
+      ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'],
+      requestTime,
+    ];
+    expect(calls[0]!.values).toEqual(expectedFilterValues);
+    expect(calls[1]!.values).toEqual([...expectedFilterValues, 25, 0]);
+  });
+
   it('uses deterministic default and exact approval ordering', async () => {
     const standard = poolDouble();
     await new PostgresJobCardRepository(standard.pool as never).listJobCards(
       { organizationId: 'org-1', assignedTo: null }, baseQuery,
+      new Date('2026-07-14T12:00:00.000Z')
     );
     expect(standard.calls[1]!.sql).toContain('ORDER BY j.updated_at DESC, j.id DESC');
 
@@ -230,6 +268,7 @@ describe('PostgresJobCardRepository workspace list', () => {
     await new PostgresJobCardRepository(approval.pool as never).listJobCards(
       { organizationId: 'org-1', assignedTo: null },
       { ...baseQuery, status: 'WAITING_APPROVAL' },
+      new Date('2026-07-14T12:00:00.000Z')
     );
     expect(approval.calls[1]!.sql).toContain('ORDER BY j.staff_completed_at ASC, j.id ASC');
   });

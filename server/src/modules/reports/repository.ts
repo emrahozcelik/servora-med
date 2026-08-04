@@ -122,6 +122,13 @@ const ORGANIZATION_RANGE_CTE = `organization_range AS (
   WHERE o.id = $1
 )`;
 
+/**
+ * Canonical overdue predicate: due_date strictly before the organization-local
+ * current date, independent of scheduled_at. `$4` is the requestTime instant.
+ */
+const OVERDUE_JOB_CARD_CLAUSE = `jc.due_date IS NOT NULL
+  AND jc.due_date < ($4::timestamptz AT TIME ZONE organization_range.timezone)::date`;
+
 const STAFF_SUMMARY_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 )
@@ -143,13 +150,7 @@ SELECT requested.staff_user_id,
         'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
       )
       AND (
-        (jc.scheduled_at IS NOT NULL AND jc.scheduled_at < $4::timestamptz)
-        OR (
-          jc.scheduled_at IS NULL
-          AND jc.due_date IS NOT NULL
-          AND jc.due_date <
-            ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
-        )
+        ${OVERDUE_JOB_CARD_CLAUSE}
       )
   )::int AS overdue_job_cards,
   COUNT(jc.id) FILTER (
@@ -185,13 +186,7 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
           'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
         )
         AND (
-          (jc.scheduled_at IS NOT NULL AND jc.scheduled_at < $4::timestamptz)
-          OR (
-            jc.scheduled_at IS NULL
-            AND jc.due_date IS NOT NULL
-            AND jc.due_date <
-              ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
-          )
+          ${OVERDUE_JOB_CARD_CLAUSE}
         )
     )::int AS overdue_job_cards,
     COUNT(jc.id) FILTER (

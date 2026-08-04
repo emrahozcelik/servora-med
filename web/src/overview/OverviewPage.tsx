@@ -79,7 +79,7 @@ export function OverviewPage({
       ]
     : [
         { label: 'Aktif işler', value: overview.active, href: `${paths.jobs}?status=active`, tone: 'default' as const },
-        { label: 'Geciken', value: overview.overdue, href: `${paths.jobs}?dueBefore=${overview.range.to}`, tone: 'attention' as const },
+        { label: 'Geciken', value: overview.overdue, href: `${paths.jobs}?overdue=true`, tone: 'attention' as const },
         { label: 'Kontrol bekleyen', value: overview.waitingApproval, href: paths.approvalReports, tone: 'attention' as const },
         { label: 'Düzeltme gereken', value: overview.revisionRequested, href: `${paths.jobs}?status=REVISION_REQUESTED`, tone: 'warning' as const },
       ];

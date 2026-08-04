@@ -275,7 +275,12 @@ export type JobCardBaseFilters = {
 };
 
 export type JobCardWorkspaceFilters = JobCardBaseFilters & { status: JobCardStatusFilter };
-export type JobCardListQuery = JobCardWorkspaceFilters & { limit: number; offset: number };
+export type JobCardListQuery = JobCardWorkspaceFilters & {
+  limit: number;
+  offset: number;
+  /** Server-owned overdue filter: active statuses + due_date before org-local today. */
+  overdue: boolean;
+};
 export type JobCardBoardQuery = JobCardBaseFilters & { limit: number };
 
 export type PersistedJobCardListItem = {
