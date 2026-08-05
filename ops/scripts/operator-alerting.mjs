@@ -12,6 +12,7 @@ import { createHash, randomBytes } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
+  linkSync,
   lstatSync,
   mkdirSync,
   readFileSync,
@@ -52,6 +53,14 @@ export class StateQuarantineError extends Error {
   constructor(category) {
     super(`state quarantine failed: ${category}`);
     this.name = 'StateQuarantineError';
+    this.category = category;
+  }
+}
+
+export class StateDirError extends Error {
+  constructor(category) {
+    super(`state directory failed: ${category}`);
+    this.name = 'StateDirError';
     this.category = category;
   }
 }
@@ -99,6 +108,7 @@ export function createDefaultDeps() {
     readFile: readFileSync,
     writeFile: writeFileSync,
     rename: renameSync,
+    link: linkSync,
     unlink: unlinkSync,
     mkdir: mkdirSync,
     chmod: chmodSync,
@@ -528,14 +538,48 @@ function quarantineErrorCategory(error) {
   return 'other';
 }
 
-function quarantineDestination(config, deps) {
+function quarantineCandidates(config, deps) {
   const base = `state.json.corrupt-${new Date(deps.now()).toISOString().replace(/[:.]/g, '-')}`;
+  const candidates = [];
   for (let attempt = 0; attempt < 10; attempt += 1) {
-    const name = attempt === 0 ? base : `${base}-${deps.randomToken()}`;
-    const candidate = `${config.stateDir}/${name}`;
-    if (!deps.exists(candidate)) return candidate;
+    candidates.push(attempt === 0 ? base : `${base}-${deps.randomToken()}`);
   }
-  return null;
+  return candidates;
+}
+
+// Atomic no-clobber quarantine: a hard link to the corrupt state file is
+// created with `link` (EEXIST on collision is caught atomically), and only
+// after the forensic link exists is the source unlinked. A failure in either
+// step fails closed: the original state is preserved and no fresh state is
+// ever written. Quarantine names never leave this function.
+function quarantineState(config, deps, statePath) {
+  let stateStats;
+  try {
+    stateStats = deps.lstat(statePath);
+  } catch (error) {
+    throw new StateQuarantineError(quarantineErrorCategory(error));
+  }
+  if (stateStats.isSymbolicLink()) throw new StateQuarantineError('symlink');
+  if (!stateStats.isFile()) throw new StateQuarantineError('wrong-type');
+
+  let transferred = false;
+  for (const candidate of quarantineCandidates(config, deps)) {
+    try {
+      deps.link(statePath, `${config.stateDir}/${candidate}`);
+      transferred = true;
+      break;
+    } catch (error) {
+      if (error?.code === 'EEXIST') continue;
+      throw new StateQuarantineError(quarantineErrorCategory(error));
+    }
+  }
+  if (!transferred) throw new StateQuarantineError('collision');
+
+  try {
+    deps.unlink(statePath);
+  } catch (error) {
+    throw new StateQuarantineError(quarantineErrorCategory(error));
+  }
 }
 
 export async function loadState(config, deps) {
@@ -567,13 +611,7 @@ export async function loadState(config, deps) {
     return { state: sanitized, monitorEvent: null, requiresInitialPersist: false };
   }
 
-  const destination = quarantineDestination(config, deps);
-  if (destination === null) throw new StateQuarantineError('collision');
-  try {
-    deps.rename(statePath, destination);
-  } catch (error) {
-    throw new StateQuarantineError(quarantineErrorCategory(error));
-  }
+  quarantineState(config, deps, statePath);
   const fresh = createDefaultState();
   fresh.monitor.pendingIncident = { kind: 'state-corrupt', detectedAt: deps.now() };
   return {
@@ -581,6 +619,43 @@ export async function loadState(config, deps) {
     monitorEvent: monitorEventForIncident(fresh.monitor.pendingIncident, deps.now()),
     requiresInitialPersist: true,
   };
+}
+
+// Validates that the state directory is a real directory (no symlinks) and
+// normalizes it to 0700 before any lock or state IO happens.
+export function ensurePrivateStateDirectory(config, deps) {
+  try {
+    deps.mkdir(config.stateDir, { recursive: true, mode: 0o700 });
+  } catch (error) {
+    throw new StateDirError(stateDirErrorCategory(error));
+  }
+  let stats;
+  try {
+    stats = deps.lstat(config.stateDir);
+  } catch (error) {
+    throw new StateDirError(stateDirErrorCategory(error));
+  }
+  if (stats.isSymbolicLink()) throw new StateDirError('symlink');
+  if (!stats.isDirectory()) throw new StateDirError('wrong-type');
+  try {
+    deps.chmod(config.stateDir, 0o700);
+  } catch (error) {
+    throw new StateDirError(stateDirErrorCategory(error));
+  }
+  let post;
+  try {
+    post = deps.lstat(config.stateDir);
+  } catch (error) {
+    throw new StateDirError(stateDirErrorCategory(error));
+  }
+  if (!post.isDirectory() || post.isSymbolicLink()) throw new StateDirError('unexpected');
+}
+
+function stateDirErrorCategory(error) {
+  const code = error?.code;
+  if (code === 'EACCES' || code === 'EPERM') return 'permission';
+  if (code === 'EIO') return 'io';
+  return 'unexpected';
 }
 
 export function writeState(config, state, deps) {
@@ -631,9 +706,10 @@ function readLockFile(config, deps, fileName) {
   return lock;
 }
 
-// Atomically claims `lock.reclaim` to serialize stale-lock reclamation. A dead
-// guard owner is removed after revalidation (bounded, no recursion); an alive
-// or unknown guard owner leaves the guard untouched and reports busy.
+// Atomically claims `lock.reclaim` to serialize stale-lock reclamation. A
+// guard held by a live owner reports busy; an unknown liveness fails closed;
+// a dead owner is NEVER auto-deleted — the stale guard is preserved for
+// manual operator recovery (structured `reclaim-guard-stale`, exit 1).
 function acquireReclaimGuard(config, deps) {
   const guardPath = `${config.stateDir}/${RECLAIM_GUARD_FILE}`;
   const ownerToken = deps.randomToken();
@@ -649,13 +725,10 @@ function acquireReclaimGuard(config, deps) {
   const first = attempt();
   if (first) return first;
   const existing = readLockFile(config, deps, RECLAIM_GUARD_FILE);
-  if (deps.probeProcess(existing.pid) !== 'dead') return { ok: false };
-  try {
-    deps.unlink(guardPath);
-  } catch (error) {
-    if (error?.code !== 'ENOENT') throw new LockError('unexpected');
-  }
-  return attempt();
+  const liveness = deps.probeProcess(existing.pid);
+  if (liveness === 'alive') return { ok: false };
+  if (liveness === 'unknown') throw new LockError('unknown');
+  throw new LockError('stale');
 }
 
 export function acquireLock(config, deps) {
@@ -710,8 +783,19 @@ export function acquireLock(config, deps) {
 }
 
 // Owner-safe release: only the lock whose ownerToken matches the current run
-// is removed. A foreign, malformed or missing lock is never deleted.
+// is removed. A foreign, malformed or missing lock is never deleted. An
+// lstat identity post-check between the read and the unlink shrinks the
+// read-to-unlink replacement window: if the inode changed, the lock was
+// replaced and is left untouched.
 export function releaseLock(config, deps, ownership, fileName = 'lock.lock') {
+  const lockPath = `${config.stateDir}/${fileName}`;
+  let before;
+  try {
+    before = deps.lstat(lockPath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { released: false, reason: 'missing' };
+    return { released: false, reason: 'unreadable' };
+  }
   let existing;
   try {
     existing = readLockFile(config, deps, fileName);
@@ -720,8 +804,16 @@ export function releaseLock(config, deps, ownership, fileName = 'lock.lock') {
   }
   if (existing === null) return { released: false, reason: 'missing' };
   if (existing.ownerToken !== ownership.ownerToken) return { released: false, reason: 'owner-mismatch' };
+  let after;
   try {
-    deps.unlink(`${config.stateDir}/${fileName}`);
+    after = deps.lstat(lockPath);
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { released: false, reason: 'missing' };
+    return { released: false, reason: 'unexpected' };
+  }
+  if (after.ino !== before.ino || after.dev !== before.dev) return { released: false, reason: 'replaced' };
+  try {
+    deps.unlink(lockPath);
     return { released: true, reason: 'ok' };
   } catch (error) {
     if (error?.code === 'ENOENT') return { released: false, reason: 'missing' };
@@ -1032,6 +1124,7 @@ export async function main({ env = process.env, deps = createDefaultDeps(), log 
   let ownership = null;
   let exitCode = 0;
   try {
+    ensurePrivateStateDirectory(config, deps);
     const lock = acquireLock(config, deps);
     if (!lock.ok) {
       log({ level: 'warn', run: 'lock-busy', staleReclaimed: lock.staleReclaimed });
@@ -1066,7 +1159,11 @@ export async function main({ env = process.env, deps = createDefaultDeps(), log 
     }
   } catch (error) {
     if (error instanceof LockError) {
-      log({ level: 'error', run: error.category === 'malformed' ? 'lock-invalid' : 'lock-error', errorCategory: error.category });
+      const run = error.category === 'malformed' ? 'lock-invalid' : error.category === 'stale' ? 'reclaim-guard-stale' : 'lock-error';
+      log({ level: 'error', run, errorCategory: error.category });
+      exitCode = 1;
+    } else if (error instanceof StateDirError) {
+      log({ level: 'error', run: 'state-dir-failed', errorCategory: error.category });
       exitCode = 1;
     } else if (error instanceof StateQuarantineError) {
       log({ level: 'error', run: 'state-quarantine-failed', errorCategory: error.category });

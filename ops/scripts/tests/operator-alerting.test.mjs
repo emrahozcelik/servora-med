@@ -21,6 +21,7 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
   ConfigError,
   LockError,
+  StateDirError,
   StateQuarantineError,
   StateReadError,
   StateVersionError,
@@ -55,19 +56,30 @@ import {
 class FakeFs {
   constructor() {
     this.entries = new Map();
+    this.inoCounter = 1;
+  }
+
+  makeEntry(kind, content, mode) {
+    return { kind, content, mode, ino: this.inoCounter++, dev: 1 };
   }
 
   file(path, content = '') {
-    this.entries.set(path, { kind: 'file', content: Buffer.isBuffer(content) ? content : Buffer.from(content), mode: 0o600 });
+    this.entries.set(path, this.makeEntry('file', Buffer.isBuffer(content) ? content : Buffer.from(content), 0o600));
   }
 
   dir(path) {
-    this.entries.set(path, { kind: 'dir', mode: 0o700 });
+    this.entries.set(path, this.makeEntry('dir', null, 0o700));
   }
 
   symlink(path) {
-    this.entries.set(path, { kind: 'symlink', content: Buffer.from('target'), mode: 0o600 });
+    this.entries.set(path, this.makeEntry('symlink', Buffer.from('target'), 0o600));
   }
+
+  linkSync = (from, to) => {
+    const entry = this.stat(from);
+    if (this.entries.has(to)) throw Object.assign(new Error(`EEXIST ${to}`), { code: 'EEXIST' });
+    this.entries.set(to, { ...entry, ino: entry.ino });
+  };
 
   stat(path) {
     const entry = this.entries.get(path);
@@ -91,6 +103,8 @@ class FakeFs {
       isFile: () => entry.kind === 'file',
       isDirectory: () => entry.kind === 'dir',
       isSymbolicLink: () => entry.kind === 'symlink',
+      ino: entry.ino,
+      dev: entry.dev,
     };
   };
 
@@ -103,11 +117,7 @@ class FakeFs {
   writeFileSync = (path, content, options = {}) => {
     const existing = this.entries.get(path);
     if (options.flag === 'wx' && existing) throw Object.assign(new Error(`EEXIST ${path}`), { code: 'EEXIST' });
-    this.entries.set(path, {
-      kind: 'file',
-      content: Buffer.from(String(content)),
-      mode: typeof options.mode === 'number' ? options.mode : 0o600,
-    });
+    this.entries.set(path, this.makeEntry('file', Buffer.from(String(content)), typeof options.mode === 'number' ? options.mode : 0o600));
   };
 
   renameSync = (from, to) => {
@@ -123,7 +133,7 @@ class FakeFs {
 
   mkdirSync = (path, options) => {
     if (this.entries.has(path)) return;
-    this.entries.set(path, { kind: 'dir', mode: options?.mode ?? 0o700 });
+    this.entries.set(path, this.makeEntry('dir', null, options?.mode ?? 0o700));
   };
 
   chmodSync = (path, mode) => {
@@ -148,6 +158,7 @@ function fakeDeps({ fs = new FakeFs(), health = null, webhook = null, statfsResu
   deps.readFile = fs.readFileSync;
   deps.writeFile = fs.writeFileSync;
   deps.rename = fs.renameSync;
+  deps.link = fs.linkSync;
   deps.unlink = fs.unlinkSync;
   deps.mkdir = fs.mkdirSync;
   deps.chmod = fs.chmodSync;
@@ -869,10 +880,10 @@ describe('quarantine fail closed', () => {
     return fs;
   }
 
-  it('fails closed with the original state preserved when the rename fails with EACCES', async () => {
+  it('fails closed with the original state preserved when the quarantine link fails with EACCES', async () => {
     const fs = corruptFs();
     const deps = fakeDeps({ fs });
-    deps.rename = () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); };
+    deps.link = () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); };
     await assert.rejects(() => loadState(config, deps), (error) => {
       assert.equal(error.name, 'StateQuarantineError');
       assert.equal(error.category, 'permission');
@@ -882,10 +893,10 @@ describe('quarantine fail closed', () => {
     assert.ok(!Array.from(fs.entries.keys()).some((key) => key.includes('state.json.corrupt-')));
   });
 
-  it('fails closed when the quarantine rename fails with EIO', async () => {
+  it('fails closed when the quarantine link fails with EIO', async () => {
     const fs = corruptFs();
     const deps = fakeDeps({ fs });
-    deps.rename = () => { throw Object.assign(new Error('EIO'), { code: 'EIO' }); };
+    deps.link = () => { throw Object.assign(new Error('EIO'), { code: 'EIO' }); };
     await assert.rejects(() => loadState(config, deps), (error) => {
       assert.equal(error.name, 'StateQuarantineError');
       assert.equal(error.category, 'io');
@@ -910,17 +921,21 @@ describe('quarantine fail closed', () => {
     assert.ok(!fs.entries.has(statePath));
   });
 
-  it('fails closed when every quarantine destination collides', async () => {
+  it('fails closed when every atomic quarantine candidate collides', async () => {
     const fs = corruptFs();
+    const base = `state.json.corrupt-${new Date(1_785_974_400_000).toISOString().replace(/[:.]/g, '-')}`;
+    fs.file(`/var/lib/servora-med-alerting/${base}`, 'first');
+    fs.file(`/var/lib/servora-med-alerting/${base}-${'f'.repeat(32)}`, 'second');
     const deps = fakeDeps({ fs });
-    deps.exists = () => true;
     await assert.rejects(() => loadState(config, deps), (error) => {
       assert.equal(error.name, 'StateQuarantineError');
       assert.equal(error.category, 'collision');
       return true;
     });
     assert.ok(fs.entries.has(statePath));
-    assert.ok(!Array.from(fs.entries.keys()).some((key) => key.includes('state.json.corrupt-')));
+    assert.equal(fs.readFileSync(statePath, 'utf8'), 'corrupt{not-json');
+    assert.equal(fs.readFileSync(`/var/lib/servora-med-alerting/${base}`, 'utf8'), 'first');
+    assert.equal(fs.readFileSync(`/var/lib/servora-med-alerting/${base}-${'f'.repeat(32)}`, 'utf8'), 'second');
   });
 
   it('resolves a quarantine rename failure to exit 1 with zero external work', async () => {
@@ -941,9 +956,9 @@ describe('quarantine fail closed', () => {
       webhookCount += 1;
       return webhookResponse(200);
     };
-    deps.rename = (from, to) => {
-      if (to.includes('state.json.corrupt-')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
-      return fs.renameSync(from, to);
+    deps.link = (from, to) => {
+      if (String(to).includes('state.json.corrupt-')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return fs.linkSync(from, to);
     };
     const logLines = [];
     const env = { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' };
@@ -954,6 +969,271 @@ describe('quarantine fail closed', () => {
     assert.equal(fs.readFileSync(statePath, 'utf8'), 'corrupt{not-json');
     assert.ok(logLines.some((line) => line.includes('"run":"state-quarantine-failed"') && line.includes('"errorCategory":"permission"')));
     assert.ok(!logLines.some((line) => line.includes('EACCES') || line.includes('at ')));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// State directory bootstrap (R5)
+// ---------------------------------------------------------------------------
+
+describe('state directory bootstrap', () => {
+  const env = { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' };
+  const dir = '/var/lib/servora-med-alerting';
+
+  function readyFs() {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    return fs;
+  }
+
+  function healthyDeps(fs) {
+    const deps = fakeDeps({ fs, health: healthResponse(200, { status: 'ok' }), statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n } });
+    deps.fetch = async (url) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      return webhookResponse(200);
+    };
+    return deps;
+  }
+
+  function zeroIoDeps(fs) {
+    const deps = healthyDeps(fs);
+    const counters = { probes: 0, webhooks: 0 };
+    deps.fetch = async (url) => {
+      if (url.includes('/api/health')) { counters.probes += 1; return healthResponse(200, { status: 'ok' }); }
+      counters.webhooks += 1;
+      return webhookResponse(200);
+    };
+    return { deps, counters };
+  }
+
+  it('creates a missing state directory as 0700 before any lock write', async () => {
+    const fs = readyFs();
+    const { deps } = zeroIoDeps(fs);
+    const exit = await main({ env, deps, log: () => {} });
+    assert.equal(exit, 0);
+    assert.equal(fs.entries.get(dir).kind, 'dir');
+    assert.equal(fs.entries.get(dir).mode, 0o700);
+  });
+
+  it('normalizes an existing permissive state directory to 0700 before lock write', async () => {
+    const fs = readyFs();
+    fs.dir(dir);
+    fs.entries.get(dir).mode = 0o777;
+    const deps = healthyDeps(fs);
+    const realWrite = fs.writeFileSync;
+    const lockModes = [];
+    deps.writeFile = (target, content, options) => {
+      if (String(target).endsWith('/lock.lock')) lockModes.push(fs.entries.get(dir).mode);
+      return realWrite(target, content, options);
+    };
+    const exit = await main({ env, deps, log: () => {} });
+    assert.equal(exit, 0);
+    assert.equal(fs.entries.get(dir).mode, 0o700);
+    assert.deepEqual(lockModes, [0o700]);
+  });
+
+  it('fails closed with zero lock/state/probe/webhook when chmod fails', async () => {
+    const fs = readyFs();
+    fs.dir(dir);
+    fs.entries.get(dir).mode = 0o755;
+    const { deps, counters } = zeroIoDeps(fs);
+    const realChmod = deps.chmod;
+    deps.chmod = (target, mode) => {
+      if (target === dir) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return realChmod(target, mode);
+    };
+    const logLines = [];
+    const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.equal(counters.probes, 0);
+    assert.equal(counters.webhooks, 0);
+    assert.ok(!fs.entries.has(`${dir}/lock.lock`));
+    assert.ok(!fs.entries.has(`${dir}/state.json`));
+    assert.ok(logLines.some((line) => line.includes('"run":"state-dir-failed"') && line.includes('"errorCategory":"permission"')));
+    assert.ok(!logLines.some((line) => line.includes('/var/lib') || line.includes('at ')));
+  });
+
+  it('fails closed when the state directory is a regular file', async () => {
+    const fs = readyFs();
+    fs.file(dir, 'not-a-dir');
+    const { deps, counters } = zeroIoDeps(fs);
+    const logLines = [];
+    const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.equal(counters.probes, 0);
+    assert.equal(counters.webhooks, 0);
+    assert.ok(logLines.some((line) => line.includes('"run":"state-dir-failed"') && line.includes('"errorCategory":"wrong-type"')));
+    assert.ok(!logLines.some((line) => line.includes('/var/lib') || line.includes('at ')));
+  });
+
+  it('fails closed when the state directory is a symbolic link', async () => {
+    const fs = readyFs();
+    fs.symlink(dir);
+    const { deps, counters } = zeroIoDeps(fs);
+    const logLines = [];
+    const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.equal(counters.probes, 0);
+    assert.equal(counters.webhooks, 0);
+    assert.ok(logLines.some((line) => line.includes('"run":"state-dir-failed"') && line.includes('"errorCategory":"symlink"')));
+  });
+
+  it('fails closed when lstat fails with EIO', async () => {
+    const fs = readyFs();
+    fs.dir(dir);
+    const { deps, counters } = zeroIoDeps(fs);
+    const realLstat = deps.lstat;
+    deps.lstat = (target) => {
+      if (target === dir) throw Object.assign(new Error('EIO'), { code: 'EIO' });
+      return realLstat(target);
+    };
+    const logLines = [];
+    const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.equal(counters.probes, 0);
+    assert.equal(counters.webhooks, 0);
+    assert.ok(logLines.some((line) => line.includes('"run":"state-dir-failed"') && line.includes('"errorCategory":"io"')));
+    assert.ok(!logLines.some((line) => line.includes('at ')));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Atomic no-clobber quarantine (R5)
+// ---------------------------------------------------------------------------
+
+describe('atomic no-clobber quarantine', () => {
+  const config = loadConfig(BASE_ENV);
+  const statePath = '/var/lib/servora-med-alerting/state.json';
+  const dir = '/var/lib/servora-med-alerting';
+
+  function corruptFs() {
+    const fs = new FakeFs();
+    fs.dir(dir);
+    fs.file(statePath, 'corrupt{not-json');
+    return fs;
+  }
+
+  function quarantineNames(fs) {
+    return Array.from(fs.entries.keys()).filter((key) => key.includes('state.json.corrupt-'));
+  }
+
+  it('retries with a new candidate when the transfer races a concurrent creator', async () => {
+    const fs = corruptFs();
+    const deps = fakeDeps({ fs });
+    const realLink = fs.linkSync;
+    let linkCalls = 0;
+    deps.link = (from, to) => {
+      linkCalls += 1;
+      if (linkCalls === 1) {
+        fs.file(String(to), 'concurrent-forensic');
+        throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+      }
+      return realLink(from, to);
+    };
+    const { state, requiresInitialPersist } = await loadState(config, deps);
+    assert.equal(requiresInitialPersist, true);
+    assert.equal(state.monitor.pendingIncident.kind, 'state-corrupt');
+    const names = quarantineNames(fs);
+    assert.equal(names.length, 2);
+    assert.ok(names.some((key) => fs.readFileSync(key, 'utf8') === 'concurrent-forensic'));
+    assert.ok(names.some((key) => fs.readFileSync(key, 'utf8') === 'corrupt{not-json'));
+    assert.ok(!fs.entries.has(statePath));
+  });
+
+  for (const [code, category] of [['EACCES', 'permission'], ['EIO', 'io']]) {
+    it(`fails closed preserving the original when the quarantine link fails with ${code}`, async () => {
+      const fs = corruptFs();
+      const deps = fakeDeps({ fs });
+      deps.link = () => { throw Object.assign(new Error(code), { code }); };
+      await assert.rejects(() => loadState(config, deps), (error) => {
+        assert.equal(error.name, 'StateQuarantineError');
+        assert.equal(error.category, category);
+        return true;
+      });
+      assert.equal(fs.readFileSync(statePath, 'utf8'), 'corrupt{not-json');
+      assert.equal(quarantineNames(fs).length, 0);
+    });
+  }
+
+  it('fails closed without a fresh state when the source unlink fails after a successful link', async () => {
+    const fs = corruptFs();
+    const deps = fakeDeps({ fs });
+    const realUnlink = fs.unlinkSync;
+    deps.unlink = (target) => {
+      if (target === statePath) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return realUnlink(target);
+    };
+    await assert.rejects(() => loadState(config, deps), (error) => {
+      assert.equal(error.name, 'StateQuarantineError');
+      return true;
+    });
+    assert.equal(fs.readFileSync(statePath, 'utf8'), 'corrupt{not-json');
+    const names = quarantineNames(fs);
+    assert.equal(names.length, 1);
+    assert.equal(fs.readFileSync(names[0], 'utf8'), 'corrupt{not-json');
+  });
+
+  it('resolves a source unlink failure to exit 1 with no probes and no fresh state', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir(dir);
+    backupPair(fs, '/backups', '20260805T120000Z');
+    fs.file(statePath, 'corrupt{not-json');
+    const deps = fakeDeps({ fs, health: healthResponse(200, { status: 'ok' }), statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n } });
+    let probes = 0;
+    let webhooks = 0;
+    deps.fetch = async (url) => {
+      if (url.includes('/api/health')) { probes += 1; return healthResponse(200, { status: 'ok' }); }
+      webhooks += 1;
+      return webhookResponse(200);
+    };
+    const realUnlink = fs.unlinkSync;
+    deps.unlink = (target) => {
+      if (target === statePath) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return realUnlink(target);
+    };
+    const logLines = [];
+    const exit = await main({ env: { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' }, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.equal(probes, 0);
+    assert.equal(webhooks, 0);
+    assert.equal(fs.readFileSync(statePath, 'utf8'), 'corrupt{not-json');
+    assert.equal(quarantineNames(fs).length, 1);
+    assert.ok(logLines.some((line) => line.includes('"run":"state-quarantine-failed"')));
+    assert.ok(!logLines.some((line) => line.includes('at ')));
+  });
+
+  it('does not quarantine or reset when the state path is a symbolic link', async () => {
+    const fs = corruptFs();
+    fs.entries.delete(statePath);
+    fs.symlink(statePath);
+    const deps = fakeDeps({ fs });
+    deps.readFile = (target, enc) => {
+      if (target === statePath) return 'corrupt{not-json';
+      return fs.readFileSync(target, enc);
+    };
+    await assert.rejects(() => loadState(config, deps), (error) => {
+      assert.equal(error.name, 'StateQuarantineError');
+      assert.equal(error.category, 'symlink');
+      return true;
+    });
+    assert.ok(fs.entries.has(statePath));
+    assert.equal(fs.entries.get(statePath).kind, 'symlink');
+    assert.equal(quarantineNames(fs).length, 0);
+  });
+
+  it('performs an atomic no-clobber quarantine and keeps the pending persist flow', async () => {
+    const fs = corruptFs();
+    const deps = fakeDeps({ fs });
+    const { state, monitorEvent, requiresInitialPersist } = await loadState(config, deps);
+    assert.equal(requiresInitialPersist, true);
+    assert.equal(state.monitor.pendingIncident.kind, 'state-corrupt');
+    assert.equal(monitorEvent.event, 'monitor');
+    const names = quarantineNames(fs);
+    assert.equal(names.length, 1);
+    assert.equal(fs.readFileSync(names[0], 'utf8'), 'corrupt{not-json');
+    assert.ok(!fs.entries.has(statePath));
   });
 });
 
@@ -1128,9 +1408,95 @@ describe('lock ownership', () => {
     assert.ok(fs.entries.has(`${dir}/lock.reclaim`));
   });
 
-  it('reclaims a stale reclaim guard from a dead owner before revalidating', () => {
+  it('preserves a stale reclaim guard and fails closed for manual recovery', () => {
     const fs = lockFs(lockJson(99999));
-    fs.file(`${dir}/lock.reclaim`, lockJson(44444, { token: 'd'.repeat(32) }));
+    const guard = lockJson(44444, { token: 'd'.repeat(32) });
+    fs.file(`${dir}/lock.reclaim`, guard);
+    const deps = fakeDeps({ fs });
+    deps.probeProcess = () => 'dead';
+    assert.throws(() => acquireLock(config, deps), (error) => {
+      assert.equal(error.name, 'LockError');
+      assert.equal(error.category, 'stale');
+      return true;
+    });
+    assert.equal(fs.readFileSync(`${dir}/lock.reclaim`, 'utf8'), guard);
+    assert.ok(fs.entries.has(`${dir}/lock.lock`));
+  });
+
+  it('resolves a stale reclaim guard to exit 1 with no probes and both locks preserved', async () => {
+    const fs = lockFs(lockJson(99999));
+    const guard = lockJson(44444, { token: 'd'.repeat(32) });
+    fs.file(`${dir}/lock.reclaim`, guard);
+    const deps = fakeDeps({ fs, health: healthResponse(200, { status: 'ok' }), statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n } });
+    deps.probeProcess = () => 'dead';
+    let probes = 0;
+    let webhooks = 0;
+    deps.fetch = async (url) => {
+      if (url.includes('/api/health')) { probes += 1; return healthResponse(200, { status: 'ok' }); }
+      webhooks += 1;
+      return webhookResponse(200);
+    };
+    const logLines = [];
+    const exit = await main({ env: { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' }, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.equal(probes, 0);
+    assert.equal(webhooks, 0);
+    assert.equal(fs.readFileSync(`${dir}/lock.reclaim`, 'utf8'), guard);
+    assert.ok(fs.entries.has(`${dir}/lock.lock`));
+    assert.ok(logLines.some((line) => line.includes('"run":"reclaim-guard-stale"')));
+    assert.ok(!logLines.some((line) => line.includes('at ')));
+  });
+
+  it('resolves an active reclaim guard to exit 2 with the guard preserved', async () => {
+    const fs = lockFs(lockJson(99999));
+    const guard = lockJson(44444, { token: 'd'.repeat(32) });
+    fs.file(`${dir}/lock.reclaim`, guard);
+    const deps = fakeDeps({ fs, health: healthResponse(200, { status: 'ok' }), statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n } });
+    deps.probeProcess = (pid) => (pid === 99999 ? 'dead' : 'alive');
+    let probes = 0;
+    deps.fetch = async (url) => {
+      if (url.includes('/api/health')) { probes += 1; return healthResponse(200, { status: 'ok' }); }
+      return webhookResponse(200);
+    };
+    const exit = await main({ env: { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' }, deps, log: () => {} });
+    assert.equal(exit, 2);
+    assert.equal(probes, 0);
+    assert.equal(fs.readFileSync(`${dir}/lock.reclaim`, 'utf8'), guard);
+  });
+
+  it('resolves an unknown reclaim guard liveness to exit 1 with the guard preserved', async () => {
+    const fs = lockFs(lockJson(99999));
+    const guard = lockJson(44444, { token: 'd'.repeat(32) });
+    fs.file(`${dir}/lock.reclaim`, guard);
+    const deps = fakeDeps({ fs, health: healthResponse(200, { status: 'ok' }), statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n } });
+    deps.probeProcess = () => 'unknown';
+    let probes = 0;
+    deps.fetch = async (url) => {
+      if (url.includes('/api/health')) { probes += 1; return healthResponse(200, { status: 'ok' }); }
+      return webhookResponse(200);
+    };
+    const logLines = [];
+    const exit = await main({ env: { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' }, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.equal(probes, 0);
+    assert.equal(fs.readFileSync(`${dir}/lock.reclaim`, 'utf8'), guard);
+    assert.ok(logLines.some((line) => line.includes('"run":"lock-error"') && line.includes('"errorCategory":"unknown"')));
+  });
+
+  it('never deletes another reclaimer guard during concurrent reclaim simulation', () => {
+    const fs = lockFs(lockJson(99999));
+    const guard = lockJson(55555, { token: 'e'.repeat(32) });
+    fs.file(`${dir}/lock.reclaim`, guard);
+    const deps = fakeDeps({ fs });
+    deps.probeProcess = (pid) => (pid === 99999 ? 'dead' : 'alive');
+    const result = acquireLock(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(fs.readFileSync(`${dir}/lock.reclaim`, 'utf8'), guard);
+    assert.equal(fs.readFileSync(`${dir}/lock.lock`, 'utf8'), lockJson(99999));
+  });
+
+  it('uses and releases the reclaim guard during a normal stale reclaim', () => {
+    const fs = lockFs(lockJson(99999));
     const deps = fakeDeps({ fs });
     deps.probeProcess = () => 'dead';
     const result = acquireLock(config, deps);
@@ -1138,6 +1504,34 @@ describe('lock ownership', () => {
     assert.equal(result.staleReclaimed, true);
     assert.ok(!fs.entries.has(`${dir}/lock.reclaim`));
     assert.ok(fs.entries.has(`${dir}/lock.lock`));
+  });
+
+  it('releases an acquired reclaim guard with a matching token', () => {
+    const fs = lockFs(null);
+    const deps = fakeDeps({ fs });
+    const token = 'g'.repeat(32);
+    fs.file(`${dir}/lock.reclaim`, JSON.stringify({ version: 1, pid: process.pid, createdAt: 1, ownerToken: token }));
+    const release = releaseLock(config, deps, { ownerToken: token }, 'lock.reclaim');
+    assert.equal(release.reason, 'ok');
+    assert.ok(!fs.entries.has(`${dir}/lock.reclaim`));
+  });
+
+  it('does not unlink when the lock is replaced with a foreign inode after the read', () => {
+    const fs = lockFs(null);
+    const deps = fakeDeps({ fs });
+    const acquired = acquireLock(config, deps);
+    const realRead = fs.readFileSync;
+    const foreign = lockJson(99999, { token: 'b'.repeat(32) });
+    deps.readFile = (target, enc) => {
+      const content = realRead(target, enc);
+      if (String(target).endsWith('/lock.lock')) {
+        fs.entries.set(String(target), fs.makeEntry('file', Buffer.from(foreign), 0o600));
+      }
+      return content;
+    };
+    const release = releaseLock(config, deps, { ownerToken: acquired.ownerToken });
+    assert.equal(release.reason, 'replaced');
+    assert.equal(fs.readFileSync(`${dir}/lock.lock`, 'utf8'), foreign);
   });
 
   it('fails closed when liveness is unknown instead of reclaiming', () => {

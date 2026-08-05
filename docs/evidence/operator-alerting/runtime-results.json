@@ -1,6 +1,6 @@
 {
   "task": "operator-alerting-implementation",
-  "round": "R4 (quarantine and lock ownership repair)",
+  "round": "R5 (atomic quarantine and guard safety)",
   "date": "2026-08-05",
   "branch": "feat/operator-alerting",
   "base": "96e69aa6c56d1f1b9110957d1ceaa7f5e4e3e04f",
@@ -14,7 +14,7 @@
     "disk": "real statfs of the configured filesystem (threshold 5 for health/backup scenarios)"
   },
   "automated-tests": {
-    "node --test ops/scripts/tests/operator-alerting.test.mjs": "133 passed (133)",
+    "node --test ops/scripts/tests/operator-alerting.test.mjs": "153 passed (153)",
     "node --check": "PASS"
   },
   "r1-regressions": {
@@ -38,7 +38,7 @@
     ]
   },
   "runtime-acceptance": {
-    "summary": "28/28 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
+    "summary": "34/34 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
     "scenarios": {
       "1-disabled": {
         "outcome": "PASS",
@@ -203,6 +203,45 @@
         "outcome": "PASS",
         "releaseReason": "owner-mismatch",
         "foreignPreserved": true
+      },
+      "r5-29-permissive-state-dir-normalized": {
+        "outcome": "PASS",
+        "exitCode": 0,
+        "mode": "700"
+      },
+      "r5-30-state-dir-validation-fail-closed": {
+        "outcome": "PASS",
+        "exitCode": 1,
+        "probes": 0,
+        "webhooks": 0
+      },
+      "r5-31-quarantine-destination-race": {
+        "outcome": "PASS",
+        "exitCode": 0,
+        "existingPreserved": true,
+        "forensicCount": 2
+      },
+      "r5-32-quarantine-source-unlink-failure": {
+        "outcome": "PASS",
+        "exitCode": 1,
+        "probes": 0,
+        "webhooks": 0,
+        "sourcePreserved": true,
+        "forensicPreserved": true
+      },
+      "r5-33-stale-reclaim-guard-fail-closed": {
+        "outcome": "PASS",
+        "exitCode": 1,
+        "guardPreserved": true,
+        "mainLockPreserved": true,
+        "probes": 0,
+        "webhooks": 0
+      },
+      "r5-34-concurrent-reclaim-guard-ownership": {
+        "outcome": "PASS",
+        "exitCode": 2,
+        "guardPreserved": true,
+        "monitorStarts": 0
       }
     }
   },
@@ -221,7 +260,7 @@
   "no-raw-health-body-in-payload": true,
   "commands-verified": {
     "node --check ops/scripts/operator-alerting.mjs": "PASS",
-    "node --test ops/scripts/tests/operator-alerting.test.mjs": "133/133 PASS",
+    "node --test ops/scripts/tests/operator-alerting.test.mjs": "153/153 PASS",
     "bash -n wrappers": "PASS",
     "shellcheck wrappers": "PASS",
     "launchd plist XML parse": "PASS",
@@ -298,6 +337,35 @@
       "foreign lock on release: owner-mismatch, foreign lock preserved",
       "malformed replacement on release: never deleted, no raw content logged",
       "missing lock on release: idempotent"
+    ]
+  },
+  "r5-regressions": {
+    "state-directory-bootstrap": [
+      "missing state directory created 0700 before any lock write",
+      "permissive 0777 state directory normalized to 0700 before the lock write (lock write observes 0700)",
+      "chmod EACCES: exit 1, zero lock/state IO, zero probes/webhooks, no raw path/stack in log",
+      "state directory as regular file: StateDirError wrong-type, exit 1, zero external IO",
+      "state directory as symlink: StateDirError symlink, exit 1, zero external IO",
+      "lstat EIO: StateDirError io, exit 1, zero external IO"
+    ],
+    "atomic-no-clobber-quarantine": [
+      "transfer race (EEXIST on link): existing forensic preserved, fresh candidate with random suffix used, original quarantined",
+      "all candidates collide: StateQuarantineError collision, original preserved, existing files untouched",
+      "link EACCES/EIO: original preserved, no external work",
+      "link success + source unlink failure: fail closed, no fresh state, source and forensic copy both preserved",
+      "state path symlink: never quarantined or reset (StateQuarantineError symlink)",
+      "successful atomic quarantine keeps pending-incident persist-before-probes flow"
+    ],
+    "reclaim-guard-fail-closed": [
+      "stale guard (dead owner): preserved, main lock preserved, structured reclaim-guard-stale exit 1, no probes/webhook",
+      "active guard: exit 2, guard preserved",
+      "unknown guard liveness: exit 1, guard preserved",
+      "concurrent reclaim simulation: second reclaimer never deletes the first reclaimer guard",
+      "normal stale reclaim still works with guard acquired and released",
+      "acquired guard released only on matching ownerToken"
+    ],
+    "release-identity-post-check": [
+      "lock replaced with a foreign inode between read and unlink: reason replaced, foreign lock preserved"
     ]
   }
 }

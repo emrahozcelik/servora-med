@@ -149,15 +149,32 @@ non-zero with zero probes, zero webhooks and no overwrite of the quarantined
 file. Unsupported future state versions stop the run with a clear error
 without overwriting.
 
-**Quarantine must succeed.** If the quarantine rename fails (`EACCES`/`EPERM`,
-`EIO`, or any other error), the run fails closed: exit 1, **the original
-corrupt state file is preserved untouched, no fresh state is created or
-written, and no probe, hash, statfs or webhook runs**. The quarantine log is
-`state-quarantine-failed` with an allowlisted category only — no path, no raw
-content, no error text. An existing quarantine file is never overwritten:
-collisions are resolved with a random safe suffix (bounded retry); if every
-candidate collides the run fails closed (`collision`). Quarantine file names
-are never stored in state files or webhook payloads.
+**State directory bootstrap.** Before any lock or state IO, the state
+directory is validated and normalized with `ensurePrivateStateDirectory`:
+it is created recursively as `0700`, must be a real directory (symbolic
+links and non-directories are rejected), and its mode is normalized to
+`0700` (a `0755`/`0770`/`0777` directory is tightened). Any failure in
+create/validate/chmod fails closed: `state-dir-failed` with an allowlisted
+category (`permission`/`wrong-type`/`symlink`/`io`/`unexpected`), exit 1,
+zero lock/state IO, zero probes, zero webhooks, and no raw path or stack
+in the log.
+
+**Quarantine is atomic no-clobber.** The corrupt `state.json` is quarantined
+with a hard-link transfer, never a rename-overwrite: a candidate name is
+generated, `link(state.json, candidate)` creates the forensic copy, and only
+after the link succeeds is `state.json` unlinked. `EEXIST` from the atomic
+link is the collision signal — the existing file is **never overwritten**,
+and a fresh candidate with a random safe suffix is tried (bounded retry; if
+every candidate collides the run fails closed with `collision`). The state
+path is validated first: a symbolic link or non-regular file is rejected
+(`symlink`/`wrong-type`) and never reset. If the link fails (`EACCES`/`EPERM`,
+`EIO`, other) or the source unlink fails after a successful link, the run
+fails closed: exit 1, `state-quarantine-failed` with an allowlisted category
+only, **the original corrupt state is preserved, no fresh state is created,
+and no probe, hash, statfs or webhook runs** (a successful link followed by a
+failed unlink leaves both the source and the forensic copy in place for the
+next run to retry). Quarantine file names are never stored in state files,
+payloads or logs.
 
 State read errors are classified: a missing state file (`ENOENT`) is a normal
 first run and produces the default state; any other read error
@@ -190,20 +207,32 @@ file is preserved, never deleted.
 
 **Stale reclaim is serialized and revalidated.** A dead-PID lock is not
 removed on sight. The reclaimer first claims the separate atomic guard
-`lock.reclaim` (same format; a live or unknown guard owner blocks the
-reclaimer — only one process performs the stale evaluation). After the guard
-is held the main lock is re-read, re-validated and re-probed: if it is now
-held by an alive owner the reclaimer backs off without touching it; only a
-second confirmed-dead result allows the unlink. The new lock is then created
-with `wx`; if another process won the race the competitor's lock is preserved
-and the run exits 2 without starting the monitor. A dead reclaim-guard owner
-is removed after revalidation with the same owner-safe primitive (bounded,
-no recursion); otherwise a stuck guard means manual recovery.
+`lock.reclaim` (same format). After the guard is held the main lock is
+re-read, re-validated and re-probed: if it is now held by an alive owner the
+reclaimer backs off without touching it; only a second confirmed-dead result
+allows the unlink. The new lock is then created with `wx`; if another process
+won the race the competitor's lock is preserved and the run exits 2 without
+starting the monitor.
+
+**A stale reclaim guard is never deleted automatically.** If `lock.reclaim`
+exists, its owner liveness decides: alive → busy (exit 2, guard untouched);
+unknown → structured fail closed (exit 1, guard untouched); dead/`ESRCH` →
+structured `reclaim-guard-stale`, exit 1 — the guard **and** the main lock are
+preserved, the monitor does not run, and the runbook points to manual
+operator recovery. The guard itself is never recursively reclaimed (no second
+reclaim primitive); after an abrupt crash it requires manual inspection.
+Manual recovery: 1) verify no monitor process or service/timer is running;
+2) verify as operator that the guard's PID really no longer exists; 3) inspect
+the state file and the main lock; 4) remove only `lock.reclaim`; 5) re-run the
+one-shot monitor. No real guard file is ever deleted by this program.
 
 **Release is owner-safe.** `releaseLock` reads the current lock and removes it
-only when `ownerToken` matches the current run's token exactly. A foreign
-lock, a malformed replacement or an absent lock is never deleted (safe
-`release-owner-mismatch`/`release-failed` warn log, idempotent for missing).
+only when `ownerToken` matches the current run's token exactly, and an lstat
+identity post-check (inode/device) between the read and the unlink detects a
+lock replaced in between — a replaced lock is left untouched (`replaced`
+result). A foreign lock, a malformed replacement or an absent lock is never
+deleted (safe `release-owner-mismatch`/`release-failed` warn log, idempotent
+for missing).
 Normal and handled error exits release the lock; abrupt termination may leave
 a stale lock, which is reclaimed on the next run. Reclaim and release tokens
 are never logged.
