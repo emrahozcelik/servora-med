@@ -9,6 +9,8 @@ import { MobileTopBar } from './shell/MobileTopBar';
 import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { NotificationCenter } from './notifications/NotificationCenter';
 import { UserAvatar } from './ui/antd/UserAvatar';
+import { AppleInstallGuidance } from './install/AppleInstallGuidance';
+import { useInstallOpportunity } from './install/InstallOpportunity';
 import {
   buildNavigationModel,
   isJobsListPath,
@@ -104,6 +106,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   const location = useLocation();
   const navigate = useNavigate();
   const model = buildNavigationModel(user);
+  const install = useInstallOpportunity();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [drawerMode, setDrawerMode] = useState<'full' | 'overflow'>('full');
   const topMenuRef = useRef<HTMLButtonElement>(null);
@@ -207,7 +210,12 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
         />
       )}
 
-      <div className="shell-content">{children}</div>
+      <div className="shell-content">
+        {install.shouldOfferAppleGuidance && (
+          <AppleInstallGuidance onDismiss={install.dismissGuidance} />
+        )}
+        {children}
+      </div>
 
       {!desktop && (
         <>

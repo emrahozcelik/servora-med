@@ -7,6 +7,12 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { AppShell } from '../src/AppShell';
 import type { CurrentUser } from '../src/services/api';
+import {
+  InstallOpportunityProvider,
+  type InstallOpportunityController,
+  type InstallOpportunitySnapshot,
+} from '../src/install/InstallOpportunity';
+import { AppleInstallGuidance } from '../src/install/AppleInstallGuidance';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -50,6 +56,78 @@ describe('responsive authenticated AppShell', () => {
       </MemoryRouter>,
     ));
   }
+
+  function fakeInstallController(snapshot: Partial<InstallOpportunitySnapshot>): InstallOpportunityController {
+    const state: InstallOpportunitySnapshot = {
+      canPrompt: false, installed: false, outcome: null,
+      appleCandidate: false, guidanceDismissed: false, shouldOfferAppleGuidance: false,
+      ...snapshot,
+    };
+    return {
+      start: () => {}, stop: () => {},
+      subscribe: () => () => {},
+      getSnapshot: () => state,
+      prompt: async () => {}, dismissGuidance: () => {}, resetGuidance: () => {},
+    };
+  }
+
+  async function renderWithInstall(snapshot: Partial<InstallOpportunitySnapshot>, desktop = false) {
+    setDesktop(desktop);
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={['/jobs']}>
+        <InstallOpportunityProvider controller={fakeInstallController(snapshot)}>
+          <AppShell user={staff} pendingSignOut={false} onSignOut={() => {}}>
+            <main><h1>İçerik</h1></main>
+          </AppShell>
+        </InstallOpportunityProvider>
+      </MemoryRouter>,
+    ));
+  }
+
+  it('shows the Apple install guidance card only when the controller offers it', async () => {
+    await renderWithInstall({ shouldOfferAppleGuidance: true });
+    expect(container.querySelector('[data-install-guidance="true"]')).not.toBeNull();
+    expect(container.textContent).toContain("Servora'yı ana ekrana ekleyin");
+    expect(container.textContent).toContain('Ana Ekrana Ekle');
+    await renderWithInstall({ shouldOfferAppleGuidance: false });
+    expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
+  });
+
+  it('does not show Apple guidance when already installed or dismissed', async () => {
+    await renderWithInstall({ installed: true, appleCandidate: true });
+    expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
+    await renderWithInstall({ appleCandidate: true, guidanceDismissed: true });
+    expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
+  });
+
+  it('renders the Apple guidance card with accessible dismiss action', async () => {
+    let dismissed = false;
+    const state: InstallOpportunitySnapshot = {
+      canPrompt: false, installed: false, outcome: null,
+      appleCandidate: true, guidanceDismissed: false, shouldOfferAppleGuidance: true,
+    };
+    setDesktop(false);
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={['/jobs']}>
+        <InstallOpportunityProvider controller={{
+          start: () => {}, stop: () => {},
+          subscribe: () => () => {}, getSnapshot: () => state,
+          prompt: async () => {}, resetGuidance: () => {},
+          dismissGuidance: () => { dismissed = true; },
+        }}>
+          <AppShell user={staff} pendingSignOut={false} onSignOut={() => {}}>
+            <main><h1>İçerik</h1></main>
+          </AppShell>
+        </InstallOpportunityProvider>
+      </MemoryRouter>,
+    ));
+    const card = container.querySelector('[data-install-guidance="true"]')!;
+    expect(card.getAttribute('role')).toBe('region');
+    const dismiss = container.querySelector('.apple-install-guidance-dismiss') as HTMLButtonElement;
+    expect(dismiss.getAttribute('aria-label')).toBe('Kurulum yönergesini kapat');
+    await act(async () => dismiss.click());
+    expect(dismissed).toBe(true);
+  });
 
   it.each([
     [staff, ['İşler', 'Müşteriler', 'Ürünler', 'Profilim', 'Dokümantasyon', 'Yardım Merkezi', 'Ayarlar'], ['Personel', 'Kullanıcılar']],

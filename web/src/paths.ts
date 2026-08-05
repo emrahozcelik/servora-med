@@ -11,6 +11,7 @@ export const paths = {
   settingsProfile: '/settings/profile',
   settingsSecurity: '/settings/security',
   settingsNotifications: '/settings/notifications',
+  settingsApplication: '/settings/application',
   newDelivery: '/jobs/new-delivery',
   newTask: '/jobs/new-task',
   newMeeting: '/jobs/new-meeting',

@@ -1,14 +1,14 @@
 {
   "id": "/",
-  "name": "Servora-Med",
-  "short_name": "Servora-Med",
+  "name": "Dünya Dental Servora",
+  "short_name": "Servora",
   "start_url": "/jobs",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f1f5f7",
-  "theme_color": "#276e9b",
   "lang": "tr",
   "prefer_related_applications": false,
+  "background_color": "#f7f8f8",
+  "theme_color": "#f7f8f8",
   "icons": [
     {
       "src": "/icons/servora-192.png",

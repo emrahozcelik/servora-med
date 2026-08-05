@@ -16,22 +16,22 @@ describe('minimal install surface', () => {
     const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 
     expect(html).toContain('<link rel="manifest" href="/manifest.webmanifest" />');
-    expect(html).toContain('<link rel="apple-touch-icon" href="/icons/apple-touch-icon.png" />');
+    expect(html).toContain('<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />');
   });
 
-  it('publishes the approved Servora-Med manifest identity and online start route', async () => {
+  it('publishes the approved Dünya Dental Servora manifest identity and online start route', async () => {
     const source = await readFile(new URL('../public/manifest.webmanifest', import.meta.url), 'utf8');
     const manifest = JSON.parse(source);
 
     expect(manifest).toMatchObject({
       id: '/',
-      name: 'Servora-Med',
-      short_name: 'Servora-Med',
+      name: 'Dünya Dental Servora',
+      short_name: 'Servora',
       start_url: '/jobs',
       scope: '/',
       display: 'standalone',
-      background_color: '#f1f5f7',
-      theme_color: '#276e9b',
+      background_color: '#f7f8f8',
+      theme_color: '#f7f8f8',
       lang: 'tr',
       prefer_related_applications: false,
     });

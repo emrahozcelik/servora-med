@@ -105,4 +105,111 @@ describe('install opportunity controller', () => {
     expect(controller.getSnapshot()).toMatchObject({ canPrompt: false, installed: false });
     controller.stop();
   });
+
+  function stubNavigator(overrides: Partial<Navigator>) {
+    for (const key of Object.getOwnPropertyNames(window.navigator)) {
+      if (!(key in overrides)) {
+        try { delete (window.navigator as Record<string, unknown>)[key]; } catch { /* keep */ }
+      }
+    }
+    for (const [key, value] of Object.entries(overrides)) {
+      Object.defineProperty(window.navigator, key, {
+        configurable: true,
+        value,
+      });
+    }
+  }
+
+  it('recognizes an iPhone Safari candidate for Apple guidance', () => {
+    stubNavigator({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1', platform: 'iPhone', maxTouchPoints: 5 });
+    const controller = createInstallOpportunityController(window);
+    controller.start();
+    expect(controller.getSnapshot().appleCandidate).toBe(true);
+    expect(controller.getSnapshot().shouldOfferAppleGuidance).toBe(true);
+    controller.stop();
+  });
+
+  it('recognizes an iPad Safari candidate for Apple guidance', () => {
+    stubNavigator({ userAgent: 'Mozilla/5.0 (iPad; CPU OS 17_5 like Mac OS X) AppleWebKit/605.1.15 Version/17.5 Mobile/15E148 Safari/604.1', platform: 'iPad', maxTouchPoints: 5 });
+    const controller = createInstallOpportunityController(window);
+    controller.start();
+    expect(controller.getSnapshot().appleCandidate).toBe(true);
+    controller.stop();
+  });
+
+  it('recognizes an iPad desktop-class candidate via Mac platform plus touch points', () => {
+    stubNavigator({ userAgent: 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15 Version/17.5 Safari/605.1.15', platform: 'MacIntel', maxTouchPoints: 5 });
+    const controller = createInstallOpportunityController(window);
+    controller.start();
+    expect(controller.getSnapshot().appleCandidate).toBe(true);
+    controller.stop();
+  });
+
+  it('does not offer Apple guidance on a normal desktop browser', () => {
+    stubNavigator({ userAgent: 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/126 Safari/537.36', platform: 'Win32', maxTouchPoints: 0 });
+    const controller = createInstallOpportunityController(window);
+    controller.start();
+    expect(controller.getSnapshot().appleCandidate).toBe(false);
+    expect(controller.getSnapshot().shouldOfferAppleGuidance).toBe(false);
+    controller.stop();
+  });
+
+  it('detects standalone mode through iOS navigator.standalone', () => {
+    stubNavigator({ standalone: true as unknown as boolean });
+    const controller = createInstallOpportunityController(window);
+    controller.start();
+    expect(controller.getSnapshot().installed).toBe(true);
+    expect(controller.getSnapshot().shouldOfferAppleGuidance).toBe(false);
+    controller.stop();
+  });
+
+  it('persists guidance dismissal and suppresses the offer, then resets it', () => {
+    stubNavigator({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1', platform: 'iPhone', maxTouchPoints: 5 });
+    const store = new Map<string, string>();
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: {
+        getItem: (key: string) => store.get(key) ?? null,
+        setItem: (key: string, value: string) => { store.set(key, value); },
+        removeItem: (key: string) => { store.delete(key); },
+      },
+    });
+    const controller = createInstallOpportunityController(window);
+    controller.start();
+    expect(controller.getSnapshot().shouldOfferAppleGuidance).toBe(true);
+
+    controller.dismissGuidance();
+    expect(controller.getSnapshot().guidanceDismissed).toBe(true);
+    expect(controller.getSnapshot().shouldOfferAppleGuidance).toBe(false);
+    expect(store.has('servora.install-guidance.dismissed.v1')).toBe(true);
+
+    const second = createInstallOpportunityController(window);
+    second.start();
+    expect(second.getSnapshot().guidanceDismissed).toBe(true);
+    expect(second.getSnapshot().shouldOfferAppleGuidance).toBe(false);
+
+    second.resetGuidance();
+    expect(second.getSnapshot().guidanceDismissed).toBe(false);
+    expect(second.getSnapshot().shouldOfferAppleGuidance).toBe(true);
+    expect(store.has('servora.install-guidance.dismissed.v1')).toBe(false);
+    second.stop();
+    controller.stop();
+  });
+
+  it('keeps guidance available for the session when storage access fails', () => {
+    stubNavigator({ userAgent: 'Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Version/18.0 Mobile/15E148 Safari/604.1', platform: 'iPhone', maxTouchPoints: 5 });
+    const getItem = vi.fn().mockImplementation(() => { throw new Error('storage blocked'); });
+    const setItem = vi.fn().mockImplementation(() => { throw new Error('storage blocked'); });
+    Object.defineProperty(window, 'localStorage', {
+      configurable: true,
+      value: { getItem, setItem, removeItem: vi.fn() },
+    });
+    const controller = createInstallOpportunityController(window);
+    controller.start();
+    expect(controller.getSnapshot().shouldOfferAppleGuidance).toBe(true);
+    controller.dismissGuidance();
+    expect(controller.getSnapshot().guidanceDismissed).toBe(true);
+    expect(controller.getSnapshot().shouldOfferAppleGuidance).toBe(false);
+    controller.stop();
+  });
 });

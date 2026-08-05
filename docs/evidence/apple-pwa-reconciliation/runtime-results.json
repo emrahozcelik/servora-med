@@ -1,0 +1,23 @@
+{
+  "task": "apple-pwa-reconciliation",
+  "date": "2026-08-05",
+  "branch": "feat/apple-pwa-reconciliation",
+  "base": "7920efab4bbe650cb816f458c4770f2aeaa8adff",
+  "environment": "local dev: API 127.0.0.1:3000 (servora_med), Vite worktree localhost:5173, demo admin user; DB read-only",
+  "viewports": {
+    "1440-sidebar": { "logo": "250x128 (max-height 8rem, width 100%)", "sidebarPadding": "0.65rem", "sidebarWidth": 272, "navBelowBrand": true, "footerBelowNav": true, "noOverlap": true, "overflowX": false, "evidence": "screenshots/apple-pwa-01-sidebar-1440.png" },
+    "1024-sidebar": { "logoVisible": true, "navAccessible": true, "evidence": "screenshots/apple-pwa-02-sidebar-1024.png", "note": "overview job-card titles overflow ~44px at exactly 1024 — pre-existing (long unbroken titles), unrelated to this PR's changes" },
+    "390-iphone-guidance": { "guidanceVisible": true, "heading": "Servora'yı ana ekrana ekleyin", "steps": 5, "dismissLabel": "Kurulum yönergesini kapat", "inViewport": true, "belowTopbar": true, "aboveBottomNav": true, "overflowX": false, "evidence": "screenshots/apple-pwa-03-guidance-390.png" },
+    "390-settings-apple": { "mode": "Tarayıcı", "support": "Apple kurulum yönergesi", "stepsShown": true, "evidence": "screenshots/apple-pwa-04-settings-apple-390.png" },
+    "390-settings-standalone": { "installedMessage": true, "guidanceCardAbsent": true, "evidence": "screenshots/apple-pwa-05-settings-standalone-390.png" },
+    "1440-settings-chromium": { "installButton": true, "mode": "Tarayıcı", "evidence": "screenshots/apple-pwa-06-settings-chromium-1440.png" },
+    "320-200pct-reflow": { "overflowX": false, "buttonsClipped": 0 },
+    "icon-contact-sheet": { "apple": "180/60/32", "maskable": "circle/squircle/rounded-square — critical content not clipped", "evidence": "screenshots/apple-pwa-07-icon-contact-sheet.png" }
+  },
+  "dismiss": { "clickHidesCard": true, "localStorageKey": "servora.install-guidance.dismissed.v1", "storedValue": "1" },
+  "manifest": { "name": "Dünya Dental Servora", "short_name": "Servora", "start_url": "/jobs", "display": "standalone", "theme_color": "#f7f8f8", "background_color": "#f7f8f8" },
+  "icons": { "apple-touch-icon": "180x180", "servora-192": "192x192", "servora-512": "512x512", "servora-maskable-512": "512x512", "provenance": "asset-manifest.json" },
+  "console": "no errors, no warnings",
+  "network": "no unexpected 4xx/5xx",
+  "physical-devices": { "iphone-install": "NOT EXERCISED", "ipad-install": "NOT EXERCISED", "apple-icon-crop": "NOT EXERCISED", "apple-web-push": "NOT EXERCISED / OUT OF SCOPE" }
+}

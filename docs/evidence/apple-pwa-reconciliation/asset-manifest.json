@@ -1,0 +1,30 @@
+{
+  "note": "Controlled resize/placement only; no artistic modification, no recolor, no redraw.",
+  "assets": [
+    {
+      "source": { "basename": "dunya-dental-sidebar.png", "path": "user source in canonical repo", "width": 4538, "height": 3210, "bytes": 99347, "sha256": "9ef8978e9fe5c00214d1e3da62881b1be4a6d53ee39fbb1e6cd90bda3d402e96" },
+      "output": { "path": "web/public/branding/dunya-dental-sidebar.png", "width": 4538, "height": 3210, "bytes": 99347, "sha256": "9ef8978e9fe5c00214d1e3da62881b1be4a6d53ee39fbb1e6cd90bda3d402e96" },
+      "tool": "cp (pixel- and SHA-identical copy)"
+    },
+    {
+      "source": { "basename": "apple-touch-icon.png", "path": "user source in canonical repo", "width": 1254, "height": 1254, "bytes": 892291, "sha256": "7823101df4373ccfe4aa3e3930be24c1ee461d6226bba4974f48f3bb97abfc49" },
+      "output": { "path": "web/public/icons/apple-touch-icon.png", "width": 180, "height": 180, "bytes": 25843, "sha256": "670fffa87be009db04b497e1a3c2b1723843a7ebf01620e2d27d5c4406346fc7" },
+      "tool": "sips -z 180 180"
+    },
+    {
+      "source": { "basename": "apple-touch-icon.png", "path": "user source in canonical repo", "width": 1254, "height": 1254, "bytes": 892291, "sha256": "7823101df4373ccfe4aa3e3930be24c1ee461d6226bba4974f48f3bb97abfc49" },
+      "output": { "path": "web/public/icons/servora-192.png", "width": 192, "height": 192, "bytes": 29737, "sha256": "c2a5cf4d169f2006d5f88b5bac070c885a4e838d9b1d91966d28a1c4d7875c58" },
+      "tool": "sips -z 192 192"
+    },
+    {
+      "source": { "basename": "apple-touch-icon.png", "path": "user source in canonical repo", "width": 1254, "height": 1254, "bytes": 892291, "sha256": "7823101df4373ccfe4aa3e3930be24c1ee461d6226bba4974f48f3bb97abfc49" },
+      "output": { "path": "web/public/icons/servora-512.png", "width": 512, "height": 512, "bytes": 232678, "sha256": "9d4d01ab4ff2b79d5016cf05ab253a6c74e4ffb74e54a928e54c24004b0fcfed" },
+      "tool": "sips -z 512 512"
+    },
+    {
+      "source": { "basename": "servora-maskable-512.png", "path": "user source in canonical repo", "width": 1254, "height": 1254, "bytes": 766868, "sha256": "18b9b9d02be74f0483a79379c038b15dad93d99d10a543ca1a914d96b0b12bb4" },
+      "output": { "path": "web/public/icons/servora-maskable-512.png", "width": 512, "height": 512, "bytes": 212591, "sha256": "9523e65e4ff9827e8eebf7dd4790d7595a32cebde88a9572549117e2c304c7bd" },
+      "tool": "sips -z 512 512 (full-bleed background preserved; no .png.png filename)"
+    }
+  ]
+}
