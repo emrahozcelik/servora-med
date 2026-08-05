@@ -1,0 +1,46 @@
+{
+  "task": "apple-pwa-reconciliation",
+  "date": "2026-08-05",
+  "round": "R1 (guidance deduplication)",
+  "branch": "feat/apple-pwa-reconciliation",
+  "base": "7920efab4bbe650cb816f458c4770f2aeaa8adff",
+  "environment": "local dev: API 127.0.0.1:3000 (servora_med), Vite worktree localhost:5173, demo admin user; DB read-only",
+  "note": "Chrome emulation with iPhone UA fires beforeinstallprompt (Chromium engine). Apple-only states verified with a capture-phase stopImmediatePropagation init script — equivalent to Safari, which never fires beforeinstallprompt. Standalone state verified with a display-mode:standalone matchMedia fixture init script. No source modification involved.",
+  "viewports": {
+    "1440-sidebar": { "logo": "250x128 (max-height 8rem, width 100%)", "sidebarPadding": "0.65rem", "sidebarWidth": 272, "navBelowBrand": true, "footerBelowNav": true, "noOverlap": true, "overflowX": false, "evidence": "screenshots/apple-pwa-01-sidebar-1440.png" },
+    "1024-sidebar": { "logoVisible": true, "navAccessible": true, "evidence": "screenshots/apple-pwa-02-sidebar-1024.png", "note": "overview job-card titles overflow ~44px at exactly 1024 — pre-existing (long unbroken titles), unrelated to this PR's changes" },
+    "390-iphone-guidance": { "guidanceVisible": true, "heading": "Servora'yı ana ekrana ekleyin", "steps": 5, "dismissLabel": "Kurulum yönergesini kapat", "inViewport": true, "belowTopbar": true, "aboveBottomNav": true, "overflowX": false, "evidence": "screenshots/apple-pwa-r1-02-guidance-390.png" },
+    "390-settings-apple": { "globalCard": 0, "inlineStepLists": 1, "stepCount": 5, "reopenButton": false, "installButton": false, "bottomNavOverlap": false, "overflowX": false, "evidence": "screenshots/apple-pwa-r1-01-settings-apple-390.png" },
+    "390-settings-dismissed": { "globalCard": 0, "inlineStepLists": 0, "reopenButton": true, "stepsTextAbsent": true, "evidence": "screenshots/apple-pwa-r1-03-settings-dismissed-390.png" },
+    "390-settings-reopened": { "globalCard": 0, "inlineStepLists": 1, "stepCount": 5, "reopenButtonGone": true, "localStorageCleared": true, "bottomNavOverlap": false, "evidence": "screenshots/apple-pwa-r1-04-settings-reopened-390.png" },
+    "390-settings-standalone": { "globalCard": 0, "inlineStepLists": 0, "installedMessage": true, "modeStandalone": true, "installButton": false, "evidence": "screenshots/apple-pwa-r1-05-settings-standalone-390.png" },
+    "1440-settings-chromium": { "installButton": true, "mode": "Tarayıcı", "evidence": "screenshots/apple-pwa-06-settings-chromium-1440.png" },
+    "320-200pct-reflow": { "overflowX": false, "buttonsClipped": 0 },
+    "icon-contact-sheet": { "apple": "180/60/32", "maskable": "circle/squircle/rounded-square — critical content not clipped", "evidence": "screenshots/apple-pwa-07-icon-contact-sheet.png" }
+  },
+  "dedup-contract": {
+    "normalRoute": { "globalGuidance": "VISIBLE", "singleSurface": true },
+    "settingsRoute": { "globalGuidance": "SUPPRESSED", "inlineSteps": "SINGLE INSTANCE (1 ol, 5 li)" },
+    "dismissedOnSettings": { "reopenActionOnly": true, "globalGuidance": "SUPPRESSED" },
+    "reopenOnSettings": { "inlineSteps": "SINGLE INSTANCE", "globalGuidance": "SUPPRESSED" },
+    "afterLeavingSettings": { "globalGuidance": "RE-VISIBLE WITHOUT AUTO-DISMISSAL" },
+    "standaloneSettings": { "guidance": "NONE", "installedMessage": true },
+    "chromiumSettings": { "appleGuidance": "ABSENT", "chromiumAction": true }
+  },
+  "dismiss": { "clickHidesCard": true, "localStorageKey": "servora.install-guidance.dismissed.v1", "storedValue": "1", "reopenClearsKey": true },
+  "manifest": { "name": "Dünya Dental Servora", "short_name": "Servora", "start_url": "/jobs", "display": "standalone", "theme_color": "#f7f8f8", "background_color": "#f7f8f8" },
+  "icons": { "apple-touch-icon": "180x180", "servora-192": "192x192", "servora-512": "512x512", "servora-maskable-512": "512x512", "provenance": "asset-manifest.json" },
+  "console": "no errors, no warnings",
+  "network": "no unexpected 4xx/5xx",
+  "tests": { "focused": "67 passed (app-shell, settings-pages, apple-pwa-contract, apple-install-guidance, install-opportunity)", "fullWeb": "1269 passed (1269)" },
+  "real-safari": {
+    "engine": "Playwright WebKit 2227 (Safari/WebKit 605.1.15, Version 26.0) on macOS — real Safari engine, no UA hacks, no init scripts",
+    "note": "WebKit does not fire beforeinstallprompt, so the Apple-only states exercise the real controller path: canPrompt stays false, appleCandidate resolves from the UA string of Playwright device descriptors",
+    "mac-desktop": { "ua": "Macintosh Safari", "appleCandidate": false, "jobsGlobalCards": 0, "settings": { "globalCards": 0, "inlineSteps": 0, "unsupportedHint": 1, "installButton": 0 }, "evidence": "screenshots/safari-01-mac-settings.png" },
+    "iphone-13": { "ua": "iPhone OS 15_0 Mobile Safari 604.1", "viewport": "390x664", "jobs": { "globalCards": 1, "role": "region", "dismissLabel": "Kurulum yönergesini kapat", "steps": 5, "belowTopbar": true, "aboveBottomNav": true }, "settings-apple": { "globalCards": 0, "inlineSteps": 1, "steps": 5, "reopenButton": 0, "installButton": 0, "supportLabel": "Apple kurulum yönergesi", "bottomNavOverlapAtMaxScroll": false, "overflowX": false }, "customers-after-settings": { "globalCards": 1, "autoDismissalWritten": null }, "dismiss-click": { "globalCardsAfterDismiss": 0, "localStorage": "1" }, "dismiss-reload": { "globalCardsAfterReload": 0 }, "settings-dismissed": { "globalCards": 0, "inlineSteps": 0, "reopenButton": 1 }, "settings-reopened": { "globalCards": 0, "inlineSteps": 1, "steps": 5, "reopenButton": 0, "localStorageCleared": true }, "evidence": "screenshots/safari-02..05-*.png" },
+    "ipad-pro-11": { "ua": "iPad OS 12_2 Mobile Safari 604.1", "jobs": { "globalCards": 1, "steps": 5 }, "settings-apple": { "globalCards": 0, "inlineSteps": 1, "steps": 5 } },
+    "console": "expected pre-login auth/me 401s only; one transient 'access control checks' pageerror at login (hit web-push/status in run 1, job-cards in run 2; not reproducible in isolation; dev-environment login race, no fetch/network code touched by this PR)",
+    "network": "no unexpected 4xx/5xx after login"
+  },
+  "physical-devices": { "iphone-install": "NOT EXERCISED", "ipad-install": "NOT EXERCISED", "apple-icon-crop": "NOT EXERCISED", "apple-web-push": "NOT EXERCISED / OUT OF SCOPE" }
+}

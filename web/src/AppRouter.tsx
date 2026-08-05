@@ -153,6 +153,9 @@ const SecuritySettingsPage = lazy(() =>
 const NotificationSettingsPage = lazy(() =>
   import('./settings/SettingsPages').then((module) => ({ default: module.NotificationSettingsPage })),
 );
+const ApplicationSettingsPage = lazy(() =>
+  import('./settings/SettingsPages').then((module) => ({ default: module.ApplicationSettingsPage })),
+);
 
 const MessagingPage = lazy(() =>
   import('./messaging/MessagingPage').then((module) => ({ default: module.MessagingPage })),
@@ -303,6 +306,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path={paths.settingsProfile} element={<ProfileSettingsPage user={user} />} />
         <Route path={paths.settingsSecurity} element={<SecuritySettingsPage onSessionEnded={onSessionEnded} />} />
         <Route path={paths.settingsNotifications} element={<NotificationSettingsPage />} />
+        <Route path={paths.settingsApplication} element={<ApplicationSettingsPage />} />
         <Route path={paths.jobs} element={<JobWorkspace user={user} notice={notice}
           onCreateDelivery={() => { onClearNotice(); navigate(paths.newDelivery); }}
           onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}

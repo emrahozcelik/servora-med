@@ -10,6 +10,8 @@ import { SettingsTabs } from '../ui/antd/SettingsTabs';
 import { UserAvatar } from '../ui/antd/UserAvatar';
 import { PASSWORD_LENGTH_HINT_TR } from '../ui/password-policy';
 import { useWebPush } from '../web-push/WebPushProvider';
+import { useInstallOpportunity } from '../install/InstallOpportunity';
+import { AppleInstallSteps } from '../install/AppleInstallSteps';
 
 const roleLabels = {
   ADMIN: 'Yönetici',
@@ -21,12 +23,14 @@ const SETTINGS_TABS = [
   { key: 'profile', label: 'Profil', to: '/settings/profile' },
   { key: 'security', label: 'Güvenlik', to: '/settings/security' },
   { key: 'notifications', label: 'Bildirimler', to: '/settings/notifications' },
+  { key: 'application', label: 'Uygulama', to: '/settings/application' },
 ];
 
 const settingsLandingItems = [
   { key: 'profile', title: 'Profil', description: 'Hesap ve rol bilgilerinizi görüntüleyin.', to: paths.settingsProfile },
   { key: 'security', title: 'Güvenlik', description: 'Parolanızı güvenli biçimde değiştirin.', to: paths.settingsSecurity },
   { key: 'notifications', title: 'Bildirimler', description: 'Bu cihazdaki web bildirimlerini yönetin.', to: paths.settingsNotifications },
+  { key: 'application', title: 'Uygulama', description: "Servora'yı bu cihaza ekleyin ve kurulum durumunu görüntüleyin.", to: paths.settingsApplication },
 ];
 
 export function SettingsLandingPage() {
@@ -170,6 +174,63 @@ export function NotificationSettingsPage() {
           {webPush.pending === 'disable' ? 'Kapatılıyor…' : 'Bu cihazda kapat'}</button>
         : <button className="primary-button" type="button" disabled={!canEnable || webPush.pending !== null} onClick={() => void webPush.enable()}>
           {webPush.pending === 'enable' ? 'Açılıyor…' : 'Bu cihazda aç'}</button>}
+    </OperationalCard>
+  </main>;
+}
+
+export function ApplicationSettingsPage() {
+  const install = useInstallOpportunity();
+  const [promptPending, setPromptPending] = useState(false);
+  const [promptError, setPromptError] = useState('');
+  const mode = install.installed ? 'Ana Ekran uygulaması' : 'Tarayıcı';
+  const supportLabel = install.canPrompt
+    ? 'Otomatik kurulum düğmesi'
+    : install.appleCandidate && !install.installed
+      ? 'Apple kurulum yönergesi'
+      : 'Bu tarayıcıda yönlendirme yok';
+
+  async function runChromiumPrompt() {
+    setPromptError('');
+    setPromptPending(true);
+    try {
+      await install.prompt();
+    } catch {
+      setPromptError('Kurulum penceresi açılamadı. Tarayıcı desteğini kontrol edin.');
+    } finally {
+      setPromptPending(false);
+    }
+  }
+
+  return <main className="workspace settings-workspace">
+    <SettingsTabs items={SETTINGS_TABS} activeKey="application" />
+    <header className="workspace-heading"><div>
+      <p className="eyebrow">Hesap</p><h1>Uygulama</h1>
+    </div></header>
+    <OperationalCard title="Uygulama kurulumu">
+      {install.installed && <p className="field-hint" role="status">
+        Servora bu cihazda Ana Ekran uygulaması olarak çalışıyor.
+      </p>}
+      <dl className="profile-details">
+        <div><dt>Çalışma biçimi</dt><dd>{mode}</dd></div>
+        <div><dt>Kurulum desteği</dt><dd>{supportLabel}</dd></div>
+        <div><dt>Uygulama adı</dt><dd>Dünya Dental Servora</dd></div>
+        <div><dt>Başlangıç ekranı</dt><dd>İşler</dd></div>
+      </dl>
+      {promptError && <div className="form-error" role="alert">{promptError}</div>}
+      {install.canPrompt && (
+        <button className="primary-button" type="button" disabled={promptPending} onClick={() => void runChromiumPrompt()}>
+          {promptPending ? 'Yükleniyor…' : 'Uygulamayı yükle'}
+        </button>
+      )}
+      {install.appleCandidate && install.guidanceDismissed && !install.installed && (
+        <button className="secondary-button" type="button" onClick={install.resetGuidance}>
+          Kurulum yönergelerini tekrar göster
+        </button>
+      )}
+      {install.shouldOfferAppleGuidance && <AppleInstallSteps />}
+      {!install.canPrompt && !install.appleCandidate && !install.installed && (
+        <p className="field-hint">Bu tarayıcıda otomatik kurulum yönlendirmesi sunulmuyor.</p>
+      )}
     </OperationalCard>
   </main>;
 }

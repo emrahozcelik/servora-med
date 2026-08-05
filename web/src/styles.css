@@ -59,7 +59,14 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .dunya-dental-brand { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; color: var(--muted); font-size: 0.68rem; font-weight: 700; }
 .dunya-dental-brand img { display: block; width: auto; max-width: 100%; object-fit: contain; }
 .dunya-dental-brand--login img { height: 4rem; max-width: 12rem; }
-.dunya-dental-brand--sidebar img { height: 7rem; max-width: 10rem; }
+.dunya-dental-brand--sidebar { width: 100%; }
+.dunya-dental-brand--sidebar img {
+  width: 100%;
+  height: auto;
+  max-width: none;
+  max-height: 8rem;
+  object-fit: contain;
+}
 .dunya-dental-brand--topbar img { height: 2.25rem; max-width: 7rem; }
 .dunya-dental-brand__fallback { max-width: 100%; overflow-wrap: anywhere; }
 .shell-copyright {
@@ -72,6 +79,50 @@ button:disabled { cursor: wait; opacity: 0.65; }
   color: var(--muted);
   font-size: 0.6rem;
 }
+/* Apple install guidance: dismissible inline card, not a modal. */
+.apple-install-guidance {
+  margin: 0 0 1.15rem;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+}
+.apple-install-guidance-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  min-width: 0;
+}
+.apple-install-guidance h2 {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 720;
+}
+.apple-install-guidance p {
+  margin: 0.5rem 0 0.75rem;
+  color: var(--muted);
+  line-height: 1.5;
+}
+.apple-install-guidance-steps {
+  margin: 0;
+  padding-left: 1.25rem;
+  display: grid;
+  gap: 0.3rem;
+  line-height: 1.5;
+}
+.apple-install-guidance-dismiss {
+  flex: 0 0 auto;
+  min-height: 2rem;
+  padding: 0.25rem 0.7rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-button);
+  background: var(--canvas);
+  color: var(--ink);
+  font-weight: 650;
+  cursor: pointer;
+}
+.apple-install-guidance-dismiss:hover { border-color: var(--accent); color: var(--accent-hover); }
 .eyebrow { margin: 0 0 0.85rem; color: var(--accent); font-size: 0.8125rem; font-weight: 720; letter-spacing: 0.035em; text-transform: uppercase; overflow-wrap: anywhere; }
 
 .login-layout { display: grid; grid-template-columns: minmax(19rem, 0.82fr) minmax(26rem, 1.18fr); min-height: 100vh; }
@@ -659,7 +710,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 /* Shared nav/account baseline (sidebar + mobile drawer). T2A polish is scoped under .shell-sidebar. */
 .shell-sidebar {
   min-height: 100vh;
-  padding: 1.25rem 0.9rem 1rem;
+  padding: 0.65rem 0.65rem 1rem;
   border-right: 1px solid var(--rule);
   background: var(--canvas);
 }
@@ -667,7 +718,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   flex: 0 0 auto;
   width: 100%;
   min-width: 0;
-  padding: 0.1rem 0.25rem 0.75rem;
+  padding: 0.1rem 0 0.45rem;
 }
 .shell-nav { display: grid; gap: 1.15rem; }
 .shell-nav-section { display: grid; gap: 0.35rem; min-width: 0; }
