@@ -28,7 +28,7 @@ The monitor:
 | Check | Condition |
 |-------|-----------|
 | `health` | GET the configured health URL. Failure = timeout, connection/TLS error, redirect, non-200, or a body that does not match the Servora-Med contract (`{"status":"ok"}`). |
-| `backup` | Read-only inspection of the backup directory. The latest canonical completed pair `servora-med-YYYYMMDDTHHMMSSZ.dump` + `.dump.sha256` must exist, be regular files, match the portable sidecar contract (digest + basename only, no absolute paths) and pass SHA-256 verification, and be at most `SERVORA_ALERT_BACKUP_MAX_AGE_HOURS` old. `.partial` files, symlinks and future-dated timestamps are rejected. |
+| `backup` | Read-only inspection of the backup directory. The **newest** canonical completed pair `servora-med-YYYYMMDDTHHMMSSZ.dump` + `.dump.sha256` is authoritative: it must exist, be a regular file (symlinks rejected), match the portable sidecar contract (digest + basename only, no absolute paths), pass SHA-256 verification and be at most `SERVORA_ALERT_BACKUP_MAX_AGE_HOURS` old. `.partial` files and future-dated timestamps are rejected. An invalid newest backup **fails closed** — older backups are never hashed or accepted as a fallback, so the failure becomes alertable. |
 | `disk` | Free space on the configured path via `statfs`. Failure below `SERVORA_ALERT_DISK_MIN_FREE_PERCENT`. |
 | `monitor` | The monitor's own state file: corruption is quarantined, a fresh default state is created and a `monitor` alert is emitted. Unsupported future state versions fail the run without overwriting. |
 
@@ -52,7 +52,8 @@ Private operator environment file, e.g. `/etc/servora-med/servora-med-alerting.e
 | `SERVORA_ALERT_HEALTH_URL` | `http://127.0.0.1:3000/api/health` | Application health endpoint (app contract is unchanged). |
 | `SERVORA_ALERT_BACKUP_DIR` | — | Read-only backup directory. Required when enabled. |
 | `SERVORA_ALERT_BACKUP_MAX_AGE_HOURS` | `26` | Max accepted age of the latest valid backup. |
-| `SERVORA_ALERT_DISK_PATH` | `/` | Filesystem to check. |
+| `SERVORA_ALERT_DISK_PATH` | `/` | Filesystem to check (internal only, never leaves the host). |
+| `SERVORA_ALERT_DISK_LABEL` | `disk-target` | Safe payload label for the disk target; validated as a safe label and must not equal the disk path. |
 | `SERVORA_ALERT_DISK_MIN_FREE_PERCENT` | `15` | Minimum free percent (0–100). |
 | `SERVORA_ALERT_FAILURE_THRESHOLD` | `3` | Consecutive failures before an alert (>= 1). |
 | `SERVORA_ALERT_COOLDOWN_MINUTES` | `60` | Minimum gap between reminders while a check stays failing. |
@@ -91,7 +92,7 @@ Versioned, vendor-neutral JSON (`schemaVersion: 1`):
 - `details` carries only allowlisted safe metrics: health — consecutive
   failures, timeout flag, HTTP status, latency; backup — age hours, canonical
   basename, checksum validity, latest backup timestamp, error category;
-  disk — free percent, free/used bytes, configured target label.
+  disk — free percent, free/used bytes, and the configured safe target label (`SERVORA_ALERT_DISK_LABEL`, default `disk-target`) — never the filesystem path.
 
 The payload never contains: the webhook URL or tokens, `DATABASE_URL`, DB
 host/user/name, cookies, sessions, raw API response bodies, customer/user/
@@ -118,6 +119,14 @@ temp-write + rename) and holds only deduplication data per check:
    run) and the monitor exits non-zero.
 6. Multiple checks transitioning in the same run each produce their own event;
    a single check never produces duplicates in one run.
+7. Every successful delivery is applied to state and persisted **before** the
+   next event is attempted, so a later delivery failure in the same run can
+   never lose an earlier successful delivery; the failed event stays
+   retryable and prior events are never duplicated on retry.
+8. Delivery semantics are **at-least-once** around crash boundaries: a process
+   crash between a successful webhook delivery and the state write can cause a
+   duplicate on the next run. Within a single process, known later delivery
+   failures never duplicate earlier events.
 
 Corrupt state files are renamed to `state.json.corrupt-<timestamp>` inside the
 same state directory, replaced with a fresh default, and a `monitor` alert is

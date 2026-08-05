@@ -1,54 +1,79 @@
 {
   "task": "operator-alerting-implementation",
+  "round": "R1 (correctness and privacy repair)",
   "date": "2026-08-05",
   "branch": "feat/operator-alerting",
   "base": "96e69aa6c56d1f1b9110957d1ceaa7f5e4e3e04f",
   "node": "v26.0.0",
   "config-safe-summary": {
     "SERVORA_ALERTING_ENABLED": "false (default; enabled only for local drills)",
-    "webhook": "local loopback receiver only, port 19321",
+    "webhook": "local loopback receiver only",
     "health": "local loopback receiver /health",
     "backupDir": "temp directories with canonical pairs only",
     "stateDir": "temp directories",
-    "disk": "real statfs of / (13.2% free at drill time; threshold lowered to 5 for health/backup scenarios)"
+    "disk": "real statfs of the configured filesystem (threshold 5 for health/backup scenarios)"
   },
-  "automated-tests": { "node --test ops/scripts/tests/operator-alerting.test.mjs": "70 passed (70)", "node --check": "PASS" },
+  "automated-tests": {
+    "node --test ops/scripts/tests/operator-alerting.test.mjs": "88 passed (88)",
+    "node --check": "PASS"
+  },
+  "r1-regressions": {
+    "backup": [
+      "newest invalid + older valid => FAIL CLOSED (no fallback): checksum-mismatch / missing-sidecar / malformed-sidecar / bad-basename / symlink / future-timestamp",
+      "only newest candidate dump hashed (1 hash call)"
+    ],
+    "partial-delivery": [
+      "first event success + second failure => successful first persisted, failed second retryable, exit 3",
+      "retry run delivers only the failed event; earlier alert NOT duplicated",
+      "reminder partial success persisted; no duplicate reminder on retry",
+      "recovery partial success persisted; no duplicate recovery on retry",
+      "no-event counters for all checks advance before any delivery failure",
+      "state write failure handled safely with non-zero exit"
+    ],
+    "privacy": [
+      "disk alert and recovery payloads contain no absolute path (label disk-target only)",
+      "serialized state contains no disk path",
+      "monitor logs contain no disk path",
+      "SERVORA_ALERT_DISK_LABEL validated (safe label, must not equal disk path)"
+    ]
+  },
   "runtime-acceptance": {
-    "summary": "10/10 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
+    "summary": "14/14 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
     "scenarios": {
       "1-disabled": { "outcome": "PASS", "exitCode": 0, "networkCalls": 0, "stateDirFiles": 0 },
       "2-healthy": { "outcome": "PASS", "exitCode": 0, "events": 0 },
-      "3-health-threshold": { "outcome": "PASS", "runs1to2": "no events", "run3": "1 alert (httpStatus 503)" },
-      "4-cooldown-reminder": { "outcome": "PASS", "withinCooldownEvents": 0, "afterCooldown": "1 reminder" },
-      "5-recovery": { "outcome": "PASS", "recoveryEvents": 1, "nextRunQuiet": true },
-      "6-stale-backup": { "outcome": "PASS", "event": "backup alert", "errorCategory": "stale" },
-      "7-invalid-checksum": { "outcome": "PASS", "event": "backup alert", "errorCategory": "invalid-backup", "latestProblem": "checksum-mismatch" },
-      "8-disk-threshold": { "outcome": "PASS", "event": "disk alert", "freePercent": "real statfs < 99.9" },
-      "9-webhook-failure-retry": { "outcome": "PASS", "failedExit": 3, "notMarkedDelivered": true, "retriedExit": 0, "alertDelivered": true },
-      "10-concurrency-lock": { "outcome": "PASS", "activeLockExit": 2 }
-    },
-    "state-transitions": ["failures below threshold increment silently", "threshold -> one alert on delivery success", "cooldown suppresses reminders until expiry", "recovery sent once after active alert", "delivery failure leaves state retryable and exits non-zero", "corrupt state quarantined as state.json.corrupt-<ts> with monitor alert"],
-    "webhook-payload-sample": {
-      "schemaVersion": 1,
-      "application": "Servora-Med",
-      "instance": "servora-med",
-      "environment": "local",
-      "event": "alert",
-      "check": "health",
-      "severity": "critical",
-      "summary": "Application health failing after 3 consecutive failures",
-      "observedAt": "<UTC ISO>",
-      "details": { "consecutiveFailures": 3, "timeout": false, "httpStatus": 503, "latencyMs": "<ms>" }
-    },
-    "no-secrets-in-payload": true,
-    "no-absolute-paths-in-payload": true,
-    "no-raw-health-body-in-payload": true
+      "3-health-threshold": { "outcome": "PASS", "run3": "1 alert (httpStatus 503)" },
+      "4-cooldown-reminder": { "outcome": "PASS", "reminder": "1 after cooldown" },
+      "5-recovery": { "outcome": "PASS", "recovery": 1, "nextRunQuiet": true },
+      "6-stale-backup": { "outcome": "PASS", "errorCategory": "stale" },
+      "7-invalid-checksum": { "outcome": "PASS", "errorCategory": "invalid-backup", "latestProblem": "checksum-mismatch" },
+      "8-disk-threshold": { "outcome": "PASS", "diskAlert": "real statfs below injected threshold" },
+      "9-webhook-failure-retry": { "outcome": "PASS", "failedExit": 3, "notMarkedDelivered": true, "retriedExit": 0 },
+      "10-concurrency-lock": { "outcome": "PASS", "activeLockExit": 2 },
+      "r1a-latest-mismatch-no-fallback": { "outcome": "PASS", "alert": "backup invalid-backup checksum-mismatch", "basename": "newest reported", "olderFallback": false },
+      "r1a-latest-sidecar-missing-no-fallback": { "outcome": "PASS", "alert": "backup invalid-backup missing-sidecar", "olderFallback": false },
+      "r1b-partial-delivery": { "outcome": "PASS", "firstRunExit": 3, "healthAlertDelivered": 1, "healthPersistedActive": true, "retryRunExit": 0, "backupAlertInRetry": 1, "healthAlertsInRetry": 0 },
+      "r1c-disk-path-privacy": { "outcome": "PASS", "privatePathInPayload": false, "targetLabel": "disk-target" }
+    }
   },
+  "state-transitions": [
+    "failures below threshold increment silently",
+    "threshold -> one alert on delivery success",
+    "successful delivery persisted before next event attempt",
+    "delivery failure leaves state retryable and exits non-zero",
+    "cooldown suppresses reminders until expiry",
+    "recovery sent once after active alert",
+    "corrupt state quarantined as state.json.corrupt-<ts> with monitor alert"
+  ],
+  "delivery-semantics": "at-least-once around crash boundaries; no intra-process duplicates on known later delivery failure",
+  "no-secrets-in-payload": true,
+  "no-absolute-paths-in-payload": true,
+  "no-raw-health-body-in-payload": true,
   "commands-verified": {
     "node --check ops/scripts/operator-alerting.mjs": "PASS",
-    "node --test ops/scripts/tests/operator-alerting.test.mjs": "70/70 PASS",
-    "bash -n run-alerting.sh.example verify-operator-alerting.sh verify-systemd-units.sh": "PASS",
-    "launchd plist XML parse (python3 plistlib)": "PASS",
+    "node --test ops/scripts/tests/operator-alerting.test.mjs": "88/88 PASS",
+    "bash -n wrappers": "PASS",
+    "launchd plist XML parse": "PASS",
     "systemd-analyze verify": "deferred to CI (systemd unavailable locally)"
   },
   "service-activation": "NOT PERFORMED",

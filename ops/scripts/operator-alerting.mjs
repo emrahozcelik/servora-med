@@ -162,6 +162,7 @@ export function loadConfig(env) {
     backupDir: absoluteDirectory(env.SERVORA_ALERT_BACKUP_DIR, 'SERVORA_ALERT_BACKUP_DIR'),
     backupMaxAgeHours,
     diskPath: absoluteDirectory(env.SERVORA_ALERT_DISK_PATH ?? '/', 'SERVORA_ALERT_DISK_PATH'),
+    diskLabel: safeLabel(env.SERVORA_ALERT_DISK_LABEL, 'SERVORA_ALERT_DISK_LABEL', 'disk-target'),
     diskMinFreePercent,
     failureThreshold,
     cooldownMinutes,
@@ -278,18 +279,6 @@ export async function evaluateBackup(config, deps) {
     if (!match) continue;
     const timestamp = parseBackupTimestamp(match[1]);
     if (!timestamp) continue;
-    let stat;
-    try {
-      stat = deps.lstat(`${config.backupDir}/${entry}`);
-    } catch {
-      result.latestProblem = 'unreadable';
-      continue;
-    }
-    if (!stat.isFile()) continue;
-    if (timestamp.getTime() > now) {
-      result.latestProblem = 'future-timestamp';
-      continue;
-    }
     candidates.push({ basename: entry, timestamp });
   }
 
@@ -299,57 +288,96 @@ export async function evaluateBackup(config, deps) {
     return result;
   }
 
-  for (const candidate of candidates) {
-    const dumpPath = `${config.backupDir}/${candidate.basename}`;
-    const sidecarPath = `${dumpPath}.sha256`;
-    let sidecarStat;
-    try {
-      sidecarStat = deps.lstat(sidecarPath);
-    } catch {
-      result.latestProblem = result.latestProblem ?? 'missing-sidecar';
-      continue;
-    }
-    if (!sidecarStat.isFile()) {
-      result.latestProblem = result.latestProblem ?? 'missing-sidecar';
-      continue;
-    }
-    let sidecar;
-    try {
-      sidecar = parseSidecar(deps.readFile(sidecarPath, 'utf8'));
-    } catch {
-      result.latestProblem = result.latestProblem ?? 'malformed-sidecar';
-      continue;
-    }
-    if (sidecar.error) {
-      result.latestProblem = result.latestProblem ?? sidecar.error;
-      continue;
-    }
-    if (sidecar.basename !== candidate.basename) {
-      result.latestProblem = result.latestProblem ?? 'bad-basename';
-      continue;
-    }
-    let digest;
-    try {
-      digest = deps.hashFile(dumpPath);
-    } catch {
-      result.latestProblem = result.latestProblem ?? 'unreadable';
-      continue;
-    }
-    if (digest !== sidecar.digest) {
-      result.latestProblem = result.latestProblem ?? 'checksum-mismatch';
-      continue;
-    }
-    result.checksumValid = true;
-    result.basename = candidate.basename;
-    result.latestBackupTimestamp = candidate.timestamp.toISOString();
-    result.ageHours = (now - candidate.timestamp.getTime()) / 3_600_000;
-    result.ok = result.ageHours <= config.backupMaxAgeHours;
-    result.errorCategory = result.ok ? null : 'stale';
+  // The newest canonical backup is authoritative. An invalid newest backup
+  // fails closed: older backups are never hashed or accepted as fallback.
+  const candidate = candidates[0];
+  result.basename = candidate.basename;
+  result.latestBackupTimestamp = candidate.timestamp.toISOString();
+
+  if (candidate.timestamp.getTime() > now) {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'future-timestamp';
+    result.checksumValid = false;
     return result;
   }
 
-  result.errorCategory = 'invalid-backup';
-  result.checksumValid = false;
+  const dumpPath = `${config.backupDir}/${candidate.basename}`;
+  const sidecarPath = `${dumpPath}.sha256`;
+
+  let dumpStat;
+  try {
+    dumpStat = deps.lstat(dumpPath);
+  } catch {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'unreadable';
+    result.checksumValid = false;
+    return result;
+  }
+  if (!dumpStat.isFile()) {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'not-regular-file';
+    result.checksumValid = false;
+    return result;
+  }
+
+  let sidecarStat;
+  try {
+    sidecarStat = deps.lstat(sidecarPath);
+  } catch {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'missing-sidecar';
+    result.checksumValid = false;
+    return result;
+  }
+  if (!sidecarStat.isFile()) {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'missing-sidecar';
+    result.checksumValid = false;
+    return result;
+  }
+
+  let sidecar;
+  try {
+    sidecar = parseSidecar(deps.readFile(sidecarPath, 'utf8'));
+  } catch {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'malformed-sidecar';
+    result.checksumValid = false;
+    return result;
+  }
+  if (sidecar.error) {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = sidecar.error;
+    result.checksumValid = false;
+    return result;
+  }
+  if (sidecar.basename !== candidate.basename) {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'bad-basename';
+    result.checksumValid = false;
+    return result;
+  }
+
+  let digest;
+  try {
+    digest = deps.hashFile(dumpPath);
+  } catch {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'unreadable';
+    result.checksumValid = false;
+    return result;
+  }
+  if (digest !== sidecar.digest) {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'checksum-mismatch';
+    result.checksumValid = false;
+    return result;
+  }
+
+  result.checksumValid = true;
+  result.ageHours = (now - candidate.timestamp.getTime()) / 3_600_000;
+  result.ok = result.ageHours <= config.backupMaxAgeHours;
+  result.errorCategory = result.ok ? null : 'stale';
   return result;
 }
 
@@ -464,6 +492,7 @@ export async function loadState(config, deps) {
 
 export function writeState(config, state, deps) {
   deps.mkdir(config.stateDir, { recursive: true, mode: 0o700 });
+  deps.chmod(config.stateDir, 0o700);
   const payload = `${JSON.stringify(state, null, 2)}\n`;
   const statePath = `${config.stateDir}/state.json`;
   const tmpPath = `${config.stateDir}/state.json.tmp-${process.pid}`;
@@ -656,94 +685,114 @@ function checkLabel(check) {
 export async function runMonitor(config, deps) {
   const now = deps.now();
   const events = [];
-  const nextChecks = {};
+  const deliveredEvents = [];
 
   const { state: loadedState, monitorEvent } = await loadState(config, deps);
   if (monitorEvent) events.push(monitorEvent);
 
-  const health = await probeHealth(config, deps);
-  const backup = await evaluateBackup(config, deps);
-  const disk = probeDisk(config, deps);
+  const outcomes = {
+    health: await probeHealth(config, deps),
+    backup: await evaluateBackup(config, deps),
+    disk: probeDisk(config, deps),
+  };
 
-  const outcomes = { health, backup, disk };
+  // Phase 1 — compute every transition in deterministic order (health,
+  // backup, disk) so no-event counters advance for all checks even when a
+  // later delivery fails.
+  let currentState = loadedState;
+  const transitions = {};
+  for (const name of CHECK_NAMES) {
+    const outcome = outcomes[name];
+    const transition = transitionCheck({
+      check: name,
+      ok: outcome.ok,
+      previous: currentState.checks[name],
+      config,
+      now,
+      details: detailsForCheck(name, outcome, currentState.checks[name], config),
+    });
+    currentState = { version: STATE_VERSION, checks: { ...currentState.checks, [name]: transition.next } };
+    transitions[name] = transition;
+  }
 
-  const transitions = {
-    health: transitionCheck({
-      check: 'health',
-      ok: health.ok,
-      previous: loadedState.checks.health,
-      config,
-      now,
-      details: health.ok ? {} : {
-        consecutiveFailures: loadedState.checks.health.consecutiveFailures + 1,
-        timeout: health.timeout,
-        httpStatus: health.httpStatus,
-        latencyMs: health.latencyMs,
-      },
-    }),
-    backup: transitionCheck({
-      check: 'backup',
-      ok: backup.ok,
-      previous: loadedState.checks.backup,
-      config,
-      now,
-      details: backup.ok ? { ageHours: round2(backup.ageHours), basename: backup.basename, checksumValid: true } : {
-        consecutiveFailures: loadedState.checks.backup.consecutiveFailures + 1,
-        errorCategory: backup.errorCategory,
-        latestProblem: backup.latestProblem,
-        ageHours: backup.ageHours === null ? null : round2(backup.ageHours),
-        basename: backup.basename,
-        checksumValid: backup.checksumValid,
-        latestBackupTimestamp: backup.latestBackupTimestamp,
-      },
-    }),
-    disk: transitionCheck({
-      check: 'disk',
-      ok: disk.ok,
-      previous: loadedState.checks.disk,
-      config,
-      now,
-      details: disk.ok ? { freePercent: round2(disk.freePercent), freeBytes: disk.freeBytes, totalBytes: disk.totalBytes, 'disk-target': config.diskPath } : {
-        consecutiveFailures: loadedState.checks.disk.consecutiveFailures + 1,
-        errorCategory: disk.errorCategory,
-        freePercent: disk.freePercent === null ? null : round2(disk.freePercent),
-        freeBytes: disk.freeBytes,
-        totalBytes: disk.totalBytes,
-        'disk-target': config.diskPath,
-      },
-    }),
+  // Phase 2 — deliver monitor event first, then transition events in the
+  // same deterministic order. Each successful delivery is applied to the
+  // in-memory state and persisted immediately, so a later delivery failure
+  // can never lose an earlier successful delivery.
+  const persist = (state) => {
+    try {
+      writeState(config, state, deps);
+    } catch {
+      return false;
+    }
+    return true;
   };
 
   for (const event of events) {
     const delivery = await deliverWebhook(config, buildPayload({ config, ...event, now }), deps);
     if (!delivery.ok) {
-      return { state: loadedState, events: [], outcomes, exitCode: 3, deliveryFailure: { event, delivery } };
-    }
-  }
-
-  const deliveredEvents = [];
-  for (const [name, transition] of Object.entries(transitions)) {
-    nextChecks[name] = transition.next;
-    if (!transition.event) continue;
-    const event = transition.event;
-    const payload = buildPayload({ config, ...event, now });
-    const delivery = await deliverWebhook(config, payload, deps);
-    if (!delivery.ok) {
-      return { state: { version: STATE_VERSION, checks: { ...nextChecks, ...loadedState.checks } }, events: deliveredEvents, outcomes, exitCode: 3, deliveryFailure: { event, delivery } };
-    }
-    if (event.event === 'alert') {
-      nextChecks[name] = { ...nextChecks[name], alertActive: true, lastAlertAt: now, lastDeliveredAt: now };
-    } else if (event.event === 'reminder') {
-      nextChecks[name] = { ...nextChecks[name], lastReminderAt: now, lastDeliveredAt: now };
-    } else if (event.event === 'recovery') {
-      nextChecks[name] = { ...nextChecks[name], lastRecoveryAt: now };
+      if (!persist(currentState)) return { state: currentState, events: deliveredEvents, outcomes, exitCode: 1, stateWriteFailed: true, deliveryFailure: { event, delivery } };
+      return { state: currentState, events: deliveredEvents, outcomes, exitCode: 3, deliveryFailure: { event, delivery } };
     }
     deliveredEvents.push(event);
   }
 
-  const finalState = { version: STATE_VERSION, checks: nextChecks };
-  writeState(config, finalState, deps);
-  return { state: finalState, events: deliveredEvents, outcomes, exitCode: 0, deliveryFailure: null };
+  for (const name of CHECK_NAMES) {
+    const transition = transitions[name];
+    if (!transition.event) continue;
+    const event = transition.event;
+    const delivery = await deliverWebhook(config, buildPayload({ config, ...event, now }), deps);
+    if (!delivery.ok) {
+      if (!persist(currentState)) return { state: currentState, events: deliveredEvents, outcomes, exitCode: 1, stateWriteFailed: true, deliveryFailure: { event, delivery } };
+      return { state: currentState, events: deliveredEvents, outcomes, exitCode: 3, deliveryFailure: { event, delivery } };
+    }
+    deliveredEvents.push(event);
+    const applied = { ...currentState.checks[name] };
+    if (event.event === 'alert') {
+      applied.alertActive = true;
+      applied.lastAlertAt = now;
+      applied.lastDeliveredAt = now;
+    } else if (event.event === 'reminder') {
+      applied.lastReminderAt = now;
+      applied.lastDeliveredAt = now;
+    } else if (event.event === 'recovery') {
+      applied.lastRecoveryAt = now;
+    }
+    currentState = { version: STATE_VERSION, checks: { ...currentState.checks, [name]: applied } };
+    if (!persist(currentState)) return { state: currentState, events: deliveredEvents, outcomes, exitCode: 1, stateWriteFailed: true };
+  }
+
+  if (!persist(currentState)) return { state: currentState, events: deliveredEvents, outcomes, exitCode: 1, stateWriteFailed: true };
+  return { state: currentState, events: deliveredEvents, outcomes, exitCode: 0, deliveryFailure: null };
+}
+
+function detailsForCheck(name, outcome, previous, config) {
+  if (name === 'health') {
+    return outcome.ok ? {} : {
+      consecutiveFailures: previous.consecutiveFailures + 1,
+      timeout: outcome.timeout,
+      httpStatus: outcome.httpStatus,
+      latencyMs: outcome.latencyMs,
+    };
+  }
+  if (name === 'backup') {
+    return outcome.ok ? { ageHours: round2(outcome.ageHours), basename: outcome.basename, checksumValid: true } : {
+      consecutiveFailures: previous.consecutiveFailures + 1,
+      errorCategory: outcome.errorCategory,
+      latestProblem: outcome.latestProblem,
+      ageHours: outcome.ageHours === null ? null : round2(outcome.ageHours),
+      basename: outcome.basename,
+      checksumValid: outcome.checksumValid,
+      latestBackupTimestamp: outcome.latestBackupTimestamp,
+    };
+  }
+  return {
+    target: config.diskLabel,
+    freePercent: outcome.freePercent === null ? null : round2(outcome.freePercent),
+    freeBytes: outcome.freeBytes,
+    totalBytes: outcome.totalBytes,
+    consecutiveFailures: previous.consecutiveFailures + 1,
+  };
 }
 
 function round2(value) {
@@ -780,7 +829,10 @@ export async function main({ env = process.env, deps = createDefaultDeps(), log 
   let exitCode = 0;
   try {
     const result = await runMonitor(config, deps);
-    if (result.exitCode !== 0) {
+    if (result.stateWriteFailed) {
+      log({ level: 'error', run: 'state-write-failed' });
+      exitCode = 1;
+    } else if (result.exitCode !== 0) {
       const { event, delivery } = result.deliveryFailure;
       log({
         level: 'error',
