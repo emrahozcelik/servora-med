@@ -149,6 +149,16 @@ non-zero with zero probes, zero webhooks and no overwrite of the quarantined
 file. Unsupported future state versions stop the run with a clear error
 without overwriting.
 
+**Quarantine must succeed.** If the quarantine rename fails (`EACCES`/`EPERM`,
+`EIO`, or any other error), the run fails closed: exit 1, **the original
+corrupt state file is preserved untouched, no fresh state is created or
+written, and no probe, hash, statfs or webhook runs**. The quarantine log is
+`state-quarantine-failed` with an allowlisted category only — no path, no raw
+content, no error text. An existing quarantine file is never overwritten:
+collisions are resolved with a random safe suffix (bounded retry); if every
+candidate collides the run fails closed (`collision`). Quarantine file names
+are never stored in state files or webhook payloads.
+
 State read errors are classified: a missing state file (`ENOENT`) is a normal
 first run and produces the default state; any other read error
 (`EACCES`/`EPERM`, `EIO`, `EISDIR`, other) fails closed with a structured
@@ -158,13 +168,45 @@ webhooks and no state reset.
 ## Concurrency
 
 `$SERVORA_ALERT_STATE_DIR/lock.lock` (mode 0600) is acquired atomically with
-owner PID and creation time. A live PID blocks a concurrent run (exit code 2);
-a stale lock from a dead PID is reclaimed. Malformed or unreadable locks and
-unexpected lock filesystem errors resolve to structured exit code 1 with a
-safe `lock-invalid`/`lock-error` log (no raw lock content, no stack traces) and
-no probes or webhooks; the malformed lock file is preserved, never deleted.
+versioned metadata: `{ "version": 1, "pid", "createdAt", "ownerToken" }`.
+
+* `pid` must be a positive safe integer; PID 0 and negative PIDs are invalid.
+* `createdAt` must be a finite positive timestamp; values clearly in the
+  future (beyond a 60-second clock skew) are invalid.
+* `ownerToken` is a fresh random token generated with `node:crypto` per
+  acquisition. It is not a secret, but it is **never logged and never written
+  to state files or payloads**; release requires an exact token match.
+
+Liveness probing uses `process.kill(pid, 0)` with three outcomes:
+`alive` (signal success), `alive` for `EPERM` (a same-user permission error
+still proves the process exists — the lock is treated as **active, never
+reclaimed**), `dead` for `ESRCH`, and `unknown` for any other error — an
+`unknown` result **fails closed** and is never treated as stale.
+
+Malformed or unreadable locks and unexpected lock filesystem errors resolve
+to structured exit code 1 with a safe `lock-invalid`/`lock-error` log (no raw
+lock content, no stack traces) and no probes or webhooks; the malformed lock
+file is preserved, never deleted.
+
+**Stale reclaim is serialized and revalidated.** A dead-PID lock is not
+removed on sight. The reclaimer first claims the separate atomic guard
+`lock.reclaim` (same format; a live or unknown guard owner blocks the
+reclaimer — only one process performs the stale evaluation). After the guard
+is held the main lock is re-read, re-validated and re-probed: if it is now
+held by an alive owner the reclaimer backs off without touching it; only a
+second confirmed-dead result allows the unlink. The new lock is then created
+with `wx`; if another process won the race the competitor's lock is preserved
+and the run exits 2 without starting the monitor. A dead reclaim-guard owner
+is removed after revalidation with the same owner-safe primitive (bounded,
+no recursion); otherwise a stuck guard means manual recovery.
+
+**Release is owner-safe.** `releaseLock` reads the current lock and removes it
+only when `ownerToken` matches the current run's token exactly. A foreign
+lock, a malformed replacement or an absent lock is never deleted (safe
+`release-owner-mismatch`/`release-failed` warn log, idempotent for missing).
 Normal and handled error exits release the lock; abrupt termination may leave
-a stale lock, which is reclaimed on the next run.
+a stale lock, which is reclaimed on the next run. Reclaim and release tokens
+are never logged.
 
 ## Exit codes
 

@@ -21,8 +21,11 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 import {
   ConfigError,
   LockError,
+  StateQuarantineError,
   StateReadError,
   StateVersionError,
+  classifyKillError,
+  probeProcess,
   acquireLock,
   buildPayload,
   createDefaultDeps,
@@ -151,7 +154,8 @@ function fakeDeps({ fs = new FakeFs(), health = null, webhook = null, statfsResu
   deps.exists = fs.existsSync;
   deps.hashFile = (filePath) => createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
   deps.now = () => nowMs ?? 1_785_974_400_000; // 2026-08-06T00:00:00Z
-  deps.isProcessAlive = () => false;
+  deps.probeProcess = () => 'dead';
+  deps.randomToken = () => 'f'.repeat(32);
   deps.fetch = async (url, options) => {
     if (url.includes('/api/health')) {
       if (health instanceof Error) throw health;
@@ -802,16 +806,17 @@ describe('lock', () => {
     const acquired = acquireLock(config, deps);
     assert.equal(acquired.ok, true);
     assert.ok(fs.entries.has('/var/lib/servora-med-alerting/lock.lock'));
-    releaseLock(config, deps);
+    const release = releaseLock(config, deps, { ownerToken: acquired.ownerToken });
+    assert.equal(release.reason, 'ok');
     assert.ok(!fs.entries.has('/var/lib/servora-med-alerting/lock.lock'));
   });
 
   it('rejects a second process holding an active lock', () => {
     const fs = new FakeFs();
     fs.dir('/var/lib/servora-med-alerting');
-    fs.file('/var/lib/servora-med-alerting/lock.lock', JSON.stringify({ pid: 99999, createdAt: 1 }));
+    fs.file('/var/lib/servora-med-alerting/lock.lock', JSON.stringify({ version: 1, pid: 99999, createdAt: 1, ownerToken: 'a'.repeat(32) }));
     const deps = fakeDeps({ fs });
-    deps.isProcessAlive = () => true;
+    deps.probeProcess = () => 'alive';
     const result = acquireLock(config, deps);
     assert.equal(result.ok, false);
   });
@@ -819,9 +824,9 @@ describe('lock', () => {
   it('reclaims a stale lock from a dead pid', () => {
     const fs = new FakeFs();
     fs.dir('/var/lib/servora-med-alerting');
-    fs.file('/var/lib/servora-med-alerting/lock.lock', JSON.stringify({ pid: 99999, createdAt: 1 }));
+    fs.file('/var/lib/servora-med-alerting/lock.lock', JSON.stringify({ version: 1, pid: 99999, createdAt: 1, ownerToken: 'a'.repeat(32) }));
     const deps = fakeDeps({ fs });
-    deps.isProcessAlive = () => false;
+    deps.probeProcess = () => 'dead';
     const result = acquireLock(config, deps);
     assert.equal(result.ok, true);
     assert.equal(result.staleReclaimed, true);
@@ -846,6 +851,305 @@ describe('lock', () => {
     const exit = await main({ env: { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' }, deps, log: () => {} });
     assert.equal(exit, 3);
     assert.ok(!fs.entries.has('/var/lib/servora-med-alerting/lock.lock'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Quarantine fail closed (R4)
+// ---------------------------------------------------------------------------
+
+describe('quarantine fail closed', () => {
+  const config = loadConfig(BASE_ENV);
+  const statePath = '/var/lib/servora-med-alerting/state.json';
+
+  function corruptFs() {
+    const fs = new FakeFs();
+    fs.dir('/var/lib/servora-med-alerting');
+    fs.file(statePath, 'corrupt{not-json');
+    return fs;
+  }
+
+  it('fails closed with the original state preserved when the rename fails with EACCES', async () => {
+    const fs = corruptFs();
+    const deps = fakeDeps({ fs });
+    deps.rename = () => { throw Object.assign(new Error('EACCES'), { code: 'EACCES' }); };
+    await assert.rejects(() => loadState(config, deps), (error) => {
+      assert.equal(error.name, 'StateQuarantineError');
+      assert.equal(error.category, 'permission');
+      return true;
+    });
+    assert.equal(fs.readFileSync(statePath, 'utf8'), 'corrupt{not-json');
+    assert.ok(!Array.from(fs.entries.keys()).some((key) => key.includes('state.json.corrupt-')));
+  });
+
+  it('fails closed when the quarantine rename fails with EIO', async () => {
+    const fs = corruptFs();
+    const deps = fakeDeps({ fs });
+    deps.rename = () => { throw Object.assign(new Error('EIO'), { code: 'EIO' }); };
+    await assert.rejects(() => loadState(config, deps), (error) => {
+      assert.equal(error.name, 'StateQuarantineError');
+      assert.equal(error.category, 'io');
+      return true;
+    });
+    assert.equal(fs.readFileSync(statePath, 'utf8'), 'corrupt{not-json');
+  });
+
+  it('resolves a quarantine destination collision with a unique suffix', async () => {
+    const fs = corruptFs();
+    const base = `state.json.corrupt-${new Date(1_785_974_400_000).toISOString().replace(/[:.]/g, '-')}`;
+    fs.file(`/var/lib/servora-med-alerting/${base}`, 'old-quarantine');
+    const deps = fakeDeps({ fs });
+    const { state, monitorEvent, requiresInitialPersist } = await loadState(config, deps);
+    assert.equal(requiresInitialPersist, true);
+    assert.equal(monitorEvent.event, 'monitor');
+    assert.equal(state.monitor.pendingIncident.kind, 'state-corrupt');
+    const quarantineFiles = Array.from(fs.entries.keys()).filter((key) => key.includes('state.json.corrupt-'));
+    assert.equal(quarantineFiles.length, 2);
+    assert.ok(quarantineFiles.includes(`/var/lib/servora-med-alerting/${base}`));
+    assert.ok(quarantineFiles.some((key) => key.endsWith(`-${'f'.repeat(32)}`)));
+    assert.ok(!fs.entries.has(statePath));
+  });
+
+  it('fails closed when every quarantine destination collides', async () => {
+    const fs = corruptFs();
+    const deps = fakeDeps({ fs });
+    deps.exists = () => true;
+    await assert.rejects(() => loadState(config, deps), (error) => {
+      assert.equal(error.name, 'StateQuarantineError');
+      assert.equal(error.category, 'collision');
+      return true;
+    });
+    assert.ok(fs.entries.has(statePath));
+    assert.ok(!Array.from(fs.entries.keys()).some((key) => key.includes('state.json.corrupt-')));
+  });
+
+  it('resolves a quarantine rename failure to exit 1 with zero external work', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    fs.file(statePath, 'corrupt{not-json');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    let probeCount = 0;
+    let webhookCount = 0;
+    deps.fetch = async (url) => {
+      if (url.includes('/api/health')) { probeCount += 1; return healthResponse(200, { status: 'ok' }); }
+      webhookCount += 1;
+      return webhookResponse(200);
+    };
+    deps.rename = (from, to) => {
+      if (to.includes('state.json.corrupt-')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return fs.renameSync(from, to);
+    };
+    const logLines = [];
+    const env = { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' };
+    const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.equal(probeCount, 0);
+    assert.equal(webhookCount, 0);
+    assert.equal(fs.readFileSync(statePath, 'utf8'), 'corrupt{not-json');
+    assert.ok(logLines.some((line) => line.includes('"run":"state-quarantine-failed"') && line.includes('"errorCategory":"permission"')));
+    assert.ok(!logLines.some((line) => line.includes('EACCES') || line.includes('at ')));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lock ownership and reclaim races (R4)
+// ---------------------------------------------------------------------------
+
+describe('lock ownership', () => {
+  const config = loadConfig(BASE_ENV);
+  const dir = '/var/lib/servora-med-alerting';
+
+  function lockFs(content) {
+    const fs = new FakeFs();
+    fs.dir(dir);
+    if (content !== null) fs.file(`${dir}/lock.lock`, content);
+    return fs;
+  }
+
+  function lockJson(pid, { createdAt = 1, token = 'a'.repeat(32) } = {}) {
+    return JSON.stringify({ version: 1, pid, createdAt, ownerToken: token });
+  }
+
+  it('classifies kill errors: EPERM alive, ESRCH dead, others unknown', () => {
+    assert.equal(classifyKillError({ code: 'EPERM' }), 'alive');
+    assert.equal(classifyKillError({ code: 'ESRCH' }), 'dead');
+    assert.equal(classifyKillError({ code: 'EACCES' }), 'unknown');
+    assert.equal(classifyKillError(new Error('nope')), 'unknown');
+    assert.equal(probeProcess(process.pid), 'alive');
+  });
+
+  it('treats an EPERM-protected lock as active through main: exit 2, no probes, lock preserved', async () => {
+    const fs = lockFs(lockJson(99999));
+    const deps = fakeDeps({ fs, health: healthResponse(200, { status: 'ok' }), statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n } });
+    deps.probeProcess = () => 'alive';
+    let probes = 0;
+    let webhooks = 0;
+    deps.fetch = async (url) => {
+      if (url.includes('/api/health')) { probes += 1; return healthResponse(200, { status: 'ok' }); }
+      webhooks += 1;
+      return webhookResponse(200);
+    };
+    const logLines = [];
+    const exit = await main({ env: { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' }, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 2);
+    assert.equal(probes, 0);
+    assert.equal(webhooks, 0);
+    assert.equal(fs.readFileSync(`${dir}/lock.lock`, 'utf8'), lockJson(99999));
+    assert.ok(logLines.some((line) => line.includes('"run":"lock-busy"')));
+  });
+
+  for (const [label, content] of [
+    ['pid zero', JSON.stringify({ version: 1, pid: 0, createdAt: 1, ownerToken: 'a'.repeat(32) })],
+    ['negative pid', JSON.stringify({ version: 1, pid: -1, createdAt: 1, ownerToken: 'a'.repeat(32) })],
+    ['invalid createdAt', JSON.stringify({ version: 1, pid: 99999, createdAt: 'now', ownerToken: 'a'.repeat(32) })],
+    ['future createdAt', JSON.stringify({ version: 1, pid: 99999, createdAt: 1_785_974_400_000 + 3_600_000, ownerToken: 'a'.repeat(32) })],
+    ['missing owner token', JSON.stringify({ version: 1, pid: 99999, createdAt: 1 })],
+    ['missing version', JSON.stringify({ pid: 99999, createdAt: 1, ownerToken: 'a'.repeat(32) })],
+  ]) {
+    it(`resolves a lock with ${label} to structured exit 1 with the lock preserved`, async () => {
+      const fs = lockFs(content);
+      const deps = fakeDeps({ fs, health: healthResponse(200, { status: 'ok' }), statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n } });
+      let probes = 0;
+      deps.fetch = async (url) => { probes += 1; return healthResponse(200, { status: 'ok' }); };
+      const logLines = [];
+      const exit = await main({ env: { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' }, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+      assert.equal(exit, 1);
+      assert.equal(probes, 0);
+      assert.equal(fs.readFileSync(`${dir}/lock.lock`, 'utf8'), content);
+      assert.ok(logLines.some((line) => line.includes('"run":"lock-invalid"')));
+      assert.ok(!logLines.some((line) => line.includes('at ')));
+    });
+  }
+
+  it('stops reclaim when the lock is replaced by an active owner before the second read', () => {
+    const fs = lockFs(lockJson(99999));
+    const deps = fakeDeps({ fs });
+    const realWrite = fs.writeFileSync;
+    let probeCalls = 0;
+    deps.probeProcess = () => {
+      probeCalls += 1;
+      return probeCalls === 1 ? 'dead' : 'alive';
+    };
+    const replacement = lockJson(55555, { token: 'b'.repeat(32) });
+    deps.writeFile = (target, content, options) => {
+      const result = realWrite(target, content, options);
+      if (target.endsWith('/lock.reclaim') && options.flag === 'wx') {
+        fs.entries.set(`${dir}/lock.lock`, { kind: 'file', content: Buffer.from(replacement), mode: 0o600 });
+      }
+      return result;
+    };
+    const result = acquireLock(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(probeCalls, 2);
+    assert.equal(fs.readFileSync(`${dir}/lock.lock`, 'utf8'), replacement);
+    assert.ok(!fs.entries.has(`${dir}/lock.reclaim`));
+  });
+
+  it('does not start the monitor when a competitor wins the lock after stale unlink', async () => {
+    const fs = lockFs(lockJson(99999));
+    const deps = fakeDeps({ fs, health: healthResponse(200, { status: 'ok' }), statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n } });
+    const realWrite = fs.writeFileSync;
+    const competitor = lockJson(55555, { token: 'c'.repeat(32) });
+    let writeCalls = 0;
+    let probes = 0;
+    deps.probeProcess = () => 'dead';
+    deps.writeFile = (target, content, options) => {
+      writeCalls += 1;
+      if (target.endsWith('/lock.lock') && options.flag === 'wx' && writeCalls >= 3) {
+        fs.entries.set(target, { kind: 'file', content: Buffer.from(competitor), mode: 0o600 });
+        throw Object.assign(new Error('EEXIST'), { code: 'EEXIST' });
+      }
+      return realWrite(target, content, options);
+    };
+    deps.fetch = async (url) => {
+      if (url.includes('/api/health')) { probes += 1; return healthResponse(200, { status: 'ok' }); }
+      return webhookResponse(200);
+    };
+    const logLines = [];
+    const exit = await main({ env: { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' }, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 2);
+    assert.equal(probes, 0);
+    assert.equal(fs.readFileSync(`${dir}/lock.lock`, 'utf8'), competitor);
+    assert.ok(!fs.entries.has(`${dir}/lock.reclaim`));
+  });
+
+  it('never removes a foreign lock on release (owner mismatch)', () => {
+    const fs = lockFs(null);
+    const deps = fakeDeps({ fs });
+    const acquired = acquireLock(config, deps);
+    assert.equal(acquired.ok, true);
+    const foreign = lockJson(99999, { token: 'b'.repeat(32) });
+    fs.file(`${dir}/lock.lock`, foreign);
+    const release = releaseLock(config, deps, { ownerToken: acquired.ownerToken });
+    assert.equal(release.reason, 'owner-mismatch');
+    assert.equal(fs.readFileSync(`${dir}/lock.lock`, 'utf8'), foreign);
+  });
+
+  it('removes only the matching owner lock on release', () => {
+    const fs = lockFs(null);
+    const deps = fakeDeps({ fs });
+    const acquired = acquireLock(config, deps);
+    const release = releaseLock(config, deps, { ownerToken: acquired.ownerToken });
+    assert.equal(release.reason, 'ok');
+    assert.ok(!fs.entries.has(`${dir}/lock.lock`));
+  });
+
+  it('does not delete a malformed replacement during release', () => {
+    const fs = lockFs(null);
+    const deps = fakeDeps({ fs });
+    const acquired = acquireLock(config, deps);
+    fs.file(`${dir}/lock.lock`, 'garbage{');
+    const release = releaseLock(config, deps, { ownerToken: acquired.ownerToken });
+    assert.equal(release.reason, 'malformed');
+    assert.equal(fs.readFileSync(`${dir}/lock.lock`, 'utf8'), 'garbage{');
+  });
+
+  it('treats a missing lock on release as idempotent', () => {
+    const fs = lockFs(null);
+    const deps = fakeDeps({ fs });
+    const release = releaseLock(config, deps, { ownerToken: 'a'.repeat(32) });
+    assert.equal(release.reason, 'missing');
+  });
+
+  it('leaves an active reclaim guard untouched and reports busy', () => {
+    const fs = lockFs(lockJson(99999));
+    fs.file(`${dir}/lock.reclaim`, lockJson(44444, { token: 'd'.repeat(32) }));
+    const deps = fakeDeps({ fs });
+    deps.probeProcess = (pid) => (pid === 99999 ? 'dead' : 'alive');
+    const result = acquireLock(config, deps);
+    assert.equal(result.ok, false);
+    assert.ok(fs.entries.has(`${dir}/lock.lock`));
+    assert.ok(fs.entries.has(`${dir}/lock.reclaim`));
+  });
+
+  it('reclaims a stale reclaim guard from a dead owner before revalidating', () => {
+    const fs = lockFs(lockJson(99999));
+    fs.file(`${dir}/lock.reclaim`, lockJson(44444, { token: 'd'.repeat(32) }));
+    const deps = fakeDeps({ fs });
+    deps.probeProcess = () => 'dead';
+    const result = acquireLock(config, deps);
+    assert.equal(result.ok, true);
+    assert.equal(result.staleReclaimed, true);
+    assert.ok(!fs.entries.has(`${dir}/lock.reclaim`));
+    assert.ok(fs.entries.has(`${dir}/lock.lock`));
+  });
+
+  it('fails closed when liveness is unknown instead of reclaiming', () => {
+    const fs = lockFs(lockJson(99999));
+    const deps = fakeDeps({ fs });
+    deps.probeProcess = () => 'unknown';
+    assert.throws(() => acquireLock(config, deps), (error) => {
+      assert.equal(error.name, 'LockError');
+      assert.equal(error.category, 'unknown');
+      return true;
+    });
+    assert.ok(fs.entries.has(`${dir}/lock.lock`));
   });
 });
 
@@ -1952,7 +2256,7 @@ describe('lock safety through main', () => {
       health: healthResponse(200, { status: 'ok' }),
       statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
     });
-    deps.isProcessAlive = () => alive;
+    deps.probeProcess = () => (alive ? 'alive' : 'dead');
     deps.fetch = async (url, options) => {
       if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
       return webhookResponse(200);
@@ -1972,7 +2276,7 @@ describe('lock safety through main', () => {
   });
 
   it('resolves an active lock to exit 2 without probes', async () => {
-    const fs = lockFs(JSON.stringify({ pid: 99999, createdAt: 1 }));
+    const fs = lockFs(JSON.stringify({ version: 1, pid: 99999, createdAt: 1, ownerToken: 'a'.repeat(32) }));
     const deps = healthyDeps(fs, { alive: true });
     const logLines = [];
     const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
@@ -1981,7 +2285,7 @@ describe('lock safety through main', () => {
   });
 
   it('reclaims a stale dead-pid lock and runs the monitor', async () => {
-    const fs = lockFs(JSON.stringify({ pid: 99999, createdAt: 1 }));
+    const fs = lockFs(JSON.stringify({ version: 1, pid: 99999, createdAt: 1, ownerToken: 'a'.repeat(32) }));
     const deps = healthyDeps(fs, { alive: false });
     const exit = await main({ env, deps, log: () => {} });
     assert.equal(exit, 0);

@@ -1,6 +1,6 @@
 {
   "task": "operator-alerting-implementation",
-  "round": "R3 (state bootstrap and lock safety)",
+  "round": "R4 (quarantine and lock ownership repair)",
   "date": "2026-08-05",
   "branch": "feat/operator-alerting",
   "base": "96e69aa6c56d1f1b9110957d1ceaa7f5e4e3e04f",
@@ -14,7 +14,7 @@
     "disk": "real statfs of the configured filesystem (threshold 5 for health/backup scenarios)"
   },
   "automated-tests": {
-    "node --test ops/scripts/tests/operator-alerting.test.mjs": "111 passed (111)",
+    "node --test ops/scripts/tests/operator-alerting.test.mjs": "133 passed (133)",
     "node --check": "PASS"
   },
   "r1-regressions": {
@@ -38,7 +38,7 @@
     ]
   },
   "runtime-acceptance": {
-    "summary": "22/22 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
+    "summary": "28/28 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
     "scenarios": {
       "1-disabled": {
         "outcome": "PASS",
@@ -163,6 +163,46 @@
         "webhooks": 0,
         "lockPreserved": true,
         "noStackInStderr": true
+      },
+      "r4-23-quarantine-rename-fail-closed": {
+        "outcome": "PASS",
+        "exitCode": 1,
+        "originalPreserved": true,
+        "probes": 0,
+        "webhooks": 0
+      },
+      "r4-24-eprem-active-lock-busy": {
+        "outcome": "PASS",
+        "exitCode": 2,
+        "lockPreserved": true,
+        "probes": 0,
+        "webhooks": 0
+      },
+      "r4-25-non-positive-pid-lock-malformed": {
+        "outcome": "PASS",
+        "exitCode": 1,
+        "lockPreserved": true,
+        "probes": 0,
+        "webhooks": 0
+      },
+      "r4-26-lock-replaced-during-reclaim": {
+        "outcome": "PASS",
+        "exitCode": 2,
+        "replacementPreserved": true,
+        "probes": 0,
+        "webhooks": 0
+      },
+      "r4-27-competitor-wins-acquisition": {
+        "outcome": "PASS",
+        "exitCode": 2,
+        "competitorPreserved": true,
+        "probes": 0,
+        "webhooks": 0
+      },
+      "r4-28-owner-mismatch-release": {
+        "outcome": "PASS",
+        "releaseReason": "owner-mismatch",
+        "foreignPreserved": true
       }
     }
   },
@@ -181,7 +221,7 @@
   "no-raw-health-body-in-payload": true,
   "commands-verified": {
     "node --check ops/scripts/operator-alerting.mjs": "PASS",
-    "node --test ops/scripts/tests/operator-alerting.test.mjs": "111/111 PASS",
+    "node --test ops/scripts/tests/operator-alerting.test.mjs": "133/133 PASS",
     "bash -n wrappers": "PASS",
     "shellcheck wrappers": "PASS",
     "launchd plist XML parse": "PASS",
@@ -230,6 +270,34 @@
     ],
     "payload-cleanup": [
       "disk recovery payload omits consecutiveFailures; failed alerts/reminders still include it"
+    ]
+  },
+  "r4-regressions": {
+    "quarantine-must-succeed": [
+      "quarantine rename EACCES: StateQuarantineError permission, original state preserved, no fresh write",
+      "quarantine rename EIO: StateQuarantineError io, fail closed",
+      "destination collision: unique random-suffix quarantine chosen, existing quarantine never overwritten, pending persist flow preserved",
+      "unresolvable destination collision: StateQuarantineError collision, original preserved",
+      "through main: quarantine rename failure -> exit 1, zero probes/webhooks, safe log without path or error text"
+    ],
+    "owner-bound-lock": [
+      "lock metadata {version:1, pid, createdAt, ownerToken}; PID must be a positive safe integer (0 and negatives malformed)",
+      "createdAt must be finite positive and not clearly future (60s skew); missing version or ownerToken malformed",
+      "liveness model alive|dead|unknown: EPERM -> alive, ESRCH -> dead, other -> unknown",
+      "unknown liveness fails closed, never treated as stale",
+      "EPERM-classified process: lock busy exit 2, no reclaim, no probes, lock preserved"
+    ],
+    "serialized-reclaim": [
+      "lock.reclaim guard serializes stale evaluation; live guard owner blocks the reclaimer",
+      "stale guard owner reclaimed with the same owner-safe primitive (bounded, no recursion)",
+      "lock replaced by an active owner before the second read: reclaimer backs off, replacement preserved, guard released",
+      "competitor wins the wx race after stale unlink: exit 2, competitor lock preserved, monitor not started"
+    ],
+    "owner-safe-release": [
+      "release removes only the exact ownerToken match",
+      "foreign lock on release: owner-mismatch, foreign lock preserved",
+      "malformed replacement on release: never deleted, no raw content logged",
+      "missing lock on release: idempotent"
     ]
   }
 }

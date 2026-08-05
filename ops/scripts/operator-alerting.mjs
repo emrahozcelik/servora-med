@@ -8,7 +8,7 @@
 // Defaults are disabled: with SERVORA_ALERTING_ENABLED=false the process
 // exits 0 without any network access or state mutation.
 
-import { createHash } from 'node:crypto';
+import { createHash, randomBytes } from 'node:crypto';
 import {
   chmodSync,
   existsSync,
@@ -48,6 +48,14 @@ export class StateReadError extends Error {
   }
 }
 
+export class StateQuarantineError extends Error {
+  constructor(category) {
+    super(`state quarantine failed: ${category}`);
+    this.name = 'StateQuarantineError';
+    this.category = category;
+  }
+}
+
 export class LockError extends Error {
   constructor(category) {
     super(`lock ${category}`);
@@ -61,6 +69,27 @@ export const CHECK_NAMES = ['health', 'backup', 'disk'];
 const SAFE_LABEL_RE = /^[A-Za-z0-9._-]{1,64}$/;
 const BACKUP_RE = /^servora-med-(\d{8}T\d{6}Z)\.dump$/;
 const SIDECAR_RE = /^([0-9a-f]{64})  (servora-med-\d{8}T\d{6}Z\.dump)$/;
+
+// Lock ownership contract.
+export const LOCK_VERSION = 1;
+const LOCK_TOKEN_RE = /^[A-Za-z0-9-]{8,128}$/;
+const LOCK_CLOCK_SKEW_MS = 60_000;
+const RECLAIM_GUARD_FILE = 'lock.reclaim';
+
+export function classifyKillError(error) {
+  if (error?.code === 'EPERM') return 'alive';
+  if (error?.code === 'ESRCH') return 'dead';
+  return 'unknown';
+}
+
+export function probeProcess(pid) {
+  try {
+    process.kill(pid, 0);
+    return 'alive';
+  } catch (error) {
+    return classifyKillError(error);
+  }
+}
 
 export function createDefaultDeps() {
   return {
@@ -76,14 +105,8 @@ export function createDefaultDeps() {
     exists: existsSync,
     fetch: globalThis.fetch,
     hashFile: (filePath) => createHash('sha256').update(readFileSync(filePath)).digest('hex'),
-    isProcessAlive(pid) {
-      try {
-        process.kill(pid, 0);
-        return true;
-      } catch {
-        return false;
-      }
-    },
+    probeProcess,
+    randomToken: () => randomBytes(16).toString('hex'),
     now: () => Date.now(),
   };
 }
@@ -498,6 +521,23 @@ function readErrorCategory(error) {
   return 'other';
 }
 
+function quarantineErrorCategory(error) {
+  const code = error?.code;
+  if (code === 'EACCES' || code === 'EPERM') return 'permission';
+  if (code === 'EIO') return 'io';
+  return 'other';
+}
+
+function quarantineDestination(config, deps) {
+  const base = `state.json.corrupt-${new Date(deps.now()).toISOString().replace(/[:.]/g, '-')}`;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const name = attempt === 0 ? base : `${base}-${deps.randomToken()}`;
+    const candidate = `${config.stateDir}/${name}`;
+    if (!deps.exists(candidate)) return candidate;
+  }
+  return null;
+}
+
 export async function loadState(config, deps) {
   const statePath = `${config.stateDir}/state.json`;
   let raw;
@@ -527,11 +567,12 @@ export async function loadState(config, deps) {
     return { state: sanitized, monitorEvent: null, requiresInitialPersist: false };
   }
 
-  const quarantineName = `state.json.corrupt-${new Date(deps.now()).toISOString().replace(/[:.]/g, '-')}`;
+  const destination = quarantineDestination(config, deps);
+  if (destination === null) throw new StateQuarantineError('collision');
   try {
-    deps.rename(statePath, `${config.stateDir}/${quarantineName}`);
-  } catch {
-    // Quarantine failure must not expose the corrupt content; fall through.
+    deps.rename(statePath, destination);
+  } catch (error) {
+    throw new StateQuarantineError(quarantineErrorCategory(error));
   }
   const fresh = createDefaultState();
   fresh.monitor.pendingIncident = { kind: 'state-corrupt', detectedAt: deps.now() };
@@ -557,24 +598,18 @@ export function writeState(config, state, deps) {
 // Lock
 // ---------------------------------------------------------------------------
 
-export function acquireLock(config, deps) {
-  deps.mkdir(config.stateDir, { recursive: true, mode: 0o700 });
-  const lockPath = `${config.stateDir}/lock.lock`;
-  const attempt = () => {
-    try {
-      deps.writeFile(lockPath, `${JSON.stringify({ pid: process.pid, createdAt: deps.now() })}\n`, { flag: 'wx', mode: 0o600 });
-      return { ok: true, staleReclaimed: false };
-    } catch (error) {
-      if (error?.code === 'EEXIST') return { ok: false, staleReclaimed: false };
-      throw new LockError('unexpected');
-    }
-  };
-  const first = attempt();
-  if (first.ok) return first;
+function lockPayload(ownerToken, now) {
+  return `${JSON.stringify({ version: LOCK_VERSION, pid: process.pid, createdAt: now, ownerToken })}\n`;
+}
+
+// Strict parse of a lock file. Returns the parsed lock object or null when the
+// file is absent; throws LockError('malformed'|'unreadable') otherwise.
+function readLockFile(config, deps, fileName) {
   let raw;
   try {
-    raw = deps.readFile(lockPath, 'utf8');
-  } catch {
+    raw = deps.readFile(`${config.stateDir}/${fileName}`, 'utf8');
+  } catch (error) {
+    if (error?.code === 'ENOENT') return null;
     throw new LockError('unreadable');
   }
   let lock;
@@ -583,27 +618,114 @@ export function acquireLock(config, deps) {
   } catch {
     throw new LockError('malformed');
   }
-  if (typeof lock.pid !== 'number' || !Number.isInteger(lock.pid)) {
+  if (
+    lock === null || typeof lock !== 'object'
+    || lock.version !== LOCK_VERSION
+    || typeof lock.pid !== 'number' || !Number.isSafeInteger(lock.pid) || lock.pid <= 0
+    || typeof lock.createdAt !== 'number' || !Number.isFinite(lock.createdAt) || lock.createdAt <= 0
+    || lock.createdAt > deps.now() + LOCK_CLOCK_SKEW_MS
+    || typeof lock.ownerToken !== 'string' || !LOCK_TOKEN_RE.test(lock.ownerToken)
+  ) {
     throw new LockError('malformed');
   }
-  if (deps.isProcessAlive(lock.pid)) {
-    return { ok: false, staleReclaimed: false };
-  }
-  try {
-    deps.unlink(lockPath);
-  } catch {
-    // Another process may have reclaimed it; retry below.
-  }
-  const second = attempt();
-  if (!second.ok) return { ok: false, staleReclaimed: true };
-  return { ok: true, staleReclaimed: true };
+  return lock;
 }
 
-export function releaseLock(config, deps) {
+// Atomically claims `lock.reclaim` to serialize stale-lock reclamation. A dead
+// guard owner is removed after revalidation (bounded, no recursion); an alive
+// or unknown guard owner leaves the guard untouched and reports busy.
+function acquireReclaimGuard(config, deps) {
+  const guardPath = `${config.stateDir}/${RECLAIM_GUARD_FILE}`;
+  const ownerToken = deps.randomToken();
+  const attempt = () => {
+    try {
+      deps.writeFile(guardPath, lockPayload(ownerToken, deps.now()), { flag: 'wx', mode: 0o600 });
+      return { ok: true, ownerToken };
+    } catch (error) {
+      if (error?.code === 'EEXIST') return null;
+      throw new LockError('unexpected');
+    }
+  };
+  const first = attempt();
+  if (first) return first;
+  const existing = readLockFile(config, deps, RECLAIM_GUARD_FILE);
+  if (deps.probeProcess(existing.pid) !== 'dead') return { ok: false };
   try {
-    deps.unlink(`${config.stateDir}/lock.lock`);
+    deps.unlink(guardPath);
+  } catch (error) {
+    if (error?.code !== 'ENOENT') throw new LockError('unexpected');
+  }
+  return attempt();
+}
+
+export function acquireLock(config, deps) {
+  deps.mkdir(config.stateDir, { recursive: true, mode: 0o700 });
+  const lockPath = `${config.stateDir}/lock.lock`;
+  const ownerToken = deps.randomToken();
+  const attempt = () => {
+    try {
+      deps.writeFile(lockPath, lockPayload(ownerToken, deps.now()), { flag: 'wx', mode: 0o600 });
+      return { ok: true, staleReclaimed: false, ownerToken };
+    } catch (error) {
+      if (error?.code === 'EEXIST') return null;
+      throw new LockError('unexpected');
+    }
+  };
+  const first = attempt();
+  if (first) return first;
+
+  const existing = readLockFile(config, deps, 'lock.lock');
+  if (existing === null) {
+    const second = attempt();
+    if (second) return second;
+    return { ok: false, staleReclaimed: false };
+  }
+  const liveness = deps.probeProcess(existing.pid);
+  if (liveness === 'alive') return { ok: false, staleReclaimed: false };
+  if (liveness === 'unknown') throw new LockError('unknown');
+
+  const guard = acquireReclaimGuard(config, deps);
+  if (!guard.ok) return { ok: false, staleReclaimed: false };
+
+  let reclaimed = false;
+  try {
+    const revalidated = readLockFile(config, deps, 'lock.lock');
+    if (revalidated !== null) {
+      const liveness2 = deps.probeProcess(revalidated.pid);
+      if (liveness2 === 'alive') return { ok: false, staleReclaimed: false };
+      if (liveness2 === 'unknown') throw new LockError('unknown');
+      try {
+        deps.unlink(lockPath);
+        reclaimed = true;
+      } catch (error) {
+        if (error?.code !== 'ENOENT') throw new LockError('unexpected');
+      }
+    }
+    const next = attempt();
+    if (next) return { ok: true, staleReclaimed: reclaimed, ownerToken };
+    return { ok: false, staleReclaimed: reclaimed };
+  } finally {
+    releaseLock(config, deps, { ownerToken: guard.ownerToken }, RECLAIM_GUARD_FILE);
+  }
+}
+
+// Owner-safe release: only the lock whose ownerToken matches the current run
+// is removed. A foreign, malformed or missing lock is never deleted.
+export function releaseLock(config, deps, ownership, fileName = 'lock.lock') {
+  let existing;
+  try {
+    existing = readLockFile(config, deps, fileName);
   } catch {
-    // Lock already gone or never acquired — safe to ignore.
+    return { released: false, reason: 'malformed' };
+  }
+  if (existing === null) return { released: false, reason: 'missing' };
+  if (existing.ownerToken !== ownership.ownerToken) return { released: false, reason: 'owner-mismatch' };
+  try {
+    deps.unlink(`${config.stateDir}/${fileName}`);
+    return { released: true, reason: 'ok' };
+  } catch (error) {
+    if (error?.code === 'ENOENT') return { released: false, reason: 'missing' };
+    return { released: false, reason: 'unexpected' };
   }
 }
 
@@ -907,7 +1029,7 @@ export async function main({ env = process.env, deps = createDefaultDeps(), log 
     return 0;
   }
 
-  let lockAcquired = false;
+  let ownership = null;
   let exitCode = 0;
   try {
     const lock = acquireLock(config, deps);
@@ -915,7 +1037,7 @@ export async function main({ env = process.env, deps = createDefaultDeps(), log 
       log({ level: 'warn', run: 'lock-busy', staleReclaimed: lock.staleReclaimed });
       return 2;
     }
-    lockAcquired = true;
+    ownership = { ownerToken: lock.ownerToken };
 
     const result = await runMonitor(config, deps);
     if (result.stateWriteFailed) {
@@ -946,6 +1068,9 @@ export async function main({ env = process.env, deps = createDefaultDeps(), log 
     if (error instanceof LockError) {
       log({ level: 'error', run: error.category === 'malformed' ? 'lock-invalid' : 'lock-error', errorCategory: error.category });
       exitCode = 1;
+    } else if (error instanceof StateQuarantineError) {
+      log({ level: 'error', run: 'state-quarantine-failed', errorCategory: error.category });
+      exitCode = 1;
     } else if (error instanceof StateReadError) {
       log({ level: 'error', run: 'state-read-failed', errorCategory: error.category });
       exitCode = 1;
@@ -957,7 +1082,11 @@ export async function main({ env = process.env, deps = createDefaultDeps(), log 
       exitCode = 1;
     }
   } finally {
-    if (lockAcquired) releaseLock(config, deps);
+    if (ownership) {
+      const release = releaseLock(config, deps, ownership);
+      if (release.reason === 'owner-mismatch') log({ level: 'warn', run: 'release-owner-mismatch' });
+      else if (release.reason === 'unexpected') log({ level: 'warn', run: 'release-failed' });
+    }
   }
   return exitCode;
 }
