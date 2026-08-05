@@ -23,6 +23,8 @@
   --radius-raised: 0.75rem;
   --radius-chip: 999px;
   --shadow-raised: 0 8px 24px rgba(30, 37, 43, 0.12);
+  --record-description-label-min-width: 200px;
+  --record-description-label-min-width-narrow: 112px;
 
   color: var(--ink);
   background: oklch(97.5% 0.006 235deg);
@@ -1593,7 +1595,6 @@ button:disabled { cursor: wait; opacity: 0.65; }
   grid-template-columns: 1fr;
   gap: 1rem;
   align-items: start;
-  margin-top: 1.5rem;
   min-width: 0;
 }
 .job-detail-workflow-main {
@@ -1601,9 +1602,16 @@ button:disabled { cursor: wait; opacity: 0.65; }
   gap: 0.75rem;
   min-width: 0;
 }
-.job-detail-workflow-main--full,
-.job-detail-workflow-notes--full {
-  margin-top: 1.5rem;
+.job-detail-work-rail {
+  display: grid;
+  gap: 1.15rem;
+  align-content: start;
+  min-width: 0;
+}
+.job-detail-rail-heading {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 720;
 }
 .job-detail-workflow-main .detail-action {
   margin-top: 0;
@@ -1641,6 +1649,12 @@ button:disabled { cursor: wait; opacity: 0.65; }
   min-width: 0;
   max-width: 100%;
 }
+.job-detail-main {
+  display: grid;
+  gap: 1.15rem;
+  align-content: start;
+  min-width: 0;
+}
 .job-detail-records { min-width: 0; max-width: 100%; }
 .servora-workflow-steps {
   min-width: 0;
@@ -1673,18 +1687,25 @@ button:disabled { cursor: wait; opacity: 0.65; }
   color: var(--muted);
   font-size: 0.78rem;
   font-weight: 650;
+  overflow-wrap: normal;
+}
+.detail-summary .servora-record-descriptions .servora-ant-descriptions-item-label {
+  overflow-wrap: normal;
 }
 .servora-record-descriptions .servora-ant-descriptions-item-content {
   min-width: 0;
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
-.detail-summary .servora-record-descriptions-view table {
+.detail-summary .servora-ant-descriptions.servora-ant-descriptions-bordered .servora-ant-descriptions-view > table {
   width: 100%;
   table-layout: fixed;
 }
-.detail-summary .servora-ant-descriptions-item-label,
+.detail-summary .servora-ant-descriptions-view .servora-ant-descriptions-item-label {
+  width: var(--record-description-label-min-width-narrow);
+  min-width: 0;
+}
 .detail-summary .servora-ant-descriptions-item-content {
-  overflow-wrap: anywhere;
+  overflow-wrap: break-word;
 }
 .detail-heading {
   display: flex;
@@ -1755,8 +1776,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .meeting-details .detail-summary { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 1.25rem 2rem; }
 .meeting-details .detail-summary > div { display: grid; gap: 0.25rem; }
 .detail-summary dt, .delivery-lines dt { color: var(--muted); font-size: 0.75rem; font-weight: 650; }
-.detail-summary dd, .delivery-lines dd { margin: 0; line-height: 1.45; overflow-wrap: anywhere; }
-.detail-summary time { overflow-wrap: anywhere; }
+.detail-summary dd, .delivery-lines dd { margin: 0; line-height: 1.45; overflow-wrap: break-word; }
+.detail-summary time { overflow-wrap: break-word; }
 .detail-summary .detail-summary-wide { grid-column: 1 / -1; }
 /* Delivery items: rule + spacing list, not nested raised cards. */
 .delivery-lines {
@@ -2406,20 +2427,18 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 
 @media (min-width: 64rem) {
-  .job-detail-content {
+  .job-detail-content--rail {
     grid-template-columns: minmax(0, 2fr) minmax(17rem, 1fr);
-    grid-auto-flow: row dense;
     align-items: start;
   }
-  .job-detail-content > .detail-summary,
-  .job-detail-content > .job-schedule-edit,
-  .job-detail-content > .delivery-lines,
-  .job-detail-content > .job-detail-records { grid-column: 1; }
-  .job-detail-content > .approval-review,
-  .job-detail-content > .job-detail-management-review,
-  .job-detail-content > [data-job-detail-section="management-review"] { grid-column: 2; }
-  .job-detail-workflow-layout {
-    grid-template-columns: minmax(0, 1.15fr) minmax(18rem, 0.85fr);
+  .job-detail-content--rail > .job-detail-work-rail {
+    grid-column: 2;
+  }
+}
+
+@media (min-width: 72rem) {
+  .detail-summary .servora-ant-descriptions-view .servora-ant-descriptions-item-label {
+    width: var(--record-description-label-min-width);
   }
 }
 

@@ -16,12 +16,43 @@ function columnsForWidth(width: number): 1 | 2 {
 }
 
 /**
- * Read-only record facts. Column count follows the adapter host width (not viewport),
- * so AppShell sidebar + padding cannot force a crushed two-column grid.
+ * Ant-compatible row spans. A wide item always owns its full row: when it would
+ * otherwise land on a partially filled row, the previous item is extended to
+ * close that row first. Without this, Ant clamps the wide item to the remaining
+ * cell and emits a "Sum of column span" warning.
  */
-export function RecordDescriptions({ ariaLabel, items }: {
+export function resolveItemSpans(
+  items: readonly RecordDescriptionItem[],
+  columns: 1 | 2,
+): number[] {
+  if (columns === 1) return items.map(() => 1);
+  const spans: number[] = [];
+  let count = 0;
+  items.forEach((item, index) => {
+    if (item.wide && count > 0) {
+      spans[index - 1] = 2;
+      spans.push(2);
+      count = 0;
+      return;
+    }
+    const span = item.wide ? 2 : 1;
+    spans.push(span);
+    count += span;
+    if (count >= columns) count = 0;
+  });
+  return spans;
+}
+
+/**
+ * Read-only record facts. Column count follows the adapter host width (not viewport),
+ * so AppShell sidebar + padding cannot force a crushed two-column grid. `maxColumns`
+ * lets consumers pin a safer column count when the surrounding layout already
+ * reserves horizontal space (e.g. the Job Detail work rail).
+ */
+export function RecordDescriptions({ ariaLabel, items, maxColumns = 2 }: {
   ariaLabel: string;
   items: readonly RecordDescriptionItem[];
+  maxColumns?: 1 | 2;
 }): ReactNode {
   const hostRef = useRef<HTMLDivElement>(null);
   const [columns, setColumns] = useState<1 | 2>(1);
@@ -33,7 +64,8 @@ export function RecordDescriptions({ ariaLabel, items }: {
     }
 
     const update = (width: number) => {
-      setColumns(columnsForWidth(width));
+      const available = columnsForWidth(width);
+      setColumns(available > maxColumns ? maxColumns : available);
     };
 
     update(element.getBoundingClientRect().width);
@@ -48,7 +80,9 @@ export function RecordDescriptions({ ariaLabel, items }: {
     return () => {
       observer.disconnect();
     };
-  }, []);
+  }, [maxColumns]);
+
+  const spans = resolveItemSpans(items, columns);
 
   return (
     <div
@@ -62,11 +96,11 @@ export function RecordDescriptions({ ariaLabel, items }: {
         bordered
         colon={false}
         column={columns}
-        items={items.map((item) => ({
+        items={items.map((item, index) => ({
           key: item.key,
           label: item.label,
           children: item.content,
-          span: item.wide && columns === 2 ? 2 : 1,
+          span: spans[index],
         }))}
       />
     </div>

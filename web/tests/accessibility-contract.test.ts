@@ -49,9 +49,13 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.form-intro \{[^}]*overflow-wrap: anywhere;/);
     expect(css).toMatch(/\.form-help \{[^}]*overflow-wrap: anywhere;/);
     expect(css).toMatch(/\.eyebrow \{[^}]*overflow-wrap: anywhere;/);
-    expect(css).toMatch(/\.detail-summary time \{[^}]*overflow-wrap: anywhere;/);
+    expect(css).toMatch(/\.detail-summary time \{[^}]*overflow-wrap: break-word;/);
     expect(css).toMatch(/\.delivery-pair \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.detail-summary \{[^}]*display: block;/);
+    expect(css).toMatch(/\.servora-record-descriptions \.servora-ant-descriptions-item-label \{[^}]*overflow-wrap: normal;/);
+    expect(css).toMatch(/\.servora-record-descriptions \.servora-ant-descriptions-item-content \{[^}]*overflow-wrap: break-word;/);
+    expect(css).toMatch(/\.detail-summary \.servora-ant-descriptions\.servora-ant-descriptions-bordered \.servora-ant-descriptions-view > table \{[^}]*width:\s*100%;[^}]*table-layout:\s*fixed;/);
+    expect(css).toMatch(/\.detail-summary \.servora-ant-descriptions-view \.servora-ant-descriptions-item-label \{[^}]*width:\s*var\(--record-description-label-min-width-narrow\);/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.job-note-list li > div \{[^}]*flex-direction: column;/);
     expect(css).toMatch(/\.delivery-lines > ul > li \{ grid-template-columns: 1fr;/);
     expect(css).toMatch(/\.customer-filters \{ grid-template-columns: 1fr;/);

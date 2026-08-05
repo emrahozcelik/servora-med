@@ -184,6 +184,21 @@ function cancelledJob(lifecycle: Partial<JobLifecycleFacts>): JobCard {
   };
 }
 
+function waitingApprovalJob(): JobCard {
+  return {
+    ...job,
+    status: 'WAITING_APPROVAL',
+    title: 'Onay bekleyen teslim',
+    workflowContext: staffContext('WAITING_APPROVAL', {
+      acceptedAt: '2026-07-17T08:30:00.000Z',
+      acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      startedAt: '2026-07-17T09:00:00.000Z',
+      submittedAt: '2026-07-17T10:00:00.000Z',
+      submittedBy: { id: 's1', name: 'Ayşe Personel' },
+    }),
+  };
+}
+
 const emptyPage = { items: [], total: 0, limit: 25, offset: 0 };
 const meetingDetails: MeetingDetails = {
   jobCardId: 'job-1', meetingAt: '2026-07-16T10:00:00.000Z', outcome: 'POSITIVE',
@@ -641,6 +656,98 @@ describe('Staff JobCard detail', () => {
     expect(heading.querySelector('.detail-heading-meta')?.textContent).toContain('Normal öncelik');
     expect(heading.querySelector('.detail-back-button')?.textContent).toBe('Listeye dön');
     expect(host.querySelector('.detail-summary.surface-flat')).not.toBeNull();
+  });
+
+  it('places actions and notes in the desktop work rail beside the main record area', async () => {
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={inProgressMeeting()}
+        items={[]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+        notes={<section className="job-notes" data-test-notes>Notlar</section>}
+        timeline={<section className="job-timeline" data-test-timeline>Timeline</section>}
+      />);
+    });
+    const content = host.querySelector('.job-detail-content')!;
+    expect(content.classList.contains('job-detail-content--rail')).toBe(true);
+    const main = host.querySelector('.job-detail-main')!;
+    const rail = host.querySelector('.job-detail-work-rail')!;
+    expect(rail.getAttribute('data-job-detail-rail')).toBe('true');
+    expect(main.contains(section('facts'))).toBe(true);
+    const actions = section('actions')!;
+    const notes = host.querySelector('[data-test-notes]')!;
+    expect(rail.contains(actions)).toBe(true);
+    expect(rail.contains(notes)).toBe(true);
+    const heading = actions.querySelector('.job-detail-rail-heading');
+    expect(heading?.textContent).toBe('İşlemler');
+    expect(host.querySelector('.job-detail-management-review')).toBeNull();
+  });
+
+  it('expands the record area to full width when no rail content exists', async () => {
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={cancelledJob({})}
+        items={[]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+      />);
+    });
+    expect(host.querySelector('.job-detail-work-rail')).toBeNull();
+    expect(host.querySelector('.job-detail-content--rail')).toBeNull();
+    expect(host.querySelector('.job-detail-content')?.classList.contains('job-detail-content--rail'))
+      .toBe(false);
+  });
+
+  it('keeps notes in the rail without an actions heading for terminal jobs', async () => {
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={cancelledJob({})}
+        items={[]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+        notes={<section className="job-notes" data-test-notes>Notlar</section>}
+        timeline={<section className="job-timeline" data-test-timeline>Timeline</section>}
+      />);
+    });
+    const rail = host.querySelector('.job-detail-work-rail')!;
+    expect(rail).not.toBeNull();
+    expect(section('actions')).toBeNull();
+    expect(host.querySelector('.job-detail-rail-heading')).toBeNull();
+    expect(rail.contains(host.querySelector('[data-test-notes]'))).toBe(true);
+  });
+
+  it('places management review actions in the same rail as notes', async () => {
+    await act(async () => {
+      root.render(<JobDetailPanel
+        job={waitingApprovalJob()}
+        items={[]}
+        user={managerUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+        notes={<section className="job-notes" data-test-notes>Notlar</section>}
+      />);
+    });
+    const rail = host.querySelector('.job-detail-work-rail')!;
+    expect(rail).not.toBeNull();
+    const review = section('management-review')!;
+    expect(rail.contains(review)).toBe(true);
+    expect(review.textContent).toContain('Yönetici kontrolü');
+    const actions = section('actions')!;
+    expect(rail.contains(actions)).toBe(true);
+    expect(rail.contains(host.querySelector('[data-test-notes]'))).toBe(true);
+    expect(host.querySelector('.job-detail-main')!.contains(section('facts'))).toBe(true);
   });
 
   it('places revision after lifecycle and before responsibility', async () => {

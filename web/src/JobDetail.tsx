@@ -416,10 +416,35 @@ export function JobDetailPanel({
     && job.status === 'COMPLETED'
     && onCreateFollowUp !== undefined
     && !showFollowUpRecommendation;
+  const showRequirements = !managementReview
+    && presentation.terminalState === null
+    && presentation.requirements.length > 0;
+  const hasDecision = Boolean(
+    presentation.primaryTransition
+    || presentation.secondaryTransitions.length > 0
+    || presentation.recordEditAction,
+  );
+  const requirements = showRequirements
+    ? <RequirementsChecklist requirements={presentation.requirements} />
+    : null;
+  const decision = hasDecision ? (
+    <JobDecisionPanel
+      primary={presentation.primaryTransition}
+      secondary={presentation.secondaryTransitions}
+      recordEditAction={presentation.recordEditAction}
+      pending={pending}
+      pendingLabel={pendingLabel}
+      startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
+      onCommand={onCommand}
+      onRecordEdit={onRecordEdit}
+    />
+  ) : null;
+  const hasWorkflowMain = Boolean(requirements || decision);
+  const hasRail = Boolean(managementReview || hasWorkflowMain || notes);
 
   return (
     <main className="job-detail" data-job-detail="true">
-      {/* DOM/keyboard: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management-review → actions/notes → timeline */}
+      {/* DOM/keyboard: heading → feedback → lifecycle → revision|terminal|responsibility → facts → type content → management-review → actions → notes → timeline */}
       <div className="detail-heading" data-job-detail-section="heading">
         <div className="detail-heading-main">
           <p className="eyebrow detail-type-eyebrow">{typeLabel}</p>
@@ -484,147 +509,116 @@ export function JobDetailPanel({
           <CurrentResponsibilityPanel presentation={presentation} assigneeName={job.assignee.name} />
         </div>
       )}
-      <div className="job-detail-content">
-        <section
-          className="detail-summary surface-flat"
-          data-job-detail-section="facts"
-          data-job-detail-block="record-facts"
-        >
-          <RecordDescriptions ariaLabel="İş kayıt bilgileri" items={descriptionItems} />
-        </section>
-
-        {presentation.scheduleEdit && (
-          <JobScheduleEditForm
-            job={job}
-            scheduleEdit={presentation.scheduleEdit}
-            pending={pending}
-            onSave={onSaveSchedule}
-          />
-        )}
-
-        {job.type === 'PRODUCT_DELIVERY' && (
+      <div className={hasRail ? 'job-detail-content job-detail-content--rail' : 'job-detail-content'}>
+        <div className="job-detail-main">
           <section
-            className="delivery-lines"
-            aria-labelledby="delivery-lines-title"
-            data-job-detail-block="delivery"
+            className="detail-summary surface-flat"
+            data-job-detail-section="facts"
+            data-job-detail-block="record-facts"
           >
-            <h2 id="delivery-lines-title">Teslim bilgileri</h2>
-            <ul className="delivery-lines-list">
-              {items.map((entry) => (
-                <li key={entry.id} className="delivery-line-item">
-                  <div className="delivery-line-product">
-                    <strong>{entry.productNameSnapshot}</strong>
-                    <span>{entry.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span>
-                  </div>
-                  <dl className="delivery-line-facts">
-                    <div><dt>Amaç</dt><dd>{purposeLabels[entry.deliveryPurpose]}</dd></div>
-                    <div>
-                      <dt>Miktar</dt>
-                      <dd>{entry.quantity}{entry.unit ? ` ${entry.unit}` : ''}</dd>
-                    </div>
-                    {!canEditDelivery && (
-                      <div>
-                        <dt>Gerçekleşen teslim zamanı</dt>
-                        <dd>{formatDeliveredAt(entry.deliveredAt)}</dd>
-                      </div>
-                    )}
-                  </dl>
-                  {canEditDelivery && onSaveDeliveredAt && (
-                    <DeliveryItemActualTimeForm
-                      item={entry}
-                      pending={pending}
-                      onSave={onSaveDeliveredAt}
-                    />
-                  )}
-                </li>
-              ))}
-            </ul>
-          </section>
-        )}
-
-        {records && (
-          <div className="job-detail-records" data-job-detail-block="records">
-            {records}
-          </div>
-        )}
-
-        {managementReview && (
-          <div
-            className="job-detail-management-review"
-            data-job-detail-section="management-review"
-          >
-            <JobApprovalReviewPanel
-              job={job}
-              lifecycle={job.workflowContext.lifecycle}
-              requirements={presentation.requirements}
+            <RecordDescriptions
+              ariaLabel="İş kayıt bilgileri"
+              items={descriptionItems}
+              maxColumns={hasRail ? 1 : 2}
             />
-          </div>
-        )}
-      </div>
+          </section>
 
-      {(() => {
-        const showRequirements = !managementReview
-          && presentation.terminalState === null
-          && presentation.requirements.length > 0;
-        const hasDecision = Boolean(
-          presentation.primaryTransition
-          || presentation.secondaryTransitions.length > 0
-          || presentation.recordEditAction,
-        );
-        const requirements = showRequirements
-          ? <RequirementsChecklist requirements={presentation.requirements} />
-          : null;
-        const decision = hasDecision ? (
-          <JobDecisionPanel
-            primary={presentation.primaryTransition}
-            secondary={presentation.secondaryTransitions}
-            recordEditAction={presentation.recordEditAction}
-            pending={pending}
-            pendingLabel={pendingLabel}
-            startLocationCaptureEnabled={job.workflowContext.startLocationCaptureEnabled}
-            onCommand={onCommand}
-            onRecordEdit={onRecordEdit}
-          />
-        ) : null;
-        const hasWorkflowMain = Boolean(requirements || decision);
-        if (!hasWorkflowMain && !notes) return null;
-        if (notes && hasWorkflowMain) {
-          return (
-            <div
-              className="job-detail-workflow-layout"
-              data-job-detail-section="actions"
+          {presentation.scheduleEdit && (
+            <JobScheduleEditForm
+              job={job}
+              scheduleEdit={presentation.scheduleEdit}
+              pending={pending}
+              onSave={onSaveSchedule}
+            />
+          )}
+
+          {job.type === 'PRODUCT_DELIVERY' && (
+            <section
+              className="delivery-lines"
+              aria-labelledby="delivery-lines-title"
+              data-job-detail-block="delivery"
             >
-              <div className="job-detail-workflow-main">
-                {requirements}
-                {decision}
+              <h2 id="delivery-lines-title">Teslim bilgileri</h2>
+              <ul className="delivery-lines-list">
+                {items.map((entry) => (
+                  <li key={entry.id} className="delivery-line-item">
+                    <div className="delivery-line-product">
+                      <strong>{entry.productNameSnapshot}</strong>
+                      <span>{entry.productSkuSnapshot ?? 'Ürün kodu belirtilmedi'}</span>
+                    </div>
+                    <dl className="delivery-line-facts">
+                      <div><dt>Amaç</dt><dd>{purposeLabels[entry.deliveryPurpose]}</dd></div>
+                      <div>
+                        <dt>Miktar</dt>
+                        <dd>{entry.quantity}{entry.unit ? ` ${entry.unit}` : ''}</dd>
+                      </div>
+                      {!canEditDelivery && (
+                        <div>
+                          <dt>Gerçekleşen teslim zamanı</dt>
+                          <dd>{formatDeliveredAt(entry.deliveredAt)}</dd>
+                        </div>
+                      )}
+                    </dl>
+                    {canEditDelivery && onSaveDeliveredAt && (
+                      <DeliveryItemActualTimeForm
+                        item={entry}
+                        pending={pending}
+                        onSave={onSaveDeliveredAt}
+                      />
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
+
+          {records && (
+            <div className="job-detail-records" data-job-detail-block="records">
+              {records}
+            </div>
+          )}
+        </div>
+
+        {hasRail && (
+          <aside className="job-detail-work-rail" data-job-detail-rail="true">
+            {managementReview && (
+              <div
+                className="job-detail-management-review"
+                data-job-detail-section="management-review"
+              >
+                <JobApprovalReviewPanel
+                  job={job}
+                  lifecycle={job.workflowContext.lifecycle}
+                  requirements={presentation.requirements}
+                />
               </div>
-              <div className="job-detail-workflow-notes" data-job-detail-block="notes">
+            )}
+
+            {hasWorkflowMain && (
+              <div
+                className="job-detail-workflow-layout"
+                data-job-detail-section="actions"
+              >
+                <div className="job-detail-workflow-main">
+                  <h2 className="job-detail-rail-heading">İşlemler</h2>
+                  {requirements}
+                  {decision}
+                </div>
+              </div>
+            )}
+
+            {notes && (
+              <div
+                className="job-detail-workflow-notes"
+                data-job-detail-section="notes"
+                data-job-detail-block="notes"
+              >
                 {notes}
               </div>
-            </div>
-          );
-        }
-        if (hasWorkflowMain) {
-          return (
-            <div
-              className="job-detail-workflow-main job-detail-workflow-main--full"
-              data-job-detail-section="actions"
-            >
-              {requirements}
-              {decision}
-            </div>
-          );
-        }
-        return (
-          <div
-            className="job-detail-workflow-notes job-detail-workflow-notes--full"
-            data-job-detail-section="notes"
-            data-job-detail-block="notes"
-          >
-            {notes}
-          </div>
-        );
-      })()}
+            )}
+          </aside>
+        )}
+      </div>
 
       {timeline && (
         <div className="job-detail-timeline" data-job-detail-section="timeline">
