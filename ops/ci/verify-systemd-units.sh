@@ -14,6 +14,7 @@ mkdir -p \
   "$TMP/etc/servora-med" \
   "$TMP/usr/bin" \
   "$TMP/var/backups/servora-med" \
+  "$TMP/var/lib/servora-med-alerting" \
   "$TMP/var/log/servora-med" \
   "$TMP/units"
 
@@ -22,6 +23,8 @@ printf '#!/bin/sh\nexit 0\n' >"$TMP/usr/bin/node"
 chmod +x "$TMP/usr/bin/node"
 printf '#!/bin/sh\nexit 0\n' >"$TMP/opt/servora-med/current/ops/scripts/backup-postgres.sh"
 chmod +x "$TMP/opt/servora-med/current/ops/scripts/backup-postgres.sh"
+printf '#!/bin/sh\nexit 0\n' >"$TMP/opt/servora-med/current/ops/scripts/operator-alerting.mjs"
+chmod +x "$TMP/opt/servora-med/current/ops/scripts/operator-alerting.mjs"
 : >"$TMP/opt/servora-med/current/server/dist-index-stub"
 # WorkingDirectory must exist; ExecStart path is absolute to stub node.
 mkdir -p "$TMP/opt/servora-med/current/server"
@@ -31,6 +34,7 @@ chmod +x "$TMP/opt/servora-med/current/server/dist-index.js"
 # Required EnvironmentFile paths must exist (non-optional).
 : >"$TMP/etc/servora-med/servora-med.env"
 : >"$TMP/etc/servora-med/servora-med-backup.env"
+: >"$TMP/etc/servora-med/servora-med-alerting.env"
 
 rewrite_unit() {
   local src="$1"
@@ -41,14 +45,19 @@ rewrite_unit() {
     -e "s|WorkingDirectory=/opt/servora-med/current/server|WorkingDirectory=${TMP}/opt/servora-med/current/server|g" \
     -e "s|EnvironmentFile=/etc/servora-med/|EnvironmentFile=${TMP}/etc/servora-med/|g" \
     -e "s|ExecStart=/opt/servora-med/current/ops/scripts/backup-postgres.sh|ExecStart=${TMP}/opt/servora-med/current/ops/scripts/backup-postgres.sh|g" \
+    -e "s|ExecStart=/usr/bin/node /opt/servora-med/current/ops/scripts/operator-alerting.mjs|ExecStart=${TMP}/usr/bin/node ${TMP}/opt/servora-med/current/ops/scripts/operator-alerting.mjs|g" \
     -e "s|ReadWritePaths=/var/backups/servora-med /var/log/servora-med|ReadWritePaths=${TMP}/var/backups/servora-med ${TMP}/var/log/servora-med|g" \
+    -e "s|ReadOnlyPaths=/var/backups/servora-med|ReadOnlyPaths=${TMP}/var/backups/servora-med|g" \
+    -e "s|ReadWritePaths=/var/lib/servora-med-alerting /var/log/servora-med|ReadWritePaths=${TMP}/var/lib/servora-med-alerting ${TMP}/var/log/servora-med|g" \
     "$src" >"$dest"
 }
 
 rewrite_unit "$ROOT/ops/systemd/servora-med.service" "$TMP/units/servora-med.service"
 rewrite_unit "$ROOT/ops/systemd/servora-med-backup.service" "$TMP/units/servora-med-backup.service"
-# Timer has no absolute host paths beyond Unit= reference.
+rewrite_unit "$ROOT/ops/systemd/servora-med-alerting.service" "$TMP/units/servora-med-alerting.service"
+# Timers have no absolute host paths beyond Unit= reference.
 cp "$ROOT/ops/systemd/servora-med-backup.timer" "$TMP/units/servora-med-backup.timer"
+cp "$ROOT/ops/systemd/servora-med-alerting.timer" "$TMP/units/servora-med-alerting.timer"
 
 if ! command -v systemd-analyze >/dev/null 2>&1; then
   echo "systemd-analyze is required on this CI image" >&2
@@ -59,6 +68,8 @@ fi
 systemd-analyze verify \
   "$TMP/units/servora-med.service" \
   "$TMP/units/servora-med-backup.service" \
-  "$TMP/units/servora-med-backup.timer"
+  "$TMP/units/servora-med-backup.timer" \
+  "$TMP/units/servora-med-alerting.service" \
+  "$TMP/units/servora-med-alerting.timer"
 
 echo "systemd-analyze verify passed"

@@ -1,5 +1,10 @@
 # Backup and restore — Servora-Med
 
+> Backup freshness alerting: the operator alerting monitor checks the age and
+> checksum validity of the latest canonical backup pair without modifying it —
+> see [operator-alerting.md](./operator-alerting.md). Backup creation and
+> restore remain manual as documented below.
+
 ## Backup
 
 Script: `ops/scripts/backup-postgres.sh`

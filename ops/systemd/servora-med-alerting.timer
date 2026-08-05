@@ -1,0 +1,12 @@
+[Unit]
+Description=Run Servora-Med operator alerting monitor every 5 minutes
+
+[Timer]
+OnBootSec=5min
+OnUnitActiveSec=5min
+Persistent=true
+RandomizedDelaySec=30
+Unit=servora-med-alerting.service
+
+[Install]
+WantedBy=timers.target
