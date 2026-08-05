@@ -33,5 +33,14 @@
   "console": "no errors, no warnings",
   "network": "no unexpected 4xx/5xx",
   "tests": { "focused": "67 passed (app-shell, settings-pages, apple-pwa-contract, apple-install-guidance, install-opportunity)", "fullWeb": "1269 passed (1269)" },
+  "real-safari": {
+    "engine": "Playwright WebKit 2227 (Safari/WebKit 605.1.15, Version 26.0) on macOS — real Safari engine, no UA hacks, no init scripts",
+    "note": "WebKit does not fire beforeinstallprompt, so the Apple-only states exercise the real controller path: canPrompt stays false, appleCandidate resolves from the UA string of Playwright device descriptors",
+    "mac-desktop": { "ua": "Macintosh Safari", "appleCandidate": false, "jobsGlobalCards": 0, "settings": { "globalCards": 0, "inlineSteps": 0, "unsupportedHint": 1, "installButton": 0 }, "evidence": "screenshots/safari-01-mac-settings.png" },
+    "iphone-13": { "ua": "iPhone OS 15_0 Mobile Safari 604.1", "viewport": "390x664", "jobs": { "globalCards": 1, "role": "region", "dismissLabel": "Kurulum yönergesini kapat", "steps": 5, "belowTopbar": true, "aboveBottomNav": true }, "settings-apple": { "globalCards": 0, "inlineSteps": 1, "steps": 5, "reopenButton": 0, "installButton": 0, "supportLabel": "Apple kurulum yönergesi", "bottomNavOverlapAtMaxScroll": false, "overflowX": false }, "customers-after-settings": { "globalCards": 1, "autoDismissalWritten": null }, "dismiss-click": { "globalCardsAfterDismiss": 0, "localStorage": "1" }, "dismiss-reload": { "globalCardsAfterReload": 0 }, "settings-dismissed": { "globalCards": 0, "inlineSteps": 0, "reopenButton": 1 }, "settings-reopened": { "globalCards": 0, "inlineSteps": 1, "steps": 5, "reopenButton": 0, "localStorageCleared": true }, "evidence": "screenshots/safari-02..05-*.png" },
+    "ipad-pro-11": { "ua": "iPad OS 12_2 Mobile Safari 604.1", "jobs": { "globalCards": 1, "steps": 5 }, "settings-apple": { "globalCards": 0, "inlineSteps": 1, "steps": 5 } },
+    "console": "expected pre-login auth/me 401s only; one transient 'access control checks' pageerror at login (hit web-push/status in run 1, job-cards in run 2; not reproducible in isolation; dev-environment login race, no fetch/network code touched by this PR)",
+    "network": "no unexpected 4xx/5xx after login"
+  },
   "physical-devices": { "iphone-install": "NOT EXERCISED", "ipad-install": "NOT EXERCISED", "apple-icon-crop": "NOT EXERCISED", "apple-web-push": "NOT EXERCISED / OUT OF SCOPE" }
 }
