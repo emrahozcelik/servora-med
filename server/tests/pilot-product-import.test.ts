@@ -59,6 +59,33 @@ describe('pilot Product import planning', () => {
           .every((field) => product[field] !== ''))).toBe(true);
   });
 
+  it('documents the accepted Euroseal correction as a fail-closed prior-catalog conflict', async () => {
+    const parsed = parsePilotProductDocument(JSON.parse(await readFile(sourcePath, 'utf8')));
+    const euroseal = parsed.products.find((product) => product.name === 'Euroseal Termal Kapama Cihazı');
+    expect(euroseal).toBeDefined();
+    expect(euroseal?.model).toBe('Euroseal 2001 Plus termal kapama cihazı');
+    const priorFixture: ExistingPilotProduct = {
+      id: 'existing-euroseal',
+      name: 'Euroseal Termal Kapama Cihazı',
+      sku: null,
+      brand: 'Euronda',
+      category: 'Sarrafiye / Sarf',
+      model: 'Termal kapama ruloları',
+      unit: 'adet',
+      referencePrice: null,
+      isActive: true,
+    };
+    expect(() => planPilotProductMerge(parsed, [priorFixture]))
+      .toThrowError(expect.objectContaining({ code: 'PILOT_PRODUCT_IMPORT_CONFLICT' }));
+    let message = '';
+    try {
+      planPilotProductMerge(parsed, [priorFixture]);
+    } catch (error) {
+      message = error instanceof Error ? error.message : '';
+    }
+    expect(message).toContain('Euroseal Termal Kapama Cihazı');
+  });
+
   it('rejects duplicate source keys, unknown categories, unsupported versions, and unknown fields', () => {
     const base = {
       version: 1,

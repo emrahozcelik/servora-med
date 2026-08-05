@@ -1,5 +1,5 @@
 {
-  "summary": "Pilot product catalog reconciliation — additive update review, validation, and dry-run",
+  "summary": "Pilot product catalog expansion, accepted existing-product correction, validation, and dry-run",
   "baseCommit": "8b030d4d88a9dc9c7bcdce4cf5845b64ac9528c5",
   "baseCatalogSha256": "398a0d28a6ea0e1b881c47d71bf6792ddbb04dd4b1ea877bf924d401849548f1",
   "updatedCatalogSha256": "554621ae22f4ea08901c2e9dfc8ac8a377298b740e51a4d0f9241975da2f701e",
@@ -50,6 +50,28 @@
   },
   "databaseBeforeAfter": "EXACT INVARIANT — product count 1, active products 1, product audit events 0, max product updated_at unchanged, max product audit created_at unchanged",
   "apply": false,
-  "databaseOperations": "dry-run transaction only (BEGIN/ROLLBACK, no writes)",
-  "production": "not authorized"
+  "databaseOperations": "read-only dry-run transaction (BEGIN/COMMIT, no DML)",
+  "production": "not authorized",
+  "changeMode": "EXPANSION_WITH_ONE_ACCEPTED_EXISTING_CORRECTION",
+  "strictlyAdditive": false,
+  "baseProductsUnchanged": 80,
+  "acceptedExistingCorrections": 1,
+  "priorCatalogReimportCompatibility": {
+    "result": "FAIL_CLOSED_CONFLICT",
+    "key": "NAME:Euroseal Termal Kapama Cihazı",
+    "changedFields": [
+      "model"
+    ],
+    "intentional": true,
+    "automaticUpdate": false
+  },
+  "currentSyntheticTargetDryRun": {
+    "matchedCount": 0,
+    "insertedCount": 781,
+    "conflicts": 0
+  },
+  "transaction": "BEGIN/COMMIT on successful dry-run",
+  "dmlExecuted": false,
+  "persistentDatabaseMutation": false,
+  "operations": "advisory transaction lock, actor read, Product SELECT FOR UPDATE, merge planning, COMMIT; no INSERT/UPDATE/DELETE"
 }
