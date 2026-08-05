@@ -1,0 +1,29 @@
+[Unit]
+Description=Servora-Med operator alerting monitor (oneshot)
+After=network-online.target
+
+[Service]
+Type=oneshot
+User=servora-med
+Group=servora-med
+EnvironmentFile=/etc/servora-med/servora-med-alerting.env
+ExecStart=/usr/bin/node /opt/servora-med/current/ops/scripts/operator-alerting.mjs
+Nice=10
+IOSchedulingClass=best-effort
+IOSchedulingPriority=7
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+ReadOnlyPaths=/var/backups/servora-med
+ReadWritePaths=/var/lib/servora-med-alerting /var/log/servora-med
+StateDirectory=servora-med-alerting
+
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=servora-med-alerting

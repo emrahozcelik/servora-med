@@ -1,0 +1,60 @@
+{
+  "task": "operator-alerting-implementation",
+  "date": "2026-08-05",
+  "branch": "feat/operator-alerting",
+  "base": "96e69aa6c56d1f1b9110957d1ceaa7f5e4e3e04f",
+  "node": "v26.0.0",
+  "config-safe-summary": {
+    "SERVORA_ALERTING_ENABLED": "false (default; enabled only for local drills)",
+    "webhook": "local loopback receiver only, port 19321",
+    "health": "local loopback receiver /health",
+    "backupDir": "temp directories with canonical pairs only",
+    "stateDir": "temp directories",
+    "disk": "real statfs of / (13.2% free at drill time; threshold lowered to 5 for health/backup scenarios)"
+  },
+  "automated-tests": { "node --test ops/scripts/tests/operator-alerting.test.mjs": "70 passed (70)", "node --check": "PASS" },
+  "runtime-acceptance": {
+    "summary": "10/10 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
+    "scenarios": {
+      "1-disabled": { "outcome": "PASS", "exitCode": 0, "networkCalls": 0, "stateDirFiles": 0 },
+      "2-healthy": { "outcome": "PASS", "exitCode": 0, "events": 0 },
+      "3-health-threshold": { "outcome": "PASS", "runs1to2": "no events", "run3": "1 alert (httpStatus 503)" },
+      "4-cooldown-reminder": { "outcome": "PASS", "withinCooldownEvents": 0, "afterCooldown": "1 reminder" },
+      "5-recovery": { "outcome": "PASS", "recoveryEvents": 1, "nextRunQuiet": true },
+      "6-stale-backup": { "outcome": "PASS", "event": "backup alert", "errorCategory": "stale" },
+      "7-invalid-checksum": { "outcome": "PASS", "event": "backup alert", "errorCategory": "invalid-backup", "latestProblem": "checksum-mismatch" },
+      "8-disk-threshold": { "outcome": "PASS", "event": "disk alert", "freePercent": "real statfs < 99.9" },
+      "9-webhook-failure-retry": { "outcome": "PASS", "failedExit": 3, "notMarkedDelivered": true, "retriedExit": 0, "alertDelivered": true },
+      "10-concurrency-lock": { "outcome": "PASS", "activeLockExit": 2 }
+    },
+    "state-transitions": ["failures below threshold increment silently", "threshold -> one alert on delivery success", "cooldown suppresses reminders until expiry", "recovery sent once after active alert", "delivery failure leaves state retryable and exits non-zero", "corrupt state quarantined as state.json.corrupt-<ts> with monitor alert"],
+    "webhook-payload-sample": {
+      "schemaVersion": 1,
+      "application": "Servora-Med",
+      "instance": "servora-med",
+      "environment": "local",
+      "event": "alert",
+      "check": "health",
+      "severity": "critical",
+      "summary": "Application health failing after 3 consecutive failures",
+      "observedAt": "<UTC ISO>",
+      "details": { "consecutiveFailures": 3, "timeout": false, "httpStatus": 503, "latencyMs": "<ms>" }
+    },
+    "no-secrets-in-payload": true,
+    "no-absolute-paths-in-payload": true,
+    "no-raw-health-body-in-payload": true
+  },
+  "commands-verified": {
+    "node --check ops/scripts/operator-alerting.mjs": "PASS",
+    "node --test ops/scripts/tests/operator-alerting.test.mjs": "70/70 PASS",
+    "bash -n run-alerting.sh.example verify-operator-alerting.sh verify-systemd-units.sh": "PASS",
+    "launchd plist XML parse (python3 plistlib)": "PASS",
+    "systemd-analyze verify": "deferred to CI (systemd unavailable locally)"
+  },
+  "service-activation": "NOT PERFORMED",
+  "real-webhook-configuration": "NOT PERFORMED",
+  "backup-restore": "REMAINS MANUAL",
+  "database-operations": "NONE",
+  "server-product-source-changes": "NONE",
+  "web-product-source-changes": "NONE"
+}

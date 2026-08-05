@@ -1,0 +1,46 @@
+#!/usr/bin/env bash
+# Servora-Med operator alerting wrapper for launchd (example, NOT installed).
+# Install: sudo install -o root -g wheel -m 0755 run-alerting.sh /usr/local/libexec/servora-med/run-alerting.sh
+# The webhook secret lives only in the private env file; never place it in a plist.
+set -Eeuo pipefail
+
+ENV_FILE="/etc/servora-med/servora-med-alerting.env"
+MONITOR="/opt/servora-med/current/ops/scripts/operator-alerting.mjs"
+NODE_BIN="/usr/local/opt/node@22/bin/node"
+
+require_abs() {
+  local name="$1"
+  local value="$2"
+  if [[ -z "${value}" || "${value}" != /* ]]; then
+    printf '%s must be an absolute path\n' "${name}" >&2
+    exit 1
+  fi
+}
+
+require_abs ENV_FILE "${ENV_FILE}"
+require_abs MONITOR "${MONITOR}"
+require_abs NODE_BIN "${NODE_BIN}"
+
+if [[ ! -f "${ENV_FILE}" ]]; then
+  printf 'missing env file: %s\n' "${ENV_FILE}" >&2
+  exit 1
+fi
+if [[ ! -f "${MONITOR}" ]]; then
+  printf 'monitor script missing: %s\n' "${MONITOR}" >&2
+  exit 1
+fi
+if [[ ! -x "${NODE_BIN}" ]]; then
+  printf 'node not executable: %s\n' "${NODE_BIN}" >&2
+  exit 1
+fi
+
+umask 077
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
+
+# Minimal PATH so the monitor never resolves arbitrary system binaries.
+export PATH="/usr/bin:/bin"
+
+exec "${NODE_BIN}" "${MONITOR}"

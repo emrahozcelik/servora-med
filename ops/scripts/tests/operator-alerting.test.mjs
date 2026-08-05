@@ -1,0 +1,1035 @@
+// Servora-Med operator alerting monitor tests — node:test, no external deps.
+// Run: node --test ops/scripts/tests/operator-alerting.test.mjs
+import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
+import {
+  mkdtempSync,
+  readFileSync,
+  readdirSync as realReaddirSync,
+  rmSync,
+  statSync,
+} from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join, resolve } from 'node:path';
+import { afterEach, beforeEach, describe, it } from 'node:test';
+
+import {
+  ConfigError,
+  StateVersionError,
+  acquireLock,
+  buildPayload,
+  createDefaultDeps,
+  createDefaultState,
+  deliverWebhook,
+  evaluateBackup,
+  loadConfig,
+  loadState,
+  main,
+  parseBackupTimestamp,
+  parseSidecar,
+  parseWebhookUrl,
+  probeDisk,
+  probeHealth,
+  redactWebhookUrl,
+  releaseLock,
+  runMonitor,
+  sanitizeState,
+  transitionCheck,
+  writeState,
+} from '../operator-alerting.mjs';
+
+// ---------------------------------------------------------------------------
+// In-memory test doubles
+// ---------------------------------------------------------------------------
+
+class FakeFs {
+  constructor() {
+    this.entries = new Map();
+  }
+
+  file(path, content = '') {
+    this.entries.set(path, { kind: 'file', content: Buffer.isBuffer(content) ? content : Buffer.from(content), mode: 0o600 });
+  }
+
+  dir(path) {
+    this.entries.set(path, { kind: 'dir', mode: 0o700 });
+  }
+
+  symlink(path) {
+    this.entries.set(path, { kind: 'symlink', content: Buffer.from('target'), mode: 0o600 });
+  }
+
+  stat(path) {
+    const entry = this.entries.get(path);
+    if (!entry) throw Object.assign(new Error(`ENOENT ${path}`), { code: 'ENOENT' });
+    return entry;
+  }
+
+  readdirSync = (path) => {
+    const entry = this.entries.get(path);
+    if (!entry) throw Object.assign(new Error(`ENOENT ${path}`), { code: 'ENOENT' });
+    if (entry.kind !== 'dir') throw Object.assign(new Error(`ENOTDIR ${path}`), { code: 'ENOTDIR' });
+    const prefix = path.endsWith('/') ? path : `${path}/`;
+    return Array.from(this.entries.keys())
+      .filter((key) => key.startsWith(prefix) && !key.slice(prefix.length).includes('/'))
+      .map((key) => key.slice(prefix.length));
+  };
+
+  lstatSync = (path) => {
+    const entry = this.stat(path);
+    return {
+      isFile: () => entry.kind === 'file',
+      isDirectory: () => entry.kind === 'dir',
+      isSymbolicLink: () => entry.kind === 'symlink',
+    };
+  };
+
+  readFileSync = (path, encoding) => {
+    const entry = this.stat(path);
+    if (entry.kind !== 'file') throw Object.assign(new Error(`EISDIR ${path}`), { code: 'EISDIR' });
+    return encoding === 'utf8' ? entry.content.toString('utf8') : entry.content;
+  };
+
+  writeFileSync = (path, content, options = {}) => {
+    const existing = this.entries.get(path);
+    if (options.flag === 'wx' && existing) throw Object.assign(new Error(`EEXIST ${path}`), { code: 'EEXIST' });
+    this.entries.set(path, {
+      kind: 'file',
+      content: Buffer.from(String(content)),
+      mode: typeof options.mode === 'number' ? options.mode : 0o600,
+    });
+  };
+
+  renameSync = (from, to) => {
+    const entry = this.stat(from);
+    this.entries.delete(from);
+    this.entries.set(to, entry);
+  };
+
+  unlinkSync = (path) => {
+    this.stat(path);
+    this.entries.delete(path);
+  };
+
+  mkdirSync = (path, options) => {
+    if (this.entries.has(path)) return;
+    this.entries.set(path, { kind: 'dir', mode: options?.mode ?? 0o700 });
+  };
+
+  chmodSync = (path, mode) => {
+    const entry = this.stat(path);
+    entry.mode = mode;
+  };
+
+  existsSync = (path) => this.entries.has(path);
+}
+
+function fakeStatfs(result) {
+  return () => {
+    if (result instanceof Error) throw result;
+    return result;
+  };
+}
+
+function fakeDeps({ fs = new FakeFs(), health = null, webhook = null, statfsResult = null, nowMs = null } = {}) {
+  const deps = createDefaultDeps();
+  deps.readdir = fs.readdirSync;
+  deps.lstat = fs.lstatSync;
+  deps.readFile = fs.readFileSync;
+  deps.writeFile = fs.writeFileSync;
+  deps.rename = fs.renameSync;
+  deps.unlink = fs.unlinkSync;
+  deps.mkdir = fs.mkdirSync;
+  deps.chmod = fs.chmodSync;
+  deps.exists = fs.existsSync;
+  deps.hashFile = (filePath) => createHash('sha256').update(fs.readFileSync(filePath)).digest('hex');
+  deps.now = () => nowMs ?? 1_785_974_400_000; // 2026-08-06T00:00:00Z
+  deps.isProcessAlive = () => false;
+  deps.fetch = async (url, options) => {
+    if (url.includes('/api/health')) {
+      if (health instanceof Error) throw health;
+      return health;
+    }
+    if (webhook instanceof Error) throw webhook;
+    return webhook;
+  };
+  deps.statfs = fakeStatfs(statfsResult);
+  return deps;
+}
+
+function webhookResponse(status, { payloads = null } = {}) {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    url: 'https://hooks.example.com/alert',
+    async arrayBuffer() { return Buffer.alloc(0); },
+    async text() { return ''; },
+  };
+}
+
+function healthResponse(status, body) {
+  return {
+    status,
+    ok: status >= 200 && status < 300,
+    url: 'http://127.0.0.1:3000/api/health',
+    async arrayBuffer() { return Buffer.from(JSON.stringify(body ?? {})); },
+    async text() { return JSON.stringify(body ?? {}); },
+  };
+}
+
+const BASE_ENV = {
+  SERVORA_ALERTING_ENABLED: 'true',
+  SERVORA_ALERT_WEBHOOK_URL: 'https://hooks.example.com/alert',
+  SERVORA_ALERT_HEALTH_URL: 'http://127.0.0.1:3000/api/health',
+  SERVORA_ALERT_BACKUP_DIR: '/backups',
+  SERVORA_ALERT_BACKUP_MAX_AGE_HOURS: '26',
+  SERVORA_ALERT_DISK_PATH: '/',
+  SERVORA_ALERT_DISK_MIN_FREE_PERCENT: '15',
+  SERVORA_ALERT_FAILURE_THRESHOLD: '3',
+  SERVORA_ALERT_COOLDOWN_MINUTES: '60',
+  SERVORA_ALERT_TIMEOUT_MS: '5000',
+  SERVORA_ALERT_STATE_DIR: '/var/lib/servora-med-alerting',
+  SERVORA_ALERT_ENVIRONMENT: 'test',
+  SERVORA_ALERT_INSTANCE_LABEL: 'servora-med-test',
+};
+
+function backupPair(fs, dir, timestamp, { content = 'dump-data', sidecarContent = null } = {}) {
+  const digest = createHash('sha256').update(content).digest('hex');
+  fs.file(`${dir}/servora-med-${timestamp}.dump`, content);
+  fs.file(`${dir}/servora-med-${timestamp}.dump.sha256`, sidecarContent ?? `${digest}  servora-med-${timestamp}.dump\n`);
+  return digest;
+}
+
+// ---------------------------------------------------------------------------
+// Configuration
+// ---------------------------------------------------------------------------
+
+describe('configuration', () => {
+  it('is disabled by default and requires nothing else', () => {
+    const config = loadConfig({});
+    assert.equal(config.enabled, false);
+  });
+
+  it('disabled main exits 0 without network or state mutation', async () => {
+    let fetches = 0;
+    const fs = new FakeFs();
+    const deps = fakeDeps({ fs });
+    deps.fetch = async () => { fetches += 1; throw new Error('must not fetch'); };
+    const exit = await main({ env: { SERVORA_ALERTING_ENABLED: 'false' }, deps, log: () => {} });
+    assert.equal(exit, 0);
+    assert.equal(fetches, 0);
+    assert.equal(fs.entries.size, 0);
+  });
+
+  it('rejects non-strict booleans', () => {
+    for (const value of ['1', '0', 'yes', 'TRUE', '', 'enabled']) {
+      assert.throws(() => loadConfig({ SERVORA_ALERTING_ENABLED: value }), ConfigError, value);
+    }
+  });
+
+  it('requires webhook url, backup dir and state dir when enabled', () => {
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_WEBHOOK_URL: '' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_BACKUP_DIR: '' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_STATE_DIR: '' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_BACKUP_DIR: 'relative' }), ConfigError);
+  });
+
+  it('rejects invalid number ranges', () => {
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_BACKUP_MAX_AGE_HOURS: '-1' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_BACKUP_MAX_AGE_HOURS: 'abc' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_DISK_MIN_FREE_PERCENT: '101' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_DISK_MIN_FREE_PERCENT: '-5' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '0' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '2.5' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_COOLDOWN_MINUTES: '-1' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_TIMEOUT_MS: '0' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_TIMEOUT_MS: 'Infinity' }), ConfigError);
+  });
+
+  it('rejects unsafe labels', () => {
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_INSTANCE_LABEL: 'bad label!' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_ENVIRONMENT: 'prod;rm' }), ConfigError);
+  });
+
+  it('requires https for non-loopback webhooks', () => {
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_WEBHOOK_URL: 'http://hooks.example.com/alert' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_WEBHOOK_URL: 'http://example.com/alert' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_WEBHOOK_URL: 'ftp://example.com/alert' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_WEBHOOK_URL: 'https://' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_WEBHOOK_URL: 'not a url' }), ConfigError);
+  });
+
+  it('allows plain http only for loopback webhooks', () => {
+    for (const host of ['127.0.0.1', 'localhost', '[::1]']) {
+      const config = loadConfig({ ...BASE_ENV, SERVORA_ALERT_WEBHOOK_URL: `http://${host}:9000/hook` });
+      assert.ok(config.enabled);
+    }
+  });
+
+  it('rejects credential-bearing webhook urls', () => {
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_WEBHOOK_URL: 'https://user:pass@hooks.example.com/alert' }), ConfigError);
+    assert.throws(() => loadConfig({ ...BASE_ENV, SERVORA_ALERT_WEBHOOK_URL: 'https://token@hooks.example.com/alert' }), ConfigError);
+  });
+
+  it('redacts webhook urls to scheme+host only', () => {
+    const url = parseWebhookUrl('https://hooks.example.com/alert?token=secret');
+    assert.equal(redactWebhookUrl(url), 'https://hooks.example.com');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Health probe
+// ---------------------------------------------------------------------------
+
+describe('health probe', () => {
+  const config = loadConfig(BASE_ENV);
+
+  it('accepts 200 with the current contract body', async () => {
+    const deps = fakeDeps({ health: healthResponse(200, { status: 'ok' }) });
+    const result = await probeHealth(config, deps);
+    assert.equal(result.ok, true);
+    assert.equal(result.errorCategory, null);
+    assert.equal(typeof result.latencyMs, 'number');
+  });
+
+  it('treats timeout as failure', async () => {
+    const timeoutError = Object.assign(new Error('timed out'), { name: 'TimeoutError' });
+    const deps = fakeDeps({ health: timeoutError });
+    const result = await probeHealth(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'timeout');
+    assert.equal(result.timeout, true);
+  });
+
+  it('treats connection failure as failure', async () => {
+    const deps = fakeDeps({ health: new TypeError('fetch failed') });
+    const result = await probeHealth(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'connection');
+  });
+
+  it('treats redirects as failure', async () => {
+    const deps = fakeDeps({ health: healthResponse(302, {}) });
+    const result = await probeHealth(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'redirect');
+  });
+
+  it('treats non-200 as failure', async () => {
+    const deps = fakeDeps({ health: healthResponse(503, { status: 'unavailable' }) });
+    const result = await probeHealth(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'http-503');
+  });
+
+  it('treats malformed body as failure', async () => {
+    const bad = { status: 200, ok: true, url: 'http://127.0.0.1:3000/api/health', async text() { return 'not-json'; }, async arrayBuffer() { return Buffer.alloc(0); } };
+    const deps = fakeDeps({ health: bad });
+    const result = await probeHealth(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'invalid-body');
+  });
+
+  it('treats valid json without ok status as failure', async () => {
+    const deps = fakeDeps({ health: healthResponse(200, { status: 'unavailable' }) });
+    const result = await probeHealth(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'invalid-body');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Backup freshness
+// ---------------------------------------------------------------------------
+
+describe('backup freshness', () => {
+  const config = loadConfig(BASE_ENV);
+
+  it('accepts a fresh valid canonical pair', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.ok, true);
+    assert.equal(result.checksumValid, true);
+    assert.equal(result.basename, 'servora-med-20260805T120000Z.dump');
+    assert.ok(result.ageHours < 26);
+  });
+
+  it('flags stale backups', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    backupPair(fs, '/backups', '20260701T000000Z');
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'stale');
+  });
+
+  it('flags a missing directory', async () => {
+    const deps = fakeDeps({ fs: new FakeFs() });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'missing-dir');
+  });
+
+  it('flags no backup at all', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.errorCategory, 'no-backup');
+  });
+
+  it('ignores partial files', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.file('/backups/servora-med-20260805T120000Z.dump.partial', 'x');
+    fs.file('/backups/servora-med-20260805T120000Z.dump.sha256.partial', 'x');
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.errorCategory, 'no-backup');
+  });
+
+  it('flags a missing sidecar', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.file('/backups/servora-med-20260805T120000Z.dump', 'dump-data');
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.errorCategory, 'invalid-backup');
+    assert.equal(result.latestProblem, 'missing-sidecar');
+  });
+
+  it('flags a malformed sidecar', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.file('/backups/servora-med-20260805T120000Z.dump', 'dump-data');
+    fs.file('/backups/servora-med-20260805T120000Z.dump.sha256', 'not-a-digest');
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.latestProblem, 'malformed-sidecar');
+  });
+
+  it('rejects sidecars with absolute paths', () => {
+    const result = parseSidecar(`${'a'.repeat(64)}  /var/backups/servora-med-20260805T120000Z.dump`);
+    assert.equal(result.error, 'malformed-sidecar');
+  });
+
+  it('flags a wrong basename in the sidecar', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.file('/backups/servora-med-20260805T120000Z.dump', 'dump-data');
+    fs.file('/backups/servora-med-20260805T120000Z.dump.sha256', `${'b'.repeat(64)}  servora-med-20260804T120000Z.dump`);
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.latestProblem, 'bad-basename');
+  });
+
+  it('flags checksum mismatches and reports them as the latest problem', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.file('/backups/servora-med-20260805T120000Z.dump', 'dump-data');
+    fs.file('/backups/servora-med-20260805T120000Z.dump.sha256', `${'c'.repeat(64)}  servora-med-20260805T120000Z.dump\n`);
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.errorCategory, 'invalid-backup');
+    assert.equal(result.latestProblem, 'checksum-mismatch');
+    assert.equal(result.checksumValid, false);
+  });
+
+  it('falls back to an older valid backup when the latest is invalid', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.file('/backups/servora-med-20260805T120000Z.dump', 'latest-tampered');
+    fs.file('/backups/servora-med-20260805T120000Z.dump.sha256', `${'d'.repeat(64)}  servora-med-20260805T120000Z.dump\n`);
+    backupPair(fs, '/backups', '20260805T100000Z', { content: 'older-valid' });
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.ok, true);
+    assert.equal(result.basename, 'servora-med-20260805T100000Z.dump');
+    assert.equal(result.latestProblem, 'checksum-mismatch');
+  });
+
+  it('rejects future-dated filenames', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    backupPair(fs, '/backups', '20990101T000000Z');
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.errorCategory, 'no-backup');
+    assert.equal(result.latestProblem, 'future-timestamp');
+  });
+
+  it('rejects symlinked backup files', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.symlink('/backups/servora-med-20260805T120000Z.dump');
+    const deps = fakeDeps({ fs });
+    const result = await evaluateBackup(config, deps);
+    assert.equal(result.errorCategory, 'no-backup');
+  });
+
+  it('parses strict UTC timestamps only', () => {
+    assert.ok(parseBackupTimestamp('20260805T120000Z'));
+    assert.equal(parseBackupTimestamp('20260805120000Z'), null);
+    assert.equal(parseBackupTimestamp('2026-08-05T12:00:00Z'), null);
+    assert.equal(parseBackupTimestamp('20261305T120000Z'), null);
+    assert.equal(parseBackupTimestamp('20260805T120060Z'), null);
+  });
+
+  it('computes portable SHA-256 digests', () => {
+    const digest = createHash('sha256').update('hello').digest('hex');
+    assert.equal(digest.length, 64);
+    const parsed = parseSidecar(`${digest}  servora-med-20260805T120000Z.dump`);
+    assert.equal(parsed.digest, digest);
+    assert.equal(parsed.basename, 'servora-med-20260805T120000Z.dump');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Disk probe
+// ---------------------------------------------------------------------------
+
+describe('disk probe', () => {
+  const config = loadConfig(BASE_ENV);
+
+  it('reports a healthy percentage', () => {
+    const deps = fakeDeps({ statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n } });
+    const result = probeDisk(config, deps);
+    assert.equal(result.ok, true);
+    assert.equal(result.freePercent, 50);
+    assert.equal(result.freeBytes, 5000 * 4096);
+    assert.equal(result.totalBytes, 10000 * 4096);
+  });
+
+  it('flags below threshold', () => {
+    const deps = fakeDeps({ statfsResult: { bavail: 1000n, blocks: 10000n, bsize: 4096n } });
+    const result = probeDisk(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'below-threshold');
+    assert.equal(result.freePercent, 10);
+  });
+
+  it('flags statfs failure', () => {
+    const deps = fakeDeps({ statfsResult: new Error('ENOENT') });
+    const result = probeDisk(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'statfs-failed');
+  });
+
+  it('flags zero total blocks', () => {
+    const deps = fakeDeps({ statfsResult: { bavail: 0n, blocks: 0n, bsize: 4096n } });
+    const result = probeDisk(config, deps);
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'total-zero');
+  });
+
+  it('is bigint-safe for large block counts', () => {
+    const deps = fakeDeps({ statfsResult: { bavail: 1234567890123n, blocks: 4000000000000n, bsize: 4096n } });
+    const result = probeDisk(config, deps);
+    assert.equal(result.ok, true);
+    assert.equal(result.freePercent, Number(1234567890123n * 10000n / 4000000000000n) / 100);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// State
+// ---------------------------------------------------------------------------
+
+describe('state model', () => {
+  it('creates a default state when none exists', async () => {
+    const fs = new FakeFs();
+    fs.dir('/var/lib/servora-med-alerting');
+    const config = loadConfig(BASE_ENV);
+    const { state, monitorEvent } = await loadState(config, fakeDeps({ fs }));
+    assert.equal(state.version, 1);
+    assert.equal(monitorEvent, null);
+    for (const name of ['health', 'backup', 'disk']) {
+      assert.equal(state.checks[name].consecutiveFailures, 0);
+      assert.equal(state.checks[name].alertActive, false);
+    }
+  });
+
+  it('quarantines corrupt state and emits a monitor alert', async () => {
+    const fs = new FakeFs();
+    fs.dir('/var/lib/servora-med-alerting');
+    fs.file('/var/lib/servora-med-alerting/state.json', '{not-json');
+    const config = loadConfig(BASE_ENV);
+    const { state, monitorEvent } = await loadState(config, fakeDeps({ fs }));
+    assert.equal(state.version, 1);
+    assert.equal(monitorEvent.event, 'monitor');
+    assert.equal(monitorEvent.check, 'monitor');
+    const quarantined = Array.from(fs.entries.keys()).find((key) => key.includes('state.json.corrupt-'));
+    assert.ok(quarantined);
+  });
+
+  it('rejects unsupported future state versions without overwriting', async () => {
+    const fs = new FakeFs();
+    fs.dir('/var/lib/servora-med-alerting');
+    fs.file('/var/lib/servora-med-alerting/state.json', JSON.stringify({ version: 99, checks: {} }));
+    const config = loadConfig(BASE_ENV);
+    await assert.rejects(() => loadState(config, fakeDeps({ fs })), StateVersionError);
+    assert.ok(fs.entries.has('/var/lib/servora-med-alerting/state.json'));
+  });
+
+  it('sanitizes persisted state fields', () => {
+    const sanitized = sanitizeState({
+      version: 1,
+      checks: {
+        health: { consecutiveFailures: 2, alertActive: true, lastAlertAt: 1, lastReminderAt: null, lastRecoveryAt: null, lastDeliveredAt: 2 },
+        backup: { consecutiveFailures: 0, alertActive: false, lastAlertAt: null, lastReminderAt: null, lastRecoveryAt: null, lastDeliveredAt: null },
+        disk: { consecutiveFailures: 0, alertActive: false, lastAlertAt: null, lastReminderAt: null, lastRecoveryAt: null, lastDeliveredAt: null },
+      },
+    });
+    assert.equal(sanitized.checks.health.consecutiveFailures, 2);
+    assert.equal(sanitized.checks.health.alertActive, true);
+  });
+
+  it('rejects structurally invalid state', () => {
+    assert.equal(sanitizeState({ version: 1, checks: { health: 'x' } }), null);
+    assert.equal(sanitizeState({ version: 1 }), null);
+    assert.equal(sanitizeState('garbage'), null);
+  });
+
+  it('writes state atomically with 0600 permissions', (t) => {
+    const dir = mkdtempSync(join(tmpdir(), 'servora-alert-state-'));
+    t.after(() => rmSync(dir, { recursive: true, force: true }));
+    const config = loadConfig({ ...BASE_ENV, SERVORA_ALERT_STATE_DIR: dir });
+    writeState(config, createDefaultState(), createDefaultDeps());
+    assert.equal(statSync(join(dir, 'state.json')).mode & 0o777, 0o600);
+    assert.equal(realReaddirSync(dir).length, 1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Transitions: threshold, cooldown, recovery
+// ---------------------------------------------------------------------------
+
+describe('transitions', () => {
+  const config = loadConfig({ ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '3', SERVORA_ALERT_COOLDOWN_MINUTES: '60' });
+  const fresh = () => createDefaultState().checks.health;
+
+  it('increments failures below the threshold without events', () => {
+    const first = transitionCheck({ check: 'health', ok: false, previous: fresh(), config, now: 1000, details: {} });
+    assert.equal(first.event, null);
+    assert.equal(first.next.consecutiveFailures, 1);
+    const second = transitionCheck({ check: 'health', ok: false, previous: first.next, config, now: 2000, details: {} });
+    assert.equal(second.event, null);
+    assert.equal(second.next.consecutiveFailures, 2);
+  });
+
+  it('emits an alert exactly at the threshold', () => {
+    const failed = { ...fresh(), consecutiveFailures: 2 };
+    const transition = transitionCheck({ check: 'health', ok: false, previous: failed, config, now: 3000, details: {} });
+    assert.equal(transition.event.event, 'alert');
+    assert.equal(transition.next.consecutiveFailures, 3);
+  });
+
+  it('suppresses further events during cooldown while active', () => {
+    const active = {
+      ...fresh(), consecutiveFailures: 4, alertActive: true,
+      lastAlertAt: 3000, lastDeliveredAt: 3000,
+    };
+    const within = transitionCheck({ check: 'health', ok: false, previous: active, config, now: 3000 + 30 * 60 * 1000, details: {} });
+    assert.equal(within.event, null);
+  });
+
+  it('emits a reminder after the cooldown expires', () => {
+    const active = {
+      ...fresh(), consecutiveFailures: 5, alertActive: true,
+      lastAlertAt: 3000, lastDeliveredAt: 3000,
+    };
+    const after = transitionCheck({ check: 'health', ok: false, previous: active, config, now: 3000 + 61 * 60 * 1000, details: {} });
+    assert.equal(after.event.event, 'reminder');
+  });
+
+  it('emits a single recovery after an active alert recovers', () => {
+    const active = {
+      ...fresh(), consecutiveFailures: 3, alertActive: true,
+      lastAlertAt: 3000, lastDeliveredAt: 3000,
+    };
+    const recovery = transitionCheck({ check: 'health', ok: true, previous: active, config, now: 4000, details: {} });
+    assert.equal(recovery.event.event, 'recovery');
+    assert.equal(recovery.next.alertActive, false);
+    assert.equal(recovery.next.consecutiveFailures, 0);
+    const again = transitionCheck({ check: 'health', ok: true, previous: recovery.next, config, now: 5000, details: {} });
+    assert.equal(again.event, null);
+  });
+
+  it('does not emit recovery when no alert was ever delivered', () => {
+    const transition = transitionCheck({ check: 'health', ok: true, previous: fresh(), config, now: 1000, details: {} });
+    assert.equal(transition.event, null);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Lock
+// ---------------------------------------------------------------------------
+
+describe('lock', () => {
+  const config = loadConfig(BASE_ENV);
+
+  it('acquires and releases normally', () => {
+    const fs = new FakeFs();
+    const deps = fakeDeps({ fs });
+    const acquired = acquireLock(config, deps);
+    assert.equal(acquired.ok, true);
+    assert.ok(fs.entries.has('/var/lib/servora-med-alerting/lock.lock'));
+    releaseLock(config, deps);
+    assert.ok(!fs.entries.has('/var/lib/servora-med-alerting/lock.lock'));
+  });
+
+  it('rejects a second process holding an active lock', () => {
+    const fs = new FakeFs();
+    fs.dir('/var/lib/servora-med-alerting');
+    fs.file('/var/lib/servora-med-alerting/lock.lock', JSON.stringify({ pid: 99999, createdAt: 1 }));
+    const deps = fakeDeps({ fs });
+    deps.isProcessAlive = () => true;
+    const result = acquireLock(config, deps);
+    assert.equal(result.ok, false);
+  });
+
+  it('reclaims a stale lock from a dead pid', () => {
+    const fs = new FakeFs();
+    fs.dir('/var/lib/servora-med-alerting');
+    fs.file('/var/lib/servora-med-alerting/lock.lock', JSON.stringify({ pid: 99999, createdAt: 1 }));
+    const deps = fakeDeps({ fs });
+    deps.isProcessAlive = () => false;
+    const result = acquireLock(config, deps);
+    assert.equal(result.ok, true);
+    assert.equal(result.staleReclaimed, true);
+  });
+
+  it('fails safely on a malformed lock file', () => {
+    const fs = new FakeFs();
+    fs.dir('/var/lib/servora-med-alerting');
+    fs.file('/var/lib/servora-med-alerting/lock.lock', 'garbage');
+    assert.throws(() => acquireLock(config, fakeDeps({ fs })), ConfigError);
+  });
+
+  it('releases the lock even when the monitor errors', async () => {
+    const fs = new FakeFs();
+    fs.dir('/var/lib/servora-med-alerting');
+    const deps = fakeDeps({
+      fs,
+      health: new Error('boom'),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    deps.fetch = async () => { throw new TypeError('fetch failed'); };
+    const exit = await main({ env: { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' }, deps, log: () => {} });
+    assert.equal(exit, 3);
+    assert.ok(!fs.entries.has('/var/lib/servora-med-alerting/lock.lock'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Payload and webhook delivery
+// ---------------------------------------------------------------------------
+
+describe('webhook delivery', () => {
+  const config = loadConfig(BASE_ENV);
+
+  it('builds a versioned vendor-neutral payload without secrets', () => {
+    const payload = buildPayload({
+      config, event: 'alert', check: 'health', severity: 'critical',
+      summary: 'Application health failing', details: { consecutiveFailures: 3, httpStatus: 503 },
+      now: 1_752_782_400_000,
+    });
+    assert.equal(payload.schemaVersion, 1);
+    assert.equal(payload.application, 'Servora-Med');
+    assert.equal(payload.instance, 'servora-med-test');
+    assert.equal(payload.environment, 'test');
+    assert.equal(payload.observedAt, new Date(1_752_782_400_000).toISOString());
+    assert.equal(payload.details.consecutiveFailures, 3);
+    const serialized = JSON.stringify(payload);
+    assert.ok(!serialized.includes('hooks.example.com'));
+    assert.ok(!serialized.includes('/var/lib'));
+    assert.ok(!serialized.includes('token'));
+  });
+
+  it('accepts 2xx delivery', async () => {
+    const captured = [];
+    const deps = fakeDeps({ webhook: webhookResponse(200) });
+    deps.fetch = async (url, options) => { captured.push(JSON.parse(options.body)); return webhookResponse(200); };
+    const delivery = await deliverWebhook(config, { schemaVersion: 1 }, deps);
+    assert.equal(delivery.ok, true);
+    assert.equal(captured.length, 1);
+  });
+
+  it('fails on non-2xx delivery', async () => {
+    const deps = fakeDeps({ webhook: webhookResponse(500) });
+    const delivery = await deliverWebhook(config, { schemaVersion: 1 }, deps);
+    assert.equal(delivery.ok, false);
+    assert.equal(delivery.status, 500);
+  });
+
+  it('fails on redirect responses', async () => {
+    const deps = fakeDeps({ webhook: webhookResponse(302) });
+    const delivery = await deliverWebhook(config, { schemaVersion: 1 }, deps);
+    assert.equal(delivery.ok, false);
+  });
+
+  it('fails on timeout', async () => {
+    const deps = fakeDeps({ webhook: Object.assign(new Error('timeout'), { name: 'TimeoutError' }) });
+    const delivery = await deliverWebhook(config, { schemaVersion: 1 }, deps);
+    assert.equal(delivery.ok, false);
+    assert.equal(delivery.errorCategory, 'timeout');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runMonitor orchestration
+// ---------------------------------------------------------------------------
+
+describe('runMonitor orchestration', () => {
+  const env = BASE_ENV;
+  const healthyDeps = () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      return webhookResponse(200);
+    };
+    return deps;
+  };
+
+  it('healthy run: no events, zero exit, state persisted', async () => {
+    const deps = healthyDeps();
+    const result = await runMonitor(loadConfig(env), deps);
+    assert.equal(result.exitCode, 0);
+    assert.equal(result.events.length, 0);
+    assert.ok(deps.exists('/var/lib/servora-med-alerting/state.json'));
+    const persisted = JSON.parse(deps.readFile('/var/lib/servora-med-alerting/state.json', 'utf8'));
+    assert.equal(persisted.checks.health.consecutiveFailures, 0);
+  });
+
+  it('alerts after the third consecutive health failure and marks delivered', async () => {
+    let failures = 0;
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(503, { status: 'unavailable' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    const deliveries = [];
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(503, { status: 'unavailable' });
+      deliveries.push(JSON.parse(options.body));
+      return webhookResponse(200);
+    };
+    const config = loadConfig(env);
+    for (let run = 1; run <= 3; run += 1) {
+      const result = await runMonitor(config, deps);
+      assert.equal(result.exitCode, 0);
+      failures = result.state.checks.health.consecutiveFailures;
+      assert.equal(failures, run);
+      if (run < 3) assert.equal(result.events.length, 0);
+    }
+    assert.equal(deliveries.length, 1);
+    assert.equal(deliveries[0].event, 'alert');
+    assert.equal(deliveries[0].check, 'health');
+    assert.equal(deliveries[0].details.consecutiveFailures, 3);
+    const persisted = JSON.parse(deps.readFile('/var/lib/servora-med-alerting/state.json', 'utf8'));
+    assert.equal(persisted.checks.health.alertActive, true);
+  });
+
+  it('respects cooldown and sends a reminder after it expires', async () => {
+    let clock = 1_785_974_400_000;
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(503, { status: 'unavailable' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+      nowMs: 1_785_974_400_000,
+    });
+    const deliveries = [];
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(503, { status: 'unavailable' });
+      deliveries.push(JSON.parse(options.body));
+      return webhookResponse(200);
+    };
+    deps.now = () => clock;
+    const config = loadConfig(env);
+    for (let run = 1; run <= 3; run += 1) {
+      const result = await runMonitor(config, deps);
+      assert.equal(result.exitCode, 0);
+      clock += 60_000;
+    }
+    assert.equal(deliveries.length, 1);
+    assert.equal(deliveries[0].event, 'alert');
+    const active = JSON.parse(deps.readFile('/var/lib/servora-med-alerting/state.json', 'utf8'));
+    assert.equal(active.checks.health.alertActive, true);
+    clock += 60 * 60 * 1000;
+    const after = await runMonitor(config, deps);
+    assert.equal(after.events.length, 1);
+    assert.equal(after.events[0].event, 'reminder');
+  });
+
+  it('sends exactly one recovery and then stays quiet', async () => {
+    let healthOk = false;
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(503, { status: 'unavailable' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    const deliveries = [];
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthOk ? healthResponse(200, { status: 'ok' }) : healthResponse(503, { status: 'unavailable' });
+      deliveries.push(JSON.parse(options.body));
+      return webhookResponse(200);
+    };
+    const config = loadConfig(env);
+    for (let run = 1; run <= 3; run += 1) await runMonitor(config, deps);
+    assert.equal(deliveries.length, 1);
+    healthOk = true;
+    const recovered = await runMonitor(config, deps);
+    assert.equal(recovered.events.length, 1);
+    assert.equal(recovered.events[0].event, 'recovery');
+    const quiet = await runMonitor(config, deps);
+    assert.equal(quiet.events.length, 0);
+  });
+
+  it('does not mark delivery on webhook failure and retries next run', async () => {
+    let webhookDown = true;
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(503, { status: 'unavailable' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(503, { status: 'unavailable' });
+      return webhookDown ? webhookResponse(500) : webhookResponse(200);
+    };
+    const config = loadConfig(env);
+    for (let run = 1; run <= 3; run += 1) await runMonitor(config, deps);
+    const failed = await runMonitor(config, deps);
+    assert.equal(failed.exitCode, 3);
+    const persisted = JSON.parse(deps.readFile('/var/lib/servora-med-alerting/state.json', 'utf8'));
+    assert.equal(persisted.checks.health.alertActive, false);
+    assert.equal(persisted.checks.health.lastDeliveredAt, null);
+    webhookDown = false;
+    const retried = await runMonitor(config, deps);
+    assert.equal(retried.exitCode, 0);
+    assert.equal(retried.events.length, 1);
+    assert.equal(retried.events[0].event, 'alert');
+    const after = JSON.parse(deps.readFile('/var/lib/servora-med-alerting/state.json', 'utf8'));
+    assert.equal(after.checks.health.alertActive, true);
+  });
+
+  it('emits separate events per check transition in the same run', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(503, { status: 'unavailable' }),
+      statfsResult: { bavail: 100n, blocks: 10000n, bsize: 4096n },
+    });
+    const deliveries = [];
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(503, { status: 'unavailable' });
+      deliveries.push(JSON.parse(options.body));
+      return webhookResponse(200);
+    };
+    const config = loadConfig({ ...env, SERVORA_ALERT_FAILURE_THRESHOLD: '1' });
+    const result = await runMonitor(config, deps);
+    assert.equal(result.exitCode, 0);
+    const events = result.events.map((event) => event.check).sort();
+    assert.deepEqual(events, ['backup', 'disk', 'health']);
+    assert.equal(deliveries.length, 3);
+    const kinds = deliveries.map((delivery) => `${delivery.check}:${delivery.event}`).sort();
+    assert.deepEqual(kinds, ['backup:alert', 'disk:alert', 'health:alert']);
+  });
+
+  it('produces a monitor alert when the state file is corrupt', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    fs.file('/var/lib/servora-med-alerting/state.json', 'corrupt{');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    const deliveries = [];
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      deliveries.push(JSON.parse(options.body));
+      return webhookResponse(200);
+    };
+    const result = await runMonitor(loadConfig(env), deps);
+    assert.equal(result.exitCode, 0);
+    assert.equal(deliveries.length, 1);
+    assert.equal(deliveries[0].event, 'monitor');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Unit definition contracts (repo files)
+// ---------------------------------------------------------------------------
+
+describe('unit definitions', () => {
+  const root = resolve(import.meta.dirname, '..', '..', '..');
+
+  it('keeps the env example disabled with no secrets', () => {
+    const example = readFileSync(resolve(root, 'ops/examples/operator-alerting.env.example'), 'utf8');
+    assert.match(example, /SERVORA_ALERTING_ENABLED=false/);
+    assert.ok(!example.includes('https://hooks.'));
+    assert.ok(!example.includes('secret'));
+  });
+
+  it('keeps the launchd plist example on a 300-second schedule without credentials', () => {
+    const plist = readFileSync(resolve(root, 'ops/launchd/com.servora-med.alerting.plist.example'), 'utf8');
+    assert.match(plist, /<key>StartInterval<\/key>\s*<integer>300<\/integer>/);
+    assert.match(plist, /<key>RunAtLoad<\/key>\s*<false\/>/);
+    assert.match(plist, /run-alerting\.sh/);
+    assert.ok(!plist.includes('https://'));
+    assert.ok(!plist.includes('hooks.'));
+    assert.ok(!plist.includes('token'));
+    assert.ok(!plist.includes('WEBHOOK_URL'));
+    assert.equal((plist.match(/<key>/g) ?? []).length, (plist.match(/<\/key>/g) ?? []).length);
+    assert.equal((plist.match(/<dict>/g) ?? []).length, (plist.match(/<\/dict>/g) ?? []).length);
+  });
+
+  it('keeps the systemd service oneshot and hardened with EnvironmentFile', () => {
+    const service = readFileSync(resolve(root, 'ops/systemd/servora-med-alerting.service'), 'utf8');
+    assert.match(service, /Type=oneshot/);
+    assert.match(service, /EnvironmentFile=\/etc\/servora-med\/servora-med-alerting\.env/);
+    assert.match(service, /NoNewPrivileges=true/);
+    assert.match(service, /UMask=0077/);
+    assert.match(service, /operator-alerting\.mjs/);
+    assert.ok(!service.includes('hook'));
+    assert.ok(!service.includes('secret'));
+  });
+
+  it('keeps the systemd timer on a five-minute cadence', () => {
+    const timer = readFileSync(resolve(root, 'ops/systemd/servora-med-alerting.timer'), 'utf8');
+    assert.match(timer, /OnUnitActiveSec=5m/);
+    assert.match(timer, /Persistent=true/);
+    assert.match(timer, /Unit=servora-med-alerting\.service/);
+  });
+});
