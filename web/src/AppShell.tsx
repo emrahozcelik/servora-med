@@ -117,6 +117,8 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   const title = resolveShellTitle(location.pathname, user.role);
   const backTo = resolveShellBackTo(location.pathname);
   const showStickyCreate = !desktop && isJobsListPath(location.pathname);
+  const applicationSettingsActive = location.pathname === paths.settingsApplication;
+  const showGlobalAppleGuidance = install.shouldOfferAppleGuidance && !applicationSettingsActive;
   const drawerDestinations = drawerMode === 'overflow' && model.overflow.length > 0
     ? model.overflow
     : model.destinations;
@@ -211,7 +213,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
       )}
 
       <div className="shell-content">
-        {install.shouldOfferAppleGuidance && (
+        {showGlobalAppleGuidance && (
           <AppleInstallGuidance onDismiss={install.dismissGuidance} />
         )}
         {children}

@@ -1,3 +1,5 @@
+import { AppleInstallSteps } from './AppleInstallSteps';
+
 /** Dismissible Apple/iPhone/iPad install guidance card. Not a modal: no focus trap,
  *  no overlay, renders inside the authenticated shell content flow. */
 export function AppleInstallGuidance({ onDismiss }: Readonly<{ onDismiss: () => void }>) {
@@ -20,13 +22,7 @@ export function AppleInstallGuidance({ onDismiss }: Readonly<{ onDismiss: () => 
         </button>
       </div>
       <p>iPhone veya iPad'de Servora'yı uygulama gibi kullanabilirsiniz.</p>
-      <ol className="apple-install-guidance-steps">
-        <li>Sayfayı Safari'de açın.</li>
-        <li>Paylaş düğmesine dokunun.</li>
-        <li>“Ana Ekrana Ekle” seçeneğini seçin.</li>
-        <li>“Web Uygulaması Olarak Aç” seçeneği gösteriliyorsa açık bırakın.</li>
-        <li>Ekle'ye dokunun.</li>
-      </ol>
+      <AppleInstallSteps />
     </section>
   );
 }

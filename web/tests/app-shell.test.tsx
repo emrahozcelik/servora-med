@@ -71,10 +71,10 @@ describe('responsive authenticated AppShell', () => {
     };
   }
 
-  async function renderWithInstall(snapshot: Partial<InstallOpportunitySnapshot>, desktop = false) {
+  async function renderWithInstall(snapshot: Partial<InstallOpportunitySnapshot>, desktop = false, path = '/jobs') {
     setDesktop(desktop);
     await act(async () => root.render(
-      <MemoryRouter initialEntries={['/jobs']}>
+      <MemoryRouter key={path} initialEntries={[path]}>
         <InstallOpportunityProvider controller={fakeInstallController(snapshot)}>
           <AppShell user={staff} pendingSignOut={false} onSignOut={() => {}}>
             <main><h1>İçerik</h1></main>
@@ -90,6 +90,32 @@ describe('responsive authenticated AppShell', () => {
     expect(container.textContent).toContain("Servora'yı ana ekrana ekleyin");
     expect(container.textContent).toContain('Ana Ekrana Ekle');
     await renderWithInstall({ shouldOfferAppleGuidance: false });
+    expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
+  });
+
+  it('keeps a single global guidance surface on normal authenticated routes', async () => {
+    await renderWithInstall({ appleCandidate: true, shouldOfferAppleGuidance: true });
+    expect(container.querySelectorAll('[data-install-guidance="true"]')).toHaveLength(1);
+  });
+
+  it('suppresses the global Apple guidance card on the application settings route', async () => {
+    await renderWithInstall({ appleCandidate: true, shouldOfferAppleGuidance: true }, false, '/settings/application');
+    expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
+    expect(container.textContent).not.toContain("Servora'yı ana ekrana ekleyin");
+  });
+
+  it('shows the global guidance again after leaving application settings without auto-dismissal', async () => {
+    await renderWithInstall({ appleCandidate: true, shouldOfferAppleGuidance: true }, false, '/settings/application');
+    expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
+    await renderWithInstall({ appleCandidate: true, shouldOfferAppleGuidance: true }, false, '/jobs');
+    expect(container.querySelector('[data-install-guidance="true"]')).not.toBeNull();
+    expect(container.querySelectorAll('[data-install-guidance="true"]')).toHaveLength(1);
+  });
+
+  it('keeps the global Apple guidance card absent on application settings in Chromium and standalone states', async () => {
+    await renderWithInstall({ canPrompt: true, appleCandidate: true }, false, '/settings/application');
+    expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
+    await renderWithInstall({ installed: true, appleCandidate: true }, false, '/settings/application');
     expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
   });
 

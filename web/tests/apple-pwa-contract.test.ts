@@ -1,9 +1,17 @@
-import { readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
+import { readFileSync, readdirSync, statSync } from 'node:fs';
+import { relative, resolve } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const webRoot = resolve(__dirname, '..');
 const publicRoot = resolve(webRoot, 'public');
+const srcRoot = resolve(webRoot, 'src');
+
+function walk(dir: string): string[] {
+  return readdirSync(dir).flatMap((entry) => {
+    const path = resolve(dir, entry);
+    return statSync(path).isDirectory() ? walk(path) : [path];
+  });
+}
 
 function pngDimensions(path: string): { width: number; height: number } {
   const bytes = readFileSync(path);
@@ -82,5 +90,21 @@ describe('Apple / PWA identity contract', () => {
     expect(worker).not.toContain('caches.open');
     expect(worker).not.toMatch(/\.sync\./);
     expect(worker).not.toContain("'sync'");
+  });
+
+  it('bounds Apple install guidance rendering to the authenticated shell', () => {
+    const files = walk(srcRoot).filter((file) => file.endsWith('.tsx'));
+    const renderers = files
+      .filter((file) => readFileSync(file, 'utf8').includes('<AppleInstallGuidance'))
+      .map((file) => relative(srcRoot, file));
+    expect(renderers).toEqual(['AppShell.tsx']);
+  });
+
+  it('keeps the Apple step list defined exactly once in the source tree', () => {
+    const files = walk(srcRoot).filter((file) => file.endsWith('.tsx'));
+    const holders = files
+      .filter((file) => readFileSync(file, 'utf8').includes('“Web Uygulaması Olarak Aç” seçeneği gösteriliyorsa açık bırakın.'))
+      .map((file) => relative(srcRoot, file));
+    expect(holders).toEqual(['install/AppleInstallSteps.tsx']);
   });
 });

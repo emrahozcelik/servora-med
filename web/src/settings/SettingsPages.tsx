@@ -11,6 +11,7 @@ import { UserAvatar } from '../ui/antd/UserAvatar';
 import { PASSWORD_LENGTH_HINT_TR } from '../ui/password-policy';
 import { useWebPush } from '../web-push/WebPushProvider';
 import { useInstallOpportunity } from '../install/InstallOpportunity';
+import { AppleInstallSteps } from '../install/AppleInstallSteps';
 
 const roleLabels = {
   ADMIN: 'Yönetici',
@@ -226,15 +227,7 @@ export function ApplicationSettingsPage() {
           Kurulum yönergelerini tekrar göster
         </button>
       )}
-      {install.shouldOfferAppleGuidance && (
-        <ol className="apple-install-guidance-steps">
-          <li>Sayfayı Safari'de açın.</li>
-          <li>Paylaş düğmesine dokunun.</li>
-          <li>“Ana Ekrana Ekle” seçeneğini seçin.</li>
-          <li>“Web Uygulaması Olarak Aç” seçeneği gösteriliyorsa açık bırakın.</li>
-          <li>Ekle'ye dokunun.</li>
-        </ol>
-      )}
+      {install.shouldOfferAppleGuidance && <AppleInstallSteps />}
       {!install.canPrompt && !install.appleCandidate && !install.installed && (
         <p className="field-hint">Bu tarayıcıda otomatik kurulum yönlendirmesi sunulmuyor.</p>
       )}

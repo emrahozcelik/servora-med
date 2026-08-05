@@ -85,6 +85,30 @@ async function renderApplicationPage(snapshot: Partial<InstallOpportunitySnapsho
   return html;
 }
 
+function statefulInstallController(initial: Partial<InstallOpportunitySnapshot>): InstallOpportunityController {
+  const defaults: InstallOpportunitySnapshot = {
+    canPrompt: false, installed: false, outcome: null,
+    appleCandidate: false, guidanceDismissed: false, shouldOfferAppleGuidance: false,
+  };
+  let state: InstallOpportunitySnapshot = { ...defaults, ...initial };
+  const listeners = new Set<() => void>();
+  return {
+    start: () => {}, stop: () => {},
+    subscribe: (listener) => { listeners.add(listener); return () => listeners.delete(listener); },
+    getSnapshot: () => state,
+    prompt: async () => {},
+    dismissGuidance: () => {},
+    resetGuidance: () => {
+      state = { ...state, guidanceDismissed: false, shouldOfferAppleGuidance: true };
+      listeners.forEach((listener) => listener());
+    },
+  };
+}
+
+function countStepLists(html: string) {
+  return (html.match(/apple-install-guidance-steps/g) ?? []).length;
+}
+
 describe('settings pages', () => {
   it('keeps settings navigation bounded to profile, security, notifications and application', async () => {
     const html = await render(<SettingsLandingPage />);
@@ -152,6 +176,7 @@ describe('settings pages', () => {
     expect(html).toContain('Dünya Dental Servora');
     expect(html).toContain('İşler');
     expect(html).not.toContain('Uygulamayı yükle');
+    expect(html).toContain('Bu tarayıcıda otomatik kurulum yönlendirmesi sunulmuyor.');
   });
 
   it('offers the Chromium install action only when a prompt is available', async () => {
@@ -159,6 +184,13 @@ describe('settings pages', () => {
     expect(html).toContain('Otomatik kurulum düğmesi');
     expect(html).toContain('Uygulamayı yükle');
     expect(html).not.toContain('Kurulum yönergelerini tekrar göster');
+  });
+
+  it('keeps the Apple install steps out of the Chromium prompt state', async () => {
+    const html = await renderApplicationPage({ canPrompt: true, appleCandidate: true });
+    expect(html).toContain('Uygulamayı yükle');
+    expect(html).not.toContain('Ana Ekrana Ekle');
+    expect(countStepLists(html)).toBe(0);
   });
 
   it('shows the Apple install steps when guidance applies', async () => {
@@ -169,17 +201,48 @@ describe('settings pages', () => {
     expect(html).toContain('Ekle\'ye dokunun');
   });
 
+  it('keeps a single copy of the Apple steps on the application settings route without the global card', async () => {
+    const html = await renderApplicationPage({ appleCandidate: true, shouldOfferAppleGuidance: true });
+    expect(countStepLists(html)).toBe(1);
+    expect(html).not.toContain('data-install-guidance="true"');
+  });
+
   it('offers to reopen dismissed Apple guidance', async () => {
     const html = await renderApplicationPage({ appleCandidate: true, guidanceDismissed: true });
     expect(html).toContain('Kurulum yönergelerini tekrar göster');
     expect(html).not.toContain('Ana Ekrana Ekle');
+    expect(countStepLists(html)).toBe(0);
+  });
+
+  it('reopens the inline Apple guidance from the dismissed state in a single copy', async () => {
+    const container = document.createElement('div');
+    const root = createRoot(container);
+    await act(async () => root.render(
+      <MemoryRouter>
+        <InstallOpportunityProvider controller={statefulInstallController({ appleCandidate: true, guidanceDismissed: true })}>
+          <ApplicationSettingsPage />
+        </InstallOpportunityProvider>
+      </MemoryRouter>,
+    ));
+    expect(container.textContent).toContain('Kurulum yönergelerini tekrar göster');
+    expect(container.textContent).not.toContain('Ana Ekrana Ekle');
+    const reopen = Array.from(container.querySelectorAll<HTMLButtonElement>('button'))
+      .find((button) => button.textContent === 'Kurulum yönergelerini tekrar göster');
+    expect(reopen).not.toBeUndefined();
+    await act(async () => reopen!.click());
+    expect(container.textContent).toContain('Ana Ekrana Ekle');
+    expect(container.textContent).not.toContain('Kurulum yönergelerini tekrar göster');
+    expect(container.querySelectorAll('.apple-install-guidance-steps')).toHaveLength(1);
+    await act(async () => root.unmount());
   });
 
   it('reports the installed standalone state', async () => {
-    const html = await renderApplicationPage({ installed: true });
+    const html = await renderApplicationPage({ installed: true, appleCandidate: true });
     expect(html).toContain('Ana Ekran uygulaması olarak çalışıyor');
     expect(html).toContain('Ana Ekran uygulaması');
     expect(html).not.toContain('Uygulamayı yükle');
+    expect(html).not.toContain('Ana Ekrana Ekle');
+    expect(countStepLists(html)).toBe(0);
   });
 
   it('keeps the Uygulama tab in the settings tabs', async () => {
