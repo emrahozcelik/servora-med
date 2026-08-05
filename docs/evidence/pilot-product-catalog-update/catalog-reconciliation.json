@@ -1,0 +1,78 @@
+{
+  "summary": "Pilot product catalog expansion, accepted existing-product correction, validation, and dry-run",
+  "baseCommit": "8b030d4d88a9dc9c7bcdce4cf5845b64ac9528c5",
+  "baseCatalogSha256": "398a0d28a6ea0e1b881c47d71bf6792ddbb04dd4b1ea877bf924d401849548f1",
+  "updatedCatalogSha256": "554621ae22f4ea08901c2e9dfc8ac8a377298b740e51a4d0f9241975da2f701e",
+  "baseProductCount": 81,
+  "updatedProductCount": 781,
+  "additions": 700,
+  "removed": 0,
+  "modifiedExisting": 1,
+  "modifiedExistingDetails": "NAME:Euroseal Termal Kapama Cihazı — model field update, accepted by user",
+  "nonNullSkuCount": 368,
+  "nullSkuCount": 413,
+  "uniqueSkuCount": 368,
+  "categoryCounts": {
+    "Cerrahi Alet": 333,
+    "Protez": 320,
+    "Diğer": 69,
+    "Sarrafiye / Sarf": 54,
+    "Ortodonti": 5
+  },
+  "categoryGuide": "UNCHANGED (7 categories; Kemik Greft / Membran and İmplant unused in catalog)",
+  "duplicateExactKeys": 0,
+  "duplicateCaseInsensitiveSku": 0,
+  "duplicateCaseInsensitiveNullSkuName": 0,
+  "exactRepeatedObjects": 0,
+  "reviewWarningCount": 43,
+  "reviewWarnings": [
+    "2 products (NT Diş Üniti, NG Diş Üniti) had model text of 144 chars exceeding the 100-char contract limit; shortened to 100 chars preserving all listed components (user approved)",
+    "41 brand+model groups shared by multiple products — all shade/variant products with unique SKUs (informational)"
+  ],
+  "unsupportedFieldStripping": {
+    "currency": 700,
+    "purchasePrice": 771,
+    "supplier": 700,
+    "sourcePriceList": 700,
+    "decision": "No new product fields added (user decision); fields removed from catalog and fieldGuide entries; description purchasePrice sentence removed"
+  },
+  "canonicalParser": "PASS",
+  "rawNormalization": "PASS — no silent normalization required (no leading/trailing whitespace, no empty strings, canonical field order)",
+  "focusedTests": "pilot-product-import.test.ts 6/6 PASS (781 products, 368 non-null SKU, 48 simulated matches, 733 simulated inserts; accepted Euroseal prior-catalog conflict covered)",
+  "productServiceTests": "product-service.test.ts 31/31 PASS",
+  "serverBuild": "PASS",
+  "dryRun": {
+    "result": "PASS",
+    "sourceCount": 781,
+    "matchedCount": 0,
+    "insertedCount": 781,
+    "dryRunFlag": true
+  },
+  "databaseBeforeAfter": "EXACT INVARIANT — product count 1, active products 1, product audit events 0, max product updated_at unchanged, max product audit created_at unchanged",
+  "apply": false,
+  "databaseOperations": "non-mutating dry-run transaction (BEGIN/COMMIT, advisory and row locks, no DML)",
+  "production": "not authorized",
+  "changeMode": "EXPANSION_WITH_ONE_ACCEPTED_EXISTING_CORRECTION",
+  "strictlyAdditive": false,
+  "baseProductsUnchanged": 80,
+  "acceptedExistingCorrections": 1,
+  "priorCatalogReimportCompatibility": {
+    "result": "FAIL_CLOSED_CONFLICT",
+    "key": "NAME:Euroseal Termal Kapama Cihazı",
+    "changedFields": [
+      "model"
+    ],
+    "intentional": true,
+    "automaticUpdate": false
+  },
+  "currentSyntheticTargetDryRun": {
+    "matchedCount": 0,
+    "insertedCount": 781,
+    "conflicts": 0
+  },
+  "transaction": "BEGIN/COMMIT on successful dry-run",
+  "dmlExecuted": false,
+  "persistentDatabaseMutation": false,
+  "operations": "advisory transaction lock, actor SELECT FOR SHARE, Product SELECT FOR UPDATE, merge planning, COMMIT; no INSERT/UPDATE/DELETE",
+  "transactionAccessMode": "default read/write transaction; apply=false"
+}

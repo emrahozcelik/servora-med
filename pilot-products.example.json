@@ -1,12 +1,12 @@
 {
   "version": 1,
-  "description": "Dünya Dental pilot ürün kataloğu. Genel katalogdan çıkarılan ürünler. category ayrı tablo değil — üründe metin alanıdır; categories listesi yalnızca tutarlı isimler için rehberdir.",
+  "description": "Dünya Dental pilot ürün kataloğu. Genel katalogdan çıkarılan ürünler + Depo Alım 2026 Fiyat Listesi'nden eklenen ürünler. category ayrı tablo değil — üründe metin alanıdır; categories listesi yalnızca tutarlı isimler için rehberdir.",
   "fieldGuide": {
     "name": "Zorunlu. Ürün adı (görünen ad).",
-    "sku": "Opsiyonel. Stok/katalog kodu. UTS kodu kullanıldı.",
+    "sku": "Opsiyonel. Stok/katalog kodu. UTS barkodu veya tedarikçi REF/katalog kodu kullanıldı.",
     "brand": "Opsiyonel. Marka.",
     "category": "Opsiyonel. Aşağıdaki categories listesinden birebir aynı yazın.",
-    "model": "Opsiyonel. Model / varyant.",
+    "model": "Opsiyonel. Model / varyant / paket içeriği.",
     "unit": "Opsiyonel. Birim (adet, kutu, set, ml, gr).",
     "referencePrice": "Opsiyonel. Sayı (TRY referans fiyat). Yoksa null.",
     "isActive": "Opsiyonel. Varsayılan true."
@@ -446,7 +446,7 @@
       "sku": null,
       "brand": "Euronda",
       "category": "Sarrafiye / Sarf",
-      "model": "Termal kapama ruloları",
+      "model": "Euroseal 2001 Plus termal kapama cihazı",
       "unit": "adet",
       "referencePrice": null,
       "isActive": true
@@ -827,6 +827,7006 @@
       "brand": "Medisana",
       "category": "Sarrafiye / Sarf",
       "model": "7'li rubberdam seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Fırça Brush No.24",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "1 çift taraflı estetik kompozit fırçası",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Clear",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe White",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Blue",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Yellow",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Gray",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Ocher",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Dark Brown",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Red",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Lavender",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Pink Opaque",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe High Chroma Opaque",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Medium Chroma Opaque",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Color Syringe Low Chroma Opaque",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 0.5ml (1.0g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria B3B",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria BL",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria NE",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria WE",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria YE",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria TE",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Asteria OcE",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Estelite Paste A3.5 (Palfique Estelite)",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Estelite Paste B2 (Palfique Estelite)",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Estelite Paste C2 (Palfique Estelite)",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Estelite Paste Inc. (Palfique Estelite)",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Estelite Paste OA2 (Palfique Estelite)",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Estelite Paste OA3 (Palfique Estelite)",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow U",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 1.8ml (3g) + 10 uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow B1",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 1.8ml (3g) + 10 uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow A3",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 1.8ml (3g) + 10 uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow PLT U",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "20 x 0.11ml (20 x 0.20g)",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow PLT B1",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "20 x 0.11ml (20 x 0.20g)",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow PLT A1",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "20 x 0.11ml (20 x 0.20g)",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow PLT A2",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "20 x 0.11ml (20 x 0.20g)",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Bulk Fill Flow PLT A3",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "20 x 0.11ml (20 x 0.20g)",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Posterior PA1",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 2.0ml (4.2g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Posterior PA2",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 2.0ml (4.2g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Posterior PA3",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 2.0ml (4.2g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Posterior PCE",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 2.0ml (4.2g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick A4",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick A5",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick B1",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick B2",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick B3",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick B4",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick C1",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick C2",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick C3",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick OA1",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick OA2",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick OA3",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick OPA2",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick CE (Inc.)",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick BW",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Sigma Quick WE",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 3.8g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow High A3.5",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "High Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow High OPA2",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "High Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow High OPA3",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "High Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow High OPA4",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "High Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium A3.5",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium A4",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium A5",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium B3",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium OPA2",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium OPA3",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium OPA4",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium CE",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Medium BW",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Medium Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Super Low A3.5",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Super Low Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Super Low A4",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Super Low Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Universal Flow Super Low A5",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Super Low Viskozite, Şırınga 3.0g",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tokuyama Etching Gel Şırınga Kiti",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "2 şırınga (2.5mL) + 20 uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bond Force II Refill",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "5 ml refill",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estecem II Plus Trial Kit Universal",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Paste A/B 2.4 ml + Universal Bond + uçlar",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estecem II Plus Paste Universal",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4.6ml (9.4g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estecem II Plus Paste Clear",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4.6ml (9.4g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estecem II Plus Paste Brown",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4.6ml (9.4g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estecem II Plus Paste White Opaque",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Şırınga 4.6ml (9.4g)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Rebase II Kit Fast Light Pink",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Toz 80g + Sıvı 50mL + Adeziv 15mL + Hardener 48g",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Sofreliner Tough M Kit",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Paste 27+27g + Primer 10mL + 10 karıştırma ucu",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Sofreliner Tough S Kit",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "Paste 26+26g + Primer 10mL + 10 karıştırma ucu",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estesil H2TOP Monophase Machine Mix 5:1",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "2 kartuş 5:1 (380 ml) + 10 karıştırma ucu + 1 halka",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estesil H2TOP Monoimplant Machine Mix 5:1",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "2 kartuş 5:1 (380 ml) + 10 karıştırma ucu + 1 halka",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estesil H2TOP Putty Soft Hand Mix 1:1 FAST",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "2 kavanoz (Base 300 ml + Catalyst 300 ml) + 2 kaşık",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estesil H2TOP RF Regular Flowability Gun Mix 1:1 FAST",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "2 kartuş 1:1 (50 ml) + 6 karıştırma ucu",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Renfert Sympress II Karıştırma Makinesi (230v)",
+      "sku": null,
+      "brand": "Renfert",
+      "category": "Protez",
+      "model": "5:1 oran kartuşları için karıştırma makinesi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estelite Şırınga Organizer (Çelik Stant)",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "13 delikli metal organizer",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Cup Medium",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, kompozit/hibrit seramik ön parlatma elmas parlatıcı",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Cyclone Medium",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, oklüzal yüzey ön parlatma elmas uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Tornado10 Medium",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, esnek elmas radyal disk",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Point Medium",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, elmas parlatıcı uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Tornado14 Medium",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, esnek elmas radyal disk",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Cup Fine",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, yüksek parlaklık elmas parlatıcı",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Cyclone Fine",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, oklüzal yüzey yüksek parlaklık elmas parlatıcı",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Tornado10 Fine",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, yüksek parlaklık esnek elmas radyal disk",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Point Fine",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, yüksek parlaklık elmas parlatıcı uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Tornado14 Fine",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "3'lü, yüksek parlaklık esnek elmas radyal disk",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Tornado10 Value Set",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "10'lu set, esnek elmas radyal disk",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEPOLISHER Tornado14 Value Set",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "10'lu set, esnek elmas radyal disk",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC Coarse Disk 10mm",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "10mm, 100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC Coarse Disk 14mm",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "14mm, 100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC Medium Disk 10mm",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "10mm, 100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC Medium Disk 14mm",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "14mm, 100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC Fine Disk 10mm",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "10mm, 100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC Fine Disk 14mm",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "14mm, 100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC Extra Fine Disk 10mm",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "10mm, 100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC Extra Fine Disk 14mm",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "14mm, 100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC 10mm Starter Kit",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "100 adet esnek parlatma diski",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC 14mm Starter Kit",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "100 adet esnek parlatma diski",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ESTEDISC Mandrel",
+      "sku": null,
+      "brand": "Tokuyama",
+      "category": "Protez",
+      "model": "RA(CA)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Potenza BIANCO Pro SS 38 Beyazlatma Seti",
+      "sku": null,
+      "brand": null,
+      "category": "Protez",
+      "model": "6 hastalık set",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E8 Otoklav + Aquadist + Euroseal Paketi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "E8 Otoklav + Aquadist + Euroseal",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "EXL Otoklav + Aquadist + Euroseal Paketi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "EXL Otoklav + Aquadist + Euroseal",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E10 Otoklav + Aquadist + Euroseal Paketi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "E10 Otoklav + Aquadist + Euroseal",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosafe 60 Termal Dezenfektör",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "Termal dezenfektör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosonic 3D Ultrasonik Yıkama",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "Ultrasonik yıkama cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosonic Energy Ultrasonik Yıkama",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "Ultrasonik yıkama cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosonic Micro Ultrasonik Yıkama",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "Ultrasonik yıkama cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Euromatic Plus Otomatik Yıkama Cihazı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "Otomatik yıkama-dezenfeksiyon cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Sanifizer Automatic",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Cerrahi Alet",
+      "model": "Sanifizer Automatic",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Aquadist Su Arıtma Cihazı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Su distilasyon/arıtma cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosteril Sterilizasyon Rulosu 5cm",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "5 cm x 200 mm, 8 ruloluk karton",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosteril Sterilizasyon Rulosu 7.5cm",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "7.5 cm x 200 mm, 5 ruloluk karton",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosteril Sterilizasyon Rulosu 10cm",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "10 cm x 200 mm, 4 ruloluk karton",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosteril Sterilizasyon Rulosu 15cm",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "15 cm x 200 mm, 2 ruloluk karton",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosteril Sterilizasyon Rulosu 20cm",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "20 cm x 200 mm, 2 ruloluk karton",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosteril Sterilizasyon Rulosu 25cm",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "25 cm x 200 mm, 2 ruloluk karton",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosteril Sterilizasyon Poşeti 9x25cm",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "9 x 25 cm, 200 adetlik kutu, 9 kutuluk karton",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosteril Sterilizasyon Poşeti 14x26cm",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "14 x 26 cm, 200 adetlik kutu, 6 kutuluk karton",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Eurosteril Sterilizasyon Poşeti 19x33cm",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "19 x 33 cm, 200 adetlik kutu, 5 kutuluk karton",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Ünit Tabla Örtüsü (500'lük)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "500'lük koli (50 adetlik kutu, 10 kutuluk koli)",
+      "unit": "koli",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Ünit Tabla Örtüsü (Siyah)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Siyah, 50 adetlik kutu, 10 kutuluk koli",
+      "unit": "koli",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Bib Up Önlük",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "150'lik hazır kesilmiş yapışkanlı önlük",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Tükürük Emici EM 15",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart EM 21 Evo Aspiratör Ucu 10",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "10'lu",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Yüz Maskesi Koruma 3",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Çeşitli renklerde",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Yüz Maskesi Koruma 4 Mavi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Mavi",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Yüz Maskesi Koruma 4 Siyah",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Siyah",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Önlük",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "80 önlüklük rulo",
+      "unit": "rulo",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Pratik Gözlük",
+      "sku": "261024",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261024",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Hafif Gözlük",
+      "sku": "261025",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261025",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Contemporary Gözlükler",
+      "sku": "261020",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261020",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart FitUp Gözlükler",
+      "sku": "261169",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261169",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart FitUp Gözlükler",
+      "sku": "261179",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261179",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Hafif Portakal Rengi Gözlük",
+      "sku": "261015",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261015",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Ultra Hafif Gözlükler",
+      "sku": "261002",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261002",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Evrim Gözlükler",
+      "sku": "261005",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261005",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Evrim Portakal Rengi Gözlükler",
+      "sku": "261102",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261102",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Elastik Gözlükler",
+      "sku": "261030",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261030",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Elastik Portakal Rengi Gözlükler",
+      "sku": "261031",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261031",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Küçük Portakal Rengi Gözlükler",
+      "sku": "261090",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261090",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Küp Gözlükler",
+      "sku": "261010",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261010",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Küp Portakal Rengi Gözlükler",
+      "sku": "261011",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261011",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Cerrahi Siper",
+      "sku": "261103",
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "261103",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Rulo Pamuk",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "No:1 No:2, 600'lük",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Rubber Dam Lastiği",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "36'lık kutu",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Monoart Bariyer Film",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Bariyer film",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Otoklav Bowie & Dick Testi 100'lük",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "100'lük",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1000 Cycles Kit",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "1000 Cycles Kit",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "2000 Cycles Kit",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "2000 Cycles Kit",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Otoklav Kapak Contası (Euronda)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Kapak contası",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Otoklav Bakteri Filtresi (Euronda)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Bakteri filtresi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Otoklav Vakum Pompası (Euronda)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Vakum pompası",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Rezistans E9 MED 24 Lt",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 MED 24 Lt rezistans",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Separatör Kapağı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 separatör kapağı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Separatör Oringi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 separatör oringi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Otoklav Su Pompası (Euronda)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Su pompası",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Otoklav Ana Kart (Euronda)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Ana kart",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Tepsi 24 Litre",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 tepsi 24 litre",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Su Tahliye Hortumu",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Su tahliye hortumu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Temiz & Pis Su Tankı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Temiz & pis su tankı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tahliye Musluğu",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Tahliye musluğu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 MED Manyetik Kapak Kilidi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 MED manyetik kapak kilidi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Otoklav Çek Valf (Euronda)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Çek valf",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Su Pompası Çıkış Valfi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Su pompası çıkış valfi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Su Pompası Çıkış T Valfi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Su pompası çıkış T valfi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kazan İçi Filtre",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Kazan içi filtre",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Buhar Jeneratörü",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 buhar jeneratörü",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E8 Buhar Jeneratörü",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E8 buhar jeneratörü",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Aquafilter Kartuşları",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Aquafilter kartuşları",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Kapı Contası (1 adet)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 kapı contası",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bakteri Filtresi (1 adet)",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Bakteri filtresi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Med 18 1 İçin Bant Isıtıcı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 Med 18 1 bant ısıtıcı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Euroseal 2001 / Euroseal 2001 Plus İçin Kesme Kenarı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Kesme kenarı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Euroseal Termal Kapama Makineleri için Raf",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Raf",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Basınç Dönüştürücü",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Basınç dönüştürücü",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Buhar Jeneratör Isı Sensörü",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Buhar jeneratör ısı sensörü",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Isı Sensörü",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Isı sensörü",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kazan İçi Isı Sensörü",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Kazan içi ısı sensörü",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Termostat",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Termostat",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Vakum Şişesi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 vakum şişesi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Vakum Pompası Diyaframı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Vakum pompası diyaframı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "EV 1 Selenoid Valf",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "EV 1 selenoid valf",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 MED Ön Panel Kartı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 MED ön panel kartı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Poşetleme Cihazı Ana Kartı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Poşetleme cihazı ana kartı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Poşetleme Cihazı Tepsisi",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Poşetleme cihazı tepsisi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Poşetleme Cihazı Bıçağı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Poşetleme cihazı bıçağı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Poşetleme Cihazı Rezistansı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Poşetleme cihazı rezistansı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Pres Kol Tutacağı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Pres kol tutacağı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Poşet Kesme Mekanizması",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Poşet kesme mekanizması",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Aquadist Fan Motoru",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Aquadist fan motoru",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Aquadist Termik",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Aquadist termik",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Aquadist Temizleme Tozu",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Aquadist temizleme tozu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Aquadist Su Filtresi (Kömür) 12'li",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Kömür su filtresi, 12'li",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Recorder Printer Kağıdı (Sticker) 10'lu",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "Sticker, 10'lu",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Recorder İçin Etiket Rulosu",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Sarrafiye / Sarf",
+      "model": "E9 recorder etiket rulosu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Med / E9 Inspection Vakum Pompası Membranı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Vakum pompası membranı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Med / E9 Inspection Vakum Pompası",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Vakum pompası",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "E9 Med 21 1 İçin Bant Isıtıcı",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "E9 Med 21 1 bant ısıtıcı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Basınç Transduseri",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Basınç transduseri",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Euroseal 2001 Plus 230 V Isıtıcı Aparat",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "230 V ısıtıcı aparat",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Euroseal Termal Kapama Makineleri İçin Silikon Çerçeve",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Silikon çerçeve",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Euroseal Termal Kapama Makineleri Kesme Kenar Seti",
+      "sku": null,
+      "brand": "Euronda",
+      "category": "Diğer",
+      "model": "Kesme kenar seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Dmega Megavac 2000 Cerrahi Aspiratör",
+      "sku": null,
+      "brand": "Dmega",
+      "category": "Cerrahi Alet",
+      "model": "Cerrahi aspiratör / 2 ünite",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Dmega S101 Cerrahi Aspiratör",
+      "sku": null,
+      "brand": "Dmega",
+      "category": "Cerrahi Alet",
+      "model": "Cerrahi aspiratör / 1 ünite",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Hyperion X5 2D Panoramik",
+      "sku": null,
+      "brand": null,
+      "category": "Diğer",
+      "model": "2D panoramik, bilgisayar dahil",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Hyperion X5 3D Tomografi",
+      "sku": null,
+      "brand": null,
+      "category": "Diğer",
+      "model": "3D tomografi, bilgisayar ve zemin ayağı dahil, 10x10 FOV",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Artikülasyon Kağıdı Düz",
+      "sku": null,
+      "brand": "Anhui JM",
+      "category": "Sarrafiye / Sarf",
+      "model": "Artikülasyon kağıdı, düz",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Artikülasyon Kağıdı Nal",
+      "sku": null,
+      "brand": "Anhui JM",
+      "category": "Sarrafiye / Sarf",
+      "model": "Artikülasyon kağıdı, nal",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "NT Diş Üniti",
+      "sku": null,
+      "brand": null,
+      "category": "Diğer",
+      "model": "Bien Air MCX Micromotor, Miglionico Kavitron, Işıklı Başlık, Faro Reflektör, Hekim Taburesi, Monitör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "NG Diş Üniti",
+      "sku": null,
+      "brand": null,
+      "category": "Diğer",
+      "model": "Bien Air MCX Micromotor, Miglionico Kavitron, Işıklı Başlık, Faro Reflektör, Hekim Taburesi, Monitör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fi-P Gutta-percha Obtürasyon Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Gutta-percha obtürasyon cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fi-G Gutta-percha Obtürasyon Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Gutta-percha obtürasyon cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "N2 LED Kavitron Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Ünite monte edilmiş kavitron cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "DS-II Led Piezo Cerrahi Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Piezo cerrahi cihazı, 2 kafa dahil",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Motopex Endo Motor Dahili Apex",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Endo motor dahili apex bulucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Mini Ray Mobil Röntgen Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Diğer",
+      "model": "Mobil röntgen cihazı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "i-Sensör RVG Sensor",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Diğer",
+      "model": "RVG sensör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "P1 Kavitron Ucu",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Kavitron ucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "X-STAR Işık Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Diğer",
+      "model": "Sınırsız kürleme çözümü, 12mm lens çapı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Endo 3 Ultrasonik İrrigasyon Aktivasyon Cihazı",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Ultrasonik endodontik irrigasyon aktivasyon makinesi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "M2 Pro Elektrikli Mikromotor ve Angldruva Seti",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Elektrikli mikromotor ve angldruva seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Mt2 Elektrikli Mikromotor ve Kırmızı Kuşak Angldruva Seti",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Elektrikli mikromotor & kırmızı kuşak angldruva seti",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "D7 Led Ultrasonik Scaling ve Periodontal Kavitron",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Ultrasonik diş taşı temizleme (scaling) ve periodontal kavitron",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Drive X Led Işıklı İmplant Motoru",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Işıklı implant motoru",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Endo Radar Pro Reciprocal Endomotor ve Apex Bulucu",
+      "sku": null,
+      "brand": "DTE / Woodpecker",
+      "category": "Cerrahi Alet",
+      "model": "Reciprocal endomotor ve apex bulucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Lilivis SCAN Tarayıcı",
+      "sku": null,
+      "brand": "Lilivis",
+      "category": "Diğer",
+      "model": "Dijital tarayıcı (6 ay boyunca 7/24 kişiye özel Whatsapp danışma hattı dahil)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 15.03",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 15.03",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 20.04",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 20.04",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 20.05",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 20.05",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 20.06",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 20.06",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 25.04",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 25.04",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 25.06",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 25.06",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 30.04",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 30.04",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 30.06",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 30.06",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 35/04",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 35/04",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 35/06",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 35/06",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 40/04",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 40/04",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 40/06",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 40/06",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 45/04",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 45/04",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 50/04",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 50/04",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 55/04",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 55/04",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PLEX V Rotary Eğe 60/04",
+      "sku": null,
+      "brand": "Orodeka",
+      "category": "Cerrahi Alet",
+      "model": "21/25/28/31 mm, 60/04",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H08",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H08",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H010",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H010",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H015",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H015",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H020",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H020",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H025",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H025",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H030",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H030",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H035",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H035",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H040",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H040",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H015-040",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H015-040",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "H-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "H045-080",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, H045-080",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K06",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K06",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K08",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K08",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K010",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K010",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K015",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K015",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K025",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K025",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K030",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K030",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K035",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K035",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K040",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K040",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K015-040",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K015-040",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "K-Tipi El Eğeleri 6'lı Blister 25mm",
+      "sku": "K045-080",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "6'lı blister, 25 mm, K045-080",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.820 Tahta Kama (100'lü)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "100'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.820 Tahta Kama (200'lü)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "200'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.820 Tahta Kama (400'lü)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "400'lü",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.820 Şeffaf Kama",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "2 tip, 80 adetlik kutu (50 adet ince / 30 adet orta)",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.842 Plastik Kama Medium",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "40'lı kutu",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.841 Plastik Kama İnce",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "40'lı kutu",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1198 Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "30 adet böbrek matriks + uygulama halkası",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1972 Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "30 adet böbrek matriks",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1973 Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "30 adet böbrek matriks",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1976 Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "30 adet böbrek matriks",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1099-5 Böbrek Matriksler İçin Taşıyıcı Halka",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Böbrek matriksler için taşıyıcı halka",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1099-2 Halka Tutucu",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Halka tutucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1310 Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "18 adet matriks + taşıma aparatı",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.330 Saddle Metal Matrices Universal Kit",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Matriks seti + taşıma aparatı No1.003",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1311 Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "12 adet refil",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1312 Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "12 adet refil",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1313 Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "12 adet refil",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Matriks Taşıyıcı",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Matriks taşıyıcı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1500 Premolar Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "30'luk",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1510 Molar Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "30'luk",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1540 Premolar Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "16 adet tek kullanımlık kontürlü matrix",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "1550 Molar Matrix Sistem",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "16 adet tek kullanımlık kontürlü matrix",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.075 Kompozit Parlatma Diski (40'lık)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "40'lık + 1 mandren",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.075 Kompozit Parlatma Diski (80'lik)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "80'lik + 2 mandren",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.075 Kompozit Parlatma Diski (200'lük)",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "200'lük + 2 mandren",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.055 Kompozit Zımparası",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "100'lük",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Yedek Mandrel",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Yedek mandrel",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.370 Çok Yönlü Proxikesim Sistemi",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Testere bıçakları + elmas stripler + anahtar/tutucu + sap",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.369 Proxikesim Testere Bıçak İçin Taşıyıcı",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Anahtarlı taşıyıcı, 1 adet",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.107 Sap",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "1 adet sap",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.109 Sap",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "1 adet sap",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.385F1 Proxikesim Elmas Stripler",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Tip 1, 0.070 mm kalınlık, 12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No 1.385F2 Proxikesim Elmas Stripler",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Tip 2, 0.070 mm kalınlık, 12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.385M1 Proxikesim Elmas Stripler Medium",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Tip 1, 0.100 mm kalınlık, 12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.385M2 Proxikesim Elmas Stripler Medium",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Tip 2, 0.100 mm kalınlık, 12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.385C1 Proxikesim Elmas Stripler Coarse",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Tip 1, 0.150 mm kalınlık, 12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.385C2 Proxikesim Elmas Stripler Coarse",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Tip 2, 0.150 mm kalınlık, 12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.384(1) Proxikesim Testere Bıçakları",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Tip 1, 0.05 mm kalınlık, 12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.384(2) Proxikesim Testere Bıçakları",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Tip 2, 0.05 mm kalınlık, 12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.150 Metal Elmas Stripler Coarse",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "5 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.151 Metal Elmas Stripler Medium",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "5 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.152 Metal Elmas Stripler Fine",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "5 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No2.150 Metal Elmas Perforeli Stripler",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Orta kısım testere, 5 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No2.151 Metal Elmas Perforeli Stripler Medium",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Orta kısım testere, 5 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No2.152 Metal Elmas Perforeli Stripler Fine",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "Orta kısım testere, 5 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.386 Tartar Kazıma İçin Metal Stripler",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "12 adet, 4 mm genişlik, 100 mm uzunluk, 0.05 mm kalınlık",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.440 Stoperli Şeffaf Strip Bant",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "8/10 mm genişlik, 100 mm uzunluk, 12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.040 Şeffaf Strip Bant",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "8/10 mm genişlik, 100 mm uzunluk, 100 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.245 Şeffaf Bant",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "0.050 mm kalınlık, 10 m uzunluk, 10 mm genişlik",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.393 Metal Bant",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "0.050 mm kalınlık, 7 mm genişlik, 3 m uzunluk",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.387A Proximal Anterior Strips Small",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.387 Proximal Anterior Strips Medium",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "No1.388 Proximal Anterior Strips Large",
+      "sku": null,
+      "brand": "TOR",
+      "category": "Protez",
+      "model": "12 adet",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Estetik Kompozit Parlatma Lastik Seti",
+      "sku": null,
+      "brand": null,
+      "category": "Protez",
+      "model": "6'lı",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kompozit Parlatma Lastikleri",
+      "sku": null,
+      "brand": null,
+      "category": "Protez",
+      "model": "1 adet sarı-beyaz",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Amalgam Parlatma Lastikleri",
+      "sku": null,
+      "brand": null,
+      "category": "Protez",
+      "model": "1 adet yeşil-kahverengi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Charmfil Flow Akışkan Kompozit",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "1x2 gr + uygulama uçları",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Supercem Self Cure Rezin Siman",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "9 gr",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CharmTemp Crown Geçici Kron Köprü Materyali",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "50 ml kartuş, A1, A2, A3, A3.5, B1, B2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CharmFil Plus Mikrohibrit Kompozit",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4 gr şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Charmfil Plus Set Mikrohibrit Kompozit Set",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4 adet 4 gr kompozit tüp + 1 adet 5 ml charmbond + 1 adet 3 ml charm etch + skala ve aksesuarlar",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Charmsensy Hassasiyet Giderici Ajan",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "5 ml şişe + 50 uygulama fırçası",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CharmTemp EU Ojenol İçerikli Geçici Kron Köprü Yapıştırma Simanı",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "45 gr baz, 22 gr katalizör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CharmTemp NE Ojenol İçermeyen Geçici Kron Köprü Yapıştırma Simanı",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "45 gr baz, 22 gr katalizör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CharmPlant Cem Dual Kür Yapıştırma Simanı",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Otomiks 5 ml şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CharmFlex Putty Soft Silikon Ölçü Maddesi",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Polisiloksan 1. ölçü, 280+280 ml",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CharmFlex Regular Silikon Ölçü Maddesi",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Polisiloksan 2. ölçü, 50+50 ml",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CharmFlex Bite Clear Kapanış Ölçüsü",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Polisiloksan şeffaf kapanış ölçüsü, 50+50 ml",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CharmFlex Bite Fast Kapanış Ölçüsü",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Polisiloksan kapanış ölçüsü, 50+50 ml",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Actino Gel Deneme Paketi",
+      "sku": "10006-2",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 10006-2, 1 adet 3 ml şırınga + 10 uygulama ucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Actino Gel Başlangıç Paketi",
+      "sku": "10006",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 10006, 1 adet 5 ml şırınga + 10 uygulama ucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Actino Gel Jumbo Paket",
+      "sku": "10008",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 10008, 1 adet 50 ml şırınga + 2 adet 5 ml boş şırınga + 20 uygulama ucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Renew MDP Self-Etch Bonding Ajanı Standart Paket",
+      "sku": "10016",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 10016, 1 adet 5 ml şişe",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Renew Universal Bonding Ajanı Standart Paket",
+      "sku": "10018",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 10018, 1 adet 5 ml şişe",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Magma NT Nano Seramik Universal Restoratif Ana Kit",
+      "sku": "20002",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20002, normal renk seti, Fusion Bond 7 + Fusion Nano Coat + Fusion Flo A2 + Platina Fli-Gloss",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Magma NT Nano Seramik Universal Restoratif Başlangıç Kiti",
+      "sku": "20002-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20002-1, standart renk seti (A1, A2, A3, B2)",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Magma NT Nano Seramik Kompozit Refill A1",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g seramik içerikli ışıkla sertleşen kompozit A1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Magma NT Nano Seramik Kompozit Refill A3.5",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g seramik içerikli ışıkla sertleşen kompozit A3.5",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Magma NT Nano Seramik Kompozit Refill B1",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g seramik içerikli ışıkla sertleşen kompozit B1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Universal Nano Hibrit Kompozit Başlangıç Kiti",
+      "sku": "20005",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20005, 4 adet 4 g şırınga (A2, A3, B2, B3)",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Universal Nano Hibrit Kompozit Kombo Kit",
+      "sku": "20006",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20006, 7 adet 4 g şırınga + Fusion Bond 5 + Actino jel + mikro fırçalar",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Universal Nano Hibrit Kompozit Refill A1",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g nano hibrit ışıkla sertleşen kompozit A1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Universal Nano Hibrit Kompozit Refill A2",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g nano hibrit ışıkla sertleşen kompozit A2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Universal Nano Hibrit Kompozit Refill A3",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g nano hibrit ışıkla sertleşen kompozit A3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Universal Nano Hibrit Kompozit Refill A3.5",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g nano hibrit ışıkla sertleşen kompozit A3.5",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Universal Nano Hibrit Kompozit Refill B1",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "4g nano hibrit ışıkla sertleşen kompozit B1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Seal Pit ve Fissür Örtücü",
+      "sku": "20012-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20012-1, 1 adet 2 g şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "PF Seal SE Self-Etch Pit ve Fissür Örtücü Deneme Paketi",
+      "sku": "20012-2",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20012-2, 1 adet 2 g şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Flo Nano Hibrit Akışkan Kompozit Kombo Kit",
+      "sku": "20009",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20009, 4 adet 2 g şırınga (A1, A2, A3) + 20 uygulayıcı uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Flo Akışkan Kompozit Refill A1",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Akışkan kompozit A1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Flo Akışkan Kompozit Refill A2",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Akışkan kompozit A2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Flo Akışkan Kompozit Refill A3",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "Akışkan kompozit A3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Flo SE Self-Adeziv Akışkan Kompozit Deneme Paketi",
+      "sku": "20008-3",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20008-3, 1 adet 2 g şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Core DC Flo Kor Oluşturma Kompoziti Başlangıç Paketi",
+      "sku": "20011",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20011, otomatik karıştırma 9 g şırınga + 10 intraoral + 10 endo uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion i-Seal Cam İyonomer Kompozit Siman Deneme Paketi",
+      "sku": "30002-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30002-1, 1 adet 2 g şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion i-Seal Cam İyonomer Kompozit Siman Başlangıç Paketi",
+      "sku": "30003",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30003, 4 adet 2 g şırınga + 20 uygulayıcı uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Cal LC Kalsiyum Hidroksit Pat Deneme Paketi",
+      "sku": "30004",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30004, 1 adet 2 g şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "ApaCal ART Pulpa Koruyucu / Astar Deneme Paketi",
+      "sku": "30001-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30001-1, 1 adet 2 g şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Ultra D/C Reçine Esaslı Yapıştırma Simanı Başlangıç Paketi",
+      "sku": "30006",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30006, otomatik karıştırma 9 g şırınga + 10 uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Micron Superior Cam İyonomer Restoratif Toz-Sıvı Kiti",
+      "sku": "30010",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30010, 15 g toz + 10 ml sıvı + karıştırma pedi + kaşık",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Micron Superior Capsule Kapsül İçinde Cam İyonomer",
+      "sku": "30010-3",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30010-3, 10 adet tek renkli kapsül",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Micron Luting Cam İyonomer Yapıştırma Simanı Toz-Sıvı Kiti",
+      "sku": "30011",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30011, 15 g toz + 10 ml sıvı + karıştırma pedi + kaşık",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Micron Silver Radyoopak Gümüş Alaşımlı Cam İyonomer Siman",
+      "sku": "30009",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30009, 15 g toz + 10 ml sıvı + karıştırma pedi + kaşık",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Micron Dentin Conditioner Poliakrilik Asit",
+      "sku": "30010-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30010-1, 1 adet 10 ml sıvı şişesi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Poly Zinc+ Çinko Polikarboksilat Siman Başlangıç Paketi",
+      "sku": "30012",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30012, 30 g toz + 15 ml sıvı + kaşık + karıştırma pedi",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Zinc F+ Çinko Fosfat Siman Toz-Sıvı Kiti",
+      "sku": "30014",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30014, 30 g toz + 15 ml sıvı + kaşık",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Zinconol Polimerle Güçlendirilmiş ZOE Simanı Toz-Sıvı Kiti",
+      "sku": "30015-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30015-1, 75 g toz + 45 ml sıvı + karıştırma pedi + damlalık",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Zitemp ZOE Siman Hızlı Set Toz-Sıvı Kiti",
+      "sku": "30016",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 30016, 15 g toz + 10 ml sıvı + karıştırma pedi + kaşık",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Calultra Kalsiyum Hidroksit Kaide Maddesi",
+      "sku": "40046",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40046, 24 g taban/katalizör patı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Dolo EDTA Jel Deneme Paketi",
+      "sku": "40002",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40002, 1 adet 2 g şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Dolo EDTA Jel Ekonomik Paket",
+      "sku": "40003",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40003, 4 adet 2 g şırınga + 20 uygulayıcı uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Edta Solution %17 EDTA Solüsyonu",
+      "sku": "40004",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40004, 15 ml cam şişe + damlalık",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Citrogen Gel %20 Sitrik Asit Jeli 10ml",
+      "sku": "40045",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40045, 1 adet 10 ml şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Citrogen Gel %20 Sitrik Asit Jeli 30ml",
+      "sku": "40045-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40045-1, 1 adet 30 ml şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Calplus İyodoformlu Kalsiyum Hidroksit Patı Deneme Paketi",
+      "sku": "40005",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40005, 1 adet 2 g şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Calcigel Çok Amaçlı Kalsiyum Hidroksit Patı Deneme Paketi",
+      "sku": "40007",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40007, 1 adet 2 g şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Cerafill Putty MTA Bioseramik Kanal Patı",
+      "sku": "40049-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40049-1, 1 adet 2 g şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Cerafill RCS Bioseramik Kanal Dolgu ve Kaplama Malzemesi",
+      "sku": "40037-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40037-1, 2 g önceden karıştırılmış şırınga + 10 aplikatör ucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Endoseal Kök Kanal Doldurma Simanı Toz-Sıvı Kiti",
+      "sku": "40031",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40031, 15 g toz + 10 ml sıvı + kaşık + karıştırma pedi",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "NanoSeal-S VPS Kök Kanal Patı",
+      "sku": "40001-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40001-1, elle karıştırma 10 g kartuş + spatula + ped",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Pulp-X Pulpa Devitalizörü Kavanoz Paketi",
+      "sku": "40021",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40021, 6 g plastik kavanoz",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Pulp-X Pulpa Devitalizörü Şırınga Paketi",
+      "sku": "40022",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40022, 3 g şırınga + 10 aplikatör ucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Alvocure Pengha İyodoform Pat",
+      "sku": "40023",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40023, 12 g kavanoz",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Carvene Güta Perka Çözücü",
+      "sku": "40030",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40030, 10 ml cam şişe + damlalık",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "MTA Plus Vital Pulpa Terapisi Deneme Paketi",
+      "sku": "40024",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40024, 1 g kavanoz + 2 cc jel şişesi + ölçüm kaşığı",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "5 Steps Endo Smart Kit",
+      "sku": "40036",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40036, Calcigel + Calplus + Dolo + Pulp-X + Orafil-LC + Zical kartuş",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "EpoSolv Rezin ve Fenolik Bileşikler için Çözücü",
+      "sku": "40035",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40035, 15 ml cam şişe + damlalık",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Crysta Ortodontik Adhesive Kit",
+      "sku": "10024",
+      "brand": "Prevest Denpro",
+      "category": "Ortodonti",
+      "model": "REF 10024, 4 g adhesive + 5 ml primer + 5 ml Actino jel + 10 aplikatör ucu",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Crysta Ortodontik Adhesive Deneme Paketi",
+      "sku": "10022",
+      "brand": "Prevest Denpro",
+      "category": "Ortodonti",
+      "model": "REF 10022, 1 adet 4 g şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fusion Crysta Adhesive Primer",
+      "sku": "10021",
+      "brand": "Prevest Denpro",
+      "category": "Ortodonti",
+      "model": "REF 10021, 5 ml şişe + karıştırma kutucuğu + mikro fırça",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Platina Hi-Gloss Kompozit Parlatma Patı",
+      "sku": "50001",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 50001, 1 adet 4 g şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Nano Coat Işıkla Kürlenen Koruyucu Vernik",
+      "sku": "20013",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 20013, 1 adet 5 ml sıkma şişesi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Hiflex Base Plates Şellak Taban Plakaları",
+      "sku": "13001",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 13001, 1.3 mm kalınlık, 100 adet üst/alt, pembe",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Hiflex Modelling Wax Modelaj Mumu",
+      "sku": "13003",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 13003, 500 g tekli pakette 24 yaprak",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "A.C.E. Seramik Onarım Kiti",
+      "sku": "50002",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 50002, CeraEtch + Silane-X + Fusion Flo Opak + Renew Universal + uçlar",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Silane-X Deneme Paketi",
+      "sku": "10014",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 10014, 1.2 ml şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "CeraEtch Deneme Paketi",
+      "sku": "10012",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 10012, 1.2 ml şırınga + 5 uygulayıcı uç",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Reveal Çürük Endikatörü",
+      "sku": "80002",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 80002, 5 ml plastik damlalıklı şişe",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Shield Activ Dentin Hassasiyet Giderici",
+      "sku": "80003",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 80003, 5 ml sıkma şişesi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Copal-F Florürlü Copal Kavite Verniği",
+      "sku": "40027",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 40027, 15 ml cam şişe + damlalık",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Accusil Putty Hidrofilik VPS Ölçü Malzemesi",
+      "sku": "70004",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 70004, 300 ml taban + 300 ml katalizör patı + 2 ölçü kaşığı",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Accusil Light Body Hidrofilik VPS Ölçü Malzemesi",
+      "sku": "70005",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 70005, 2 adet 50 ml taban/katalizör + 10 karıştırma ucu",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Alfina Aljinat Ölçü Malzemesi",
+      "sku": "70010",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 70010, Alfina Chromatic Regular/Fast Set, 450 g alüminyum folyo poşet",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Hiflex Green Sticks Ölçü İzleme Çubukları",
+      "sku": "70011",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 70011, 10 adet çubuk, net 90 g",
+      "unit": "kutu",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Florence Ofis Tipi Beyazlatma Sistemi",
+      "sku": "90002",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 90002, iki hasta kiti, toz + sıvı + Gingiva Shield + fırçalar",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "24 Carat Sıfır Hassasiyetli Beyazlatma Ekonomik Paket",
+      "sku": "90006",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 90006, 4 adet 1.5 ml şırınga (%16) + 4 uygulayıcı uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gingiva Shield VLC Dişeti Rezin Bariyeri Mavi Kit",
+      "sku": "90011",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 90011, 4 adet 1.2 ml şırınga + 4 uygulayıcı uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Hemostal Dişeti Kanama Durdurucu",
+      "sku": "60001",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 60001, 15 ml şişe + damlalık",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Hemostal Gel Dişeti Kanama Durdurucu Jel",
+      "sku": "60002",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 60002, 3 g şırınga + 10 aplikatör ucu",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Orafil LC Işıkla Kürlenen Geçici Dolgu Malzemesi",
+      "sku": "11002-1",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 11002-1, 3 g şırınga",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "OraTemp C&B Geçici Kron ve Köprü Materyali",
+      "sku": "11005",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 11005, 67 g tüp (taban+katalizör) + 16 uygulayıcı uç",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Orafil-G Geçici Dolgu Malzemesi",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "40 g kavanoz (REF 11002-1 listede tekrar kullanılmış)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "OraTemp NE Ojenol İçermeyen Geçici Kron Köprü Yapıştırma Materyali",
+      "sku": "11003",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 11003, 15 g tüp (taban+katalizör) + spatula + ped, A1, A2, BW",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Spectra Profilaksi Patı Nane",
+      "sku": "50006",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 50006, 75 g plastik kavanoz, taze nane",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Spectra Profilaksi Patı Meyve",
+      "sku": "50007",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 50007, 75 g plastik kavanoz, taze meyve",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Spectra Profilaksi Patı Çilek",
+      "sku": "50008",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 50008, 75 g plastik kavanoz, taze çilek",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Spectra Profilaksi Patı Portakal",
+      "sku": "50009",
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "REF 50009, 75 g plastik kavanoz, taze portakal",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Spectra Profilaksi Patı Ananas",
+      "sku": null,
+      "brand": "Prevest Denpro",
+      "category": "Protez",
+      "model": "75 g plastik kavanoz, taze ananas (listedeki REF 50008 Çilek ile aynı)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Paslanmaz Çelik Frez Rond No:8",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Paslanmaz Çelik Frez Rond No:10",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Paslanmaz Çelik Frez Rond No:14",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Paslanmaz Çelik Frez Rond No:16",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Paslanmaz Çelik Frez Rond No:18",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Paslanmaz Çelik Frez Rond No:21",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Paslanmaz Çelik Frez Rond No:23",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tungsten Karbid Frez Rond No:10",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tungsten Karbid Frez Rond No:12",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tungsten Karbid Frez Rond No:14",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tungsten Karbid Frez Rond No:16",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tungsten Karbid Frez Rond No:18",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tungsten Karbid Frez Rond No:21",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tungsten Karbid Frez Rond No:23",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "RA tipi rond, anguldruva için",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:2",
+      "sku": "504-027-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-027-00, no.2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:7",
+      "sku": "504-031-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-031-00, no.7",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:17",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-031-00, no.17 (PDF'te kod 504-031-00 ile tekrarlanmış)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:8",
+      "sku": "504-038-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-038-00, no.8",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:67A",
+      "sku": "504-085-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-085-00, no.67A",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:51A",
+      "sku": "504-070-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-070-00, no.51A",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:79",
+      "sku": "504-105-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-105-00, no.79",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:13",
+      "sku": "504-034-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-034-00, no.13",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:22",
+      "sku": "504-045-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-045-00, no.22",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:33",
+      "sku": "504-055-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-055-00, no.33",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:33A",
+      "sku": "504-057-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-057-00, no.33A",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:86C",
+      "sku": "504-110-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-110-00, no.86C",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:137",
+      "sku": "504-282-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-282-00, no.137",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:139",
+      "sku": "504-283-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-283-00, no.139",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:151",
+      "sku": "504-284-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-284-00, no.151",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:122",
+      "sku": "504-285-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-285-00, no.122",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:140",
+      "sku": "504-287-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-287-00, no.140",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:143",
+      "sku": "504-288-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-288-00, no.143",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Bein 2mm",
+      "sku": "501-006-06",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-006-06, 2 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Bein 3mm",
+      "sku": "501-006-08",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-006-08, 3 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Bein 4mm",
+      "sku": "501-006-09",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-006-09, 4 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Bein 3mm BC",
+      "sku": "501-006-08BC",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-006-08BC, 3 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Bein 4mm BC",
+      "sku": "501-006-09BC",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-006-09BC, 4 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Flohr Sağ",
+      "sku": "501-114-05",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-114-05, sağ",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Flohr Sol",
+      "sku": "501-114-04",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-114-04, sol",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Cryer Sağ",
+      "sku": "504-114-23",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "504-114-23, sağ",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Cryer Sol",
+      "sku": "501-114-24",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-114-24, sol",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Luxator 2mm",
+      "sku": null,
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-006-06, 2 mm (PDF'te kod 501-006-06 Bein ile tekrarlanmış)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Luxator 501-281-03",
+      "sku": "501-281-03",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-281-03",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Bein Uzun Sap",
+      "sku": "501-224-01",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-224-01, uzun sap",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Periotom Küret 1.8mm",
+      "sku": "510-704-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "510-704-00, 1.8 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "13/14 Küret Columbia Universal",
+      "sku": "512-013-14",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "512-013-14",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Rhodes Küret",
+      "sku": "503-090-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "503-090-00",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gingitovi Knife Fox",
+      "sku": "512-001-90",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "512-001-90",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Sinus Lift Küret (5 Parça Set)",
+      "sku": "512-001-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "512-001-10, 5 parça set",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Toms Barry Sağ",
+      "sku": "501-058-02",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-058-02, sağ",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Toms Barry Sol",
+      "sku": "5501-058-02",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "5501-058-02, sol",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Heidbrink Sağ",
+      "sku": "501-290-20",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-290-20, sağ",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Heidbrink Sol",
+      "sku": "501-290-30",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-290-30, sol",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Elevator Heidbrink Çift Taraflı",
+      "sku": "501-278-01",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "501-278-01, çift taraflı",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ochsenbein Periodontal Keski",
+      "sku": "503-080-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "503-080-00, 16 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Williger Mallet (Çekiç)",
+      "sku": "526-004-24",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "526-004-24",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Langenbeck Ekortör",
+      "sku": "517-033-22",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "517-033-22, 22 cm, 30x10 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Farabeuf Ekortör",
+      "sku": "517-012-13",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "517-012-13, 12 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Sternberg Ekortör",
+      "sku": "517-013-16",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "517-013-16, 16 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-211-02",
+      "sku": "513-211-02",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-211-02, 1.9 mm x 8 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-212-03",
+      "sku": "513-212-03",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-212-03, 2.3 mm x 8 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-213-04",
+      "sku": "513-213-04",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-213-04, 2.5 mm x 10 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-215-06",
+      "sku": "513-215-06",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-215-06, 2 mm x 10 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-221-12",
+      "sku": "513-221-12",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-221-12, 2.5 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-224-15",
+      "sku": "513-224-15",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-224-15, 1.9 mm x 1.6 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-226-17",
+      "sku": "513-226-17",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-226-17",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-231-22",
+      "sku": "513-231-22",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-231-22, 1.9 mm x 1.6 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-233-24",
+      "sku": "513-233-24",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-233-24",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Titanyum Kompozit İşleme Aleti 513-223-14",
+      "sku": "513-223-14",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "513-223-14",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret No:1/2",
+      "sku": "511-807-02",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-807-02, no. 1/2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret No:3/4",
+      "sku": "511-807-04",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-807-04, no. 3/4",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret No:5/6",
+      "sku": "511-807-06",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-807-06, no. 5/6",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret No:7/8",
+      "sku": "511-807-08",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-807-08, no. 7/8",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret No:9/10",
+      "sku": "511-807-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-807-10, no. 9/10",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret No:11/12",
+      "sku": "511-807-12",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-807-12, no. 11/12",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret No:13/14",
+      "sku": "511-807-14",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-807-14, no. 13/14",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret No:15/16",
+      "sku": "511-807-16",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-807-16, no. 15/16",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret No:17/18",
+      "sku": "511-807-18",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-807-18, no. 17/18",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tek Taraflı Prob CP-10",
+      "sku": "532-361-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-361-00, CP-10",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tek Taraflı Prob CP-11",
+      "sku": "532-363-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-363-00, CP-11",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tek Taraflı Prob CP-10 (532-365-00)",
+      "sku": "532-365-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-365-00, CP-10",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tek Taraflı Prob CP-12",
+      "sku": "532-367-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-367-00, CP-12",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tek Taraflı Prob CP-Williams",
+      "sku": "532-369-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-369-00, CP-Williams",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tek Taraflı Prob CP-18",
+      "sku": "532-371-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-371-00, CP-18",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çift Taraflı Prob Exp-23/CP10",
+      "sku": "532-023-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-023-10, Exp-23/CP10",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çift Taraflı Prob Exp-23/CP-11-5B",
+      "sku": "532-023-11",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-023-11, Exp-23/CP-11-5B",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çift Taraflı Prob Exp-23/CP-12",
+      "sku": "532-023-12",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-023-12, Exp-23/CP-12",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çift Taraflı Prob Exp-23/CP-18",
+      "sku": "532-023-18",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-023-18, Exp-23/CP-18",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çift Taraflı Prob Exp-23/CP-UNC-15",
+      "sku": "532-023-15",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-023-15, Exp-23/CP-UNC-15",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çift Taraflı Prob Exp-23/Michigon",
+      "sku": "532-023-00",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-023-00, Exp-23/Michigon",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çift Taraflı Prob Exp-23/Wiliam",
+      "sku": "532-023-01",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "532-023-01, Exp-23/Wiliam",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çift Taraflı Prob Exp-23/CP-WHO",
+      "sku": "523-023-02",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "523-023-02, Exp-23/CP-WHO",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Amalgam Fulvarı Fig.1",
+      "sku": "511-202-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-202-10, Fig.1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Amalgam Fulvarı Fig.2",
+      "sku": "511-202-20",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-202-20, Fig.2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Amalgam Fulvarı Fig.3",
+      "sku": "511-202-30",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-202-30, Fig.3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Fulvarı Fig.1",
+      "sku": "511-200-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-200-10, Fig.1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Fulvarı Fig.2",
+      "sku": "511-200-20",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-200-20, Fig.2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Fulvarı Fig.3",
+      "sku": "511-200-30",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-200-30, Fig.3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Fulvarı Fig.4",
+      "sku": "511-200-40",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-200-40, Fig.4",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Burnisher #29/31",
+      "sku": "511-104-29",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-104-29, #29/31",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Burnisher #29/34",
+      "sku": "511-215-03",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-215-03, #29/34",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Excavator Fig.1",
+      "sku": "519-009-30",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "519-009-30, Fig.1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Excavator Fig.2",
+      "sku": "519-009-40",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "519-009-40, Fig.2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Excavator Fig.3",
+      "sku": "519-009-50",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "519-009-50, Fig.3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ağız Spatulası #1",
+      "sku": "511-101-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-101-10, #1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ağız Spatulası #2",
+      "sku": "511-101-20",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-101-20, #2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ağız Spatulası #3",
+      "sku": "511-101-30",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-101-30, #3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Dik Sond",
+      "sku": "590-087-32",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "590-087-32, dik",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Orak Sond",
+      "sku": "590-088-23",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "590-088-23, orak",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Spatülü Small",
+      "sku": "510-900-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "510-900-10, small",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Spatülü Medium",
+      "sku": "510-900-20",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "510-900-20, medium",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Spatülü Large",
+      "sku": "510-900-30",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "510-900-30, large",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kretuar Fig.U15-33",
+      "sku": "511-902-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-902-10, Fig.U15-33",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kretuar Fig.U15-30",
+      "sku": "511-902-20",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-902-20, Fig.U15-30",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kretuar Fig.H6/H7",
+      "sku": "511-904-06",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-904-06, Fig.H6/H7",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Urban Knife",
+      "sku": "511-600-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-600-10",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gingivektomi Knife",
+      "sku": "511-500-10",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "511-500-10",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:2 (A70039)",
+      "sku": "A70039",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70039, no.2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:7 (A70037)",
+      "sku": "A70037",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70037, no.7",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:17 (A70053)",
+      "sku": "A70053",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70053, no.17",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:18 (A70055)",
+      "sku": "A70055",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70055, no.18",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:22 (A70098)",
+      "sku": "A70098",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70098, no.22",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:13 (A70091)",
+      "sku": "A70091",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70091, no.13",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:138 (A70112)",
+      "sku": "A70112",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70112, no.138",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:140 (A70113)",
+      "sku": "A70113",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70113, no.140",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:143 (A70114)",
+      "sku": "A70114",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70114, no.143",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:33 (A70070)",
+      "sku": "A70070",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70070, no.33",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye Üst Molar Sol 17K",
+      "sku": "A70115",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70115 (Sol), 17K",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye Üst Molar Sağ 18K",
+      "sku": "A70116",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70116 (Sağ), 18K",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:122 (A70111)",
+      "sku": "A70111",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70111, no.122",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:137 (A70108)",
+      "sku": "A70108",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70108, no.137",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:139 (A70109)",
+      "sku": "A70109",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70109, no.139",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye No:151 (A70110)",
+      "sku": "A70110",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70110, no.151",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:79 (A70043)",
+      "sku": "A70043",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70043, no.79",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:51A (A70083)",
+      "sku": "A70083",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70083, no.51A",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye No:67A (A70061)",
+      "sku": "A70061",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70061, no.67A",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye A7013",
+      "sku": "A7013",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A7013",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Davye Takımı (10'lu Set)",
+      "sku": "A70129",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70129, 10'lu set",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çocuk Davye Takımı (7'li Set)",
+      "sku": "A70130",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A70130, 7'li set",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bein Kök Elevator No:2",
+      "sku": "A10015",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10015, no.2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bein Kök Elevator No:3",
+      "sku": "A10016",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10016, no.3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bein Kök Elevator 3.5mm",
+      "sku": "A10017",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10017, 3.5 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bein Kök Elevator No:4",
+      "sku": "A10018",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10018, no.4",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bein Kök Elevator Eğri Arkaya Açılı 3mm",
+      "sku": "A11016-BC",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11016-BC, 3 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Flor Kök Elevator A10031/4",
+      "sku": "A10031/4",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10031/4",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Flor Kök Elevator A10031/5",
+      "sku": "A10031/5",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10031/5",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Cryer Kök Elevator A10031/24",
+      "sku": "A10031/24",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10031/24",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Cryer Kök Elevator A10031/23",
+      "sku": "A10031/23",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10031/23",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Winter Kök Elevator Sol No:11",
+      "sku": "A10030/11",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10030/11 (Sol), no.11",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Winter Kök Elevator Sağ No:12",
+      "sku": "A10030/12",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10030/12 (Sağ), no.12",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bary Kök Elevator Sağ",
+      "sku": "A10029/1",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10029/1, sağ",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bary Kök Elevator Sol",
+      "sku": "A10029/2",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10029/2, sol",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Rubberdam Seti (13 Parça)",
+      "sku": "A24020",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A24020, 13 parça",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ayna Başı No:4",
+      "sku": "A38010",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A38010, no.4",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ayna Sapı No:4",
+      "sku": "A23011",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A23011, no.4",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ağız Spatülü A11045/3 (175mm)",
+      "sku": "A11045/3",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11045/3, 175 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ağız Spatülü A11045/0",
+      "sku": "A11045/0",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11045/0",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ağız Spatülü A11045/1 (175mm)",
+      "sku": "A11045/1",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11045/1, 175 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ağız Spatülü A11045/4 (175mm)",
+      "sku": "A11045/4",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11045/4, 175 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kretuar A90062/U15-30",
+      "sku": "A90062",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90062/U15-30",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Excavator A90095 (170mm 1.8mm)",
+      "sku": "A90095",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90095, 170 mm, 1.8 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Excavator A90094 (170mm 1.8mm)",
+      "sku": "A90094",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90094, 170 mm, 1.8 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Cleoid Discoid Filling Instruments",
+      "sku": "A28032",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A28032",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Çift Taraflı Dycal Fulvarı",
+      "sku": "A11063",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11063",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Simon Fulvarı",
+      "sku": "A11038",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11038",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Condenser A11038/4 (175mm)",
+      "sku": "A11038/4",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11038/4, 175 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Amalgam Fulvarı A11017B",
+      "sku": "A11017B",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11017B",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Amalgam Fulvarı A11017",
+      "sku": "A11017",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11017",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Yıldız Karvır",
+      "sku": "A11065",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11065",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Burnisher A11049/29-34",
+      "sku": "A11049/29-34",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11049/29-34",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Tüberkül İşleyici",
+      "sku": "A11064",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11064",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Karvır A11064S Small",
+      "sku": "A11064S",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11064S, small",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Dik Sont A90087/32",
+      "sku": "A90087/32",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90087/32",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Orak Sont A90088/23",
+      "sku": "A90088/23",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90088/23",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret 13-14 (A90040)",
+      "sku": "A90040",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90040, 13-14",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret 3-4 (A90035)",
+      "sku": "A90035",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90035, 3-4",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret 5-6 (A90036)",
+      "sku": "A90036",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90036, 5-6",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret 9-10 (A90038)",
+      "sku": "A90038",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90038, 9-10",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gracey Küret 11-12 (A90039)",
+      "sku": "A90039",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90039, 11-12",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Heidbring Elevator Sol (Tek Yön)",
+      "sku": "A10037/2",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10037/2, sol",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Heidbring Elevator Sağ (Tek Yön)",
+      "sku": "A10037/3",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10037/3, sağ",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Heidbring Elevator Düz (Tek Taraflı)",
+      "sku": "A10037/1",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A10037/1, düz",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Molt Periost Elevator",
+      "sku": "A20024",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A20024",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kemik Eğesi",
+      "sku": "A33011",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A33011",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Cerrahi Küret No:1",
+      "sku": "A12017/1",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A12017/1, no.1",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Cerrahi Küret No:2",
+      "sku": "A12017/2",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A12017/2, no.2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Cerrahi Küret No:3",
+      "sku": "A12017/3",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A12017/3, no.3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Spatula A11032",
+      "sku": "A11032",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11032",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Spatula A11032S Small",
+      "sku": "A11032S",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11032S, small",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Siman Spatula A11033 (175mm)",
+      "sku": "A11033",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11033, 175 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Burnisher A11038/B",
+      "sku": "A11038/B",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11038/B",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Burnisher A11049/29-31",
+      "sku": "A11049/29-31",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11049/29-31",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Burnisher A11049/28-29",
+      "sku": "A11049/28-29",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A11049/28-29",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Excavator A90092",
+      "sku": "A90092",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90092",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gingivektomi Bıçak Orban A29021",
+      "sku": "A29021",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A29021",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Gingivektomi Bıçak Orban A29020",
+      "sku": "A29020",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A29020",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Modelaj Spatülü A28022",
+      "sku": "A28022",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A28022",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Lecron Modelaj Spatülü",
+      "sku": "A28023",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A28023",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Modelaj Spatülü Zahle A28025",
+      "sku": "A28025",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A28025",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Zahle Modelaj Spatülü A28028",
+      "sku": "A28028",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A28028",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "William Periodontal Sond",
+      "sku": "A90046",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A90046",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fahnenstock Mum Spatülü A29014",
+      "sku": "A29014",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A29014",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Mum Spatülü A29015",
+      "sku": "A29015",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A29015",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fahnenstock Mum Spatülü A29016",
+      "sku": "A29016",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A29016",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Fahnenstock Mum Spatülü A29017",
+      "sku": "A29017",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A29017",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Ivory Matrix Retainer",
+      "sku": "A23015",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A23015",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Universal Tofflemire Matrix Retainer",
+      "sku": "A23014",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A23014",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Amalgam Tabancası",
+      "sku": "A25010",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A25010",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kemik Pensi (Mini Friedman)",
+      "sku": "A13013",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A13013",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Luer Kemik Pensi (15cm)",
+      "sku": "A13021",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A13021, 15 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Mathieu Portegü A17068 (14cm)",
+      "sku": "A17068",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A17068, 14 cm (PDF'te 13,580 yazılmış, 13.80 olarak düzeltildi)",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Mathieu Portegü A17069 (17cm)",
+      "sku": "A17069",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A17069, 17 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Halsted Mosquito Klemp Düz",
+      "sku": "A17016",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A17016, düz",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Halsted Mosquito Klemp Eğri",
+      "sku": "A17014",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A17014, eğri",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Bistüri Sapı No:3",
+      "sku": "A14010",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A14010, no.3",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Faraeuf Ekortör (12cm)",
+      "sku": "A39030",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A39030, 12 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kelly Makas 16cm Eğri",
+      "sku": "A22020",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A22020, 16 cm, eğri",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Kelly Makas 16cm Düz",
+      "sku": "A22018",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A22018, 16 cm, düz",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Iris Gum Makas 11.5cm Düz",
+      "sku": "A22033",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A22033, 11.5 cm, düz",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Iris Gum Makas 11.5cm Eğri",
+      "sku": "A22034",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A22034, 11.5 cm, eğri",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Manuel Kron Sökücü",
+      "sku": "A27013",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A27013",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Presel A60020/2",
+      "sku": "A60020/2",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A60020/2",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "London College Presel 150mm",
+      "sku": "A60021/2",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A60021/2, 150 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Presel A60019/2 (160mm)",
+      "sku": "A60019/2",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A60019/2, 160 mm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Adson Pens Dişsiz",
+      "sku": "A60067",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A60067, dişsiz",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Adson Doku Pensi 12.5cm Dişli",
+      "sku": "A60109",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A60109, 12.5 cm, dişli",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Semkin Doku Pensi 12.5cm Dişli",
+      "sku": "A60111",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A60111, 12.5 cm, dişli",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Heger Baumgartner Portegü A17070",
+      "sku": "A17070",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A17070",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Heger Baumgartner Portegü A17070C (14cm Eğri)",
+      "sku": "A17070C",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A17070C, 14 cm, eğri",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Mayo Heger Portegü 15cm",
+      "sku": "A17054",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A17054, 15 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Orthodontic Pens 2.5cm Eğri",
+      "sku": "A36031",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A36031, 2.5 cm, eğri",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Orthodontic Pens 14cm",
+      "sku": "A36013",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A36013, 14 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Aderer Pens Fig.200 13cm",
+      "sku": "A36042",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A36042, fig.200, 13 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "Waldsachs Pens 15cm",
+      "sku": "A36060",
+      "brand": null,
+      "category": "Cerrahi Alet",
+      "model": "A36060, 15 cm",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Lisa Mini Otoklav (5L)",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "5 litre otoklav",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Assistina ONE",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Assistina ONE",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H EM-12 L Elektrikli Motor",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Elektrikli motor",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H WG-99 LT Kırmızı Kuşak Angldruva",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Kırmızı kuşak angldruva",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H WG-56 LT Mavi Kuşak Angldruva",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Mavi kuşak angldruva",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H WG-56 A Mavi Kuşak Angldruva",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Mavi kuşak angldruva",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H TE-98 LQ Aeratör",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Aeratör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H RQ-53 Jeneratörlü Kupling",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Jeneratörlü kupling",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H RQ-54 Jeneratörlü Kupling",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Jeneratörlü kupling",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H TE-98 BC Aeratör",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Aeratör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H WE-56 T Angldruva",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Angldruva",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H AM-20 E BC Havalı Motor",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Havalı motor",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H WE-56 Angldruva",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Angldruva",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H AM-25 E BC Havalı Motor",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Havalı motor",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H TG-98 L Aeratör",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Aeratör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H RQ-24 Kupling",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Kupling",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H TK-100 L Aeratör",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Aeratör",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H WI-75 E/KM İmplant Angldruvası",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "İmplant angldruvası",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H WS-75 L G Cerrahi Angldruva",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Cerrahi angldruva",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H S-11 Cerrahi Piyasemen",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Cerrahi piyasemen",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H S-11 L G Cerrahi Piyasemen",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Cerrahi Alet",
+      "model": "Cerrahi piyasemen",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H F1 Sprey (400ml)",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Sarrafiye / Sarf",
+      "model": "400 ml sprey",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Otoklav Kapak Contası",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Otoklav kapak contası",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Otoklav Toz Filtresi (Yeni Tip Küçük)",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Yeni tip küçük toz filtresi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Otoklav Toz Filtresi (Eski Tip Büyük)",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Eski tip büyük toz filtresi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Otoklav Bakteri Filtresi",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Otoklav bakteri filtresi",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Multidem Yedek Kartuş",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Multidem yedek kartuş",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Cerrahi Angldruva Klipsi Yeşil (3'lü)",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Cerrahi angldruva klipsi, yeşil, 3'lü",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Cerrahi Angldruva Klipsi Siyah (3'lü)",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Cerrahi angldruva klipsi, siyah, 3'lü",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Cerrahi Piyasemen Klipsi Yeşil",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Cerrahi piyasemen klipsi, yeşil",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Fizyodispenser Sterilize Edilebilir Hortum",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Sterilize edilebilir hortum",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H Fizyodispenser Disposable Hortum (6'lı)",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Diğer",
+      "model": "Disposable hortum, 6'lı",
+      "unit": "set",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H MD-500 Assistina 301 Plus Yağ",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Sarrafiye / Sarf",
+      "model": "Assistina 301 Plus yağ",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H MC-1000 Assistina 301 Plus Solüsyon",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Sarrafiye / Sarf",
+      "model": "Assistina 301 Plus solüsyon",
+      "unit": "adet",
+      "referencePrice": null,
+      "isActive": true
+    },
+    {
+      "name": "W&H ONE-Care Set Assistina ONE Seti",
+      "sku": null,
+      "brand": "W&H",
+      "category": "Sarrafiye / Sarf",
+      "model": "ONE-Care Set, Assistina ONE bakım seti",
       "unit": "set",
       "referencePrice": null,
       "isActive": true
