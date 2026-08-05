@@ -112,10 +112,10 @@ temp-write + rename) and holds only deduplication data per check:
    `recovery` event is sent.
 2. Failed below the threshold: failures increment, no webhook.
 3. Failed at the threshold: one `alert` event; on successful delivery the
-   check becomes active.
+   check becomes active (delivery-applied state).
 4. Active and still failing: nothing until the cooldown expires, then one
    `reminder` event (timestamp updated only after successful delivery).
-5. Delivery failure: the check is not marked delivered (retried on the next
+5. Delivery failure: the event is not marked delivered (retried on the next
    run) and the monitor exits non-zero.
 6. Multiple checks transitioning in the same run each produce their own event;
    a single check never produces duplicates in one run.
@@ -123,15 +123,28 @@ temp-write + rename) and holds only deduplication data per check:
    next event is attempted, so a later delivery failure in the same run can
    never lose an earlier successful delivery; the failed event stays
    retryable and prior events are never duplicated on retry.
-8. Delivery semantics are **at-least-once** around crash boundaries: a process
-   crash between a successful webhook delivery and the state write can cause a
-   duplicate on the next run. Within a single process, known later delivery
-   failures never duplicate earlier events.
+8. **Recovery commits on delivery.** A failed recovery webhook never closes
+   the alarm: the check stays `alertActive`, previous delivery timestamps are
+   preserved and `lastRecoveryAt` stays untouched. The next healthy run retries
+   the recovery, and only a successful delivery closes the alarm and records
+   `lastRecoveryAt`; the run after that stays quiet.
+9. **Corrupt-state monitor incidents stay pending until delivered.** When
+   corrupt state is detected, the file is quarantined and
+   `monitor.pendingIncident` (`state-corrupt`) is persisted. The monitor event
+   is retried on every run until its webhook succeeds; a successful delivery
+   clears the pending incident and persists before any check event is
+   attempted, so a later check delivery failure never duplicates the monitor
+   event.
+10. Delivery semantics are **at-least-once** around crash boundaries only: a
+    process crash between a successful webhook delivery and the state write
+    can cause a duplicate on the next run. Known webhook failures never lose
+    an event — every failed event stays persisted and retryable.
 
 Corrupt state files are renamed to `state.json.corrupt-<timestamp>` inside the
-same state directory, replaced with a fresh default, and a `monitor` alert is
-sent. Unsupported future state versions stop the run with a clear error
-without overwriting.
+same state directory, replaced with a fresh default, and the incident is
+persisted as `monitor.pendingIncident` until a `monitor` webhook is delivered
+successfully (retried every run on failure). Unsupported future state versions
+stop the run with a clear error without overwriting.
 
 ## Concurrency
 

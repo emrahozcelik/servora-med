@@ -413,6 +413,7 @@ export function probeDisk(config, deps) {
 export function createDefaultState() {
   return {
     version: STATE_VERSION,
+    monitor: { pendingIncident: null },
     checks: Object.fromEntries(CHECK_NAMES.map((name) => [
       name,
       {
@@ -449,7 +450,28 @@ export function sanitizeState(raw) {
       lastDeliveredAt: typeof value.lastDeliveredAt === 'number' ? value.lastDeliveredAt : null,
     };
   }
-  return { version: STATE_VERSION, checks };
+  let pendingIncident = null;
+  const monitor = raw.monitor;
+  if (monitor && typeof monitor === 'object') {
+    const pending = monitor.pendingIncident;
+    if (pending && typeof pending === 'object'
+      && pending.kind === 'state-corrupt'
+      && typeof pending.detectedAt === 'number') {
+      pendingIncident = { kind: 'state-corrupt', detectedAt: pending.detectedAt };
+    }
+  }
+  return { version: STATE_VERSION, monitor: { pendingIncident }, checks };
+}
+
+function monitorEventForIncident(incident, now) {
+  if (!incident || incident.kind !== 'state-corrupt') return null;
+  return {
+    event: 'monitor',
+    check: 'monitor',
+    severity: 'critical',
+    summary: 'Alerting state was corrupt and has been reset',
+    details: {},
+  };
 }
 
 export async function loadState(config, deps) {
@@ -470,7 +492,13 @@ export async function loadState(config, deps) {
   if (sanitized?.futureVersion !== undefined) {
     throw new StateVersionError(`unsupported state version ${sanitized.futureVersion}`);
   }
-  if (sanitized) return { state: sanitized, monitorEvent: null };
+  if (sanitized) {
+    const incident = sanitized.monitor?.pendingIncident ?? null;
+    if (incident) {
+      return { state: sanitized, monitorEvent: monitorEventForIncident(incident, deps.now()) };
+    }
+    return { state: sanitized, monitorEvent: null };
+  }
 
   const quarantineName = `state.json.corrupt-${new Date(deps.now()).toISOString().replace(/[:.]/g, '-')}`;
   try {
@@ -478,15 +506,11 @@ export async function loadState(config, deps) {
   } catch {
     // Quarantine failure must not expose the corrupt content; fall through.
   }
+  const fresh = createDefaultState();
+  fresh.monitor.pendingIncident = { kind: 'state-corrupt', detectedAt: deps.now() };
   return {
-    state: createDefaultState(),
-    monitorEvent: {
-      event: 'monitor',
-      check: 'monitor',
-      severity: 'critical',
-      summary: 'Alerting state was corrupt and has been reset',
-      details: {},
-    },
+    state: fresh,
+    monitorEvent: monitorEventForIncident(fresh.monitor.pendingIncident, deps.now()),
   };
 }
 
@@ -610,29 +634,48 @@ export function transitionCheck({ check, ok, previous, config, now, details }) {
   const wasActive = previous.alertActive && previous.lastDeliveredAt !== null;
 
   if (ok) {
-    const event = wasActive
-      ? {
-          event: 'recovery',
-          check,
-          severity: severityForCheck(check, 'recovery'),
-          summary: `${checkLabel(check)} recovered`,
-          details,
-        }
-      : null;
-    return {
-      event,
-      next: {
+    if (!wasActive) {
+      const observedNext = {
         consecutiveFailures: 0,
         alertActive: false,
         lastAlertAt: null,
         lastReminderAt: null,
-        lastRecoveryAt: wasActive ? now : previous.lastRecoveryAt,
+        lastRecoveryAt: previous.lastRecoveryAt,
         lastDeliveredAt: null,
+      };
+      return { event: null, observedNext, deliveredNext: observedNext };
+    }
+    // Recovery: the alarm stays open until the recovery webhook is delivered.
+    const observedNext = {
+      consecutiveFailures: 0,
+      alertActive: true,
+      lastAlertAt: previous.lastAlertAt,
+      lastReminderAt: previous.lastReminderAt,
+      lastRecoveryAt: previous.lastRecoveryAt,
+      lastDeliveredAt: previous.lastDeliveredAt,
+    };
+    const deliveredNext = {
+      consecutiveFailures: 0,
+      alertActive: false,
+      lastAlertAt: null,
+      lastReminderAt: null,
+      lastRecoveryAt: now,
+      lastDeliveredAt: null,
+    };
+    return {
+      event: {
+        event: 'recovery',
+        check,
+        severity: severityForCheck(check, 'recovery'),
+        summary: `${checkLabel(check)} recovered`,
+        details,
       },
+      observedNext,
+      deliveredNext,
     };
   }
 
-  const base = {
+  const observedNext = {
     consecutiveFailures: failures,
     alertActive: previous.alertActive,
     lastAlertAt: previous.lastAlertAt,
@@ -651,10 +694,16 @@ export function transitionCheck({ check, ok, previous, config, now, details }) {
           summary: `${checkLabel(check)} failing after ${failures} consecutive failures`,
           details,
         },
-        next: base,
+        observedNext,
+        deliveredNext: {
+          ...observedNext,
+          alertActive: true,
+          lastAlertAt: now,
+          lastDeliveredAt: now,
+        },
       };
     }
-    return { event: null, next: base };
+    return { event: null, observedNext, deliveredNext: observedNext };
   }
 
   const cooldownPassed = previous.lastDeliveredAt !== null
@@ -668,10 +717,15 @@ export function transitionCheck({ check, ok, previous, config, now, details }) {
         summary: `${checkLabel(check)} still failing`,
         details,
       },
-      next: base,
+      observedNext,
+      deliveredNext: {
+        ...observedNext,
+        lastReminderAt: now,
+        lastDeliveredAt: now,
+      },
     };
   }
-  return { event: null, next: base };
+  return { event: null, observedNext, deliveredNext: observedNext };
 }
 
 function checkLabel(check) {
@@ -684,11 +738,9 @@ function checkLabel(check) {
 
 export async function runMonitor(config, deps) {
   const now = deps.now();
-  const events = [];
   const deliveredEvents = [];
 
   const { state: loadedState, monitorEvent } = await loadState(config, deps);
-  if (monitorEvent) events.push(monitorEvent);
 
   const outcomes = {
     health: await probeHealth(config, deps),
@@ -697,8 +749,9 @@ export async function runMonitor(config, deps) {
   };
 
   // Phase 1 — compute every transition in deterministic order (health,
-  // backup, disk) so no-event counters advance for all checks even when a
-  // later delivery fails.
+  // backup, disk) and apply the observed state, so counters advance for all
+  // checks even when a later delivery fails. Delivery-applied state
+  // (alertActive/timestamps) is never applied before its webhook succeeds.
   let currentState = loadedState;
   const transitions = {};
   for (const name of CHECK_NAMES) {
@@ -711,30 +764,31 @@ export async function runMonitor(config, deps) {
       now,
       details: detailsForCheck(name, outcome, currentState.checks[name], config),
     });
-    currentState = { version: STATE_VERSION, checks: { ...currentState.checks, [name]: transition.next } };
+    currentState = { version: STATE_VERSION, monitor: currentState.monitor, checks: { ...currentState.checks, [name]: transition.observedNext } };
     transitions[name] = transition;
   }
 
-  // Phase 2 — deliver monitor event first, then transition events in the
-  // same deterministic order. Each successful delivery is applied to the
-  // in-memory state and persisted immediately, so a later delivery failure
-  // can never lose an earlier successful delivery.
   const persist = (state) => {
     try {
       writeState(config, state, deps);
+      return true;
     } catch {
       return false;
     }
-    return true;
   };
 
-  for (const event of events) {
-    const delivery = await deliverWebhook(config, buildPayload({ config, ...event, now }), deps);
+  // Phase 2 — pending monitor incident first (retry until delivered), then
+  // check events in deterministic order. Each successful delivery applies
+  // its delivered state and is persisted before the next event is attempted.
+  if (monitorEvent) {
+    const delivery = await deliverWebhook(config, buildPayload({ config, ...monitorEvent, now }), deps);
     if (!delivery.ok) {
-      if (!persist(currentState)) return { state: currentState, events: deliveredEvents, outcomes, exitCode: 1, stateWriteFailed: true, deliveryFailure: { event, delivery } };
-      return { state: currentState, events: deliveredEvents, outcomes, exitCode: 3, deliveryFailure: { event, delivery } };
+      if (!persist(currentState)) return { state: currentState, events: deliveredEvents, outcomes, exitCode: 1, stateWriteFailed: true, deliveryFailure: { event: monitorEvent, delivery } };
+      return { state: currentState, events: deliveredEvents, outcomes, exitCode: 3, deliveryFailure: { event: monitorEvent, delivery } };
     }
-    deliveredEvents.push(event);
+    deliveredEvents.push(monitorEvent);
+    currentState = { ...currentState, monitor: { pendingIncident: null } };
+    if (!persist(currentState)) return { state: currentState, events: deliveredEvents, outcomes, exitCode: 1, stateWriteFailed: true };
   }
 
   for (const name of CHECK_NAMES) {
@@ -747,18 +801,7 @@ export async function runMonitor(config, deps) {
       return { state: currentState, events: deliveredEvents, outcomes, exitCode: 3, deliveryFailure: { event, delivery } };
     }
     deliveredEvents.push(event);
-    const applied = { ...currentState.checks[name] };
-    if (event.event === 'alert') {
-      applied.alertActive = true;
-      applied.lastAlertAt = now;
-      applied.lastDeliveredAt = now;
-    } else if (event.event === 'reminder') {
-      applied.lastReminderAt = now;
-      applied.lastDeliveredAt = now;
-    } else if (event.event === 'recovery') {
-      applied.lastRecoveryAt = now;
-    }
-    currentState = { version: STATE_VERSION, checks: { ...currentState.checks, [name]: applied } };
+    currentState = { version: STATE_VERSION, monitor: currentState.monitor, checks: { ...currentState.checks, [name]: transition.deliveredNext } };
     if (!persist(currentState)) return { state: currentState, events: deliveredEvents, outcomes, exitCode: 1, stateWriteFailed: true };
   }
 

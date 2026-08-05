@@ -1,6 +1,6 @@
 {
   "task": "operator-alerting-implementation",
-  "round": "R1 (correctness and privacy repair)",
+  "round": "R2 (event retry state repair)",
   "date": "2026-08-05",
   "branch": "feat/operator-alerting",
   "base": "96e69aa6c56d1f1b9110957d1ceaa7f5e4e3e04f",
@@ -38,22 +38,106 @@
     ]
   },
   "runtime-acceptance": {
-    "summary": "14/14 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
+    "summary": "18/18 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
     "scenarios": {
-      "1-disabled": { "outcome": "PASS", "exitCode": 0, "networkCalls": 0, "stateDirFiles": 0 },
-      "2-healthy": { "outcome": "PASS", "exitCode": 0, "events": 0 },
-      "3-health-threshold": { "outcome": "PASS", "run3": "1 alert (httpStatus 503)" },
-      "4-cooldown-reminder": { "outcome": "PASS", "reminder": "1 after cooldown" },
-      "5-recovery": { "outcome": "PASS", "recovery": 1, "nextRunQuiet": true },
-      "6-stale-backup": { "outcome": "PASS", "errorCategory": "stale" },
-      "7-invalid-checksum": { "outcome": "PASS", "errorCategory": "invalid-backup", "latestProblem": "checksum-mismatch" },
-      "8-disk-threshold": { "outcome": "PASS", "diskAlert": "real statfs below injected threshold" },
-      "9-webhook-failure-retry": { "outcome": "PASS", "failedExit": 3, "notMarkedDelivered": true, "retriedExit": 0 },
-      "10-concurrency-lock": { "outcome": "PASS", "activeLockExit": 2 },
-      "r1a-latest-mismatch-no-fallback": { "outcome": "PASS", "alert": "backup invalid-backup checksum-mismatch", "basename": "newest reported", "olderFallback": false },
-      "r1a-latest-sidecar-missing-no-fallback": { "outcome": "PASS", "alert": "backup invalid-backup missing-sidecar", "olderFallback": false },
-      "r1b-partial-delivery": { "outcome": "PASS", "firstRunExit": 3, "healthAlertDelivered": 1, "healthPersistedActive": true, "retryRunExit": 0, "backupAlertInRetry": 1, "healthAlertsInRetry": 0 },
-      "r1c-disk-path-privacy": { "outcome": "PASS", "privatePathInPayload": false, "targetLabel": "disk-target" }
+      "1-disabled": {
+        "outcome": "PASS",
+        "exitCode": 0,
+        "networkCalls": 0,
+        "stateDirFiles": 0
+      },
+      "2-healthy": {
+        "outcome": "PASS",
+        "exitCode": 0,
+        "events": 0
+      },
+      "3-health-threshold": {
+        "outcome": "PASS",
+        "run3": "1 alert (httpStatus 503)"
+      },
+      "4-cooldown-reminder": {
+        "outcome": "PASS",
+        "reminder": "1 after cooldown"
+      },
+      "5-recovery": {
+        "outcome": "PASS",
+        "recovery": 1,
+        "nextRunQuiet": true
+      },
+      "6-stale-backup": {
+        "outcome": "PASS",
+        "errorCategory": "stale"
+      },
+      "7-invalid-checksum": {
+        "outcome": "PASS",
+        "errorCategory": "invalid-backup",
+        "latestProblem": "checksum-mismatch"
+      },
+      "8-disk-threshold": {
+        "outcome": "PASS",
+        "diskAlert": "real statfs below injected threshold"
+      },
+      "9-webhook-failure-retry": {
+        "outcome": "PASS",
+        "failedExit": 3,
+        "notMarkedDelivered": true,
+        "retriedExit": 0
+      },
+      "10-concurrency-lock": {
+        "outcome": "PASS",
+        "activeLockExit": 2
+      },
+      "r1a-latest-mismatch-no-fallback": {
+        "outcome": "PASS",
+        "alert": "backup invalid-backup checksum-mismatch",
+        "basename": "newest reported",
+        "olderFallback": false
+      },
+      "r1a-latest-sidecar-missing-no-fallback": {
+        "outcome": "PASS",
+        "alert": "backup invalid-backup missing-sidecar",
+        "olderFallback": false
+      },
+      "r1b-partial-delivery": {
+        "outcome": "PASS",
+        "firstRunExit": 3,
+        "healthAlertDelivered": 1,
+        "healthPersistedActive": true,
+        "retryRunExit": 0,
+        "backupAlertInRetry": 1,
+        "healthAlertsInRetry": 0
+      },
+      "r1c-disk-path-privacy": {
+        "outcome": "PASS",
+        "privatePathInPayload": false,
+        "targetLabel": "disk-target"
+      },
+      "r2-15-recovery-failure-retry": {
+        "outcome": "PASS",
+        "failedExit": 3,
+        "alertStaysActive": true,
+        "recoveryInRetry": 1,
+        "quietRecoveries": 0
+      },
+      "r2-16-corrupt-monitor-failure-persisted": {
+        "outcome": "PASS",
+        "failedExit": 3,
+        "quarantined": true,
+        "pendingKind": "state-corrupt"
+      },
+      "r2-17-corrupt-monitor-retry-quiet": {
+        "outcome": "PASS",
+        "monitorInRetry": 1,
+        "pendingCleared": true,
+        "monitorInQuiet": 0
+      },
+      "r2-18-monitor-then-check-failure": {
+        "outcome": "PASS",
+        "failedExit": 3,
+        "pendingCleared": true,
+        "monitorInRetry": 0,
+        "healthAlertInRetry": 1
+      }
     }
   },
   "state-transitions": [
@@ -65,7 +149,7 @@
     "recovery sent once after active alert",
     "corrupt state quarantined as state.json.corrupt-<ts> with monitor alert"
   ],
-  "delivery-semantics": "at-least-once around crash boundaries; no intra-process duplicates on known later delivery failure",
+  "delivery-semantics": "at-least-once around crash boundaries only; known webhook failures never lose an event (failed events persisted and retryable)",
   "no-secrets-in-payload": true,
   "no-absolute-paths-in-payload": true,
   "no-raw-health-body-in-payload": true,
@@ -81,5 +165,22 @@
   "backup-restore": "REMAINS MANUAL",
   "database-operations": "NONE",
   "server-product-source-changes": "NONE",
-  "web-product-source-changes": "NONE"
+  "web-product-source-changes": "NONE",
+  "r2-regressions": {
+    "recovery-commit-on-delivery": [
+      "failed health recovery stays alertActive, lastRecoveryAt unchanged, prior lastDeliveredAt preserved; next healthy run delivers exactly one recovery; following run quiet",
+      "failed backup recovery retryable (same contract)",
+      "failed disk recovery retryable (same contract)",
+      "earlier delivered alert preserved when a later recovery delivery fails; no duplicate on retry",
+      "recovery state-write failure after webhook success reported non-zero (stateWriteFailed)"
+    ],
+    "pending-monitor-incident": [
+      "corrupt state quarantined; pendingIncident state-corrupt persisted on monitor webhook failure",
+      "retry run delivers exactly one monitor event and clears pendingIncident",
+      "following run emits no monitor event",
+      "monitor success + later check delivery failure: no monitor duplicate; failed check retried",
+      "legacy version-1 state without monitor field loads safely (pending default null)",
+      "unknown incident kinds safely normalized; arbitrary fields/values not persisted"
+    ]
+  }
 }

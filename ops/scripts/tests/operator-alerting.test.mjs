@@ -724,17 +724,22 @@ describe('transitions', () => {
   it('increments failures below the threshold without events', () => {
     const first = transitionCheck({ check: 'health', ok: false, previous: fresh(), config, now: 1000, details: {} });
     assert.equal(first.event, null);
-    assert.equal(first.next.consecutiveFailures, 1);
-    const second = transitionCheck({ check: 'health', ok: false, previous: first.next, config, now: 2000, details: {} });
+    assert.equal(first.observedNext.consecutiveFailures, 1);
+    const second = transitionCheck({ check: 'health', ok: false, previous: first.observedNext, config, now: 2000, details: {} });
     assert.equal(second.event, null);
-    assert.equal(second.next.consecutiveFailures, 2);
+    assert.equal(second.observedNext.consecutiveFailures, 2);
   });
 
-  it('emits an alert exactly at the threshold', () => {
+  it('emits an alert exactly at the threshold and keeps the alarm inactive until delivery', () => {
     const failed = { ...fresh(), consecutiveFailures: 2 };
     const transition = transitionCheck({ check: 'health', ok: false, previous: failed, config, now: 3000, details: {} });
     assert.equal(transition.event.event, 'alert');
-    assert.equal(transition.next.consecutiveFailures, 3);
+    assert.equal(transition.observedNext.consecutiveFailures, 3);
+    assert.equal(transition.observedNext.alertActive, false);
+    assert.equal(transition.observedNext.lastDeliveredAt, null);
+    assert.equal(transition.deliveredNext.alertActive, true);
+    assert.equal(transition.deliveredNext.lastAlertAt, 3000);
+    assert.equal(transition.deliveredNext.lastDeliveredAt, 3000);
   });
 
   it('suppresses further events during cooldown while active', () => {
@@ -746,25 +751,33 @@ describe('transitions', () => {
     assert.equal(within.event, null);
   });
 
-  it('emits a reminder after the cooldown expires', () => {
+  it('emits a reminder after the cooldown expires and commits reminder timestamps only on delivery', () => {
     const active = {
       ...fresh(), consecutiveFailures: 5, alertActive: true,
       lastAlertAt: 3000, lastDeliveredAt: 3000,
     };
     const after = transitionCheck({ check: 'health', ok: false, previous: active, config, now: 3000 + 61 * 60 * 1000, details: {} });
     assert.equal(after.event.event, 'reminder');
+    assert.equal(after.observedNext.lastReminderAt, null);
+    assert.equal(after.observedNext.lastDeliveredAt, 3000);
+    assert.equal(after.deliveredNext.lastReminderAt, 3000 + 61 * 60 * 1000);
+    assert.equal(after.deliveredNext.lastDeliveredAt, 3000 + 61 * 60 * 1000);
   });
 
-  it('emits a single recovery after an active alert recovers', () => {
+  it('keeps an active alarm open until a recovery is delivered, then closes it', () => {
     const active = {
       ...fresh(), consecutiveFailures: 3, alertActive: true,
       lastAlertAt: 3000, lastDeliveredAt: 3000,
     };
     const recovery = transitionCheck({ check: 'health', ok: true, previous: active, config, now: 4000, details: {} });
     assert.equal(recovery.event.event, 'recovery');
-    assert.equal(recovery.next.alertActive, false);
-    assert.equal(recovery.next.consecutiveFailures, 0);
-    const again = transitionCheck({ check: 'health', ok: true, previous: recovery.next, config, now: 5000, details: {} });
+    assert.equal(recovery.observedNext.alertActive, true);
+    assert.equal(recovery.observedNext.lastRecoveryAt, null);
+    assert.equal(recovery.observedNext.lastDeliveredAt, 3000);
+    assert.equal(recovery.deliveredNext.alertActive, false);
+    assert.equal(recovery.deliveredNext.lastRecoveryAt, 4000);
+    assert.equal(recovery.deliveredNext.consecutiveFailures, 0);
+    const again = transitionCheck({ check: 'health', ok: true, previous: recovery.deliveredNext, config, now: 5000, details: {} });
     assert.equal(again.event, null);
   });
 
@@ -1452,6 +1465,310 @@ describe('disk path privacy', () => {
     assert.ok(!allLogs.includes('/Users'));
   });
 });
+
+
+// ---------------------------------------------------------------------------
+// R2 — recovery commit-on-delivery and pending monitor incident
+// ---------------------------------------------------------------------------
+
+describe('recovery commit-on-delivery', () => {
+  const env = { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' };
+  const NOW = 1_785_974_400_000;
+
+  function seedActiveState(fs, checkName) {
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    const check = (failures, active) => ({
+      consecutiveFailures: failures, alertActive: active,
+      lastAlertAt: active ? NOW - 60e3 : null, lastReminderAt: null, lastRecoveryAt: null,
+      lastDeliveredAt: active ? NOW - 60e3 : null,
+    });
+    const checks = {
+      health: check(0, false),
+      backup: check(0, false),
+      disk: check(0, false),
+    };
+    checks[checkName] = check(3, true);
+    fs.file('/var/lib/servora-med-alerting/state.json', JSON.stringify({ version: 1, checks }));
+  }
+
+  function readState(deps) {
+    return JSON.parse(deps.readFile('/var/lib/servora-med-alerting/state.json', 'utf8'));
+  }
+
+  it('keeps a failed health recovery active and retryable', async () => {
+    const fs = new FakeFs();
+    seedActiveState(fs, 'health');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+      nowMs: NOW,
+    });
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      const payload = JSON.parse(options.body);
+      if (payload.check === 'health') return webhookResponse(500);
+      return webhookResponse(200);
+    };
+    const config = loadConfig(env);
+    const first = await runMonitor(config, deps);
+    assert.equal(first.exitCode, 3);
+    const state = readState(deps);
+    assert.equal(state.checks.health.alertActive, true);
+    assert.equal(state.checks.health.lastRecoveryAt, null);
+    assert.equal(state.checks.health.lastDeliveredAt, NOW - 60e3);
+    assert.equal(first.events.length, 0);
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      return webhookResponse(200);
+    };
+    const second = await runMonitor(config, deps);
+    assert.equal(second.exitCode, 0);
+    const recoveries = second.events.filter((event) => event.check === 'health' && event.event === 'recovery').length;
+    assert.equal(recoveries, 1);
+    const closed = readState(deps);
+    assert.equal(closed.checks.health.alertActive, false);
+    assert.equal(typeof closed.checks.health.lastRecoveryAt, 'number');
+    const third = await runMonitor(config, deps);
+    const recoveriesAfter = third.events.filter((event) => event.check === 'health' && event.event === 'recovery').length;
+    assert.equal(recoveriesAfter, 0);
+  });
+
+  it('keeps a failed backup recovery active and retryable', async () => {
+    const fs = new FakeFs();
+    seedActiveState(fs, 'backup');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+      nowMs: NOW,
+    });
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      const payload = JSON.parse(options.body);
+      if (payload.check === 'backup') return webhookResponse(500);
+      return webhookResponse(200);
+    };
+    const config = loadConfig(env);
+    const first = await runMonitor(config, deps);
+    assert.equal(first.exitCode, 3);
+    const state = readState(deps);
+    assert.equal(state.checks.backup.alertActive, true);
+    assert.equal(state.checks.backup.lastRecoveryAt, null);
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      return webhookResponse(200);
+    };
+    const second = await runMonitor(config, deps);
+    assert.equal(second.exitCode, 0);
+    const recoveries = second.events.filter((event) => event.check === 'backup' && event.event === 'recovery').length;
+    assert.equal(recoveries, 1);
+    const third = await runMonitor(config, deps);
+    assert.equal(third.events.filter((event) => event.check === 'backup' && event.event === 'recovery').length, 0);
+  });
+
+  it('keeps a failed disk recovery active and retryable', async () => {
+    const fs = new FakeFs();
+    seedActiveState(fs, 'disk');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+      nowMs: NOW,
+    });
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      const payload = JSON.parse(options.body);
+      if (payload.check === 'disk') return webhookResponse(500);
+      return webhookResponse(200);
+    };
+    const config = loadConfig(env);
+    const first = await runMonitor(config, deps);
+    assert.equal(first.exitCode, 3);
+    const state = readState(deps);
+    assert.equal(state.checks.disk.alertActive, true);
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      return webhookResponse(200);
+    };
+    const second = await runMonitor(config, deps);
+    assert.equal(second.exitCode, 0);
+    assert.equal(second.events.filter((event) => event.check === 'disk' && event.event === 'recovery').length, 1);
+    const third = await runMonitor(config, deps);
+    assert.equal(third.events.filter((event) => event.check === 'disk' && event.event === 'recovery').length, 0);
+  });
+
+  it('preserves an earlier delivered alert when a later recovery delivery fails', async () => {
+    const fs = new FakeFs();
+    seedActiveState(fs, 'backup');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(503, { status: 'unavailable' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+      nowMs: NOW,
+    });
+    const deliveries = [];
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(503, { status: 'unavailable' });
+      const payload = JSON.parse(options.body);
+      deliveries.push(payload);
+      if (payload.check === 'health') return webhookResponse(200);
+      return webhookResponse(500);
+    };
+    const config = loadConfig(env);
+    const first = await runMonitor(config, deps);
+    assert.equal(first.exitCode, 3);
+    const state = readState(deps);
+    assert.equal(state.checks.health.alertActive, true);
+    assert.equal(state.checks.backup.alertActive, true);
+    assert.equal(state.checks.backup.lastRecoveryAt, null);
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(503, { status: 'unavailable' });
+      return webhookResponse(200);
+    };
+    const second = await runMonitor(config, deps);
+    assert.equal(second.exitCode, 0);
+    const healthAlerts = deliveries.filter((d) => d.check === 'health' && d.event === 'alert').length;
+    const backupRecoveries = deliveries.filter((d) => d.check === 'backup' && d.event === 'recovery').length;
+    assert.equal(healthAlerts, 1);
+    assert.equal(backupRecoveries, 1);
+  });
+
+  it('reports a state write failure after a successful recovery delivery as non-zero', async () => {
+    const fs = new FakeFs();
+    seedActiveState(fs, 'health');
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+      nowMs: NOW,
+    });
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      return webhookResponse(200);
+    };
+    const realWrite = deps.writeFile;
+    deps.writeFile = (target, content, options) => {
+      if (target.includes('state.json')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return realWrite(target, content, options);
+    };
+    const result = await runMonitor(loadConfig(env), deps);
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.stateWriteFailed, true);
+  });
+});
+
+describe('pending monitor incident', () => {
+  const env = { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' };
+  const NOW = 1_785_974_400_000;
+
+  function corruptStateDeps({ monitorStatus = 200, healthStatus = 200, healthProbe = 'ok', statfs = null }) {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    fs.file('/var/lib/servora-med-alerting/state.json', 'corrupt{not-json');
+    const deps = fakeDeps({
+      fs,
+      health: healthProbe === 'fail'
+        ? healthResponse(503, { status: 'unavailable' })
+        : healthResponse(200, { status: 'ok' }),
+      statfsResult: statfs ?? { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+      nowMs: NOW,
+    });
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) {
+        return healthProbe === 'fail'
+          ? healthResponse(503, { status: 'unavailable' })
+          : healthResponse(200, { status: 'ok' });
+      }
+      const payload = JSON.parse(options.body);
+      if (payload.check === 'monitor') return webhookResponse(monitorStatus);
+      if (payload.check === 'health') return webhookResponse(healthStatus);
+      return webhookResponse(200);
+    };
+    deps.__fs = fs;
+    return deps;
+  }
+
+  function readState(deps) {
+    return JSON.parse(deps.readFile('/var/lib/servora-med-alerting/state.json', 'utf8'));
+  }
+
+  it('persists a pending monitor incident when the monitor webhook fails', async () => {
+    const deps = corruptStateDeps({ monitorStatus: 500 });
+    const first = await runMonitor(loadConfig(env), deps);
+    assert.equal(first.exitCode, 3);
+    const state = readState(deps);
+    assert.equal(state.monitor.pendingIncident.kind, 'state-corrupt');
+    assert.equal(typeof state.monitor.pendingIncident.detectedAt, 'number');
+    assert.ok(Array.from(deps.__fs.entries.keys()).some((key) => key.includes('state.json.corrupt-')));
+  });
+
+  it('retries the monitor event on the next run exactly once and clears the pending incident', async () => {
+    const deps = corruptStateDeps({ monitorStatus: 500 });
+    const config = loadConfig(env);
+    await runMonitor(config, deps);
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      const payload = JSON.parse(options.body);
+      if (payload.check === 'monitor') return webhookResponse(200);
+      return webhookResponse(200);
+    };
+    const second = await runMonitor(config, deps);
+    assert.equal(second.exitCode, 0);
+    const monitorEvents = second.events.filter((event) => event.check === 'monitor').length;
+    assert.equal(monitorEvents, 1);
+    const state = readState(deps);
+    assert.equal(state.monitor.pendingIncident, null);
+    const third = await runMonitor(config, deps);
+    assert.equal(third.events.filter((event) => event.check === 'monitor').length, 0);
+  });
+
+  it('does not duplicate the monitor event when a later check delivery fails', async () => {
+    const deps = corruptStateDeps({ monitorStatus: 200, healthStatus: 500, healthProbe: 'fail' });
+    const config = loadConfig(env);
+    const first = await runMonitor(config, deps);
+    assert.equal(first.exitCode, 3);
+    const state = readState(deps);
+    assert.equal(state.monitor.pendingIncident, null);
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(503, { status: 'unavailable' });
+      return webhookResponse(200);
+    };
+    const second = await runMonitor(config, deps);
+    assert.equal(second.exitCode, 0);
+    assert.equal(second.events.filter((event) => event.check === 'monitor').length, 0);
+    assert.equal(second.events.filter((event) => event.check === 'health' && event.event === 'alert').length, 1);
+  });
+
+  it('loads legacy version-1 states without a monitor field safely', async () => {
+    const fs = new FakeFs();
+    fs.dir('/var/lib/servora-med-alerting');
+    fs.file('/var/lib/servora-med-alerting/state.json', JSON.stringify({ version: 1, checks: createDefaultState().checks }));
+    const config = loadConfig(env);
+    const { state, monitorEvent } = await loadState(config, fakeDeps({ fs }));
+    assert.equal(state.monitor.pendingIncident, null);
+    assert.equal(monitorEvent, null);
+  });
+
+  it('sanitizes pending monitor incidents safely', () => {
+    const base = createDefaultState();
+    const checks = base.checks;
+    const withUnknown = sanitizeState({ version: 1, monitor: { pendingIncident: { kind: 'mystery', detectedAt: 1 } }, checks });
+    assert.equal(withUnknown.monitor.pendingIncident, null);
+    const withGarbage = sanitizeState({ version: 1, monitor: { pendingIncident: 'garbage' }, checks });
+    assert.equal(withGarbage.monitor.pendingIncident, null);
+    const withValid = sanitizeState({ version: 1, monitor: { pendingIncident: { kind: 'state-corrupt', detectedAt: 123 } }, checks });
+    assert.deepEqual(withValid.monitor.pendingIncident, { kind: 'state-corrupt', detectedAt: 123 });
+    const serialized = JSON.stringify(withValid);
+    assert.ok(!serialized.includes('secret'));
+  });
+});
+
+
 
 // ---------------------------------------------------------------------------
 // Unit definition contracts (repo files)
