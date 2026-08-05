@@ -92,7 +92,7 @@ Versioned, vendor-neutral JSON (`schemaVersion: 1`):
 - `details` carries only allowlisted safe metrics: health — consecutive
   failures, timeout flag, HTTP status, latency; backup — age hours, canonical
   basename, checksum validity, latest backup timestamp, error category;
-  disk — free percent, free/used bytes, and the configured safe target label (`SERVORA_ALERT_DISK_LABEL`, default `disk-target`) — never the filesystem path.
+  disk — free percent, free/used bytes, and the configured safe target label (`SERVORA_ALERT_DISK_LABEL`, default `disk-target`) — never the filesystem path; `consecutiveFailures` appears only on failed disk alerts/reminders, never on a successful recovery payload.
 
 The payload never contains: the webhook URL or tokens, `DATABASE_URL`, DB
 host/user/name, cookies, sessions, raw API response bodies, customer/user/
@@ -142,16 +142,29 @@ temp-write + rename) and holds only deduplication data per check:
 
 Corrupt state files are renamed to `state.json.corrupt-<timestamp>` inside the
 same state directory, replaced with a fresh default, and the incident is
-persisted as `monitor.pendingIncident` until a `monitor` webhook is delivered
-successfully (retried every run on failure). Unsupported future state versions
-stop the run with a clear error without overwriting.
+persisted as `monitor.pendingIncident` — **atomically, before any probe or
+webhook work** — until a `monitor` webhook is delivered successfully (retried
+every run on failure). If that initial pending write fails, the run exits
+non-zero with zero probes, zero webhooks and no overwrite of the quarantined
+file. Unsupported future state versions stop the run with a clear error
+without overwriting.
+
+State read errors are classified: a missing state file (`ENOENT`) is a normal
+first run and produces the default state; any other read error
+(`EACCES`/`EPERM`, `EIO`, `EISDIR`, other) fails closed with a structured
+`state-read-failed` log (allowlisted category only), exit 1, no probes, no
+webhooks and no state reset.
 
 ## Concurrency
 
 `$SERVORA_ALERT_STATE_DIR/lock.lock` (mode 0600) is acquired atomically with
 owner PID and creation time. A live PID blocks a concurrent run (exit code 2);
-a stale lock from a dead PID is reclaimed; malformed locks fail safely. The
-lock is always released on exit, including error and signal paths.
+a stale lock from a dead PID is reclaimed. Malformed or unreadable locks and
+unexpected lock filesystem errors resolve to structured exit code 1 with a
+safe `lock-invalid`/`lock-error` log (no raw lock content, no stack traces) and
+no probes or webhooks; the malformed lock file is preserved, never deleted.
+Normal and handled error exits release the lock; abrupt termination may leave
+a stale lock, which is reclaimed on the next run.
 
 ## Exit codes
 
@@ -171,7 +184,8 @@ Structured JSON lines to stdout/stderr with timestamp, run result, check name,
 state transition, safe metrics and delivery outcome. Never logged: webhook
 URL, tokens, response bodies, DB URLs, absolute backup paths, environment
 dumps, customer/user data. Exception stack traces are not written to operator
-logs.
+logs; state/lock errors log only allowlisted categories (`permission`, `io`,
+`wrong-type`, `other`, `malformed`, `unreadable`, `unexpected`).
 
 ## macOS launchd (example — not installed)
 

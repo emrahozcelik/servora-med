@@ -1,6 +1,6 @@
 {
   "task": "operator-alerting-implementation",
-  "round": "R2 (event retry state repair)",
+  "round": "R3 (state bootstrap and lock safety)",
   "date": "2026-08-05",
   "branch": "feat/operator-alerting",
   "base": "96e69aa6c56d1f1b9110957d1ceaa7f5e4e3e04f",
@@ -14,7 +14,7 @@
     "disk": "real statfs of the configured filesystem (threshold 5 for health/backup scenarios)"
   },
   "automated-tests": {
-    "node --test ops/scripts/tests/operator-alerting.test.mjs": "88 passed (88)",
+    "node --test ops/scripts/tests/operator-alerting.test.mjs": "111 passed (111)",
     "node --check": "PASS"
   },
   "r1-regressions": {
@@ -38,7 +38,7 @@
     ]
   },
   "runtime-acceptance": {
-    "summary": "18/18 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
+    "summary": "22/22 PASS with local loopback receiver; no external services; no real backups created or touched; no DB connection",
     "scenarios": {
       "1-disabled": {
         "outcome": "PASS",
@@ -137,6 +137,32 @@
         "pendingCleared": true,
         "monitorInRetry": 0,
         "healthAlertInRetry": 1
+      },
+      "r3-19-incident-persisted": {
+        "outcome": "PASS",
+        "failedExit": 3,
+        "quarantined": true,
+        "pendingPersistedAfterFirstRun": true
+      },
+      "r3-20-incident-retry-quiet": {
+        "outcome": "PASS",
+        "monitorInRetry": 1,
+        "monitorInQuiet": 0
+      },
+      "r3-21-state-read-permission-fail-closed": {
+        "outcome": "PASS",
+        "exitCode": 1,
+        "probes": 0,
+        "webhooks": 0,
+        "noStackInStderr": true
+      },
+      "r3-22-malformed-lock-structured-exit": {
+        "outcome": "PASS",
+        "exitCode": 1,
+        "probes": 0,
+        "webhooks": 0,
+        "lockPreserved": true,
+        "noStackInStderr": true
       }
     }
   },
@@ -155,9 +181,11 @@
   "no-raw-health-body-in-payload": true,
   "commands-verified": {
     "node --check ops/scripts/operator-alerting.mjs": "PASS",
-    "node --test ops/scripts/tests/operator-alerting.test.mjs": "88/88 PASS",
+    "node --test ops/scripts/tests/operator-alerting.test.mjs": "111/111 PASS",
     "bash -n wrappers": "PASS",
+    "shellcheck wrappers": "PASS",
     "launchd plist XML parse": "PASS",
+    "verify-operator-alerting.sh": "PASS",
     "systemd-analyze verify": "deferred to CI (systemd unavailable locally)"
   },
   "service-activation": "NOT PERFORMED",
@@ -181,6 +209,27 @@
       "monitor success + later check delivery failure: no monitor duplicate; failed check retried",
       "legacy version-1 state without monitor field loads safely (pending default null)",
       "unknown incident kinds safely normalized; arbitrary fields/values not persisted"
+    ]
+  },
+  "r3-regressions": {
+    "state-bootstrap": [
+      "newly detected corrupt incident persisted before any probe or webhook (ordering instrumented)",
+      "crash between initial persist and probes: incident retried next run (monitor event exactly once)",
+      "initial pending persist failure: exit 1, zero probes/hash/statfs/webhook",
+      "ENOENT state: default state, no monitor event",
+      "EACCES/EPERM: StateReadError permission, exit 1 via main, no network/write, safe log",
+      "EIO: StateReadError io, fail closed",
+      "EISDIR: StateReadError wrong-type, fail closed",
+      "existing active state read error: no duplicate webhook; pending never silently reset"
+    ],
+    "lock-safety": [
+      "malformed lock through main(): structured exit 1, lock-invalid log, no stack, no probes/webhook, lock preserved",
+      "active lock: exit 2 lock-busy, no probes",
+      "stale dead-pid lock: reclaimed, monitor runs, lock released",
+      "unexpected lock write error: exit 1 lock-error, safe log, no stack"
+    ],
+    "payload-cleanup": [
+      "disk recovery payload omits consecutiveFailures; failed alerts/reminders still include it"
     ]
   }
 }

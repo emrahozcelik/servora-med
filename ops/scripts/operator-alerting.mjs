@@ -40,6 +40,22 @@ export class StateVersionError extends Error {
   }
 }
 
+export class StateReadError extends Error {
+  constructor(category) {
+    super(`state read failed: ${category}`);
+    this.name = 'StateReadError';
+    this.category = category;
+  }
+}
+
+export class LockError extends Error {
+  constructor(category) {
+    super(`lock ${category}`);
+    this.name = 'LockError';
+    this.category = category;
+  }
+}
+
 export const CHECK_NAMES = ['health', 'backup', 'disk'];
 
 const SAFE_LABEL_RE = /^[A-Za-z0-9._-]{1,64}$/;
@@ -474,13 +490,24 @@ function monitorEventForIncident(incident, now) {
   };
 }
 
+function readErrorCategory(error) {
+  const code = error?.code;
+  if (code === 'EACCES' || code === 'EPERM') return 'permission';
+  if (code === 'EISDIR' || code === 'ENOTDIR') return 'wrong-type';
+  if (code === 'EIO') return 'io';
+  return 'other';
+}
+
 export async function loadState(config, deps) {
   const statePath = `${config.stateDir}/state.json`;
   let raw;
   try {
     raw = deps.readFile(statePath, 'utf8');
-  } catch {
-    return { state: createDefaultState(), monitorEvent: null };
+  } catch (error) {
+    if (error?.code === 'ENOENT') {
+      return { state: createDefaultState(), monitorEvent: null, requiresInitialPersist: false };
+    }
+    throw new StateReadError(readErrorCategory(error));
   }
   let parsed;
   try {
@@ -495,9 +522,9 @@ export async function loadState(config, deps) {
   if (sanitized) {
     const incident = sanitized.monitor?.pendingIncident ?? null;
     if (incident) {
-      return { state: sanitized, monitorEvent: monitorEventForIncident(incident, deps.now()) };
+      return { state: sanitized, monitorEvent: monitorEventForIncident(incident, deps.now()), requiresInitialPersist: false };
     }
-    return { state: sanitized, monitorEvent: null };
+    return { state: sanitized, monitorEvent: null, requiresInitialPersist: false };
   }
 
   const quarantineName = `state.json.corrupt-${new Date(deps.now()).toISOString().replace(/[:.]/g, '-')}`;
@@ -511,6 +538,7 @@ export async function loadState(config, deps) {
   return {
     state: fresh,
     monitorEvent: monitorEventForIncident(fresh.monitor.pendingIncident, deps.now()),
+    requiresInitialPersist: true,
   };
 }
 
@@ -537,8 +565,8 @@ export function acquireLock(config, deps) {
       deps.writeFile(lockPath, `${JSON.stringify({ pid: process.pid, createdAt: deps.now() })}\n`, { flag: 'wx', mode: 0o600 });
       return { ok: true, staleReclaimed: false };
     } catch (error) {
-      if (error?.code !== 'EEXIST') throw error;
-      return { ok: false, staleReclaimed: false };
+      if (error?.code === 'EEXIST') return { ok: false, staleReclaimed: false };
+      throw new LockError('unexpected');
     }
   };
   const first = attempt();
@@ -547,16 +575,16 @@ export function acquireLock(config, deps) {
   try {
     raw = deps.readFile(lockPath, 'utf8');
   } catch {
-    return attempt();
+    throw new LockError('unreadable');
   }
   let lock;
   try {
     lock = JSON.parse(raw);
   } catch {
-    throw new ConfigError('lock file is malformed');
+    throw new LockError('malformed');
   }
   if (typeof lock.pid !== 'number' || !Number.isInteger(lock.pid)) {
-    throw new ConfigError('lock file has no valid pid');
+    throw new LockError('malformed');
   }
   if (deps.isProcessAlive(lock.pid)) {
     return { ok: false, staleReclaimed: false };
@@ -740,7 +768,24 @@ export async function runMonitor(config, deps) {
   const now = deps.now();
   const deliveredEvents = [];
 
-  const { state: loadedState, monitorEvent } = await loadState(config, deps);
+  const { state: loadedState, monitorEvent, requiresInitialPersist } = await loadState(config, deps);
+
+  const persist = (state) => {
+    try {
+      writeState(config, state, deps);
+      return true;
+    } catch {
+      return false;
+    }
+  };
+
+  // A newly detected corrupt incident must be persisted before any probe or
+  // webhook work; a failed initial persist fails closed with no external IO.
+  if (requiresInitialPersist) {
+    if (!persist(loadedState)) {
+      return { state: loadedState, events: deliveredEvents, outcomes: null, exitCode: 1, stateWriteFailed: true };
+    }
+  }
 
   const outcomes = {
     health: await probeHealth(config, deps),
@@ -767,15 +812,6 @@ export async function runMonitor(config, deps) {
     currentState = { version: STATE_VERSION, monitor: currentState.monitor, checks: { ...currentState.checks, [name]: transition.observedNext } };
     transitions[name] = transition;
   }
-
-  const persist = (state) => {
-    try {
-      writeState(config, state, deps);
-      return true;
-    } catch {
-      return false;
-    }
-  };
 
   // Phase 2 — pending monitor incident first (retry until delivered), then
   // check events in deterministic order. Each successful delivery applies
@@ -829,13 +865,21 @@ function detailsForCheck(name, outcome, previous, config) {
       latestBackupTimestamp: outcome.latestBackupTimestamp,
     };
   }
-  return {
-    target: config.diskLabel,
-    freePercent: outcome.freePercent === null ? null : round2(outcome.freePercent),
-    freeBytes: outcome.freeBytes,
-    totalBytes: outcome.totalBytes,
-    consecutiveFailures: previous.consecutiveFailures + 1,
-  };
+  if (name === 'disk') {
+    const base = {
+      target: config.diskLabel,
+      freePercent: outcome.freePercent === null ? null : round2(outcome.freePercent),
+      freeBytes: outcome.freeBytes,
+      totalBytes: outcome.totalBytes,
+    };
+    if (outcome.ok) return base;
+    return {
+      ...base,
+      errorCategory: outcome.errorCategory,
+      consecutiveFailures: previous.consecutiveFailures + 1,
+    };
+  }
+  return {};
 }
 
 function round2(value) {
@@ -863,14 +907,16 @@ export async function main({ env = process.env, deps = createDefaultDeps(), log 
     return 0;
   }
 
-  const lock = acquireLock(config, deps);
-  if (!lock.ok) {
-    log({ level: 'warn', run: 'lock-busy', staleReclaimed: lock.staleReclaimed });
-    return 2;
-  }
-
+  let lockAcquired = false;
   let exitCode = 0;
   try {
+    const lock = acquireLock(config, deps);
+    if (!lock.ok) {
+      log({ level: 'warn', run: 'lock-busy', staleReclaimed: lock.staleReclaimed });
+      return 2;
+    }
+    lockAcquired = true;
+
     const result = await runMonitor(config, deps);
     if (result.stateWriteFailed) {
       log({ level: 'error', run: 'state-write-failed' });
@@ -897,15 +943,21 @@ export async function main({ env = process.env, deps = createDefaultDeps(), log 
       });
     }
   } catch (error) {
-    if (error instanceof StateVersionError) {
-      log({ level: 'error', run: 'state-version', error: error.message });
+    if (error instanceof LockError) {
+      log({ level: 'error', run: error.category === 'malformed' ? 'lock-invalid' : 'lock-error', errorCategory: error.category });
+      exitCode = 1;
+    } else if (error instanceof StateReadError) {
+      log({ level: 'error', run: 'state-read-failed', errorCategory: error.category });
+      exitCode = 1;
+    } else if (error instanceof StateVersionError) {
+      log({ level: 'error', run: 'state-version', error: 'unsupported-state-version' });
       exitCode = 1;
     } else {
       log({ level: 'error', run: 'monitor-error', error: 'unexpected' });
       exitCode = 1;
     }
   } finally {
-    releaseLock(config, deps);
+    if (lockAcquired) releaseLock(config, deps);
   }
   return exitCode;
 }

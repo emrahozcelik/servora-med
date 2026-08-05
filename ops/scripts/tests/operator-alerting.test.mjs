@@ -20,6 +20,8 @@ import { afterEach, beforeEach, describe, it } from 'node:test';
 
 import {
   ConfigError,
+  LockError,
+  StateReadError,
   StateVersionError,
   acquireLock,
   buildPayload,
@@ -829,7 +831,7 @@ describe('lock', () => {
     const fs = new FakeFs();
     fs.dir('/var/lib/servora-med-alerting');
     fs.file('/var/lib/servora-med-alerting/lock.lock', 'garbage');
-    assert.throws(() => acquireLock(config, fakeDeps({ fs })), ConfigError);
+    assert.throws(() => acquireLock(config, fakeDeps({ fs })), LockError);
   });
 
   it('releases the lock even when the monitor errors', async () => {
@@ -1768,6 +1770,273 @@ describe('pending monitor incident', () => {
   });
 });
 
+
+
+
+// ---------------------------------------------------------------------------
+// R3 — state bootstrap and lock safety
+// ---------------------------------------------------------------------------
+
+describe('state bootstrap', () => {
+  const env = { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' };
+
+  function corruptFs() {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    fs.file('/var/lib/servora-med-alerting/state.json', 'corrupt{not-json');
+    return fs;
+  }
+
+  function instrumentedDeps(fs) {
+    const order = [];
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    const realWrite = deps.writeFile;
+    deps.writeFile = (target, content, options) => {
+      if (target.includes('state.json')) order.push('state-write');
+      return realWrite(target, content, options);
+    };
+    const realHash = deps.hashFile;
+    deps.hashFile = (filePath) => { order.push('hash'); return realHash(filePath); };
+    const realStatfs = deps.statfs;
+    deps.statfs = (target, options) => { order.push('statfs'); return realStatfs(target, options); };
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) { order.push('probe-health'); return healthResponse(200, { status: 'ok' }); }
+      order.push('webhook');
+      return webhookResponse(200);
+    };
+    deps.order = order;
+    return deps;
+  }
+
+  it('persists a newly detected corrupt incident before any probe or webhook', async () => {
+    const fs = corruptFs();
+    const deps = instrumentedDeps(fs);
+    const result = await runMonitor(loadConfig(env), deps);
+    assert.equal(result.exitCode, 0);
+    assert.equal(deps.order[0], 'state-write');
+    const writeIndex = deps.order.indexOf('state-write');
+    const probeIndex = deps.order.indexOf('probe-health');
+    const webhookIndex = deps.order.indexOf('webhook');
+    const hashIndex = deps.order.indexOf('hash');
+    const statfsIndex = deps.order.indexOf('statfs');
+    assert.ok(writeIndex < probeIndex, `state-write (${writeIndex}) must precede probe-health (${probeIndex})`);
+    assert.ok(writeIndex < webhookIndex);
+    assert.ok(writeIndex < hashIndex);
+    assert.ok(writeIndex < statfsIndex);
+  });
+
+  it('retries a persisted incident after a crash between the initial persist and the probes', async () => {
+    const fs = corruptFs();
+    let nowCalls = 0;
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    deps.now = () => {
+      nowCalls += 1;
+      if (nowCalls === 5) throw new Error('simulated crash after initial persist');
+      return 1_785_974_400_000;
+    };
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      return webhookResponse(200);
+    };
+    const config = loadConfig(env);
+    await assert.rejects(() => runMonitor(config, deps));
+    const pending = JSON.parse(fs.readFileSync('/var/lib/servora-med-alerting/state.json', 'utf8'));
+    assert.equal(pending.monitor.pendingIncident.kind, 'state-corrupt');
+    const fresh = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    fresh.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      return webhookResponse(200);
+    };
+    const second = await runMonitor(config, fresh);
+    assert.equal(second.exitCode, 0);
+    assert.equal(second.events.filter((event) => event.check === 'monitor').length, 1);
+  });
+
+  it('fails closed with no external work when the initial pending persist fails', async () => {
+    const fs = corruptFs();
+    const deps = instrumentedDeps(fs);
+    const realWrite = deps.writeFile;
+    deps.writeFile = (target, content, options) => {
+      if (target.includes('state.json')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return realWrite(target, content, options);
+    };
+    const result = await runMonitor(loadConfig(env), deps);
+    assert.equal(result.exitCode, 1);
+    assert.equal(result.stateWriteFailed, true);
+    assert.ok(!deps.order.includes('probe-health'));
+    assert.ok(!deps.order.includes('hash'));
+    assert.ok(!deps.order.includes('statfs'));
+    assert.ok(!deps.order.includes('webhook'));
+  });
+
+  it('treats missing state as a default first run', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    const config = loadConfig(env);
+    const { state, monitorEvent, requiresInitialPersist } = await loadState(config, fakeDeps({ fs }));
+    assert.equal(state.version, 1);
+    assert.equal(monitorEvent, null);
+    assert.equal(requiresInitialPersist, false);
+  });
+
+  for (const [code, category] of [['EACCES', 'permission'], ['EPERM', 'permission'], ['EIO', 'io']]) {
+    it(`fails closed on state read error ${code}`, async () => {
+      const fs = new FakeFs();
+      fs.dir('/var/lib/servora-med-alerting');
+      fs.file('/var/lib/servora-med-alerting/state.json', JSON.stringify(createDefaultState()));
+      const deps = fakeDeps({ fs });
+      const realRead = deps.readFile;
+      deps.readFile = (target, encoding) => {
+        if (target.includes('state.json')) throw Object.assign(new Error(code), { code });
+        return realRead(target, encoding);
+      };
+      const config = loadConfig(env);
+      await assert.rejects(() => loadState(config, deps), (error) => {
+        assert.equal(error.name, 'StateReadError');
+        assert.equal(error.category, category);
+        return true;
+      });
+      const logLines = [];
+      const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+      assert.equal(exit, 1);
+      assert.ok(logLines.some((line) => line.includes('"run":"state-read-failed"') && line.includes(category)));
+      assert.ok(!logLines.some((line) => line.includes('EACCES') || line.includes('/var/lib')));
+    });
+  }
+
+  it('fails closed when the state path is a directory', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting/state.json');
+    const deps = fakeDeps({ fs });
+    const config = loadConfig(env);
+    await assert.rejects(() => loadState(config, deps), (error) => {
+      assert.equal(error.name, 'StateReadError');
+      assert.equal(error.category, 'wrong-type');
+      return true;
+    });
+  });
+});
+
+describe('lock safety through main', () => {
+  const env = { ...BASE_ENV, SERVORA_ALERT_FAILURE_THRESHOLD: '1' };
+
+  function lockFs(lockContent) {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    if (lockContent !== null) fs.file('/var/lib/servora-med-alerting/lock.lock', lockContent);
+    return fs;
+  }
+
+  function healthyDeps(fs, { alive = false } = {}) {
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+    });
+    deps.isProcessAlive = () => alive;
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      return webhookResponse(200);
+    };
+    return deps;
+  }
+
+  it('resolves a malformed lock to exit 1 with a safe log and no external work', async () => {
+    const fs = lockFs('garbage-lock-content');
+    const deps = healthyDeps(fs);
+    const logLines = [];
+    const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.ok(logLines.some((line) => line.includes('"run":"lock-invalid"')));
+    assert.ok(!logLines.some((line) => line.includes('garbage-lock-content')));
+    assert.ok(fs.entries.has('/var/lib/servora-med-alerting/lock.lock'));
+  });
+
+  it('resolves an active lock to exit 2 without probes', async () => {
+    const fs = lockFs(JSON.stringify({ pid: 99999, createdAt: 1 }));
+    const deps = healthyDeps(fs, { alive: true });
+    const logLines = [];
+    const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 2);
+    assert.ok(logLines.some((line) => line.includes('"run":"lock-busy"')));
+  });
+
+  it('reclaims a stale dead-pid lock and runs the monitor', async () => {
+    const fs = lockFs(JSON.stringify({ pid: 99999, createdAt: 1 }));
+    const deps = healthyDeps(fs, { alive: false });
+    const exit = await main({ env, deps, log: () => {} });
+    assert.equal(exit, 0);
+    assert.ok(!fs.entries.has('/var/lib/servora-med-alerting/lock.lock'));
+  });
+
+  it('resolves an unexpected lock write error to exit 1 without a stack trace', async () => {
+    const fs = lockFs(null);
+    const deps = healthyDeps(fs);
+    const realWrite = deps.writeFile;
+    deps.writeFile = (target, content, options) => {
+      if (target.includes('lock.lock')) throw Object.assign(new Error('EACCES'), { code: 'EACCES' });
+      return realWrite(target, content, options);
+    };
+    const logLines = [];
+    const exit = await main({ env, deps, log: (entry) => logLines.push(JSON.stringify(entry)) });
+    assert.equal(exit, 1);
+    assert.ok(logLines.some((line) => line.includes('"run":"lock-error"')));
+    assert.ok(!logLines.some((line) => line.includes('EACCES') || line.includes('at ')));
+  });
+
+  it('does not report consecutiveFailures on a successful disk recovery payload', async () => {
+    const fs = new FakeFs();
+    fs.dir('/backups');
+    fs.dir('/var/lib/servora-med-alerting');
+    backupPair(fs, '/backups', '20260805T120000Z');
+    const now = 1_785_974_400_000;
+    fs.file('/var/lib/servora-med-alerting/state.json', JSON.stringify({
+      version: 1,
+      checks: {
+        health: { consecutiveFailures: 0, alertActive: false, lastAlertAt: null, lastReminderAt: null, lastRecoveryAt: null, lastDeliveredAt: null },
+        backup: { consecutiveFailures: 0, alertActive: false, lastAlertAt: null, lastReminderAt: null, lastRecoveryAt: null, lastDeliveredAt: null },
+        disk: { consecutiveFailures: 3, alertActive: true, lastAlertAt: now - 60e3, lastReminderAt: null, lastRecoveryAt: null, lastDeliveredAt: now - 60e3 },
+      },
+    }));
+    const deps = fakeDeps({
+      fs,
+      health: healthResponse(200, { status: 'ok' }),
+      statfsResult: { bavail: 5000n, blocks: 10000n, bsize: 4096n },
+      nowMs: now,
+    });
+    const payloads = [];
+    deps.fetch = async (url, options) => {
+      if (url.includes('/api/health')) return healthResponse(200, { status: 'ok' });
+      const payload = JSON.parse(options.body);
+      payloads.push(payload);
+      return webhookResponse(200);
+    };
+    const result = await runMonitor(loadConfig(env), deps);
+    assert.equal(result.exitCode, 0);
+    const recovery = payloads.find((payload) => payload.check === 'disk' && payload.event === 'recovery');
+    assert.ok(recovery);
+    assert.equal(recovery.details.consecutiveFailures, undefined);
+  });
+});
 
 
 // ---------------------------------------------------------------------------
