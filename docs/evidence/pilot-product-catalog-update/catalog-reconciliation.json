@@ -38,7 +38,7 @@
   },
   "canonicalParser": "PASS",
   "rawNormalization": "PASS — no silent normalization required (no leading/trailing whitespace, no empty strings, canonical field order)",
-  "focusedTests": "pilot-product-import.test.ts 5/5 PASS (781 products, 368 non-null SKU, 48 simulated matches, 733 simulated inserts)",
+  "focusedTests": "pilot-product-import.test.ts 6/6 PASS (781 products, 368 non-null SKU, 48 simulated matches, 733 simulated inserts; accepted Euroseal prior-catalog conflict covered)",
   "productServiceTests": "product-service.test.ts 31/31 PASS",
   "serverBuild": "PASS",
   "dryRun": {
@@ -50,7 +50,7 @@
   },
   "databaseBeforeAfter": "EXACT INVARIANT — product count 1, active products 1, product audit events 0, max product updated_at unchanged, max product audit created_at unchanged",
   "apply": false,
-  "databaseOperations": "read-only dry-run transaction (BEGIN/COMMIT, no DML)",
+  "databaseOperations": "non-mutating dry-run transaction (BEGIN/COMMIT, advisory and row locks, no DML)",
   "production": "not authorized",
   "changeMode": "EXPANSION_WITH_ONE_ACCEPTED_EXISTING_CORRECTION",
   "strictlyAdditive": false,
@@ -73,5 +73,6 @@
   "transaction": "BEGIN/COMMIT on successful dry-run",
   "dmlExecuted": false,
   "persistentDatabaseMutation": false,
-  "operations": "advisory transaction lock, actor read, Product SELECT FOR UPDATE, merge planning, COMMIT; no INSERT/UPDATE/DELETE"
+  "operations": "advisory transaction lock, actor SELECT FOR SHARE, Product SELECT FOR UPDATE, merge planning, COMMIT; no INSERT/UPDATE/DELETE",
+  "transactionAccessMode": "default read/write transaction; apply=false"
 }
