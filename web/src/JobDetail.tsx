@@ -730,6 +730,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const [editing, setEditing] = useState(false);
   const [realtimeStale, setRealtimeStale] = useState(false);
   const realtimeRefreshInFlight = useRef(false);
+  const deferredRealtimeInvalidation = useRef(false);
 
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
@@ -763,14 +764,32 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     setLifecycleNoteKey((value) => value + 1);
   }
   async function reconcileRealtimeTruth() {
-    if (pending || editing || mutationInFlight.current) {
+    if (editing) {
       setRealtimeStale(true);
+      return;
+    }
+    if (pending || mutationInFlight.current) {
+      deferredRealtimeInvalidation.current = true;
       return;
     }
     if (realtimeRefreshInFlight.current) return;
     realtimeRefreshInFlight.current = true;
     try {
       await refreshTruth();
+      deferredRealtimeInvalidation.current = false;
+      setRealtimeStale(false);
+    } catch {
+      setRealtimeStale(true);
+    } finally {
+      realtimeRefreshInFlight.current = false;
+    }
+  }
+  async function drainDeferredRealtimeInvalidation() {
+    if (realtimeRefreshInFlight.current) return;
+    realtimeRefreshInFlight.current = true;
+    try {
+      const detail = await loadJobDetail(jobId);
+      setState({ kind: 'ready', detail });
       setRealtimeStale(false);
     } catch {
       setRealtimeStale(true);
@@ -828,6 +847,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
       const updated = await executeLifecycleCommand(jobId, command, commandInput, reason);
       if (state.detail.kind === 'SALES_MEETING' && command === 'START') {
         await refreshTruth();
+        deferredRealtimeInvalidation.current = false;
+        setRealtimeStale(false);
       } else {
         setState({
           kind: 'ready',
@@ -846,6 +867,10 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
       if (command === 'START') startCapture.current = null;
       setTimelineKey((value) => value + 1);
       setLifecycleNoteKey((value) => value + 1);
+      if (deferredRealtimeInvalidation.current) {
+        deferredRealtimeInvalidation.current = false;
+        await drainDeferredRealtimeInvalidation();
+      }
       const completedDialogCommand = dialog !== null;
       if (completedDialogCommand) setDialog(null);
       const transition = findTransition(presentation, command);
@@ -856,14 +881,26 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT' || caught.code === 'INVALID_TRANSITION')) {
         delete actionIds.current[command];
         if (command === 'START') startCapture.current = null;
-        try { await refreshTruth(); setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.'); }
-        catch { setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); setMessageIsError(true); }
+        deferredRealtimeInvalidation.current = false;
+        try {
+          await refreshTruth();
+          setRealtimeStale(false);
+          setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+        } catch {
+          setRealtimeStale(true);
+          setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.');
+          setMessageIsError(true);
+        }
         setDialog(null);
         setFeedbackFocusRequest((value) => value + 1);
       } else {
         if (!(caught instanceof ApiError) || !caught.retryable) {
           delete actionIds.current[command];
           if (command === 'START') startCapture.current = null;
+        }
+        if (deferredRealtimeInvalidation.current) {
+          deferredRealtimeInvalidation.current = false;
+          setRealtimeStale(true);
         }
         setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
         setMessageIsError(true);
@@ -890,12 +927,16 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     try {
       const meetingDetails = await patchMeetingDetails(jobId, input);
       await refreshTruth();
+      deferredRealtimeInvalidation.current = false;
+      setRealtimeStale(false);
       setTimelineKey((value) => value + 1);
       onChanged();
       return meetingDetails;
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
+        deferredRealtimeInvalidation.current = false;
         await refreshTruth();
+        setRealtimeStale(false);
         throw new ApiError(409, 'VERSION_CONFLICT', 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
       }
       throw caught;
@@ -936,6 +977,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
             : { ...state.detail.meetingDetails, jobCardVersion: updated.version },
         },
       });
+      deferredRealtimeInvalidation.current = false;
+      setRealtimeStale(false);
       setTimelineKey((value) => value + 1);
       setDialog(null);
       setEditing(true);
@@ -946,8 +989,9 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT'
         || caught.code === 'INVALID_TRANSITION')) {
         delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
-        try { await refreshTruth(); setMessage('İş güncellendi. En güncel durum gösteriliyor.'); }
-        catch { setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); }
+        deferredRealtimeInvalidation.current = false;
+        try { await refreshTruth(); setRealtimeStale(false); setMessage('İş güncellendi. En güncel durum gösteriliyor.'); }
+        catch { setRealtimeStale(true); setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); }
         setDialog(null);
       } else {
         if (!(caught instanceof ApiError) || !caught.retryable) {
@@ -966,10 +1010,13 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     try {
       await patchJobCard(jobId, input);
       await refreshTruth(); setEditing(false); setTimelineKey((value) => value + 1);
+      deferredRealtimeInvalidation.current = false;
+      setRealtimeStale(false);
       setMessage('Görüşme bilgileri güncellendi.'); onChanged();
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        await refreshTruth(); setEditing(false);
+        deferredRealtimeInvalidation.current = false;
+        await refreshTruth(); setEditing(false); setRealtimeStale(false);
         setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
       } else {
         setMessage(caught instanceof ApiError ? caught.message : 'Görüşme güncellenemedi.');
@@ -989,13 +1036,17 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         scheduledAt,
       });
       await refreshTruth();
+      deferredRealtimeInvalidation.current = false;
+      setRealtimeStale(false);
       setTimelineKey((value) => value + 1);
       setMessage('Planlanan zaman güncellendi.');
       setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
+        deferredRealtimeInvalidation.current = false;
         await refreshTruth();
+        setRealtimeStale(false);
         setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
         setMessageIsError(true);
         setFeedbackFocusRequest((value) => value + 1);
