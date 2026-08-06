@@ -6,10 +6,13 @@ Servora-Med is a browser-based B2B operations platform for medical and dental pr
 
 ## Implemented scope
 
-Full slice inventory and acceptance live in [`SERVORA_MED_MVP_SLICES.md`](SERVORA_MED_MVP_SLICES.md) (through **Slice 12** pilot docs/templates). Summary:
+The historical MVP slice inventory and acceptance live in [`SERVORA_MED_MVP_SLICES.md`](SERVORA_MED_MVP_SLICES.md) (repository scope verified through **Slice 12** plus Job Lifecycle Clarity). Summary of the current repository scope:
 
 - Auth (Admin / Manager / Staff), JobCard lifecycle, Product Delivery, General Task, Sales Meeting
-- Customers/contacts, product catalog, notes/timeline, operational reports
+- Customers/contacts, product catalog (canonical 781-product pilot catalog), notes/timeline, operational reports
+- Staff confidential notes, realtime change stream (SSE), linked follow-up JobCards, overdue visibility
+- Calendar, Overview Dashboard, in-app messaging, and Web Push support (capability-flagged, default disabled)
+- Apple/PWA install guidance and operator alerting tooling (merged, default disabled)
 - Production/pilot hardening (config, health, backup/restore scripts, Caddy/systemd templates)
 - Local macOS + Cloudflare Tunnel pilot runbook and install chooser (this README)
 
@@ -33,7 +36,7 @@ Ubuntu VPS with public Caddy TLS remains a supported **reference** topology ([pr
 
 ## Current Scope (detail)
 
-Implemented through Slice 12 (application through Slice 11; pilot docs Slice 12):
+Historical MVP implementation record (application through Slice 11; pilot docs Slice 12):
 
 - Fastify and TypeScript server shell
 - strict environment validation
@@ -93,13 +96,27 @@ Implemented through Slice 12 (application through Slice 11; pilot docs Slice 12)
 - operations runbooks under `docs/operations/`
 - macOS Cloudflare Tunnel pilot guide, tunnel Caddy/cloudflared/launchd examples, user manual
 
-### Not implemented yet / operator-owned
+### Added after the MVP slices
 
-- Staff confidential notes and related follow-up cards
-- WebSocket (evidence-gated **Slice 13**)
+- Staff confidential notes (migration `023`) with realtime invalidation
+- Realtime change stream via Server-Sent Events (`GET /api/realtime/events`); mandatory WebSocket remains out of scope
+- Linked follow-up JobCards (migration `022`)
+- Overdue jobs visibility in the JobCard workspace
+- Calendar (`/calendar`, `CALENDAR_ENABLED`, default disabled)
+- Overview Dashboard (`/overview`, `OVERVIEW_DASHBOARD_ENABLED`, default disabled)
+- In-app messaging (`/messages`, `MESSAGING_ENABLED`, default disabled)
+- Web Push notification support (`WEB_PUSH_ENABLED`, default disabled; operator provides the VAPID key pair)
+- Apple/PWA install guidance (physical-device install remains manual acceptance)
+- Operator alerting tooling (merged, default disabled; host activation not performed, real webhook not configured)
+- Expanded canonical pilot product catalog (781 products)
+
+### Operator-owned
+
 - Live public pilot cutover on a real host (docs ready; execution is operator-owned)
+- Operator alerting activation and real webhook configuration
 - Host-recorded restore rehearsal file
 - Real offsite backup copy
+- Automatic backup schedule enablement (manual backup workflow continues)
 
 ## Prerequisites
 
@@ -154,10 +171,7 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable 001–007 files for the ledger, authentication,
-Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog,
-JobCard workspace notes/indexes/lifecycle timestamp constraints, and Structured Sales
-Meeting details.
+The migration runner applies the immutable 001–023 files (latest: `023_staff_confidential_notes`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, and staff confidential notes.
 
 ### First Admin Bootstrap
 
@@ -205,8 +219,16 @@ the organization, or exact name when both source and stored SKU are null. Exact 
 updated. New Products and their `PRODUCT_CREATED` audits are committed in one locked transaction;
 any failure rolls back the complete batch. Re-running the same input is idempotent.
 
-The local `Servora Med Demo` merge on 2026-07-16 produced 81 source Products, 48 existing exact
-matches, and 33 inserts. The repeat dry-run produced 81 matches and zero inserts.
+Historical record: the local `Servora Med Demo` merge on 2026-07-16 produced 81 source
+Products, 48 existing exact matches, and 33 inserts; the repeat dry-run produced 81 matches
+and zero inserts.
+
+Current canonical state: the tracked `pilot-products.example.json` is the canonical
+normalized 781-product version-1 catalog (368 non-null unique SKUs, 413 null-SKU products,
+no duplicate canonical keys). The synthetic development database `servora_med` holds 782
+products: the 781 canonical products plus the `DEMO-001` development seed product
+(preserved). The apply was executed against the synthetic development database only; it is
+not a production operation, and production deployment remains operator-owned.
 
 Public health (readiness):
 
@@ -470,6 +492,12 @@ cd web && npm audit --omit=dev
 | `ACTION_SCOPED_GEOLOCATION_ENABLED` | no | exact `true`/`false`; defaults to `false` and must remain disabled until the disclosure, retention, and reverse-geocoding provider gates are approved |
 | `CALENDAR_ENABLED` | no | fail-closed Phase U2 capability; exact `true`/`false`, defaults to `false` |
 | `CALENDAR_REMINDER_LEAD_MINUTES` | no | in-app calendar reminder lead time; integer `5..1440`, defaults to `30` |
+| `OVERVIEW_DASHBOARD_ENABLED` | no | fail-closed capability; exact `true`/`false`, defaults to `false` |
+| `MESSAGING_ENABLED` | no | fail-closed capability; exact `true`/`false`, defaults to `false` |
+| `WEB_PUSH_ENABLED` | no | exact `true`/`false`, defaults to `false`; requires a VAPID key pair |
+| `WEB_PUSH_VAPID_SUBJECT` | when `WEB_PUSH_ENABLED` | public https URL or mailto address for VAPID |
+| `WEB_PUSH_VAPID_PUBLIC_KEY` | when `WEB_PUSH_ENABLED` | VAPID public key |
+| `WEB_PUSH_VAPID_PRIVATE_KEY` | when `WEB_PUSH_ENABLED` | VAPID private key; never commit |
 | `SESSION_TTL_SECONDS` | no | opaque session lifetime; defaults to `28800` (8 hours) |
 | `LOGIN_RATE_LIMIT_MAX` | no | login attempts allowed per limiter window; defaults to `5` |
 | `RATE_LIMIT_WINDOW_MS` | no | login limiter window in milliseconds; defaults to `60000` |
@@ -490,6 +518,7 @@ Scripts and contracts: [docs/operations/backup-restore.md](docs/operations/backu
 |------------|--------|
 | Local scheduled backup scripts | available |
 | Disposable restore automated tests | available with `TEST_DATABASE_URL` |
+| Automatic backup schedule | not enabled on any host; manual backup workflow continues, activation is operator-owned |
 | Host restore rehearsal record | pending until executed on pilot host |
 | Real offsite copy | pending destination + credentials |
 
