@@ -729,13 +729,27 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
   const [realtimeStale, setRealtimeStale] = useState(false);
-  const jobIdRef = useRef(jobId);
-  const realtimeDrainPromise = useRef<Promise<boolean> | null>(null);
+  const [realtimeReloadPending, setRealtimeReloadPending] = useState(false);
+  const jobSession = useRef({ jobId, token: 0 });
+  const realtimeDrain = useRef<{
+    sessionToken: number;
+    drainToken: number;
+    promise: Promise<boolean>;
+  } | null>(null);
+  const drainTokenCounter = useRef(0);
   const realtimeDrainRequested = useRef(false);
+  const realtimeReloadRequested = useRef(false);
+  const realtimeReloadInFlight = useRef<Promise<void> | null>(null);
   const realtimeInvalidationGeneration = useRef(0);
   const reconciledRealtimeGeneration = useRef(0);
   const mutationEpoch = useRef(0);
+  const mutationOwner = useRef<{ sessionToken: number; operationToken: number } | null>(null);
+  const mutationOperationToken = useRef(0);
   const MAX_REALTIME_DRAIN_ROUNDS = 4;
+
+  function isCurrentJobSession(sessionToken: number) {
+    return jobSession.current.token === sessionToken;
+  }
 
   function hasPendingRealtimeInvalidation() {
     return realtimeInvalidationGeneration.current > reconciledRealtimeGeneration.current;
@@ -750,18 +764,49 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     }
   }
 
+  function startMutationOperation() {
+    const sessionToken = jobSession.current.token;
+    if (mutationOwner.current?.sessionToken === sessionToken) return null;
+    const owner = { sessionToken, operationToken: ++mutationOperationToken.current };
+    mutationOwner.current = owner;
+    mutationInFlight.current = true;
+    return owner;
+  }
+
+  function endMutationOperation(owner: { sessionToken: number; operationToken: number } | null) {
+    if (owner && mutationOwner.current?.sessionToken === owner.sessionToken
+      && mutationOwner.current?.operationToken === owner.operationToken) {
+      mutationOwner.current = null;
+      mutationInFlight.current = false;
+      setPending(false);
+      setStartPendingPhase(null);
+    }
+  }
+
   useEffect(() => {
-    jobIdRef.current = jobId;
+    jobSession.current = { jobId, token: jobSession.current.token + 1 };
     realtimeInvalidationGeneration.current = 0;
     reconciledRealtimeGeneration.current = 0;
     realtimeDrainRequested.current = false;
-    realtimeDrainPromise.current = null;
+    realtimeReloadRequested.current = false;
+    realtimeReloadInFlight.current = null;
+    realtimeDrain.current = null;
     mutationEpoch.current = 0;
+    mutationOwner.current = null;
+    mutationInFlight.current = false;
+    actionIds.current = {};
+    startCapture.current = null;
+    dialogTriggerRef.current = null;
+    dialogFocusRestoreEnabledRef.current = true;
     setRealtimeStale(false);
+    setRealtimeReloadPending(false);
     setEditing(false);
     setPending(false);
     setMessage('');
     setMessageIsError(false);
+    setMeetingSubmissionError(null);
+    setDialog(null);
+    setStartPendingPhase(null);
   }, [jobId]);
 
   useEffect(() => {
@@ -790,11 +835,12 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     setDialog(null);
   }
   async function refreshTruth() {
-    const jobIdAtStart = jobIdRef.current;
+    const operationJobId = jobId;
+    const operationSession = jobSession.current.token;
     const generationAtStart = realtimeInvalidationGeneration.current;
     const epochAtStart = mutationEpoch.current;
-    const detail = await loadJobDetail(jobId);
-    if (jobIdRef.current !== jobIdAtStart) return;
+    const detail = await loadJobDetail(operationJobId);
+    if (!isCurrentJobSession(operationSession)) return;
     if (mutationEpoch.current !== epochAtStart) {
       realtimeDrainRequested.current = true;
       return;
@@ -809,19 +855,19 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
       setRealtimeStale(true);
       return;
     }
-    if (pending || mutationInFlight.current) {
+    if (pending || mutationOwner.current?.sessionToken === jobSession.current.token) {
       return;
     }
     await requestRealtimeDrain();
   }
-  async function runRealtimeDrainChain(): Promise<boolean> {
-    const jobIdAtStart = jobIdRef.current;
+  async function runRealtimeDrainChain(sessionToken: number): Promise<boolean> {
+    const operationJobId = jobId;
     try {
       for (let round = 0; round < MAX_REALTIME_DRAIN_ROUNDS; round += 1) {
         const generationAtStart = realtimeInvalidationGeneration.current;
         const epochAtStart = mutationEpoch.current;
-        const detail = await loadJobDetail(jobId);
-        if (jobIdRef.current !== jobIdAtStart) return true;
+        const detail = await loadJobDetail(operationJobId);
+        if (!isCurrentJobSession(sessionToken)) return true;
         if (mutationEpoch.current !== epochAtStart) {
           realtimeDrainRequested.current = true;
           return true;
@@ -839,28 +885,37 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
       return true;
     }
   }
-  async function requestRealtimeDrain(force = false): Promise<void> {
+  async function requestRealtimeDrain(): Promise<void> {
+    const sessionToken = jobSession.current.token;
     for (;;) {
-      const active = realtimeDrainPromise.current;
-      if (active) {
+      if (!isCurrentJobSession(sessionToken)) return;
+      const active = realtimeDrain.current;
+      if (active && active.sessionToken === sessionToken) {
         realtimeDrainRequested.current = true;
-        const settled = await active;
+        const settled = await active.promise;
         realtimeDrainRequested.current = false;
+        if (!isCurrentJobSession(sessionToken)) return;
         if (!settled) return;
-        if (!force && !hasPendingRealtimeInvalidation()) return;
+        realtimeReloadRequested.current = false;
+        if (!hasPendingRealtimeInvalidation()) return;
         continue;
       }
-      if (!force && !hasPendingRealtimeInvalidation()) return;
-      force = false;
+      if (!realtimeReloadRequested.current && !hasPendingRealtimeInvalidation()) return;
+      realtimeReloadRequested.current = false;
       realtimeDrainRequested.current = false;
-      const chain = runRealtimeDrainChain();
-      realtimeDrainPromise.current = chain;
+      const drainToken = ++drainTokenCounter.current;
+      const chain = runRealtimeDrainChain(sessionToken);
+      realtimeDrain.current = { sessionToken, drainToken, promise: chain };
       let settled = true;
       try {
         settled = await chain;
       } finally {
-        realtimeDrainPromise.current = null;
+        if (realtimeDrain.current?.sessionToken === sessionToken
+          && realtimeDrain.current?.drainToken === drainToken) {
+          realtimeDrain.current = null;
+        }
       }
+      if (!isCurrentJobSession(sessionToken)) return;
       if (!settled) return;
       if (!realtimeDrainRequested.current) return;
       realtimeDrainRequested.current = false;
@@ -868,7 +923,26 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
   }
   async function reloadStaleTruth() {
     if (pending) return;
-    await requestRealtimeDrain(true);
+    if (realtimeReloadInFlight.current) {
+      await realtimeReloadInFlight.current;
+      return;
+    }
+    setRealtimeReloadPending(true);
+    realtimeReloadRequested.current = true;
+    const operation = (async () => {
+      try {
+        await requestRealtimeDrain();
+      } finally {
+        realtimeReloadRequested.current = false;
+      }
+    })();
+    realtimeReloadInFlight.current = operation;
+    try {
+      await operation;
+    } finally {
+      if (realtimeReloadInFlight.current === operation) realtimeReloadInFlight.current = null;
+      setRealtimeReloadPending(false);
+    }
   }
   useRealtimeInvalidation([`job-detail:${jobId}`], () => {
     realtimeInvalidationGeneration.current += 1;
@@ -887,9 +961,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     });
   }
   async function execute(command: LifecycleCommand, reason = '') {
-    if (state.kind !== 'ready' || mutationInFlight.current) return;
+    if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === jobSession.current.token) return;
+    const owner = startMutationOperation();
+    if (!owner) return;
+    const operationJobId = jobId;
     mutationEpoch.current += 1;
-    mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     actionIds.current[command] ??= crypto.randomUUID();
     const input = { clientActionId: actionIds.current[command]!, expectedVersion: state.detail.job.version };
@@ -907,7 +983,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setStartPendingPhase('submitting');
         commandInput = { ...input, locationCapture: startCapture.current.capture };
       }
-      const updated = await executeLifecycleCommand(jobId, command, commandInput, reason);
+      const updated = await executeLifecycleCommand(operationJobId, command, commandInput, reason);
+      if (!isCurrentJobSession(owner.sessionToken)) return;
       if (state.detail.kind === 'SALES_MEETING' && command === 'START') {
         await refreshTruth();
         await requestRealtimeDrain();
@@ -971,21 +1048,24 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setFeedbackFocusRequest((value) => value + 1);
       }
     } finally {
-      mutationInFlight.current = false;
-      setPending(false);
-      setStartPendingPhase(null);
+      endMutationOperation(owner);
     }
   }
   async function saveMeeting(input: PatchMeetingDetailsInput) {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
-      || mutationInFlight.current) {
+      || mutationOwner.current?.sessionToken === jobSession.current.token) {
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
     }
+    const owner = startMutationOperation();
+    if (!owner) {
+      throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
+    }
+    const operationJobId = jobId;
     mutationEpoch.current += 1;
-    mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     try {
-      const meetingDetails = await patchMeetingDetails(jobId, input);
+      const meetingDetails = await patchMeetingDetails(operationJobId, input);
+      if (!isCurrentJobSession(owner.sessionToken)) return meetingDetails;
       await refreshTruth();
       await requestRealtimeDrain();
       setTimelineKey((value) => value + 1);
@@ -1001,7 +1081,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setRealtimeStale(true);
       }
       throw caught;
-    } finally { mutationInFlight.current = false; setPending(false); }
+    } finally { endMutationOperation(owner); }
   }
   function openRecordEditDialog(action: RecordEditPresentation['action'], trigger: HTMLElement) {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING') return;
@@ -1017,9 +1097,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
   }
   async function confirmWithdrawAndEdit() {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
-      || mutationInFlight.current) return;
+      || mutationOwner.current?.sessionToken === jobSession.current.token) return;
+    const owner = startMutationOperation();
+    if (!owner) return;
+    const operationJobId = jobId;
     mutationEpoch.current += 1;
-    mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false);
     actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS ??= crypto.randomUUID();
     try {
@@ -1028,6 +1110,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS,
         withdrawJobCardFromApproval,
       );
+      if (!isCurrentJobSession(owner.sessionToken)) return;
       delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
       setState({
         kind: 'ready',
@@ -1065,16 +1148,19 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setMessage(caught instanceof ApiError ? caught.message : 'Düzenleme başlatılamadı.');
       }
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
-    } finally { mutationInFlight.current = false; setPending(false); }
+    } finally { endMutationOperation(owner); }
   }
   async function saveJob(input: PatchJobCardInput) {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
-      || mutationInFlight.current) return;
+      || mutationOwner.current?.sessionToken === jobSession.current.token) return;
+    const owner = startMutationOperation();
+    if (!owner) return;
+    const operationJobId = jobId;
     mutationEpoch.current += 1;
-    mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false);
     try {
-      await patchJobCard(jobId, input);
+      await patchJobCard(operationJobId, input);
+      if (!isCurrentJobSession(owner.sessionToken)) return;
       await refreshTruth(); setEditing(false); setTimelineKey((value) => value + 1);
       await requestRealtimeDrain();
       setMessage('Görüşme bilgileri güncellendi.'); onChanged();
@@ -1089,20 +1175,25 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setMessage(caught instanceof ApiError ? caught.message : 'Görüşme güncellenemedi.');
       }
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
-    } finally { mutationInFlight.current = false; setPending(false); }
+    } finally { endMutationOperation(owner); }
   }
   async function saveSchedule(scheduledAt: string | null) {
-    if (state.kind !== 'ready' || mutationInFlight.current) {
+    if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === jobSession.current.token) {
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
     }
+    const owner = startMutationOperation();
+    if (!owner) {
+      throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
+    }
+    const operationJobId = jobId;
     mutationEpoch.current += 1;
-    mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false);
     try {
-      await patchJobCard(jobId, {
+      await patchJobCard(operationJobId, {
         expectedVersion: state.detail.job.version,
         scheduledAt,
       });
+      if (!isCurrentJobSession(owner.sessionToken)) return;
       await refreshTruth();
       await requestRealtimeDrain();
       setTimelineKey((value) => value + 1);
@@ -1128,23 +1219,27 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         ? caught
         : new Error('Planlanan zaman kaydedilemedi.');
     } finally {
-      mutationInFlight.current = false;
-      setPending(false);
+      endMutationOperation(owner);
     }
   }
   async function saveDeliveredAt(itemId: string, deliveredAt: string) {
     if (state.kind !== 'ready' || state.detail.kind !== 'PRODUCT_DELIVERY'
-      || mutationInFlight.current) {
+      || mutationOwner.current?.sessionToken === jobSession.current.token) {
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
     }
+    const owner = startMutationOperation();
+    if (!owner) {
+      throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
+    }
+    const operationJobId = jobId;
     mutationEpoch.current += 1;
-    mutationInFlight.current = true;
     setPending(true); setMessage(''); setMessageIsError(false);
     try {
-      await patchDeliveryItem(jobId, itemId, {
+      await patchDeliveryItem(operationJobId, itemId, {
         expectedVersion: state.detail.job.version,
         deliveredAt,
       });
+      if (!isCurrentJobSession(owner.sessionToken)) return;
       await refreshTruth();
       await requestRealtimeDrain();
       setTimelineKey((value) => value + 1);
@@ -1174,8 +1269,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         ? caught
         : new Error('Gerçekleşen teslim zamanı kaydedilemedi.');
     } finally {
-      mutationInFlight.current = false;
-      setPending(false);
+      endMutationOperation(owner);
     }
   }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
@@ -1292,8 +1386,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     feedbackRef={feedbackRef}
     realtimeStaleNotice={realtimeStale ? <div className="detail-feedback detail-feedback-error" role="status">
       <p>Bu iş başka bir oturumda güncellendi. Açık düzenlemeniz korunuyor.</p>
-      <button className="secondary-button" type="button" disabled={pending}
-        onClick={() => void reloadStaleTruth()}>En güncel bilgileri yükle</button>
+      <button className="secondary-button" type="button" disabled={pending || realtimeReloadPending}
+        onClick={() => void reloadStaleTruth()}>{realtimeReloadPending ? 'Yükleniyor…' : 'En güncel bilgileri yükle'}</button>
     </div> : undefined}
     continuity={isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
     onBack={onBack}
