@@ -962,9 +962,10 @@ async function openNotificationSettings(page) {
   }
 }
 
-async function measurePushState(page, baseUrl, state) {
+async function measurePushState(page, baseUrl, state, diag) {
   const sep = baseUrl.includes('?') ? '&' : '?';
   await page.goto(`${baseUrl}${sep}pushState=${state}`, { waitUntil: 'load' });
+  await waitForJobDetailFixture(page, diag);
   await page.waitForSelector('[data-smoke-notification-center]');
   await openNotificationSettings(page);
   return measure(page);
@@ -1012,6 +1013,15 @@ async function capturePageState(page) {
     url: location.href,
     readyState: document.readyState,
     readyMarker: document.documentElement.dataset.smokeJobDetailReady ?? null,
+    committedParts: typeof window.__servoraSmokeFixtureParts === 'function'
+      ? window.__servoraSmokeFixtureParts()
+      : [],
+    timelineSelectorCount: document.querySelectorAll(
+      '#responsive-timeline-root .servora-ant-timeline',
+    ).length,
+    descriptionsSelectorCount: document.querySelectorAll(
+      '#responsive-descriptions-root .servora-record-descriptions',
+    ).length,
     timelineRootChildren: document.querySelector('#responsive-timeline-root')?.childElementCount ?? null,
     descriptionsRootChildren: document.querySelector('#responsive-descriptions-root')?.childElementCount ?? null,
   }));
@@ -1019,9 +1029,12 @@ async function capturePageState(page) {
 
 /**
  * Wait for the JobDetail fixture's explicit React-commit readiness marker and
- * the real ActivityTimeline output. The static `data-smoke-timeline` parent is
- * not treated as proof of a render; on failure the exact page/module
- * diagnostics are reported instead of a blind selector timeout.
+ * the real ActivityTimeline output. The marker is produced by an
+ * order-independent coordinator that only fires after both the timeline and
+ * descriptions roots have committed; the static `data-smoke-timeline` parent
+ * is not treated as proof of a render. On failure the missing parts and
+ * selectors are reported alongside the exact page/module diagnostics instead
+ * of a blind selector timeout.
  */
 async function waitForJobDetailFixture(page, diag) {
   try {
@@ -1029,8 +1042,15 @@ async function waitForJobDetailFixture(page, diag) {
     await page.waitForSelector('.servora-ant-timeline', { timeout: 30_000 });
   } catch (caught) {
     const state = await capturePageState(page);
+    const parts = state.committedParts ?? [];
+    const missingParts = ['timeline', 'descriptions'].filter((part) => !parts.includes(part));
+    const missingSelectors = [];
+    if (!state.timelineSelectorCount) missingSelectors.push('timeline');
+    if (!state.descriptionsSelectorCount) missingSelectors.push('descriptions');
     throw new Error(
       'JobDetail fixture not ready:\n'
+      + `missingParts=${JSON.stringify(missingParts)}\n`
+      + `missingSelectors=${JSON.stringify(missingSelectors)}\n`
       + `page=${JSON.stringify(state)}\n`
       + `pageErrors=${JSON.stringify(diag.pageErrors)}\n`
       + `consoleErrors=${JSON.stringify(diag.consoleErrors)}\n`
@@ -1289,7 +1309,7 @@ try {
       failures.push(`${vp.name}: install settings responsive contract failure`);
     }
     for (const state of PUSH_STATES) {
-      const stateMeasure = await measurePushState(page, url, state);
+      const stateMeasure = await measurePushState(page, url, state, diag);
       console.log(JSON.stringify({ viewport: vp.name, pushState: state, ...stateMeasure }));
       if (pushStateContractFailed(state, stateMeasure) || stateMeasure.overflowX) {
         failures.push(`${vp.name}: push settings state ${state} contract failure`);
@@ -1402,6 +1422,7 @@ try {
     for (const state of ['long-error', 'denied', 'pending-enable']) {
       const sep = url.includes('?') ? '&' : '?';
       await page.goto(`${url}${sep}pushState=${state}`, { waitUntil: 'load' });
+      await waitForJobDetailFixture(page, diag);
       await page.waitForSelector('[data-smoke-notification-center]');
       await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
       await openNotificationSettings(page);
@@ -1430,8 +1451,10 @@ try {
     // WCAG 1.4.10 reflow evidence: 400% on 1280 CSS px ≈ 320 CSS px width.
     // Prefer viewport reflow over document.zoom (zoom distorts getBoundingClientRect).
     const page = await browser.newPage({ viewport: { width: 320, height: 256 } });
+    const diag = createDiagnostics();
+    attachDiagnostics(page, diag);
     await page.goto(url, { waitUntil: 'load' });
-    await page.waitForSelector('.servora-ant-timeline');
+    await waitForJobDetailFixture(page, diag);
     await page.waitForSelector('[data-servora-operational-table="true"]');
     await waitForChartFixtures(page);
     await page.waitForSelector('[data-smoke-notification] [role="dialog"]');
@@ -1474,7 +1497,7 @@ try {
       failures.push('400% reflow: install settings reflow failure');
     }
     for (const state of ['long-error', 'install-required', 'pending-enable']) {
-      const rem = await measurePushState(page, url, state);
+      const rem = await measurePushState(page, url, state, diag);
       if (pushStateContractFailed(state, rem) || rem.overflowX || rem.notificationSettingsOverflow) {
         failures.push(`400% reflow: push state ${state} failure`);
       }
