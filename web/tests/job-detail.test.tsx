@@ -866,9 +866,11 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
   });
 
-  it('reconciles a deferred invalidation after a generic mutation failure and keeps the retryable action id', async () => {
+  it('keeps the retryable action id when a matching event arrives while the accept request is pending and the request fails', async () => {
     const source = new FakeRealtimeEventSource();
     const acceptBodies: Array<Record<string, unknown>> = [];
+    let rejectAccept: (reason?: unknown) => void = () => {};
+    const acceptGate = new Promise<Response>((_, reject) => { rejectAccept = reject; });
     const accepted: JobCard = {
       ...job,
       status: 'ACCEPTED',
@@ -878,6 +880,7 @@ describe('Staff JobCard detail', () => {
         acceptedBy: { id: 's1', name: 'Ayşe Personel' },
       }, { allowedActions: [] }),
     };
+    let jobCardRequests = 0;
     const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
@@ -885,10 +888,13 @@ describe('Staff JobCard detail', () => {
       if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
       if (url.endsWith('/accept') && init?.method === 'POST') {
         acceptBodies.push(JSON.parse(String(init.body)));
-        if (acceptBodies.length === 1) throw new TypeError('offline');
+        if (acceptBodies.length === 1) return acceptGate;
         return Response.json(accepted);
       }
-      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
+      if (url.endsWith('/api/job-cards/job-1')) {
+        jobCardRequests += 1;
+        return Response.json(jobCardRequests === 1 ? job : accepted);
+      }
       throw new Error(`Unexpected request: ${url}`);
     });
     await renderRealtimeScreen(job, source, fetch);
@@ -896,18 +902,19 @@ describe('Staff JobCard detail', () => {
     await act(async () => {
       buttonByName(host, 'İşi kabul et')?.click();
       await Promise.resolve();
-      await new Promise((resolve) => setTimeout(resolve, 0));
     });
     await act(async () => {
       source.emitJobUpdate('1');
       await Promise.resolve();
     });
     await act(async () => {
+      rejectAccept(new TypeError('offline'));
+      await Promise.resolve();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
 
     expect(host.textContent).toContain('Sunucuya ulaşılamadı');
-    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+    expect(host.textContent).toContain('Bu iş başka bir oturumda güncellendi');
 
     await act(async () => {
       buttonByName(host, 'İşi kabul et')?.click();
@@ -918,6 +925,441 @@ describe('Staff JobCard detail', () => {
     expect(acceptBodies[1]).toEqual(acceptBodies[0]);
     expect(host.textContent).toContain('İş kabul edildi.');
     expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('follows up with a second canonical fetch when a new invalidation arrives while reconciliation is in flight', async () => {
+    const source = new FakeRealtimeEventSource();
+    const acceptBodies: Array<Record<string, unknown>> = [];
+    let resolveAccept: (value: Response) => void = () => {};
+    const acceptGate = new Promise<Response>((resolve) => { resolveAccept = resolve; });
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [] }),
+    };
+    const newer: JobCard = {
+      ...accepted,
+      version: accepted.version + 1,
+      title: 'Drain sırasında gelen güncelleme',
+    };
+    let resolveDrainGet: (value: Response) => void = () => {};
+    const drainGetGate = new Promise<Response>((resolve) => { resolveDrainGet = resolve; });
+    let jobCardRequests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/accept') && init?.method === 'POST') {
+        acceptBodies.push(JSON.parse(String(init.body)));
+        return acceptGate;
+      }
+      if (url.endsWith('/api/job-cards/job-1')) {
+        jobCardRequests += 1;
+        if (jobCardRequests === 1) return Response.json(job);
+        if (jobCardRequests === 2) return drainGetGate;
+        return Response.json(newer);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderRealtimeScreen(job, source, fetch);
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    expect(jobRequests()).toHaveLength(1);
+
+    await act(async () => {
+      buttonByName(host, 'İşi kabul et')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveAccept(Response.json(accepted));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(jobRequests()).toHaveLength(2);
+
+    await act(async () => {
+      source.emitJobUpdate('2');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveDrainGet(Response.json(accepted));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(host.textContent).toContain('İş kabul edildi.');
+    expect(host.textContent).toContain('Drain sırasında gelen güncelleme');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+    expect(jobRequests().length).toBe(3);
+    expect(acceptBodies).toHaveLength(1);
+  });
+
+  it('does not let a stale idle refresh overwrite a completed mutation response', async () => {
+    const source = new FakeRealtimeEventSource();
+    const acceptBodies: Array<Record<string, unknown>> = [];
+    let resolveAccept: (value: Response) => void = () => {};
+    const acceptGate = new Promise<Response>((resolve) => { resolveAccept = resolve; });
+    let resolveIdleGet: (value: Response) => void = () => {};
+    const idleGetGate = new Promise<Response>((resolve) => { resolveIdleGet = resolve; });
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [] }),
+    };
+    let jobCardRequests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/accept') && init?.method === 'POST') {
+        acceptBodies.push(JSON.parse(String(init.body)));
+        return acceptGate;
+      }
+      if (url.endsWith('/api/job-cards/job-1')) {
+        jobCardRequests += 1;
+        if (jobCardRequests === 1) return Response.json(job);
+        if (jobCardRequests === 2) return idleGetGate;
+        return Response.json(accepted);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderRealtimeScreen(job, source, fetch);
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    expect(jobRequests()).toHaveLength(2);
+
+    await act(async () => {
+      buttonByName(host, 'İşi kabul et')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveAccept(Response.json(accepted));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      resolveIdleGet(Response.json(job));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(host.textContent).toContain('İş kabul edildi.');
+    expect(host.textContent).toContain('Kabul edildi');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+    expect(acceptBodies).toHaveLength(1);
+  });
+
+  it('settles a matching invalidation after saving the delivered-at time without a phantom later refresh', async () => {
+    const source = new FakeRealtimeEventSource();
+    const deliveredAt = '2026-07-18T10:30';
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    };
+    let resolvePatch: (value: Response) => void = () => {};
+    const patchGate = new Promise<Response>((resolve) => { resolvePatch = resolve; });
+    const patchBodies: Array<Record<string, unknown>> = [];
+    let jobCardRequests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items/i1') && init?.method === 'PATCH') {
+        patchBodies.push(JSON.parse(String(init.body)));
+        return patchGate;
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [{ ...item, deliveredAt: null }] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) {
+        jobCardRequests += 1;
+        return Response.json(jobCardRequests === 1 ? accepted : accepted);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderRealtimeScreen(accepted, source, fetch);
+    const jobRequests = () => fetch.mock.calls.filter(([input]) => String(input).endsWith('/api/job-cards/job-1'));
+    expect(jobRequests()).toHaveLength(1);
+
+    await act(async () => {
+      const input = host.querySelector('#delivery-actual-at-i1') as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        ?.set?.call(input, deliveredAt);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.delivery-actual-time-form') as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(patchBodies).toHaveLength(1);
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolvePatch(Response.json({ item: { ...item, deliveredAt: '2026-07-18T10:30:00.000Z' }, jobCardVersion: accepted.version + 1 }));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(host.textContent).toContain('Gerçekleşen teslim zamanı kaydedildi.');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+    expect(jobRequests()).toHaveLength(2);
+  });
+
+  it('preserves an unresolved invalidation after a generic delivered-at save failure', async () => {
+    const source = new FakeRealtimeEventSource();
+    const deliveredAt = '2026-07-18T10:30';
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    };
+    let rejectPatch: (reason?: unknown) => void = () => {};
+    const patchGate = new Promise<Response>((_, reject) => { rejectPatch = reject; });
+    const patchBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items/i1') && init?.method === 'PATCH') {
+        patchBodies.push(JSON.parse(String(init.body)));
+        return patchGate;
+      }
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [{ ...item, deliveredAt: null }] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(accepted);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderRealtimeScreen(accepted, source, fetch);
+
+    await act(async () => {
+      const input = host.querySelector('#delivery-actual-at-i1') as HTMLInputElement;
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')
+        ?.set?.call(input, deliveredAt);
+      input.dispatchEvent(new Event('input', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      (host.querySelector('form.delivery-actual-time-form') as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(patchBodies).toHaveLength(1);
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rejectPatch(new TypeError('offline'));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(host.textContent).toContain('Sunucuya ulaşılamadı');
+    expect(host.textContent).toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('preserves an unresolved invalidation after a generic meeting-save failure', async () => {
+    const source = new FakeRealtimeEventSource();
+    const meeting = inProgressMeeting();
+    let rejectPatch: (reason?: unknown) => void = () => {};
+    const patchGate = new Promise<Response>((_, reject) => { rejectPatch = reject; });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details') && init?.method === 'PATCH') return patchGate;
+      if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderRealtimeScreen(meeting, source, fetch);
+    await act(async () => {
+      const summary = host.querySelector('#meeting-summary') as HTMLTextAreaElement;
+      Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
+        ?.set?.call(summary, 'Güncel görüşme özeti');
+      summary.dispatchEvent(new Event('input', { bubbles: true }));
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'Görüşme sonucunu kaydet')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rejectPatch(new TypeError('offline'));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(host.textContent).toContain('Sunucuya ulaşılamadı');
+    expect(host.textContent).toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('applies newer canonical truth after withdraw-and-edit with a concurrent event', async () => {
+    const source = new FakeRealtimeEventSource();
+    const waiting = waitingApprovalJob();
+    const meeting = {
+      ...waiting,
+      type: 'SALES_MEETING' as const,
+      engagementKind: 'SALES_MEETING' as const,
+      workflowContext: contextWith({
+        allowedCommands: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        allowedActions: ['WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT', 'VIEW_NOTES'],
+        lifecycle: {
+          ...baseLifecycle,
+          acceptedAt: '2026-07-17T08:30:00.000Z',
+          acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+          startedAt: '2026-07-17T09:00:00.000Z',
+          submittedAt: '2026-07-17T10:00:00.000Z',
+          submittedBy: { id: 's1', name: 'Ayşe Personel' },
+        },
+        submissionReadiness: null,
+      }),
+    };
+    let resolveWithdraw: (value: Response) => void = () => {};
+    const withdrawGate = new Promise<Response>((resolve) => { resolveWithdraw = resolve; });
+    const withdrawBodies: Array<Record<string, unknown>> = [];
+    const withdrawn: JobCard = {
+      ...meeting,
+      status: 'IN_PROGRESS',
+      version: meeting.version + 1,
+      workflowContext: staffContext('IN_PROGRESS', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+        startedAt: '2026-07-17T09:00:00.000Z',
+        submittedAt: null,
+        submittedBy: null,
+      }),
+    };
+    const newer: JobCard = {
+      ...withdrawn,
+      version: withdrawn.version + 1,
+      title: 'Geri çekme sonrası güncel görüşme',
+    };
+    let jobCardRequests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details')) {
+        return Response.json({
+          ...meetingDetails,
+          jobCardVersion: jobCardRequests >= 2 ? newer.version : meeting.version,
+        });
+      }
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.includes('/withdraw-from-approval') && init?.method === 'POST') {
+        withdrawBodies.push(JSON.parse(String(init.body)));
+        return withdrawGate;
+      }
+      if (url.endsWith('/api/job-cards/job-1')) {
+        jobCardRequests += 1;
+        return Response.json(jobCardRequests === 1 ? meeting : newer);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderRealtimeScreen(meeting, source, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Kontrolden geri çek ve düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'Geri çek ve düzenle')?.click();
+      await Promise.resolve();
+    });
+    expect(withdrawBodies).toHaveLength(1);
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveWithdraw(Response.json(withdrawn));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(host.textContent).toContain('Geri çekme sonrası güncel görüşme');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('preserves an unresolved invalidation after a generic schedule-save failure', async () => {
+    const source = new FakeRealtimeEventSource();
+    const accepted: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, {
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    };
+    let rejectPatch: (reason?: unknown) => void = () => {};
+    const patchGate = new Promise<Response>((_, reject) => { rejectPatch = reject; });
+    const patchBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith(`/api/job-cards/${accepted.id}`) && init?.method === 'PATCH') {
+        patchBodies.push(JSON.parse(String(init.body)));
+        return patchGate;
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(accepted);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    await renderRealtimeScreen(accepted, source, fetch);
+
+    await act(async () => {
+      buttonByName(host, 'Planlanan zamanı kaydet')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      rejectPatch(new TypeError('offline'));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(host.textContent).toContain('Sunucuya ulaşılamadı');
+    expect(host.textContent).toContain('Bu iş başka bir oturumda güncellendi');
   });
 
   it('ignores invalidation events for unrelated JobCards', async () => {
