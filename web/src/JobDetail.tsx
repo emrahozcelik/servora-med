@@ -862,21 +862,22 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     dialogFocusRestoreEnabledRef.current = true;
     setDialog(null);
   }
-  async function refreshTruth() {
+  async function refreshTruth(): Promise<boolean> {
     const operationJobId = jobId;
     const operationSession = sessionLifetime.current.token;
     const generationAtStart = realtimeInvalidationGeneration.current;
     const epochAtStart = mutationEpoch.current;
     const detail = await loadJobDetail(operationJobId);
-    if (!isOperationCurrent(operationSession, operationJobId)) return;
+    if (!isOperationCurrent(operationSession, operationJobId)) return false;
     if (mutationEpoch.current !== epochAtStart) {
       realtimeDrainRequested.current = true;
-      return;
+      return true;
     }
     setState({ kind: 'ready', detail });
     setTimelineKey((value) => value + 1);
     setLifecycleNoteKey((value) => value + 1);
     markReconciledThrough(generationAtStart);
+    return true;
   }
   async function reconcileRealtimeTruth() {
     if (editing) {
@@ -917,23 +918,23 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       return true;
     }
   }
-  async function requestRealtimeDrain(): Promise<void> {
+  async function requestRealtimeDrain(): Promise<boolean> {
     const operationJobId = jobId;
     const sessionToken = sessionLifetime.current.token;
     for (;;) {
-      if (!isOperationCurrent(sessionToken, operationJobId)) return;
+      if (!isOperationCurrent(sessionToken, operationJobId)) return false;
       const active = realtimeDrain.current;
       if (active && active.sessionToken === sessionToken) {
         realtimeDrainRequested.current = true;
         const settled = await active.promise;
         realtimeDrainRequested.current = false;
-        if (!isOperationCurrent(sessionToken, operationJobId)) return;
-        if (!settled) return;
+        if (!isOperationCurrent(sessionToken, operationJobId)) return false;
+        if (!settled) return true;
         realtimeReloadRequested.current = false;
-        if (!hasPendingRealtimeInvalidation()) return;
+        if (!hasPendingRealtimeInvalidation()) return true;
         continue;
       }
-      if (!realtimeReloadRequested.current && !hasPendingRealtimeInvalidation()) return;
+      if (!realtimeReloadRequested.current && !hasPendingRealtimeInvalidation()) return true;
       realtimeReloadRequested.current = false;
       realtimeDrainRequested.current = false;
       const drainToken = ++drainTokenCounter.current;
@@ -948,9 +949,9 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
           realtimeDrain.current = null;
         }
       }
-      if (!isOperationCurrent(sessionToken, operationJobId)) return;
-      if (!settled) return;
-      if (!realtimeDrainRequested.current) return;
+      if (!isOperationCurrent(sessionToken, operationJobId)) return false;
+      if (!settled) return true;
+      if (!realtimeDrainRequested.current) return true;
       realtimeDrainRequested.current = false;
     }
   }
@@ -1028,8 +1029,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       const updated = await executeLifecycleCommand(operationJobId, command, commandInput, reason);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (state.detail.kind === 'SALES_MEETING' && command === 'START') {
-        await refreshTruth();
-        await requestRealtimeDrain();
+        if (!(await refreshTruth())) return;
+        if (!(await requestRealtimeDrain())) return;
       } else {
         setState({
           kind: 'ready',
@@ -1044,9 +1045,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
             : { ...state.detail, job: updated } as LoadedJobDetail,
         });
         if (hasPendingRealtimeInvalidation()) {
-          await requestRealtimeDrain();
+          if (!(await requestRealtimeDrain())) return;
         }
       }
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       delete actionIds.current[command];
       if (command === 'START') startCapture.current = null;
       setTimelineKey((value) => value + 1);
@@ -1063,14 +1065,16 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         delete actionIds.current[command];
         if (command === 'START') startCapture.current = null;
         try {
-          await refreshTruth();
-          await requestRealtimeDrain();
+          if (!(await refreshTruth())) return;
+          if (!(await requestRealtimeDrain())) return;
           setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
         } catch {
+          if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
           setRealtimeStale(true);
           setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.');
           setMessageIsError(true);
         }
+        if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
         setFeedbackFocusRequest((value) => value + 1);
       } else {
@@ -1109,16 +1113,16 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     try {
       const meetingDetails = await patchMeetingDetails(operationJobId, input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return meetingDetails;
-      await refreshTruth();
-      await requestRealtimeDrain();
+      if (!(await refreshTruth())) return meetingDetails;
+      if (!(await requestRealtimeDrain())) return meetingDetails;
       setTimelineKey((value) => value + 1);
       onChanged();
       return meetingDetails;
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        await refreshTruth();
-        await requestRealtimeDrain();
+        if (!(await refreshTruth())) throw caught;
+        if (!(await requestRealtimeDrain())) throw caught;
         throw new ApiError(409, 'VERSION_CONFLICT', 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
       }
       if (hasPendingRealtimeInvalidation()) {
@@ -1173,15 +1177,22 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       setFeedbackFocusRequest((value) => value + 1);
       onChanged();
       if (hasPendingRealtimeInvalidation()) {
-        await requestRealtimeDrain();
+        if (!(await requestRealtimeDrain())) return;
       }
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT'
         || caught.code === 'INVALID_TRANSITION')) {
         delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
-        try { await refreshTruth(); await requestRealtimeDrain(); setMessage('İş güncellendi. En güncel durum gösteriliyor.'); }
-        catch { setRealtimeStale(true); setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); }
+        try {
+          if (!(await refreshTruth())) return;
+          if (!(await requestRealtimeDrain())) return;
+          setMessage('İş güncellendi. En güncel durum gösteriliyor.');
+        } catch {
+          if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+          setRealtimeStale(true); setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.');
+        }
+        if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
       } else {
         if (!(caught instanceof ApiError) || !caught.retryable) {
@@ -1206,13 +1217,16 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     try {
       await patchJobCard(operationJobId, input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      await refreshTruth(); setEditing(false); setTimelineKey((value) => value + 1);
-      await requestRealtimeDrain();
+      if (!(await refreshTruth())) return;
+      setEditing(false); setTimelineKey((value) => value + 1);
+      if (!(await requestRealtimeDrain())) return;
       setMessage('Görüşme bilgileri güncellendi.'); onChanged();
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        await refreshTruth(); setEditing(false); await requestRealtimeDrain();
+        if (!(await refreshTruth())) return;
+        setEditing(false);
+        if (!(await requestRealtimeDrain())) return;
         setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
       } else {
         if (hasPendingRealtimeInvalidation()) {
@@ -1240,8 +1254,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         scheduledAt,
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      await refreshTruth();
-      await requestRealtimeDrain();
+      if (!(await refreshTruth())) return;
+      if (!(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
       setMessage('Planlanan zaman güncellendi.');
       setFeedbackFocusRequest((value) => value + 1);
@@ -1249,8 +1263,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        await refreshTruth();
-        await requestRealtimeDrain();
+        if (!(await refreshTruth())) throw caught;
+        if (!(await requestRealtimeDrain())) throw caught;
         setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
         setMessageIsError(true);
         setFeedbackFocusRequest((value) => value + 1);
@@ -1287,8 +1301,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         deliveredAt,
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
-      await refreshTruth();
-      await requestRealtimeDrain();
+      if (!(await refreshTruth())) return;
+      if (!(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
       setMessage('Gerçekleşen teslim zamanı kaydedildi.');
       setFeedbackFocusRequest((value) => value + 1);
@@ -1296,8 +1310,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        await refreshTruth();
-        await requestRealtimeDrain();
+        if (!(await refreshTruth())) throw caught;
+        if (!(await requestRealtimeDrain())) throw caught;
         setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
         setMessageIsError(true);
         setFeedbackFocusRequest((value) => value + 1);
