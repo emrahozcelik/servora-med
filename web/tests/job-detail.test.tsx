@@ -4070,4 +4070,701 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain('Yeniden deneme sonrası güncel görüşme');
     expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
   });
+
+  it('discards a Job A response that resolves between Job B commit and passive reset', async () => {
+    const source = new FakeRealtimeEventSource();
+    const acceptedA: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+    };
+    const jobB: JobCard = {
+      ...job,
+      id: 'job-2',
+      title: 'B İşi — Klinik kontrolü',
+    };
+    let resolveAccept: (value: Response) => void = () => {};
+    const acceptGate = new Promise<Response>((resolve) => { resolveAccept = resolve; });
+    const onChanged = vi.fn();
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
+      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={onChanged} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'İşi kabul et')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={onChanged} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    await act(async () => {
+      resolveAccept(Response.json(acceptedA));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    expect(host.textContent).not.toContain('ABC Klinik ürün teslimi');
+    expect(host.textContent).not.toContain('İş kabul edildi.');
+    expect(onChanged).not.toHaveBeenCalled();
+    const acceptB = buttonByName(host, 'İşi kabul et');
+    expect(acceptB).not.toBeNull();
+    expect((acceptB as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('discards an old Job A generic lifecycle failure after navigation', async () => {
+    const source = new FakeRealtimeEventSource();
+    const jobB: JobCard = {
+      ...job,
+      id: 'job-2',
+      title: 'B İşi — Klinik kontrolü',
+    };
+    let rejectAccept: (reason: unknown) => void = () => {};
+    const acceptGate = new Promise<Response>((resolve, reject) => { rejectAccept = reject; });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
+      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'İşi kabul et')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      rejectAccept(new ApiError(502, 'GATEWAY', 'Sunucu hatası. Tekrar deneyin.', true));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    expect(host.textContent).not.toContain('Sunucu hatası');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+    const acceptB = buttonByName(host, 'İşi kabul et');
+    expect(acceptB).not.toBeNull();
+    expect((acceptB as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('discards an old Job A conflict after navigation without a canonical refresh', async () => {
+    const source = new FakeRealtimeEventSource();
+    const jobB: JobCard = {
+      ...job,
+      id: 'job-2',
+      title: 'B İşi — Klinik kontrolü',
+    };
+    let rejectAccept: (reason: unknown) => void = () => {};
+    const acceptGate = new Promise<Response>((resolve, reject) => { rejectAccept = reject; });
+    let job1Requests = 0;
+    let job2Requests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.endsWith('/api/job-cards/job-1')) {
+        job1Requests += 1;
+        return Response.json(job);
+      }
+      if (url.endsWith('/api/job-cards/job-2')) {
+        job2Requests += 1;
+        return Response.json(jobB);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'İşi kabul et')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(job2Requests).toBe(1);
+    await act(async () => {
+      rejectAccept(new ApiError(409, 'VERSION_CONFLICT', 'Kart güncellendi.', false));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    expect(host.textContent).not.toContain('İş başka bir işlemle güncellendi');
+    expect(job1Requests).toBe(1);
+    expect(job2Requests).toBe(1);
+    const acceptB = buttonByName(host, 'İşi kabul et');
+    expect(acceptB).not.toBeNull();
+    expect((acceptB as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('discards an old Job A save-operation failure after navigation', async () => {
+    const source = new FakeRealtimeEventSource();
+    const meeting = inProgressMeeting();
+    const meetingB: JobCard = {
+      ...meeting,
+      id: 'job-2',
+      title: 'B Görüşmesi',
+    };
+    let rejectSave: (reason: unknown) => void = () => {};
+    const saveGate = new Promise<Response>((resolve, reject) => { rejectSave = reject; });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/customers?')) {
+        return Response.json({
+          items: [{
+            id: 'c1', organizationId: 'org-1', name: 'ABC Klinik', customerType: 'clinic',
+            taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+            assignedStaffUserId: null, assignedStaffName: null, primaryContact: null,
+            status: 'active', version: 1,
+          }], total: 1, limit: 200, offset: 0,
+        });
+      }
+      if (url.includes('/contacts?')) {
+        return Response.json({ items: [], total: 0, limit: 200, offset: 0 });
+      }
+      if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1') && init?.method === 'PATCH') return saveGate;
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(meeting);
+      if (url.endsWith('/api/job-cards/job-2')) return Response.json(meetingB);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'Görüşmeyi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      const titleInput = document.getElementById('meeting-edit-title') as HTMLInputElement;
+      titleInput.value = 'Güncel başlık';
+      titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+      const kindSelect = document.getElementById('meeting-edit-engagement-kind') as HTMLSelectElement;
+      kindSelect.value = 'SALES_MEETING';
+      kindSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      const customerSelect = document.getElementById('meeting-edit-customer') as HTMLSelectElement;
+      customerSelect.value = 'c1';
+      customerSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'Değişiklikleri kaydet')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      rejectSave(new ApiError(502, 'GATEWAY', 'Kayıt sunucusu hatası.', true));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('B Görüşmesi');
+    expect(host.textContent).not.toContain('Kayıt sunucusu hatası');
+    expect(host.textContent).not.toContain('Görüşme güncellenemedi');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('does not show a remote-conflict banner on Job B after an old Job A drain failure', async () => {
+    const source = new FakeRealtimeEventSource();
+    const meeting = inProgressMeeting();
+    const jobB: JobCard = {
+      ...job,
+      id: 'job-2',
+      title: 'B İşi — Klinik kontrolü',
+    };
+    let rejectDrainGet: (reason: unknown) => void = () => {};
+    const drainGetGate = new Promise<Response>((resolve, reject) => { rejectDrainGet = reject; });
+    let jobCardRequests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) {
+        jobCardRequests += 1;
+        if (jobCardRequests === 1) return Response.json(meeting);
+        return drainGetGate;
+      }
+      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(jobCardRequests).toBe(2);
+    await act(async () => {
+      root.render(      <RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      for (let i = 0; i < 5; i += 1) {
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      }
+    });
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    await act(async () => {
+      rejectDrainGet(new TypeError('network'));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('does not submit an old Job A START command when the capture resolves after navigation', async () => {
+    const source = new FakeRealtimeEventSource();
+    const acceptedA: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [], startLocationCaptureEnabled: true }),
+    };
+    const acceptedB: JobCard = {
+      ...acceptedA,
+      id: 'job-2',
+      title: 'B İşi — Klinik kontrolü',
+    };
+    const startedB: JobCard = {
+      ...acceptedB,
+      status: 'IN_PROGRESS',
+      version: acceptedB.version + 1,
+      workflowContext: staffContext('IN_PROGRESS', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+        startedAt: '2026-07-17T09:00:00.000Z',
+      }),
+    };
+    let resolveCapture: (position: GeolocationPosition) => void = () => {};
+    const getCurrentPosition = vi.fn((success: PositionCallback) => {
+      resolveCapture = (position) => success(position as GeolocationPosition);
+    });
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    const startBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/start') && init?.method === 'POST') {
+        startBodies.push(JSON.parse(String(init.body)));
+        return Response.json(startedB);
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(acceptedA);
+      if (url.endsWith('/api/job-cards/job-2')) return Response.json(acceptedB);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'İşi başlat')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      resolveCapture({ coords: { latitude: 39.92077, longitude: 32.85411, accuracy: 24.5 } } as GeolocationPosition);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(startBodies).toHaveLength(0);
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    expect(host.textContent).not.toContain('Yükleniyor');
+    await act(async () => {
+      buttonByName(host, 'İşi başlat')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      resolveCapture({ coords: { latitude: 39.92077, longitude: 32.85411, accuracy: 24.5 } } as GeolocationPosition);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(startBodies).toHaveLength(1);
+    expect(startBodies[0]).toMatchObject({ expectedVersion: acceptedB.version });
+  });
+
+  it('does not submit an old Job A START command when the capture becomes unavailable after navigation', async () => {
+    const source = new FakeRealtimeEventSource();
+    const acceptedA: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }, { allowedActions: [], startLocationCaptureEnabled: true }),
+    };
+    const acceptedB: JobCard = {
+      ...acceptedA,
+      id: 'job-2',
+      title: 'B İşi — Klinik kontrolü',
+    };
+    let resolveCaptureError: (error: GeolocationPositionError) => void = () => {};
+    const getCurrentPosition = vi.fn((success: PositionCallback, error: PositionErrorCallback) => {
+      resolveCaptureError = (err) => error(err as GeolocationPositionError);
+    });
+    vi.stubGlobal('navigator', { geolocation: { getCurrentPosition } });
+    const startBodies: Array<Record<string, unknown>> = [];
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/start') && init?.method === 'POST') {
+        startBodies.push(JSON.parse(String(init.body)));
+        return Response.json({ ...acceptedB, status: 'IN_PROGRESS', version: acceptedB.version + 1 });
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(acceptedA);
+      if (url.endsWith('/api/job-cards/job-2')) return Response.json(acceptedB);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'İşi başlat')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      resolveCaptureError({ code: 1 } as GeolocationPositionError);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(startBodies).toHaveLength(0);
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    expect(host.textContent).not.toContain('Yükleniyor');
+  });
+
+  it('keeps a Job B reload pending state when an old Job A reload finishes', async () => {
+    const source = new FakeRealtimeEventSource();
+    const meeting = inProgressMeeting();
+    const meetingB: JobCard = {
+      ...meeting,
+      id: 'job-2',
+      title: 'B Görüşmesi',
+    };
+    const newerA: JobCard = {
+      ...meeting,
+      version: meeting.version + 1,
+      title: 'A yeniden yükleme sonrası güncel görüşme',
+    };
+    const newerB: JobCard = {
+      ...meetingB,
+      version: meetingB.version + 1,
+      title: 'B yeniden yükleme sonrası güncel görüşme',
+    };
+    let resolveGetA: (value: Response) => void = () => {};
+    const gateA = new Promise<Response>((resolve) => { resolveGetA = resolve; });
+    let resolveGetB: (value: Response) => void = () => {};
+    const gateB = new Promise<Response>((resolve) => { resolveGetB = resolve; });
+    let requestsA = 0;
+    let requestsB = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details')) {
+        if (url.includes('/job-1')) {
+          return Response.json({ ...meetingDetails, jobCardVersion: requestsA >= 3 ? newerA.version : meeting.version });
+        }
+        return Response.json({ ...meetingDetails, jobCardVersion: requestsB >= 3 ? newerB.version : meetingB.version });
+      }
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) {
+        requestsA += 1;
+        if (requestsA === 1) return Response.json(meeting);
+        if (requestsA === 2) return gateA;
+        return Response.json(newerA);
+      }
+      if (url.endsWith('/api/job-cards/job-2')) {
+        requestsB += 1;
+        if (requestsB === 1) return Response.json(meetingB);
+        if (requestsB === 2) return gateB;
+        return Response.json(newerB);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'Görüşmeyi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'En güncel bilgileri yükle')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(requestsA).toBe(2);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'Görüşmeyi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      source.emitJobUpdateFor('2', 'job-2');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'En güncel bilgileri yükle')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(requestsB).toBe(2);
+    await act(async () => {
+      resolveGetA(Response.json(newerA));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const reloadButtonB = buttonByName(host, 'Yükleniyor…');
+    expect(reloadButtonB).not.toBeNull();
+    expect((reloadButtonB as HTMLButtonElement).disabled).toBe(true);
+    expect(host.textContent).toContain('Yükleniyor…');
+    await act(async () => {
+      resolveGetB(Response.json(newerB));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('B yeniden yükleme sonrası güncel görüşme');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('does not open a banner on Job B when an old Job A reload fails', async () => {
+    const source = new FakeRealtimeEventSource();
+    const meeting = inProgressMeeting();
+    const jobB: JobCard = {
+      ...job,
+      id: 'job-2',
+      title: 'B İşi — Klinik kontrolü',
+    };
+    let rejectReloadGet: (reason: unknown) => void = () => {};
+    const reloadGetGate = new Promise<Response>((resolve, reject) => { rejectReloadGet = reject; });
+    let jobCardRequests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.endsWith('/meeting-details')) return Response.json(meetingDetails);
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) {
+        jobCardRequests += 1;
+        if (jobCardRequests === 1) return Response.json(meeting);
+        return reloadGetGate;
+      }
+      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'Görüşmeyi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      buttonByName(host, 'En güncel bilgileri yükle')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(jobCardRequests).toBe(2);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      rejectReloadGet(new TypeError('network'));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('proves old-session results are no-ops for Job B across the error matrix', async () => {
+    const source = new FakeRealtimeEventSource();
+    const jobB: JobCard = {
+      ...job,
+      id: 'job-2',
+      title: 'B İşi — Klinik kontrolü',
+    };
+    let rejectAccept: (reason: unknown) => void = () => {};
+    const acceptGate = new Promise<Response>((resolve, reject) => { rejectAccept = reject; });
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/accept') && init?.method === 'POST') return acceptGate;
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
+      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'İşi kabul et')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      root.render(<RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    for (const failure of [
+      new ApiError(502, 'GATEWAY', 'Sunucu hatası. Tekrar deneyin.', true),
+      new ApiError(409, 'VERSION_CONFLICT', 'Kart güncellendi.', false),
+      new TypeError('network'),
+    ]) {
+      rejectAccept(failure);
+      await act(async () => {
+        await Promise.resolve();
+        await new Promise((resolve) => setTimeout(resolve, 0));
+      });
+      expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+      expect(host.textContent).not.toContain('Sunucu hatası');
+      expect(host.textContent).not.toContain('İş başka bir işlemle güncellendi');
+      expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+      const acceptB = buttonByName(host, 'İşi kabul et');
+      expect(acceptB).not.toBeNull();
+      expect((acceptB as HTMLButtonElement).disabled).toBe(false);
+    }
+  });
+});
+
+  it('discards a Job A response that resolves between Job B commit and passive reset', async () => {
 });
