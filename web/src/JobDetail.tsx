@@ -748,8 +748,12 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     token: nextSessionToken(),
     active: true,
   });
-  useLayoutEffect(() => () => {
-    sessionLifetime.current.active = false;
+  useLayoutEffect(() => {
+    const lifetime = sessionLifetime.current;
+    lifetime.active = true;
+    return () => {
+      lifetime.active = false;
+    };
   }, []);
   const realtimeDrain = useRef<{
     sessionToken: number;

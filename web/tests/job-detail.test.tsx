@@ -1,6 +1,6 @@
 /** @vitest-environment jsdom */
 import { readFileSync } from 'node:fs';
-import { act } from 'react';
+import { StrictMode, act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -5371,7 +5371,257 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).not.toContain('Güncel iş bilgileri alınamadı');
     expect(onChanged).not.toHaveBeenCalled();
   });
-});
 
-  it('discards a Job A response that resolves between Job B commit and passive reset', async () => {
+  it('keeps the current job session active across StrictMode effect replay on ACCEPT', async () => {
+    const source = new FakeRealtimeEventSource();
+    const acceptedA: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+    };
+    let resolveAccept: (value: Response) => void = () => {};
+    const acceptGate = new Promise<Response>((resolve) => { resolveAccept = resolve; });
+    let acceptPosts = 0;
+    const onChanged = vi.fn();
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/accept') && init?.method === 'POST') {
+        acceptPosts += 1;
+        return acceptGate;
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<StrictMode><RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={onChanged} />
+      </RealtimeProvider></StrictMode>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+    });
+    await act(async () => {
+      const acceptButton = buttonByName(host, 'İşi kabul et');
+      expect(acceptButton).not.toBeNull();
+      acceptButton?.click();
+      await Promise.resolve();
+    });
+    expect(acceptPosts).toBe(1);
+    await act(async () => {
+      resolveAccept(Response.json(acceptedA));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('Kabul edildi');
+    expect(host.textContent).toContain('İş kabul edildi.');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+    expect(host.textContent).not.toContain('Başka bir işlem devam ediyor');
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
+
+  it('reconciles an idle realtime event as the current session under StrictMode', async () => {
+    const source = new FakeRealtimeEventSource();
+    const meeting = inProgressMeeting();
+    const newer: JobCard = {
+      ...meeting,
+      version: meeting.version + 1,
+      title: 'StrictMode sonrası güncel görüşme',
+    };
+    let jobCardRequests = 0;
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.endsWith('/meeting-details')) {
+        return Response.json({
+          ...meetingDetails,
+          jobCardVersion: jobCardRequests >= 3 ? newer.version : meeting.version,
+        });
+      }
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1')) {
+        jobCardRequests += 1;
+        return Response.json(jobCardRequests >= 3 ? newer : meeting);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<StrictMode><RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={() => {}} />
+      </RealtimeProvider></StrictMode>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    const before = jobCardRequests;
+    await act(async () => {
+      source.emitJobUpdate('1');
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(jobCardRequests - before).toBe(1);
+    expect(host.textContent).toContain('StrictMode sonrası güncel görüşme');
+    expect(host.textContent).not.toContain('Bu iş başka bir oturumda güncellendi');
+  });
+
+  it('discards an old Job A result after keyed navigation under StrictMode', async () => {
+    const source = new FakeRealtimeEventSource();
+    const acceptedA: JobCard = {
+      ...job,
+      status: 'ACCEPTED',
+      version: job.version + 1,
+      workflowContext: staffContext('ACCEPTED', {
+        acceptedAt: '2026-07-17T08:30:00.000Z',
+        acceptedBy: { id: 's1', name: 'Ayşe Personel' },
+      }),
+    };
+    const jobB: JobCard = {
+      ...job,
+      id: 'job-2',
+      title: 'B İşi — Klinik kontrolü',
+    };
+    let resolveAccept: (value: Response) => void = () => {};
+    const acceptGate = new Promise<Response>((resolve) => { resolveAccept = resolve; });
+    let acceptPosts = 0;
+    const onChanged = vi.fn();
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/accept') && init?.method === 'POST') {
+        acceptPosts += 1;
+        return acceptGate;
+      }
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(job);
+      if (url.endsWith('/api/job-cards/job-2')) return Response.json(jobB);
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<StrictMode><RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={onChanged} />
+      </RealtimeProvider></StrictMode>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'İşi kabul et')?.click();
+      await Promise.resolve();
+    });
+    expect(acceptPosts).toBe(1);
+    await act(async () => {
+      root.render(<StrictMode><RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-2" user={staffUser} onBack={() => {}} onChanged={onChanged} />
+      </RealtimeProvider></StrictMode>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      resolveAccept(Response.json(acceptedA));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('B İşi — Klinik kontrolü');
+    expect(host.textContent).not.toContain('İş kabul edildi.');
+    expect(onChanged).not.toHaveBeenCalled();
+    const acceptB = buttonByName(host, 'İşi kabul et');
+    expect(acceptB).not.toBeNull();
+    expect((acceptB as HTMLButtonElement).disabled).toBe(false);
+  });
+
+  it('starts a StrictMode child save without a false ACTION_IN_PROGRESS', async () => {
+    const source = new FakeRealtimeEventSource();
+    const meeting = inProgressMeeting();
+    const updatedMeeting: JobCard = {
+      ...meeting,
+      version: meeting.version + 1,
+      title: 'Güncel başlık',
+    };
+    let resolveSave: (value: Response) => void = () => {};
+    const saveGate = new Promise<Response>((resolve) => { resolveSave = resolve; });
+    let job1Requests = 0;
+    const onChanged = vi.fn();
+    const fetch = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('/api/customers?')) {
+        return Response.json({
+          items: [{
+            id: 'c1', organizationId: 'org-1', name: 'ABC Klinik', customerType: 'clinic',
+            taxNumber: null, phone: null, email: null, city: null, district: null, address: null,
+            assignedStaffUserId: null, assignedStaffName: null, primaryContact: null,
+            status: 'active', version: 1,
+          }], total: 1, limit: 200, offset: 0,
+        });
+      }
+      if (url.includes('/contacts?')) {
+        return Response.json({ items: [], total: 0, limit: 200, offset: 0 });
+      }
+      if (url.endsWith('/meeting-details')) {
+        return Response.json({
+          ...meetingDetails,
+          jobCardVersion: job1Requests >= 2 ? updatedMeeting.version : meeting.version,
+        });
+      }
+      if (url.includes('/notes?')) return Response.json(emptyPage);
+      if (url.includes('/activity?')) return Response.json({ ...emptyPage, limit: 50 });
+      if (url.endsWith('/api/job-cards/job-1') && init?.method === 'PATCH') return saveGate;
+      if (url.endsWith('/api/job-cards/job-1')) {
+        job1Requests += 1;
+        return Response.json(job1Requests >= 2 ? updatedMeeting : meeting);
+      }
+      throw new Error(`Unexpected request: ${url}`);
+    });
+    vi.stubGlobal('fetch', fetch);
+    await act(async () => {
+      root.render(<StrictMode><RealtimeProvider eventSourceFactory={() => source}>
+        <JobDetailScreen jobId="job-1" user={staffUser} onBack={() => {}} onChanged={onChanged} />
+      </RealtimeProvider></StrictMode>);
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'Görüşmeyi düzenle')?.click();
+      await Promise.resolve();
+    });
+    await act(async () => {
+      const titleInput = document.getElementById('meeting-edit-title') as HTMLInputElement;
+      titleInput.value = 'Güncel başlık';
+      titleInput.dispatchEvent(new Event('input', { bubbles: true }));
+      const kindSelect = document.getElementById('meeting-edit-engagement-kind') as HTMLSelectElement;
+      kindSelect.value = 'SALES_MEETING';
+      kindSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      const customerSelect = document.getElementById('meeting-edit-customer') as HTMLSelectElement;
+      customerSelect.value = 'c1';
+      customerSelect.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    await act(async () => {
+      buttonByName(host, 'Değişiklikleri kaydet')?.click();
+      await Promise.resolve();
+    });
+    expect(fetch.mock.calls.some((call) => String(call[0]).endsWith('/api/job-cards/job-1')
+      && call[1]?.method === 'PATCH')).toBe(true);
+    await act(async () => {
+      resolveSave(Response.json(updatedMeeting));
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+    expect(host.textContent).toContain('Görüşme bilgileri güncellendi');
+    expect(host.textContent).not.toContain('Başka bir işlem devam ediyor');
+    expect(onChanged).toHaveBeenCalledTimes(1);
+  });
 });
