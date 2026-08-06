@@ -1,5 +1,5 @@
 import {
-  useEffect, useRef, useState,
+  useEffect, useLayoutEffect, useRef, useState,
   type FormEvent, type ReactNode, type Ref,
 } from 'react';
 
@@ -699,13 +699,26 @@ async function executeLifecycleCommand(
   }
 }
 
-export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollowUp }: {
+export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollowUp }: JobDetailScreenProps) {
+  return <JobDetailSessionScreen key={jobId} jobId={jobId} user={user} onBack={onBack} onChanged={onChanged} onCreateFollowUp={onCreateFollowUp} />;
+}
+
+type JobDetailScreenProps = {
   jobId: string;
   user: CurrentUser;
   onBack: () => void;
   onChanged: () => void;
   onCreateFollowUp?: () => void;
-}) {
+};
+
+let sessionTokenCounter = 0;
+
+function nextSessionToken() {
+  sessionTokenCounter += 1;
+  return sessionTokenCounter;
+}
+
+function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollowUp }: JobDetailScreenProps) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
   const [pending, setPending] = useState(false);
   const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
@@ -729,7 +742,104 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const [feedbackFocusRequest, setFeedbackFocusRequest] = useState(0);
   const [editing, setEditing] = useState(false);
   const [realtimeStale, setRealtimeStale] = useState(false);
-  const realtimeRefreshInFlight = useRef(false);
+  const [realtimeReloadPending, setRealtimeReloadPending] = useState(false);
+  const sessionLifetime = useRef({
+    jobId,
+    token: nextSessionToken(),
+    active: true,
+  });
+  useLayoutEffect(() => {
+    const lifetime = sessionLifetime.current;
+    lifetime.active = true;
+    return () => {
+      lifetime.active = false;
+    };
+  }, []);
+  const realtimeDrain = useRef<{
+    sessionToken: number;
+    drainToken: number;
+    promise: Promise<boolean>;
+  } | null>(null);
+  const drainTokenCounter = useRef(0);
+  const realtimeDrainRequested = useRef(false);
+  const realtimeReloadRequested = useRef(false);
+  const realtimeReloadOwner = useRef<{
+    sessionToken: number;
+    reloadToken: number;
+    promise: Promise<void>;
+  } | null>(null);
+  const reloadTokenCounter = useRef(0);
+  const realtimeInvalidationGeneration = useRef(0);
+  const reconciledRealtimeGeneration = useRef(0);
+  const mutationEpoch = useRef(0);
+  const mutationOwner = useRef<{ sessionToken: number; operationToken: number } | null>(null);
+  const mutationOperationToken = useRef(0);
+  const MAX_REALTIME_DRAIN_ROUNDS = 4;
+
+  function isOperationCurrent(sessionToken: number, operationJobId: string) {
+    return sessionLifetime.current.active
+      && sessionLifetime.current.jobId === operationJobId
+      && sessionLifetime.current.token === sessionToken
+      && jobId === operationJobId;
+  }
+
+  function hasPendingRealtimeInvalidation() {
+    return realtimeInvalidationGeneration.current > reconciledRealtimeGeneration.current;
+  }
+
+  function markReconciledThrough(generationSnapshot: number) {
+    if (generationSnapshot > reconciledRealtimeGeneration.current) {
+      reconciledRealtimeGeneration.current = generationSnapshot;
+    }
+    if (realtimeInvalidationGeneration.current <= reconciledRealtimeGeneration.current) {
+      setRealtimeStale(false);
+    }
+  }
+
+  function startMutationOperation() {
+    const sessionToken = sessionLifetime.current.token;
+    if (!sessionLifetime.current.active) return null;
+    if (mutationOwner.current?.sessionToken === sessionToken) return null;
+    const owner = { sessionToken, operationToken: ++mutationOperationToken.current };
+    mutationOwner.current = owner;
+    mutationInFlight.current = true;
+    return owner;
+  }
+
+  function endMutationOperation(owner: { sessionToken: number; operationToken: number } | null) {
+    if (owner && mutationOwner.current?.sessionToken === owner.sessionToken
+      && mutationOwner.current?.operationToken === owner.operationToken) {
+      mutationOwner.current = null;
+      mutationInFlight.current = false;
+      setPending(false);
+      setStartPendingPhase(null);
+    }
+  }
+
+  useEffect(() => {
+    realtimeInvalidationGeneration.current = 0;
+    reconciledRealtimeGeneration.current = 0;
+    realtimeDrainRequested.current = false;
+    realtimeReloadRequested.current = false;
+    realtimeReloadOwner.current = null;
+    realtimeDrain.current = null;
+    mutationEpoch.current = 0;
+    mutationOwner.current = null;
+    mutationInFlight.current = false;
+    actionIds.current = {};
+    startCapture.current = null;
+    dialogTriggerRef.current = null;
+    dialogFocusRestoreEnabledRef.current = true;
+    setRealtimeStale(false);
+    setRealtimeReloadPending(false);
+    setEditing(false);
+    setPending(false);
+    setMessage('');
+    setMessageIsError(false);
+    setMeetingSubmissionError(null);
+    setDialog(null);
+    setStartPendingPhase(null);
+  }, [jobId]);
 
   useEffect(() => {
     let active = true; setState({ kind: 'loading' });
@@ -756,41 +866,133 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     dialogFocusRestoreEnabledRef.current = true;
     setDialog(null);
   }
-  async function refreshTruth() {
-    const detail = await loadJobDetail(jobId);
+  async function refreshTruth(): Promise<boolean> {
+    const operationJobId = jobId;
+    const operationSession = sessionLifetime.current.token;
+    const generationAtStart = realtimeInvalidationGeneration.current;
+    const epochAtStart = mutationEpoch.current;
+    const detail = await loadJobDetail(operationJobId);
+    if (!isOperationCurrent(operationSession, operationJobId)) return false;
+    if (mutationEpoch.current !== epochAtStart) {
+      realtimeDrainRequested.current = true;
+      return true;
+    }
     setState({ kind: 'ready', detail });
     setTimelineKey((value) => value + 1);
     setLifecycleNoteKey((value) => value + 1);
+    markReconciledThrough(generationAtStart);
+    return true;
   }
   async function reconcileRealtimeTruth() {
-    if (pending || editing || mutationInFlight.current) {
+    if (editing) {
       setRealtimeStale(true);
       return;
     }
-    if (realtimeRefreshInFlight.current) return;
-    realtimeRefreshInFlight.current = true;
+    if (pending || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
+      return;
+    }
+    await requestRealtimeDrain();
+  }
+  async function runRealtimeDrainChain(sessionToken: number): Promise<boolean> {
+    const operationJobId = jobId;
     try {
-      await refreshTruth();
-      setRealtimeStale(false);
+      for (let round = 0; round < MAX_REALTIME_DRAIN_ROUNDS; round += 1) {
+        const generationAtStart = realtimeInvalidationGeneration.current;
+        const epochAtStart = mutationEpoch.current;
+        const detail = await loadJobDetail(operationJobId);
+        if (!isOperationCurrent(sessionToken, operationJobId)) return true;
+        if (mutationEpoch.current !== epochAtStart) {
+          realtimeDrainRequested.current = true;
+          return true;
+        }
+        setState({ kind: 'ready', detail });
+        if (realtimeInvalidationGeneration.current === generationAtStart) {
+          markReconciledThrough(generationAtStart);
+          return true;
+        }
+      }
+      if (isOperationCurrent(sessionToken, operationJobId)) {
+        setRealtimeStale(true);
+      }
+      return false;
     } catch {
-      setRealtimeStale(true);
-    } finally {
-      realtimeRefreshInFlight.current = false;
+      if (isOperationCurrent(sessionToken, operationJobId)) {
+        setRealtimeStale(true);
+      }
+      return true;
+    }
+  }
+  async function requestRealtimeDrain(): Promise<boolean> {
+    const operationJobId = jobId;
+    const sessionToken = sessionLifetime.current.token;
+    for (;;) {
+      if (!isOperationCurrent(sessionToken, operationJobId)) return false;
+      const active = realtimeDrain.current;
+      if (active && active.sessionToken === sessionToken) {
+        realtimeDrainRequested.current = true;
+        const settled = await active.promise;
+        realtimeDrainRequested.current = false;
+        if (!isOperationCurrent(sessionToken, operationJobId)) return false;
+        if (!settled) return true;
+        realtimeReloadRequested.current = false;
+        if (!hasPendingRealtimeInvalidation()) return true;
+        continue;
+      }
+      if (!realtimeReloadRequested.current && !hasPendingRealtimeInvalidation()) return true;
+      realtimeReloadRequested.current = false;
+      realtimeDrainRequested.current = false;
+      const drainToken = ++drainTokenCounter.current;
+      const chain = runRealtimeDrainChain(sessionToken);
+      realtimeDrain.current = { sessionToken, drainToken, promise: chain };
+      let settled = true;
+      try {
+        settled = await chain;
+      } finally {
+        if (realtimeDrain.current?.sessionToken === sessionToken
+          && realtimeDrain.current?.drainToken === drainToken) {
+          realtimeDrain.current = null;
+        }
+      }
+      if (!isOperationCurrent(sessionToken, operationJobId)) return false;
+      if (!settled) return true;
+      if (!realtimeDrainRequested.current) return true;
+      realtimeDrainRequested.current = false;
     }
   }
   async function reloadStaleTruth() {
-    if (pending || realtimeRefreshInFlight.current) return;
-    realtimeRefreshInFlight.current = true;
+    const operationJobId = jobId;
+    const sessionToken = sessionLifetime.current.token;
+    if (pending) return;
+    const activeReload = realtimeReloadOwner.current;
+    if (activeReload && activeReload.sessionToken === sessionToken) {
+      await activeReload.promise;
+      return;
+    }
+    setRealtimeReloadPending(true);
+    realtimeReloadRequested.current = true;
+    const reloadToken = ++reloadTokenCounter.current;
+    const operation = (async () => {
+      try {
+        await requestRealtimeDrain();
+      } finally {
+        realtimeReloadRequested.current = false;
+      }
+    })();
+    realtimeReloadOwner.current = { sessionToken, reloadToken, promise: operation };
     try {
-      await refreshTruth();
-      setRealtimeStale(false);
-    } catch {
-      setRealtimeStale(true);
+      await operation;
     } finally {
-      realtimeRefreshInFlight.current = false;
+      if (realtimeReloadOwner.current?.sessionToken === sessionToken
+        && realtimeReloadOwner.current?.reloadToken === reloadToken) {
+        realtimeReloadOwner.current = null;
+      }
+      if (isOperationCurrent(sessionToken, operationJobId)) {
+        setRealtimeReloadPending(false);
+      }
     }
   }
   useRealtimeInvalidation([`job-detail:${jobId}`], () => {
+    realtimeInvalidationGeneration.current += 1;
     void reconcileRealtimeTruth();
   });
   useRealtimeInvalidation([`job-notes:${jobId}`], () => {
@@ -806,8 +1008,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     });
   }
   async function execute(command: LifecycleCommand, reason = '') {
-    if (state.kind !== 'ready' || mutationInFlight.current) return;
-    mutationInFlight.current = true;
+    if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
+    const owner = startMutationOperation();
+    if (!owner) return;
+    const operationJobId = jobId;
+    mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     actionIds.current[command] ??= crypto.randomUUID();
     const input = { clientActionId: actionIds.current[command]!, expectedVersion: state.detail.job.version };
@@ -817,17 +1022,19 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
       if (command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
         if (startCapture.current?.clientActionId !== input.clientActionId) {
           setStartPendingPhase('capturing');
-          startCapture.current = {
-            clientActionId: input.clientActionId,
-            capture: await captureStartLocation(),
-          };
+          const capture = await captureStartLocation();
+          if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+          startCapture.current = { clientActionId: input.clientActionId, capture };
         }
+        if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setStartPendingPhase('submitting');
         commandInput = { ...input, locationCapture: startCapture.current.capture };
       }
-      const updated = await executeLifecycleCommand(jobId, command, commandInput, reason);
+      const updated = await executeLifecycleCommand(operationJobId, command, commandInput, reason);
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (state.detail.kind === 'SALES_MEETING' && command === 'START') {
-        await refreshTruth();
+        if (!(await refreshTruth())) return;
+        if (!(await requestRealtimeDrain())) return;
       } else {
         setState({
           kind: 'ready',
@@ -841,7 +1048,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
             }
             : { ...state.detail, job: updated } as LoadedJobDetail,
         });
+        if (hasPendingRealtimeInvalidation()) {
+          if (!(await requestRealtimeDrain())) return;
+        }
       }
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       delete actionIds.current[command];
       if (command === 'START') startCapture.current = null;
       setTimelineKey((value) => value + 1);
@@ -853,17 +1064,30 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
       if (completedDialogCommand) setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT' || caught.code === 'INVALID_TRANSITION')) {
         delete actionIds.current[command];
         if (command === 'START') startCapture.current = null;
-        try { await refreshTruth(); setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.'); }
-        catch { setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); setMessageIsError(true); }
+        try {
+          if (!(await refreshTruth())) return;
+          if (!(await requestRealtimeDrain())) return;
+          setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+        } catch {
+          if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+          setRealtimeStale(true);
+          setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.');
+          setMessageIsError(true);
+        }
+        if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
         setFeedbackFocusRequest((value) => value + 1);
       } else {
         if (!(caught instanceof ApiError) || !caught.retryable) {
           delete actionIds.current[command];
           if (command === 'START') startCapture.current = null;
+        }
+        if (hasPendingRealtimeInvalidation()) {
+          setRealtimeStale(true);
         }
         setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
         setMessageIsError(true);
@@ -875,31 +1099,41 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setFeedbackFocusRequest((value) => value + 1);
       }
     } finally {
-      mutationInFlight.current = false;
-      setPending(false);
-      setStartPendingPhase(null);
+      endMutationOperation(owner);
     }
   }
   async function saveMeeting(input: PatchMeetingDetailsInput) {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
-      || mutationInFlight.current) {
+      || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
     }
-    mutationInFlight.current = true;
+    const owner = startMutationOperation();
+    if (!owner) {
+      throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
+    }
+    const operationJobId = jobId;
+    mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false); setMeetingSubmissionError(null);
     try {
-      const meetingDetails = await patchMeetingDetails(jobId, input);
-      await refreshTruth();
+      const meetingDetails = await patchMeetingDetails(operationJobId, input);
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return meetingDetails;
+      if (!(await refreshTruth())) return meetingDetails;
+      if (!(await requestRealtimeDrain())) return meetingDetails;
       setTimelineKey((value) => value + 1);
       onChanged();
       return meetingDetails;
     } catch (caught) {
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        await refreshTruth();
+        if (!(await refreshTruth())) throw caught;
+        if (!(await requestRealtimeDrain())) throw caught;
         throw new ApiError(409, 'VERSION_CONFLICT', 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
       }
+      if (hasPendingRealtimeInvalidation()) {
+        setRealtimeStale(true);
+      }
       throw caught;
-    } finally { mutationInFlight.current = false; setPending(false); }
+    } finally { endMutationOperation(owner); }
   }
   function openRecordEditDialog(action: RecordEditPresentation['action'], trigger: HTMLElement) {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING') return;
@@ -915,8 +1149,11 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
   }
   async function confirmWithdrawAndEdit() {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
-      || mutationInFlight.current) return;
-    mutationInFlight.current = true;
+      || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
+    const owner = startMutationOperation();
+    if (!owner) return;
+    const operationJobId = jobId;
+    mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
     actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS ??= crypto.randomUUID();
     try {
@@ -925,6 +1162,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS,
         withdrawJobCardFromApproval,
       );
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
       setState({
         kind: 'ready',
@@ -942,64 +1180,102 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
       setMessage(WITHDRAW_EDIT_SUCCESS_MESSAGE);
       setFeedbackFocusRequest((value) => value + 1);
       onChanged();
+      if (hasPendingRealtimeInvalidation()) {
+        if (!(await requestRealtimeDrain())) return;
+      }
     } catch (caught) {
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (caught instanceof ApiError && (caught.code === 'VERSION_CONFLICT'
         || caught.code === 'INVALID_TRANSITION')) {
         delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
-        try { await refreshTruth(); setMessage('İş güncellendi. En güncel durum gösteriliyor.'); }
-        catch { setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.'); }
+        try {
+          if (!(await refreshTruth())) return;
+          if (!(await requestRealtimeDrain())) return;
+          setMessage('İş güncellendi. En güncel durum gösteriliyor.');
+        } catch {
+          if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+          setRealtimeStale(true); setMessage('Güncel iş bilgileri alınamadı. Lütfen tekrar deneyin.');
+        }
+        if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
       } else {
         if (!(caught instanceof ApiError) || !caught.retryable) {
           delete actionIds.current.WITHDRAW_AND_EDIT_JOB_FIELDS;
         }
+        if (hasPendingRealtimeInvalidation()) {
+          setRealtimeStale(true);
+        }
         setMessage(caught instanceof ApiError ? caught.message : 'Düzenleme başlatılamadı.');
       }
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
-    } finally { mutationInFlight.current = false; setPending(false); }
+    } finally { endMutationOperation(owner); }
   }
   async function saveJob(input: PatchJobCardInput) {
     if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
-      || mutationInFlight.current) return;
-    mutationInFlight.current = true;
+      || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
+    const owner = startMutationOperation();
+    if (!owner) return;
+    const operationJobId = jobId;
+    mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
     try {
-      await patchJobCard(jobId, input);
-      await refreshTruth(); setEditing(false); setTimelineKey((value) => value + 1);
+      await patchJobCard(operationJobId, input);
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      if (!(await refreshTruth())) return;
+      setEditing(false); setTimelineKey((value) => value + 1);
+      if (!(await requestRealtimeDrain())) return;
       setMessage('Görüşme bilgileri güncellendi.'); onChanged();
     } catch (caught) {
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        await refreshTruth(); setEditing(false);
+        if (!(await refreshTruth())) return;
+        setEditing(false);
+        if (!(await requestRealtimeDrain())) return;
         setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
       } else {
+        if (hasPendingRealtimeInvalidation()) {
+          setRealtimeStale(true);
+        }
         setMessage(caught instanceof ApiError ? caught.message : 'Görüşme güncellenemedi.');
       }
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
-    } finally { mutationInFlight.current = false; setPending(false); }
+    } finally { endMutationOperation(owner); }
   }
   async function saveSchedule(scheduledAt: string | null) {
-    if (state.kind !== 'ready' || mutationInFlight.current) {
+    if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
     }
-    mutationInFlight.current = true;
+    const owner = startMutationOperation();
+    if (!owner) {
+      throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
+    }
+    const operationJobId = jobId;
+    mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
     try {
-      await patchJobCard(jobId, {
+      await patchJobCard(operationJobId, {
         expectedVersion: state.detail.job.version,
         scheduledAt,
       });
-      await refreshTruth();
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      if (!(await refreshTruth())) return;
+      if (!(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
       setMessage('Planlanan zaman güncellendi.');
       setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        await refreshTruth();
+        if (!(await refreshTruth())) throw caught;
+        if (!(await requestRealtimeDrain())) throw caught;
         setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
         setMessageIsError(true);
         setFeedbackFocusRequest((value) => value + 1);
         throw new ApiError(409, 'VERSION_CONFLICT', 'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
+      }
+      if (hasPendingRealtimeInvalidation()) {
+        setRealtimeStale(true);
       }
       setMessage(caught instanceof ApiError ? caught.message : 'Planlanan zaman kaydedilemedi.');
       setMessageIsError(true);
@@ -1008,30 +1284,38 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         ? caught
         : new Error('Planlanan zaman kaydedilemedi.');
     } finally {
-      mutationInFlight.current = false;
-      setPending(false);
+      endMutationOperation(owner);
     }
   }
   async function saveDeliveredAt(itemId: string, deliveredAt: string) {
     if (state.kind !== 'ready' || state.detail.kind !== 'PRODUCT_DELIVERY'
-      || mutationInFlight.current) {
+      || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
     }
-    mutationInFlight.current = true;
+    const owner = startMutationOperation();
+    if (!owner) {
+      throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
+    }
+    const operationJobId = jobId;
+    mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
     try {
-      await patchDeliveryItem(jobId, itemId, {
+      await patchDeliveryItem(operationJobId, itemId, {
         expectedVersion: state.detail.job.version,
         deliveredAt,
       });
-      await refreshTruth();
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
+      if (!(await refreshTruth())) return;
+      if (!(await requestRealtimeDrain())) return;
       setTimelineKey((value) => value + 1);
       setMessage('Gerçekleşen teslim zamanı kaydedildi.');
       setFeedbackFocusRequest((value) => value + 1);
       onChanged();
     } catch (caught) {
+      if (!isOperationCurrent(owner.sessionToken, operationJobId)) throw caught;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
-        await refreshTruth();
+        if (!(await refreshTruth())) throw caught;
+        if (!(await requestRealtimeDrain())) throw caught;
         setMessage('İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.');
         setMessageIsError(true);
         setFeedbackFocusRequest((value) => value + 1);
@@ -1041,6 +1325,9 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
           'İş başka bir işlemle güncellendi. En güncel durum gösteriliyor.',
         );
       }
+      if (hasPendingRealtimeInvalidation()) {
+        setRealtimeStale(true);
+      }
       setMessage(caught instanceof ApiError ? caught.message : 'Gerçekleşen teslim zamanı kaydedilemedi.');
       setMessageIsError(true);
       setFeedbackFocusRequest((value) => value + 1);
@@ -1048,8 +1335,7 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
         ? caught
         : new Error('Gerçekleşen teslim zamanı kaydedilemedi.');
     } finally {
-      mutationInFlight.current = false;
-      setPending(false);
+      endMutationOperation(owner);
     }
   }
   function command(commandName: LifecycleCommand, trigger: HTMLElement) {
@@ -1166,8 +1452,8 @@ export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollow
     feedbackRef={feedbackRef}
     realtimeStaleNotice={realtimeStale ? <div className="detail-feedback detail-feedback-error" role="status">
       <p>Bu iş başka bir oturumda güncellendi. Açık düzenlemeniz korunuyor.</p>
-      <button className="secondary-button" type="button" disabled={pending}
-        onClick={() => void reloadStaleTruth()}>En güncel bilgileri yükle</button>
+      <button className="secondary-button" type="button" disabled={pending || realtimeReloadPending}
+        onClick={() => void reloadStaleTruth()}>{realtimeReloadPending ? 'Yükleniyor…' : 'En güncel bilgileri yükle'}</button>
     </div> : undefined}
     continuity={isManagementUser(user) ? <FollowUpBreadcrumb job={detail.job} /> : undefined}
     onBack={onBack}
