@@ -2161,6 +2161,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .detail-section-heading span, .detail-empty { color: var(--muted); font-size: 0.8rem; }
 .detail-section-heading span { overflow-wrap: anywhere; }
 .job-notes form { max-width: 38rem; }
+.job-notes form .primary-button { margin-top: 1.25rem; }
 .job-note-list { padding: 0; margin: 1.25rem 0 0; border-top: 1px solid var(--rule); list-style: none; }
 .job-note-list li { padding-block: 1rem; border-bottom: 1px solid var(--rule); }
 .job-note-body { min-width: 0; overflow-wrap: anywhere; white-space: pre-wrap; }
