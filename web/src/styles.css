@@ -1887,8 +1887,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 .detail-action {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 1.5rem;
   margin-top: 2rem;
   padding-top: 1.5rem;
@@ -1908,10 +1908,12 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 .detail-action-consequence {
   margin: 0 0 0.65rem;
+  width: 100%;
+  max-width: none;
   color: var(--muted);
   font-size: 0.875rem;
   line-height: 1.5;
-  overflow-wrap: anywhere;
+  overflow-wrap: normal;
 }
 .detail-action-record-edit {
   margin-top: 0.75rem;
@@ -1935,6 +1937,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
 }
 .review-buttons .destructive-button {
   order: 2;
+}
+.job-schedule-edit .review-buttons {
+  margin-top: 1rem;
 }
 .compact-workflow {
   display: grid;

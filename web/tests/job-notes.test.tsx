@@ -49,7 +49,17 @@ describe('JobCard operational notes', () => {
     ));
     await act(async () => {});
     expect(host.textContent).toContain('Notlar iş durumunu değiştirmez');
+    expect(host.textContent).toContain('Müşteri uygunluğu');
+    expect(host.textContent).toContain('hazırlık durumu');
+    expect(host.textContent).toContain('bir sonraki adım');
     expect(host.textContent).toContain('Henüz iş notu yok');
+  });
+
+  it('offers a short domain-appropriate placeholder inside the existing note composer', async () => {
+    const { load } = await renderNotes();
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea#job-note');
+    expect(textarea).not.toBeNull();
+    expect(textarea!.getAttribute('placeholder')).toContain('Müşteri 14:00 sonrası uygun');
   });
 
   async function renderNotes(overrides: Partial<ComponentProps<typeof JobNotes>> = {}) {
