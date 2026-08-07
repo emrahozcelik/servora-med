@@ -71,6 +71,8 @@ export function createMessagingHandlers(service: MessagingService) {
       const recipientUserId = body.recipientUserId as string;
       const contextType = body.contextType as string ?? 'GENERAL';
       const jobId = (body.jobId as string) || null;
+      const customerId = (body.customerId as string) || null;
+      const title = body.title as string | undefined;
 
       if (!recipientUserId) {
         throw new AppError('VALIDATION_ERROR', 400, 'recipientUserId zorunludur.');
@@ -79,9 +81,13 @@ export function createMessagingHandlers(service: MessagingService) {
         throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz konuşma tipi.');
       }
 
-      const conversation = await service.createOrGetConversation(
-        actor(req), recipientUserId, contextType, jobId,
-      );
+      const conversation = await service.createOrGetConversation(actor(req), {
+        recipientUserId,
+        contextType,
+        jobId,
+        customerId,
+        title,
+      });
       return reply.code(201).send(conversation);
     },
 

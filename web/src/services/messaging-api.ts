@@ -3,15 +3,24 @@ import { ApiError, items, json, nullableString, number, object, request, string 
 export type Conversation = {
   id: string;
   directKey: string;
-  contextType: 'GENERAL' | 'JOB';
+  contextType: 'GENERAL' | 'JOB' | 'CUSTOMER';
   jobId: string | null;
   jobTitle: string | null;
+  customerId: string | null;
+  title: string | null;
   participantName: string;
   participantId: string;
   participantIsActive: boolean;
+  participants: readonly ConversationParticipantSummary[];
   unreadCount: number;
   lastActivityAt: string;
   updatedAt: string;
+};
+
+export type ConversationParticipantSummary = {
+  userId: string;
+  name: string;
+  isActive: boolean;
 };
 
 export type Recipient = {
@@ -47,12 +56,24 @@ function parseConversation(value: unknown): Conversation {
   return {
     id: string(v.id, 'id'),
     directKey: string(v.directKey, 'directKey'),
-    contextType: string(v.contextType, 'contextType') as 'GENERAL' | 'JOB',
+    contextType: string(v.contextType, 'contextType') as 'GENERAL' | 'JOB' | 'CUSTOMER',
     jobId: nullableString(v.jobId, 'jobId'),
     jobTitle: nullableString(v.jobTitle, 'jobTitle'),
+    customerId: nullableString(v.customerId, 'customerId'),
+    title: nullableString(v.title, 'title'),
     participantName: string(v.participantName, 'participantName'),
     participantId: string(v.participantId, 'participantId'),
     participantIsActive: v.participantIsActive === true,
+    participants: Array.isArray(v.participants)
+      ? v.participants.map((entry: unknown) => {
+          const p = object(entry);
+          return {
+            userId: string(p.userId, 'userId'),
+            name: string(p.name, 'name'),
+            isActive: p.isActive === true,
+          };
+        })
+      : [],
     unreadCount: number(v.unreadCount, 'unreadCount'),
     lastActivityAt: string(v.lastActivityAt, 'lastActivityAt'),
     updatedAt: string(v.updatedAt, 'updatedAt'),
