@@ -39,6 +39,7 @@ const baseMigrations = [
   '003_people.sql',
   '004_crm_contacts.sql',
   '005_product_catalog.sql',
+
 ];
 
 afterAll(async () => { await pool?.end(); });

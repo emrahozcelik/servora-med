@@ -151,6 +151,7 @@ describe.skipIf(!databaseUrl)('005 Product catalog PostgreSQL migration', () => 
         '002_delivery_tracer.sql',
         '003_people.sql',
         '004_crm_contacts.sql',
+
       ]) {
         const migrationPath = fileURLToPath(
           new URL(`../src/db/migrations/${migration}`, import.meta.url),

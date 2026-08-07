@@ -88,6 +88,7 @@ describe.skipIf(!databaseUrl)('Product PostgreSQL optimistic concurrency', () =>
         '003_people.sql',
         '004_crm_contacts.sql',
         '005_product_catalog.sql',
+
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await setupClient.query(await readFile(path, 'utf8'));

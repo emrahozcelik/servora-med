@@ -69,6 +69,8 @@ describe.skipIf(!databaseUrl)('Staff meeting outcome PostgreSQL boundaries', () 
         '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
         '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
         '007_sales_meeting.sql',
+        '024_job_card_notes_invoice_number.sql',
+
       ]) {
         const migrationPath = fileURLToPath(
           new URL(`../src/db/migrations/${migration}`, import.meta.url),

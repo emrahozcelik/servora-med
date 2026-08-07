@@ -32,6 +32,8 @@ const migrations = [
   '020_job_card_transition_note_contexts.sql',
   '021_job_card_note_added_notification_kind.sql',
   '022_job_card_follow_up_links.sql',
+  '024_job_card_notes_invoice_number.sql',
+
 ] as const;
 
 async function applyMigrations(pool: Pool) {

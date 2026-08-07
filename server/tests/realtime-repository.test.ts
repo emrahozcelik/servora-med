@@ -215,6 +215,8 @@ describe.skipIf(!databaseUrl)('Postgres realtime repository (PostgreSQL)', () =>
         '007_sales_meeting.sql', '008_meeting_approval_withdrawal.sql',
         '009_job_acceptance_and_scheduling.sql', '010_entity_delete_audit.sql',
         '011_create_realtime_events.sql',
+        '024_job_card_notes_invoice_number.sql',
+
       ]) {
         const path = fileURLToPath(
           new URL(`../src/db/migrations/${migration}`, import.meta.url),

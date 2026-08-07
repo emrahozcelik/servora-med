@@ -20,6 +20,8 @@ const MIGRATIONS = [
   '016_google_reverse_geocoding.sql',
   '017_calendar.sql',
   '018_messaging.sql',
+  '024_job_card_notes_invoice_number.sql',
+
 ] as const;
 
 type Fixture = Readonly<{
