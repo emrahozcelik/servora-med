@@ -346,11 +346,14 @@ export class MessagingService {
       // Legacy 2-party conversations keep the existing pairwise
       // reauthorization (including the known Staff JOB reply restriction,
       // intentionally preserved until M3). N-participant threads cannot be
-      // created through any M2 API; M3 replaces this with resource-based
-      // authorization for every participant.
+      // created through any M2 API and service SEND is intentionally
+      // unsupported until M3 supplies resource-based contextual
+      // authorization — fail closed rather than bypass the pairwise checks.
       if (participants.length === 2) {
         const otherParticipant = participants.find((p) => p.userId !== actor.id)!;
         await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
+      } else {
+        throw forbidden();
       }
 
       const message = await tx.insertMessage(

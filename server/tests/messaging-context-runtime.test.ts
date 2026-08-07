@@ -345,7 +345,7 @@ describe('M2 messaging context runtime contracts', () => {
     });
   });
 
-  it('multi-participant: repository and service support N participants without duplication', async () => {
+  it('multi-participant: repository persistence supports N participants without duplication', async () => {
     await withFixture(async ({ pool, orgA, adminA, managerA, staff1A, staff2A }) => {
       const svc = service(pool);
       const repo = new PostgresMessagingRepository(pool);
@@ -359,11 +359,21 @@ describe('M2 messaging context runtime contracts', () => {
 
       const list = await svc.getConversations(adminA, null, 20);
       expect(list.items.length).toBe(1);
-      expect(list.items[0]!.participants.length).toBe(4);
       expect(list.items[0]!.id).toBe(t.id);
+      expect(list.items[0]!.participants.length).toBe(4);
+      // Deterministic primary-other projection: earliest other participant.
+      expect(list.items[0]!.participantId).toBe(staff1A.id);
 
-      const msg = await svc.sendMessage(adminA, t.id, 'Herkese merhaba', `c-${randomUUID()}`);
-      expect(msg.isDuplicate).toBe(false);
+      // Repository-level message insertion proves N-participant storage and
+      // per-participant unread/read state without going through service send.
+      const inserted = await repo.insertMessage(
+        orgA, t.id, adminA.id, `repo-msg-${randomUUID()}`, 'Herkese merhaba',
+      );
+      expect(inserted.id).toBeTruthy();
+
+      const page = await repo.listMessages(orgA, t.id, null, 20);
+      expect(page.items.length).toBe(1);
+      expect(page.items[0]!.body).toBe('Herkese merhaba');
 
       expect(await svc.getUnreadCount(managerA)).toBe(1);
       expect(await svc.getUnreadCount(staff1A)).toBe(1);
@@ -373,6 +383,40 @@ describe('M2 messaging context runtime contracts', () => {
       const staffList = await svc.getConversations(staff1A, null, 20);
       expect(staffList.items.length).toBe(1);
       expect(staffList.items[0]!.participants.length).toBe(4);
+    });
+  });
+
+  it('multi-participant: service send fails closed for N>2 with no side effects', async () => {
+    await withFixture(async ({ pool, orgA, adminA, managerA, staff1A, staff2A }) => {
+      const svc = service(pool);
+      const repo = new PostgresMessagingRepository(pool);
+      const t = await svc.createOrGetConversation(adminA, {
+        recipientUserId: staff1A.id, contextType: 'GENERAL',
+      });
+      await repo.addParticipants(orgA, t.id, [managerA.id, staff2A.id]);
+      expect((await repo.findParticipants(orgA, t.id)).length).toBe(4);
+
+      // ADMIN in an N>2 conversation is not authorized to send until M3.
+      await expect(
+        svc.sendMessage(adminA, t.id, 'Herkese merhaba', `c-${randomUUID()}`),
+      ).rejects.toMatchObject({ statusCode: 403 });
+      // STAFF in an N>2 conversation is equally rejected.
+      await expect(
+        svc.sendMessage(staff1A, t.id, 'Ben de yazayım', `c-${randomUUID()}`),
+      ).rejects.toMatchObject({ statusCode: 403 });
+
+      const messageCount = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM messages WHERE conversation_id = $1`,
+        [t.id],
+      )).rows[0]!.c;
+      expect(messageCount).toBe(0);
+
+      const sentActivity = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM messaging_activity_logs
+          WHERE conversation_id = $1 AND action = 'MESSAGE_SENT'`,
+        [t.id],
+      )).rows[0]!.c;
+      expect(sentActivity).toBe(0);
     });
   });
 
