@@ -20,10 +20,10 @@ import { ResultState } from '../ui/antd/ResultState';
 import { UserAvatar } from '../ui/antd/UserAvatar';
 import './messaging.css';
 
-type PageState =
+type ListState =
   | { kind: 'loading' }
   | { kind: 'error'; message: string }
-  | { kind: 'ready' };
+  | { kind: 'loaded' };
 
 type DraftState = {
   body: string;
@@ -69,7 +69,7 @@ function nextClientActionId(userId: string): string {
 
 export function MessagingPage({ user }: { user: CurrentUser }) {
   const [searchParams] = useSearchParams();
-  const [pageState, setPageState] = useState<PageState>({ kind: 'loading' });
+  const [listState, setListState] = useState<ListState>({ kind: 'loading' });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
@@ -84,7 +84,6 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const [showRecipientPicker, setShowRecipientPicker] = useState(false);
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [markReadError, setMarkReadError] = useState<string | null>(null);
-  const [convLoadError, setConvLoadError] = useState<string | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [olderLoading, setOlderLoading] = useState(false);
 
@@ -128,9 +127,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     try {
       const page = await listConversations();
       setConversations(page.items);
-      setConvLoadError(null);
-    } catch {
-      setConvLoadError('Konuşmalar yüklenemedi.');
+      setListState({ kind: 'loaded' });
+    } catch (error) {
+      setListState({
+        kind: 'error',
+        message: error instanceof Error ? error.message : 'Konuşmalar yüklenemedi.',
+      });
     }
   }, []);
 
@@ -139,13 +141,8 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   }, []);
 
   const refresh = useCallback(async () => {
-    setPageState((c) => (c.kind === 'ready' ? c : { kind: 'loading' }));
-    try {
-      await Promise.all([loadConversations(), loadUnreadCount()]);
-      setPageState({ kind: 'ready' });
-    } catch (error) {
-      setPageState({ kind: 'error', message: error instanceof Error ? error.message : 'Yüklenemedi.' });
-    }
+    setListState({ kind: 'loading' });
+    await Promise.all([loadConversations(), loadUnreadCount()]);
   }, [loadConversations, loadUnreadCount]);
 
   useEffect(() => { void refresh(); }, [refresh]);
@@ -161,7 +158,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     });
     ro.observe(container);
     return () => ro.disconnect();
-  }, [pageState.kind]);
+  }, [listState.kind]);
 
   // --- Realtime ---
 
@@ -363,11 +360,11 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   // Deep-link from notification center
   useEffect(() => {
     const convId = searchParams.get('conversation');
-    if (convId && pageState.kind === 'ready') {
+    if (convId && listState.kind === 'loaded') {
       const conv = conversations.find((c) => c.id === convId);
       if (conv) selectConversation(conv);
     }
-  }, [pageState.kind, conversations, searchParams, selectConversation]);
+  }, [listState.kind, conversations, searchParams, selectConversation]);
 
   // Cleanup on unmount
   useEffect(() => () => { invalidateThread(); }, [invalidateThread]);
@@ -433,13 +430,13 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   // --- Render ---
 
-  if (pageState.kind === 'loading') {
+  if (listState.kind === 'loading') {
     return <main className="workspace messaging-workspace"><LoadConversations /></main>;
   }
-  if (pageState.kind === 'error') {
+  if (listState.kind === 'error') {
     return (
       <main className="workspace messaging-workspace">
-        <ResultState status="error" title="Yüklenemedi" description={pageState.message}
+        <ResultState status="error" title="Konuşmalar yüklenemedi" description={listState.message}
           action={<button className="primary-button" onClick={refresh}>Tekrar dene</button>} />
       </main>
     );
@@ -456,7 +453,6 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
             <h2>Mesajlar</h2>
             <button className="secondary-button" onClick={() => { setShowRecipientPicker(true); loadRecipientsForPicker(); }} aria-label="Yeni mesaj">Yeni</button>
           </header>
-          {convLoadError && <div className="inline-error">{convLoadError}<button className="ghost-button" onClick={loadConversations}>Tekrar dene</button></div>}
           {showRecipientPicker && (
             <div className="recipient-picker">
               <header><h3>Alıcı seçin</h3><button className="ghost-button" onClick={() => setShowRecipientPicker(false)} aria-label="Kapat">Kapat</button></header>
@@ -508,7 +504,15 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               <button className="primary-button send-button" onClick={() => handleSend()} disabled={!composerText.trim() || isSending || !selected.participantIsActive} aria-label="Gönder">Gönder</button>
               <div className="composer-hint">{selected.participantIsActive ? `Enter: gönder • Shift+Enter: alt satır • ${composerText.length}/4000` : 'Alıcı pasif durumda • Mesaj gönderilemez'}</div>
             </div>
-          </>) : (<div className="thread-empty"><EmptyState title="Konuşma seçin" description="Sol taraftan bir konuşma seçin veya yeni bir konuşma başlatın." /></div>)}
+          </>) : (
+            <div className="thread-empty">
+              {conversations.length === 0 ? (
+                <EmptyState title="Henüz konuşma yok" description="Yeni butonu ile konuşma başlatabilirsiniz." />
+              ) : (
+                <EmptyState title="Konuşma seçin" description="Sol taraftan bir konuşma seçin veya yeni bir konuşma başlatın." />
+              )}
+            </div>
+          )}
         </section>
       </div>
     </main>
