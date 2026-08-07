@@ -167,6 +167,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '021_job_card_note_added_notification_kind',
           '022_job_card_follow_up_links',
           '023_staff_confidential_notes',
+          '024_job_card_notes_invoice_number',
         ],
       });
 
