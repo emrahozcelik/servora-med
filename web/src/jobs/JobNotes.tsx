@@ -189,12 +189,13 @@ export function JobNotes({
     <div className="detail-section-heading"><h2 id="job-notes-title">Notlar</h2>
       {canAdd && <span aria-live="polite">{remaining} karakter kaldı</span>}</div>
     <p className="job-notes-help">
-      Notlar iş durumunu değiştirmez. Ek bilgi ve yapılan hazırlıkları ekip için burada paylaşabilirsiniz.
+      Notlar iş durumunu değiştirmez. Müşteri uygunluğu, hazırlık durumu veya bir sonraki adım gibi kısa ekip notları ekleyebilirsiniz.
     </p>
     {canAdd && <form onSubmit={submit} noValidate>
       <div className="field-group">
         <label htmlFor="job-note">İş notu</label>
         <textarea id="job-note" name="note" rows={4} value={draft} disabled={pending}
+          placeholder="Örn: Müşteri 14:00 sonrası uygun; teslim tarihi teyit edilecek."
           aria-invalid={draftError ? 'true' : undefined}
           aria-describedby="job-note-help job-note-error"
           onChange={(event) => updateDraft(event.target.value)} />

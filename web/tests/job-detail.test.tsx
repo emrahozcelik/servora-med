@@ -5624,4 +5624,21 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).not.toContain('Başka bir işlem devam ediyor');
     expect(onChanged).toHaveBeenCalledTimes(1);
   });
+
+  it('renders the lifecycle helper as a full-width lead paragraph ahead of the action row', async () => {
+    await renderDetail(job);
+    const panel = host.querySelector('[data-job-decision-panel="true"]');
+    expect(panel).not.toBeNull();
+    const helper = panel!.querySelector('.detail-action-consequence');
+    const actionRow = panel!.querySelector('.review-buttons');
+    expect(helper).not.toBeNull();
+    expect(actionRow).not.toBeNull();
+    expect(helper!.textContent).toContain('İş “Kabul edildi” aşamasına alınacaktır.');
+    expect(panel!.textContent).toContain('İşi kabul et');
+    const following = (helper as Node).compareDocumentPosition(actionRow as Node)
+      & Node.DOCUMENT_POSITION_FOLLOWING;
+    expect(following).toBeTruthy();
+    expect(Array.from(panel!.children)).toContain(helper);
+    expect(Array.from(panel!.children)).toContain(actionRow);
+  });
 });
