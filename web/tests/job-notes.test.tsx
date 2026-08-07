@@ -1,4 +1,7 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
+
 import { act } from 'react';
 import type { ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
@@ -600,6 +603,24 @@ describe('optional invoice number on job notes', () => {
     expect(label!.textContent).toContain('Fatura numarası');
     expect(invoiceInput()!.getAttribute('aria-label')).toBeNull();
     expect(invoiceInput()!.getAttribute('placeholder')).toBe('Örn: FT-2026-00124');
+  });
+});
+
+describe('JobNotes visual contracts (T2C)', () => {
+  const stylesCss = readFileSync(resolve(process.cwd(), 'src/styles.css'), 'utf8');
+
+  function exactRuleBody(css: string, selector: string): string {
+    const cleaned = css.replace(/\/\*[\s\S]*?\*\//g, '');
+    const escaped = selector.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const pattern = new RegExp(`(?:^|\\n)\\s*${escaped}\\s*\\{([^}]*)\\}`, 'm');
+    const match = cleaned.match(pattern);
+    if (!match?.[1]) throw new Error(`Missing exact CSS rule for ${selector}`);
+    return match[1];
+  }
+
+  it('separates the submit action from the textarea with the field-group rhythm', () => {
+    const submit = exactRuleBody(stylesCss, '.job-notes form .primary-button');
+    expect(submit).toMatch(/margin-top:\s*1\.25rem/);
   });
 });
 });
