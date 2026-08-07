@@ -1344,6 +1344,7 @@ export class JobCardService {
             context: definition.noteContext,
             relatedActivityId: activity.id,
             note: transitionNoteBody,
+            invoiceNumber: null,
           });
         }
         if (startLocation) {

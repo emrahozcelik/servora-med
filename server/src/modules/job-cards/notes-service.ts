@@ -4,10 +4,20 @@ import { AppError } from '../../errors/index.js';
 import { assertCanAccessNotes, assertCanAddNote } from './policy.js';
 import type { JobCardRepository, NotePageQuery } from './repository.js';
 import type { JobCard, JobCardActor } from './types.js';
-import { boundedTrimmedString, requireActionId } from './validation.js';
+import {
+  boundedTrimmedString,
+  optionalBoundedString,
+  requireActionId,
+} from './validation.js';
 import { appendStandaloneNoteProjection } from './note-realtime-projection.js';
 
-export type CreateNoteInput = { clientActionId: string; note: string };
+export type CreateNoteInput = {
+  clientActionId: string;
+  note: string;
+  invoiceNumber?: string | null;
+};
+
+const INVOICE_CAPABLE_JOB_TYPES = new Set(['SALES_MEETING', 'PRODUCT_DELIVERY']);
 
 export class JobCardNotesService {
   constructor(private readonly repository: JobCardRepository) {}
@@ -25,6 +35,7 @@ export class JobCardNotesService {
   ) {
     const clientActionId = requireActionId(input.clientActionId);
     const note = boundedTrimmedString(input.note, 'note', 1, 4_000);
+    const invoiceNumber = optionalBoundedString(input.invoiceNumber, 'invoiceNumber', 100);
     return this.repository.executeCriticalAction(
       {
         organizationId: actor.organizationId, userId: actor.id, clientActionId,
@@ -34,6 +45,13 @@ export class JobCardNotesService {
         const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
         this.assertVisible(actor, job);
         assertCanAddNote(actor, job);
+        if (invoiceNumber !== null && !INVOICE_CAPABLE_JOB_TYPES.has(job.type)) {
+          throw new AppError(
+            'VALIDATION_ERROR',
+            400,
+            'Fatura numarası yalnız satış görüşmesi ve ürün teslimi notlarında kullanılabilir.',
+          );
+        }
         const author = await transaction.getNoteAuthorSnapshot(
           actor.organizationId,
           actor.id,
@@ -57,6 +75,7 @@ export class JobCardNotesService {
           context: 'GENERAL',
           relatedActivityId: activity.id,
           note,
+          invoiceNumber,
         });
         const realtimeEvent = await appendStandaloneNoteProjection(transaction, {
           organizationId: actor.organizationId,

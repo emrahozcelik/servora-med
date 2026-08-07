@@ -83,9 +83,10 @@ describe('runMigrations', () => {
       '021_job_card_note_added_notification_kind.sql',
       '022_job_card_follow_up_links.sql',
       '023_staff_confidential_notes.sql',
+      '024_job_card_notes_invoice_number.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('023_staff_confidential_notes.sql');
-    expect(expectedSchemaVersion).toBe(23);
+    expect(migrations.at(-1)?.name).toBe('024_job_card_notes_invoice_number.sql');
+    expect(expectedSchemaVersion).toBe(24);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

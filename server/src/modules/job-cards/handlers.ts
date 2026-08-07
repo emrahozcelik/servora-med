@@ -157,7 +157,7 @@ export function createJobCardHandlers(service: JobCardService) {
       service.listNotes(actor(request), request.params.id, notePage(request.query, 25)),
     addNote: async (request: FastifyRequest<{ Params: Params }>, reply: FastifyReply) =>
       reply.code(201).send(await service.addNote(
-        actor(request), request.params.id, body(request, ['clientActionId', 'note']) as never,
+        actor(request), request.params.id, body(request, ['clientActionId', 'note', 'invoiceNumber']) as never,
       )),
   };
 }

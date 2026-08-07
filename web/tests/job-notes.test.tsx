@@ -13,6 +13,7 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const emptyPage: JobCardNotePage = { items: [], limit: 25, nextCursor: null };
 const savedNote: JobCardNote = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik tekrar aranacak.',
+  invoiceNumber: null,
   author: {
     id: 'staff-1',
     name: 'Ayşe Personel',
@@ -448,4 +449,157 @@ describe('JobCard operational notes', () => {
       expect(load).toHaveBeenCalledTimes(2);
     });
   });
+describe('optional invoice number on job notes', () => {
+  let host: HTMLDivElement;
+  let root: Root;
+
+  beforeEach(() => {
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    host.remove();
+  });
+
+  async function renderInvoice(overrides: Partial<ComponentProps<typeof JobNotes>> = {}) {
+    const load = vi.fn().mockResolvedValue(emptyPage);
+    const add = vi.fn().mockResolvedValue({
+      ...savedNote,
+      id: 'note-inv-1',
+      invoiceNumber: null,
+    });
+    await act(async () => root.render(<JobNotes jobId="job-1" load={load} add={add}
+      createActionId={() => 'action-inv'} jobType="PRODUCT_DELIVERY" {...overrides} />));
+    await act(async () => { await Promise.resolve(); });
+    return { load, add };
+  }
+
+  const invoiceInput = () => host.querySelector<HTMLInputElement>('#job-note-invoice');
+  const noteInput = () => host.querySelector<HTMLTextAreaElement>('#job-note');
+
+  function setValue(element: HTMLInputElement | HTMLTextAreaElement, value: string) {
+    const prototype = element instanceof HTMLTextAreaElement
+      ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+    Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
+    element.dispatchEvent(new Event('input', { bubbles: true }));
+  }
+
+  it('shows the invoice field for SALES_MEETING and PRODUCT_DELIVERY', async () => {
+    await renderInvoice({ jobType: 'SALES_MEETING' });
+    expect(invoiceInput()).not.toBeNull();
+    await act(async () => root.unmount());
+    host.remove();
+    host = document.createElement('div');
+    document.body.append(host);
+    root = createRoot(host);
+    await renderInvoice({ jobType: 'PRODUCT_DELIVERY' });
+    expect(invoiceInput()).not.toBeNull();
+  });
+
+  it('hides the invoice field entirely for GENERAL_TASK', async () => {
+    await renderInvoice({ jobType: 'GENERAL_TASK' });
+    expect(invoiceInput()).toBeNull();
+    expect(host.textContent).not.toContain('Fatura numarası');
+  });
+
+  it('submits normally with a blank invoice field', async () => {
+    const { add } = await renderInvoice();
+    setValue(noteInput()!, 'Klinik arandı');
+    await act(async () => {
+      (host.querySelector('form') as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(add).toHaveBeenCalledWith('job-1', {
+      clientActionId: 'action-inv', note: 'Klinik arandı',
+    });
+  });
+
+  it('includes the trimmed invoice number in the request when present', async () => {
+    const { add } = await renderInvoice();
+    setValue(invoiceInput()!, ' FT-2026-00124 ');
+    setValue(noteInput()!, 'Klinik arandı');
+    await act(async () => {
+      (host.querySelector('form') as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(add).toHaveBeenCalledWith('job-1', {
+      clientActionId: 'action-inv', note: 'Klinik arandı', invoiceNumber: 'FT-2026-00124',
+    });
+  });
+
+  it('enforces maxLength 100 on the invoice input', () => {
+    return renderInvoice().then(() => {
+      expect(invoiceInput()!.getAttribute('maxlength')).toBe('100');
+    });
+  });
+
+  it('keeps the progressive note counter behavior intact', async () => {
+    await renderInvoice();
+    expect(host.textContent).not.toContain('karakter kaldı');
+    setValue(noteInput()!, 'a'.repeat(3_500));
+    await act(async () => { await Promise.resolve(); });
+    expect(host.querySelector('[data-job-note-counter]')).not.toBeNull();
+  });
+
+  it('clears the invoice input after a successful submit', async () => {
+    await renderInvoice();
+    setValue(invoiceInput()!, 'FT-2026-00124');
+    setValue(noteInput()!, 'Klinik arandı');
+    await act(async () => {
+      (host.querySelector('form') as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(invoiceInput()!.value).toBe('');
+    expect(noteInput()!.value).toBe('');
+  });
+
+  it('preserves the invoice value for retry when submission fails', async () => {
+    const { add } = await renderInvoice();
+    add.mockRejectedValueOnce(new ApiError(503, 'TEMPORARY', 'Notlar yüklenemedi.', true));
+    setValue(invoiceInput()!, 'FT-2026-00124');
+    setValue(noteInput()!, 'Klinik arandı');
+    await act(async () => {
+      (host.querySelector('form') as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(invoiceInput()!.value).toBe('FT-2026-00124');
+    expect(noteInput()!.value).toBe('Klinik arandı');
+  });
+
+  it('renders invoice metadata on a note when present', async () => {
+    const { add } = await renderInvoice();
+    add.mockResolvedValueOnce({ ...savedNote, id: 'note-inv-2', invoiceNumber: 'FT-2026-00124' });
+    setValue(invoiceInput()!, 'FT-2026-00124');
+    setValue(noteInput()!, 'Klinik arandı');
+    await act(async () => {
+      (host.querySelector('form') as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(host.textContent).toContain('Fatura: FT-2026-00124');
+  });
+
+  it('renders no invoice metadata when the note has none', async () => {
+    const { add } = await renderInvoice();
+    add.mockResolvedValueOnce({ ...savedNote, id: 'note-inv-3', invoiceNumber: null });
+    setValue(noteInput()!, 'Klinik arandı');
+    await act(async () => {
+      (host.querySelector('form') as HTMLFormElement).requestSubmit();
+      await Promise.resolve();
+    });
+    expect(host.textContent).not.toContain('Fatura:');
+    expect(host.textContent).not.toContain('Fatura numarası girilmedi');
+  });
+
+  it('associates the invoice label with the input', async () => {
+    await renderInvoice();
+    const label = host.querySelector('label[for="job-note-invoice"]');
+    expect(label).not.toBeNull();
+    expect(label!.textContent).toContain('Fatura numarası');
+    expect(invoiceInput()!.getAttribute('aria-label')).toBeNull();
+    expect(invoiceInput()!.getAttribute('placeholder')).toBe('Örn: FT-2026-00124');
+  });
+});
 });

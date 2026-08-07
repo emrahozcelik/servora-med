@@ -355,6 +355,7 @@ type JobCardNoteBase = {
   id: string;
   jobCardId: string;
   note: string;
+  invoiceNumber: string | null;
   createdAt: string;
 };
 

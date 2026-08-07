@@ -33,6 +33,7 @@ type CreateNoteRecord = {
   authorNameSnapshot: string; authorRoleSnapshot: JobCardActor['role'];
   workflowStage: JobCardStatus; context: 'GENERAL'; relatedActivityId: string;
   note: string;
+  invoiceNumber: string | null;
 };
 
 class NotesRepository {
@@ -46,6 +47,7 @@ class NotesRepository {
   processing = new Set<string>();
   claims: CriticalActionClaim[] = [];
   listCalls: Array<{ organizationId: string; jobCardId: string; page: NotePageQuery }> = [];
+  realtimeEvents: unknown[] = [];
   failActivity = false;
 
   private tx(): JobCardTransaction {
@@ -62,6 +64,7 @@ class NotesRepository {
       createNote: async (input: CreateNoteRecord) => {
         const note = {
           id: input.id, jobCardId: input.jobCardId, note: input.note,
+          invoiceNumber: input.invoiceNumber,
           author: {
             id: input.authorId,
             name: input.authorNameSnapshot,
@@ -82,7 +85,9 @@ class NotesRepository {
         this.activities.push(input);
         return { id: `activity-${this.activities.length}`, createdAt: new Date('2026-07-19T14:30:00.000Z') };
       },
-      appendRealtimeEvent: async (input) => ({
+      appendRealtimeEvent: async (input) => {
+        this.realtimeEvents.push(input);
+        return {
         id: BigInt(this.notes.length + 1),
         organizationId: input.organizationId,
         sourceActivityId: input.sourceActivityId ?? null,
@@ -94,7 +99,8 @@ class NotesRepository {
         audience: input.audience,
         resourceKeys: input.resourceKeys,
         occurredAt: input.occurredAt,
-      }),
+        };
+      },
       listActiveManagementRecipients: async () => [],
       appendNotifications: async () => [],
       appendWebPushDeliveries: async () => [],
@@ -253,6 +259,7 @@ describe('append-only JobCard notes service', () => {
 
     expect(result).toEqual({
       id: expect.any(String), jobCardId: 'job-1', note: 'Klinik arandı',
+      invoiceNumber: null,
       author: { id: 'staff-1', name: 'Ayşe Personel', role: 'STAFF', source: 'SNAPSHOT' },
       workflowStage: 'ACCEPTED', context: 'GENERAL',
       relatedActivityId: 'activity-1', recordVersion: 1,
@@ -323,6 +330,129 @@ describe('append-only JobCard notes service', () => {
     const repository = new NotesRepository(); const service = new JobCardService(repository as never);
     expect('updateNote' in service).toBe(false); expect('deleteNote' in service).toBe(false);
     expect('updateNote' in repository).toBe(false); expect('deleteNote' in repository).toBe(false);
+  });
+});
+
+describe('optional invoice number on job notes', () => {
+  const invoiceJob = (type: JobCard['type']) => ({ ...baseJob, type });
+
+  it('accepts and trims an invoice number for SALES_MEETING', async () => {
+    const repository = new NotesRepository();
+    repository.jobs.set('job-1', invoiceJob('SALES_MEETING'));
+    const service = new JobCardService(repository as never);
+    const result = await service.addNote(staff, 'job-1', {
+      clientActionId: 'inv-1', note: 'Görüşme notu', invoiceNumber: ' FT-2026-00124 ',
+    });
+    expect(result.invoiceNumber).toBe('FT-2026-00124');
+    expect(repository.notes[0]!.invoiceNumber).toBe('FT-2026-00124');
+  });
+
+  it('accepts and persists an invoice number for PRODUCT_DELIVERY', async () => {
+    const repository = new NotesRepository();
+    const service = new JobCardService(repository as never);
+    const result = await service.addNote(staff, 'job-1', {
+      clientActionId: 'inv-2', note: 'Teslim notu', invoiceNumber: 'INV/2026/889',
+    });
+    expect(result.invoiceNumber).toBe('INV/2026/889');
+    expect(repository.notes[0]!.invoiceNumber).toBe('INV/2026/889');
+  });
+
+  it('stores null when a supported job omits the invoice number', async () => {
+    const repository = new NotesRepository();
+    repository.jobs.set('job-1', invoiceJob('SALES_MEETING'));
+    const service = new JobCardService(repository as never);
+    const result = await service.addNote(staff, 'job-1', {
+      clientActionId: 'inv-3', note: 'Not',
+    });
+    expect(result.invoiceNumber).toBeNull();
+    expect(repository.notes[0]!.invoiceNumber).toBeNull();
+  });
+
+  it('normalizes a whitespace-only invoice number to null', async () => {
+    const repository = new NotesRepository();
+    const service = new JobCardService(repository as never);
+    const result = await service.addNote(staff, 'job-1', {
+      clientActionId: 'inv-4', note: 'Not', invoiceNumber: '  \u00A0\u2028 ',
+    });
+    expect(result.invoiceNumber).toBeNull();
+  });
+
+  it('keeps GENERAL_TASK creation without an invoice number unchanged', async () => {
+    const repository = new NotesRepository();
+    repository.jobs.set('job-1', invoiceJob('GENERAL_TASK'));
+    const service = new JobCardService(repository as never);
+    const result = await service.addNote(staff, 'job-1', {
+      clientActionId: 'inv-5', note: 'Genel not',
+    });
+    expect(result).toMatchObject({ note: 'Genel not', invoiceNumber: null });
+  });
+
+  it('rejects a non-empty invoice number for GENERAL_TASK without any side effects', async () => {
+    const repository = new NotesRepository();
+    repository.jobs.set('job-1', invoiceJob('GENERAL_TASK'));
+    const service = new JobCardService(repository as never);
+    await expect(service.addNote(staff, 'job-1', {
+      clientActionId: 'inv-6', note: 'Genel not', invoiceNumber: 'FT-1',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    expect(repository.notes).toHaveLength(0);
+    expect(repository.activities).toHaveLength(0);
+    expect(repository.completed.size).toBe(0);
+  });
+
+  it('rejects an invoice number over 100 characters without mutation', async () => {
+    const repository = new NotesRepository();
+    const service = new JobCardService(repository as never);
+    await expect(service.addNote(staff, 'job-1', {
+      clientActionId: 'inv-7', note: 'Not', invoiceNumber: 'a'.repeat(101),
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(repository.notes).toHaveLength(0);
+    expect(repository.activities).toHaveLength(0);
+  });
+
+  it('preserves punctuation and casing exactly after trimming', async () => {
+    const repository = new NotesRepository();
+    const service = new JobCardService(repository as never);
+    const result = await service.addNote(staff, 'job-1', {
+      clientActionId: 'inv-8', note: 'Not', invoiceNumber: ' 2026-08-00017 ',
+    });
+    expect(result.invoiceNumber).toBe('2026-08-00017');
+  });
+
+  it('does not expose an invoice value on legacy record-version 0 notes', async () => {
+    const repository = new NotesRepository();
+    const service = new JobCardService(repository as never);
+    const first = await service.addNote(staff, 'job-1', {
+      clientActionId: 'legacy-note', note: 'Eski not',
+    });
+    const legacy: JobCardNoteDto = {
+      ...first, recordVersion: 0,
+      author: { id: 'staff-1', name: 'Ayşe Personel', role: null, source: 'LEGACY_CURRENT' },
+      workflowStage: null, context: null, relatedActivityId: null,
+    };
+    expect(legacy.invoiceNumber).toBeNull();
+  });
+
+  it('preserves invoice metadata on an identical action replay', async () => {
+    const repository = new NotesRepository();
+    const service = new JobCardService(repository as never);
+    const input = {
+      clientActionId: 'replay-inv', note: 'Not', invoiceNumber: 'FT-2026-00124',
+    };
+    const first = await service.addNote(staff, 'job-1', input);
+    await expect(service.addNote(staff, 'job-1', input)).resolves.toEqual(first);
+    expect(repository.notes).toHaveLength(1);
+    expect(repository.notes[0]!.invoiceNumber).toBe('FT-2026-00124');
+  });
+
+  it('keeps the note body, realtime payload and audit metadata free of the raw invoice number', async () => {
+    const repository = new NotesRepository();
+    const service = new JobCardService(repository as never);
+    await service.addNote(staff, 'job-1', {
+      clientActionId: 'inv-privacy', note: 'Teslim', invoiceNumber: 'FT-SECRET-2026',
+    });
+    expect(JSON.stringify(repository.activities)).not.toContain('FT-SECRET-2026');
+    expect(repository.realtimeEvents).toHaveLength(1);
+    expect(JSON.stringify(repository.realtimeEvents)).not.toContain('FT-SECRET-2026');
   });
 });
 
@@ -423,6 +553,8 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
         '020_job_card_transition_note_contexts.sql',
         '021_job_card_note_added_notification_kind.sql',
         '022_job_card_follow_up_links.sql',
+        '023_staff_confidential_notes.sql',
+        '024_job_card_notes_invoice_number.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await scopedPool.query(await readFile(path, 'utf8'));

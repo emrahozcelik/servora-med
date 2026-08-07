@@ -23,6 +23,24 @@ export function boundedTrimmedString(
   return trimmed;
 }
 
+/**
+ * Optional bounded string: undefined/null or whitespace-only values normalize
+ * to null; non-empty values are trimmed and capped at `max` code points.
+ */
+export function optionalBoundedString(
+  value: unknown,
+  field: string,
+  max: number,
+) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw validation(field);
+  const trimmed = value.trim();
+  if (trimmed.length === 0) return null;
+  const length = codePointLength(trimmed);
+  if (length > max) throw validation(field);
+  return trimmed;
+}
+
 export function isoDate(value: unknown, field: string) {
   if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) {
     throw validation(field);
