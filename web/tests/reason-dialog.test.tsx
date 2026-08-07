@@ -185,4 +185,31 @@ describe('ReasonDialog', () => {
     expect(dialog.contains(document.activeElement)).toBe(true);
     expect(document.activeElement).toBe(dialog);
   });
+
+  it('hides the counter above 500 remaining and reveals it within the threshold', async () => {
+    const { textarea, counter } = await renderAndGetCounter();
+    expect(counter).toBeNull();
+    const setDraft = async (value: string) => {
+      const prototype = HTMLTextAreaElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(textarea, value);
+      await act(async () => {
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        await Promise.resolve();
+      });
+    };
+    await setDraft('a'.repeat(1_500));
+    expect(host.querySelector('[data-reason-counter]')).not.toBeNull();
+    expect(host.querySelector('[data-reason-counter]')!.textContent).toContain('500 karakter kaldı');
+    await setDraft('a'.repeat(1_900));
+    expect(host.querySelector('[data-reason-counter]')!.getAttribute('data-counter-state'))
+      .toBe('attention');
+  });
+
+  async function renderAndGetCounter() {
+    await renderReason();
+    return {
+      textarea: host.querySelector<HTMLTextAreaElement>('textarea')!,
+      counter: host.querySelector('[data-reason-counter]'),
+    };
+  }
 });

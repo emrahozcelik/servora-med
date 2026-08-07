@@ -4,6 +4,8 @@ import { ApiError, type CurrentUser } from '../services/api';
 import { listContacts, type Contact } from '../services/crm-api';
 import { listStaff, type StaffProfile } from '../services/people-api';
 import { LoadingSkeleton, OperationalCard, RecordDescriptions, ResultState } from '../ui/antd';
+import { counterState } from '../ui/counter-policy';
+import { ProgressiveCounter } from '../ui/ProgressiveCounter';
 import { JOB_CARD_ENGAGEMENT_LABELS, jobTypeLabels } from './job-labels';
 import {
   createFollowUp,
@@ -322,15 +324,22 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         <div className="field-group"><label htmlFor="follow-up-instructions">Yeni takip işinin kapsamı / talimatları <span aria-hidden="true">*</span></label>
           <textarea id="follow-up-instructions" required rows={6} value={instructions}
             aria-invalid={fieldErrors.followUpInstructions ? true : undefined}
-            aria-describedby={`follow-up-instructions-help follow-up-instructions-count${fieldErrors.followUpInstructions ? ' follow-up-instructions-error' : ''}`}
+            aria-describedby={[
+              'follow-up-instructions-help',
+              counterState(4000 - instructionCount) !== 'hidden' ? 'follow-up-instructions-count' : null,
+              fieldErrors.followUpInstructions ? 'follow-up-instructions-error' : null,
+            ].filter(Boolean).join(' ')}
             onChange={(event) => setInstructions(event.target.value)} />
           <p id="follow-up-instructions-help" className="form-help">Bu alan yeni görevin kapsamıdır. Önceki işin operasyon notları otomatik olarak kopyalanmaz.</p>
-          <span id="follow-up-instructions-count" className="field-status">{instructionCount}/4000 karakter</span>
+          <ProgressiveCounter
+            remaining={4000 - instructionCount}
+            dataCounter="follow-up-instructions"
+          >{instructionCount}/4000 karakter</ProgressiveCounter>
           {fieldErrors.followUpInstructions && <span id="follow-up-instructions-error" className="field-error">{fieldErrors.followUpInstructions}</span>}
         </div>
         <div className="field-group"><span className="field-label">Müşteri</span>
           <p className="fixed-field-value">{source.customer?.name ?? 'Müşteri bağlantısı yok'}</p>
-          <p className="form-help">Müşteri kaynak işten sunucu tarafından devralınır.</p>
+          <p className="form-help">Müşteri kaynak işten alınır.</p>
         </div>
         <div className="task-field-pair">
           <div className="field-group"><label htmlFor="follow-up-assignee">Sorumlu personel</label>

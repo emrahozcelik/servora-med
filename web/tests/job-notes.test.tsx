@@ -41,18 +41,44 @@ describe('JobCard operational notes', () => {
     host.remove();
   });
 
-  it('shows helper copy that notes do not change job status', async () => {
+  it('renders the notes heading, field label, placeholder and empty state without helper boilerplate', async () => {
     const load = vi.fn().mockResolvedValue(emptyPage);
     const add = vi.fn();
     await act(async () => root.render(
       <JobNotes jobId="job-1" load={load} add={add} createActionId={() => 'action-1'} />,
     ));
     await act(async () => {});
-    expect(host.textContent).toContain('Notlar iş durumunu değiştirmez');
-    expect(host.textContent).toContain('Müşteri uygunluğu');
-    expect(host.textContent).toContain('hazırlık durumu');
-    expect(host.textContent).toContain('bir sonraki adım');
+    expect(host.textContent).toContain('Notlar');
+    expect(host.textContent).toContain('İş notu');
     expect(host.textContent).toContain('Henüz iş notu yok');
+    expect(host.textContent).not.toContain('iş durumunu değiştirmez');
+    expect(host.textContent).not.toContain('Müşteri uygunluğu');
+    expect(host.textContent).not.toContain('yetkili kullanıcılar');
+  });
+
+  it('hides the counter above 500 remaining and reveals it progressively', async () => {
+    const { load } = await renderNotes();
+    const textarea = host.querySelector<HTMLTextAreaElement>('textarea#job-note')!;
+    expect(host.textContent).not.toContain('karakter kaldı');
+
+    const setDraft = async (value: string) => {
+      const prototype = HTMLTextAreaElement.prototype;
+      Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(textarea, value);
+      await act(async () => {
+        textarea.dispatchEvent(new Event('input', { bubbles: true }));
+        await Promise.resolve();
+      });
+    };
+
+    await setDraft('a'.repeat(3_500));
+    const counter = host.querySelector('[data-job-note-counter]');
+    expect(counter).not.toBeNull();
+    expect(counter!.textContent).toContain('500 karakter kaldı');
+    expect(counter!.getAttribute('data-counter-state')).toBe('normal');
+
+    await setDraft('a'.repeat(3_900));
+    expect(host.querySelector('[data-job-note-counter]')!.getAttribute('data-counter-state'))
+      .toBe('attention');
   });
 
   it('offers a short domain-appropriate placeholder inside the existing note composer', async () => {

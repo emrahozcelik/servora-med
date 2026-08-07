@@ -44,7 +44,6 @@ export function JobDecisionPanel({
       Konum, iş başlangıcını operasyonel olarak kayıt altına almak amacıyla yetkili
       kullanıcıların görebildiği iş geçmişinde saklanır. Konum alınamazsa iş yine başlar.
     </p>}
-    {primary?.consequence && <p className="detail-action-consequence">{primary.consequence}</p>}
     <div className="review-buttons">
       {primary && <button
         className="primary-button compact-button"
@@ -75,7 +74,6 @@ export function JobDecisionPanel({
     </div>
     {recordEditAction && <div className="detail-action-record-edit">
       <hr className="detail-action-lifecycle-end" role="none" />
-      <p className="detail-action-consequence">{recordEditAction.consequence}</p>
       <button
         className="secondary-button compact-button"
         type="button"

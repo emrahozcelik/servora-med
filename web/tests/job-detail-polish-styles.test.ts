@@ -30,4 +30,11 @@ describe('job detail desktop polish — styles source contract', () => {
     const scheduleActions = ruleFor('.job-schedule-edit .review-buttons');
     expect(scheduleActions).toMatch(/margin-top:\s*1rem/);
   });
+
+  it('scopes the job detail workflow action group to left alignment', () => {
+    const scoped = ruleFor('.job-detail-workflow-main .review-buttons');
+    expect(scoped).toContain('justify-content: flex-start');
+    const global = ruleFor('.review-buttons');
+    expect(global).toContain('justify-content: flex-end');
+  });
 });
