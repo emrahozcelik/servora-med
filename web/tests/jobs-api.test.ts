@@ -36,6 +36,7 @@ const job = {
 };
 const note = {
   id: 'note-1', jobCardId: 'job-1', note: 'Klinik arandı',
+  invoiceNumber: null,
   author: {
     ...related('s1', 'Ayşe Personel'),
     role: 'STAFF',

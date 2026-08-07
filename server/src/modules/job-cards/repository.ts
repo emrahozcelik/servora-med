@@ -110,6 +110,7 @@ export type CreateNoteRecord = {
   context: JobCardOperationalNoteContext;
   relatedActivityId: string;
   note: string;
+  invoiceNumber: string | null;
 };
 export type NoteAuthorSnapshot = Pick<JobCardAssignee, 'id' | 'role' | 'isActive'> & {
   name: string;
@@ -427,7 +428,7 @@ type DeliveryRow = {
 };
 type NoteRow = {
   id: string; job_card_id: string; note: string; author_id: string;
-  author_name: string; author_name_snapshot: string | null;
+  invoice_number: string | null; author_name: string; author_name_snapshot: string | null;
   author_role_snapshot: JobCardAssignee['role'] | null;
   workflow_stage: JobCardStatus | null;
   context: JobCardOperationalNoteContext | null;
@@ -509,6 +510,7 @@ function mapNote(row: NoteRow): JobCardNoteDto {
       id: row.id,
       jobCardId: row.job_card_id,
       note: row.note,
+      invoiceNumber: row.invoice_number,
       author: {
         id: row.author_id,
         name: row.author_name_snapshot!,
@@ -526,6 +528,7 @@ function mapNote(row: NoteRow): JobCardNoteDto {
     id: row.id,
     jobCardId: row.job_card_id,
     note: row.note,
+    invoiceNumber: row.invoice_number,
     author: {
       id: row.author_id,
       name: row.author_name,
@@ -1099,16 +1102,17 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     const result = await this.client.query<NoteRow>(
       `WITH inserted AS (
          INSERT INTO job_card_notes (
-           id, organization_id, job_card_id, author_id, note,
+           id, organization_id, job_card_id, author_id, note, invoice_number,
            author_name_snapshot, author_role_snapshot, workflow_stage,
            context, related_activity_id, record_version
          )
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, 1)
-         RETURNING id, organization_id, job_card_id, author_id, note,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 1)
+         RETURNING id, organization_id, job_card_id, author_id, note, invoice_number,
            author_name_snapshot, author_role_snapshot, workflow_stage,
            context, related_activity_id, record_version, created_at
        )
-       SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name,
+       SELECT n.id, n.job_card_id, n.note, n.author_id, n.invoice_number,
+         u.name AS author_name,
          n.author_name_snapshot, n.author_role_snapshot, n.workflow_stage,
          n.context, n.related_activity_id, n.record_version, n.created_at
        FROM inserted n
@@ -1119,6 +1123,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         input.jobCardId,
         input.authorId,
         input.note,
+        input.invoiceNumber,
         input.authorNameSnapshot,
         input.authorRoleSnapshot,
         input.workflowStage,
@@ -1854,7 +1859,8 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
         ]
       : [organizationId, jobCardId, page.limit + 1];
     const result = await this.pool.query<NoteListRow>(
-      `SELECT n.id, n.job_card_id, n.note, n.author_id, u.name AS author_name,
+      `SELECT n.id, n.job_card_id, n.note, n.author_id, n.invoice_number,
+         u.name AS author_name,
          n.author_name_snapshot, n.author_role_snapshot, n.workflow_stage,
          n.context, n.related_activity_id, n.record_version, n.created_at,
          to_char(

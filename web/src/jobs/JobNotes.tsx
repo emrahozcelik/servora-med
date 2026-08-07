@@ -6,6 +6,7 @@ import { ProgressiveCounter } from '../ui/ProgressiveCounter';
 import {
   addJobCardNote,
   listJobCardNotes,
+  type JobCard,
   type JobCardNote,
   type JobCardNoteCursor,
   type JobCardNotePage,
@@ -42,6 +43,7 @@ export function JobNotes({
   hideWhenEmpty = false,
   refreshKey = 0,
   realtimeKey = 0,
+  jobType = null,
 }: {
   jobId: string;
   load?: typeof listJobCardNotes;
@@ -52,15 +54,18 @@ export function JobNotes({
   hideWhenEmpty?: boolean;
   refreshKey?: number;
   realtimeKey?: number;
+  jobType?: JobCard['type'] | null;
 }) {
   const [reloadKey, setReloadKey] = useState(0);
   const [state, setState] = useState<NotesState>({ kind: 'loading' });
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [draft, setDraft] = useState('');
+  const [invoiceDraft, setInvoiceDraft] = useState('');
   const [draftError, setDraftError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [pending, setPending] = useState(false);
-  const actionRef = useRef<{ id: string; note: string } | null>(null);
+  const actionRef = useRef<{ id: string; note: string; invoiceNumber: string | null } | null>(null);
+  const showInvoiceField = jobType === 'SALES_MEETING' || jobType === 'PRODUCT_DELIVERY';
 
   useEffect(() => {
     let active = true;
@@ -117,6 +122,15 @@ export function JobNotes({
     setSubmitError('');
   }
 
+  function updateInvoiceDraft(value: string) {
+    const invoiceNumber = value.trim() || null;
+    if (actionRef.current && actionRef.current.invoiceNumber !== invoiceNumber) {
+      actionRef.current = null;
+    }
+    setInvoiceDraft(value);
+    setSubmitError('');
+  }
+
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const note = draft.trim();
@@ -125,15 +139,21 @@ export function JobNotes({
       setDraftError('Not 1 ile 4.000 karakter arasında olmalıdır.');
       return;
     }
-    const action = actionRef.current?.note === note
-      ? actionRef.current : { id: createActionId(), note };
+    const invoiceNumber = invoiceDraft.trim() || null;
+    const action = actionRef.current?.note === note && actionRef.current?.invoiceNumber === invoiceNumber
+      ? actionRef.current : { id: createActionId(), note, invoiceNumber };
     actionRef.current = action;
     setPending(true);
     setSubmitError('');
     try {
-      const created = await add(jobId, { clientActionId: action.id, note });
+      const created = await add(jobId, {
+        clientActionId: action.id,
+        note,
+        ...(invoiceNumber ? { invoiceNumber } : {}),
+      });
       actionRef.current = null;
       setDraft('');
+      setInvoiceDraft('');
       setState((current) => current.kind !== 'ready'
         ? current
         : {
@@ -192,6 +212,13 @@ export function JobNotes({
         {remaining} karakter kaldı
       </ProgressiveCounter>}</div>
     {canAdd && <form onSubmit={submit} noValidate>
+      {showInvoiceField && <div className="field-group">
+        <label htmlFor="job-note-invoice">Fatura numarası</label>
+        <input id="job-note-invoice" name="invoiceNumber" type="text" maxLength={100}
+          value={invoiceDraft} disabled={pending}
+          placeholder="Örn: FT-2026-00124"
+          onChange={(event) => updateInvoiceDraft(event.target.value)} />
+      </div>}
       <div className="field-group">
         <label htmlFor="job-note">İş notu</label>
         <textarea id="job-note" name="note" rows={4} value={draft} disabled={pending}
@@ -215,6 +242,7 @@ export function JobNotes({
       ? <EmptyState title="Henüz iş notu yok" />
       : <ul className="job-note-list">{state.page.items.map((note) => <li key={note.id}>
         <p className="job-note-body">{note.note}</p><div className="job-note-meta"><strong>{note.author.name}</strong>
+          {note.invoiceNumber && <span className="job-note-invoice">Fatura: {note.invoiceNumber}</span>}
           {note.recordVersion === 1 && <>
             <span>{contextLabels[note.context]}</span>
             <span>{roleLabels[note.author.role]}</span>

@@ -170,7 +170,8 @@ export type JobCardBoard = {
   closedCounts: { COMPLETED: number; CANCELLED: number };
 };
 type JobCardNoteBase = {
-  id: string; jobCardId: string; note: string; createdAt: string;
+  id: string; jobCardId: string; note: string;
+  invoiceNumber: string | null; createdAt: string;
 };
 export type JobCardNote = JobCardNoteBase & (
   | {
@@ -536,6 +537,8 @@ function parseNote(value: unknown): JobCardNote {
     id: string(v.id, 'id'),
     jobCardId: string(v.jobCardId, 'jobCardId'),
     note: string(v.note, 'note'),
+    invoiceNumber: v.invoiceNumber === null || v.invoiceNumber === undefined
+      ? null : string(v.invoiceNumber, 'invoiceNumber'),
     createdAt: string(v.createdAt, 'createdAt'),
   };
   const author = object(v.author);
@@ -726,7 +729,9 @@ export const listJobCardNotes = async (
   beforeCreatedAt: page.before?.createdAt,
   beforeId: page.before?.id,
 })}`));
-export const addJobCardNote = async (id: string, input: { clientActionId: string; note: string }) =>
+export const addJobCardNote = async (id: string, input: {
+  clientActionId: string; note: string; invoiceNumber?: string;
+}) =>
   parseNote(await request(`${jobPath(id)}/notes`, json('POST', input)));
 export const listActivity = async (id: string, page: Partial<{ limit: number; offset: number }> = {}) =>
   parsePage(await request(`${jobPath(id)}/activity${query(page)}`), parseActivity);

@@ -1469,6 +1469,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     notes={viewNotes ? (
       <JobNotes
         jobId={jobId}
+        jobType={detail.job.type}
         canAdd={addNote}
         hideWhenEmpty={detail.job.status === 'CANCELLED'}
         refreshKey={lifecycleNoteKey}
