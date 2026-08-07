@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError } from '../services/api';
 import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
+import { ProgressiveCounter } from '../ui/ProgressiveCounter';
 import {
   addJobCardNote,
   listJobCardNotes,
@@ -187,20 +188,18 @@ export function JobNotes({
   if (hideWhenEmpty && state.kind === 'ready' && state.page.items.length === 0) return null;
   return <section className="job-notes surface" aria-labelledby="job-notes-title">
     <div className="detail-section-heading"><h2 id="job-notes-title">Notlar</h2>
-      {canAdd && <span aria-live="polite">{remaining} karakter kaldı</span>}</div>
-    <p className="job-notes-help">
-      Notlar iş durumunu değiştirmez. Müşteri uygunluğu, hazırlık durumu veya bir sonraki adım gibi kısa ekip notları ekleyebilirsiniz.
-    </p>
+      {canAdd && <ProgressiveCounter remaining={remaining} dataCounter="job-note">
+        {remaining} karakter kaldı
+      </ProgressiveCounter>}</div>
     {canAdd && <form onSubmit={submit} noValidate>
       <div className="field-group">
         <label htmlFor="job-note">İş notu</label>
         <textarea id="job-note" name="note" rows={4} value={draft} disabled={pending}
           placeholder="Örn: Müşteri 14:00 sonrası uygun; teslim tarihi teyit edilecek."
           aria-invalid={draftError ? 'true' : undefined}
-          aria-describedby="job-note-help job-note-error"
+          aria-describedby="job-note-error"
           onChange={(event) => updateDraft(event.target.value)} />
       </div>
-      <p id="job-note-help" className="form-help">Bu not, iş geçmişinde yetkili kullanıcılar tarafından görülebilir.</p>
       {draftError && <p id="job-note-error" className="field-error" role="alert">{draftError}</p>}
       {submitError && <p className="field-error" role="alert">{submitError}</p>}
       <button className="primary-button compact-button" type="submit" disabled={pending}>

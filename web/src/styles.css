@@ -1667,6 +1667,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-detail-workflow-main .detail-action {
   margin-top: 0;
 }
+.job-detail-workflow-main .review-buttons {
+  justify-content: flex-start;
+}
 .job-detail-workflow-main .detail-action.surface-flat {
   margin-top: 0;
 }

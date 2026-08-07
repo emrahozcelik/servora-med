@@ -420,7 +420,7 @@ describe('Manager review', () => {
     expect(html).toContain('role="dialog"');
     expect(html).toContain('aria-modal="true"');
     expect(html).toContain('Düzeltme nedeni');
-    expect(html).toContain('2.000 karakter kaldı');
+    expect(html).not.toContain('karakter kaldı');
     expect(html).toContain('Vazgeç');
     expect(html).toContain('Düzeltme için geri gönder');
     expect(html).not.toContain('>Onayla<');

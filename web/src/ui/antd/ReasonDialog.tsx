@@ -15,6 +15,8 @@ import {
   restoreFocus,
   trapTabKey,
 } from './overlay-focus';
+import { counterState } from '../counter-policy';
+import { ProgressiveCounter } from '../ProgressiveCounter';
 
 export type ReasonDialogProps = {
   open: boolean;
@@ -173,7 +175,7 @@ export function ReasonDialog({
               aria-invalid={error ? 'true' : undefined}
               aria-describedby={[
                 helperText ? helpId : null,
-                counterId,
+                counterState(maxLength - Array.from(reason.trim()).length) !== 'hidden' ? counterId : null,
                 error ? errorId : null,
               ].filter(Boolean).join(' ')}
               onChange={(event) => {
@@ -185,9 +187,11 @@ export function ReasonDialog({
             />
           </div>
           {helperText && <p id={helpId} className="form-help">{helperText}</p>}
-          <p id={counterId} className="form-help" aria-live="polite">
-            {Math.max(0, maxLength - Array.from(reason.trim()).length).toLocaleString('tr-TR')} karakter kaldı
-          </p>
+          <ProgressiveCounter
+            remaining={maxLength - Array.from(reason.trim()).length}
+            dataCounter="reason"
+          >{Math.max(0, maxLength - Array.from(reason.trim()).length).toLocaleString('tr-TR')} karakter kaldı
+          </ProgressiveCounter>
           {error && (
             <p id={errorId} className="field-error" role="alert">{error}</p>
           )}

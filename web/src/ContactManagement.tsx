@@ -43,7 +43,8 @@ export function ContactListView({ state, canManage, createButtonRef, onRetry, on
     {state.kind === 'error' && <ResultState status="error" title="İlgili kişiler yüklenemedi" description={state.message} headingLevel={3}
       action={state.retryable ? <button className="secondary-button" type="button" onClick={onRetry}>Tekrar dene</button> : undefined}
     />}
-    {state.kind === 'ready' && state.contacts.length === 0 && <EmptyState title="Henüz ilgili kişi yok" description="Doktor, satın alma sorumlusu veya sekreter bilgileri burada görünür." headingLevel={3} />}
+    {state.kind === 'ready' && state.contacts.length === 0 && <EmptyState title="Henüz ilgili kişi yok"
+      description={canManage ? 'İlk ilgili kişiyi ekleyin.' : undefined} headingLevel={3} />}
     {state.kind === 'ready' && state.contacts.length > 0 && <ul className="contact-list">{state.contacts.map((contact) => <li key={contact.id}>
       <article className="contact-row contact-list-card" data-contact-id={contact.id}
         onClick={(event) => openCardIfEmpty(event, onOpenContact, contact.customerId, contact.id)}>

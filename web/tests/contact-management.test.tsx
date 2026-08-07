@@ -21,6 +21,10 @@ describe('Contact management', () => {
   it('renders loading, empty, retryable error, and structured ready states without open/status chrome', () => {
     expect(renderToStaticMarkup(<ContactListView state={{ kind: 'loading' }} canManage={false} onRetry={() => {}} onCreate={() => {}} />)).toContain('aria-busy="true"');
     expect(renderToStaticMarkup(<ContactListView state={{ kind: 'ready', contacts: [] }} canManage onRetry={() => {}} onCreate={() => {}} />)).toContain('Henüz ilgili kişi yok');
+    expect(renderToStaticMarkup(<ContactListView state={{ kind: 'ready', contacts: [] }} canManage onRetry={() => {}} onCreate={() => {}} />)).toContain('İlk ilgili kişiyi ekleyin.');
+    const noManage = renderToStaticMarkup(<ContactListView state={{ kind: 'ready', contacts: [] }} canManage={false} onRetry={() => {}} onCreate={() => {}} />);
+    expect(noManage).toContain('Henüz ilgili kişi yok');
+    expect(noManage).not.toContain('ekleyin');
     const error = renderToStaticMarkup(<ContactListView state={{ kind: 'error', message: 'Yüklenemedi.', retryable: true }} canManage onRetry={() => {}} onCreate={() => {}} />);
     expect(error).toContain('role="alert"'); expect(error).toContain('Tekrar dene');
     const ready = renderToStaticMarkup(<MemoryRouter><ContactListView state={{ kind: 'ready', contacts: [primary, secondary] }} canManage

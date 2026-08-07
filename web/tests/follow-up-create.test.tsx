@@ -286,4 +286,19 @@ describe('Follow-up create page', () => {
     expect(jobs.createFollowUp.mock.calls[1]?.[1].clientActionId).toBe('action-1');
     expect(onCreated).toHaveBeenCalledWith('created-3');
   });
+
+  it('hides the follow-up counter above 500 remaining and reveals it within the threshold', async () => {
+    await render();
+    const textarea = host.querySelector<HTMLTextAreaElement>('#follow-up-instructions')!;
+    expect(host.textContent).not.toContain('karakter');
+    const setDraft = async (value: string) => {
+      change(textarea, value);
+      await act(async () => { await Promise.resolve(); });
+    };
+    await setDraft('a'.repeat(3_500));
+    expect(host.textContent).toContain('3500/4000 karakter');
+    await setDraft('a'.repeat(3_900));
+    expect(host.querySelector('[data-follow-up-instructions-counter]')!.getAttribute('data-counter-state'))
+      .toBe('attention');
+  });
 });
