@@ -200,13 +200,21 @@ export class MessagingService {
         );
 
     // JOB: canonical identity is org + job, never the participant set.
-    // If the canonical thread already exists, open it as-is: M4 never treats
-    // a repeated create as an instruction to change existing membership.
+    // An existing canonical thread may only be returned to someone who is
+    // ALREADY a persisted participant (M3: resource authorization alone is
+    // never Messaging membership). Submitted participant lists never change
+    // existing membership, and the caller is never added implicitly.
     if (contextType === 'JOB' && jobId) {
       const canonical = await this.repository.findCanonicalJobConversation(
         actor.organizationId, jobId,
       );
       if (canonical) {
+        const canonicalParticipants = await this.repository.findParticipantsWithUsers(
+          actor.organizationId, canonical.id,
+        );
+        if (!canonicalParticipants.some((p) => p.userId === actor.id)) {
+          throw forbidden();
+        }
         let canonicalJobTitle: string | null = null;
         const jobResult = await this.pool.query<{ title: string }>(
           `SELECT title FROM job_cards
@@ -214,9 +222,6 @@ export class MessagingService {
           [actor.organizationId, jobId],
         );
         canonicalJobTitle = jobResult.rows[0]?.title ?? null;
-        const canonicalParticipants = await this.repository.findParticipantsWithUsers(
-          actor.organizationId, canonical.id,
-        );
         return {
           id: canonical.id,
           directKey: canonical.directKey,
@@ -307,6 +312,9 @@ export class MessagingService {
         const participants = await tx.findParticipantsWithUsers(
           actor.organizationId, conversation.id,
         );
+        if (!participants.some((p) => p.userId === actor.id)) {
+          throw forbidden();
+        }
         return {
           result: {
             id: conversation.id,

@@ -2,10 +2,13 @@ import { randomUUID } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import { fileURLToPath } from 'node:url';
 
+import Fastify, { type preHandlerHookHandler } from 'fastify';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Pool } from 'pg';
 
 import { MessagingService } from '../src/modules/messaging/service.js';
+import { messagingRoutes } from '../src/modules/messaging/routes.js';
+import { toErrorResponse } from '../src/errors/index.js';
 import type { SafeUser } from '../src/modules/auth/types.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -33,6 +36,7 @@ type Fixture = {
   orgA: string;
   orgB: string;
   adminA: SafeUser;
+  adminB: SafeUser;
   managerA: SafeUser;
   staff1A: SafeUser;
   staff2A: SafeUser;
@@ -81,6 +85,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     }
 
     const adminA = await user(orgA, 'Admin A', 'ADMIN');
+    const adminB = await user(orgA, 'Admin B', 'ADMIN');
     const managerA = await user(orgA, 'Manager A', 'MANAGER');
     const staff1A = await user(orgA, 'Staff 1 A', 'STAFF');
     const staff2A = await user(orgA, 'Staff 2 A', 'STAFF');
@@ -114,7 +119,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     )).rows[0]!.id;
 
     await run({
-      pool, orgA, orgB, adminA, managerA, staff1A, staff2A, staff3A,
+      pool, orgA, orgB, adminA, adminB, managerA, staff1A, staff2A, staff3A,
       inactiveStaffA, staffB, job1A, job2A, customer1A,
     });
   } finally {
@@ -438,6 +443,192 @@ describe('M4 initial multi-participant create contract', () => {
       expect(second.participants.map((p) => p.userId).sort()).toEqual(
         [adminA.id, staff1A.id, staff2A.id].sort(),
       );
+    });
+  });
+
+  // --- Canonical JOB existing-thread authorization (M4 security remediation) ---
+
+  async function canonicalJobMembership(pool: Pool, conversationId: string): Promise<string[]> {
+    const rows = await pool.query(
+      `SELECT user_id FROM conversation_participants WHERE conversation_id = $1 ORDER BY user_id`,
+      [conversationId],
+    );
+    return rows.rows.map((r) => r.user_id);
+  }
+
+  itSlow('canonical JOB: non-participant ADMIN create/get is denied with 403 and no side effects', async () => {
+    await withFixture(async ({ pool, orgA, adminA, adminB, staff1A, job1A }) => {
+      const svc = service(pool);
+      const canonical = await svc.createOrGetConversation(adminA, {
+        participantUserIds: [staff1A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+
+      await expect(
+        svc.createOrGetConversation(adminB, {
+          participantUserIds: [staff1A.id],
+          contextType: 'JOB',
+          jobId: job1A,
+        }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+
+      expect(await canonicalJobMembership(pool, canonical.id)).toEqual(
+        [adminA.id, staff1A.id].sort(),
+      );
+      const convCount = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM conversations WHERE organization_id = $1 AND context_type = 'JOB'`,
+        [orgA],
+      )).rows[0]!.c;
+      expect(convCount).toBe(1);
+      const activityCount = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM messaging_activity_logs WHERE conversation_id = $1`,
+        [canonical.id],
+      )).rows[0]!.c;
+      expect(activityCount).toBe(1);
+      const realtimeCount = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM realtime_events WHERE messaging_activity_id IS NOT NULL`,
+        [],
+      )).rows[0]!.c;
+      expect(realtimeCount).toBe(1);
+    });
+  });
+
+  itSlow('canonical JOB: non-participant MANAGER (Job resource authorized) is denied — resource auth alone grants no membership', async () => {
+    await withFixture(async ({ pool, orgA, adminA, managerA, staff1A, job1A }) => {
+      const svc = service(pool);
+      const canonical = await svc.createOrGetConversation(adminA, {
+        participantUserIds: [staff1A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+
+      // managerA is Job-resource authorized (non-STAFF reaches org JobCards)
+      // and is the team manager of staff1A, but is NOT a Messaging participant.
+      await expect(
+        svc.createOrGetConversation(managerA, {
+          participantUserIds: [staff1A.id],
+          contextType: 'JOB',
+          jobId: job1A,
+        }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+
+      expect(await canonicalJobMembership(pool, canonical.id)).toEqual(
+        [adminA.id, staff1A.id].sort(),
+      );
+    });
+  });
+
+  itSlow('canonical JOB: persisted participant retry returns same conversation, membership unchanged even with a different submitted list', async () => {
+    await withFixture(async ({ pool, orgA, adminA, staff1A, staff2A, job1A }) => {
+      const svc = service(pool);
+      const first = await svc.createOrGetConversation(adminA, {
+        participantUserIds: [staff1A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+
+      const retry = await svc.createOrGetConversation(adminA, {
+        participantUserIds: [staff1A.id, staff2A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+
+      expect(retry.id).toBe(first.id);
+      expect(retry.participants.map((p) => p.userId).sort()).toEqual(
+        [adminA.id, staff1A.id].sort(),
+      );
+      expect(await canonicalJobMembership(pool, first.id)).toEqual(
+        [adminA.id, staff1A.id].sort(),
+      );
+      const convCount = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM conversations WHERE organization_id = $1 AND context_type = 'JOB' AND job_id = $2`,
+        [orgA, job1A],
+      )).rows[0]!.c;
+      expect(convCount).toBe(1);
+    });
+  });
+
+  itSlow('canonical JOB: denied non-participant create/get adds no participant, activity or realtime event', async () => {
+    await withFixture(async ({ pool, orgA, adminA, adminB, staff1A, job1A }) => {
+      const svc = service(pool);
+      const canonical = await svc.createOrGetConversation(adminA, {
+        participantUserIds: [staff1A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+
+      const participantsBefore = await canonicalJobMembership(pool, canonical.id);
+      const activityBefore = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM messaging_activity_logs WHERE conversation_id = $1`,
+        [canonical.id],
+      )).rows[0]!.c;
+      const realtimeBefore = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM realtime_events WHERE messaging_activity_id IS NOT NULL`,
+        [],
+      )).rows[0]!.c;
+
+      await expect(
+        svc.createOrGetConversation(adminB, {
+          participantUserIds: [staff1A.id],
+          contextType: 'JOB',
+          jobId: job1A,
+        }),
+      ).rejects.toMatchObject({ statusCode: 403 });
+
+      expect(await canonicalJobMembership(pool, canonical.id)).toEqual(participantsBefore);
+      const activityAfter = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM messaging_activity_logs WHERE conversation_id = $1`,
+        [canonical.id],
+      )).rows[0]!.c;
+      expect(activityAfter).toBe(activityBefore);
+      const realtimeAfter = (await pool.query(
+        `SELECT COUNT(*)::int AS c FROM realtime_events WHERE messaging_activity_id IS NOT NULL`,
+        [],
+      )).rows[0]!.c;
+      expect(realtimeAfter).toBe(realtimeBefore);
+    });
+  });
+
+  itSlow('HTTP: canonical JOB create/get for a non-participant admin returns 403 with no conversation metadata', async () => {
+    await withFixture(async ({ pool, adminA, adminB, staff1A, job1A }) => {
+      const svc = service(pool);
+      const canonical = await svc.createOrGetConversation(adminA, {
+        participantUserIds: [staff1A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+
+      const app = Fastify({ logger: false });
+      app.setErrorHandler((error, _request, reply) => {
+        const response = toErrorResponse(error);
+        reply.code(response.statusCode).send(response.body);
+      });
+      const authenticate: preHandlerHookHandler = async (request) => {
+        (request as { currentUser?: SafeUser }).currentUser = adminB;
+      };
+      await app.register(messagingRoutes, {
+        prefix: '/api/messaging',
+        service: svc,
+        authenticate,
+      });
+
+      const res = await app.inject({
+        method: 'POST',
+        url: '/api/messaging/conversations',
+        payload: { participantUserIds: [staff1A.id], contextType: 'JOB', jobId: job1A },
+      });
+
+      expect(res.statusCode).toBe(403);
+      const body = JSON.parse(res.body) as Record<string, unknown>;
+      expect(body.id).toBeUndefined();
+      expect(body.jobTitle).toBeUndefined();
+      expect(body.participants).toBeUndefined();
+      expect(body.participantName).toBeUndefined();
+      expect(res.body).not.toContain(canonical.id);
+      expect(res.body).not.toContain(staff1A.id);
+      expect(res.body).not.toContain(staff1A.name);
+      await app.close();
     });
   });
 });
