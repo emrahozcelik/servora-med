@@ -7,6 +7,7 @@ export type Conversation = {
   jobId: string | null;
   jobTitle: string | null;
   customerId: string | null;
+  customerName: string | null;
   title: string | null;
   participantName: string;
   participantId: string;
@@ -60,6 +61,7 @@ function parseConversation(value: unknown): Conversation {
     jobId: nullableString(v.jobId, 'jobId'),
     jobTitle: nullableString(v.jobTitle, 'jobTitle'),
     customerId: nullableString(v.customerId, 'customerId'),
+    customerName: nullableString(v.customerName, 'customerName'),
     title: nullableString(v.title, 'title'),
     participantName: string(v.participantName, 'participantName'),
     participantId: string(v.participantId, 'participantId'),
@@ -123,13 +125,23 @@ export async function listRecipients(): Promise<Recipient[]> {
   return list.map(parseRecipient);
 }
 
-export async function createOrGetConversation(
-  recipientUserId: string,
-  contextType: 'GENERAL' | 'JOB' = 'GENERAL',
-  jobId?: string | null,
-): Promise<Conversation> {
-  const body: Record<string, unknown> = { recipientUserId, contextType };
-  if (jobId) body.jobId = jobId;
+export type CreateConversationInput = {
+  contextType: 'GENERAL' | 'JOB' | 'CUSTOMER';
+  jobId?: string | null;
+  customerId?: string | null;
+  title?: string | null;
+  /** Explicit initial participants. The creator is always added by the server. */
+  participantUserIds: string[];
+};
+
+export async function createOrGetConversation(input: CreateConversationInput): Promise<Conversation> {
+  const body: Record<string, unknown> = {
+    contextType: input.contextType,
+    participantUserIds: input.participantUserIds,
+  };
+  if (input.jobId) body.jobId = input.jobId;
+  if (input.customerId) body.customerId = input.customerId;
+  if (input.title) body.title = input.title;
   const data = await request('/api/messaging/conversations', json('POST', body));
   return parseConversation(data);
 }
