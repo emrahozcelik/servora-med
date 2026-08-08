@@ -2,6 +2,7 @@ import type { Pool } from 'pg';
 import { randomUUID } from 'node:crypto';
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
+import type { JobCardStatus } from '../job-cards/types.js';
 import type { RealtimeEventPublisher } from '../realtime/event-bus.js';
 import type { RealtimeEventInput } from '../realtime/types.js';
 import type {
@@ -18,6 +19,12 @@ import type {
   RecipientListItem,
   MessagingNotificationInput,
 } from './types.js';
+import {
+  canReadConversation,
+  canSendMessage,
+  isLegacyGeneralConversation,
+  type JobAccessContext,
+} from './policy.js';
 import {
   PostgresMessagingRepository,
   PostgresMessagingTransaction,
@@ -104,7 +111,9 @@ export class MessagingService {
     limit: number,
   ): Promise<ConversationListPage> {
     this.requireEnabled();
-    return this.repository.listConversations(actor.organizationId, actor.id, cursor, limit);
+    return this.repository.listConversations(
+      actor.organizationId, actor.id, actor.role, cursor, limit,
+    );
   }
 
   async createOrGetConversation(
@@ -339,20 +348,27 @@ export class MessagingService {
 
       const participants = await tx.findAllParticipants(actor.organizationId, conversation.id);
       const participantIds = participants.map((p) => p.userId);
-      if (!participantIds.includes(actor.id)) {
+      const isParticipant = participantIds.includes(actor.id);
+      if (!isParticipant) {
         throw forbidden();
       }
 
-      // Legacy 2-party conversations keep the existing pairwise
-      // reauthorization (including the known Staff JOB reply restriction,
-      // intentionally preserved until M3). N-participant threads cannot be
-      // created through any M2 API and service SEND is intentionally
-      // unsupported until M3 supplies resource-based contextual
-      // authorization — fail closed rather than bypass the pairwise checks.
-      if (participants.length === 2) {
-        const otherParticipant = participants.find((p) => p.userId !== actor.id)!;
-        await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
-      } else {
+      // Legacy titleless GENERAL direct conversations keep the pre-M3
+      // pairwise reauthorization policy (N=2 only; N>2 stays fail-closed).
+      // All contextual conversations (JOB, CUSTOMER, titled GENERAL) use the
+      // resource-based policy: membership + current JobCard authorization.
+      let jobAccess: JobAccessContext | null = null;
+      if (conversation.contextType === 'JOB' && conversation.jobId) {
+        jobAccess = await this.fetchJobAccess(actor.organizationId, conversation.jobId);
+      }
+      if (isLegacyGeneralConversation(conversation)) {
+        if (participants.length === 2) {
+          const otherParticipant = participants.find((p) => p.userId !== actor.id)!;
+          await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
+        } else {
+          throw forbidden();
+        }
+      } else if (!canSendMessage({ actor, conversation, job: jobAccess, isParticipant })) {
         throw forbidden();
       }
 
@@ -380,9 +396,20 @@ export class MessagingService {
 
       const now = new Date();
 
-      // Persist realtime event
+      // Persist realtime event. The audience is derived from conversation
+      // participants, restricted for JOB conversations to users who currently
+      // have access to the underlying JobCard (stale/unassigned Staff are
+      // excluded and must not receive activity for threads they can no longer
+      // read).
       let realtimeEventId: bigint | null = null;
+      let audienceUserIds: readonly string[] = [...participantIds];
       if (activity) {
+        if (conversation.contextType === 'JOB') {
+          const authorized = await tx.findJobAuthorizedAudience(
+            actor.organizationId, conversation.id, jobAccess?.assignedTo ?? '',
+          );
+          audienceUserIds = authorized;
+        }
         realtimeEventId = await tx.appendRealtimeEvent({
           organizationId: actor.organizationId,
           messagingActivityId: activity.id,
@@ -391,7 +418,7 @@ export class MessagingService {
           entityId: conversation.id,
           actorUserId: actor.id,
           audienceRoles: [],
-          audienceUserIds: [...participantIds],
+          audienceUserIds: [...audienceUserIds],
           resourceKeys: [
             'conversations',
             `conversation:${conversationId}`,
@@ -402,8 +429,8 @@ export class MessagingService {
           occurredAt: now,
         });
 
-        // Persist in-app notifications for other participants
-        const notificationRecipients = participantIds.filter((uid) => uid !== actor.id);
+        // Persist in-app notifications for authorized other participants
+        const notificationRecipients = audienceUserIds.filter((uid) => uid !== actor.id);
         if (notificationRecipients.length > 0 && realtimeEventId != null) {
           const notificationIds = await tx.appendNotifications({
             organizationId: actor.organizationId,
@@ -439,7 +466,7 @@ export class MessagingService {
             entityType: 'conversation',
             entityId: conversation.id,
             actorUserId: actor.id,
-            audience: { roles: [], userIds: [...participantIds] },
+            audience: { roles: [], userIds: [...audienceUserIds] },
             resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread', 'overview', 'notifications'],
             occurredAt: now,
           },
@@ -459,10 +486,19 @@ export class MessagingService {
   ): Promise<MessagePage> {
     this.requireEnabled();
 
+    const conversation = await this.repository.findConversationById(
+      actor.organizationId, conversationId,
+    );
+    if (!conversation) throw notFound();
+
     const participants = await this.repository.findParticipants(
       actor.organizationId, conversationId,
     );
-    if (!participants.some((p) => p.userId === actor.id)) {
+    const isParticipant = participants.some((p) => p.userId === actor.id);
+    const jobAccess = conversation.contextType === 'JOB' && conversation.jobId
+      ? await this.fetchJobAccess(actor.organizationId, conversation.jobId)
+      : null;
+    if (!canReadConversation({ actor, conversation, job: jobAccess, isParticipant })) {
       throw forbidden();
     }
 
@@ -478,10 +514,19 @@ export class MessagingService {
   ): Promise<void> {
     this.requireEnabled();
 
+    const conversation = await this.repository.findConversationById(
+      actor.organizationId, conversationId,
+    );
+    if (!conversation) throw notFound();
+
     const participants = await this.repository.findParticipants(
       actor.organizationId, conversationId,
     );
-    if (!participants.some((p) => p.userId === actor.id)) {
+    const isParticipant = participants.some((p) => p.userId === actor.id);
+    const jobAccess = conversation.contextType === 'JOB' && conversation.jobId
+      ? await this.fetchJobAccess(actor.organizationId, conversation.jobId)
+      : null;
+    if (!canReadConversation({ actor, conversation, job: jobAccess, isParticipant })) {
       throw forbidden();
     }
 
@@ -642,6 +687,27 @@ export class MessagingService {
     } finally {
       client.release();
     }
+  }
+
+  private async fetchJobAccess(
+    organizationId: string,
+    jobId: string,
+  ): Promise<JobAccessContext | null> {
+    const result = await this.pool.query<{
+      status: JobCardStatus;
+      assigned_to: string;
+    }>(
+      `SELECT status, assigned_to FROM job_cards
+        WHERE organization_id = $1 AND id = $2`,
+      [organizationId, jobId],
+    );
+    const row = result.rows[0];
+    if (!row) return null;
+    return {
+      organizationId,
+      status: row.status,
+      assignedTo: row.assigned_to,
+    };
   }
 
   private async authorizeRecipient(

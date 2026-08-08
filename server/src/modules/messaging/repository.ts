@@ -179,6 +179,7 @@ export interface MessagingRepository {
   listConversations(
     organizationId: string,
     userId: string,
+    role: string,
     cursor: ConversationListCursor | null,
     limit: number,
   ): Promise<ConversationListPage>;
@@ -370,18 +371,26 @@ export class PostgresMessagingRepository implements MessagingRepository {
   async listConversations(
     organizationId: string,
     userId: string,
+    role: string,
     cursor: ConversationListCursor | null,
     limit: number,
   ): Promise<ConversationListPage> {
     const cursorClause = cursor
-      ? `AND (c.updated_at, c.id) < ($${cursor ? 3 : 0}, $${cursor ? 4 : 0})`
+      ? `AND (c.updated_at, c.id) < ($${cursor ? 4 : 0}, $${cursor ? 5 : 0})`
       : '';
-    const limitParam = cursor ? '$5' : '$3';
-    const values: unknown[] = [organizationId, userId];
+    const limitParam = cursor ? '$6' : '$4';
+    const values: unknown[] = [organizationId, userId, role];
     if (cursor) {
       values.push(cursor.updatedAt, cursor.id);
     }
     values.push(limit + 1);
+
+    // JOB conversations are resource-authorized: STAFF actors only see the
+    // threads for JobCards currently assigned to them. ADMIN/MANAGER reach
+    // every org JobCard (authoritative job-cards actorCanReachJob semantics).
+    const staffJobFilter = `AND ($3::text <> 'STAFF'
+             OR c.context_type <> 'JOB'
+             OR (j.organization_id IS NOT NULL AND j.assigned_to = $2))`;
 
     const result = await this.pool.query<ConversationListItemRow>(
       `SELECT c.id, c.direct_key, c.context_type, c.job_id,
@@ -433,6 +442,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
          LEFT JOIN messages m
            ON m.conversation_id = c.id
         WHERE c.organization_id = $1
+          ${staffJobFilter}
           ${cursorClause}
         GROUP BY c.id, c.direct_key, c.context_type, c.job_id,
                  c.customer_id, c.title, j.title,
@@ -776,6 +786,24 @@ export class PostgresMessagingTransaction {
       name: row.name,
       isActive: row.is_active,
     }));
+  }
+
+  async findJobAuthorizedAudience(
+    organizationId: string,
+    conversationId: string,
+    assignedTo: string,
+  ): Promise<readonly string[]> {
+    const result = await this.client.query<{ user_id: string }>(
+      `SELECT cp.user_id
+         FROM conversation_participants cp
+         JOIN users u
+           ON u.organization_id = cp.organization_id AND u.id = cp.user_id
+        WHERE cp.organization_id = $1
+          AND cp.conversation_id = $2
+          AND (u.role <> 'STAFF' OR u.id = $3)`,
+      [organizationId, conversationId, assignedTo],
+    );
+    return result.rows.map((row) => row.user_id);
   }
 
   async addParticipants(
