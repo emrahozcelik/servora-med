@@ -1,4 +1,13 @@
 var JOB_DEEP_LINK = /^\/jobs\/[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+var CALENDAR_DEEP_LINK = /^\/calendar\?event=[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+var MESSAGING_DEEP_LINK = /^\/messages\?conversation=[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+
+function isAllowedDeepLink(url) {
+  return typeof url === 'string'
+    && (JOB_DEEP_LINK.test(url)
+      || CALENDAR_DEEP_LINK.test(url)
+      || MESSAGING_DEEP_LINK.test(url));
+}
 
 var FALLBACK_TITLE = 'Servora-Med';
 var FALLBACK_BODY = 'Bekleyen işleriniz var.';
@@ -23,7 +32,7 @@ function parsePayload(data) {
   if (typeof raw.body !== 'string' || raw.body.length === 0 || raw.body.length > 240) return null;
   if (typeof raw.url !== 'string') return null;
   if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(raw.notificationId)) return null;
-  if (!JOB_DEEP_LINK.test(raw.url)) return null;
+  if (!isAllowedDeepLink(raw.url)) return null;
   return {
     version: raw.version,
     notificationId: raw.notificationId,
@@ -77,7 +86,7 @@ self.addEventListener('notificationclick', function (event) {
   event.notification.close();
   event.waitUntil((async function () {
     var targetUrl = event.notification.data && event.notification.data.url;
-    var safeUrl = typeof targetUrl === 'string' && JOB_DEEP_LINK.test(targetUrl)
+    var safeUrl = isAllowedDeepLink(targetUrl)
       ? targetUrl
       : FALLBACK_URL;
     var allClients = await self.clients.matchAll({

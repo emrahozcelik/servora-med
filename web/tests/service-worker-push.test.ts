@@ -177,6 +177,65 @@ describe('service worker push', () => {
     }
   });
 
+  it('accepts /messages?conversation=<uuid> as a valid Messaging deep link', async () => {
+    const payload = {
+      ...validPayload(),
+      url: '/messages?conversation=550e8400-e29b-41d4-a716-446655440000',
+    };
+    const event = harness.makePushEvent(payload);
+    await harness.fireEvent('push', event);
+    await harness.settleWaitUntil();
+
+    expect(harness.notifications[0].options.data.url)
+      .toBe('/messages?conversation=550e8400-e29b-41d4-a716-446655440000');
+    expect(harness.notifications[0].title).toBe('Yeni iş atandı');
+  });
+
+  it('accepts /calendar?event=<uuid> as a valid Calendar deep link', async () => {
+    const payload = {
+      ...validPayload(),
+      url: '/calendar?event=550e8400-e29b-41d4-a716-446655440000',
+    };
+    const event = harness.makePushEvent(payload);
+    await harness.fireEvent('push', event);
+    await harness.settleWaitUntil();
+
+    expect(harness.notifications[0].options.data.url)
+      .toBe('/calendar?event=550e8400-e29b-41d4-a716-446655440000');
+  });
+
+  it('rejects malformed Messaging and Calendar deep links with /jobs fallback', async () => {
+    const unsafeUrls = [
+      '/messages',
+      '/messages/',
+      '/messages?conversation=',
+      '/messages?conversation=abc',
+      '/messages?conversation=not-a-uuid',
+      '/messages?conversation=550e8400-e29b-41d4-a716-446655440000&next=https://evil.example',
+      '/messages?conversation=550e8400-e29b-41d4-a716-446655440000#foo',
+      '/messages?conversation=550e8400-e29b-41d4-a716-446655440000&x=1',
+      '/messages/../messages?conversation=550e8400-e29b-41d4-a716-446655440000',
+      '/calendar',
+      '/calendar/',
+      '/calendar?event=',
+      '/calendar?event=abc',
+      '/calendar?event=550e8400-e29b-41d4-a716-446655440000&next=https://evil.example',
+      '/foo/messages?conversation=550e8400-e29b-41d4-a716-446655440000',
+      '//evil.example/messages?conversation=550e8400-e29b-41d4-a716-446655440000',
+      'https://evil.example/messages?conversation=550e8400-e29b-41d4-a716-446655440000',
+    ];
+
+    for (const url of unsafeUrls) {
+      harness.clearNotifications();
+      const payload = { ...validPayload(), url };
+      const event = harness.makePushEvent(payload);
+      await harness.fireEvent('push', event);
+      await harness.settleWaitUntil();
+
+      expect(harness.notifications[0].options.data.url).toBe('/jobs');
+    }
+  });
+
   it('extra sensitive fields cause generic fallback', async () => {
     const sensitiveFields = [
       'customerName', 'customerPhone', 'jobCard', 'notes', 'delivery',

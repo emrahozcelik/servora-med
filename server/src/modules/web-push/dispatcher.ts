@@ -121,7 +121,7 @@ export function createDispatcher(
       recipientUserId: n.recipientUserId,
       sourceRealtimeEventId: 0n,
       kind: n.kind as NotificationRecord['kind'],
-      entityType: 'job-card',
+      entityType: n.entityType as NotificationRecord['entityType'],
       entityId: n.entityId,
       createdAt: n.createdAt,
       readAt: n.readAt,
