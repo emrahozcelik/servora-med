@@ -761,21 +761,30 @@ export class PostgresMessagingTransaction {
     jobId: string | null,
     customerId: string | null,
     title: string | null,
-  ): Promise<ConversationRecord> {
+  ): Promise<{ conversation: ConversationRecord; inserted: boolean }> {
+    // Target-less ON CONFLICT DO NOTHING: absorbs conflicts against ANY unique
+    // index (the partial conversations_job_context_unique included), so a
+    // concurrent canonical JOB create never surfaces a duplicate-key error.
+    // A zero-row result therefore means "someone else's row won" and the
+    // caller must reread by its own identity.
     const result = await this.client.query<ConversationRow>(
       `INSERT INTO conversations
          (organization_id, direct_key, context_type, job_id, customer_id, title)
        VALUES ($1, $2, $3, $4, $5, $6)
-       ON CONFLICT (organization_id, direct_key) DO NOTHING
+       ON CONFLICT DO NOTHING
        RETURNING id, organization_id, direct_key, context_type, job_id,
                  customer_id, title, created_at, updated_at`,
       [organizationId, directKey, contextType, jobId, customerId, title],
     );
-    // If no row returned (conflict), fetch existing
     if (result.rows.length === 0) {
-      return this.findConversationByDirectKey(organizationId, directKey) as Promise<ConversationRecord>;
+      // Conflict: reread by canonical JOB identity when available, otherwise
+      // by direct key — matching the identity used by the caller.
+      const existing = contextType === 'JOB' && jobId
+        ? await this.findCanonicalJobConversation(organizationId, jobId)
+        : await this.findConversationByDirectKey(organizationId, directKey);
+      return { conversation: existing as ConversationRecord, inserted: false };
     }
-    return mapConversation(result.rows[0]);
+    return { conversation: mapConversation(result.rows[0]), inserted: true };
   }
 
   async findParticipantsWithUsers(
