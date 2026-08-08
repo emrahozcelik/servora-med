@@ -140,6 +140,14 @@ describe('service worker notification click', () => {
       '/jobs\\evil',
       '/jobs/%2f%2fevil',
       '/jobs/%5cevil',
+      '/messages',
+      '/messages?conversation=',
+      '/messages?conversation=abc',
+      '/messages?conversation=550e8400-e29b-41d4-a716-446655440000&next=https://evil.example',
+      '/messages?conversation=550e8400-e29b-41d4-a716-446655440000#foo',
+      '/calendar',
+      '/calendar?event=',
+      '/calendar?event=550e8400-e29b-41d4-a716-446655440000&next=https://evil.example',
     ];
 
     for (const url of unsafeUrls) {
@@ -154,5 +162,54 @@ describe('service worker notification click', () => {
 
       expect(harness.clients.openWindow).toHaveBeenCalledWith('/jobs');
     }
+  });
+
+  it('opens /messages?conversation=<uuid> when no client is open', async () => {
+    const targetUrl = '/messages?conversation=550e8400-e29b-41d4-a716-446655440000';
+    harness.clients.matchAll.mockResolvedValue([]);
+    harness.clients.openWindow.mockResolvedValue(undefined);
+
+    const event = harness.makeNotificationClickEvent({
+      data: { notificationId: '550e8400-e29b-41d4-a716-446655440000', url: targetUrl },
+    });
+    await harness.fireEvent('notificationclick', event);
+    await harness.settleWaitUntil();
+
+    expect(harness.clients.openWindow).toHaveBeenCalledWith(targetUrl);
+  });
+
+  it('opens /calendar?event=<uuid> when no client is open', async () => {
+    const targetUrl = '/calendar?event=550e8400-e29b-41d4-a716-446655440000';
+    harness.clients.matchAll.mockResolvedValue([]);
+    harness.clients.openWindow.mockResolvedValue(undefined);
+
+    const event = harness.makeNotificationClickEvent({
+      data: { notificationId: '550e8400-e29b-41d4-a716-446655440000', url: targetUrl },
+    });
+    await harness.fireEvent('notificationclick', event);
+    await harness.settleWaitUntil();
+
+    expect(harness.clients.openWindow).toHaveBeenCalledWith(targetUrl);
+  });
+
+  it('focuses an exact /messages?conversation= target without navigating', async () => {
+    const targetUrl = '/messages?conversation=550e8400-e29b-41d4-a716-446655440000';
+    const client: MockWindowClient = {
+      id: 'client-msg',
+      url: targetUrl,
+      focus: vi.fn().mockResolvedValue(undefined),
+      navigate: vi.fn(),
+      postMessage: vi.fn(),
+    };
+    harness.clients.matchAll.mockResolvedValue([client]);
+
+    const event = harness.makeNotificationClickEvent({
+      data: { notificationId: '550e8400-e29b-41d4-a716-446655440000', url: targetUrl },
+    });
+    await harness.fireEvent('notificationclick', event);
+    await harness.settleWaitUntil();
+
+    expect(client.focus).toHaveBeenCalledTimes(1);
+    expect(client.navigate).not.toHaveBeenCalled();
   });
 });

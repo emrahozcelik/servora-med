@@ -216,7 +216,7 @@ describe.skipIf(!databaseUrl)('Web Push integrated normal path (PostgreSQL → w
         recipientUserId: delivery.notification.recipientUserId,
         sourceRealtimeEventId: 0n,
         kind: delivery.notification.kind as NotificationRecord['kind'],
-        entityType: 'job-card',
+        entityType: delivery.notification.entityType as NotificationRecord['entityType'],
         entityId: delivery.notification.entityId,
         createdAt: delivery.notification.createdAt,
         readAt: delivery.notification.readAt,

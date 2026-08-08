@@ -6,6 +6,9 @@ import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 
 import { PostgresWebPushRepository } from '../src/modules/web-push/repository.js';
+import { buildPushPayload } from '../src/modules/web-push/payload.js';
+import { presentNotification } from '../src/modules/notifications/presenter.js';
+import type { NotificationRecord } from '../src/modules/notifications/types.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
@@ -403,6 +406,57 @@ describe('Web Push dispatch — PostgreSQL', () => {
       );
       expect(sub.rows[0]!.disabled_at).toBeTruthy();
       expect(sub.rows[0]!.disabled_reason).toBe('PROVIDER_STALE');
+    });
+  });
+
+  // M1 — conversation entity round-trip: persisted entity type must survive claim
+  it('claims conversation notifications with the real persisted entity type', async () => {
+    await runWithFixture(async (fixture) => {
+      const { pool, organizationId, userId, at } = fixture;
+
+      const { eventId } = await createRealtimeEvent(pool, organizationId, userId);
+      const conversationId = randomUUID();
+      const nId = randomUUID();
+      await pool.query(
+        `INSERT INTO in_app_notifications
+           (id, organization_id, recipient_user_id, source_realtime_event_id,
+            kind, entity_type, entity_id, created_at)
+         VALUES ($1, $2, $3, CAST($4 AS BIGINT), 'message.received', 'conversation', $5, $6)`,
+        [nId, organizationId, userId, eventId, conversationId, at],
+      );
+      const sub = (await pool.query<{ id: string }>(
+        `SELECT subscription.id FROM web_push_subscriptions subscription
+          WHERE subscription.organization_id = $1 AND subscription.recipient_user_id = $2`,
+        [organizationId, userId],
+      )).rows[0]!;
+      await pool.query(
+        `INSERT INTO web_push_deliveries
+           (organization_id, notification_id, subscription_id, next_attempt_at, created_at, updated_at)
+         VALUES ($1, $2, $3, $4, $4, $4)`,
+        [organizationId, nId, sub.id, at],
+      );
+
+      const repo = new PostgresWebPushRepository(pool);
+      const claimed = await repo.claimDueDeliveries({ limit: 4, at });
+      const delivery = claimed.find((d) => d.notification.id === nId);
+      expect(delivery).toBeTruthy();
+      expect(delivery!.notification.entityType).toBe('conversation');
+      expect(delivery!.notification.entityId).toBe(conversationId);
+
+      const record: NotificationRecord = {
+        id: delivery!.notification.id,
+        organizationId: delivery!.notification.organizationId,
+        recipientUserId: delivery!.notification.recipientUserId,
+        sourceRealtimeEventId: 0n,
+        kind: delivery!.notification.kind as NotificationRecord['kind'],
+        entityType: delivery!.notification.entityType as NotificationRecord['entityType'],
+        entityId: delivery!.notification.entityId,
+        createdAt: delivery!.notification.createdAt,
+        readAt: delivery!.notification.readAt,
+      };
+      const payload = buildPushPayload(presentNotification(record));
+      expect(payload.url).toBe(`/messages?conversation=${conversationId}`);
+      expect(JSON.stringify(payload)).not.toContain('content');
     });
   });
 });

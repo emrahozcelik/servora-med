@@ -21,7 +21,8 @@ export function buildPushPayload(
   notification: PublicNotification,
 ): PushPayloadV1 {
   if (notification.entity.type !== 'job-card'
-    && notification.entity.type !== 'calendar-event') {
+    && notification.entity.type !== 'calendar-event'
+    && notification.entity.type !== 'conversation') {
     throw new InvalidPushPayloadError(
       `invalid entity type: ${notification.entity.type}`,
     );
@@ -32,14 +33,21 @@ export function buildPushPayload(
     );
   }
 
+  let url: string;
+  if (notification.entity.type === 'job-card') {
+    url = `/jobs/${notification.entity.id}`;
+  } else if (notification.entity.type === 'calendar-event') {
+    url = `/calendar?event=${notification.entity.id}`;
+  } else {
+    url = `/messages?conversation=${notification.entity.id}`;
+  }
+
   return {
     version: 1,
     notificationId: notification.id,
     title: notification.title,
     body: notification.body,
-    url: notification.entity.type === 'job-card'
-      ? `/jobs/${notification.entity.id}`
-      : `/calendar?event=${notification.entity.id}`,
+    url,
   };
 }
 

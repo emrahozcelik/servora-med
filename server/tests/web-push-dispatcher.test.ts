@@ -801,6 +801,129 @@ function abortAwarePending() {
     expect(arg.nextAttemptAt.getTime()).toBe(t2.getTime() + 30_000);
   });
 
+  // === Entity type propagation through real payload builder ===
+
+  it('preserves job-card entity type through dispatcher to real payload builder', async () => {
+    const deps = makeDeps();
+    deps.buildPayload = buildPushPayload;
+    const entityId = '00000000-0000-4000-8000-0000000000aa';
+    deps.repository.claimDueDeliveries.mockResolvedValue([
+      makeDelivery({
+        notification: {
+          id: 'notif-1',
+          organizationId: 'org-1',
+          recipientUserId: 'user-1',
+          kind: 'job.assigned',
+          entityType: 'job-card',
+          entityId,
+          createdAt: new Date(),
+          readAt: null,
+        },
+      }),
+    ]);
+
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    expect(deps.sender.send).toHaveBeenCalledTimes(1);
+    const payload = deps.sender.send.mock.calls[0]![0].payload;
+    expect(payload.url).toBe(`/jobs/${entityId}`);
+    expect(deps.repository.recordAbandoned).not.toHaveBeenCalled();
+  });
+
+  it('preserves calendar-event entity type through dispatcher to real payload builder', async () => {
+    const deps = makeDeps();
+    deps.buildPayload = buildPushPayload;
+    const entityId = '00000000-0000-4000-8000-0000000000bb';
+    deps.repository.claimDueDeliveries.mockResolvedValue([
+      makeDelivery({
+        notification: {
+          id: 'notif-1',
+          organizationId: 'org-1',
+          recipientUserId: 'user-1',
+          kind: 'calendar.reminder',
+          entityType: 'calendar-event',
+          entityId,
+          createdAt: new Date(),
+          readAt: null,
+        },
+      }),
+    ]);
+
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    expect(deps.sender.send).toHaveBeenCalledTimes(1);
+    const payload = deps.sender.send.mock.calls[0]![0].payload;
+    expect(payload.url).toBe(`/calendar?event=${entityId}`);
+    expect(deps.repository.recordAbandoned).not.toHaveBeenCalled();
+  });
+
+  it('preserves conversation entity type through dispatcher to real payload builder', async () => {
+    const deps = makeDeps();
+    deps.buildPayload = buildPushPayload;
+    const entityId = '00000000-0000-4000-8000-0000000000cc';
+    deps.repository.claimDueDeliveries.mockResolvedValue([
+      makeDelivery({
+        notification: {
+          id: 'notif-1',
+          organizationId: 'org-1',
+          recipientUserId: 'user-1',
+          kind: 'message.received',
+          entityType: 'conversation',
+          entityId,
+          createdAt: new Date(),
+          readAt: null,
+        },
+      }),
+    ]);
+
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    expect(deps.sender.send).toHaveBeenCalledTimes(1);
+    const payload = deps.sender.send.mock.calls[0]![0].payload;
+    expect(payload.url).toBe(`/messages?conversation=${entityId}`);
+    expect(deps.repository.recordAbandoned).not.toHaveBeenCalled();
+  });
+
+  it('message push payload contains no message body', async () => {
+    const deps = makeDeps();
+    deps.buildPayload = buildPushPayload;
+    const entityId = '00000000-0000-4000-8000-0000000000dd';
+    deps.repository.claimDueDeliveries.mockResolvedValue([
+      makeDelivery({
+        notification: {
+          id: 'notif-1',
+          organizationId: 'org-1',
+          recipientUserId: 'user-1',
+          kind: 'message.received',
+          entityType: 'conversation',
+          entityId,
+          createdAt: new Date(),
+          readAt: null,
+        },
+      }),
+    ]);
+
+    const dispatcher = createDispatcher({ pollIntervalMs: 50 }, deps);
+    dispatcher.start();
+    await new Promise((r) => setTimeout(r, 80));
+    await dispatcher.stop();
+
+    const payload = deps.sender.send.mock.calls[0]![0].payload;
+    expect(payload.title).toBe('Yeni operasyon mesajı');
+    expect(payload.body).toBe('Yeni bir operasyon mesajı aldınız.');
+    expect(JSON.stringify(payload)).not.toContain('entity');
+    expect(JSON.stringify(payload)).not.toContain('content');
+  });
+
   // === Static contract: no jitter / exponential / 300s cap ===
 
   it('dispatcher source has no Math.random, exponential backoff, or 300s retry cap', () => {

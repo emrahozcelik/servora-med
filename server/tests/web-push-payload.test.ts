@@ -88,6 +88,96 @@ describe('buildPushPayload', () => {
     expect(payload.url).toBe(`/jobs/${entityId}`);
   });
 
+  it('maps conversation entity to /messages?conversation=<uuid>', () => {
+    const entityId = randomUUID();
+    const payload = buildPushPayload(presentNotification(makeRecord({
+      kind: 'message.received',
+      entityType: 'conversation',
+      entityId,
+    })));
+
+    expect(payload.url).toBe(`/messages?conversation=${entityId}`);
+  });
+
+  it('maps message.received to generic privacy-safe copy without message body', () => {
+    const entityId = randomUUID();
+    const record = makeRecord({
+      kind: 'message.received',
+      entityType: 'conversation',
+      entityId,
+    });
+    const payload = buildPushPayload(presentNotification(record));
+
+    expect(payload.title).toBe('Yeni operasyon mesajı');
+    expect(payload.body).toBe('Yeni bir operasyon mesajı aldınız.');
+    expect(JSON.stringify(payload)).not.toContain('Mesaj içeriği');
+    expect(JSON.stringify(payload)).not.toContain('merhaba');
+  });
+
+  it.each([
+    'not-a-uuid',
+    '',
+    '123',
+    '<script>alert(1)</script>',
+    '../../etc/passwd',
+    '550e8400-e29b-41d4-a716-44665544000',
+    '550e8400-e29b-41d4-a716-44665544000g',
+    ' 550e8400-e29b-41d4-a716-446655440000',
+    '550e8400-e29b-41d4-a716-446655440000 ',
+    '550e8400-e29b-41d4-a716-446655440000&next=https://evil.example',
+    '/messages?conversation=550e8400-e29b-41d4-a716-446655440000',
+  ])('rejects malformed conversation entity id: %s', (entityId) => {
+    const record = makeRecord({
+      kind: 'message.received',
+      entityType: 'conversation',
+      entityId,
+    });
+
+    expect(() => buildPushPayload(presentNotification(record)))
+      .toThrow(InvalidPushPayloadError);
+  });
+
+  it('rejects unsupported entity types including conversation-free URL control', () => {
+    const record = makeRecord({
+      kind: 'message.received',
+      entityType: 'conversation',
+      entityId: randomUUID(),
+    });
+    const publicNotification = {
+      ...presentNotification(record),
+      entity: { type: 'sales-meeting' as const, id: randomUUID() },
+    };
+
+    expect(() => buildPushPayload(publicNotification)).toThrow(InvalidPushPayloadError);
+  });
+
+  it('never emits arbitrary or external URLs', () => {
+    const cases = [
+      { type: 'conversation' as const, id: randomUUID() },
+      { type: 'job-card' as const, id: randomUUID() },
+      { type: 'calendar-event' as const, id: randomUUID() },
+    ];
+
+    for (const entity of cases) {
+      const record = makeRecord({
+        kind: entity.type === 'conversation'
+          ? 'message.received'
+          : entity.type === 'calendar-event'
+            ? 'calendar.assigned'
+            : 'job.assigned',
+        entityType: entity.type,
+        entityId: entity.id,
+      });
+      const payload = buildPushPayload(presentNotification(record));
+
+      expect(payload.url.startsWith('http://')).toBe(false);
+      expect(payload.url.startsWith('https://')).toBe(false);
+      expect(payload.url.startsWith('//')).toBe(false);
+      expect(payload.url.startsWith('javascript:')).toBe(false);
+      expect(payload.url.startsWith('data:')).toBe(false);
+    }
+  });
+
   it('topic is notificationId without hyphens', () => {
     const id = '11111111-2222-3333-4444-555555555555';
     const record = makeRecord({ id });
