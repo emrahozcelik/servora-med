@@ -200,7 +200,8 @@ function JobDetailRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const navigate = useNavigate();
   if (!jobCardId) return <NotFoundView />;
   return <JobDetailScreen jobId={jobCardId} user={user} onBack={() => navigate(paths.jobs)}
-    onCreateFollowUp={() => navigate(paths.followUpCreate(jobCardId))} onChanged={() => {}} />;
+    onCreateFollowUp={() => navigate(paths.followUpCreate(jobCardId))} onChanged={() => {}}
+    onOpenMessaging={(conversationId) => navigate(`${paths.messages}?conversation=${encodeURIComponent(conversationId)}`)} />;
 }
 
 function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
