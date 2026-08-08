@@ -68,13 +68,32 @@ export function createMessagingHandlers(service: MessagingService) {
 
     createOrGetConversation: async (req: FastifyRequest, reply: FastifyReply) => {
       const body = req.body as Record<string, unknown>;
-      const recipientUserId = body.recipientUserId as string;
+      const recipientUserId = body.recipientUserId as string | undefined;
+      const rawParticipantUserIds = body.participantUserIds as unknown;
       const contextType = body.contextType as string ?? 'GENERAL';
       const jobId = (body.jobId as string) || null;
       const customerId = (body.customerId as string) || null;
       const title = body.title as string | undefined;
 
-      if (!recipientUserId) {
+      if (recipientUserId && rawParticipantUserIds !== undefined) {
+        throw new AppError(
+          'VALIDATION_ERROR', 400,
+          'recipientUserId ve participantUserIds birlikte kullanılamaz.',
+        );
+      }
+      let participantUserIds: readonly string[] | undefined;
+      if (rawParticipantUserIds !== undefined) {
+        if (
+          !Array.isArray(rawParticipantUserIds)
+          || rawParticipantUserIds.some((entry) => typeof entry !== 'string' || entry.length === 0)
+        ) {
+          throw new AppError('VALIDATION_ERROR', 400, 'participantUserIds geçersiz.');
+        }
+        participantUserIds = rawParticipantUserIds as string[];
+        if (participantUserIds.length === 0) {
+          throw new AppError('VALIDATION_ERROR', 400, 'En az bir katılımcı seçin.');
+        }
+      } else if (!recipientUserId) {
         throw new AppError('VALIDATION_ERROR', 400, 'recipientUserId zorunludur.');
       }
       if (!isValidContextType(contextType)) {
@@ -83,6 +102,7 @@ export function createMessagingHandlers(service: MessagingService) {
 
       const conversation = await service.createOrGetConversation(actor(req), {
         recipientUserId,
+        participantUserIds,
         contextType,
         jobId,
         customerId,

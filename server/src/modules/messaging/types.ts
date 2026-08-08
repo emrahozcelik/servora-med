@@ -62,6 +62,7 @@ export type ConversationListItem = Readonly<{
   jobId: string | null;
   jobTitle: string | null;
   customerId: string | null;
+  customerName: string | null;
   title: string | null;
   participantName: string;
   participantId: string;
@@ -73,7 +74,10 @@ export type ConversationListItem = Readonly<{
 }>;
 
 export type CreateConversationInput = Readonly<{
-  recipientUserId: string;
+  /** Legacy single-recipient field. Use participantUserIds for the new contract. */
+  recipientUserId?: string | null;
+  /** New initial multi-participant field. Explicit participants; the creator is always added automatically. */
+  participantUserIds?: readonly string[] | null;
   contextType: ConversationContextType;
   jobId?: string | null;
   customerId?: string | null;

@@ -55,6 +55,7 @@ type ConversationListItemRow = {
   job_id: string | null;
   job_title: string | null;
   customer_id: string | null;
+  customer_name: string | null;
   title: string | null;
   participant_name: string;
   participant_id: string;
@@ -397,6 +398,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
       `SELECT c.id, c.direct_key, c.context_type, c.job_id,
               c.customer_id, c.title,
               j.title AS job_title,
+              cu.name AS customer_name,
               other.name AS participant_name,
               other.id AS participant_id,
               other.is_active AS participant_is_active,
@@ -440,13 +442,15 @@ export class PostgresMessagingRepository implements MessagingRepository {
            ON rm.conversation_id = c.id AND rm.id = cp.last_read_message_id
          LEFT JOIN job_cards j
            ON j.organization_id = c.organization_id AND j.id = c.job_id
+         LEFT JOIN customers cu
+           ON cu.organization_id = c.organization_id AND cu.id = c.customer_id
          LEFT JOIN messages m
            ON m.conversation_id = c.id
         WHERE c.organization_id = $1
           ${staffJobFilter}
           ${cursorClause}
         GROUP BY c.id, c.direct_key, c.context_type, c.job_id,
-                 c.customer_id, c.title, j.title,
+                 c.customer_id, c.title, j.title, cu.name,
                  other.name, other.id, other.is_active,
                  other_participants.participants,
                  cp.last_read_message_id, c.updated_at, c.created_at
@@ -465,6 +469,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
         jobId: row.job_id,
         jobTitle: row.job_title,
         customerId: row.customer_id,
+        customerName: row.customer_name ?? null,
         title: row.title,
         participantName: row.participant_name ?? '',
         participantId: row.participant_id ?? '',

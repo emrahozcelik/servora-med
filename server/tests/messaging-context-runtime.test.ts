@@ -134,7 +134,7 @@ function service(pool: Pool): MessagingService {
 }
 
 describe('M2 messaging context runtime contracts', () => {
-  it('JOB: repeated create resolves to the canonical thread regardless of creator', async () => {
+  it('JOB: repeated create resolves to the canonical thread for a persisted participant creator', async () => {
     await withFixture(async ({ pool, orgA, adminA, managerA, staff1A, job1A }) => {
       const svc = service(pool);
       const first = await svc.createOrGetConversation(adminA, {
@@ -142,12 +142,22 @@ describe('M2 messaging context runtime contracts', () => {
         contextType: 'JOB',
         jobId: job1A,
       });
-      const second = await svc.createOrGetConversation(managerA, {
+      const second = await svc.createOrGetConversation(adminA, {
         recipientUserId: staff1A.id,
         contextType: 'JOB',
         jobId: job1A,
       });
       expect(second.id).toBe(first.id);
+
+      // M4 security contract: a Job-resource-authorized non-participant is
+      // NOT granted Messaging membership through create/get.
+      await expect(
+        svc.createOrGetConversation(managerA, {
+          recipientUserId: staff1A.id,
+          contextType: 'JOB',
+          jobId: job1A,
+        }),
+      ).rejects.toMatchObject({ statusCode: 403 });
 
       const count = (await pool.query(
         `SELECT COUNT(*)::int AS c FROM conversations
