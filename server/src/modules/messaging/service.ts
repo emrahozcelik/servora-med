@@ -390,10 +390,45 @@ export class MessagingService {
         };
       }
 
-      // Atomic insert-winner
-      const created = await tx.createConversationIfNotExists(
+      // Atomic insert-winner. `inserted` is true only when THIS request
+      // actually created the row. A losing concurrent create returns the
+      // winner's conversation with inserted=false and MUST NOT persist
+      // participants or emit creation side effects: membership of an existing
+      // canonical JOB conversation is immutable, and the loser is only allowed
+      // the canonical-return semantics below.
+      const createdResult = await tx.createConversationIfNotExists(
         actor.organizationId, directKey, contextType, jobId, customerId, title,
       );
+      const created = createdResult.conversation;
+
+      if (!createdResult.inserted) {
+        const recoveredParticipants = await tx.findParticipantsWithUsers(
+          actor.organizationId, created.id,
+        );
+        if (!recoveredParticipants.some((p) => p.userId === actor.id)) {
+          throw forbidden();
+        }
+        return {
+          result: {
+            id: created.id,
+            directKey: created.directKey,
+            contextType: created.contextType,
+            jobId: created.jobId,
+            jobTitle,
+            customerId: created.customerId,
+            customerName,
+            title: created.title,
+            participantName: recoveredParticipants[0]?.name ?? '',
+            participantId: recoveredParticipants[0]?.userId ?? '',
+            participantIsActive: recoveredParticipants[0]?.isActive ?? false,
+            participants: recoveredParticipants,
+            unreadCount: 0,
+            lastActivityAt: created.updatedAt.toISOString(),
+            updatedAt: created.updatedAt.toISOString(),
+          },
+          events: [],
+        };
+      }
 
       // Add all initial participants (idempotent)
       await tx.addParticipants(
