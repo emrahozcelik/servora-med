@@ -1,4 +1,5 @@
 import type { Pool } from 'pg';
+import { randomUUID } from 'node:crypto';
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
 import type { RealtimeEventPublisher } from '../realtime/event-bus.js';
@@ -9,6 +10,7 @@ import type {
   ConversationListPage,
   ConversationListItem,
   ConversationRecord,
+  CreateConversationInput,
   MessageCursor,
   MessagePage,
   MessageRecord,
@@ -46,10 +48,43 @@ function buildDirectKey(
   recipientUserId: string,
   contextType: ConversationContextType,
   jobId: string | null,
+  customerId: string | null,
 ): string {
+  if (contextType === 'JOB') {
+    // JOB identity comes from org + job, not the participant pair.
+    return `context:JOB:${jobId}`;
+  }
+  if (contextType === 'CUSTOMER') {
+    // CUSTOMER is a topic: each create is a distinct thread for the customer.
+    return `context:CUSTOMER:${customerId}:${randomUUID()}`;
+  }
+  // Legacy GENERAL direct conversations keep participant-pair identity.
   const participants = [initiatorUserId, recipientUserId].sort();
-  const base = `${participants[0]}:${participants[1]}:${contextType}`;
-  return jobId ? `${base}:JOB:${jobId}` : base;
+  return `${participants[0]}:${participants[1]}:${contextType}`;
+}
+
+function normalizeTitle(
+  title: unknown,
+  required: boolean,
+  contextLabel: string,
+): string | null {
+  if (title === undefined || title === null) {
+    if (required) {
+      throw new AppError('VALIDATION_ERROR', 400, `${contextLabel} için konu başlığı zorunludur.`);
+    }
+    return null;
+  }
+  if (typeof title !== 'string') {
+    throw new AppError('VALIDATION_ERROR', 400, 'Konu başlığı geçersiz.');
+  }
+  const trimmed = title.trim();
+  if (trimmed.length === 0) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Konu başlığı boş olamaz.');
+  }
+  if ([...trimmed].length > 255) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Konu başlığı en fazla 255 karakter olabilir.');
+  }
+  return trimmed;
 }
 
 export class MessagingService {
@@ -74,17 +109,16 @@ export class MessagingService {
 
   async createOrGetConversation(
     actor: SafeUser,
-    recipientUserId: string,
-    contextType: ConversationContextType,
-    jobId: string | null,
+    input: CreateConversationInput,
   ): Promise<ConversationListItem> {
     this.requireEnabled();
+    const recipientUserId = input.recipientUserId;
+    const contextType = input.contextType;
+    const jobId = input.jobId ?? null;
+    const customerId = input.customerId ?? null;
+
     if (recipientUserId === actor.id) {
       throw new AppError('VALIDATION_ERROR', 400, 'Kendinizle konuşma başlatamazsınız.');
-    }
-
-    if (contextType !== 'GENERAL' && contextType !== 'JOB') {
-      throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz konuşma tipi.');
     }
 
     // STAFF cannot create new conversations
@@ -92,18 +126,37 @@ export class MessagingService {
       throw forbidden();
     }
 
-    // JOB must have jobId
-    if (contextType === 'JOB' && !jobId) {
-      throw new AppError('VALIDATION_ERROR', 400, 'İş bağlamı için jobId zorunludur.');
+    if (contextType === 'JOB') {
+      if (!jobId) {
+        throw new AppError('VALIDATION_ERROR', 400, 'İş bağlamı için jobId zorunludur.');
+      }
+      if (customerId) {
+        throw new AppError('VALIDATION_ERROR', 400, 'İş bağlamında customerId kullanılamaz.');
+      }
+    } else if (contextType === 'CUSTOMER') {
+      if (!customerId) {
+        throw new AppError('VALIDATION_ERROR', 400, 'Müşteri bağlamı için customerId zorunludur.');
+      }
+      if (jobId) {
+        throw new AppError('VALIDATION_ERROR', 400, 'Müşteri bağlamında jobId kullanılamaz.');
+      }
+    } else {
+      if (jobId) {
+        throw new AppError('VALIDATION_ERROR', 400, 'Genel bağlamda jobId kullanılamaz.');
+      }
+      if (customerId) {
+        throw new AppError('VALIDATION_ERROR', 400, 'Genel bağlamda customerId kullanılamaz.');
+      }
     }
 
-    // GENERAL must not have jobId
-    if (contextType === 'GENERAL' && jobId) {
-      throw new AppError('VALIDATION_ERROR', 400, 'Genel bağlamda jobId kullanılamaz.');
-    }
+    const title = normalizeTitle(
+      input.title,
+      contextType === 'CUSTOMER',
+      'Müşteri konuşması',
+    );
 
     const directKey = buildDirectKey(
-      actor.id, recipientUserId, contextType, jobId,
+      actor.id, recipientUserId, contextType, jobId, customerId,
     );
 
     // Query recipient info first (used for both create and existing cases)
@@ -122,6 +175,18 @@ export class MessagingService {
     // Authorize before creating
     await this.authorizeRecipient(actor, recipientUserId, contextType, jobId);
 
+    // Verify the customer belongs to the same organization when CUSTOMER context
+    if (contextType === 'CUSTOMER' && customerId) {
+      const customerResult = await this.pool.query<{ id: string }>(
+        `SELECT id FROM customers
+          WHERE organization_id = $1 AND id = $2`,
+        [actor.organizationId, customerId],
+      );
+      if (customerResult.rows.length === 0) {
+        throw notFound();
+      }
+    }
+
     // Fetch job title if JOB context
     let jobTitle: string | null = null;
     if (contextType === 'JOB' && jobId) {
@@ -136,35 +201,53 @@ export class MessagingService {
     const now = new Date();
 
     return this.poolTransactionWithPublish(async (tx) => {
-      // Check if conversation already exists
-      const existing = await tx.findConversationByDirectKey(actor.organizationId, directKey);
-      if (existing) {
+      // JOB: canonical identity is org + job, never the participant pair.
+      // Check for an existing canonical thread first, then fall back to the
+      // direct-key conflict resolution so concurrent attempts converge.
+      let conversation: ConversationRecord | null = null;
+      if (contextType === 'JOB' && jobId) {
+        conversation = await tx.findCanonicalJobConversation(actor.organizationId, jobId);
+      }
+      if (!conversation) {
+        conversation = await tx.findConversationByDirectKey(actor.organizationId, directKey);
+      }
+      if (conversation) {
+        // Ensure the caller's chosen recipient is a participant (idempotent).
+        await tx.addParticipants(
+          actor.organizationId, conversation.id, [actor.id, recipientUserId],
+        );
+        const participants = await tx.findParticipantsWithUsers(
+          actor.organizationId, conversation.id,
+        );
         return {
           result: {
-            id: existing.id,
-            directKey: existing.directKey,
-            contextType: existing.contextType,
-            jobId: existing.jobId,
+            id: conversation.id,
+            directKey: conversation.directKey,
+            contextType: conversation.contextType,
+            jobId: conversation.jobId,
             jobTitle,
+            customerId: conversation.customerId,
+            title: conversation.title,
             participantName: recipientInfo.name,
             participantId: recipientUserId,
             participantIsActive: recipientInfo.is_active,
+            participants,
             unreadCount: 0,
-            lastActivityAt: existing.updatedAt.toISOString(),
-            updatedAt: existing.updatedAt.toISOString(),
+            lastActivityAt: conversation.updatedAt.toISOString(),
+            updatedAt: conversation.updatedAt.toISOString(),
           },
           events: [],
         };
       }
 
       // Atomic insert-winner
-      const conversation = await tx.createConversationIfNotExists(
-        actor.organizationId, directKey, contextType, jobId,
+      const created = await tx.createConversationIfNotExists(
+        actor.organizationId, directKey, contextType, jobId, customerId, title,
       );
 
       // Add participants (idempotent)
       await tx.addParticipants(
-        actor.organizationId, conversation.id, [actor.id, recipientUserId],
+        actor.organizationId, created.id, [actor.id, recipientUserId],
       );
 
       const clientActionId = `conv:${actor.id}:${recipientUserId}:${directKey}`;
@@ -172,7 +255,7 @@ export class MessagingService {
       // Insert activity (idempotent)
       const activity = await tx.insertActivity(
         actor.organizationId,
-        conversation.id,
+        created.id,
         actor.id,
         'CONVERSATION_CREATED',
         clientActionId,
@@ -187,11 +270,11 @@ export class MessagingService {
           messagingActivityId: activity.id,
           type: 'conversation.created',
           entityType: 'conversation',
-          entityId: conversation.id,
+          entityId: created.id,
           actorUserId: actor.id,
           audienceRoles: [],
           audienceUserIds: [actor.id, recipientUserId],
-          resourceKeys: ['conversations', `conversation:${conversation.id}`, 'message-unread'],
+          resourceKeys: ['conversations', `conversation:${created.id}`, 'message-unread'],
           occurredAt: now,
         });
 
@@ -202,28 +285,35 @@ export class MessagingService {
             messagingActivityId: activity.id,
             type: 'conversation.created',
             entityType: 'conversation',
-            entityId: conversation.id,
+            entityId: created.id,
             actorUserId: actor.id,
             audience: { roles: [], userIds: [actor.id, recipientUserId] },
-            resourceKeys: ['conversations', `conversation:${conversation.id}`, 'message-unread'],
+            resourceKeys: ['conversations', `conversation:${created.id}`, 'message-unread'],
             occurredAt: now,
           },
         });
       }
 
+      const participants = await tx.findParticipantsWithUsers(
+        actor.organizationId, created.id,
+      );
+
       return {
         result: {
-          id: conversation.id,
-          directKey: conversation.directKey,
-          contextType: conversation.contextType,
-          jobId: conversation.jobId,
+          id: created.id,
+          directKey: created.directKey,
+          contextType: created.contextType,
+          jobId: created.jobId,
           jobTitle,
+          customerId: created.customerId,
+          title: created.title,
           participantName: recipientInfo.name,
           participantId: recipientUserId,
           participantIsActive: recipientInfo.is_active,
+          participants,
           unreadCount: 0,
-          lastActivityAt: conversation.createdAt.toISOString(),
-          updatedAt: conversation.updatedAt.toISOString(),
+          lastActivityAt: created.createdAt.toISOString(),
+          updatedAt: created.updatedAt.toISOString(),
         },
         events,
       };
@@ -253,12 +343,18 @@ export class MessagingService {
         throw forbidden();
       }
 
-      // Reauthorize: verify exactly 2 participants and other is still valid
-      if (participants.length !== 2) {
+      // Legacy 2-party conversations keep the existing pairwise
+      // reauthorization (including the known Staff JOB reply restriction,
+      // intentionally preserved until M3). N-participant threads cannot be
+      // created through any M2 API and service SEND is intentionally
+      // unsupported until M3 supplies resource-based contextual
+      // authorization — fail closed rather than bypass the pairwise checks.
+      if (participants.length === 2) {
+        const otherParticipant = participants.find((p) => p.userId !== actor.id)!;
+        await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
+      } else {
         throw forbidden();
       }
-      const otherParticipant = participants.find((p) => p.userId !== actor.id)!;
-      await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
 
       const message = await tx.insertMessage(
         actor.organizationId, conversation.id, actor.id, clientActionId, trimmedBody,

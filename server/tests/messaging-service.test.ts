@@ -213,7 +213,7 @@ describe('MessagingService', () => {
       const actor = staffActor(randomUUID());
 
       await expect(
-        service.createOrGetConversation(actor, actor.id, 'GENERAL', null),
+        service.createOrGetConversation(actor, { recipientUserId: actor.id, contextType: 'GENERAL' }),
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
@@ -227,8 +227,139 @@ describe('MessagingService', () => {
       const service = new MessagingService(pool, true);
 
       await expect(
-        service.createOrGetConversation(manager, staffId, 'GENERAL', null),
+        service.createOrGetConversation(manager, { recipientUserId: staffId, contextType: 'GENERAL' }),
       ).rejects.toMatchObject({ statusCode: 404 });
+    });
+  });
+
+  describe('context model validation', () => {
+    it('rejects GENERAL with a jobId', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = adminActor(randomUUID());
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'GENERAL', jobId: randomUUID(),
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects GENERAL with a customerId', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = adminActor(randomUUID());
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'GENERAL', customerId: randomUUID(),
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects GENERAL with a blank provided title', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = adminActor(randomUUID());
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'GENERAL', title: '   ',
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects JOB without a jobId', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = adminActor(randomUUID());
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'JOB',
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects JOB with a customerId', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = adminActor(randomUUID());
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'JOB',
+          jobId: randomUUID(), customerId: randomUUID(),
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects CUSTOMER without a customerId', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = adminActor(randomUUID());
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'CUSTOMER', title: 'Konu',
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects CUSTOMER with a jobId', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = adminActor(randomUUID());
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'CUSTOMER',
+          customerId: randomUUID(), jobId: randomUUID(), title: 'Konu',
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects CUSTOMER without a title and with a blank title', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = adminActor(randomUUID());
+      const customerId = randomUUID();
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'CUSTOMER', customerId,
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'CUSTOMER', customerId, title: ' ',
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('rejects titles longer than 255 characters', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = adminActor(randomUUID());
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'GENERAL', title: 'a'.repeat(256),
+        }),
+      ).rejects.toMatchObject({ statusCode: 400 });
+    });
+
+    it('forbids STAFF from creating a CUSTOMER thread', async () => {
+      const pool = createPoolWithConnect();
+      const service = new MessagingService(pool, true);
+      const actor = staffActor(randomUUID());
+
+      await expect(
+        service.createOrGetConversation(actor, {
+          recipientUserId: randomUUID(), contextType: 'CUSTOMER',
+          customerId: randomUUID(), title: 'Konu',
+        }),
+      ).rejects.toMatchObject({ statusCode: 403 });
     });
   });
 

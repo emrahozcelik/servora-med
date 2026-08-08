@@ -6,6 +6,7 @@ import type {
   ConversationListItem,
   ConversationListPage,
   ConversationParticipantRecord,
+  ConversationParticipantSummary,
   ConversationRecord,
   DirectKey,
   MessageCursor,
@@ -23,6 +24,8 @@ type ConversationRow = {
   direct_key: string;
   context_type: ConversationContextType;
   job_id: string | null;
+  customer_id: string | null;
+  title: string | null;
   created_at: Date;
   updated_at: Date;
 };
@@ -51,9 +54,12 @@ type ConversationListItemRow = {
   context_type: ConversationContextType;
   job_id: string | null;
   job_title: string | null;
+  customer_id: string | null;
+  title: string | null;
   participant_name: string;
   participant_id: string;
   participant_is_active: boolean;
+  participants: unknown;
   unread_count: string;
   last_activity_at: Date;
   updated_at: Date;
@@ -76,6 +82,21 @@ type MessagingActivityRow = {
   created_at: Date;
 };
 
+function mapParticipantSummaries(value: unknown): readonly ConversationParticipantSummary[] {
+  if (!Array.isArray(value)) return [];
+  return value.map((entry) => {
+    if (typeof entry !== 'object' || entry === null) {
+      return { userId: '', name: '', isActive: false };
+    }
+    const record = entry as Record<string, unknown>;
+    return {
+      userId: typeof record.userId === 'string' ? record.userId : '',
+      name: typeof record.name === 'string' ? record.name : '',
+      isActive: record.isActive === true,
+    };
+  });
+}
+
 function mapConversation(row: ConversationRow): ConversationRecord {
   return {
     id: row.id,
@@ -83,6 +104,8 @@ function mapConversation(row: ConversationRow): ConversationRecord {
     directKey: row.direct_key,
     contextType: row.context_type,
     jobId: row.job_id,
+    customerId: row.customer_id,
+    title: row.title,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -123,11 +146,18 @@ export interface MessagingRepository {
     conversationId: string,
   ): Promise<ConversationRecord | null>;
 
+  findCanonicalJobConversation(
+    organizationId: string,
+    jobId: string,
+  ): Promise<ConversationRecord | null>;
+
   createConversation(
     organizationId: string,
     directKey: DirectKey,
     contextType: ConversationContextType,
     jobId: string | null,
+    customerId: string | null,
+    title: string | null,
   ): Promise<ConversationRecord>;
 
   addParticipants(
@@ -140,6 +170,11 @@ export interface MessagingRepository {
     organizationId: string,
     conversationId: string,
   ): Promise<readonly ConversationParticipantRecord[]>;
+
+  findParticipantsWithUsers(
+    organizationId: string,
+    conversationId: string,
+  ): Promise<readonly ConversationParticipantSummary[]>;
 
   listConversations(
     organizationId: string,
@@ -202,7 +237,8 @@ export class PostgresMessagingRepository implements MessagingRepository {
     directKey: string,
   ): Promise<ConversationRecord | null> {
     const result = await this.pool.query<ConversationRow>(
-      `SELECT id, organization_id, direct_key, context_type, job_id, created_at, updated_at
+      `SELECT id, organization_id, direct_key, context_type, job_id,
+              customer_id, title, created_at, updated_at
          FROM conversations
         WHERE organization_id = $1 AND direct_key = $2`,
       [organizationId, directKey],
@@ -215,10 +251,27 @@ export class PostgresMessagingRepository implements MessagingRepository {
     conversationId: string,
   ): Promise<ConversationRecord | null> {
     const result = await this.pool.query<ConversationRow>(
-      `SELECT id, organization_id, direct_key, context_type, job_id, created_at, updated_at
+      `SELECT id, organization_id, direct_key, context_type, job_id,
+              customer_id, title, created_at, updated_at
          FROM conversations
         WHERE organization_id = $1 AND id = $2`,
       [organizationId, conversationId],
+    );
+    return result.rows[0] ? mapConversation(result.rows[0]) : null;
+  }
+
+  async findCanonicalJobConversation(
+    organizationId: string,
+    jobId: string,
+  ): Promise<ConversationRecord | null> {
+    const result = await this.pool.query<ConversationRow>(
+      `SELECT id, organization_id, direct_key, context_type, job_id,
+              customer_id, title, created_at, updated_at
+         FROM conversations
+        WHERE organization_id = $1
+          AND context_type = 'JOB'
+          AND job_id = $2`,
+      [organizationId, jobId],
     );
     return result.rows[0] ? mapConversation(result.rows[0]) : null;
   }
@@ -228,13 +281,17 @@ export class PostgresMessagingRepository implements MessagingRepository {
     directKey: DirectKey,
     contextType: ConversationContextType,
     jobId: string | null,
+    customerId: string | null,
+    title: string | null,
   ): Promise<ConversationRecord> {
     const result = await this.pool.query<ConversationRow>(
-      `INSERT INTO conversations (organization_id, direct_key, context_type, job_id)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO conversations
+         (organization_id, direct_key, context_type, job_id, customer_id, title)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (organization_id, direct_key) DO UPDATE SET updated_at = NOW()
-       RETURNING id, organization_id, direct_key, context_type, job_id, created_at, updated_at`,
-      [organizationId, directKey, contextType, jobId],
+       RETURNING id, organization_id, direct_key, context_type, job_id,
+                 customer_id, title, created_at, updated_at`,
+      [organizationId, directKey, contextType, jobId, customerId, title],
     );
     return mapConversation(result.rows[0]);
   }
@@ -286,6 +343,30 @@ export class PostgresMessagingRepository implements MessagingRepository {
     }));
   }
 
+  async findParticipantsWithUsers(
+    organizationId: string,
+    conversationId: string,
+  ): Promise<readonly ConversationParticipantSummary[]> {
+    const result = await this.pool.query<{
+      user_id: string;
+      name: string;
+      is_active: boolean;
+    }>(
+      `SELECT u.id AS user_id, u.name, u.is_active
+         FROM conversation_participants cp
+         JOIN users u
+           ON u.organization_id = cp.organization_id AND u.id = cp.user_id
+        WHERE cp.organization_id = $1 AND cp.conversation_id = $2
+        ORDER BY cp.created_at ASC, u.id ASC`,
+      [organizationId, conversationId],
+    );
+    return result.rows.map((row) => ({
+      userId: row.user_id,
+      name: row.name,
+      isActive: row.is_active,
+    }));
+  }
+
   async listConversations(
     organizationId: string,
     userId: string,
@@ -304,10 +385,12 @@ export class PostgresMessagingRepository implements MessagingRepository {
 
     const result = await this.pool.query<ConversationListItemRow>(
       `SELECT c.id, c.direct_key, c.context_type, c.job_id,
+              c.customer_id, c.title,
               j.title AS job_title,
               other.name AS participant_name,
               other.id AS participant_id,
               other.is_active AS participant_is_active,
+              COALESCE(other_participants.participants, '[]'::jsonb) AS participants,
               COUNT(m.id) FILTER (
                 WHERE m.sender_user_id <> $2
                   AND (cp.last_read_message_id IS NULL
@@ -321,10 +404,28 @@ export class PostgresMessagingRepository implements MessagingRepository {
          FROM conversations c
          JOIN conversation_participants cp
            ON cp.conversation_id = c.id AND cp.user_id = $2 AND cp.organization_id = c.organization_id
-         JOIN conversation_participants cp2
-           ON cp2.conversation_id = c.id AND cp2.user_id <> $2
-         JOIN users other
-           ON other.organization_id = c.organization_id AND other.id = cp2.user_id
+         LEFT JOIN LATERAL (
+           SELECT u.id, u.name, u.is_active
+             FROM conversation_participants other_cp
+             JOIN users u
+               ON u.organization_id = other_cp.organization_id AND u.id = other_cp.user_id
+            WHERE other_cp.conversation_id = c.id AND other_cp.user_id <> $2
+            ORDER BY other_cp.created_at ASC, u.id ASC
+            LIMIT 1
+         ) other ON TRUE
+         LEFT JOIN LATERAL (
+           SELECT jsonb_agg(
+                    jsonb_build_object(
+                      'userId', u.id,
+                      'name', u.name,
+                      'isActive', u.is_active
+                    ) ORDER BY p.created_at ASC, u.id ASC
+                  ) AS participants
+             FROM conversation_participants p
+             JOIN users u
+               ON u.organization_id = p.organization_id AND u.id = p.user_id
+            WHERE p.conversation_id = c.id
+         ) other_participants ON TRUE
          LEFT JOIN messages rm
            ON rm.conversation_id = c.id AND rm.id = cp.last_read_message_id
          LEFT JOIN job_cards j
@@ -333,8 +434,10 @@ export class PostgresMessagingRepository implements MessagingRepository {
            ON m.conversation_id = c.id
         WHERE c.organization_id = $1
           ${cursorClause}
-        GROUP BY c.id, c.direct_key, c.context_type, c.job_id, j.title,
+        GROUP BY c.id, c.direct_key, c.context_type, c.job_id,
+                 c.customer_id, c.title, j.title,
                  other.name, other.id, other.is_active,
+                 other_participants.participants,
                  cp.last_read_message_id, c.updated_at, c.created_at
         ORDER BY c.updated_at DESC, c.id DESC
         LIMIT ${limitParam}`,
@@ -350,9 +453,12 @@ export class PostgresMessagingRepository implements MessagingRepository {
         contextType: row.context_type,
         jobId: row.job_id,
         jobTitle: row.job_title,
-        participantName: row.participant_name,
-        participantId: row.participant_id,
-        participantIsActive: row.participant_is_active,
+        customerId: row.customer_id,
+        title: row.title,
+        participantName: row.participant_name ?? '',
+        participantId: row.participant_id ?? '',
+        participantIsActive: row.participant_is_active ?? false,
+        participants: mapParticipantSummaries(row.participants),
         unreadCount: parseInt(row.unread_count, 10),
         lastActivityAt: row.last_activity_at.toISOString(),
         updatedAt: row.updated_at.toISOString(),
@@ -565,7 +671,8 @@ export class PostgresMessagingTransaction {
     directKey: string,
   ): Promise<ConversationRecord | null> {
     const result = await this.client.query<ConversationRow>(
-      `SELECT id, organization_id, direct_key, context_type, job_id, created_at, updated_at
+      `SELECT id, organization_id, direct_key, context_type, job_id,
+              customer_id, title, created_at, updated_at
          FROM conversations
         WHERE organization_id = $1 AND direct_key = $2`,
       [organizationId, directKey],
@@ -578,10 +685,27 @@ export class PostgresMessagingTransaction {
     conversationId: string,
   ): Promise<ConversationRecord | null> {
     const result = await this.client.query<ConversationRow>(
-      `SELECT id, organization_id, direct_key, context_type, job_id, created_at, updated_at
+      `SELECT id, organization_id, direct_key, context_type, job_id,
+              customer_id, title, created_at, updated_at
          FROM conversations
         WHERE organization_id = $1 AND id = $2`,
       [organizationId, conversationId],
+    );
+    return result.rows[0] ? mapConversation(result.rows[0]) : null;
+  }
+
+  async findCanonicalJobConversation(
+    organizationId: string,
+    jobId: string,
+  ): Promise<ConversationRecord | null> {
+    const result = await this.client.query<ConversationRow>(
+      `SELECT id, organization_id, direct_key, context_type, job_id,
+              customer_id, title, created_at, updated_at
+         FROM conversations
+        WHERE organization_id = $1
+          AND context_type = 'JOB'
+          AND job_id = $2`,
+      [organizationId, jobId],
     );
     return result.rows[0] ? mapConversation(result.rows[0]) : null;
   }
@@ -591,13 +715,17 @@ export class PostgresMessagingTransaction {
     directKey: DirectKey,
     contextType: ConversationContextType,
     jobId: string | null,
+    customerId: string | null,
+    title: string | null,
   ): Promise<ConversationRecord> {
     const result = await this.client.query<ConversationRow>(
-      `INSERT INTO conversations (organization_id, direct_key, context_type, job_id)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO conversations
+         (organization_id, direct_key, context_type, job_id, customer_id, title)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (organization_id, direct_key) DO UPDATE SET updated_at = NOW()
-       RETURNING id, organization_id, direct_key, context_type, job_id, created_at, updated_at`,
-      [organizationId, directKey, contextType, jobId],
+       RETURNING id, organization_id, direct_key, context_type, job_id,
+                 customer_id, title, created_at, updated_at`,
+      [organizationId, directKey, contextType, jobId, customerId, title],
     );
     return mapConversation(result.rows[0]);
   }
@@ -607,19 +735,47 @@ export class PostgresMessagingTransaction {
     directKey: DirectKey,
     contextType: ConversationContextType,
     jobId: string | null,
+    customerId: string | null,
+    title: string | null,
   ): Promise<ConversationRecord> {
     const result = await this.client.query<ConversationRow>(
-      `INSERT INTO conversations (organization_id, direct_key, context_type, job_id)
-       VALUES ($1, $2, $3, $4)
+      `INSERT INTO conversations
+         (organization_id, direct_key, context_type, job_id, customer_id, title)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (organization_id, direct_key) DO NOTHING
-       RETURNING id, organization_id, direct_key, context_type, job_id, created_at, updated_at`,
-      [organizationId, directKey, contextType, jobId],
+       RETURNING id, organization_id, direct_key, context_type, job_id,
+                 customer_id, title, created_at, updated_at`,
+      [organizationId, directKey, contextType, jobId, customerId, title],
     );
     // If no row returned (conflict), fetch existing
     if (result.rows.length === 0) {
       return this.findConversationByDirectKey(organizationId, directKey) as Promise<ConversationRecord>;
     }
     return mapConversation(result.rows[0]);
+  }
+
+  async findParticipantsWithUsers(
+    organizationId: string,
+    conversationId: string,
+  ): Promise<readonly ConversationParticipantSummary[]> {
+    const result = await this.client.query<{
+      user_id: string;
+      name: string;
+      is_active: boolean;
+    }>(
+      `SELECT u.id AS user_id, u.name, u.is_active
+         FROM conversation_participants cp
+         JOIN users u
+           ON u.organization_id = cp.organization_id AND u.id = cp.user_id
+        WHERE cp.organization_id = $1 AND cp.conversation_id = $2
+        ORDER BY cp.created_at ASC, u.id ASC`,
+      [organizationId, conversationId],
+    );
+    return result.rows.map((row) => ({
+      userId: row.user_id,
+      name: row.name,
+      isActive: row.is_active,
+    }));
   }
 
   async addParticipants(

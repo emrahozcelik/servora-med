@@ -1,7 +1,7 @@
-export type ConversationContextType = 'GENERAL' | 'JOB';
+export type ConversationContextType = 'GENERAL' | 'JOB' | 'CUSTOMER';
 
 export function isValidContextType(value: string): value is ConversationContextType {
-  return value === 'GENERAL' || value === 'JOB';
+  return value === 'GENERAL' || value === 'JOB' || value === 'CUSTOMER';
 }
 
 export type ConversationRecord = Readonly<{
@@ -10,6 +10,8 @@ export type ConversationRecord = Readonly<{
   directKey: string;
   contextType: ConversationContextType;
   jobId: string | null;
+  customerId: string | null;
+  title: string | null;
   createdAt: Date;
   updatedAt: Date;
 }>;
@@ -20,6 +22,12 @@ export type ConversationParticipantRecord = Readonly<{
   organizationId: string;
   lastReadMessageId: string | null;
   createdAt: Date;
+}>;
+
+export type ConversationParticipantSummary = Readonly<{
+  userId: string;
+  name: string;
+  isActive: boolean;
 }>;
 
 export type MessageRecord = Readonly<{
@@ -53,12 +61,23 @@ export type ConversationListItem = Readonly<{
   contextType: ConversationContextType;
   jobId: string | null;
   jobTitle: string | null;
+  customerId: string | null;
+  title: string | null;
   participantName: string;
   participantId: string;
   participantIsActive: boolean;
+  participants: readonly ConversationParticipantSummary[];
   unreadCount: number;
   lastActivityAt: string;
   updatedAt: string;
+}>;
+
+export type CreateConversationInput = Readonly<{
+  recipientUserId: string;
+  contextType: ConversationContextType;
+  jobId?: string | null;
+  customerId?: string | null;
+  title?: string | null;
 }>;
 
 export type ConversationListPage = Readonly<{
