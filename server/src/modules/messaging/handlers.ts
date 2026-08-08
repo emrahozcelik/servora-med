@@ -5,6 +5,18 @@ import type { MessagingService } from './service.js';
 import type { ConversationListCursor, MessageCursor } from './types.js';
 import { isValidContextType } from './types.js';
 
+const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseUuid(value: unknown, field: string): string {
+  if (typeof value !== 'string' || !UUID_PATTERN.test(value)) {
+    const message = `${field} geçersizdir.`;
+    throw new AppError('VALIDATION_ERROR', 400, message, {
+      fieldErrors: { [field]: message },
+    });
+  }
+  return value;
+}
+
 function parsePagination(query: Record<string, string | undefined>) {
   const limit = Math.min(Math.max(1, parseInt(query.limit ?? '20', 10) || 20), 50);
   return { limit };
@@ -15,6 +27,7 @@ function parseCursor(query: Record<string, string | undefined>): ConversationLis
   if (!cursor) return null;
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+    parseUuid(parsed.id, 'cursor');
     return { updatedAt: new Date(parsed.ua), id: parsed.id };
   } catch {
     throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz imleç.');
@@ -26,6 +39,7 @@ function parseMessageCursor(query: Record<string, string | undefined>): MessageC
   if (!cursor) return null;
   try {
     const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString('utf-8'));
+    parseUuid(parsed.id, 'cursor');
     return { createdAt: new Date(parsed.ca), id: parsed.id };
   } catch {
     throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz imleç.');
@@ -89,13 +103,20 @@ export function createMessagingHandlers(service: MessagingService) {
         ) {
           throw new AppError('VALIDATION_ERROR', 400, 'participantUserIds geçersiz.');
         }
+        for (const entry of rawParticipantUserIds as string[]) {
+          parseUuid(entry, 'participantUserIds');
+        }
         participantUserIds = rawParticipantUserIds as string[];
         if (participantUserIds.length === 0) {
           throw new AppError('VALIDATION_ERROR', 400, 'En az bir katılımcı seçin.');
         }
       } else if (!recipientUserId) {
         throw new AppError('VALIDATION_ERROR', 400, 'recipientUserId zorunludur.');
+      } else {
+        parseUuid(recipientUserId, 'recipientUserId');
       }
+      if (jobId) parseUuid(jobId, 'jobId');
+      if (customerId) parseUuid(customerId, 'customerId');
       if (!isValidContextType(contextType)) {
         throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz konuşma tipi.');
       }
@@ -113,7 +134,7 @@ export function createMessagingHandlers(service: MessagingService) {
 
     getJobConversationByJobId: async (req: FastifyRequest, reply: FastifyReply) => {
       const params = req.params as { jobId: string };
-      const conversation = await service.getJobConversation(actor(req), params.jobId);
+      const conversation = await service.getJobConversation(actor(req), parseUuid(params.jobId, 'jobId'));
       return reply.send(conversation);
     },
 
@@ -124,7 +145,7 @@ export function createMessagingHandlers(service: MessagingService) {
       const clientActionId = body.clientActionId as string;
 
       const message = await service.sendMessage(
-        actor(req), params.conversationId, messageBody, clientActionId,
+        actor(req), parseUuid(params.conversationId, 'conversationId'), messageBody, clientActionId,
       );
       const code = message.isDuplicate ? 200 : 201;
       return reply.code(code).send(message);
@@ -134,7 +155,9 @@ export function createMessagingHandlers(service: MessagingService) {
       const params = req.params as { conversationId: string };
       const { limit } = parsePagination(req.query as Record<string, string>);
       const cursor = parseMessageCursor(req.query as Record<string, string>);
-      const page = await service.getMessages(actor(req), params.conversationId, cursor, limit);
+      const page = await service.getMessages(
+        actor(req), parseUuid(params.conversationId, 'conversationId'), cursor, limit,
+      );
       return reply.send({
         items: page.items,
         nextCursor: page.nextCursor ? encodeCursor(page.nextCursor) : null,
@@ -150,7 +173,9 @@ export function createMessagingHandlers(service: MessagingService) {
         throw new AppError('VALIDATION_ERROR', 400, 'messageId zorunludur.');
       }
 
-      await service.markRead(actor(req), params.conversationId, messageId);
+      await service.markRead(
+        actor(req), parseUuid(params.conversationId, 'conversationId'), parseUuid(messageId, 'messageId'),
+      );
       return reply.code(204).send();
     },
 
