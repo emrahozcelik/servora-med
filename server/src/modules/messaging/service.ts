@@ -121,13 +121,37 @@ export class MessagingService {
     input: CreateConversationInput,
   ): Promise<ConversationListItem> {
     this.requireEnabled();
-    const recipientUserId = input.recipientUserId;
     const contextType = input.contextType;
     const jobId = input.jobId ?? null;
     const customerId = input.customerId ?? null;
 
-    if (recipientUserId === actor.id) {
-      throw new AppError('VALIDATION_ERROR', 400, 'Kendinizle konuşma başlatamazsınız.');
+    // Normalize to one canonical participant-id array.
+    // The legacy single-recipient contract maps to a one-element array.
+    const isNewContract = input.participantUserIds !== undefined && input.participantUserIds !== null;
+    if (isNewContract && input.recipientUserId) {
+      throw new AppError(
+        'VALIDATION_ERROR', 400,
+        'recipientUserId ve participantUserIds birlikte kullanılamaz.',
+      );
+    }
+
+    let explicitParticipantIds: readonly string[];
+    if (isNewContract) {
+      explicitParticipantIds = Array.from(
+        new Set(input.participantUserIds!.filter((id) => id !== actor.id)),
+      );
+      if (explicitParticipantIds.length === 0) {
+        throw new AppError('VALIDATION_ERROR', 400, 'En az bir katılımcı seçin.');
+      }
+    } else {
+      const recipientUserId = input.recipientUserId;
+      if (!recipientUserId) {
+        throw new AppError('VALIDATION_ERROR', 400, 'recipientUserId zorunludur.');
+      }
+      if (recipientUserId === actor.id) {
+        throw new AppError('VALIDATION_ERROR', 400, 'Kendinizle konuşma başlatamazsınız.');
+      }
+      explicitParticipantIds = [recipientUserId];
     }
 
     // STAFF cannot create new conversations
@@ -158,42 +182,98 @@ export class MessagingService {
       }
     }
 
+    // New-contract GENERAL threads must be titled: the UI no longer has a
+    // titleless creation path, and titleless rows stay reserved for legacy.
     const title = normalizeTitle(
       input.title,
-      contextType === 'CUSTOMER',
-      'Müşteri konuşması',
+      contextType === 'CUSTOMER' || (isNewContract && contextType === 'GENERAL'),
+      contextType === 'CUSTOMER' ? 'Müşteri konuşması' : 'Genel konu',
     );
 
-    const directKey = buildDirectKey(
-      actor.id, recipientUserId, contextType, jobId, customerId,
-    );
+    // New-contract GENERAL threads are titled topics with their own identity;
+    // the legacy pair-based direct key belongs to legacy (titleless) threads
+    // and must not capture a new topic created for the same staff pair.
+    const directKey = isNewContract && contextType === 'GENERAL'
+      ? `context:GENERAL:${randomUUID()}`
+      : buildDirectKey(
+          actor.id, explicitParticipantIds[0]!, contextType, jobId, customerId,
+        );
 
-    // Query recipient info first (used for both create and existing cases)
-    const recipientResult = await this.pool.query<{
-      name: string; is_active: boolean; role: string;
-    }>(
-      `SELECT name, is_active, role FROM users
-        WHERE organization_id = $1 AND id = $2`,
-      [actor.organizationId, recipientUserId],
-    );
-    if (recipientResult.rows.length === 0) {
-      throw notFound();
+    // JOB: canonical identity is org + job, never the participant set.
+    // If the canonical thread already exists, open it as-is: M4 never treats
+    // a repeated create as an instruction to change existing membership.
+    if (contextType === 'JOB' && jobId) {
+      const canonical = await this.repository.findCanonicalJobConversation(
+        actor.organizationId, jobId,
+      );
+      if (canonical) {
+        let canonicalJobTitle: string | null = null;
+        const jobResult = await this.pool.query<{ title: string }>(
+          `SELECT title FROM job_cards
+            WHERE organization_id = $1 AND id = $2`,
+          [actor.organizationId, jobId],
+        );
+        canonicalJobTitle = jobResult.rows[0]?.title ?? null;
+        const canonicalParticipants = await this.repository.findParticipantsWithUsers(
+          actor.organizationId, canonical.id,
+        );
+        return {
+          id: canonical.id,
+          directKey: canonical.directKey,
+          contextType: canonical.contextType,
+          jobId: canonical.jobId,
+          jobTitle: canonicalJobTitle,
+          customerId: canonical.customerId,
+          customerName: null,
+          title: canonical.title,
+          participantName: canonicalParticipants[0]?.name ?? '',
+          participantId: canonicalParticipants[0]?.userId ?? '',
+          participantIsActive: canonicalParticipants[0]?.isActive ?? false,
+          participants: canonicalParticipants,
+          unreadCount: 0,
+          lastActivityAt: canonical.updatedAt.toISOString(),
+          updatedAt: canonical.updatedAt.toISOString(),
+        };
+      }
     }
-    const recipientInfo = recipientResult.rows[0];
 
-    // Authorize before creating
-    await this.authorizeRecipient(actor, recipientUserId, contextType, jobId);
+    // Resolve every explicit participant up front so a single invalid entry
+    // fails the whole creation before any row is inserted.
+    const participantInfos: Array<{ userId: string; name: string; isActive: boolean }> = [];
+    for (const participantId of explicitParticipantIds) {
+      const participantResult = await this.pool.query<{
+        name: string; is_active: boolean;
+      }>(
+        `SELECT name, is_active FROM users
+          WHERE organization_id = $1 AND id = $2`,
+        [actor.organizationId, participantId],
+      );
+      if (participantResult.rows.length === 0) {
+        throw notFound();
+      }
+      const info = participantResult.rows[0];
+      participantInfos.push({
+        userId: participantId,
+        name: info.name,
+        isActive: info.is_active,
+      });
+
+      // Authorize before creating
+      await this.authorizeRecipient(actor, participantId, contextType, jobId);
+    }
 
     // Verify the customer belongs to the same organization when CUSTOMER context
+    let customerName: string | null = null;
     if (contextType === 'CUSTOMER' && customerId) {
-      const customerResult = await this.pool.query<{ id: string }>(
-        `SELECT id FROM customers
+      const customerResult = await this.pool.query<{ id: string; name: string }>(
+        `SELECT id, name FROM customers
           WHERE organization_id = $1 AND id = $2`,
         [actor.organizationId, customerId],
       );
       if (customerResult.rows.length === 0) {
         throw notFound();
       }
+      customerName = customerResult.rows[0].name;
     }
 
     // Fetch job title if JOB context
@@ -207,12 +287,15 @@ export class MessagingService {
       jobTitle = jobResult.rows[0]?.title ?? null;
     }
 
+    const allParticipantIds = [actor.id, ...explicitParticipantIds];
+    const legacyParticipant = participantInfos[0]!;
+
     const now = new Date();
 
     return this.poolTransactionWithPublish(async (tx) => {
-      // JOB: canonical identity is org + job, never the participant pair.
-      // Check for an existing canonical thread first, then fall back to the
-      // direct-key conflict resolution so concurrent attempts converge.
+      // JOB: canonical identity is org + job, never the participant set.
+      // An existing canonical thread is returned as-is; its membership must
+      // not be silently changed by a repeated create with a different list.
       let conversation: ConversationRecord | null = null;
       if (contextType === 'JOB' && jobId) {
         conversation = await tx.findCanonicalJobConversation(actor.organizationId, jobId);
@@ -221,10 +304,6 @@ export class MessagingService {
         conversation = await tx.findConversationByDirectKey(actor.organizationId, directKey);
       }
       if (conversation) {
-        // Ensure the caller's chosen recipient is a participant (idempotent).
-        await tx.addParticipants(
-          actor.organizationId, conversation.id, [actor.id, recipientUserId],
-        );
         const participants = await tx.findParticipantsWithUsers(
           actor.organizationId, conversation.id,
         );
@@ -236,10 +315,11 @@ export class MessagingService {
             jobId: conversation.jobId,
             jobTitle,
             customerId: conversation.customerId,
+            customerName,
             title: conversation.title,
-            participantName: recipientInfo.name,
-            participantId: recipientUserId,
-            participantIsActive: recipientInfo.is_active,
+            participantName: legacyParticipant.name,
+            participantId: legacyParticipant.userId,
+            participantIsActive: legacyParticipant.isActive,
             participants,
             unreadCount: 0,
             lastActivityAt: conversation.updatedAt.toISOString(),
@@ -254,12 +334,12 @@ export class MessagingService {
         actor.organizationId, directKey, contextType, jobId, customerId, title,
       );
 
-      // Add participants (idempotent)
+      // Add all initial participants (idempotent)
       await tx.addParticipants(
-        actor.organizationId, created.id, [actor.id, recipientUserId],
+        actor.organizationId, created.id, allParticipantIds,
       );
 
-      const clientActionId = `conv:${actor.id}:${recipientUserId}:${directKey}`;
+      const clientActionId = `conv:${actor.id}:${allParticipantIds.slice(1).join(',')}:${directKey}`;
 
       // Insert activity (idempotent)
       const activity = await tx.insertActivity(
@@ -282,7 +362,7 @@ export class MessagingService {
           entityId: created.id,
           actorUserId: actor.id,
           audienceRoles: [],
-          audienceUserIds: [actor.id, recipientUserId],
+          audienceUserIds: allParticipantIds,
           resourceKeys: ['conversations', `conversation:${created.id}`, 'message-unread'],
           occurredAt: now,
         });
@@ -296,7 +376,7 @@ export class MessagingService {
             entityType: 'conversation',
             entityId: created.id,
             actorUserId: actor.id,
-            audience: { roles: [], userIds: [actor.id, recipientUserId] },
+            audience: { roles: [], userIds: allParticipantIds },
             resourceKeys: ['conversations', `conversation:${created.id}`, 'message-unread'],
             occurredAt: now,
           },
@@ -315,10 +395,11 @@ export class MessagingService {
           jobId: created.jobId,
           jobTitle,
           customerId: created.customerId,
+          customerName,
           title: created.title,
-          participantName: recipientInfo.name,
-          participantId: recipientUserId,
-          participantIsActive: recipientInfo.is_active,
+          participantName: legacyParticipant.name,
+          participantId: legacyParticipant.userId,
+          participantIsActive: legacyParticipant.isActive,
           participants,
           unreadCount: 0,
           lastActivityAt: created.createdAt.toISOString(),
