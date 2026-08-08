@@ -5,6 +5,7 @@ import {
   type JobCard,
   type JobCardActor,
   type JobCardAssignee,
+  type JobCardStatus,
   type FollowUpSourceAccess,
   type JobPermissionSubject,
   type JobWorkflowAction,
@@ -32,12 +33,16 @@ function actorCanReachJob(actor: JobCardActor, job: JobPermissionSubject) {
     && (actor.role !== 'STAFF' || actor.id === job.assignedTo);
 }
 
+export function isTerminalJobStatus(status: JobCardStatus): boolean {
+  return status === 'COMPLETED' || status === 'CANCELLED';
+}
+
 export function getAllowedLifecycleCommands(
   actor: JobCardActor,
   job: JobPermissionSubject,
 ): LifecycleCommand[] {
   if (!actorCanReachJob(actor, job)
-    || job.status === 'COMPLETED' || job.status === 'CANCELLED') return [];
+    || isTerminalJobStatus(job.status)) return [];
   if (job.status === 'NEW') {
     return actor.role === 'STAFF' ? ['ACCEPT_ASSIGNMENT', 'CANCEL'] : ['CANCEL'];
   }
@@ -55,7 +60,7 @@ export function getAllowedJobActions(
 ): JobWorkflowAction[] {
   if (!actorCanReachJob(actor, job)) return [];
   const actions: JobWorkflowAction[] = [];
-  const terminal = job.status === 'COMPLETED' || job.status === 'CANCELLED';
+  const terminal = isTerminalJobStatus(job.status);
   if (!terminal && job.status !== 'WAITING_APPROVAL') actions.push('EDIT_JOB_FIELDS');
   const addNoteActions = () => {
     actions.push('VIEW_NOTES');

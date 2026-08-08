@@ -179,6 +179,7 @@ export interface MessagingRepository {
   listConversations(
     organizationId: string,
     userId: string,
+    role: string,
     cursor: ConversationListCursor | null,
     limit: number,
   ): Promise<ConversationListPage>;
@@ -207,6 +208,7 @@ export interface MessagingRepository {
   getUnreadCount(
     organizationId: string,
     userId: string,
+    role: string,
   ): Promise<number>;
 
   getUnreadCountByConversation(
@@ -370,18 +372,26 @@ export class PostgresMessagingRepository implements MessagingRepository {
   async listConversations(
     organizationId: string,
     userId: string,
+    role: string,
     cursor: ConversationListCursor | null,
     limit: number,
   ): Promise<ConversationListPage> {
     const cursorClause = cursor
-      ? `AND (c.updated_at, c.id) < ($${cursor ? 3 : 0}, $${cursor ? 4 : 0})`
+      ? `AND (c.updated_at, c.id) < ($${cursor ? 4 : 0}, $${cursor ? 5 : 0})`
       : '';
-    const limitParam = cursor ? '$5' : '$3';
-    const values: unknown[] = [organizationId, userId];
+    const limitParam = cursor ? '$6' : '$4';
+    const values: unknown[] = [organizationId, userId, role];
     if (cursor) {
       values.push(cursor.updatedAt, cursor.id);
     }
     values.push(limit + 1);
+
+    // JOB conversations are resource-authorized: STAFF actors only see the
+    // threads for JobCards currently assigned to them. ADMIN/MANAGER reach
+    // every org JobCard (authoritative job-cards actorCanReachJob semantics).
+    const staffJobFilter = `AND ($3::text <> 'STAFF'
+             OR c.context_type <> 'JOB'
+             OR (j.organization_id IS NOT NULL AND j.assigned_to = $2))`;
 
     const result = await this.pool.query<ConversationListItemRow>(
       `SELECT c.id, c.direct_key, c.context_type, c.job_id,
@@ -433,6 +443,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
          LEFT JOIN messages m
            ON m.conversation_id = c.id
         WHERE c.organization_id = $1
+          ${staffJobFilter}
           ${cursorClause}
         GROUP BY c.id, c.direct_key, c.context_type, c.job_id,
                  c.customer_id, c.title, j.title,
@@ -550,6 +561,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
   async getUnreadCount(
     organizationId: string,
     userId: string,
+    role: string,
   ): Promise<number> {
     const result = await this.pool.query<{ unread_count: string }>(
       `SELECT COUNT(*) AS unread_count
@@ -558,13 +570,20 @@ export class PostgresMessagingRepository implements MessagingRepository {
            ON cp.conversation_id = m.conversation_id
           AND cp.user_id = $2
           AND cp.organization_id = m.organization_id
+         JOIN conversations c
+           ON c.organization_id = m.organization_id AND c.id = m.conversation_id
+         LEFT JOIN job_cards j
+           ON j.organization_id = c.organization_id AND j.id = c.job_id
          LEFT JOIN messages rm
            ON rm.conversation_id = m.conversation_id AND rm.id = cp.last_read_message_id
         WHERE m.organization_id = $1
           AND m.sender_user_id <> $2
           AND (cp.last_read_message_id IS NULL
-               OR (m.created_at, m.id) > (rm.created_at, rm.id))`,
-      [organizationId, userId],
+               OR (m.created_at, m.id) > (rm.created_at, rm.id))
+          AND ($3::text <> 'STAFF'
+               OR c.context_type <> 'JOB'
+               OR (j.organization_id IS NOT NULL AND j.assigned_to = $2))`,
+      [organizationId, userId, role],
     );
     return parseInt(result.rows[0]?.unread_count ?? '0', 10);
   }
@@ -776,6 +795,24 @@ export class PostgresMessagingTransaction {
       name: row.name,
       isActive: row.is_active,
     }));
+  }
+
+  async findJobAuthorizedAudience(
+    organizationId: string,
+    conversationId: string,
+    assignedTo: string,
+  ): Promise<readonly string[]> {
+    const result = await this.client.query<{ user_id: string }>(
+      `SELECT cp.user_id
+         FROM conversation_participants cp
+         JOIN users u
+           ON u.organization_id = cp.organization_id AND u.id = cp.user_id
+        WHERE cp.organization_id = $1
+          AND cp.conversation_id = $2
+          AND (u.role <> 'STAFF' OR u.id = $3)`,
+      [organizationId, conversationId, assignedTo],
+    );
+    return result.rows.map((row) => row.user_id);
   }
 
   async addParticipants(

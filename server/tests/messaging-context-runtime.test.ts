@@ -333,15 +333,14 @@ describe('M2 messaging context runtime contracts', () => {
     });
   });
 
-  it('known defect preserved: assigned STAFF reply in own JOB thread stays 403 in M2', async () => {
+  it('JOB: assigned STAFF participant can reply in their own JOB thread (M3 fix)', async () => {
     await withFixture(async ({ pool, managerA, staff2A, job2A }) => {
       const svc = service(pool);
       const t = await svc.createOrGetConversation(managerA, {
         recipientUserId: staff2A.id, contextType: 'JOB', jobId: job2A,
       });
-      await expect(
-        svc.sendMessage(staff2A, t.id, 'Merhaba', `c-${randomUUID()}`),
-      ).rejects.toMatchObject({ statusCode: 403 });
+      const reply = await svc.sendMessage(staff2A, t.id, 'Merhaba', `c-${randomUUID()}`);
+      expect(reply.isDuplicate).toBe(false);
     });
   });
 
