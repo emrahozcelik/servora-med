@@ -13,6 +13,9 @@ import {
   type Message,
   type Recipient,
 } from '../services/messaging-api';
+import { listJobCards } from '../jobs/jobs-api';
+import { listCustomers } from '../services/crm-api';
+import { jobCardStatusLabel } from '../jobs/job-labels';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import { LoadConversations, LoadMessages, LoadRecipients } from './MessagingSkeleton';
 import { EmptyState } from '../ui/antd/EmptyState';
@@ -40,6 +43,30 @@ type OlderRequest = {
   cursor: string;
 };
 
+type CreateContext = 'JOB' | 'CUSTOMER' | 'GENERAL';
+
+type JobOption = {
+  id: string;
+  title: string;
+  customerName: string | null;
+  status: string;
+  assigneeId: string;
+  assigneeName: string;
+};
+
+type CustomerOption = {
+  id: string;
+  name: string;
+};
+
+type CreateErrors = Partial<Record<'job' | 'customer' | 'title' | 'participants', string>>;
+
+const CONTEXT_LABELS: Record<CreateContext, string> = {
+  JOB: 'İş',
+  CUSTOMER: 'Müşteri',
+  GENERAL: 'Genel konu',
+};
+
 function formatActivityTime(iso: string): string {
   const date = new Date(iso);
   const now = new Date();
@@ -62,6 +89,28 @@ function formatMessageTime(iso: string): string {
   });
 }
 
+/**
+ * Context-first participant summary. Newer contexts carry the full
+ * participants collection; legacy rows fall back to participantName.
+ */
+function participantSummary(conversation: Conversation, selfId: string): string {
+  const others = (conversation.participants ?? []).filter((p) => p.userId !== selfId);
+  if (others.length === 0) return conversation.participantName || '';
+  if (others.length === 1) return others[0].name;
+  if (others.length === 2) return `${others[0].name}, ${others[1].name}`;
+  return `${others[0].name} + ${others.length - 1} kişi`;
+}
+
+function firstOtherParticipant(conversation: Conversation, selfId: string): string {
+  const others = (conversation.participants ?? []).filter((p) => p.userId !== selfId);
+  return others[0]?.name ?? conversation.participantName;
+}
+
+function createErrorText(errors: CreateErrors): string | null {
+  const first = errors.job ?? errors.customer ?? errors.title ?? errors.participants;
+  return first ?? null;
+}
+
 let clientActionCounter = 0;
 function nextClientActionId(userId: string): string {
   return `msg-${userId}-${Date.now()}-${++clientActionCounter}`;
@@ -78,14 +127,36 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const [composerText, setComposerText] = useState('');
   const [draft, setDraft] = useState<DraftState>(null);
   const [sendError, setSendError] = useState<string | null>(null);
-  const [recipients, setRecipients] = useState<Recipient[]>([]);
-  const [recipientsLoading, setRecipientsLoading] = useState(false);
-  const [recipientsError, setRecipientsError] = useState<string | null>(null);
-  const [showRecipientPicker, setShowRecipientPicker] = useState(false);
   const [unreadTotal, setUnreadTotal] = useState(0);
   const [markReadError, setMarkReadError] = useState<string | null>(null);
   const [olderCursor, setOlderCursor] = useState<string | null>(null);
   const [olderLoading, setOlderLoading] = useState(false);
+
+  // Context-first creation flow state
+  const canCreate = user.role === 'ADMIN' || user.role === 'MANAGER';
+  const [createOpen, setCreateOpen] = useState(false);
+  const [createContext, setCreateContext] = useState<CreateContext>('JOB');
+  const [jobQuery, setJobQuery] = useState('');
+  const [jobs, setJobs] = useState<JobOption[]>([]);
+  const [jobsLoading, setJobsLoading] = useState(false);
+  const [jobsError, setJobsError] = useState<string | null>(null);
+  const [selectedJob, setSelectedJob] = useState<JobOption | null>(null);
+  const [customerQuery, setCustomerQuery] = useState('');
+  const [customers, setCustomers] = useState<CustomerOption[]>([]);
+  const [customersLoading, setCustomersLoading] = useState(false);
+  const [customersError, setCustomersError] = useState<string | null>(null);
+  const [selectedCustomer, setSelectedCustomer] = useState<CustomerOption | null>(null);
+  const [createTitle, setCreateTitle] = useState('');
+  const [createParticipants, setCreateParticipants] = useState<Recipient[]>([]);
+  const [createParticipantsLoading, setCreateParticipantsLoading] = useState(false);
+  const [createParticipantsError, setCreateParticipantsError] = useState<string | null>(null);
+  const [selectedParticipantIds, setSelectedParticipantIds] = useState<string[]>([]);
+  const [createErrors, setCreateErrors] = useState<CreateErrors>({});
+  const [createSubmitting, setCreateSubmitting] = useState(false);
+  const [createFlowError, setCreateFlowError] = useState<string | null>(null);
+  const createFlowRef = useRef<HTMLDivElement>(null);
+  const jobQuerySeqRef = useRef(0);
+  const customerQuerySeqRef = useRef(0);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -403,29 +474,158 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     [composerText, selectedId, user.id, draft, loadConversations, loadUnreadCount],
   );
 
-  const handleNewConversation = useCallback(
-    async (recipientId: string) => {
-      try {
-        const conv = await createOrGetConversation(recipientId);
-        setShowRecipientPicker(false);
-        await loadConversations();
-        invalidateThread();
-        setSelectedId(conv.id);
-        scrollModeRef.current = 'bottom';
-        await loadMessages(conv.id);
-      } catch (error) {
-        setSendError(error instanceof Error ? error.message : 'Konuşma başlatılamadı.');
-      }
-    },
-    [loadConversations, loadMessages, invalidateThread],
-  );
+  // --- Context-first creation flow ---
 
-  const loadRecipientsForPicker = useCallback(async () => {
-    setRecipientsLoading(true);
-    setRecipientsError(null);
-    try { setRecipients(await listRecipients()); } catch (error) {
-      setRecipientsError(error instanceof Error ? error.message : 'Alıcılar yüklenemedi.');
-    } finally { setRecipientsLoading(false); }
+  const loadJobs = useCallback(async (query: string) => {
+    const seq = ++jobQuerySeqRef.current;
+    setJobsLoading(true);
+    setJobsError(null);
+    try {
+      const page = await listJobCards({ status: 'active', q: query || undefined, limit: 50 });
+      if (jobQuerySeqRef.current !== seq) return;
+      setJobs(
+        page.items.map((job) => ({
+          id: job.id,
+          title: job.title,
+          customerName: job.customer?.name ?? null,
+          status: job.status,
+          assigneeId: job.assignee.id,
+          assigneeName: job.assignee.name,
+        })),
+      );
+    } catch (error) {
+      if (jobQuerySeqRef.current !== seq) return;
+      setJobsError(error instanceof Error ? error.message : 'İşler yüklenemedi.');
+    } finally {
+      if (jobQuerySeqRef.current === seq) setJobsLoading(false);
+    }
+  }, []);
+
+  const loadCustomers = useCallback(async (query: string) => {
+    const seq = ++customerQuerySeqRef.current;
+    setCustomersLoading(true);
+    setCustomersError(null);
+    try {
+      const page = await listCustomers({ q: query || undefined, limit: 50 });
+      if (customerQuerySeqRef.current !== seq) return;
+      setCustomers(page.items.map((customer) => ({ id: customer.id, name: customer.name })));
+    } catch (error) {
+      if (customerQuerySeqRef.current !== seq) return;
+      setCustomersError(error instanceof Error ? error.message : 'Müşteriler yüklenemedi.');
+    } finally {
+      if (customerQuerySeqRef.current === seq) setCustomersLoading(false);
+    }
+  }, []);
+
+  const loadCreateParticipants = useCallback(async () => {
+    setCreateParticipantsLoading(true);
+    setCreateParticipantsError(null);
+    try {
+      setCreateParticipants(await listRecipients());
+    } catch (error) {
+      setCreateParticipantsError(error instanceof Error ? error.message : 'Katılımcılar yüklenemedi.');
+    } finally {
+      setCreateParticipantsLoading(false);
+    }
+  }, []);
+
+  const openCreateFlow = useCallback(() => {
+    setCreateOpen(true);
+    setCreateContext('JOB');
+    setSelectedJob(null);
+    setSelectedCustomer(null);
+    setCreateTitle('');
+    setSelectedParticipantIds([]);
+    setCreateErrors({});
+    setCreateFlowError(null);
+    loadJobs('');
+    loadCreateParticipants();
+  }, [loadJobs, loadCreateParticipants]);
+
+  const closeCreateFlow = useCallback(() => {
+    setCreateOpen(false);
+    setCreateFlowError(null);
+  }, []);
+
+  const switchCreateContext = useCallback((context: CreateContext) => {
+    setCreateContext(context);
+    setSelectedJob(null);
+    setSelectedCustomer(null);
+    setCreateTitle('');
+    setSelectedParticipantIds([]);
+    setCreateErrors({});
+    setCreateFlowError(null);
+    if (context === 'JOB') {
+      setJobQuery('');
+      loadJobs('');
+    } else if (context === 'CUSTOMER') {
+      setCustomerQuery('');
+      loadCustomers('');
+    }
+  }, [loadJobs, loadCustomers]);
+
+  const submitCreate = useCallback(async () => {
+    const errors: CreateErrors = {};
+    if (createContext === 'JOB' && !selectedJob) {
+      errors.job = 'İş seçin';
+    }
+    if (createContext === 'CUSTOMER' && !selectedCustomer) {
+      errors.customer = 'Müşteri seçin';
+    }
+    if ((createContext === 'CUSTOMER' || createContext === 'GENERAL') && !createTitle.trim()) {
+      errors.title = 'Konu yazın';
+    }
+    if ((createContext === 'CUSTOMER' || createContext === 'GENERAL') && selectedParticipantIds.length === 0) {
+      errors.participants = 'En az bir katılımcı seçin';
+    }
+    setCreateErrors(errors);
+    if (createErrorText(errors)) return;
+
+    setCreateSubmitting(true);
+    setCreateFlowError(null);
+    try {
+      const payload =
+        createContext === 'JOB' && selectedJob
+          ? {
+              contextType: 'JOB' as const,
+              jobId: selectedJob.id,
+              participantUserIds: [selectedJob.assigneeId],
+            }
+          : createContext === 'CUSTOMER' && selectedCustomer
+            ? {
+                contextType: 'CUSTOMER' as const,
+                customerId: selectedCustomer.id,
+                title: createTitle.trim(),
+                participantUserIds: selectedParticipantIds,
+              }
+            : {
+                contextType: 'GENERAL' as const,
+                title: createTitle.trim(),
+                participantUserIds: selectedParticipantIds,
+              };
+
+      const conv = await createOrGetConversation(payload);
+      closeCreateFlow();
+      await loadConversations();
+      invalidateThread();
+      setSelectedId(conv.id);
+      scrollModeRef.current = 'bottom';
+      await loadMessages(conv.id);
+    } catch (error) {
+      setCreateFlowError(error instanceof Error ? error.message : 'Konuşma başlatılamadı.');
+    } finally {
+      setCreateSubmitting(false);
+    }
+  }, [
+    createContext, selectedJob, selectedCustomer, createTitle, selectedParticipantIds,
+    closeCreateFlow, loadConversations, loadMessages, invalidateThread,
+  ]);
+
+  const toggleParticipant = useCallback((userId: string) => {
+    setSelectedParticipantIds((prev) =>
+      prev.includes(userId) ? prev.filter((id) => id !== userId) : [...prev, userId],
+    );
+    setCreateErrors((prev) => (prev.participants ? { ...prev, participants: undefined } : prev));
   }, []);
 
   // --- Render ---
@@ -444,6 +644,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   const selected = conversations.find((c) => c.id === selectedId);
   const isSending = draft?.status === 'sending';
+  const emptyDescription = canCreate
+    ? 'Yeni konuşma butonu ile başlatabilirsiniz.'
+    : 'Eklendiğiniz konuşmalar burada görünür.';
 
   return (
     <main className="workspace messaging-workspace">
@@ -451,42 +654,246 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         <aside className="messaging-sidebar">
           <header className="messaging-sidebar-header">
             <h2>Mesajlar</h2>
-            <button className="secondary-button" onClick={() => { setShowRecipientPicker(true); loadRecipientsForPicker(); }} aria-label="Yeni mesaj">Yeni</button>
+            {canCreate && (
+              <button className="secondary-button" onClick={openCreateFlow} aria-label="Yeni konuşma">Yeni konuşma</button>
+            )}
           </header>
-          {showRecipientPicker && (
-            <div className="recipient-picker">
-              <header><h3>Alıcı seçin</h3><button className="ghost-button" onClick={() => setShowRecipientPicker(false)} aria-label="Kapat">Kapat</button></header>
-              {recipientsLoading && <LoadRecipients />}
-              {recipientsError && <div className="inline-error">{recipientsError}<button className="ghost-button" onClick={loadRecipientsForPicker}>Tekrar dene</button></div>}
-              <ul className="recipient-list">
-                {recipients.map((r) => (
-                  <li key={r.id}><button className="recipient-item" onClick={() => handleNewConversation(r.id)} disabled={!r.isActive}><UserAvatar name={r.name} size="default" /><span className="recipient-details"><strong>{r.name}</strong><small>{r.role === 'ADMIN' ? 'Yönetici' : r.role === 'MANAGER' ? 'Müdür' : 'Personel'}{!r.isActive ? ' (Pasif)' : ''}</small></span></button></li>
+          {createOpen && (
+            <div className="create-panel" ref={createFlowRef}>
+              <header className="create-panel-header">
+                <h3>Yeni konuşma</h3>
+                <button className="ghost-button" onClick={closeCreateFlow} aria-label="Kapat">Kapat</button>
+              </header>
+              <p className="create-prompt">Ne hakkında konuşacaksınız?</p>
+              <div className="create-contexts" role="radiogroup" aria-label="Konuşma bağlamı">
+                {(['JOB', 'CUSTOMER', 'GENERAL'] as const).map((ctx) => (
+                  <button
+                    key={ctx}
+                    type="button"
+                    role="radio"
+                    aria-checked={createContext === ctx}
+                    className={`create-context-option ${createContext === ctx ? 'selected' : ''}`}
+                    onClick={() => switchCreateContext(ctx)}
+                  >
+                    {CONTEXT_LABELS[ctx]}
+                  </button>
                 ))}
-                {!recipientsLoading && !recipientsError && recipients.length === 0 && <li className="empty-recipients"><EmptyState title="Alıcı bulunamadı" /></li>}
-              </ul>
+              </div>
+
+              {createContext === 'JOB' && (
+                <div className="create-field">
+                  <label className="create-label" htmlFor="create-job-search">İş <span className="required-mark">*</span></label>
+                  <input
+                    id="create-job-search"
+                    type="search"
+                    className="create-search"
+                    placeholder="İş ara…"
+                    value={jobQuery}
+                    onChange={(e) => { setJobQuery(e.target.value); loadJobs(e.target.value); }}
+                    aria-label="İş ara"
+                  />
+                  {jobsLoading && <LoadRecipients />}
+                  {jobsError && <div className="inline-error">{jobsError}<button className="ghost-button" onClick={() => loadJobs(jobQuery)}>Tekrar dene</button></div>}
+                  <ul className="create-options" role="listbox" aria-label="İşler">
+                    {jobs.map((job) => (
+                      <li key={job.id} role="option" aria-selected={selectedJob?.id === job.id}>
+                        <button
+                          type="button"
+                          className={`create-option ${selectedJob?.id === job.id ? 'selected' : ''}`}
+                          onClick={() => { setSelectedJob(job); setCreateErrors((prev) => ({ ...prev, job: undefined })); }}
+                        >
+                          <span className="create-option-title">{job.title}</span>
+                          <span className="create-option-sub">
+                            {[job.customerName, jobCardStatusLabel(job.status as never)].filter(Boolean).join(' • ')}
+                          </span>
+                        </button>
+                      </li>
+                    ))}
+                    {!jobsLoading && !jobsError && jobs.length === 0 && (
+                      <li className="empty-recipients"><EmptyState title="İş bulunamadı" /></li>
+                    )}
+                  </ul>
+                  {createErrors.job && <p className="create-error" role="alert">{createErrors.job}</p>}
+                  {selectedJob && (
+                    <p className="create-participant-note">
+                      Katılımcı: <strong>{selectedJob.assigneeName}</strong>
+                      {selectedJob.assigneeId === user.id ? ' (siz)' : ''}
+                    </p>
+                  )}
+                </div>
+              )}
+
+              {createContext === 'CUSTOMER' && (
+                <div className="create-field">
+                  <label className="create-label" htmlFor="create-customer-search">Müşteri <span className="required-mark">*</span></label>
+                  <input
+                    id="create-customer-search"
+                    type="search"
+                    className="create-search"
+                    placeholder="Müşteri ara…"
+                    value={customerQuery}
+                    onChange={(e) => { setCustomerQuery(e.target.value); loadCustomers(e.target.value); }}
+                    aria-label="Müşteri ara"
+                  />
+                  {customersLoading && <LoadRecipients />}
+                  {customersError && <div className="inline-error">{customersError}<button className="ghost-button" onClick={() => loadCustomers(customerQuery)}>Tekrar dene</button></div>}
+                  <ul className="create-options" role="listbox" aria-label="Müşteriler">
+                    {customers.map((customer) => (
+                      <li key={customer.id} role="option" aria-selected={selectedCustomer?.id === customer.id}>
+                        <button
+                          type="button"
+                          className={`create-option ${selectedCustomer?.id === customer.id ? 'selected' : ''}`}
+                          onClick={() => { setSelectedCustomer(customer); setCreateErrors((prev) => ({ ...prev, customer: undefined })); }}
+                        >
+                          <span className="create-option-title">{customer.name}</span>
+                        </button>
+                      </li>
+                    ))}
+                    {!customersLoading && !customersError && customers.length === 0 && (
+                      <li className="empty-recipients"><EmptyState title="Müşteri bulunamadı" /></li>
+                    )}
+                  </ul>
+                  {createErrors.customer && <p className="create-error" role="alert">{createErrors.customer}</p>}
+                </div>
+              )}
+
+              {(createContext === 'CUSTOMER' || createContext === 'GENERAL') && (
+                <>
+                  <div className="create-field">
+                    <label className="create-label" htmlFor="create-topic">Konu <span className="required-mark">*</span></label>
+                    <input
+                      id="create-topic"
+                      type="text"
+                      className="create-search"
+                      placeholder="Konu yazın…"
+                      value={createTitle}
+                      onChange={(e) => {
+                        setCreateTitle(e.target.value);
+                        setCreateErrors((prev) => (prev.title ? { ...prev, title: undefined } : prev));
+                      }}
+                      maxLength={255}
+                      aria-label="Konu"
+                    />
+                    {createErrors.title && <p className="create-error" role="alert">{createErrors.title}</p>}
+                  </div>
+                  <div className="create-field">
+                    <span className="create-label" id="create-participants-label">Katılımcılar <span className="required-mark">*</span></span>
+                    {createParticipantsLoading && <LoadRecipients />}
+                    {createParticipantsError && <div className="inline-error">{createParticipantsError}<button className="ghost-button" onClick={loadCreateParticipants}>Tekrar dene</button></div>}
+                    <ul className="participant-options" role="group" aria-labelledby="create-participants-label">
+                      {createParticipants.map((recipient) => {
+                        const checked = selectedParticipantIds.includes(recipient.id);
+                        return (
+                          <li key={recipient.id}>
+                            <label className={`participant-option ${checked ? 'selected' : ''}`}>
+                              <input
+                                type="checkbox"
+                                checked={checked}
+                                onChange={() => toggleParticipant(recipient.id)}
+                                aria-label={recipient.name}
+                              />
+                              <span className="participant-option-name">{recipient.name}</span>
+                              <span className="participant-option-role">
+                                {recipient.role === 'ADMIN' ? 'Yönetici' : recipient.role === 'MANAGER' ? 'Müdür' : 'Personel'}
+                              </span>
+                            </label>
+                          </li>
+                        );
+                      })}
+                      {!createParticipantsLoading && !createParticipantsError && createParticipants.length === 0 && (
+                        <li className="empty-recipients"><EmptyState title="Katılımcı bulunamadı" /></li>
+                      )}
+                    </ul>
+                    {selectedParticipantIds.length > 0 && (
+                      <div className="selected-participants" aria-label="Seçilen katılımcılar">
+                        {createParticipants
+                          .filter((recipient) => selectedParticipantIds.includes(recipient.id))
+                          .map((recipient) => (
+                            <span key={recipient.id} className="selected-participant">
+                              {recipient.name}
+                              <button
+                                type="button"
+                                className="ghost-button selected-participant-remove"
+                                onClick={() => toggleParticipant(recipient.id)}
+                                aria-label={`${recipient.name} kaldır`}
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                      </div>
+                    )}
+                    {createErrors.participants && <p className="create-error" role="alert">{createErrors.participants}</p>}
+                  </div>
+                </>
+              )}
+
+              {createFlowError && <div className="inline-error">{createFlowError}</div>}
+              <div className="create-actions">
+                <button className="primary-button" onClick={submitCreate} disabled={createSubmitting}>
+                  {createSubmitting ? 'Başlatılıyor…' : 'Konuşmayı başlat'}
+                </button>
+              </div>
             </div>
           )}
           <ul className="conversation-list" role="listbox" aria-label="Konuşmalar">
             {conversations.map((conv) => (
               <li key={conv.id} role="option" aria-selected={conv.id === selectedId}>
                 <button className={`conversation-item ${conv.id === selectedId ? 'selected' : ''} ${conv.unreadCount > 0 ? 'unread' : ''}`} onClick={() => selectConversation(conv)}>
-                  <UserAvatar name={conv.participantName} size="default" />
-                  <span className="conversation-meta">
-                    <span className="conversation-name">{conv.participantName}{!conv.participantIsActive && <span className="disabled-badge">Pasif</span>}</span>
-                    <span className="conversation-context">{conv.contextType === 'JOB' && conv.jobTitle ? `İş: ${conv.jobTitle}` : conv.contextType === 'GENERAL' ? 'Genel' : ''}</span>
-                  </span>
+                  <UserAvatar name={firstOtherParticipant(conv, user.id)} size="default" />
+                  {conv.contextType === 'JOB' && conv.jobTitle ? (
+                    <span className="conversation-meta">
+                      <span className="conversation-name">{conv.jobTitle}</span>
+                      <span className="conversation-context"><span className="context-chip">İş</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
+                    </span>
+                  ) : conv.contextType === 'CUSTOMER' && conv.title ? (
+                    <span className="conversation-meta">
+                      <span className="conversation-name">{conv.title}</span>
+                      <span className="conversation-context"><span className="context-chip">Müşteri</span><span className="conversation-participants">{conv.customerName ?? ''}</span></span>
+                    </span>
+                  ) : conv.title ? (
+                    <span className="conversation-meta">
+                      <span className="conversation-name">{conv.title}</span>
+                      <span className="conversation-context"><span className="context-chip">Genel</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
+                    </span>
+                  ) : (
+                    <span className="conversation-meta">
+                      <span className="conversation-name">{conv.participantName}{!conv.participantIsActive && <span className="disabled-badge">Pasif</span>}</span>
+                      <span className="conversation-context"><span className="context-chip">Genel</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
+                    </span>
+                  )}
                   <span className="conversation-activity"><span className="activity-time">{formatActivityTime(conv.lastActivityAt)}</span>{conv.unreadCount > 0 && <span className="unread-count">{conv.unreadCount}</span>}</span>
                 </button>
               </li>
             ))}
-            {conversations.length === 0 && <li className="empty-conversations"><EmptyState title="Konuşma bulunmuyor" description="Yeni butonu ile konuşma başlatabilirsiniz." /></li>}
+            {conversations.length === 0 && <li className="empty-conversations"><EmptyState title="Konuşma bulunmuyor" description={emptyDescription} /></li>}
           </ul>
         </aside>
         <section className={`messaging-thread${selected ? ' active' : ''}`} aria-label="Mesaj akışı">
           {selected ? (<>
             <header className="thread-header">
               <button className="ghost-button back-button" onClick={() => { invalidateThread(); setSelectedId(null); }} aria-label="Geri">←</button>
-              <span className="thread-participant"><UserAvatar name={selected.participantName} size="default" /><span><strong>{selected.participantName}</strong>{!selected.participantIsActive && <span className="disabled-badge">Pasif</span>}{selected.contextType === 'JOB' && selected.jobTitle && <small>İş: {selected.jobTitle}</small>}</span></span>
+              {selected.contextType === 'JOB' && selected.jobTitle ? (
+                <span className="thread-context">
+                  <strong className="thread-context-title">{selected.jobTitle}</strong>
+                  <small className="thread-context-meta"><span className="context-chip">İş</span>{participantSummary(selected, user.id)}</small>
+                </span>
+              ) : selected.contextType === 'CUSTOMER' && selected.title ? (
+                <span className="thread-context">
+                  <strong className="thread-context-title">{selected.title}</strong>
+                  <small className="thread-context-meta"><span className="context-chip">Müşteri</span>{selected.customerName ?? ''}</small>
+                </span>
+              ) : selected.title ? (
+                <span className="thread-context">
+                  <strong className="thread-context-title">{selected.title}</strong>
+                  <small className="thread-context-meta"><span className="context-chip">Genel</span>{participantSummary(selected, user.id)}</small>
+                </span>
+              ) : (
+                <span className="thread-context">
+                  <strong className="thread-context-title">{selected.participantName}{!selected.participantIsActive && <span className="disabled-badge">Pasif</span>}</strong>
+                  <small className="thread-context-meta"><span className="context-chip">Genel</span>{participantSummary(selected, user.id)}</small>
+                </span>
+              )}
             </header>
             {markReadError && <div className="inline-error">{markReadError}<button className="ghost-button" onClick={retryMarkRead}>Tekrar dene</button></div>}
             <div className="thread-messages" role="log" aria-live="polite" ref={threadMessagesRef}>
@@ -507,7 +914,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
           </>) : (
             <div className="thread-empty">
               {conversations.length === 0 ? (
-                <EmptyState title="Henüz konuşma yok" description="Yeni butonu ile konuşma başlatabilirsiniz." />
+                <EmptyState title="Henüz konuşma yok" description={emptyDescription} />
               ) : (
                 <EmptyState title="Konuşma seçin" description="Sol taraftan bir konuşma seçin veya yeni bir konuşma başlatın." />
               )}
