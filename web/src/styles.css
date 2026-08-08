@@ -1679,6 +1679,16 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .job-detail-workflow-notes .job-notes {
   margin-top: 0;
 }
+.job-detail-workflow-messaging {
+  display: grid;
+  gap: 0.5rem;
+  align-items: start;
+  justify-items: start;
+  min-width: 0;
+}
+.job-detail-workflow-messaging .secondary-button {
+  margin-top: 0;
+}
 .job-notes-help,
 .workflow-requirements-help {
   margin: 0 0 0.85rem;

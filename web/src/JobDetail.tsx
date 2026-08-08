@@ -46,6 +46,7 @@ import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
+import { JobConversationAction } from './jobs/JobConversationAction';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
 import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
@@ -329,7 +330,8 @@ export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
-  pendingLabel, continuity, onCreateFollowUp,
+  pendingLabel, continuity, onCreateFollowUp, messagingAction,
+  messagingActionVisible = false,
 }: {
   job: JobCard;
   items: DeliveryItem[];
@@ -354,6 +356,8 @@ export function JobDetailPanel({
   children?: ReactNode;
   continuity?: ReactNode;
   onCreateFollowUp?: () => void;
+  messagingAction?: ReactNode;
+  messagingActionVisible?: boolean;
 }) {
   const presentation = deriveJobWorkflowPresentation({
     job,
@@ -440,7 +444,7 @@ export function JobDetailPanel({
     />
   ) : null;
   const hasWorkflowMain = Boolean(requirements || decision);
-  const hasRail = Boolean(managementReview || hasWorkflowMain || notes);
+  const hasRail = Boolean(managementReview || hasWorkflowMain || notes || messagingActionVisible);
 
   return (
     <main className="job-detail" data-job-detail="true">
@@ -607,6 +611,8 @@ export function JobDetailPanel({
               </div>
             )}
 
+            {messagingAction}
+
             {notes && (
               <div
                 className="job-detail-workflow-notes"
@@ -699,8 +705,8 @@ async function executeLifecycleCommand(
   }
 }
 
-export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollowUp }: JobDetailScreenProps) {
-  return <JobDetailSessionScreen key={jobId} jobId={jobId} user={user} onBack={onBack} onChanged={onChanged} onCreateFollowUp={onCreateFollowUp} />;
+export function JobDetailScreen({ jobId, user, onBack, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
+  return <JobDetailSessionScreen key={jobId} jobId={jobId} user={user} onBack={onBack} onChanged={onChanged} onCreateFollowUp={onCreateFollowUp} onOpenMessaging={onOpenMessaging} />;
 }
 
 type JobDetailScreenProps = {
@@ -709,6 +715,7 @@ type JobDetailScreenProps = {
   onBack: () => void;
   onChanged: () => void;
   onCreateFollowUp?: () => void;
+  onOpenMessaging?: (conversationId: string) => void;
 };
 
 let sessionTokenCounter = 0;
@@ -718,7 +725,7 @@ function nextSessionToken() {
   return sessionTokenCounter;
 }
 
-function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollowUp }: JobDetailScreenProps) {
+function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
   const [pending, setPending] = useState(false);
   const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
@@ -729,6 +736,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const [timelineKey, setTimelineKey] = useState(0);
   const [lifecycleNoteKey, setLifecycleNoteKey] = useState(0);
   const [notesRealtimeKey, setNotesRealtimeKey] = useState(0);
+  const [messagingActionVisible, setMessagingActionVisible] = useState(false);
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const dialogFocusRestoreEnabledRef = useRef(true);
@@ -1477,6 +1485,15 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         onAdded={() => setTimelineKey((value) => value + 1)}
       />
     ) : undefined}
+    messagingAction={user.capabilities?.messaging === true && onOpenMessaging ? (
+      <JobConversationAction
+        job={detail.job}
+        user={user}
+        onOpenMessaging={onOpenMessaging}
+        onVisibilityChange={setMessagingActionVisible}
+      />
+    ) : undefined}
+    messagingActionVisible={messagingActionVisible}
     timeline={<JobTimeline jobId={jobId} refreshKey={timelineKey} />}
   >
     {isManagementUser(user) && <FollowUpChildrenPanel sourceId={jobId} />}

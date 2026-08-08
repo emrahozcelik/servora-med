@@ -116,6 +116,59 @@ export class MessagingService {
     );
   }
 
+  /**
+   * Exact authorized lookup of the canonical JOB conversation for a caller
+   * (M5 Job Detail entry). Succeeds ONLY when the caller is a persisted
+   * participant AND currently holds Job resource authorization (canReadConversation).
+   * Every denied case — no canonical thread, non-participant, stale Staff,
+   * wrong-org — returns the same opaque 404 with zero conversation metadata,
+   * so the endpoint never doubles as an existence oracle for non-participants.
+   */
+  async getJobConversation(
+    actor: SafeUser,
+    jobId: string,
+  ): Promise<ConversationListItem> {
+    this.requireEnabled();
+    const canonical = await this.repository.findCanonicalJobConversation(
+      actor.organizationId, jobId,
+    );
+    if (!canonical) throw notFound();
+    const participants = await this.repository.findParticipantsWithUsers(
+      actor.organizationId, canonical.id,
+    );
+    if (!participants.some((p) => p.userId === actor.id)) {
+      throw notFound();
+    }
+    const jobAccess = await this.fetchJobAccess(actor.organizationId, jobId);
+    if (!canReadConversation({
+      actor, conversation: canonical, job: jobAccess, isParticipant: true,
+    })) {
+      throw notFound();
+    }
+    const jobResult = await this.pool.query<{ title: string }>(
+      `SELECT title FROM job_cards
+        WHERE organization_id = $1 AND id = $2`,
+      [actor.organizationId, jobId],
+    );
+    return {
+      id: canonical.id,
+      directKey: canonical.directKey,
+      contextType: canonical.contextType,
+      jobId: canonical.jobId,
+      jobTitle: jobResult.rows[0]?.title ?? null,
+      customerId: canonical.customerId,
+      customerName: null,
+      title: canonical.title,
+      participantName: participants[0]?.name ?? '',
+      participantId: participants[0]?.userId ?? '',
+      participantIsActive: participants[0]?.isActive ?? false,
+      participants,
+      unreadCount: 0,
+      lastActivityAt: canonical.updatedAt.toISOString(),
+      updatedAt: canonical.updatedAt.toISOString(),
+    };
+  }
+
   async createOrGetConversation(
     actor: SafeUser,
     input: CreateConversationInput,

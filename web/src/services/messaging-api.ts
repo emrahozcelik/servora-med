@@ -146,6 +146,24 @@ export async function createOrGetConversation(input: CreateConversationInput): P
   return parseConversation(data);
 }
 
+/**
+ * Exact authorized lookup of the canonical JOB conversation for the caller.
+ * Returns the conversation only when the caller is a persisted participant
+ * with current Job resource authorization. Every denied/no-conversation case
+ * returns null with no conversation metadata.
+ */
+export async function getJobConversation(jobId: string): Promise<Conversation | null> {
+  try {
+    const data = await request(
+      `/api/messaging/conversations/job/${encodeURIComponent(jobId)}`,
+    );
+    return parseConversation(data);
+  } catch (error) {
+    if (error instanceof ApiError && error.status === 404) return null;
+    throw error;
+  }
+}
+
 export async function listMessages(
   conversationId: string,
   cursor?: string | null,

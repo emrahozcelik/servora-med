@@ -111,6 +111,12 @@ export function createMessagingHandlers(service: MessagingService) {
       return reply.code(201).send(conversation);
     },
 
+    getJobConversationByJobId: async (req: FastifyRequest, reply: FastifyReply) => {
+      const params = req.params as { jobId: string };
+      const conversation = await service.getJobConversation(actor(req), params.jobId);
+      return reply.send(conversation);
+    },
+
     sendMessage: async (req: FastifyRequest, reply: FastifyReply) => {
       const params = req.params as { conversationId: string };
       const body = req.body as Record<string, unknown>;
