@@ -620,7 +620,7 @@ export class MessagingService {
 
   async getUnreadCount(actor: SafeUser): Promise<number> {
     this.requireEnabled();
-    return this.repository.getUnreadCount(actor.organizationId, actor.id);
+    return this.repository.getUnreadCount(actor.organizationId, actor.id, actor.role);
   }
 
   async getRecipients(actor: SafeUser): Promise<readonly RecipientListItem[]> {

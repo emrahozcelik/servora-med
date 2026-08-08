@@ -208,6 +208,7 @@ export interface MessagingRepository {
   getUnreadCount(
     organizationId: string,
     userId: string,
+    role: string,
   ): Promise<number>;
 
   getUnreadCountByConversation(
@@ -560,6 +561,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
   async getUnreadCount(
     organizationId: string,
     userId: string,
+    role: string,
   ): Promise<number> {
     const result = await this.pool.query<{ unread_count: string }>(
       `SELECT COUNT(*) AS unread_count
@@ -568,13 +570,20 @@ export class PostgresMessagingRepository implements MessagingRepository {
            ON cp.conversation_id = m.conversation_id
           AND cp.user_id = $2
           AND cp.organization_id = m.organization_id
+         JOIN conversations c
+           ON c.organization_id = m.organization_id AND c.id = m.conversation_id
+         LEFT JOIN job_cards j
+           ON j.organization_id = c.organization_id AND j.id = c.job_id
          LEFT JOIN messages rm
            ON rm.conversation_id = m.conversation_id AND rm.id = cp.last_read_message_id
         WHERE m.organization_id = $1
           AND m.sender_user_id <> $2
           AND (cp.last_read_message_id IS NULL
-               OR (m.created_at, m.id) > (rm.created_at, rm.id))`,
-      [organizationId, userId],
+               OR (m.created_at, m.id) > (rm.created_at, rm.id))
+          AND ($3::text <> 'STAFF'
+               OR c.context_type <> 'JOB'
+               OR (j.organization_id IS NOT NULL AND j.assigned_to = $2))`,
+      [organizationId, userId, role],
     );
     return parseInt(result.rows[0]?.unread_count ?? '0', 10);
   }

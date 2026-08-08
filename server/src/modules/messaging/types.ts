@@ -115,5 +115,5 @@ export type MessagingNotificationInput = Readonly<{
 }>;
 
 export interface MessagingReadPort {
-  getUnreadCount(organizationId: string, userId: string): Promise<number>;
+  getUnreadCount(organizationId: string, userId: string, role: string): Promise<number>;
 }

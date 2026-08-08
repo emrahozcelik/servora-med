@@ -414,6 +414,71 @@ describe('M3 messaging resource-based authorization', () => {
     });
   });
 
+  it('unread aggregate: hidden JOB threads no longer contribute for stale Staff', async () => {
+    await withFixture(async ({ pool, orgA, managerA, staff1A, staff2A, job1A }) => {
+      const svc = service(pool);
+      const repo = new PostgresMessagingRepository(pool);
+      const t = await svc.createOrGetConversation(managerA, {
+        recipientUserId: staff1A.id, contextType: 'JOB', jobId: job1A,
+      });
+
+      // Authorized contribution while Staff A is assigned.
+      await svc.sendMessage(managerA, t.id, 'Görev başlıyor', `c-${randomUUID()}`);
+      expect(await svc.getUnreadCount(staff1A)).toBe(1);
+
+      // Reassign the job away from Staff A; participant row remains.
+      await pool.query(
+        `UPDATE job_cards SET assigned_to = $3 WHERE organization_id = $1 AND id = $2`,
+        [orgA, job1A, staff2A.id],
+      );
+      expect((await repo.findParticipants(orgA, t.id)).some((p) => p.userId === staff1A.id)).toBe(true);
+
+      // Existing M3 behavior still holds.
+      const list = await svc.getConversations(staff1A, null, 20);
+      expect(list.items.some((c) => c.id === t.id)).toBe(false);
+      await expect(svc.getMessages(staff1A, t.id, null, 20)).rejects.toMatchObject({ statusCode: 403 });
+      await expect(svc.markRead(staff1A, t.id, randomUUID())).rejects.toMatchObject({ statusCode: 403 });
+
+      // The hidden thread is excluded from the aggregate entirely.
+      const baselineBefore = await svc.getUnreadCount(staff1A);
+      expect(baselineBefore).toBe(0);
+
+      // An authorized participant sends another message in the now-hidden thread.
+      await svc.sendMessage(managerA, t.id, 'Gizli mesaj', `c-${randomUUID()}`);
+
+      // Staff A unread aggregate must not move because of the hidden thread.
+      expect(await svc.getUnreadCount(staff1A)).toBe(baselineBefore);
+
+      // New assignee without membership: no access, no unread contribution.
+      expect(await svc.getUnreadCount(staff2A)).toBe(0);
+      await expect(svc.getMessages(staff2A, t.id, null, 20)).rejects.toMatchObject({ statusCode: 403 });
+    });
+  });
+
+  it('unread aggregate: CUSTOMER and titled GENERAL participant threads still contribute', async () => {
+    await withFixture(async ({ pool, orgA, adminA, staff1A, staff3A, customer1A }) => {
+      const svc = service(pool);
+      const c = await svc.createOrGetConversation(adminA, {
+        recipientUserId: staff1A.id,
+        contextType: 'CUSTOMER',
+        customerId: customer1A,
+        title: 'Koordinasyon',
+      });
+      const g = await svc.createOrGetConversation(adminA, {
+        recipientUserId: staff1A.id,
+        contextType: 'GENERAL',
+        title: 'Stok kontrolü',
+      });
+      await svc.sendMessage(adminA, c.id, 'Müşteri mesajı', `c-${randomUUID()}`);
+      await svc.sendMessage(adminA, g.id, 'Genel mesaj', `c-${randomUUID()}`);
+
+      expect(await svc.getUnreadCount(staff1A)).toBe(2);
+
+      // Non-participant gets no unread contribution.
+      expect(await svc.getUnreadCount(staff3A)).toBe(0);
+    });
+  });
+
   it('creation regression: STAFF cannot create JOB/CUSTOMER/GENERAL; ADMIN/MANAGER rules intact', async () => {
     await withFixture(async ({ pool, staff1A, staff2A, job2A, customer1A }) => {
       const svc = service(pool);

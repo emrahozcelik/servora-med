@@ -62,6 +62,7 @@ export class OverviewService {
         const unreadTotal = await this.messagingRead.getUnreadCount(
           actor.organizationId,
           actor.id,
+          actor.role,
         );
         messageUnreadSummary = { unreadTotal };
       } catch {
