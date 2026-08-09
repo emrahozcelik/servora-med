@@ -484,6 +484,70 @@ describe('deriveJobWorkflowPresentation', () => {
     });
   });
 
+  it('presents Product Delivery assignee change to management in NEW', () => {
+    const model = derive(jobWith({
+      type: 'PRODUCT_DELIVERY', status: 'NEW', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    }), manager);
+    expect(model.recordEditAction).toEqual({
+      action: 'EDIT_JOB_FIELDS',
+      label: 'Sorumlu personeli değiştir',
+      consequence: 'Teslimin sorumlu personeli değiştirilecektir.',
+    });
+  });
+
+  it('presents Product Delivery assignee change to Admin in ACCEPTED', () => {
+    const model = derive(jobWith({
+      type: 'PRODUCT_DELIVERY', status: 'ACCEPTED', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['START', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    }), admin);
+    expect(model.recordEditAction).toMatchObject({
+      action: 'EDIT_JOB_FIELDS',
+      label: 'Sorumlu personeli değiştir',
+    });
+  });
+
+  it('does not present Product Delivery assignee change after work started', () => {
+    const model = derive(jobWith({
+      type: 'PRODUCT_DELIVERY', status: 'IN_PROGRESS', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: [
+          'EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE',
+        ],
+      }),
+    }), manager);
+    expect(model.recordEditAction).toBeNull();
+  });
+
+  it('does not present Product Delivery assignee change to Staff', () => {
+    const model = derive(jobWith({
+      type: 'PRODUCT_DELIVERY', status: 'NEW', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    }), staff);
+    expect(model.recordEditAction).toBeNull();
+  });
+
+  it('does not present Product Delivery assignee change while waiting for approval', () => {
+    const model = derive(jobWith({
+      type: 'PRODUCT_DELIVERY', status: 'WAITING_APPROVAL', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES'],
+      }),
+    }), manager);
+    expect(model.recordEditAction).toBeNull();
+  });
+
   it('offers schedule edit only in NEW and ACCEPTED when EDIT_JOB_FIELDS is allowed', () => {
     const actions = ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'] as const;
     const newModel = derive(jobWith({

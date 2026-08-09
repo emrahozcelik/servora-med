@@ -42,6 +42,7 @@ import {
 } from './jobs/JobWorkflowDialog';
 import { MeetingDetailsSection } from './jobs/MeetingDetails';
 import { SalesMeetingEditForm } from './jobs/SalesMeetingEditForm';
+import { DeliveryAssigneeEditForm } from './jobs/DeliveryAssigneeEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
@@ -1147,11 +1148,13 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     } finally { endMutationOperation(owner); }
   }
   function openRecordEditDialog(action: RecordEditPresentation['action'], trigger: HTMLElement) {
-    if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING') return;
+    if (state.kind !== 'ready'
+      || (state.detail.kind !== 'SALES_MEETING' && state.detail.kind !== 'PRODUCT_DELIVERY')) return;
     if (action === 'EDIT_JOB_FIELDS') {
       setEditing(true);
       return;
     }
+    if (state.detail.kind !== 'SALES_MEETING') return;
     const presentation = presentationFor(state.detail);
     const recordEdit = presentation.recordEditAction;
     if (!recordEdit || recordEdit.action !== 'WITHDRAW_AND_EDIT_JOB_FIELDS') return;
@@ -1221,8 +1224,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
     } finally { endMutationOperation(owner); }
   }
-  async function saveJob(input: PatchJobCardInput) {
-    if (state.kind !== 'ready' || state.detail.kind !== 'SALES_MEETING'
+  async function saveJobPatch(input: PatchJobCardInput, successMessage: string) {
+    if (state.kind !== 'ready'
       || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
     const owner = startMutationOperation();
     if (!owner) return;
@@ -1235,7 +1238,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       if (!(await refreshTruth())) return;
       setEditing(false); setTimelineKey((value) => value + 1);
       if (!(await requestRealtimeDrain())) return;
-      setMessage('Görüşme bilgileri güncellendi.'); onChanged();
+      setMessage(successMessage); onChanged();
       if (
         patched.assignmentTransitionId
         && input.assignedTo !== undefined
@@ -1258,10 +1261,20 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         if (hasPendingRealtimeInvalidation()) {
           setRealtimeStale(true);
         }
-        setMessage(caught instanceof ApiError ? caught.message : 'Görüşme güncellenemedi.');
+        setMessage(caught instanceof ApiError ? caught.message : 'İş güncellenemedi.');
       }
       setMessageIsError(true); setFeedbackFocusRequest((value) => value + 1);
     } finally { endMutationOperation(owner); }
+  }
+  function saveJob(input: PatchJobCardInput) {
+    return saveJobPatch(input, 'Görüşme bilgileri güncellendi.');
+  }
+  function saveDeliveryAssignee(assignedTo: string) {
+    if (state.kind !== 'ready') return Promise.resolve();
+    return saveJobPatch(
+      { expectedVersion: state.detail.job.version, assignedTo },
+      'Sorumlu personel güncellendi.',
+    );
   }
   async function saveSchedule(scheduledAt: string | null) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
@@ -1447,17 +1460,20 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const recordContent = editing && detail.kind === 'SALES_MEETING'
     ? <SalesMeetingEditForm job={detail.job} user={user}
       pending={pending} onCancel={() => setEditing(false)} onSave={saveJob} />
-    : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
-      ? <MeetingDetailsSection
-        job={detail.job}
-        details={detail.meetingDetails}
-        user={user}
-        canEdit={editMeeting}
-        mutationPending={pending}
-        submissionError={meetingSubmissionError}
-        onSave={saveMeeting}
-      />
-      : null;
+    : editing && detail.kind === 'PRODUCT_DELIVERY'
+      ? <DeliveryAssigneeEditForm job={detail.job}
+        pending={pending} onCancel={() => setEditing(false)} onSave={saveDeliveryAssignee} />
+      : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
+        ? <MeetingDetailsSection
+          job={detail.job}
+          details={detail.meetingDetails}
+          user={user}
+          canEdit={editMeeting}
+          mutationPending={pending}
+          submissionError={meetingSubmissionError}
+          onSave={saveMeeting}
+        />
+        : null;
 
   return <JobDetailPanel
     job={detail.job}

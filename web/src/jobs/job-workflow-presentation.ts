@@ -493,6 +493,18 @@ function deriveRecordEditAction(
       consequence: 'Görüşme bilgileri düzenlenecektir.',
     };
   }
+  if (
+    actions.includes('EDIT_JOB_FIELDS')
+    && job.type === 'PRODUCT_DELIVERY'
+    && (job.status === 'NEW' || job.status === 'ACCEPTED')
+    && user.role !== 'STAFF'
+  ) {
+    return {
+      action: 'EDIT_JOB_FIELDS',
+      label: 'Sorumlu personeli değiştir',
+      consequence: 'Teslimin sorumlu personeli değiştirilecektir.',
+    };
+  }
   return null;
 }
 
