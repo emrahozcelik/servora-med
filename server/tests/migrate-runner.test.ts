@@ -85,9 +85,10 @@ describe('runMigrations', () => {
       '023_staff_confidential_notes.sql',
       '024_job_card_notes_invoice_number.sql',
       '025_messaging_context_ready.sql',
+      '026_messaging_participant_lifecycle.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('025_messaging_context_ready.sql');
-    expect(expectedSchemaVersion).toBe(25);
+    expect(migrations.at(-1)?.name).toBe('026_messaging_participant_lifecycle.sql');
+    expect(expectedSchemaVersion).toBe(26);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

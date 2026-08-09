@@ -924,12 +924,14 @@ export class JobCardService {
         });
       }
       const realtimeEvents: RealtimeEventRecord[] = [];
+      let assignmentTransitionId: string | null = null;
       if (fields.assignedTo !== undefined && fields.assignedTo !== job.assignedTo) {
         const activity = await transaction.appendActivity({
           organizationId: actor.organizationId, jobCardId, actorId: actor.id,
           event: 'JOB_ASSIGNED',
           oldValue: { assignedTo: job.assignedTo }, newValue: { assignedTo: updated.assignedTo },
         });
+        assignmentTransitionId = activity.id;
         realtimeEvents.push(...await this.appendRealtimeForActivity(transaction, {
           activity,
           organizationId: actor.organizationId,
@@ -968,7 +970,10 @@ export class JobCardService {
       const detail = await transaction.getJobDetail(actor.organizationId, jobCardId);
       if (!detail) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       return {
-        response: await this.presentDetail(transaction, actor, detail, requestTime),
+        response: {
+          ...(await this.presentDetail(transaction, actor, detail, requestTime)),
+          assignmentTransitionId,
+        },
         realtimeEvents,
       };
     }).then((committed) => {

@@ -179,6 +179,27 @@ export function createMessagingHandlers(service: MessagingService) {
       return reply.code(204).send();
     },
 
+    syncJobAssignee: async (req: FastifyRequest, reply: FastifyReply) => {
+      const params = req.params as { conversationId: string };
+      const body = req.body as Record<string, unknown>;
+      const clientActionId = body.clientActionId as string;
+      const assignmentTransitionId = body.assignmentTransitionId as string;
+
+      if (!clientActionId || typeof clientActionId !== 'string') {
+        throw new AppError('VALIDATION_ERROR', 400, 'clientActionId zorunludur.');
+      }
+
+      const result = await service.syncJobAssignee(
+        actor(req),
+        parseUuid(params.conversationId, 'conversationId'),
+        {
+          clientActionId,
+          assignmentTransitionId: parseUuid(assignmentTransitionId, 'assignmentTransitionId'),
+        },
+      );
+      return reply.send(result);
+    },
+
     unreadCount: async (req: FastifyRequest, reply: FastifyReply) => {
       const count = await service.getUnreadCount(actor(req));
       return reply.send({ unreadCount: count });

@@ -98,7 +98,18 @@ export type RecipientListItem = Readonly<{
 
 export type DirectKey = string;
 
-export type MessagingActivityAction = 'CONVERSATION_CREATED' | 'MESSAGE_SENT' | 'READ_CURSOR_UPDATED';
+export type MessagingActivityAction = 'CONVERSATION_CREATED' | 'MESSAGE_SENT' | 'READ_CURSOR_UPDATED' | 'PARTICIPANTS_CHANGED';
+
+export type JobAssigneeSyncInput = Readonly<{
+  clientActionId: string;
+  assignmentTransitionId: string;
+}>;
+
+export type JobAssigneeSyncResult = Readonly<{
+  conversationId: string;
+  synced: true;
+  changed: boolean;
+}>;
 
 export type MessagingActivityRecord = Readonly<{
   id: string;
