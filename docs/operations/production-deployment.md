@@ -36,7 +36,7 @@ Required production highlights:
 - `HOST=127.0.0.1`
 - `CORS_ORIGIN=https://<FQDN>`
 - `TRUSTED_PROXY=loopback`
-- `HEALTH_SCHEMA_VERSION=023_staff_confidential_notes` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
+- `HEALTH_SCHEMA_VERSION=026_messaging_participant_lifecycle` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
 
 ### HEALTH_SCHEMA_VERSION verification
 

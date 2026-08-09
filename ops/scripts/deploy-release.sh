@@ -6,7 +6,14 @@
 #
 # Requires: NEW release already copied to /opt/servora-med/releases/$SHA
 # including server/dist, server/package.json, server/package-lock.json,
-# server/node_modules (from npm ci --omit=dev), web/dist, and ops/.
+# server/node_modules, web/dist, and ops/.
+#
+# Build order contract (never swap these two steps):
+#   server: npm ci (full, dev deps included) -> npm run build -> npm ci --omit=dev
+#   web:    npm ci (full) -> npm run build  (runtime is static web/dist only)
+# `npm ci --omit=dev` cannot build: typescript/vite are devDependencies.
+# The release server/node_modules below MUST be the post-build production
+# dependency set (npm ci --omit=dev run AFTER a successful server build).
 set -Eeuo pipefail
 
 SHA="${SHA:?SHA is required}"
@@ -26,7 +33,7 @@ if [[ ! -f "$NEW_RELEASE/server/package-lock.json" ]]; then
   exit 1
 fi
 if [[ ! -d "$NEW_RELEASE/server/node_modules" ]]; then
-  echo "Missing node_modules in release (run npm ci --omit=dev in server/)." >&2
+  echo "Missing node_modules in release (run npm ci --omit=dev in server/ AFTER a successful npm run build)." >&2
   exit 1
 fi
 if [[ ! -f "$ENV_FILE" ]]; then

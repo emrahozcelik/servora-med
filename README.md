@@ -171,7 +171,7 @@ npm run migrate
 npm run dev
 ```
 
-The migration runner applies the immutable 001–023 files (latest: `023_staff_confidential_notes`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, and staff confidential notes.
+The migration runner applies the immutable 001–026 files (latest: `026_messaging_participant_lifecycle`) for the ledger, authentication, Product Delivery tracer, People profiles/audits, Customer/Contact CRM, Product catalog, JobCard workspace notes/indexes/lifecycle timestamp constraints, Structured Sales Meeting details, entity-delete audit, realtime events, in-app notifications, job action locations, web push, engagement kinds, reverse geocoding, calendar, messaging, operational note contexts, linked follow-up cards, staff confidential notes, and the messaging participant lifecycle.
 
 ### First Admin Bootstrap
 
@@ -488,7 +488,7 @@ cd web && npm audit --omit=dev
 | `LOG_LEVEL` | no | allowlist: `fatal` `error` `warn` `info` `debug` `trace` `silent`; defaults to `info` |
 | `CORS_ORIGIN` | production | single exact origin without a path; production requires `https`; local default is `http://127.0.0.1:5173` |
 | `TRUSTED_PROXY` | production | `loopback`, `127.0.0.1`, or `::1`; defaults to `loopback` outside production |
-| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (current: `023_staff_confidential_notes`; must equal the latest canonical migration in the deployed release); optional in development/test |
+| `HEALTH_SCHEMA_VERSION` | production | exact `schema_migrations.version` for readiness (current: `026_messaging_participant_lifecycle`; must equal the latest canonical migration in the deployed release); optional in development/test |
 | `ACTION_SCOPED_GEOLOCATION_ENABLED` | no | exact `true`/`false`; defaults to `false` and must remain disabled until the disclosure, retention, and reverse-geocoding provider gates are approved |
 | `CALENDAR_ENABLED` | no | fail-closed Phase U2 capability; exact `true`/`false`, defaults to `false` |
 | `CALENDAR_REMINDER_LEAD_MINUTES` | no | in-app calendar reminder lead time; integer `5..1440`, defaults to `30` |
