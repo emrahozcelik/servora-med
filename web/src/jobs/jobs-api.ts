@@ -714,8 +714,17 @@ export const listFollowUps = async (
   await request(`${jobPath(sourceId)}/follow-ups${query(page)}`),
   parseFollowUpListItem,
 );
-export const patchJobCard = async (id: string, input: PatchJobCardInput) =>
-  parseJobCard(await request(jobPath(id), json('PATCH', input)));
+export const patchJobCard = async (id: string, input: PatchJobCardInput): Promise<JobCard & { assignmentTransitionId: string | null }> => {
+  const raw = await request(jobPath(id), json('PATCH', input));
+  const parsed = parseJobCard(raw);
+  const v = raw as Record<string, unknown>;
+  return {
+    ...parsed,
+    assignmentTransitionId: typeof v.assignmentTransitionId === 'string'
+      ? v.assignmentTransitionId
+      : null,
+  };
+};
 export const getMeetingDetails = async (id: string) =>
   parseMeetingDetails(await request(`${jobPath(id)}/meeting-details`));
 export const patchMeetingDetails = async (id: string, input: PatchMeetingDetailsInput) =>
