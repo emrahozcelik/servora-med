@@ -55,12 +55,13 @@ Detail notes:
 - **Exact-head CI** — the CI run for the deployed commit shows server and web
   jobs `SUCCESS`.
 - **Database** — `DATABASE_URL` resolves to `servora_med_staging`;
-  `schema_migrations` holds exactly the 23 canonical migrations.
+  `schema_migrations` holds exactly the 26 canonical migrations.
 - **Readiness** — `HEALTH_SCHEMA_VERSION` equals the exact latest migration in
-  the release (currently `023_staff_confidential_notes`); `GET /api/health`
+  the release (currently `026_messaging_participant_lifecycle`); `GET /api/health`
   returns `200 {"status":"ok"}`.
-- **Feature flags** — `WEB_PUSH_ENABLED=false` and
-  `ACTION_SCOPED_GEOLOCATION_ENABLED=false` are confirmed in the staging
+- **Feature flags** — `OVERVIEW_DASHBOARD_ENABLED=true`,
+  `CALENDAR_ENABLED=true`, and `MESSAGING_ENABLED=true`; `WEB_PUSH_ENABLED=false`
+  and `ACTION_SCOPED_GEOLOCATION_ENABLED=false` are confirmed in the staging
   environment; no VAPID or Google credentials are present.
 - **Privacy boundary** — the confidential-notes section is visible to
   Admin/Manager actors only and absent for Staff actors (backend-enforced).

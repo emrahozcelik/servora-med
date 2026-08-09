@@ -126,8 +126,8 @@ A builder checkout may use `npm run migrate` (`tsx`); a builder checkout is
 
 ### 5. Verify migration set
 
-Read-only check that `schema_migrations` contains exactly the 23 canonical
-migrations (`001_auth_foundation` .. `023_staff_confidential_notes`).
+Read-only check that `schema_migrations` contains exactly the 26 canonical
+migrations (`001_auth_foundation` .. `026_messaging_participant_lifecycle`).
 
 ### 6a. MINIMAL ADMIN PROFILE — bootstrap-admin
 
@@ -197,10 +197,10 @@ existing_users:
 0
 
 migration_count:
-23
+26
 
 latest_migration:
-023_staff_confidential_notes
+026_messaging_participant_lifecycle
 ```
 
 If any value differs:
@@ -306,7 +306,7 @@ node dist/db/import-pilot-products.js \
 ### 8. Health schema exact match
 
 The staging environment `HEALTH_SCHEMA_VERSION` must equal the exact latest
-migration in the release (currently `023_staff_confidential_notes`); verify
+migration in the release (currently `026_messaging_participant_lifecycle`); verify
 against `server/dist/db/migrations` (see
 [staging-contract.md](./staging-contract.md)); `GET /api/health` must return
 `200 {"status":"ok"}`.

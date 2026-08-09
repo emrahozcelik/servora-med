@@ -29,7 +29,7 @@ ACTION_SCOPED_GEOLOCATION_ENABLED:
 false initially
 
 CURRENT HEALTH_SCHEMA_VERSION:
-023_staff_confidential_notes
+026_messaging_participant_lifecycle
 
 AUTOMATIC MIGRATION ON APP START:
 PROHIBITED
@@ -53,7 +53,7 @@ Cloudflare Edge. No router port forwarding, no public Fastify or PostgreSQL.
 
 `HEALTH_SCHEMA_VERSION` must equal the **exact latest canonical migration
 identifier included in the deployed release** — currently
-`023_staff_confidential_notes`. Update the value in the staging environment file
+`026_messaging_participant_lifecycle`. Update the value in the staging environment file
 on every release that adds a migration.
 
 Operator verification against the deployed release (no database credentials, no
@@ -124,18 +124,18 @@ No values or real credentials are recorded.
 
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `HEALTH_SCHEMA_VERSION` | yes | exact `schema_migrations.version` for readiness; currently `023_staff_confidential_notes` |
+| `HEALTH_SCHEMA_VERSION` | yes | exact `schema_migrations.version` for readiness; currently `026_messaging_participant_lifecycle` |
 
 ### Feature flags
 
 | Variable | Staging value | Purpose |
 |----------|---------------|---------|
-| `OVERVIEW_DASHBOARD_ENABLED` | explicit `true`/`false` | overview dashboard capability |
-| `CALENDAR_ENABLED` | explicit `true`/`false` | calendar capability (fail-closed) |
+| `OVERVIEW_DASHBOARD_ENABLED` | `true` | overview dashboard capability (completed, no external dependency) |
+| `CALENDAR_ENABLED` | `true` | calendar capability (completed, no external dependency; fail-closed) |
 | `CALENDAR_REMINDER_LEAD_MINUTES` | no | in-app reminder lead time `5..1440`; default `30` |
-| `MESSAGING_ENABLED` | explicit `true`/`false` | messaging capability (fail-closed) |
-| `WEB_PUSH_ENABLED` | `false` | Web Push stays disabled for the initial staging contract |
-| `ACTION_SCOPED_GEOLOCATION_ENABLED` | `false` | geolocation stays disabled for the initial staging contract |
+| `MESSAGING_ENABLED` | `true` | messaging capability (completed through M9 + UXA closeout; fail-closed) |
+| `WEB_PUSH_ENABLED` | `false` | Web Push stays disabled until its external-service acceptance gate is approved |
+| `ACTION_SCOPED_GEOLOCATION_ENABLED` | `false` | geolocation stays disabled until its Google-service acceptance gate is approved |
 
 ### Conditional secrets
 
