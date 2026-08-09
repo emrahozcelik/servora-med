@@ -16,6 +16,7 @@ export const REALTIME_EVENT_TYPES = [
   'calendar.reminder_due',
   'conversation.created',
   'message.sent',
+  'conversation.participants_changed',
   'confidential-note.created',
 ] as const;
 

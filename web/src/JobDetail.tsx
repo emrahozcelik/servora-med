@@ -47,6 +47,8 @@ import { JobTimeline } from './jobs/JobTimeline';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
 import { JobConversationAction } from './jobs/JobConversationAction';
+import { useReassignmentConversationSync } from './jobs/useReassignmentConversationSync';
+import { ReassignmentSyncPrompt } from './jobs/ReassignmentSyncPrompt';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
 import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
@@ -727,6 +729,7 @@ function nextSessionToken() {
 
 function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollowUp, onOpenMessaging }: JobDetailScreenProps) {
   const [state, setState] = useState<DetailState>({ kind: 'loading' });
+  const reassignmentSync = useReassignmentConversationSync(jobId);
   const [pending, setPending] = useState(false);
   const [startPendingPhase, setStartPendingPhase] = useState<'capturing' | 'submitting' | null>(null);
   const [message, setMessage] = useState('');
@@ -1227,12 +1230,23 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     mutationEpoch.current += 1;
     setPending(true); setMessage(''); setMessageIsError(false);
     try {
-      await patchJobCard(operationJobId, input);
+      const patched = await patchJobCard(operationJobId, input);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (!(await refreshTruth())) return;
       setEditing(false); setTimelineKey((value) => value + 1);
       if (!(await requestRealtimeDrain())) return;
       setMessage('Görüşme bilgileri güncellendi.'); onChanged();
+      if (
+        patched.assignmentTransitionId
+        && input.assignedTo !== undefined
+        && input.assignedTo !== state.detail.job.assignedTo
+      ) {
+        void reassignmentSync.offerSync({
+          transitionId: patched.assignmentTransitionId,
+          oldAssignee: { id: state.detail.job.assignedTo, name: state.detail.job.assignee.name },
+          newAssignee: { id: input.assignedTo ?? null, name: patched.assignee.name },
+        });
+      }
     } catch (caught) {
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (caught instanceof ApiError && caught.code === 'VERSION_CONFLICT') {
@@ -1505,5 +1519,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       returnFocusRef={dialogTriggerRef}
       restoreFocusEnabledRef={dialogFocusRestoreEnabledRef}
     />}
+    <ReassignmentSyncPrompt
+      state={reassignmentSync.state}
+      onConfirm={() => { void reassignmentSync.confirm(); }}
+      onDismiss={reassignmentSync.dismiss}
+    />
   </JobDetailPanel>;
 }

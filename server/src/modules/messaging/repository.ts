@@ -80,6 +80,7 @@ type MessagingActivityRow = {
   actor_user_id: string;
   action: MessagingActivityAction;
   client_action_id: string;
+  details: Record<string, unknown> | null;
   created_at: Date;
 };
 
@@ -135,7 +136,6 @@ function mapActivity(row: MessagingActivityRow): MessagingActivityRecord {
     createdAt: row.created_at,
   };
 }
-
 export interface MessagingRepository {
   findConversationByDirectKey(
     organizationId: string,
@@ -690,6 +690,166 @@ export class PostgresMessagingRepository implements MessagingRepository {
 export class PostgresMessagingTransaction {
   constructor(private readonly client: Pick<PoolClient, 'query'>) {}
 
+  async findConversationByIdForUpdate(
+    organizationId: string,
+    conversationId: string,
+  ): Promise<ConversationRecord | null> {
+    const result = await this.client.query<ConversationRow>(
+      `SELECT id, organization_id, direct_key, context_type, job_id,
+              customer_id, title, created_at, updated_at
+         FROM conversations
+        WHERE organization_id = $1 AND id = $2
+        FOR UPDATE`,
+      [organizationId, conversationId],
+    );
+    return result.rows[0] ? mapConversation(result.rows[0]) : null;
+  }
+
+  async findJobAssigneeForUpdate(
+    organizationId: string,
+    jobId: string,
+  ): Promise<{ status: string; assignedTo: string | null } | null> {
+    const result = await this.client.query<{ status: string; assigned_to: string | null }>(
+      `SELECT status, assigned_to
+         FROM job_cards
+        WHERE organization_id = $1 AND id = $2
+        FOR UPDATE`,
+      [organizationId, jobId],
+    );
+    return result.rows[0]
+      ? { status: result.rows[0].status, assignedTo: result.rows[0].assigned_to }
+      : null;
+  }
+
+  async findAssignmentActivityById(
+    organizationId: string,
+    jobId: string,
+    activityId: string,
+  ): Promise<{ id: string; eventType: string; oldValue: unknown; newValue: unknown } | null> {
+    const result = await this.client.query<{
+      id: string; event_type: string; old_value: unknown; new_value: unknown;
+    }>(
+      `SELECT id, event_type, old_value, new_value
+         FROM job_card_activity_logs
+        WHERE organization_id = $1 AND job_card_id = $2 AND id = $3`,
+      [organizationId, jobId, activityId],
+    );
+    return result.rows[0]
+      ? {
+          id: result.rows[0].id,
+          eventType: result.rows[0].event_type,
+          oldValue: result.rows[0].old_value,
+          newValue: result.rows[0].new_value,
+        }
+      : null;
+  }
+
+  async findLatestAssignmentActivityId(
+    organizationId: string,
+    jobId: string,
+  ): Promise<string | null> {
+    const result = await this.client.query<{ id: string }>(
+      `SELECT id
+         FROM job_card_activity_logs
+        WHERE organization_id = $1 AND job_card_id = $2
+          AND event_type = 'JOB_ASSIGNED'
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1`,
+      [organizationId, jobId],
+    );
+    return result.rows[0]?.id ?? null;
+  }
+
+  async findLatestMessageId(
+    organizationId: string,
+    conversationId: string,
+  ): Promise<string | null> {
+    const result = await this.client.query<{ id: string }>(
+      `SELECT id
+         FROM messages
+        WHERE organization_id = $1 AND conversation_id = $2
+        ORDER BY created_at DESC, id DESC
+        LIMIT 1`,
+      [organizationId, conversationId],
+    );
+    return result.rows[0]?.id ?? null;
+  }
+
+  async deleteParticipant(
+    organizationId: string,
+    conversationId: string,
+    userId: string,
+  ): Promise<boolean> {
+    const result = await this.client.query(
+      `DELETE FROM conversation_participants
+        WHERE organization_id = $1 AND conversation_id = $2 AND user_id = $3`,
+      [organizationId, conversationId, userId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async insertParticipantWithReadMarker(
+    organizationId: string,
+    conversationId: string,
+    userId: string,
+    lastReadMessageId: string | null,
+  ): Promise<boolean> {
+    const result = await this.client.query(
+      `INSERT INTO conversation_participants
+         (conversation_id, user_id, organization_id, last_read_message_id)
+       VALUES ($1, $2, $3, $4)
+       ON CONFLICT (conversation_id, user_id) DO NOTHING`,
+      [conversationId, userId, organizationId, lastReadMessageId],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  async findActivityReceipt(
+    organizationId: string,
+    actorUserId: string,
+    clientActionId: string,
+    action: string,
+  ): Promise<{ conversationId: string; details: Record<string, unknown> | null } | null> {
+    const result = await this.client.query<{
+      conversation_id: string; details: Record<string, unknown> | null;
+    }>(
+      `SELECT conversation_id, details
+         FROM messaging_activity_logs
+        WHERE organization_id = $1 AND actor_user_id = $2
+          AND client_action_id = $3 AND action = $4`,
+      [organizationId, actorUserId, clientActionId, action],
+    );
+    return result.rows[0]
+      ? { conversationId: result.rows[0].conversation_id, details: result.rows[0].details }
+      : null;
+  }
+
+  async findParticipantRoles(
+    organizationId: string,
+    conversationId: string,
+  ): Promise<ReadonlyArray<{ userId: string; role: string }>> {
+    const result = await this.client.query<{ user_id: string; role: string }>(
+      `SELECT u.id AS user_id, u.role
+         FROM conversation_participants cp
+         JOIN users u
+           ON u.organization_id = cp.organization_id AND u.id = cp.user_id
+        WHERE cp.organization_id = $1 AND cp.conversation_id = $2`,
+      [organizationId, conversationId],
+    );
+    return result.rows.map((row) => ({ userId: row.user_id, role: row.role }));
+  }
+
+  async findUserRole(
+    organizationId: string,
+    userId: string,
+  ): Promise<string | null> {
+    const result = await this.client.query<{ role: string }>(
+      `SELECT role FROM users WHERE organization_id = $1 AND id = $2`,
+      [organizationId, userId],
+    );
+    return result.rows[0]?.role ?? null;
+  }
+
   async findConversationByDirectKey(
     organizationId: string,
     directKey: string,
@@ -901,14 +1061,15 @@ export class PostgresMessagingTransaction {
     actorUserId: string,
     action: MessagingActivityAction,
     clientActionId: string,
+    details: Record<string, unknown> | null = null,
   ): Promise<MessagingActivityRecord> {
     const result = await this.client.query<MessagingActivityRow>(
       `INSERT INTO messaging_activity_logs
-         (organization_id, conversation_id, actor_user_id, action, client_action_id)
-       VALUES ($1, $2, $3, $4, $5)
+         (organization_id, conversation_id, actor_user_id, action, client_action_id, details)
+       VALUES ($1, $2, $3, $4, $5, $6)
        ON CONFLICT (organization_id, actor_user_id, client_action_id, action) DO NOTHING
-       RETURNING id, organization_id, conversation_id, actor_user_id, action, client_action_id, created_at`,
-      [organizationId, conversationId, actorUserId, action, clientActionId],
+       RETURNING id, organization_id, conversation_id, actor_user_id, action, client_action_id, details, created_at`,
+      [organizationId, conversationId, actorUserId, action, clientActionId, details],
     );
     const row = result.rows[0];
     if (!row) return null as unknown as MessagingActivityRecord;

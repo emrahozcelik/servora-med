@@ -2,6 +2,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { patchJobCard } from '../jobs/jobs-api';
+import { useReassignmentConversationSync } from '../jobs/useReassignmentConversationSync';
+import { ReassignmentSyncPrompt } from '../jobs/ReassignmentSyncPrompt';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import type { ApiError, CurrentUser } from '../services/api';
@@ -98,6 +100,7 @@ function EventForm({
   defaultAssigneeId,
   onSaved,
   onClose,
+  onReassignmentOffer,
 }: {
   user: CurrentUser;
   assignees: CalendarAssignee[];
@@ -105,6 +108,11 @@ function EventForm({
   defaultAssigneeId: string;
   onSaved: () => void;
   onClose: () => void;
+  onReassignmentOffer?: (params: {
+    transitionId: string;
+    oldAssignee: { id: string | null; name: string | null };
+    newAssignee: { id: string | null; name: string | null };
+  }) => void;
 }) {
   const initialAssignee = event?.assignedUser.id ?? defaultAssigneeId;
   const now = new Date();
@@ -150,12 +158,22 @@ function EventForm({
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
       } else {
-        await patchJobCard(event.jobCardId, {
+        const patched = await patchJobCard(event.jobCardId, {
           expectedVersion: event.version,
           assignedTo: draft.assignedUserId,
           scheduledAt: instant(draft.startsAt),
           scheduledEndsAt: instant(draft.endsAt),
         });
+        if (
+          patched.assignmentTransitionId
+          && draft.assignedUserId !== initialAssignee
+        ) {
+          onReassignmentOffer?.({
+            transitionId: patched.assignmentTransitionId,
+            oldAssignee: { id: initialAssignee, name: event.assignedUser.name },
+            newAssignee: { id: draft.assignedUserId, name: patched.assignee.name },
+          });
+        }
       }
       onSaved();
     } catch (caught) {
@@ -352,6 +370,11 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
   const [state, setState] = useState<'loading' | 'ready' | 'error'>('loading');
   const [error, setError] = useState('');
   const [editing, setEditing] = useState<CalendarEvent | null | 'new'>(null);
+  const reassignmentSync = useReassignmentConversationSync(
+    editing !== null && editing !== 'new' && editing.source === 'JOB'
+      ? editing.jobCardId
+      : '',
+  );
   const newPlanTriggerRef = useRef<HTMLButtonElement>(null);
 
   const range = useMemo(() => visibleMonthRange(month), [month]);
@@ -507,6 +530,11 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
         </>
       )}
 
+      <ReassignmentSyncPrompt
+        state={reassignmentSync.state}
+        onConfirm={() => { void reassignmentSync.confirm(); }}
+        onDismiss={reassignmentSync.dismiss}
+      />
       {/* Form drawer */}
       <ResponsiveFormDrawer
         open={editing !== null}
@@ -521,6 +549,7 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
           defaultAssigneeId={assignedTo || assignees[0]?.id || user.id}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); void refresh(); }}
+          onReassignmentOffer={(params) => { void reassignmentSync.offerSync(params); }}
         />
       </ResponsiveFormDrawer>
 

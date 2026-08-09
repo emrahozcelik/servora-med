@@ -1,4 +1,4 @@
-import { ApiError, items, json, nullableString, number, object, request, string } from './api';
+import { ApiError, boolean, items, json, nullableString, number, object, request, string } from './api';
 
 export type Conversation = {
   id: string;
@@ -200,5 +200,27 @@ export async function markRead(conversationId: string, messageId: string): Promi
 
 export async function getUnreadCount(): Promise<number> {
   const data = object(await request('/api/messaging/unread-count'));
-  return number(data.unreadCount, 'unreadCount');
+  const value = number(data.unreadCount, 'unreadCount');
+  return Math.max(0, Math.floor(value));
+}
+
+export type JobAssigneeSyncResult = {
+  conversationId: string;
+  synced: true;
+  changed: boolean;
+};
+
+export async function jobAssigneeSync(
+  conversationId: string,
+  input: { clientActionId: string; assignmentTransitionId: string },
+): Promise<JobAssigneeSyncResult> {
+  const data = object(await request(
+    `/api/messaging/conversations/${encodeURIComponent(conversationId)}/job-assignee-sync`,
+    json('POST', input),
+  ));
+  return {
+    conversationId: string(data.conversationId, 'conversationId'),
+    synced: true,
+    changed: boolean(data.changed, 'changed'),
+  };
 }

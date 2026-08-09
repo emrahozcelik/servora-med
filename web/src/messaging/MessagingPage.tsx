@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import type { CurrentUser } from '../services/api';
+import { ApiError, type CurrentUser } from '../services/api';
 import {
   createOrGetConversation,
   getUnreadCount,
@@ -272,7 +272,15 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       return page.items;
     } catch (error) {
       if (pendingLoadRef.current?.gen === gen && pendingLoadRef.current?.convId === conversationId) {
-        setThreadError(error instanceof Error ? error.message : 'Mesajlar yüklenemedi.');
+        if (error instanceof ApiError && (error.status === 403 || error.status === 404)) {
+          // M9: membership was revoked (e.g. removed from the conversation).
+          // Leave the thread; the server remains authoritative.
+          setSelectedId(null);
+          setThreadError(null);
+          setMessages([]);
+        } else {
+          setThreadError(error instanceof Error ? error.message : 'Mesajlar yüklenemedi.');
+        }
       }
       return [];
     } finally {

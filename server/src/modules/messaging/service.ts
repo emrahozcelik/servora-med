@@ -18,6 +18,8 @@ import type {
   MessagingActivityRecord,
   RecipientListItem,
   MessagingNotificationInput,
+  JobAssigneeSyncInput,
+  JobAssigneeSyncResult,
 } from './types.js';
 import {
   canReadConversation,
@@ -25,6 +27,7 @@ import {
   isLegacyGeneralConversation,
   type JobAccessContext,
 } from './policy.js';
+import { isTerminalJobStatus } from '../job-cards/policy.js';
 import {
   PostgresMessagingRepository,
   PostgresMessagingTransaction,
@@ -50,6 +53,18 @@ function validateBody(body: unknown): string {
   return body;
 }
 
+function parseAssignee(value: unknown): string | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value !== 'object') {
+    throw new AppError('STALE_REASSIGNMENT', 409, 'Atama geçişi kaydı geçersiz.');
+  }
+  const assignedTo = (value as { assignedTo?: unknown }).assignedTo;
+  if (assignedTo === null || assignedTo === undefined) return null;
+  if (typeof assignedTo !== 'string') {
+    throw new AppError('STALE_REASSIGNMENT', 409, 'Atama geçişi kaydı geçersiz.');
+  }
+  return assignedTo;
+}
 function buildDirectKey(
   initiatorUserId: string,
   recipientUserId: string,
@@ -682,6 +697,196 @@ export class MessagingService {
     return this.repository.listMessages(
       actor.organizationId, conversationId, cursor, limit,
     );
+  }
+
+  /**
+   * M9: explicit JOB assignee conversation sync.
+   *
+   * Purpose-specific operation: only the verified Staff assignment transition
+   * identified by its immutable JOB_ASSIGNED activity ID may alter membership.
+   * The client never supplies participant IDs. Authorization (participant +
+   * ADMIN/MANAGER + current Job resource auth) is re-evaluated on every request,
+   * including idempotent replay. Admin/Manager membership is immutable here.
+   */
+  async syncJobAssignee(
+    actor: SafeUser,
+    conversationId: string,
+    input: JobAssigneeSyncInput,
+  ): Promise<JobAssigneeSyncResult> {
+    this.requireEnabled();
+    if (!input.clientActionId || typeof input.clientActionId !== 'string') {
+      throw new AppError('VALIDATION_ERROR', 400, 'clientActionId zorunludur.');
+    }
+    return this.poolTransactionWithPublish<JobAssigneeSyncResult>(async (tx) => {
+      const conversation = await tx.findConversationByIdForUpdate(
+        actor.organizationId, conversationId,
+      );
+      if (!conversation) throw notFound();
+      if (conversation.contextType !== 'JOB' || !conversation.jobId) {
+        throw new AppError('VALIDATION_ERROR', 409, 'Bu işlem yalnızca JOB konuşmaları içindir.');
+      }
+      const job = await tx.findJobAssigneeForUpdate(actor.organizationId, conversation.jobId);
+      if (!job) throw notFound();
+
+      const participants = await tx.findParticipantsWithUsers(
+        actor.organizationId, conversation.id,
+      );
+      const isParticipant = participants.some((p) => p.userId === actor.id);
+      if (actor.role === 'STAFF') throw forbidden();
+      if (!isParticipant) throw notFound();
+
+      if (isTerminalJobStatus(job.status as JobCardStatus)) {
+        throw new AppError('JOB_NOT_EDITABLE', 409, 'Tamamlanan işlerde katılımcı değiştirilemez.');
+      }
+
+      // Idempotency receipt lookup AFTER current authorization, BEFORE mutation.
+      const receipt = await tx.findActivityReceipt(
+        actor.organizationId, actor.id, input.clientActionId, 'PARTICIPANTS_CHANGED',
+      );
+      if (receipt) {
+        if (
+          receipt.conversationId !== conversation.id
+          || receipt.details?.assignmentTransitionId !== input.assignmentTransitionId
+        ) {
+          throw new AppError(
+            'CLIENT_ACTION_REUSED', 409,
+            'Bu işlem kodu başka bir işlem için kullanıldı.',
+          );
+        }
+        return {
+          result: { conversationId: conversation.id, synced: true, changed: false },
+          events: [],
+        };
+      }
+
+      // Immutable transition identity: exact JOB_ASSIGNED activity, still latest,
+      // and consistent with the locked current Job assignment.
+      const activity = await tx.findAssignmentActivityById(
+        actor.organizationId, conversation.jobId, input.assignmentTransitionId,
+      );
+      if (!activity || activity.eventType !== 'JOB_ASSIGNED') {
+        throw new AppError('STALE_REASSIGNMENT', 409, 'Atama geçişi bulunamadı.');
+      }
+      const latestActivityId = await tx.findLatestAssignmentActivityId(
+        actor.organizationId, conversation.jobId,
+      );
+      if (latestActivityId !== activity.id) {
+        throw new AppError('STALE_REASSIGNMENT', 409, 'Atama geçişi güncel değil.');
+      }
+      const previous = parseAssignee(activity.oldValue);
+      const current = parseAssignee(activity.newValue);
+      if (current !== job.assignedTo) {
+        throw new AppError('STALE_REASSIGNMENT', 409, 'Atama durumu değişti.');
+      }
+
+      // M9 mutates only Staff membership.
+      const candidateIds = Array.from(new Set(
+        [previous, current].filter((value): value is string => value !== null),
+      ));
+      for (const userId of candidateIds) {
+        const role = await tx.findUserRole(actor.organizationId, userId);
+        if (role !== 'STAFF') {
+          throw new AppError('FORBIDDEN', 403, 'Yalnızca personel atamaları senkronize edilebilir.');
+        }
+      }
+
+      const participantIds = new Set(participants.map((p) => p.userId));
+      const removedUserIds: string[] = [];
+      const addedUserIds: string[] = [];
+      if (previous !== null && previous !== current && participantIds.has(previous)) {
+        await tx.deleteParticipant(actor.organizationId, conversation.id, previous);
+        removedUserIds.push(previous);
+      }
+      if (current !== null && !participantIds.has(current)) {
+        const latestMessageId = await tx.findLatestMessageId(
+          actor.organizationId, conversation.id,
+        );
+        await tx.insertParticipantWithReadMarker(
+          actor.organizationId, conversation.id, current, latestMessageId,
+        );
+        addedUserIds.push(current);
+      }
+
+      if (removedUserIds.length === 0 && addedUserIds.length === 0) {
+        // Effective delta empty: transition verified, nothing to mutate.
+        return {
+          result: { conversationId: conversation.id, synced: true, changed: false },
+          events: [],
+        };
+      }
+
+      // Realtime audience: post-mutation participants ∩ current JOB source
+      // authorization, plus the exact removed previous assignee as a targeted
+      // revocation exception. Unrelated stale Staff rows stay out.
+      const postParticipants = await tx.findParticipantRoles(
+        actor.organizationId, conversation.id,
+      );
+      const audienceUserIds = postParticipants
+        .filter((p) => p.role !== 'STAFF' || p.userId === job.assignedTo)
+        .map((p) => p.userId);
+      if (removedUserIds.length > 0) {
+        audienceUserIds.push(...removedUserIds);
+      }
+
+      const activityRow = await tx.insertActivity(
+        actor.organizationId,
+        conversation.id,
+        actor.id,
+        'PARTICIPANTS_CHANGED',
+        input.clientActionId,
+        {
+          assignmentTransitionId: input.assignmentTransitionId,
+          jobId: conversation.jobId,
+          contextType: 'JOB',
+          addedUserIds,
+          removedUserIds,
+          actorUserId: actor.id,
+        },
+      );
+      if (!activityRow) {
+        // Duplicate receipt race: an identical request committed first.
+        return {
+          result: { conversationId: conversation.id, synced: true, changed: false },
+          events: [],
+        };
+      }
+      const resourceKeys = [
+        `conversation:${conversation.id}`,
+        'message-unread',
+        'overview',
+        'notifications',
+      ];
+      const realtimeEventId = await tx.appendRealtimeEvent({
+        organizationId: actor.organizationId,
+        messagingActivityId: activityRow.id,
+        type: 'conversation.participants_changed',
+        entityType: 'conversation',
+        entityId: conversation.id,
+        actorUserId: actor.id,
+        audienceRoles: [],
+        audienceUserIds,
+        resourceKeys,
+        occurredAt: activityRow.createdAt,
+      });
+
+      return {
+        result: { conversationId: conversation.id, synced: true, changed: true },
+        events: [{
+          id: realtimeEventId,
+          event: {
+            organizationId: actor.organizationId,
+            messagingActivityId: activityRow.id,
+            type: 'conversation.participants_changed',
+            entityType: 'conversation',
+            entityId: conversation.id,
+            actorUserId: actor.id,
+            audience: { roles: [], userIds: audienceUserIds },
+            resourceKeys,
+            occurredAt: activityRow.createdAt,
+          },
+        }],
+      };
+    });
   }
 
   async markRead(
