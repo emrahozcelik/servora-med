@@ -505,6 +505,17 @@ function deriveRecordEditAction(
       consequence: 'Teslimin sorumlu personeli değiştirilecektir.',
     };
   }
+  if (
+    actions.includes('EDIT_JOB_FIELDS')
+    && job.type === 'GENERAL_TASK'
+    && user.role !== 'STAFF'
+  ) {
+    return {
+      action: 'EDIT_JOB_FIELDS',
+      label: 'Görevi düzenle',
+      consequence: 'Görev bilgileri düzenlenecektir.',
+    };
+  }
   return null;
 }
 
