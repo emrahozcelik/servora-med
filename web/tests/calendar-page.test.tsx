@@ -139,6 +139,28 @@ describe('CalendarPage', () => {
     expect(filter.textContent).toContain('Tüm yetkili personel');
   });
 
+  it('gives the staff filter a stable id and name with an explicit label association', async () => {
+    await render();
+    const filter = container.querySelector<HTMLSelectElement>('.calendar-toolbar select')!;
+    expect(filter.id).toBe('calendar-personnel-filter');
+    expect(filter.name).toBe('personnel');
+    const label = container.querySelector<HTMLLabelElement>('label[for="calendar-personnel-filter"]');
+    expect(label).toBeTruthy();
+    expect(label?.textContent).toContain('Personel');
+  });
+
+  it('keeps Personnel filtering working with the identified select', async () => {
+    await render();
+    const filter = container.querySelector<HTMLSelectElement>('.calendar-toolbar select')!;
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, 'value')?.set?.call(filter, 'staff-1');
+      filter.dispatchEvent(new Event('change', { bubbles: true }));
+      await Promise.resolve();
+    });
+    const latestCall = calendarApi.listCalendar.mock.calls.at(-1)?.[0] as Record<string, string>;
+    expect(latestCall.assignedTo).toBe('staff-1');
+  });
+
   it('hides the staff filter for STAFF role', async () => {
     await render(staff);
     expect(container.querySelector('.calendar-toolbar select')).toBeNull();

@@ -27,6 +27,7 @@ export type ConfirmationActionProps = {
   onConfirm: () => void;
   onCancel: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  fallbackFocusRef?: RefObject<HTMLElement | null>;
 };
 
 /**
@@ -46,6 +47,7 @@ export function ConfirmationAction({
   onConfirm,
   onCancel,
   returnFocusRef,
+  fallbackFocusRef,
 }: ConfirmationActionProps): ReactNode {
   const titleId = useId();
   const descriptionId = useId();
@@ -66,9 +68,9 @@ export function ConfirmationAction({
     document.addEventListener('focusin', keepFocusInside);
     return () => {
       document.removeEventListener('focusin', keepFocusInside);
-      restoreFocus(returnFocusRef, openerRef.current);
+      restoreFocus(returnFocusRef, fallbackFocusRef ?? openerRef.current);
     };
-  }, [open, returnFocusRef]);
+  }, [open, returnFocusRef, fallbackFocusRef]);
 
   useEffect(() => {
     if (!open || !pending) return;

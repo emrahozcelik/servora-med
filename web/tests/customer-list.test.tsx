@@ -338,4 +338,27 @@ describe('routed Customer list delete flow', () => {
     expect(remove).toHaveBeenCalledTimes(1);
     expect(load).toHaveBeenCalledTimes(2);
   });
+
+  it('moves focus to the customer list heading after successful deletion unmounts the trigger', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const load = vi.fn()
+      .mockResolvedValueOnce({ items: [customer], total: 1, limit: 50, offset: 0 })
+      .mockResolvedValueOnce({ items: [], total: 0, limit: 50, offset: 0 });
+    await mount(remove, load);
+
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === 'Demo Dental Klinik müşterisini sil') as HTMLButtonElement;
+    await act(async () => deleteButton.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(remove).toHaveBeenCalledWith('customer-1', 1);
+    expect(container.querySelector('[aria-label="Demo Dental Klinik müşterisini sil"]')).toBeNull();
+    const heading = container.querySelector('.workspace-heading h1') as HTMLHeadingElement;
+    expect(document.activeElement).toBe(heading);
+    expect(document.activeElement).not.toBe(document.body);
+  });
 });

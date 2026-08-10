@@ -239,7 +239,7 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters, onOpenCustomer, onRequestDelete, feedback = '', actionError = '' }: {
+export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, filters, staff = [], onFilterChange, onApplyFilters, onOpenCustomer, onRequestDelete, feedback = '', actionError = '', headingRef }: {
   state: CustomerListState;
   user: CurrentUser;
   hasFilters: boolean;
@@ -253,11 +253,12 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   onRequestDelete?: (customer: CustomerSummary, trigger: HTMLButtonElement) => void;
   feedback?: string;
   actionError?: string;
+  headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
   const canManage = user.role !== 'STAFF';
 
   return <main className="workspace customer-workspace">
-    <div className="workspace-heading"><div><h1>Müşteriler</h1></div>
+    <div className="workspace-heading"><div><h1 ref={headingRef} tabIndex={-1}>Müşteriler</h1></div>
       <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>
     </div>
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}
@@ -426,6 +427,7 @@ export function CustomerListScreen({ user, load = listCustomers, remove = delete
     try {
       await remove(deleteTarget.id, deleteTarget.version);
       const name = deleteTarget.name;
+      deleteTriggerRef.current = null;
       setDeleteTarget(null);
       setFeedback(`${name} silindi.`);
       setReloadKey((value) => value + 1);
@@ -437,8 +439,10 @@ export function CustomerListScreen({ user, load = listCustomers, remove = delete
     }
   }
   const hasFilters = Boolean(filters.q || filters.customerType || filters.city || filters.assignedStaffUserId || filters.unassigned || filters.status);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
   return <>
     <CustomerListView state={state} user={user} hasFilters={hasFilters} filters={filters} staff={staff}
+      headingRef={headingRef}
       onFilterChange={changeFilter} onApplyFilters={applyManyFilters}
       onRetry={() => setReloadKey((value) => value + 1)} onCreate={() => navigate(paths.newCustomer)}
       onOpenCustomer={(customerId) => navigate(paths.customer(customerId))}
@@ -452,6 +456,7 @@ export function CustomerListScreen({ user, load = listCustomers, remove = delete
       pendingLabel="Siliniyor…"
       destructive
       returnFocusRef={deleteTriggerRef}
+      fallbackFocusRef={headingRef}
       onCancel={() => { if (!deletePending) setDeleteTarget(null); }}
       onConfirm={() => { void confirmDelete(); }}
     />
