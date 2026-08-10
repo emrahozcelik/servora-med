@@ -76,7 +76,11 @@ export function createMessagingHandlers(service: MessagingService) {
     },
 
     getRecipients: async (req: FastifyRequest, reply: FastifyReply) => {
-      const recipients = await service.getRecipients(actor(req));
+      const contextType = (req.query as Record<string, string>).contextType ?? 'GENERAL';
+      if (!isValidContextType(contextType)) {
+        throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz konuşma tipi.');
+      }
+      const recipients = await service.getRecipients(actor(req), contextType);
       return reply.send({ items: recipients });
     },
 

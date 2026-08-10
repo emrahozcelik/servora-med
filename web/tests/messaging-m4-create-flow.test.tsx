@@ -69,9 +69,224 @@ function render(userArg = user) {
 
 async function tick(ms = 50) { await act(async () => { await new Promise(r => setTimeout(r, ms)); }); }
 
+function deferred<T>() {
+  let resolve!: (value: T) => void;
+  const promise = new Promise<T>((done) => { resolve = done; });
+  return { promise, resolve };
+}
+
 const emptyList = { items: [], nextCursor: null };
 
 describe('Messaging M4 context-first creation flow', () => {
+  it('hides the conversation list while composing a new conversation', async () => {
+    mockListConversations.mockResolvedValue({ items: [conv({ id: 'conv-existing', title: 'Mevcut konuşma' })], nextCursor: null });
+    mockGetUnread.mockResolvedValue(0);
+    mockListRecipients.mockResolvedValue([]);
+    mockListJobCards.mockResolvedValue({ items: [], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+
+    expect(container.querySelector('.conversation-list')).not.toBeNull();
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Yeni konuşma') as HTMLElement;
+    await act(async () => { newBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+
+    expect(container.querySelector('.create-panel')).not.toBeNull();
+    expect(container.querySelector('.conversation-list')).toBeNull();
+    unmount();
+  });
+
+  it('uses the messaging workspace as a dedicated compose surface', async () => {
+    mockListConversations.mockResolvedValue(emptyList);
+    mockGetUnread.mockResolvedValue(0);
+    mockListRecipients.mockResolvedValue([]);
+    mockListJobCards.mockResolvedValue({ items: [], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Yeni konuşma') as HTMLButtonElement;
+    await act(async () => { newBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+
+    expect(container.querySelector('.messaging-container')?.classList.contains('composing')).toBe(true);
+    expect(container.querySelector('.messaging-thread')).toBeNull();
+    unmount();
+  });
+
+  it('restores focus to the new-conversation trigger after compose is closed', async () => {
+    mockListConversations.mockResolvedValue(emptyList);
+    mockGetUnread.mockResolvedValue(0);
+    mockListRecipients.mockResolvedValue([]);
+    mockListJobCards.mockResolvedValue({ items: [], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Yeni konuşma') as HTMLButtonElement;
+    await act(async () => { newBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+    const closeBtn = container.querySelector('button[aria-label="Mesajlara dön"]') as HTMLButtonElement;
+    expect(closeBtn.textContent).toContain('Mesajlara dön');
+    await act(async () => { closeBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+
+    expect(document.activeElement).toBe(newBtn);
+    unmount();
+  });
+
+  it('commits a selected Job into a compact summary and closes search results', async () => {
+    mockListConversations.mockResolvedValue(emptyList);
+    mockGetUnread.mockResolvedValue(0);
+    mockListRecipients.mockResolvedValue([]);
+    mockListJobCards.mockResolvedValue({ items: [
+      { id: 'job-1', title: 'Diş ünitesi teslimi', status: 'ACCEPTED', type: 'GENERAL_TASK', version: 1,
+        priority: 'normal', dueDate: null, scheduledAt: null, scheduledEndsAt: null, engagementKind: null,
+        createdAt: '', updatedAt: '', staffCompletedAt: null,
+        customer: { id: 'cust-1', name: 'Klinik A' }, contact: null,
+        assignee: { id: 'staff-2', name: 'Ayşe Yılmaz' }, deliveryItemCount: 0, allowedCommands: [] },
+    ], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Yeni konuşma') as HTMLButtonElement;
+    await act(async () => { newBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+    await tick();
+
+    const jobOption = container.querySelector('.create-option') as HTMLButtonElement;
+    await act(async () => { jobOption.click(); await new Promise(r => setTimeout(r, 10)); });
+
+    expect(container.querySelector('input[aria-label="İş ara"]')).toBeNull();
+    expect(container.querySelector('[role="listbox"][aria-label="İşler"]')).toBeNull();
+    const summary = container.querySelector('.create-selection-summary') as HTMLElement;
+    expect(summary.textContent).toContain('Diş ünitesi teslimi');
+    expect(summary.textContent).toContain('Klinik A');
+    expect(summary.textContent).toContain('Atandı');
+    unmount();
+  });
+
+  it('reopens Job search when the committed selection is changed', async () => {
+    mockListConversations.mockResolvedValue(emptyList);
+    mockGetUnread.mockResolvedValue(0);
+    mockListRecipients.mockResolvedValue([]);
+    mockListJobCards.mockResolvedValue({ items: [
+      { id: 'job-1', title: 'Diş ünitesi teslimi', status: 'ACCEPTED', type: 'GENERAL_TASK', version: 1,
+        priority: 'normal', dueDate: null, scheduledAt: null, scheduledEndsAt: null, engagementKind: null,
+        createdAt: '', updatedAt: '', staffCompletedAt: null,
+        customer: { id: 'cust-1', name: 'Klinik A' }, contact: null,
+        assignee: { id: 'staff-2', name: 'Ayşe Yılmaz' }, deliveryItemCount: 0, allowedCommands: [] },
+    ], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Yeni konuşma') as HTMLButtonElement;
+    await act(async () => { newBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+    await tick();
+    await act(async () => { (container.querySelector('.create-option') as HTMLButtonElement).click(); await new Promise(r => setTimeout(r, 10)); });
+
+    const changeBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Değiştir') as HTMLButtonElement;
+    await act(async () => { changeBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+
+    expect(container.querySelector('.create-selection-summary')).toBeNull();
+    const searchInput = container.querySelector('input[aria-label="İş ara"]') as HTMLInputElement;
+    expect(searchInput).not.toBeNull();
+    expect(container.querySelector('[role="listbox"][aria-label="İşler"]')).not.toBeNull();
+    expect(document.activeElement).toBe(searchInput);
+    unmount();
+  });
+
+  it('commits a selected Customer into a compact summary and closes search results', async () => {
+    mockListConversations.mockResolvedValue(emptyList);
+    mockGetUnread.mockResolvedValue(0);
+    mockListRecipients.mockResolvedValue([]);
+    mockListJobCards.mockResolvedValue({ items: [], nextCursor: null });
+    mockListCustomers.mockResolvedValue({ items: [{ id: 'cust-1', name: 'Klinik A' }], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Yeni konuşma') as HTMLButtonElement;
+    await act(async () => { newBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+    const customerContext = Array.from(container.querySelectorAll('.create-context-option')).find(b => b.textContent === 'Müşteri') as HTMLButtonElement;
+    await act(async () => { customerContext.click(); await new Promise(r => setTimeout(r, 10)); });
+    await tick();
+    await act(async () => { (container.querySelector('.create-option') as HTMLButtonElement).click(); await new Promise(r => setTimeout(r, 10)); });
+
+    expect(container.querySelector('input[aria-label="Müşteri ara"]')).toBeNull();
+    expect(container.querySelector('[role="listbox"][aria-label="Müşteriler"]')).toBeNull();
+    const summary = container.querySelector('.create-selection-summary') as HTMLElement;
+    expect(summary.textContent).toContain('Klinik A');
+    expect(summary.textContent).toContain('Değiştir');
+    unmount();
+  });
+
+  it('reopens Customer search when the committed selection is changed', async () => {
+    mockListConversations.mockResolvedValue(emptyList);
+    mockGetUnread.mockResolvedValue(0);
+    mockListRecipients.mockResolvedValue([]);
+    mockListJobCards.mockResolvedValue({ items: [], nextCursor: null });
+    mockListCustomers.mockResolvedValue({ items: [{ id: 'cust-1', name: 'Klinik A' }], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Yeni konuşma') as HTMLButtonElement;
+    await act(async () => { newBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+    const customerContext = Array.from(container.querySelectorAll('.create-context-option')).find(b => b.textContent === 'Müşteri') as HTMLButtonElement;
+    await act(async () => { customerContext.click(); await new Promise(r => setTimeout(r, 10)); });
+    await tick();
+    await act(async () => { (container.querySelector('.create-option') as HTMLButtonElement).click(); await new Promise(r => setTimeout(r, 10)); });
+    const changeBtn = Array.from(container.querySelectorAll('.create-selection-change')).find(b => b.textContent === 'Değiştir') as HTMLButtonElement;
+    await act(async () => { changeBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+
+    const searchInput = container.querySelector('input[aria-label="Müşteri ara"]') as HTMLInputElement;
+    expect(container.querySelector('.create-selection-summary')).toBeNull();
+    expect(searchInput).not.toBeNull();
+    expect(container.querySelector('[role="listbox"][aria-label="Müşteriler"]')).not.toBeNull();
+    expect(document.activeElement).toBe(searchInput);
+    unmount();
+  });
+
+  it('loads GENERAL recipients with the selected conversation context', async () => {
+    mockListConversations.mockResolvedValue(emptyList);
+    mockGetUnread.mockResolvedValue(0);
+    mockListRecipients.mockResolvedValue([]);
+    mockListJobCards.mockResolvedValue({ items: [], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Yeni konuşma') as HTMLButtonElement;
+    await act(async () => { newBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+    const generalContext = Array.from(container.querySelectorAll('.create-context-option')).find(b => b.textContent === 'Genel konu') as HTMLButtonElement;
+    await act(async () => { generalContext.click(); await new Promise(r => setTimeout(r, 10)); });
+
+    expect(mockListRecipients).toHaveBeenCalledWith('GENERAL');
+    unmount();
+  });
+
+  it('keeps GENERAL recipients when an older Customer request resolves late', async () => {
+    mockListConversations.mockResolvedValue(emptyList);
+    mockGetUnread.mockResolvedValue(0);
+    mockListJobCards.mockResolvedValue({ items: [], nextCursor: null });
+    mockListCustomers.mockResolvedValue({ items: [], nextCursor: null });
+    const customerRecipients = deferred<any[]>();
+    const generalRecipients = deferred<any[]>();
+    mockListRecipients.mockImplementation((context: string) => (
+      context === 'CUSTOMER' ? customerRecipients.promise : generalRecipients.promise
+    ));
+
+    const { container, unmount } = render();
+    await tick();
+    const newBtn = Array.from(container.querySelectorAll('button')).find(b => b.textContent === 'Yeni konuşma') as HTMLButtonElement;
+    await act(async () => { newBtn.click(); await new Promise(r => setTimeout(r, 10)); });
+    const contexts = Array.from(container.querySelectorAll('.create-context-option')) as HTMLButtonElement[];
+    await act(async () => { contexts.find(button => button.textContent === 'Müşteri')!.click(); });
+    await act(async () => { contexts.find(button => button.textContent === 'Genel konu')!.click(); });
+
+    generalRecipients.resolve([{ id: 'admin-2', name: 'Admin Peer', role: 'ADMIN', isActive: true }]);
+    await tick(10);
+    customerRecipients.resolve([{ id: 'staff-2', name: 'Customer Staff', role: 'STAFF', isActive: true }]);
+    await tick(10);
+
+    expect(container.querySelector('.participant-options')?.textContent).toContain('Admin Peer');
+    expect(container.querySelector('.participant-options')?.textContent).not.toContain('Customer Staff');
+    unmount();
+  });
+
   it('1: ADMIN sees "Yeni konuşma" and opening it asks "Ne hakkında konuşacaksınız?"', async () => {
     mockListConversations.mockResolvedValue(emptyList);
     mockGetUnread.mockResolvedValue(0);

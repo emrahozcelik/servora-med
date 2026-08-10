@@ -39,6 +39,7 @@ type Fixture = {
   adminA: SafeUser;
   adminB: SafeUser;
   managerA: SafeUser;
+  managerB: SafeUser;
   staff1A: SafeUser;
   staff2A: SafeUser;
   staff3A: SafeUser;
@@ -88,6 +89,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     const adminA = await user(orgA, 'Admin A', 'ADMIN');
     const adminB = await user(orgA, 'Admin B', 'ADMIN');
     const managerA = await user(orgA, 'Manager A', 'MANAGER');
+    const managerB = await user(orgA, 'Manager B', 'MANAGER');
     const staff1A = await user(orgA, 'Staff 1 A', 'STAFF');
     const staff2A = await user(orgA, 'Staff 2 A', 'STAFF');
     const staff3A = await user(orgA, 'Staff 3 A', 'STAFF');
@@ -120,7 +122,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     )).rows[0]!.id;
 
     await run({
-      pool, orgA, orgB, adminA, adminB, managerA, staff1A, staff2A, staff3A,
+      pool, orgA, orgB, adminA, adminB, managerA, managerB, staff1A, staff2A, staff3A,
       inactiveStaffA, staffB, job1A, job2A, customer1A,
     });
   } finally {
@@ -148,6 +150,40 @@ function itSlow(name: string, fn: () => Promise<void>): void {
 }
 
 describe('M4 initial multi-participant create contract', () => {
+  itSlow('ADMIN GENERAL recipients include every active same-organization role except self', async () => {
+    await withFixture(async ({ adminA, adminB, managerA, managerB, staff1A, staff2A, staff3A, pool }) => {
+      const recipients = await service(pool).getRecipients(adminA, 'GENERAL');
+
+      expect(recipients.map((recipient) => recipient.id).sort()).toEqual(
+        [adminB.id, managerA.id, managerB.id, staff1A.id, staff2A.id, staff3A.id].sort(),
+      );
+    });
+  });
+
+  itSlow('MANAGER GENERAL recipients include management peers and only own-team Staff', async () => {
+    await withFixture(async ({ adminA, adminB, managerA, managerB, staff1A, staff2A, pool }) => {
+      const recipients = await service(pool).getRecipients(managerA, 'GENERAL');
+
+      expect(recipients.map((recipient) => recipient.id).sort()).toEqual(
+        [adminA.id, adminB.id, managerB.id, staff1A.id, staff2A.id].sort(),
+      );
+    });
+  });
+
+  itSlow('ADMIN GENERAL can create a conversation with Admin and Manager peers', async () => {
+    await withFixture(async ({ adminA, adminB, managerA, pool }) => {
+      const conversation = await service(pool).createOrGetConversation(adminA, {
+        participantUserIds: [adminB.id, managerA.id],
+        contextType: 'GENERAL',
+        title: 'Yönetim koordinasyonu',
+      });
+
+      expect(conversation.participants.map((participant) => participant.userId).sort()).toEqual(
+        [adminA.id, adminB.id, managerA.id].sort(),
+      );
+    });
+  });
+
   itSlow('ADMIN CUSTOMER: creator + two selected Staff persisted, 3 unique participants returned', async () => {
     await withFixture(async ({ pool, orgA, adminA, staff1A, staff2A, customer1A }) => {
       const svc = service(pool);

@@ -118,8 +118,8 @@ export async function listConversations(cursor?: string | null): Promise<Convers
   };
 }
 
-export async function listRecipients(): Promise<Recipient[]> {
-  const data = object(await request('/api/messaging/recipients'));
+export async function listRecipients(contextType: 'GENERAL' | 'CUSTOMER'): Promise<Recipient[]> {
+  const data = object(await request(`/api/messaging/recipients?contextType=${contextType}`));
   const list = data.items;
   if (!Array.isArray(list)) throw new ApiError(0, 'INVALID_RESPONSE', 'Geçersiz liste yanıtı.');
   return list.map(parseRecipient);

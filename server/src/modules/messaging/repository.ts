@@ -229,6 +229,7 @@ export interface MessagingRepository {
     organizationId: string,
     userId: string,
     role: string,
+    contextType: ConversationContextType,
   ): Promise<readonly RecipientListItem[]>;
 }
 
@@ -650,6 +651,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
     organizationId: string,
     userId: string,
     role: string,
+    contextType: ConversationContextType,
   ): Promise<readonly RecipientListItem[]> {
     let query: string;
     const values: unknown[] = [organizationId, userId];
@@ -659,19 +661,24 @@ export class PostgresMessagingRepository implements MessagingRepository {
                  FROM users u
                 WHERE u.organization_id = $1
                   AND u.id <> $2
-                  AND u.role = 'STAFF'
+                  AND ($3 = 'GENERAL' OR u.role = 'STAFF')
                   AND u.is_active = TRUE
                 ORDER BY u.name ASC`;
+      values.push(contextType);
     } else if (role === 'MANAGER') {
       query = `SELECT u.id, u.name, u.role, u.is_active
                  FROM users u
-                 JOIN staff_profiles sp
+                 LEFT JOIN staff_profiles sp
                    ON sp.organization_id = u.organization_id AND sp.user_id = u.id
                 WHERE u.organization_id = $1
                   AND u.id <> $2
-                  AND u.role = 'STAFF'
-                  AND sp.manager_user_id = $2
+                  AND u.is_active = TRUE
+                  AND (
+                    ($3 = 'GENERAL' AND u.role IN ('ADMIN', 'MANAGER'))
+                    OR (u.role = 'STAFF' AND sp.manager_user_id = $2)
+                  )
                 ORDER BY u.name ASC`;
+      values.push(contextType);
     } else {
       // STAFF cannot create new conversations — return empty
       return [];
