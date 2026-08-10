@@ -150,6 +150,17 @@ describe('settings pages', () => {
     expect(html).toContain('Rol');
   });
 
+  it('renders canonical user-facing role labels in profile page', async () => {
+    const admin = { ...user, role: 'ADMIN' as const };
+    const manager = { ...user, role: 'MANAGER' as const };
+    const staff = { ...user, role: 'STAFF' as const };
+    expect(await render(<ProfileSettingsPage user={admin} />)).toContain('Sistem yöneticisi');
+    expect(await render(<ProfileSettingsPage user={manager} />)).toContain('Yönetici');
+    expect(await render(<ProfileSettingsPage user={staff} />)).toContain('Personel');
+    expect(await render(<ProfileSettingsPage user={manager} />)).not.toContain('Müdür');
+    expect(await render(<ProfileSettingsPage user={admin} />)).not.toContain('>Yönetici<');
+  });
+
   it('renders SettingsTabs in profile page', async () => {
     const html = await render(<ProfileSettingsPage user={user} />);
     expect(html).toContain('servora-settings-tabs');
@@ -172,16 +183,26 @@ describe('settings pages', () => {
   it('shows the unsupported application state without install actions', async () => {
     const html = await renderApplicationPage({});
     expect(html).toContain('Tarayıcı');
-    expect(html).toContain('Bu tarayıcıda yönlendirme yok');
-    expect(html).toContain('Dünya Dental Servora');
+    expect(html).toContain('Bu tarayıcıda kurulum yönlendirmesi yok');
+    expect(html).toContain('Dünya Dental');
     expect(html).toContain('İşler');
     expect(html).not.toContain('Uygulamayı yükle');
     expect(html).toContain('Bu tarayıcıda otomatik kurulum yönlendirmesi sunulmuyor.');
   });
 
+  it('shows the bounded application about area with Servora-Med as the only technical reference', async () => {
+    const html = await renderApplicationPage({});
+    expect(html).toContain('Ayarlar');
+    expect(html).toContain('Uygulama hakkında');
+    expect(html).toContain('Altyapı / Teknik ürün');
+    expect(html).toContain('Servora-Med');
+    expect(html).toContain('settings-panel');
+  });
+
   it('offers the Chromium install action only when a prompt is available', async () => {
     const html = await renderApplicationPage({ canPrompt: true });
-    expect(html).toContain('Otomatik kurulum düğmesi');
+    expect(html).toContain('Tarayıcının kurulum düğmesi');
+    expect(html).toContain('Kurulum yöntemi');
     expect(html).toContain('Uygulamayı yükle');
     expect(html).not.toContain('Kurulum yönergelerini tekrar göster');
   });

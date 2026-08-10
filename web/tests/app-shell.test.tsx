@@ -87,7 +87,7 @@ describe('responsive authenticated AppShell', () => {
   it('shows the Apple install guidance card only when the controller offers it', async () => {
     await renderWithInstall({ shouldOfferAppleGuidance: true });
     expect(container.querySelector('[data-install-guidance="true"]')).not.toBeNull();
-    expect(container.textContent).toContain("Servora'yı ana ekrana ekleyin");
+    expect(container.textContent).toContain("Dünya Dental'i ana ekrana ekleyin");
     expect(container.textContent).toContain('Ana Ekrana Ekle');
     await renderWithInstall({ shouldOfferAppleGuidance: false });
     expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
@@ -101,7 +101,7 @@ describe('responsive authenticated AppShell', () => {
   it('suppresses the global Apple guidance card on the application settings route', async () => {
     await renderWithInstall({ appleCandidate: true, shouldOfferAppleGuidance: true }, false, '/settings/application');
     expect(container.querySelector('[data-install-guidance="true"]')).toBeNull();
-    expect(container.textContent).not.toContain("Servora'yı ana ekrana ekleyin");
+    expect(container.textContent).not.toContain("Dünya Dental'i ana ekrana ekleyin");
   });
 
   it('shows the global guidance again after leaving application settings without auto-dismissal', async () => {

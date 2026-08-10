@@ -14,8 +14,8 @@ import { useInstallOpportunity } from '../install/InstallOpportunity';
 import { AppleInstallSteps } from '../install/AppleInstallSteps';
 
 const roleLabels = {
-  ADMIN: 'Yönetici',
-  MANAGER: 'Müdür',
+  ADMIN: 'Sistem yöneticisi',
+  MANAGER: 'Yönetici',
   STAFF: 'Personel',
 } as const;
 
@@ -30,7 +30,7 @@ const settingsLandingItems = [
   { key: 'profile', title: 'Profil', description: 'Hesap ve rol bilgilerinizi görüntüleyin.', to: paths.settingsProfile },
   { key: 'security', title: 'Güvenlik', description: 'Parolanızı güvenli biçimde değiştirin.', to: paths.settingsSecurity },
   { key: 'notifications', title: 'Bildirimler', description: 'Bu cihazdaki web bildirimlerini yönetin.', to: paths.settingsNotifications },
-  { key: 'application', title: 'Uygulama', description: "Servora'yı bu cihaza ekleyin ve kurulum durumunu görüntüleyin.", to: paths.settingsApplication },
+  { key: 'application', title: 'Uygulama', description: 'Dünya Dental uygulamasını bu cihaza ekleyin ve kurulum durumunu görüntüleyin.', to: paths.settingsApplication },
 ];
 
 export function SettingsLandingPage() {
@@ -184,10 +184,10 @@ export function ApplicationSettingsPage() {
   const [promptError, setPromptError] = useState('');
   const mode = install.installed ? 'Ana Ekran uygulaması' : 'Tarayıcı';
   const supportLabel = install.canPrompt
-    ? 'Otomatik kurulum düğmesi'
+    ? 'Tarayıcının kurulum düğmesi'
     : install.appleCandidate && !install.installed
       ? 'Apple kurulum yönergesi'
-      : 'Bu tarayıcıda yönlendirme yok';
+      : 'Bu tarayıcıda kurulum yönlendirmesi yok';
 
   async function runChromiumPrompt() {
     setPromptError('');
@@ -204,16 +204,17 @@ export function ApplicationSettingsPage() {
   return <main className="workspace settings-workspace">
     <SettingsTabs items={SETTINGS_TABS} activeKey="application" />
     <header className="workspace-heading"><div>
-      <p className="eyebrow">Hesap</p><h1>Uygulama</h1>
+      <p className="eyebrow">Ayarlar</p><h1>Uygulama</h1>
     </div></header>
+    <div className="settings-panel">
     <OperationalCard title="Uygulama kurulumu">
       {install.installed && <p className="field-hint" role="status">
-        Servora bu cihazda Ana Ekran uygulaması olarak çalışıyor.
+        Dünya Dental bu cihazda Ana Ekran uygulaması olarak çalışıyor.
       </p>}
       <dl className="profile-details">
         <div><dt>Çalışma biçimi</dt><dd>{mode}</dd></div>
-        <div><dt>Kurulum desteği</dt><dd>{supportLabel}</dd></div>
-        <div><dt>Uygulama adı</dt><dd>Dünya Dental Servora</dd></div>
+        <div><dt>Kurulum yöntemi</dt><dd>{supportLabel}</dd></div>
+        <div><dt>Uygulama adı</dt><dd>Dünya Dental</dd></div>
         <div><dt>Başlangıç ekranı</dt><dd>İşler</dd></div>
       </dl>
       {promptError && <div className="form-error" role="alert">{promptError}</div>}
@@ -232,5 +233,11 @@ export function ApplicationSettingsPage() {
         <p className="field-hint">Bu tarayıcıda otomatik kurulum yönlendirmesi sunulmuyor.</p>
       )}
     </OperationalCard>
+    <section className="app-about" aria-labelledby="app-about-title">
+      <h2 id="app-about-title">Uygulama hakkında</h2>
+      <p>Dünya Dental'in müşteri, iş ve operasyon süreçlerini yönetmek için kullandığı kurumsal uygulamadır.</p>
+      <p>Altyapı / Teknik ürün: <span className="app-about-platform">Servora-Med</span></p>
+    </section>
+    </div>
   </main>;
 }

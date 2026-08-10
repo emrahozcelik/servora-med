@@ -75,7 +75,7 @@ describe('service worker push', () => {
     await harness.settleWaitUntil();
 
     expect(harness.registration.showNotification).toHaveBeenCalledTimes(1);
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
     expect(harness.notifications[0].options.body).toBe('Bekleyen işleriniz var.');
     expect(harness.notifications[0].options.tag).toBe('servora-med-generic');
     expect(harness.notifications[0].options.data.url).toBe('/jobs');
@@ -89,7 +89,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('unsupported version produces a generic notification', async () => {
@@ -98,7 +98,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('null payload produces a generic notification', async () => {
@@ -106,7 +106,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('array payload produces a generic notification', async () => {
@@ -114,7 +114,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('missing fields produce a generic notification', async () => {
@@ -123,7 +123,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('extra fields beyond the V1 contract produce a generic notification', async () => {
@@ -136,7 +136,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('malformed UUID produces a generic notification', async () => {
@@ -145,7 +145,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('unsafe URL produces a generic notification with /jobs fallback', async () => {
@@ -249,7 +249,7 @@ describe('service worker push', () => {
       await harness.fireEvent('push', event);
       await harness.settleWaitUntil();
 
-      expect(harness.notifications[0].title).toBe('Servora-Med');
+      expect(harness.notifications[0].title).toBe('Dünya Dental');
     }
   });
 
@@ -259,7 +259,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('empty body string produces generic notification', async () => {
@@ -268,7 +268,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('overly long title produces generic notification', async () => {
@@ -277,7 +277,7 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 
   it('overly long body produces generic notification', async () => {
@@ -286,6 +286,6 @@ describe('service worker push', () => {
     await harness.fireEvent('push', event);
     await harness.settleWaitUntil();
 
-    expect(harness.notifications[0].title).toBe('Servora-Med');
+    expect(harness.notifications[0].title).toBe('Dünya Dental');
   });
 });

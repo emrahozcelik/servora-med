@@ -235,7 +235,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
                 <p>Uygulama bu cihaza yüklendi.</p>
               ) : install.canPrompt ? (
                 <>
-                  <p>Servora-Med’i bu cihazda ayrı bir uygulama penceresinde kullanabilirsiniz.</p>
+                  <p>Dünya Dental’i bu cihazda ayrı bir uygulama penceresinde kullanabilirsiniz.</p>
                   <button type="button" className="primary-button" disabled={installPending} onClick={() => void requestInstall()}>
                     {installPending ? 'Yükleniyor…' : 'Uygulamayı yükle'}
                   </button>
@@ -256,7 +256,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
             >
               <h3 id={`${titleId}-push`}>Cihaz bildirimleri</h3>
               <p className="notification-device-push-copy">
-                Cihaz bildirimlerini açarsanız size atanan veya onayınızı bekleyen işler için Servora-Med
+                Cihaz bildirimlerini açarsanız size atanan veya onayınızı bekleyen işler için uygulama
                 kapalıyken de genel bir bildirim gösterilebilir. Bildirimlerde müşteri, not, teslimat veya
                 konum bilgisi yer almaz.
               </p>

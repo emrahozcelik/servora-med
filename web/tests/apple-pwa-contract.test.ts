@@ -27,8 +27,8 @@ describe('Apple / PWA identity contract', () => {
     expect(manifest.id).toBe('/');
     expect(manifest.scope).toBe('/');
     expect(manifest.start_url).toBe('/jobs');
-    expect(manifest.name).toBe('Dünya Dental Servora');
-    expect(manifest.short_name).toBe('Servora');
+    expect(manifest.name).toBe('Dünya Dental İş ve Operasyon Yönetimi');
+    expect(manifest.short_name).toBe('Dünya Dental');
     expect(manifest.display).toBe('standalone');
     expect(manifest.lang).toBe('tr');
     expect(manifest.prefer_related_applications).toBe(false);
@@ -65,8 +65,8 @@ describe('Apple / PWA identity contract', () => {
     const html = readFileSync(resolve(webRoot, 'index.html'), 'utf8');
     expect(html).toContain('<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />');
     expect(html).toContain('<link rel="apple-touch-icon" sizes="180x180" href="/icons/apple-touch-icon.png" />');
-    expect(html).toContain('<meta name="apple-mobile-web-app-title" content="Servora" />');
-    expect(html).toContain('<title>Dünya Dental Servora</title>');
+    expect(html).toContain('<meta name="apple-mobile-web-app-title" content="Dünya Dental" />');
+    expect(html).toContain('<title>Dünya Dental | İş ve Operasyon Yönetimi</title>');
   });
 
   it('records asset provenance without .png.png filenames', () => {

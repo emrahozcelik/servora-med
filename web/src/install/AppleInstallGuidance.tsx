@@ -7,11 +7,11 @@ export function AppleInstallGuidance({ onDismiss }: Readonly<{ onDismiss: () => 
     <section
       className="apple-install-guidance surface-flat"
       role="region"
-      aria-label="Servora'yı ana ekrana ekleyin"
+      aria-label="Dünya Dental'i ana ekrana ekleyin"
       data-install-guidance="true"
     >
       <div className="apple-install-guidance-heading">
-        <h2>Servora'yı ana ekrana ekleyin</h2>
+        <h2>Dünya Dental'i ana ekrana ekleyin</h2>
         <button
           type="button"
           className="icon-button apple-install-guidance-dismiss"
@@ -21,7 +21,7 @@ export function AppleInstallGuidance({ onDismiss }: Readonly<{ onDismiss: () => 
           Kapat
         </button>
       </div>
-      <p>iPhone veya iPad'de Servora'yı uygulama gibi kullanabilirsiniz.</p>
+      <p>iPhone veya iPad'de Dünya Dental'i uygulama gibi kullanabilirsiniz.</p>
       <AppleInstallSteps />
     </section>
   );

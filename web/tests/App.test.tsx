@@ -15,6 +15,12 @@ describe('App', () => {
 
     expect(html).toContain('<main');
     expect(html).toContain('>Hesabınıza giriş yapın</h1>');
+    expect(html).toContain('İş ve operasyon yönetimi');
+    expect(html).toContain('Günlük işlerinizi tek yerden yönetin.');
+    expect(html).toContain('Müşterileri, işleri, teslimatları, takvimi ve ekip süreçlerini tek bir çalışma alanında takip edin.');
+    expect(html).toContain('aria-describedby="login-help"');
+    expect(html).not.toContain('Medikal ve dental ekipler');
+    expect(html).not.toContain('Saha operasyonları');
     expect(html).toContain('<label for="email">E-posta</label>');
     expect(html).toContain('<label for="password">Parola</label>');
     expect(html).toContain('type="email"');

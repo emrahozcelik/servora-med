@@ -61,11 +61,11 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
       <section className="login-introduction" aria-labelledby="product-title">
         <DunyaDentalBrand variant="login" />
         <div className="login-context">
-          <p className="eyebrow">Saha operasyonları</p>
-          <h2 id="product-title">İşler net, süreçler izlenebilir.</h2>
-          <p>Müşteri çalışmalarınızı, ürün teslimlerinizi ve yönetici onaylarını tek akışta yönetin.</p>
+          <p className="eyebrow">İş ve operasyon yönetimi</p>
+          <h2 id="product-title">Günlük işlerinizi tek yerden yönetin.</h2>
+          <p>Müşterileri, işleri, teslimatları, takvimi ve ekip süreçlerini tek bir çalışma alanında takip edin.</p>
         </div>
-        <p className="context-note">Medikal ve dental ekipler için operasyon alanı</p>
+        <p className="context-note">Dünya Dental — iş ve operasyon yönetimi</p>
       </section>
 
       <section className="login-panel" aria-labelledby="login-title">
@@ -76,7 +76,7 @@ function LoginScreen({ onAuthenticated, initialError = '' }: {
 
           {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
 
-          <form onSubmit={submit} aria-describedby={error ? 'login-help' : undefined}>
+          <form onSubmit={submit} aria-describedby="login-help">
             <div className="field-group">
               <label htmlFor="email">E-posta</label>
               <input id="email" name="email" type="email" autoComplete="username" inputMode="email" required disabled={pending} />

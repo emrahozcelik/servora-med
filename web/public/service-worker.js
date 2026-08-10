@@ -9,7 +9,7 @@ function isAllowedDeepLink(url) {
       || MESSAGING_DEEP_LINK.test(url));
 }
 
-var FALLBACK_TITLE = 'Servora-Med';
+var FALLBACK_TITLE = 'Dünya Dental';
 var FALLBACK_BODY = 'Bekleyen işleriniz var.';
 var FALLBACK_URL = '/jobs';
 var FALLBACK_TAG = 'servora-med-generic';
