@@ -899,12 +899,27 @@ describe('deriveCompactWorkflowSummary', () => {
     expect(model.recordEditAction).toBeNull();
   });
 
-  it('does not present General Task management edit to Staff', () => {
+  it('presents General Task edit to Staff on own eligible task', () => {
     const model = derive(jobWith({
       type: 'GENERAL_TASK', status: 'NEW', assignedTo: 's1',
       workflowContext: contextWith({
         allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
         allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    }), staff);
+    expect(model.recordEditAction).toEqual({
+      action: 'EDIT_JOB_FIELDS',
+      label: 'Görevi düzenle',
+      consequence: 'Görev bilgileri düzenlenecektir.',
+    });
+  });
+
+  it('does not present General Task edit to Staff without capability', () => {
+    const model = derive(jobWith({
+      type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES'],
       }),
     }), staff);
     expect(model.recordEditAction).toBeNull();

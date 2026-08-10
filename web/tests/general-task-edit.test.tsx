@@ -286,15 +286,40 @@ describe('UXB-002: General Task edit + reassignment reachability', () => {
     expect(buttonByName(host, 'Görevi düzenle')).not.toBeNull();
   });
 
-  it('Staff does not see the management edit action', async () => {
+  it('Staff sees the edit action on own eligible general task', async () => {
     const card = generalTaskJob({
       workflowContext: generalTaskContext('NEW', { staff: true }),
     });
     const harness = makeFetch({ card, conversationLookup: 'none' });
     await renderScreen(staffUser, harness);
 
-    expect(buttonByName(host, 'Görevi düzenle')).toBeNull();
+    expect(buttonByName(host, 'Görevi düzenle')).not.toBeNull();
     expect(buttonByName(host, 'İşi kabul et')).not.toBeNull();
+  });
+
+  it('Staff form omits the assignee control and never submits assignedTo', async () => {
+    const card = generalTaskJob({
+      workflowContext: generalTaskContext('NEW', { staff: true }),
+    });
+    const harness = makeFetch({ card, conversationLookup: 'none' });
+    await renderScreen(staffUser, harness);
+    await openEditForm();
+
+    expect(inputByName(host, 'assignedTo')).toBeNull();
+    expect(inputByName(host, 'title')?.value).toBe('Görevlendirme');
+
+    await setField('title', 'Kendi görevim');
+    await act(async () => {
+      buttonByName(host, 'Değişiklikleri kaydet')?.click();
+      await Promise.resolve();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(harness.patchBodies).toHaveLength(1);
+    expect(Object.keys(harness.patchBodies[0]!).sort()).toEqual([
+      'description', 'expectedVersion', 'priority', 'title',
+    ]);
+    expect(harness.syncBodies).toHaveLength(0);
   });
 
   it('no edit action without EDIT_JOB_FIELDS capability', async () => {

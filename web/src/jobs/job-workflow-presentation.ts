@@ -508,7 +508,6 @@ function deriveRecordEditAction(
   if (
     actions.includes('EDIT_JOB_FIELDS')
     && job.type === 'GENERAL_TASK'
-    && user.role !== 'STAFF'
   ) {
     return {
       action: 'EDIT_JOB_FIELDS',

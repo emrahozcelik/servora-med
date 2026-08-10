@@ -1472,7 +1472,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       ? <DeliveryAssigneeEditForm job={detail.job}
         pending={pending} onCancel={() => setEditing(false)} onSave={saveDeliveryAssignee} />
       : editing && detail.kind === 'GENERAL_TASK'
-        ? <GeneralTaskEditForm job={detail.job}
+        ? <GeneralTaskEditForm job={detail.job} user={user}
           pending={pending} onCancel={() => setEditing(false)} onSave={saveGeneralTask} />
         : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
         ? <MeetingDetailsSection
