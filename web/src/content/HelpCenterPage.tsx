@@ -19,6 +19,10 @@ export function HelpCenterPage({ user }: { user: CurrentUser }) {
 
   const [activeCategory, setActiveCategory] = useState(ALL_CATEGORIES);
 
+  // Category controls only add a meaningful choice when more than one real
+  // category exists; the filtering system stays active for future categories.
+  const showCategoryControls = categories.length > 2;
+
   const filteredArticles = useMemo(() => {
     const searchLower = search.toLocaleLowerCase('tr-TR').trim();
     let result = articles;
@@ -64,7 +68,7 @@ export function HelpCenterPage({ user }: { user: CurrentUser }) {
         <div>
           <p className="eyebrow">Yardım</p>
           <h1>Yardım Merkezi</h1>
-          <p>Sık sorulan sorular, kullanım kılavuzları ve destek iletişimi.</p>
+          <p>Karşılaştığınız sorunlar için çözüm adımlarını inceleyin veya destek kanalına ulaşın.</p>
         </div>
       </header>
 
@@ -79,17 +83,19 @@ export function HelpCenterPage({ user }: { user: CurrentUser }) {
         />
       </div>
 
-      <div className="content-categories" role="group" aria-label="Kategori filtresi">
-        {categories.map((cat) => (
-          <button
-            key={cat}
-            aria-pressed={activeCategory === cat}
-            onClick={() => setActiveCategory(cat)}
-          >
-            {cat}
-          </button>
-        ))}
-      </div>
+      {showCategoryControls && (
+        <div className="content-categories" role="group" aria-label="Kategori filtresi">
+          {categories.map((cat) => (
+            <button
+              key={cat}
+              aria-pressed={activeCategory === cat}
+              onClick={() => setActiveCategory(cat)}
+            >
+              {cat}
+            </button>
+          ))}
+        </div>
+      )}
 
       {filteredArticles.length === 0 ? (
         <EmptyState
@@ -102,7 +108,7 @@ export function HelpCenterPage({ user }: { user: CurrentUser }) {
             <article key={article.id}>
               <OperationalCard title={article.title}>
                 <p className="content-summary">{article.summary}</p>
-                <small className="content-meta">{article.updatedLabel} · {article.category}</small>
+                <small className="content-meta">{article.category}</small>
                 <ContentCollapse
                   accordion
                   items={article.sections.map((s) => ({
@@ -135,10 +141,10 @@ export function HelpCenterPage({ user }: { user: CurrentUser }) {
         </OperationalCard>
       </section>
 
-      <section className="content-security-notice" role="alert">
+      <section className="content-security-notice">
         <div className="content-security-notice__body">
           <strong>Güvenlik bildirimi</strong>
-          <p>Servora hesap ve veri güvenliğiniz kurum politikalarına tabidir.</p>
+          <p>Hesap ve veri güvenliğiniz kurum politikalarına tabidir.</p>
         </div>
       </section>
     </main>

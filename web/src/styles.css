@@ -2540,7 +2540,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 @media (max-width: 720px) {
   .login-layout { display: block; }
   .login-introduction { min-height: auto; padding: 1rem; border-right: 0; border-bottom: 1px solid var(--rule); }
-  .login-context, .context-note { display: none; }
+  .login-context { display: none; }
+  .context-note { margin-block: 0.4rem 0; }
   .login-panel { min-height: calc(100vh - 4.1rem); place-items: start center; padding: clamp(2.5rem, 12vh, 5rem) 1rem 2rem; }
   .primary-button, .secondary-button, .destructive-button { min-width: 0; max-width: 100%; overflow-wrap: anywhere; }
   .create-heading > div, .delivery-heading > div, .brand-lockup { min-width: 0; }
@@ -2772,7 +2773,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .overview-text-summary { margin: 0; color: var(--muted); line-height: 1.5; overflow-wrap: anywhere; }
 .overview-trend { margin-block: 1rem; }
 
-.content-list { display: grid; gap: 1rem; }
+.content-list { display: grid; gap: 1rem; grid-template-columns: minmax(0, 1fr); }
+.content-list > article { min-width: 0; }
 .content-list article > p,
 .content-list section p,
 .support-contact p { color: var(--muted); line-height: 1.65; overflow-wrap: anywhere; }
@@ -2925,6 +2927,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .settings-card-link:hover .servora-operational-card { border-color: var(--accent); box-shadow: var(--shadow-raised); }
 .settings-card-grid small { color: var(--muted); font-size: 0.9rem; line-height: 1.5; }
 .settings-panel { display: grid; gap: 1rem; max-width: 44rem; }
+.app-about { color: var(--muted); font-size: 0.875rem; line-height: 1.6; }
+.app-about h2 { margin: 0.25rem 0 0.25rem; font-size: 0.9rem; }
 .settings-form-panel form { display: grid; gap: 1rem; max-width: 32rem; }
 .profile-header {
   display: flex;

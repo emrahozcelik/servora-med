@@ -25,8 +25,8 @@ describe('minimal install surface', () => {
 
     expect(manifest).toMatchObject({
       id: '/',
-      name: 'Dünya Dental Servora',
-      short_name: 'Servora',
+      name: 'Dünya Dental İş ve Operasyon Yönetimi',
+      short_name: 'Dünya Dental',
       start_url: '/jobs',
       scope: '/',
       display: 'standalone',

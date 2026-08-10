@@ -65,7 +65,7 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
         <div>
           <p className="eyebrow">Dokümantasyon</p>
           <h1>Ürün dokümantasyonu</h1>
-          <p>Servora iş akışları, formlar ve raporlar için kullanım kılavuzları.</p>
+          <p>İş akışları, kayıtlar, bildirimler ve raporlar için kullanım kılavuzları.</p>
         </div>
       </header>
 
@@ -136,7 +136,7 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
                 <div className="content-article-body">
                   <OperationalCard title={article.title}>
                     <p className="content-summary">{article.summary}</p>
-                    <small className="content-meta">{article.updatedLabel} · {article.category}</small>
+                    <small className="content-meta">{article.category}</small>
                     <ContentCollapse
                       activeKey={activeKey}
                       onChange={handleCollapseChange as (keys: string[]) => void}

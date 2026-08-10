@@ -6,7 +6,6 @@ export type WorkspaceContent = Readonly<{
   summary: string;
   category: 'Başlangıç' | 'İş akışı' | 'Kayıtlar' | 'Bildirimler' | 'Raporlar' | 'Sorun giderme';
   audience: readonly UserRole[];
-  updatedLabel: string;
   sections: ReadonlyArray<Readonly<{ heading: string; paragraphs: readonly string[] }>>;
 }>;
 
@@ -19,18 +18,17 @@ export const productDocumentation: readonly WorkspaceContent[] = [
     summary: 'İş planları, kişisel operasyon planları ve yaklaşan çalışma bildirimleri.',
     category: 'İş akışı',
     audience: everyRole,
-    updatedLabel: 'U2',
     sections: [{
       heading: 'İş ve kişisel plan ayrımı',
       paragraphs: [
-        'İş etiketi taşıyan kayıtlar JobCard tarafından yönetilir; işin durumunu veya yetkisini Takvim değiştirmez.',
+        'İş etiketi taşıyan kayıtlar iş kaydı olarak yönetilir; işin durumunu veya yetkisini Takvim değiştirmez.',
         'Kişisel plan etiketi taşıyan kayıtlar Takvim içinde oluşturulur, düzenlenir veya gerekçeyle iptal edilir.',
         'Çakışma uyarısında taslağınız korunur. Başka biri kaydı değiştirdiyse güncel veriyi yükleyip tekrar deneyin.',
       ],
     }, {
       heading: 'Yetki ve bildirim',
       paragraphs: [
-        'Personel yalnız kendi takvimini görür. Yönetici yalnız mevcut ekip ilişkisindeki aktif personeli, admin ise organizasyondaki aktif personeli planlayabilir.',
+        'Personel yalnız kendi takvimini görür. Yönetici yalnız mevcut ekip ilişkisindeki aktif personeli, sistem yöneticisi ise organizasyondaki aktif personeli planlayabilir.',
         'Yaklaşan plan bildirimleri başlık, müşteri açıklaması veya serbest metin taşımaz; kayıt uygulamada yetkili bağlantıdan açılır.',
       ],
     }],
@@ -38,10 +36,9 @@ export const productDocumentation: readonly WorkspaceContent[] = [
   {
     id: 'job-flow',
     title: 'İşlerin temel akışı',
-    summary: 'Atamadan yönetici onayına kadar JobCard yaşam döngüsü.',
+    summary: 'Atamadan yönetici onayına kadar iş kaydının yaşam döngüsü.',
     category: 'İş akışı',
     audience: everyRole,
-    updatedLabel: 'U1',
     sections: [{
       heading: 'İş nasıl ilerler?',
       paragraphs: [
@@ -57,7 +54,6 @@ export const productDocumentation: readonly WorkspaceContent[] = [
     summary: 'Operasyon işlerinde kullanılan temel kayıtların ayrımı.',
     category: 'Kayıtlar',
     audience: everyRole,
-    updatedLabel: 'U1',
     sections: [{
       heading: 'Kayıt sahipliği',
       paragraphs: [
@@ -70,10 +66,9 @@ export const productDocumentation: readonly WorkspaceContent[] = [
   {
     id: 'notifications',
     title: 'Bildirim merkezi ve cihaz bildirimleri',
-    summary: 'Uygulama içi bildirimler ile bu tarayıcıdaki Web Push durumu.',
+    summary: 'Uygulama içi bildirimler ile bu tarayıcıdaki cihaz bildirimi durumu.',
     category: 'Bildirimler',
     audience: everyRole,
-    updatedLabel: 'U1',
     sections: [{
       heading: 'İki ayrı kanal',
       paragraphs: [
@@ -85,10 +80,9 @@ export const productDocumentation: readonly WorkspaceContent[] = [
   {
     id: 'reports',
     title: 'Raporlara erişim',
-    summary: 'Yönetici ve admin rollerinin mevcut operasyon raporları.',
+    summary: 'Sistem yöneticisi ve yönetici rollerinin mevcut operasyon raporları.',
     category: 'Raporlar',
     audience: ['ADMIN', 'MANAGER'],
-    updatedLabel: 'U1',
     sections: [{
       heading: 'Yetkili görünüm',
       paragraphs: ['Raporlar yalnız mevcut rol ve organizasyon yetkisi kapsamında gösterilir.'],
@@ -103,7 +97,6 @@ export const helpArticles: readonly WorkspaceContent[] = [
     summary: 'Yetki, çakışma, güncel sürüm ve bildirim durumunu ayırt etme.',
     category: 'Sorun giderme',
     audience: everyRole,
-    updatedLabel: 'U2',
     sections: [{
       heading: 'Güvenli kontrol sırası',
       paragraphs: [
@@ -119,7 +112,6 @@ export const helpArticles: readonly WorkspaceContent[] = [
     summary: 'Oturum veya güncelleme sorunu yaşandığında güvenli ilk adımlar.',
     category: 'Sorun giderme',
     audience: everyRole,
-    updatedLabel: 'U1',
     sections: [{
       heading: 'Deneyebileceğiniz adımlar',
       paragraphs: [
@@ -134,7 +126,6 @@ export const helpArticles: readonly WorkspaceContent[] = [
     summary: 'Tarayıcı izni ve mevcut cihaz aboneliğini kontrol etme.',
     category: 'Sorun giderme',
     audience: everyRole,
-    updatedLabel: 'U1',
     sections: [{
       heading: 'Cihaz kapsamı',
       paragraphs: [
@@ -149,7 +140,6 @@ export const helpArticles: readonly WorkspaceContent[] = [
     summary: 'Bir işlem görünmediğinde rol ve bağlantı durumunu ayırt etme.',
     category: 'Sorun giderme',
     audience: everyRole,
-    updatedLabel: 'U1',
     sections: [{
       heading: 'Ne zaman destek istemeli?',
       paragraphs: [

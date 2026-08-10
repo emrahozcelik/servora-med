@@ -121,13 +121,12 @@ describe('repository-managed workspace content', () => {
     expect(docsHTML).toContain('İş akışı');
   });
 
-  it('renders category filter buttons with aria-pressed in help center page', () => {
+  it('hides help category controls when only one real category exists', () => {
     const helpHTML = require('react-dom/server').renderToStaticMarkup(
       <MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>,
     );
-    expect(helpHTML).toContain('aria-pressed="true"');
-    expect(helpHTML).toContain('aria-pressed="false"');
-    expect(helpHTML).toContain('Tümü');
+    expect(helpHTML).not.toContain('aria-pressed');
+    expect(helpHTML).not.toContain('Kategori filtresi');
     expect(helpHTML).toContain('Sorun giderme');
   });
 
@@ -172,13 +171,40 @@ describe('repository-managed workspace content', () => {
     expect(helpHTML).toContain('servora-operational-card--attention');
   });
 
-  it('renders security notice in help center page', () => {
+  it('renders static (non-alert) security notice with product-neutral wording', () => {
     const helpHTML = require('react-dom/server').renderToStaticMarkup(
       <MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>,
     );
     expect(helpHTML).toContain('Güvenlik bildirimi');
-    expect(helpHTML).toContain('Servora hesap ve veri güvenliğiniz kurum politikalarına tabidir');
-    expect(helpHTML).toContain('role="alert"');
+    expect(helpHTML).toContain('Hesap ve veri güvenliğiniz kurum politikalarına tabidir');
+    expect(helpHTML).not.toContain('role="alert"');
+  });
+
+  it('renders troubleshooting-oriented help intro without documentation positioning', () => {
+    const helpHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>,
+    );
+    expect(helpHTML).toContain('Karşılaştığınız sorunlar için çözüm adımlarını inceleyin');
+  });
+
+  it('renders product-neutral documentation intro', () => {
+    const docsHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><DocumentationPage user={staff} /></MemoryRouter>,
+    );
+    expect(docsHTML).toContain('İş akışları, kayıtlar, bildirimler ve raporlar için kullanım kılavuzları');
+    expect(docsHTML).not.toContain('Servora iş akışları');
+  });
+
+  it('does not render internal update labels or implementation terminology in article metadata', () => {
+    const docsHTML = require('react-dom/server').renderToStaticMarkup(
+      <MemoryRouter><DocumentationPage user={staff} /></MemoryRouter>,
+    );
+    expect(docsHTML).not.toContain('U1');
+    expect(docsHTML).not.toContain('U2');
+    const content = JSON.stringify([productDocumentation, helpArticles]);
+    expect(content).not.toContain('JobCard');
+    expect(content).not.toContain('Web Push');
+    expect(content).toContain('iş kaydı');
   });
 
   it('renders reading mode toggle in documentation page', () => {
