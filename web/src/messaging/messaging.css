@@ -1,6 +1,9 @@
 .messaging-workspace {
   padding: 0;
-  height: calc(100vh - 4.5rem);
+  width: 100%;
+  max-width: none;
+  margin: 0;
+  height: calc(100dvh - 4.5rem);
   display: flex;
   flex-direction: column;
 }
@@ -9,6 +12,28 @@
   display: flex;
   flex: 1;
   min-height: 0;
+}
+
+.messaging-container.composing {
+  justify-content: center;
+  background: var(--canvas);
+  padding: 1rem;
+}
+
+.messaging-container.composing .messaging-sidebar {
+  width: min(100%, 48rem);
+  flex: 0 1 48rem;
+  border: 1px solid var(--rule);
+  background: var(--paper);
+}
+
+.messaging-container.composing .create-panel {
+  flex: 1;
+  max-height: none;
+}
+
+.messaging-container.composing .messaging-sidebar-header {
+  display: none;
 }
 
 .messaging-sidebar {
@@ -334,7 +359,8 @@
 
 .create-context-option {
   flex: 1;
-  padding: 0.45rem 0.5rem;
+  min-height: 44px;
+  padding: 0.55rem 0.65rem;
   border: 1px solid var(--rule);
   border-radius: 8px;
   background: var(--canvas);
@@ -373,7 +399,8 @@
 }
 
 .create-search {
-  padding: 0.45rem 0.6rem;
+  min-height: 44px;
+  padding: 0.55rem 0.7rem;
   border: 1px solid var(--rule);
   border-radius: 8px;
   font-size: 0.9rem;
@@ -404,7 +431,8 @@
   display: flex;
   flex-direction: column;
   gap: 0.15rem;
-  padding: 0.55rem 0.7rem;
+  min-height: 48px;
+  padding: 0.65rem 0.75rem;
   width: 100%;
   border: none;
   background: none;
@@ -441,6 +469,47 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
+}
+
+.create-selection-summary {
+  min-height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.7rem 0.8rem;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--canvas);
+}
+
+.create-selection-copy {
+  min-width: 0;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 0.2rem;
+}
+
+.create-selection-title,
+.create-selection-meta {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.create-selection-title {
+  font-size: 0.9rem;
+}
+
+.create-selection-meta {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.create-selection-change {
+  min-height: 44px;
+  flex-shrink: 0;
 }
 
 .create-participant-note {
@@ -584,6 +653,14 @@
 }
 
 @media (max-width: 768px) {
+  .messaging-container.composing {
+    padding: 0;
+  }
+
+  .messaging-container.composing .messaging-sidebar {
+    border: 0;
+  }
+
   .messaging-sidebar {
     width: 100%;
     min-width: unset;

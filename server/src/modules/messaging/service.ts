@@ -1005,10 +1005,13 @@ export class MessagingService {
     return this.repository.getUnreadCount(actor.organizationId, actor.id, actor.role);
   }
 
-  async getRecipients(actor: SafeUser): Promise<readonly RecipientListItem[]> {
+  async getRecipients(
+    actor: SafeUser,
+    contextType: ConversationContextType,
+  ): Promise<readonly RecipientListItem[]> {
     this.requireEnabled();
     return this.repository.getAuthorizedRecipients(
-      actor.organizationId, actor.id, actor.role,
+      actor.organizationId, actor.id, actor.role, contextType,
     );
   }
 
@@ -1099,7 +1102,7 @@ export class MessagingService {
     jobId: string | null,
   ): Promise<void> {
     const recipients = await this.repository.getAuthorizedRecipients(
-      actor.organizationId, actor.id, actor.role,
+      actor.organizationId, actor.id, actor.role, contextType,
     );
 
     const recipient = recipients.find((r) => r.id === recipientUserId);

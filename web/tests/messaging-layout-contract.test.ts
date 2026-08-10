@@ -6,6 +6,13 @@ const messagingCss = readFileSync(resolve(__dirname, '../src/messaging/messaging
 const stylesCss = readFileSync(resolve(__dirname, '../src/styles.css'), 'utf8');
 
 describe('messaging desktop workspace layout contract (M1)', () => {
+  it('uses the full mobile canvas instead of inheriting the generic document gutters', () => {
+    const baseBlock = messagingCss.slice(0, messagingCss.indexOf('.messaging-container'));
+    expect(baseBlock).toMatch(/\.messaging-workspace\s*\{[^}]*width:\s*100%/s);
+    expect(baseBlock).toMatch(/\.messaging-workspace\s*\{[^}]*max-width:\s*none/s);
+    expect(baseBlock).toMatch(/\.messaging-workspace\s*\{[^}]*margin:\s*0/s);
+  });
+
   it('keeps the generic document column cap intact for other pages', () => {
     expect(stylesCss).toMatch(/\.workspace\s*\{[^}]*width:\s*min\(100%\s*-\s*2rem,\s*68rem\)/s);
   });
@@ -25,6 +32,16 @@ describe('messaging desktop workspace layout contract (M1)', () => {
   it('keeps the thread as the flexible application surface with min-width zero', () => {
     expect(messagingCss).toMatch(/\.messaging-thread\s*\{[^}]*flex:\s*1/s);
     expect(messagingCss).toMatch(/\.messaging-thread\s*\{[^}]*min-width:\s*0/s);
+  });
+
+  it('gives compose mode a centered, responsive workspace instead of the narrow conversation rail', () => {
+    expect(messagingCss).toMatch(/\.messaging-container\.composing\s*\{[^}]*justify-content:\s*center/s);
+    expect(messagingCss).toMatch(/\.messaging-container\.composing\s+\.messaging-sidebar\s*\{[^}]*width:\s*min\(100%,\s*48rem\)/s);
+    expect(messagingCss).toMatch(/\.messaging-container\.composing\s+\.create-panel\s*\{[^}]*max-height:\s*none/s);
+  });
+
+  it('removes the conversation-list header from the visible compose workspace', () => {
+    expect(messagingCss).toMatch(/\.messaging-container\.composing\s+\.messaging-sidebar-header\s*\{[^}]*display:\s*none/s);
   });
 
   it('caps message bubbles to a readable internal width on wide threads', () => {

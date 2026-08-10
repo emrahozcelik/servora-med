@@ -67,6 +67,29 @@ describe('M8: Messaging UUID input validation boundary', () => {
     app = await buildApp(service);
   });
 
+  it('forwards the requested recipient context to the service', async () => {
+    service.getRecipients.mockResolvedValue([]);
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/messaging/recipients?contextType=GENERAL',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(service.getRecipients).toHaveBeenCalledWith(ACTOR, 'GENERAL');
+  });
+
+  it('rejects an invalid recipient context before the service call', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/messaging/recipients?contextType=OTHER',
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.getRecipients).not.toHaveBeenCalled();
+  });
+
   it('malformed jobId route param returns 400 without service call', async () => {
     const res = await app.inject({
       method: 'GET',

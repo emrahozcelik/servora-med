@@ -155,8 +155,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const [createSubmitting, setCreateSubmitting] = useState(false);
   const [createFlowError, setCreateFlowError] = useState<string | null>(null);
   const createFlowRef = useRef<HTMLDivElement>(null);
+  const createTriggerRef = useRef<HTMLButtonElement>(null);
+  const jobSearchRef = useRef<HTMLInputElement>(null);
+  const customerSearchRef = useRef<HTMLInputElement>(null);
   const jobQuerySeqRef = useRef(0);
   const customerQuerySeqRef = useRef(0);
+  const createParticipantsSeqRef = useRef(0);
 
   const threadEndRef = useRef<HTMLDivElement>(null);
   const composerRef = useRef<HTMLTextAreaElement>(null);
@@ -525,15 +529,19 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     }
   }, []);
 
-  const loadCreateParticipants = useCallback(async () => {
+  const loadCreateParticipants = useCallback(async (contextType: 'GENERAL' | 'CUSTOMER') => {
+    const seq = ++createParticipantsSeqRef.current;
     setCreateParticipantsLoading(true);
     setCreateParticipantsError(null);
     try {
-      setCreateParticipants(await listRecipients());
+      const recipients = await listRecipients(contextType);
+      if (createParticipantsSeqRef.current !== seq) return;
+      setCreateParticipants(recipients);
     } catch (error) {
+      if (createParticipantsSeqRef.current !== seq) return;
       setCreateParticipantsError(error instanceof Error ? error.message : 'Katılımcılar yüklenemedi.');
     } finally {
-      setCreateParticipantsLoading(false);
+      if (createParticipantsSeqRef.current === seq) setCreateParticipantsLoading(false);
     }
   }, []);
 
@@ -547,12 +555,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     setCreateErrors({});
     setCreateFlowError(null);
     loadJobs('');
-    loadCreateParticipants();
-  }, [loadJobs, loadCreateParticipants]);
+  }, [loadJobs]);
 
-  const closeCreateFlow = useCallback(() => {
+  const closeCreateFlow = useCallback((restoreFocus: boolean) => {
     setCreateOpen(false);
     setCreateFlowError(null);
+    if (restoreFocus) window.setTimeout(() => createTriggerRef.current?.focus(), 0);
   }, []);
 
   const switchCreateContext = useCallback((context: CreateContext) => {
@@ -569,8 +577,21 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     } else if (context === 'CUSTOMER') {
       setCustomerQuery('');
       loadCustomers('');
+      loadCreateParticipants('CUSTOMER');
+    } else {
+      loadCreateParticipants('GENERAL');
     }
-  }, [loadJobs, loadCustomers]);
+  }, [loadJobs, loadCustomers, loadCreateParticipants]);
+
+  const reopenJobSearch = useCallback(() => {
+    setSelectedJob(null);
+    window.setTimeout(() => jobSearchRef.current?.focus(), 0);
+  }, []);
+
+  const reopenCustomerSearch = useCallback(() => {
+    setSelectedCustomer(null);
+    window.setTimeout(() => customerSearchRef.current?.focus(), 0);
+  }, []);
 
   const submitCreate = useCallback(async () => {
     const errors: CreateErrors = {};
@@ -613,7 +634,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               };
 
       const conv = await createOrGetConversation(payload);
-      closeCreateFlow();
+      closeCreateFlow(false);
       await loadConversations();
       invalidateThread();
       setSelectedId(conv.id);
@@ -658,19 +679,19 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   return (
     <main className="workspace messaging-workspace">
-      <div className="messaging-container" ref={containerRef}>
+      <div className={`messaging-container${createOpen ? ' composing' : ''}`} ref={containerRef}>
         <aside className="messaging-sidebar">
-          <header className="messaging-sidebar-header">
+          <header className="messaging-sidebar-header" hidden={createOpen}>
             <h2>Mesajlar</h2>
             {canCreate && (
-              <button className="secondary-button" onClick={openCreateFlow} aria-label="Yeni konuşma">Yeni konuşma</button>
+              <button ref={createTriggerRef} className="secondary-button" onClick={openCreateFlow} aria-label="Yeni konuşma">Yeni konuşma</button>
             )}
           </header>
           {createOpen && (
             <div className="create-panel" ref={createFlowRef}>
               <header className="create-panel-header">
+                <button className="ghost-button" onClick={() => closeCreateFlow(true)} aria-label="Mesajlara dön">← Mesajlara dön</button>
                 <h3>Yeni konuşma</h3>
-                <button className="ghost-button" onClick={closeCreateFlow} aria-label="Kapat">Kapat</button>
               </header>
               <p className="create-prompt">Ne hakkında konuşacaksınız?</p>
               <div className="create-contexts" role="radiogroup" aria-label="Konuşma bağlamı">
@@ -690,37 +711,54 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
               {createContext === 'JOB' && (
                 <div className="create-field">
-                  <label className="create-label" htmlFor="create-job-search">İş <span className="required-mark">*</span></label>
-                  <input
-                    id="create-job-search"
-                    type="search"
-                    className="create-search"
-                    placeholder="İş ara…"
-                    value={jobQuery}
-                    onChange={(e) => { setJobQuery(e.target.value); loadJobs(e.target.value); }}
-                    aria-label="İş ara"
-                  />
-                  {jobsLoading && <LoadRecipients />}
-                  {jobsError && <div className="inline-error">{jobsError}<button className="ghost-button" onClick={() => loadJobs(jobQuery)}>Tekrar dene</button></div>}
-                  <ul className="create-options" role="listbox" aria-label="İşler">
-                    {jobs.map((job) => (
-                      <li key={job.id} role="option" aria-selected={selectedJob?.id === job.id}>
-                        <button
-                          type="button"
-                          className={`create-option ${selectedJob?.id === job.id ? 'selected' : ''}`}
-                          onClick={() => { setSelectedJob(job); setCreateErrors((prev) => ({ ...prev, job: undefined })); }}
-                        >
-                          <span className="create-option-title">{job.title}</span>
-                          <span className="create-option-sub">
-                            {[job.customerName, jobCardStatusLabel(job.status as never)].filter(Boolean).join(' • ')}
-                          </span>
-                        </button>
-                      </li>
-                    ))}
-                    {!jobsLoading && !jobsError && jobs.length === 0 && (
-                      <li className="empty-recipients"><EmptyState title="İş bulunamadı" /></li>
-                    )}
-                  </ul>
+                  <label className="create-label" htmlFor={selectedJob ? undefined : 'create-job-search'}>İş <span className="required-mark">*</span></label>
+                  {selectedJob ? (
+                    <div className="create-selection-summary" aria-label="Seçilen iş">
+                      <span className="create-selection-copy">
+                        <strong className="create-selection-title">{selectedJob.title}</strong>
+                        <span className="create-selection-meta">
+                          {[selectedJob.customerName, jobCardStatusLabel(selectedJob.status as never)].filter(Boolean).join(' • ')}
+                        </span>
+                      </span>
+                      <button type="button" className="ghost-button create-selection-change" onClick={reopenJobSearch}>
+                        Değiştir
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        ref={jobSearchRef}
+                        id="create-job-search"
+                        type="search"
+                        className="create-search"
+                        placeholder="İş ara…"
+                        value={jobQuery}
+                        onChange={(e) => { setJobQuery(e.target.value); loadJobs(e.target.value); }}
+                        aria-label="İş ara"
+                      />
+                      {jobsLoading && <LoadRecipients />}
+                      {jobsError && <div className="inline-error">{jobsError}<button className="ghost-button" onClick={() => loadJobs(jobQuery)}>Tekrar dene</button></div>}
+                      <ul className="create-options" role="listbox" aria-label="İşler">
+                        {jobs.map((job) => (
+                          <li key={job.id} role="option" aria-selected="false">
+                            <button
+                              type="button"
+                              className="create-option"
+                              onClick={() => { setSelectedJob(job); setCreateErrors((prev) => ({ ...prev, job: undefined })); }}
+                            >
+                              <span className="create-option-title">{job.title}</span>
+                              <span className="create-option-sub">
+                                {[job.customerName, jobCardStatusLabel(job.status as never)].filter(Boolean).join(' • ')}
+                              </span>
+                            </button>
+                          </li>
+                        ))}
+                        {!jobsLoading && !jobsError && jobs.length === 0 && (
+                          <li className="empty-recipients"><EmptyState title="İş bulunamadı" /></li>
+                        )}
+                      </ul>
+                    </>
+                  )}
                   {createErrors.job && <p className="create-error" role="alert">{createErrors.job}</p>}
                   {selectedJob && (
                     <p className="create-participant-note">
@@ -733,34 +771,46 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
               {createContext === 'CUSTOMER' && (
                 <div className="create-field">
-                  <label className="create-label" htmlFor="create-customer-search">Müşteri <span className="required-mark">*</span></label>
-                  <input
-                    id="create-customer-search"
-                    type="search"
-                    className="create-search"
-                    placeholder="Müşteri ara…"
-                    value={customerQuery}
-                    onChange={(e) => { setCustomerQuery(e.target.value); loadCustomers(e.target.value); }}
-                    aria-label="Müşteri ara"
-                  />
-                  {customersLoading && <LoadRecipients />}
-                  {customersError && <div className="inline-error">{customersError}<button className="ghost-button" onClick={() => loadCustomers(customerQuery)}>Tekrar dene</button></div>}
-                  <ul className="create-options" role="listbox" aria-label="Müşteriler">
-                    {customers.map((customer) => (
-                      <li key={customer.id} role="option" aria-selected={selectedCustomer?.id === customer.id}>
-                        <button
-                          type="button"
-                          className={`create-option ${selectedCustomer?.id === customer.id ? 'selected' : ''}`}
-                          onClick={() => { setSelectedCustomer(customer); setCreateErrors((prev) => ({ ...prev, customer: undefined })); }}
-                        >
-                          <span className="create-option-title">{customer.name}</span>
-                        </button>
-                      </li>
-                    ))}
-                    {!customersLoading && !customersError && customers.length === 0 && (
-                      <li className="empty-recipients"><EmptyState title="Müşteri bulunamadı" /></li>
-                    )}
-                  </ul>
+                  <label className="create-label" htmlFor={selectedCustomer ? undefined : 'create-customer-search'}>Müşteri <span className="required-mark">*</span></label>
+                  {selectedCustomer ? (
+                    <div className="create-selection-summary" aria-label="Seçilen müşteri">
+                      <strong className="create-selection-title">{selectedCustomer.name}</strong>
+                      <button type="button" className="ghost-button create-selection-change" onClick={reopenCustomerSearch}>
+                        Değiştir
+                      </button>
+                    </div>
+                  ) : (
+                    <>
+                      <input
+                        ref={customerSearchRef}
+                        id="create-customer-search"
+                        type="search"
+                        className="create-search"
+                        placeholder="Müşteri ara…"
+                        value={customerQuery}
+                        onChange={(e) => { setCustomerQuery(e.target.value); loadCustomers(e.target.value); }}
+                        aria-label="Müşteri ara"
+                      />
+                      {customersLoading && <LoadRecipients />}
+                      {customersError && <div className="inline-error">{customersError}<button className="ghost-button" onClick={() => loadCustomers(customerQuery)}>Tekrar dene</button></div>}
+                      <ul className="create-options" role="listbox" aria-label="Müşteriler">
+                        {customers.map((customer) => (
+                          <li key={customer.id} role="option" aria-selected="false">
+                            <button
+                              type="button"
+                              className="create-option"
+                              onClick={() => { setSelectedCustomer(customer); setCreateErrors((prev) => ({ ...prev, customer: undefined })); }}
+                            >
+                              <span className="create-option-title">{customer.name}</span>
+                            </button>
+                          </li>
+                        ))}
+                        {!customersLoading && !customersError && customers.length === 0 && (
+                          <li className="empty-recipients"><EmptyState title="Müşteri bulunamadı" /></li>
+                        )}
+                      </ul>
+                    </>
+                  )}
                   {createErrors.customer && <p className="create-error" role="alert">{createErrors.customer}</p>}
                 </div>
               )}
@@ -787,7 +837,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
                   <div className="create-field">
                     <span className="create-label" id="create-participants-label">Katılımcılar <span className="required-mark">*</span></span>
                     {createParticipantsLoading && <LoadRecipients />}
-                    {createParticipantsError && <div className="inline-error">{createParticipantsError}<button className="ghost-button" onClick={loadCreateParticipants}>Tekrar dene</button></div>}
+                    {createParticipantsError && <div className="inline-error">{createParticipantsError}<button className="ghost-button" onClick={() => loadCreateParticipants(createContext === 'GENERAL' ? 'GENERAL' : 'CUSTOMER')}>Tekrar dene</button></div>}
                     <ul className="participant-options" role="group" aria-labelledby="create-participants-label">
                       {createParticipants.map((recipient) => {
                         const checked = selectedParticipantIds.includes(recipient.id);
@@ -844,7 +894,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               </div>
             </div>
           )}
-          <ul className="conversation-list" role="listbox" aria-label="Konuşmalar">
+          {!createOpen && <ul className="conversation-list" role="listbox" aria-label="Konuşmalar">
             {conversations.map((conv) => (
               <li key={conv.id} role="option" aria-selected={conv.id === selectedId}>
                 <button className={`conversation-item ${conv.id === selectedId ? 'selected' : ''} ${conv.unreadCount > 0 ? 'unread' : ''}`} onClick={() => selectConversation(conv)}>
@@ -875,9 +925,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               </li>
             ))}
             {conversations.length === 0 && <li className="empty-conversations"><EmptyState title="Konuşma bulunmuyor" description={emptyDescription} /></li>}
-          </ul>
+          </ul>}
         </aside>
-        <section className={`messaging-thread${selected ? ' active' : ''}`} aria-label="Mesaj akışı">
+        {!createOpen && <section className={`messaging-thread${selected ? ' active' : ''}`} aria-label="Mesaj akışı">
           {selected ? (<>
             <header className="thread-header">
               <button className="ghost-button back-button" onClick={() => { invalidateThread(); setSelectedId(null); }} aria-label="Geri">←</button>
@@ -928,7 +978,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               )}
             </div>
           )}
-        </section>
+        </section>}
       </div>
     </main>
   );
