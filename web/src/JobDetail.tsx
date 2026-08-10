@@ -43,6 +43,7 @@ import {
 import { MeetingDetailsSection } from './jobs/MeetingDetails';
 import { SalesMeetingEditForm } from './jobs/SalesMeetingEditForm';
 import { DeliveryAssigneeEditForm } from './jobs/DeliveryAssigneeEditForm';
+import { GeneralTaskEditForm, type GeneralTaskEditInput } from './jobs/GeneralTaskEditForm';
 import { JobNotes } from './jobs/JobNotes';
 import { JobTimeline } from './jobs/JobTimeline';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
@@ -1149,7 +1150,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   }
   function openRecordEditDialog(action: RecordEditPresentation['action'], trigger: HTMLElement) {
     if (state.kind !== 'ready'
-      || (state.detail.kind !== 'SALES_MEETING' && state.detail.kind !== 'PRODUCT_DELIVERY')) return;
+      || !['SALES_MEETING', 'PRODUCT_DELIVERY', 'GENERAL_TASK'].includes(state.detail.kind)) return;
     if (action === 'EDIT_JOB_FIELDS') {
       setEditing(true);
       return;
@@ -1274,6 +1275,13 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     return saveJobPatch(
       { expectedVersion: state.detail.job.version, assignedTo },
       'Sorumlu personel güncellendi.',
+    );
+  }
+  function saveGeneralTask(input: GeneralTaskEditInput) {
+    if (state.kind !== 'ready') return Promise.resolve();
+    return saveJobPatch(
+      { expectedVersion: state.detail.job.version, ...input },
+      'Görev bilgileri güncellendi.',
     );
   }
   async function saveSchedule(scheduledAt: string | null) {
@@ -1463,7 +1471,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     : editing && detail.kind === 'PRODUCT_DELIVERY'
       ? <DeliveryAssigneeEditForm job={detail.job}
         pending={pending} onCancel={() => setEditing(false)} onSave={saveDeliveryAssignee} />
-      : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
+      : editing && detail.kind === 'GENERAL_TASK'
+        ? <GeneralTaskEditForm job={detail.job} user={user}
+          pending={pending} onCancel={() => setEditing(false)} onSave={saveGeneralTask} />
+        : showMeetingResult && detail.kind === 'SALES_MEETING' && detail.meetingDetails
         ? <MeetingDetailsSection
           job={detail.job}
           details={detail.meetingDetails}

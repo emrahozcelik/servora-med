@@ -858,4 +858,70 @@ describe('deriveCompactWorkflowSummary', () => {
       ordinal: null, total: 5, label: 'İptal edildi', attention: false, expectedRole: null,
     });
   });
+
+  it('presents General Task edit to Manager when EDIT_JOB_FIELDS is available', () => {
+    const model = derive(jobWith({
+      type: 'GENERAL_TASK', status: 'IN_PROGRESS', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['SUBMIT_FOR_APPROVAL', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    }), manager);
+    expect(model.recordEditAction).toEqual({
+      action: 'EDIT_JOB_FIELDS',
+      label: 'Görevi düzenle',
+      consequence: 'Görev bilgileri düzenlenecektir.',
+    });
+  });
+
+  it('presents General Task edit to Admin in NEW', () => {
+    const model = derive(jobWith({
+      type: 'GENERAL_TASK', status: 'NEW', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    }), admin);
+    expect(model.recordEditAction).toMatchObject({
+      action: 'EDIT_JOB_FIELDS',
+      label: 'Görevi düzenle',
+    });
+  });
+
+  it('does not present General Task edit when EDIT_JOB_FIELDS is absent', () => {
+    const model = derive(jobWith({
+      type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES'],
+      }),
+    }), manager);
+    expect(model.recordEditAction).toBeNull();
+  });
+
+  it('presents General Task edit to Staff on own eligible task', () => {
+    const model = derive(jobWith({
+      type: 'GENERAL_TASK', status: 'NEW', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+        allowedActions: ['EDIT_JOB_FIELDS', 'VIEW_NOTES', 'ADD_NOTE'],
+      }),
+    }), staff);
+    expect(model.recordEditAction).toEqual({
+      action: 'EDIT_JOB_FIELDS',
+      label: 'Görevi düzenle',
+      consequence: 'Görev bilgileri düzenlenecektir.',
+    });
+  });
+
+  it('does not present General Task edit to Staff without capability', () => {
+    const model = derive(jobWith({
+      type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', assignedTo: 's1',
+      workflowContext: contextWith({
+        allowedCommands: ['WITHDRAW_FROM_APPROVAL', 'CANCEL'],
+        allowedActions: ['VIEW_NOTES'],
+      }),
+    }), staff);
+    expect(model.recordEditAction).toBeNull();
+  });
 });
