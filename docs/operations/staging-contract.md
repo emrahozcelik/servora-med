@@ -197,6 +197,25 @@ staging database:
 NOT CREATED
 ```
 
+### Deferred decision: staging infrastructure provisioning
+
+```text
+STAGING INFRASTRUCTURE PROVISIONING (P4-B):
+DEFERRED — until post-acceptance UI/UX, accessibility,
+responsive/reflow and realistic-usage checks complete.
+```
+
+The deferred scope includes:
+
+* VPS/provider selection
+* region/resource sizing
+* staging domain/subdomain
+* Cloudflare Tunnel provisioning
+
+No provider is selected, no region/size is chosen, and no paid plan is
+recommended by this document. Revisit after the post-P4 UI/UX acceptance
+inventory and its follow-up repairs (UXB candidates) are closed.
+
 ## Authorization boundaries
 
 ```text

@@ -2759,6 +2759,11 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .overview-card-stack {
   display: grid;
   gap: 0.65rem;
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.overview-card-stack > * {
+  min-width: 0;
 }
 .overview-section a,
 .settings-card-grid a { color: var(--accent-hover); font-weight: 700; }
@@ -3213,6 +3218,14 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .servora-operational-card {
   border: 1px solid var(--rule);
   border-radius: var(--radius-raised);
+}
+
+.servora-operational-card .servora-ant-card-head-wrapper {
+  min-width: 0;
+}
+
+.servora-operational-card__title {
+  min-width: 0;
 }
 
 .servora-operational-card .ant-card-head {

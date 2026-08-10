@@ -182,6 +182,19 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
 <script type="module" src="/scripts/responsive-notification-center-fixture.tsx"></script>
 </body></html>`;
 
+const overviewCardsFixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>${css}</style></head>
+<body>
+<main class="workspace overview-workspace">
+  <div class="overview-main-grid">
+    <section class="overview-section" aria-labelledby="recent-work-title">
+      <h2 id="recent-work-title">Son tamamlanan işler</h2>
+      <div class="overview-card-stack" id="responsive-overview-cards-root" data-smoke-overview-card-stack></div>
+    </section>
+  </div>
+</main>
+<script type="module" src="/scripts/responsive-overview-cards-fixture.tsx"></script>
+</body></html>`;
+
 const viewports = [
   { name: '390x844', width: 390, height: 844 },
   { name: '720x900', width: 720, height: 900 },
@@ -206,6 +219,11 @@ async function startServer() {
         res.end(fixture);
         return;
       }
+      if (pathOnly === '/overview-smoke') {
+        res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' });
+        res.end(overviewCardsFixture);
+        return;
+      }
       vite.middlewares(req, res, () => {
         res.writeHead(404);
         res.end();
@@ -215,6 +233,31 @@ async function startServer() {
       const { port } = server.address();
       resolveServer({ server, vite, url: `http://127.0.0.1:${port}/` });
     });
+  });
+}
+
+async function measureOverviewCards(page) {
+  return page.evaluate(() => {
+    const root = document.documentElement;
+    const stack = document.querySelector('[data-smoke-overview-card-stack]');
+    const section = stack?.closest('.overview-section');
+    const titles = [...document.querySelectorAll('.servora-operational-card__title')];
+    const heads = [...document.querySelectorAll('.servora-operational-card .servora-ant-card-head')];
+    const titleContained = titles.every((title) => {
+      const tr = title.getBoundingClientRect();
+      const head = title.closest('.servora-operational-card .servora-ant-card-head');
+      return !head || tr.right <= head.getBoundingClientRect().right + 1;
+    });
+    return {
+      overflowX: root.scrollWidth > root.clientWidth + 1,
+      scrollWidth: root.scrollWidth,
+      clientWidth: root.clientWidth,
+      stackFitsSection: Boolean(section && stack
+        && stack.getBoundingClientRect().right <= section.getBoundingClientRect().right + 2),
+      titleContained,
+      titleCount: titles.length,
+      headCount: heads.length,
+    };
   });
 }
 
@@ -985,6 +1028,7 @@ for (const entry of [
   '/scripts/responsive-state-adapters-fixture.tsx',
   '/scripts/responsive-chart-fixture.tsx',
   '/scripts/responsive-notification-center-fixture.tsx',
+  '/scripts/responsive-overview-cards-fixture.tsx',
 ]) {
   await vite.transformRequest(entry);
 }
@@ -1315,6 +1359,32 @@ try {
         failures.push(`${vp.name}: push settings state ${state} contract failure`);
       }
     }
+    await page.close();
+  }
+
+  // Overview operational-card min-content containment (UXB-001): long nowrap
+  // card titles must ellipsize instead of expanding the grid track and pushing
+  // document width at narrow/reflow viewports.
+  for (const vp of [
+    { name: '1440x900', width: 1440, height: 900 },
+    { name: '1024x768', width: 1024, height: 768 },
+    { name: '768x1024', width: 768, height: 1024 },
+    { name: '390x844', width: 390, height: 844 },
+    { name: '320x700', width: 320, height: 700 },
+  ]) {
+    const page = await browser.newPage({ viewport: { width: vp.width, height: vp.height } });
+    const diag = createDiagnostics();
+    attachDiagnostics(page, diag);
+    await page.goto(`${url}overview-smoke`, { waitUntil: 'load' });
+    await page.waitForSelector('[data-smoke-overview-card-stack] .servora-operational-card');
+    const m = await measureOverviewCards(page);
+    console.log(JSON.stringify({ viewport: `${vp.name}-overview-cards`, ...m }));
+    if (m.titleCount !== 3 || m.headCount !== 3) {
+      failures.push(`${vp.name} overview cards: fixture missing cards`);
+    }
+    if (m.overflowX) failures.push(`${vp.name} overview cards: document horizontal overflow`);
+    if (!m.stackFitsSection) failures.push(`${vp.name} overview cards: card stack exceeds section width`);
+    if (!m.titleContained) failures.push(`${vp.name} overview cards: card title expands card width`);
     await page.close();
   }
 
