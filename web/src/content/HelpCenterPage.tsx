@@ -100,7 +100,9 @@ export function HelpCenterPage({ user }: { user: CurrentUser }) {
       {filteredArticles.length === 0 ? (
         <EmptyState
           title="Sonuç bulunamadı"
-          description="Farklı bir arama terimi deneyin veya kategori filtresini değiştirin."
+          description={showCategoryControls
+            ? 'Farklı bir arama terimi deneyin veya kategori filtresini değiştirin.'
+            : 'Farklı bir arama terimi deneyin.'}
         />
       ) : (
         <div className="content-list">

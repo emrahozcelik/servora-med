@@ -256,7 +256,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
             >
               <h3 id={`${titleId}-push`}>Cihaz bildirimleri</h3>
               <p className="notification-device-push-copy">
-                Cihaz bildirimlerini açarsanız size atanan veya onayınızı bekleyen işler için Dünya Dental
+                Cihaz bildirimlerini açarsanız size atanan veya onayınızı bekleyen işler için uygulama
                 kapalıyken de genel bir bildirim gösterilebilir. Bildirimlerde müşteri, not, teslimat veya
                 konum bilgisi yer almaz.
               </p>

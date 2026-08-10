@@ -350,6 +350,29 @@ describe('Documentation reading mode interaction', () => {
     expect(ctx.container.textContent).toContain('Sonuç bulunamadı');
   });
 
+  it('help empty state does not mention the hidden category filter', () => {
+    const helpContainer = document.createElement('div');
+    document.body.appendChild(helpContainer);
+    const helpRoot = createRoot(helpContainer);
+    act(() => {
+      helpRoot.render(<MemoryRouter><HelpCenterPage user={staff} /></MemoryRouter>);
+    });
+    const searchInput = helpContainer.querySelector('input[type="search"]') as HTMLInputElement;
+    act(() => {
+      const nativeInputValueSetter = Object.getOwnPropertyDescriptor(
+        window.HTMLInputElement.prototype, 'value',
+      )!.set!;
+      nativeInputValueSetter.call(searchInput, 'böyle-bir-makale-yok');
+      searchInput.dispatchEvent(new Event('input', { bubbles: true }));
+    });
+    expect(helpContainer.querySelectorAll('article').length).toBe(0);
+    expect(helpContainer.textContent).toContain('Sonuç bulunamadı');
+    expect(helpContainer.textContent).toContain('Farklı bir arama terimi deneyin.');
+    expect(helpContainer.textContent).not.toContain('kategori filtresini değiştirin');
+    act(() => helpRoot.unmount());
+    helpContainer.remove();
+  });
+
   it('checkbox receives keyboard focus', () => {
     ctx = renderDocs();
     const checkbox = getCheckbox(ctx.container);

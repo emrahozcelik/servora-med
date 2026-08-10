@@ -29,7 +29,7 @@ export const productDocumentation: readonly WorkspaceContent[] = [
       heading: 'Yetki ve bildirim',
       paragraphs: [
         'Personel yalnız kendi takvimini görür. Yönetici yalnız mevcut ekip ilişkisindeki aktif personeli, sistem yöneticisi ise organizasyondaki aktif personeli planlayabilir.',
-        'Yaklaşan plan bildirimleri başlık, müşteri açıklaması veya serbest metin taşımaz; kayıt uygulamada yetkili bağlantıdan açılır.',
+        'Yaklaşan plan bildirimleri yalnız genel bir uyarı gösterir. Ayrıntıları görmek için bildirimi açarak uygulamadaki ilgili kayda gidin.',
       ],
     }],
   },
