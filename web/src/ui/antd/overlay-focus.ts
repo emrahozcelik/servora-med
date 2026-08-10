@@ -43,10 +43,21 @@ export function trapTabKey(
 
 export function restoreFocus(
   returnFocusRef?: RefObject<HTMLElement | null>,
-  fallback?: HTMLElement | null,
+  fallback?: RefObject<HTMLElement | null> | HTMLElement | null,
 ): void {
-  const target = returnFocusRef?.current ?? fallback ?? null;
-  queueMicrotask(() => target?.focus());
+  const preferred = returnFocusRef?.current ?? null;
+  const fallbackEl = fallback instanceof HTMLElement
+    ? fallback
+    : fallback?.current ?? null;
+  queueMicrotask(() => {
+    if (preferred?.isConnected) {
+      preferred.focus();
+      return;
+    }
+    if (fallbackEl?.isConnected) {
+      fallbackEl.focus();
+    }
+  });
 }
 
 /** Focus preferred control when enabled; otherwise keep focus on the dialog root. */

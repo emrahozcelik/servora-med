@@ -112,8 +112,9 @@ describe('routed Product list screen', () => {
   beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
 
-  async function mount(initialEntry: string, load: Parameters<typeof ProductListScreen>[0]['load']) {
-    const router = createMemoryRouter([{ path: '/products', element: <ProductListScreen user={manager} load={load} /> }], { initialEntries: [initialEntry] });
+  async function mount(initialEntry: string, load: Parameters<typeof ProductListScreen>[0]['load'],
+    remove?: Parameters<typeof ProductListScreen>[0]['remove']) {
+    const router = createMemoryRouter([{ path: '/products', element: <ProductListScreen user={manager} load={load} remove={remove} /> }], { initialEntries: [initialEntry] });
     await act(async () => root.render(<RouterProvider router={router} />));
     return router;
   }
@@ -237,5 +238,30 @@ describe('routed Product list screen', () => {
     await act(async () => { await Promise.resolve(); });
     expect(router.state.location.search === '' || router.state.location.search === '?offset=0').toBe(true);
     expect(remove).toHaveBeenCalledWith('product-1', 1);
+  });
+
+  it('moves focus to the product list heading after successful deletion unmounts the trigger', async () => {
+    const remove = vi.fn().mockResolvedValue(undefined);
+    const load = vi.fn()
+      .mockResolvedValueOnce(page([product], 0, 1))
+      .mockResolvedValueOnce(page([], 0, 0));
+    await mount('/products', load, remove);
+    await act(async () => { await Promise.resolve(); });
+    expect(container.textContent).toContain('Dental İmplant Seti');
+
+    const deleteButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.getAttribute('aria-label') === 'Dental İmplant Seti ürününü sil') as HTMLButtonElement;
+    await act(async () => deleteButton.click());
+    const confirm = Array.from(container.querySelector('[role="dialog"]')!.querySelectorAll('button'))
+      .find((button) => button.className.includes('destructive')) as HTMLButtonElement;
+    await act(async () => confirm.click());
+    await act(async () => { await Promise.resolve(); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(remove).toHaveBeenCalledWith('product-1', 1);
+    expect(container.querySelector('[aria-label="Dental İmplant Seti ürününü sil"]')).toBeNull();
+    const heading = container.querySelector('.workspace-heading h1') as HTMLHeadingElement;
+    expect(document.activeElement).toBe(heading);
+    expect(document.activeElement).not.toBe(document.body);
   });
 });

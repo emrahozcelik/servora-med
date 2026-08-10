@@ -1,5 +1,5 @@
 import {
-  useEffect, useRef, useState, type MouseEvent,
+  useEffect, useRef, useState, type MouseEvent, type RefObject,
 } from 'react';
 import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 
@@ -60,7 +60,7 @@ function openCardIfEmpty(
   open(id);
 }
 
-export function ProductListView({ state, user, filters = {}, hasFilters, onFilterChange, onRetry, onOffsetChange, onOpenProduct, onRequestDelete, feedback = '', actionError = '' }: {
+export function ProductListView({ state, user, filters = {}, hasFilters, onFilterChange, onRetry, onOffsetChange, onOpenProduct, onRequestDelete, feedback = '', actionError = '', headingRef }: {
   state: ProductListState;
   user: CurrentUser;
   filters?: ProductFilterValues;
@@ -72,6 +72,7 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   onRequestDelete?: (product: Product, trigger: HTMLButtonElement) => void;
   feedback?: string;
   actionError?: string;
+  headingRef?: RefObject<HTMLHeadingElement | null>;
 }) {
   const canManage = user.role !== 'STAFF';
 
@@ -81,7 +82,7 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   </main>;
 
   return <main className="workspace product-workspace">
-    <div className="workspace-heading"><div><p className="eyebrow">Ürün kataloğu</p><h1>Ürünler</h1></div>
+    <div className="workspace-heading"><div><p className="eyebrow">Ürün kataloğu</p><h1 ref={headingRef} tabIndex={-1}>Ürünler</h1></div>
       {canManage && <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link>}</div>
     <ProductFiltersView filters={filters} onChange={onFilterChange} />
     <div className="sr-only" role="status" aria-live="polite">{feedback}</div>
@@ -186,6 +187,7 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
     try {
       await remove(deleteTarget.id, deleteTarget.version);
       const name = deleteTarget.name;
+      deleteTriggerRef.current = null;
       setDeleteTarget(null);
       setFeedback(`${name} silindi.`);
       setReload((value) => value + 1);
@@ -198,8 +200,10 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
   }
 
   const hasFilters = Boolean(filters.q);
+  const headingRef = useRef<HTMLHeadingElement | null>(null);
   return <>
     <ProductListView state={state} user={user} filters={filters} hasFilters={hasFilters}
+      headingRef={headingRef}
       onFilterChange={(name, value) => setParams(updateProductSearchParams(params, name, value))}
       onOffsetChange={(offset) => setParams(updateProductSearchParams(params, 'offset', offset))}
       onRetry={() => setReload((value) => value + 1)}
@@ -214,6 +218,7 @@ export function ProductListScreen({ user, load = listProducts, remove = deletePr
       pendingLabel="Siliniyor…"
       destructive
       returnFocusRef={deleteTriggerRef}
+      fallbackFocusRef={headingRef}
       onCancel={() => { if (!deletePending) setDeleteTarget(null); }}
       onConfirm={() => { void confirmDelete(); }}
     />
