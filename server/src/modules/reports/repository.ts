@@ -11,9 +11,11 @@ import type {
   DeliveryReportResponse,
   DeliveryStaffItem,
   MeetingOutcomeItem,
-  ReportStaffIdentity,
+  ReportStaffLifecycleIdentity,
   ResolvedReportRange,
   StaffCompletionPerformance,
+  StaffExecutionAggregate,
+  StaffOnTimeAggregate,
   StaffOperationalSummary,
   StaffOperationalSummaryManyInput,
   StaffOperationalSummaryOneInput,
@@ -53,19 +55,35 @@ type StaffIdentityRow = {
   id: string;
   name: string;
   is_active: boolean;
+  created_at: Date;
 };
 
 type StaffPerformanceScopeRow = {
   from_date: string;
   to_date: string;
   timezone: string;
-  staff: ReportStaffIdentity[];
+  staff: ReportStaffLifecycleIdentity[];
 };
 
 type StaffCompletionPerformanceRow = {
   staff_user_id: string;
   completion_days: string | number;
   completion_work_types: Array<{ type: string; count: string | number }>;
+};
+
+type StaffExecutionRow = {
+  staff_user_id: string;
+  staff_completed_jobs: string | number;
+  staff_completion_days: string | number;
+  missing_staff_completion_timestamp: string | number;
+};
+
+type StaffOnTimeRow = {
+  staff_user_id: string;
+  eligible_scheduled_completed_jobs: string | number;
+  on_time_completed_jobs: string | number;
+  late_completed_jobs: string | number;
+  ineligible_or_no_deadline_completed_jobs: string | number;
 };
 
 type StaffCountRow = {
@@ -283,7 +301,7 @@ GROUP BY organization_range.from_date, organization_range.to_date,
   counters.revision_requested, counters.completed_in_period,
   counters.cancelled_in_period`;
 
-const STAFF_IDENTITY_SQL = `SELECT u.id, u.name, u.is_active
+const STAFF_IDENTITY_SQL = `SELECT u.id, u.name, u.is_active, u.created_at
 FROM users u
 JOIN staff_profiles sp
   ON sp.organization_id = u.organization_id AND sp.user_id = u.id
@@ -291,7 +309,7 @@ WHERE u.organization_id = $1 AND u.id = $2 AND u.role = 'STAFF'
 LIMIT 1`;
 
 const STAFF_PERFORMANCE_SCOPE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, staff_scope AS (
-  SELECT u.id, u.name, u.is_active
+  SELECT u.id, u.name, u.is_active, u.created_at
   FROM users u
   JOIN staff_profiles sp ON sp.organization_id = u.organization_id
     AND sp.user_id = u.id
@@ -307,7 +325,8 @@ SELECT to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
       json_build_object(
         'userId', staff_scope.id,
         'name', staff_scope.name,
-        'isActive', staff_scope.is_active
+        'isActive', staff_scope.is_active,
+        'createdAt', staff_scope.created_at
       ) ORDER BY staff_scope.name COLLATE "C", staff_scope.id
     ) FILTER (WHERE staff_scope.id IS NOT NULL),
     '[]'::json
@@ -357,6 +376,90 @@ SELECT requested.staff_user_id,
 FROM requested
 LEFT JOIN completion_days USING (staff_user_id)
 LEFT JOIN work_type_lists USING (staff_user_id)
+ORDER BY requested.staff_user_id`;
+
+const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+  SELECT unnest($5::uuid[]) AS staff_user_id
+), executed AS (
+  SELECT jc.assigned_to AS staff_user_id,
+    jc.staff_completed_at,
+    (jc.staff_completed_at AT TIME ZONE organization_range.timezone)::date
+      AS staff_completion_date
+  FROM job_cards jc
+  JOIN requested ON requested.staff_user_id = jc.assigned_to
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.status = 'COMPLETED'
+    AND jc.staff_completed_at IS NOT NULL
+    AND jc.staff_completed_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.staff_completed_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+), approved_missing AS (
+  SELECT jc.assigned_to AS staff_user_id
+  FROM job_cards jc
+  JOIN requested ON requested.staff_user_id = jc.assigned_to
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.status = 'COMPLETED'
+    AND jc.staff_completed_at IS NULL
+    AND jc.manager_approved_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.manager_approved_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+)
+SELECT requested.staff_user_id,
+  COUNT(executed.staff_user_id)::int AS staff_completed_jobs,
+  COUNT(DISTINCT executed.staff_completion_date)::int AS staff_completion_days,
+  COUNT(approved_missing.staff_user_id)::int AS missing_staff_completion_timestamp
+FROM requested
+LEFT JOIN executed USING (staff_user_id)
+LEFT JOIN approved_missing USING (staff_user_id)
+GROUP BY requested.staff_user_id
+ORDER BY requested.staff_user_id`;
+
+const STAFF_ON_TIME_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+  SELECT unnest($5::uuid[]) AS staff_user_id
+), completed AS (
+  SELECT jc.assigned_to AS staff_user_id, jc.type, jc.staff_completed_at,
+    jc.scheduled_at, jc.scheduled_ends_at,
+    CASE
+      WHEN jc.scheduled_ends_at IS NOT NULL THEN jc.scheduled_ends_at
+      WHEN jc.type = 'SALES_MEETING' THEN NULL
+      ELSE jc.scheduled_at
+    END AS effective_deadline_at
+  FROM job_cards jc
+  JOIN requested ON requested.staff_user_id = jc.assigned_to
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.status = 'COMPLETED'
+    AND jc.manager_approved_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.manager_approved_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+)
+SELECT requested.staff_user_id,
+  COUNT(completed.staff_user_id) FILTER (
+    WHERE completed.effective_deadline_at IS NOT NULL
+      AND completed.staff_completed_at IS NOT NULL
+  )::int AS eligible_scheduled_completed_jobs,
+  COUNT(completed.staff_user_id) FILTER (
+    WHERE completed.effective_deadline_at IS NOT NULL
+      AND completed.staff_completed_at IS NOT NULL
+      AND completed.staff_completed_at <= completed.effective_deadline_at
+  )::int AS on_time_completed_jobs,
+  COUNT(completed.staff_user_id) FILTER (
+    WHERE completed.effective_deadline_at IS NOT NULL
+      AND completed.staff_completed_at IS NOT NULL
+      AND completed.staff_completed_at > completed.effective_deadline_at
+  )::int AS late_completed_jobs,
+  COUNT(completed.staff_user_id) FILTER (
+    WHERE completed.effective_deadline_at IS NULL
+      OR completed.staff_completed_at IS NULL
+  )::int AS ineligible_or_no_deadline_completed_jobs
+FROM requested
+LEFT JOIN completed USING (staff_user_id)
+GROUP BY requested.staff_user_id
 ORDER BY requested.staff_user_id`;
 
 const STAFF_CORRECTION_EVENTS_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
@@ -795,6 +898,49 @@ export class PostgresReportsRepository implements ReportsReadModel {
     ]));
   }
 
+  async getStaffExecutionMany(
+    input: StaffOperationalSummaryManyInput,
+  ): Promise<ReadonlyMap<string, StaffExecutionAggregate>> {
+    const staffUserIds = [...new Set(input.staffUserIds)];
+    if (staffUserIds.length === 0) return new Map();
+    const result = await this.pool.query<StaffExecutionRow>(STAFF_EXECUTION_SQL, [
+      input.organizationId,
+      input.requestedRange?.from ?? null,
+      input.requestedRange?.to ?? null,
+      input.requestTime,
+      staffUserIds,
+    ]);
+    return new Map(result.rows.map((row) => [row.staff_user_id, {
+      staffUserId: row.staff_user_id,
+      staffCompletedJobs: Number(row.staff_completed_jobs),
+      staffCompletionDays: Number(row.staff_completion_days),
+      missingStaffCompletionTimestamp: Number(row.missing_staff_completion_timestamp),
+    }]));
+  }
+
+  async getStaffOnTimeMany(
+    input: StaffOperationalSummaryManyInput,
+  ): Promise<ReadonlyMap<string, StaffOnTimeAggregate>> {
+    const staffUserIds = [...new Set(input.staffUserIds)];
+    if (staffUserIds.length === 0) return new Map();
+    const result = await this.pool.query<StaffOnTimeRow>(STAFF_ON_TIME_SQL, [
+      input.organizationId,
+      input.requestedRange?.from ?? null,
+      input.requestedRange?.to ?? null,
+      input.requestTime,
+      staffUserIds,
+    ]);
+    return new Map(result.rows.map((row) => [row.staff_user_id, {
+      staffUserId: row.staff_user_id,
+      eligibleScheduledCompletedJobs: Number(row.eligible_scheduled_completed_jobs),
+      onTimeCompletedJobs: Number(row.on_time_completed_jobs),
+      lateCompletedJobs: Number(row.late_completed_jobs),
+      ineligibleOrNoDeadlineCompletedJobs: Number(
+        row.ineligible_or_no_deadline_completed_jobs,
+      ),
+    }]));
+  }
+
   async getStaffCorrectionRequestEventsMany(
     input: StaffOperationalSummaryManyInput,
   ): Promise<ReadonlyMap<string, number>> {
@@ -824,14 +970,19 @@ export class PostgresReportsRepository implements ReportsReadModel {
   async getStaffIdentity(input: {
     organizationId: string;
     staffUserId: string;
-  }): Promise<ReportStaffIdentity | null> {
+  }): Promise<ReportStaffLifecycleIdentity | null> {
     const result = await this.pool.query<StaffIdentityRow>(STAFF_IDENTITY_SQL, [
       input.organizationId,
       input.staffUserId,
     ]);
     const row = result.rows[0];
     return row
-      ? { userId: row.id, name: row.name, isActive: row.is_active }
+      ? {
+          userId: row.id,
+          name: row.name,
+          isActive: row.is_active,
+          createdAt: row.created_at.toISOString(),
+        }
       : null;
   }
 

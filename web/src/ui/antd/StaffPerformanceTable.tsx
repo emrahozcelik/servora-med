@@ -9,9 +9,32 @@ export type StaffPerformanceTableRecord = Readonly<{
   completedJobs: number;
   completionDays: number;
   jobsPerCompletionDay: number;
-  jobsPerCompletionDayLabel: string;
   correctionRequestEvents: number;
   authoredOperationalNotes: number;
+  priorRangeLabel: string;
+  priorPerformance: Readonly<{
+    available: boolean;
+    performance: Readonly<{
+      completedJobs: number;
+      completionDays: number;
+      jobsPerCompletionDay: number;
+      correctionRequestEvents: number;
+      authoredOperationalNotes: number;
+    }> | null;
+  }>;
+  staffExecution: Readonly<{
+    staffCompletedJobs: number;
+    staffCompletionDays: number;
+    jobsPerStaffCompletionDay: number;
+    missingStaffCompletionTimestamp: number;
+  }>;
+  onTime: Readonly<{
+    eligibleScheduledCompletedJobs: number;
+    onTimeCompletedJobs: number;
+    lateCompletedJobs: number;
+    ineligibleOrNoDeadlineCompletedJobs: number;
+    onTimeRate: number | null;
+  }>;
   workTypes: ReadonlyArray<{ label: string; count: number }>;
   currentWorkload: Readonly<{
     openJobCards: number;
@@ -25,6 +48,41 @@ export type StaffPerformanceTableRecord = Readonly<{
 type SortKey = 'name' | 'completedJobs' | 'completionDays' | 'jobsPerCompletionDay'
   | 'correctionRequestEvents' | 'authoredOperationalNotes';
 type SortState = { key: SortKey; direction: 'ascend' | 'descend' };
+
+const ratioFormatter = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 });
+const integerFormatter = new Intl.NumberFormat('tr-TR');
+const percentFormatter = new Intl.NumberFormat('tr-TR', {
+  style: 'percent',
+  maximumFractionDigits: 0,
+});
+
+function signedDelta(value: number, formatter: Intl.NumberFormat) {
+  const normalized = Math.abs(value) < 0.000_000_1 ? 0 : value;
+  return `${normalized > 0 ? '+' : ''}${formatter.format(normalized)}`;
+}
+
+function ComparedMetric({
+  current,
+  prior,
+  available,
+  formatter,
+}: {
+  current: number;
+  prior: number | null;
+  available: boolean;
+  formatter: Intl.NumberFormat;
+}) {
+  return (
+    <span className="staff-performance-compared-metric">
+      <strong>{formatter.format(current)}</strong>
+      <small>
+        {available && prior !== null
+          ? `Önceki ${formatter.format(prior)} · değişim ${signedDelta(current - prior, formatter)}`
+          : 'Önceki dönem verisi yok'}
+      </small>
+    </span>
+  );
+}
 
 function SortTitle({
   label,
@@ -58,8 +116,29 @@ function SortTitle({
 
 function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
   const current = record.currentWorkload;
+  const prior = record.priorPerformance.performance;
+  const execution = record.staffExecution;
+  const timing = record.onTime;
   return (
     <div className="staff-performance-context">
+      <section aria-label={`${record.name} önceki dönem karşılaştırması`}>
+        <h3>Önceki dönem</h3>
+        <p className="staff-performance-context-copy">{record.priorRangeLabel}</p>
+        {!record.priorPerformance.available || !prior ? (
+          <p className="staff-performance-context-empty">Önceki dönem verisi yok.</p>
+        ) : (
+          <dl className="staff-performance-secondary-metrics">
+            <div>
+              <dt>Düzeltme isteği</dt>
+              <dd>Şimdi {record.correctionRequestEvents} · önceki {prior.correctionRequestEvents}</dd>
+            </div>
+            <div>
+              <dt>Eklediği not</dt>
+              <dd>Şimdi {record.authoredOperationalNotes} · önceki {prior.authoredOperationalNotes}</dd>
+            </div>
+          </dl>
+        )}
+      </section>
       <section aria-label={`${record.name} iş türleri`}>
         <h3>İş türleri</h3>
         <div className="staff-performance-tags">
@@ -69,6 +148,35 @@ function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
                 <Tag key={item.label}>{item.label} · {item.count}</Tag>
               ))}
         </div>
+      </section>
+      <section aria-label={`${record.name} personel bitirme zamanı`}>
+        <h3>Personelin bitirme zamanı</h3>
+        <p className="staff-performance-context-copy">
+          <strong>{execution.staffCompletionDays}</strong> personelin bitirme günü ·{' '}
+          <strong>{ratioFormatter.format(execution.jobsPerStaffCompletionDay)}</strong>{' '}
+          iş / bitirme günü
+        </p>
+        <p className="staff-performance-context-note">
+          {execution.staffCompletedJobs} onaylı işte personel bitirme zamanı var;
+          {' '}{execution.missingStaffCompletionTimestamp} onaylı işte bu zaman eksik.
+        </p>
+      </section>
+      <section aria-label={`${record.name} mevcut plana göre zamanında tamamlama`}>
+        <h3>Mevcut plana göre zamanında</h3>
+        {timing.onTimeRate === null ? (
+          <p className="staff-performance-context-empty">
+            Hesaplanabilir zaman hedefli tamamlanan iş yok; oran hesaplanmadı.
+          </p>
+        ) : (
+          <p className="staff-performance-context-copy">
+            <strong>{percentFormatter.format(timing.onTimeRate)}</strong> ·{' '}
+            {timing.onTimeCompletedJobs} / {timing.eligibleScheduledCompletedJobs} zaman hedefli iş
+          </p>
+        )}
+        <p className="staff-performance-context-note">
+          {timing.lateCompletedJobs} geç · {timing.ineligibleOrNoDeadlineCompletedJobs} tamamlanan
+          işte hesaplanabilir zaman hedefi yok.
+        </p>
       </section>
       <section className="staff-performance-current" aria-label={`${record.name} şu an`}>
         <h3>Şu an</h3>
@@ -130,9 +238,24 @@ function buildColumns(
           {!record.isActive && <Tag>Pasif</Tag>}
         </span>
       ),
+    } : key === 'completedJobs' ? {
+      render: (_value: unknown, record: StaffPerformanceTableRecord) => (
+        <ComparedMetric
+          current={record.completedJobs}
+          prior={record.priorPerformance.performance?.completedJobs ?? null}
+          available={record.priorPerformance.available}
+          formatter={integerFormatter}
+        />
+      ),
     } : key === 'jobsPerCompletionDay' ? {
-      render: (_value: unknown, record: StaffPerformanceTableRecord) =>
-        record.jobsPerCompletionDayLabel,
+      render: (_value: unknown, record: StaffPerformanceTableRecord) => (
+        <ComparedMetric
+          current={record.jobsPerCompletionDay}
+          prior={record.priorPerformance.performance?.jobsPerCompletionDay ?? null}
+          available={record.priorPerformance.available}
+          formatter={ratioFormatter}
+        />
+      ),
     } : {}),
   }));
 }
@@ -145,9 +268,19 @@ function MobileRecord({ record }: { record: StaffPerformanceTableRecord }) {
         {!record.isActive && <Tag>Pasif</Tag>}
       </div>
       <dl className="staff-performance-mobile-metrics">
-        <div><dt>Tamamlanan</dt><dd>{record.completedJobs}</dd></div>
+        <div><dt>Tamamlanan</dt><dd><ComparedMetric
+          current={record.completedJobs}
+          prior={record.priorPerformance.performance?.completedJobs ?? null}
+          available={record.priorPerformance.available}
+          formatter={integerFormatter}
+        /></dd></div>
         <div><dt>Tamamlama günü</dt><dd>{record.completionDays}</dd></div>
-        <div><dt>İş / gün</dt><dd>{record.jobsPerCompletionDayLabel}</dd></div>
+        <div><dt>İş / gün</dt><dd><ComparedMetric
+          current={record.jobsPerCompletionDay}
+          prior={record.priorPerformance.performance?.jobsPerCompletionDay ?? null}
+          available={record.priorPerformance.available}
+          formatter={ratioFormatter}
+        /></dd></div>
         <div><dt>Düzeltme isteği</dt><dd>{record.correctionRequestEvents}</dd></div>
         <div><dt>Eklediği not</dt><dd>{record.authoredOperationalNotes}</dd></div>
       </dl>

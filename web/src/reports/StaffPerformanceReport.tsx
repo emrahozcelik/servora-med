@@ -35,10 +35,6 @@ import {
   ReportShell,
 } from './report-shell';
 
-const ratioFormatter = new Intl.NumberFormat('tr-TR', {
-  maximumFractionDigits: 1,
-});
-
 function formatDate(value: string) {
   return new Intl.DateTimeFormat('tr-TR', {
     day: 'numeric',
@@ -52,6 +48,10 @@ function performanceRangeLabel(report: StaffPerformanceResponse) {
   return `${formatDate(report.range.from)} – ${formatDate(report.range.to)}`;
 }
 
+function priorRangeLabel(report: StaffPerformanceResponse) {
+  return `${formatDate(report.priorRange.from)} – ${formatDate(report.priorRange.to)}`;
+}
+
 function tableRecord(
   item: StaffPerformanceResponse['items'][number],
   report: StaffPerformanceResponse,
@@ -63,9 +63,12 @@ function tableRecord(
     completedJobs: item.performance.completedJobs,
     completionDays: item.performance.completionDays,
     jobsPerCompletionDay: item.performance.jobsPerCompletionDay,
-    jobsPerCompletionDayLabel: ratioFormatter.format(item.performance.jobsPerCompletionDay),
     correctionRequestEvents: item.performance.correctionRequestEvents,
     authoredOperationalNotes: item.performance.authoredOperationalNotes,
+    priorRangeLabel: priorRangeLabel(report),
+    priorPerformance: item.priorPerformance,
+    staffExecution: item.staffExecution,
+    onTime: item.onTime,
     workTypes: item.completionWorkTypes.map((workType) => ({
       label: jobTypeLabels[workType.type],
       count: workType.count,
@@ -221,6 +224,9 @@ export function StaffPerformanceReport() {
               <p>
                 Tamamlama günü, en az bir iş tamamlanan günleri gösterir. İş / gün bu günler
                 üzerinden hesaplanır; düzeltme isteği aynı iş için tekrarlanabilir.
+              </p>
+              <p className="staff-performance-prior-range">
+                Önceki dönem: {priorRangeLabel(report)}
               </p>
             </div>
             <span>{report.range.timezone}</span>

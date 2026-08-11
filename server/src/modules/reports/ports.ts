@@ -6,8 +6,10 @@ import type {
   DeliveryReportReadInput,
   DeliveryReportResponse,
   MeetingOutcomeItem,
-  ReportStaffIdentity,
+  ReportStaffLifecycleIdentity,
   StaffCompletionPerformance,
+  StaffExecutionAggregate,
+  StaffOnTimeAggregate,
   StaffOperationalSummary,
   StaffOperationalSummaryManyInput,
   StaffOperationalSummaryOneInput,
@@ -29,6 +31,10 @@ export interface ReportsReadModel extends StaffOperationalSummaryPort {
   getStaffPerformanceScope(input: StaffPerformanceScopeInput): Promise<StaffPerformanceScope>;
   getStaffCompletionPerformanceMany(input: StaffOperationalSummaryManyInput):
     Promise<ReadonlyMap<string, StaffCompletionPerformance>>;
+  getStaffExecutionMany(input: StaffOperationalSummaryManyInput):
+    Promise<ReadonlyMap<string, StaffExecutionAggregate>>;
+  getStaffOnTimeMany(input: StaffOperationalSummaryManyInput):
+    Promise<ReadonlyMap<string, StaffOnTimeAggregate>>;
   getStaffCorrectionRequestEventsMany(input: StaffOperationalSummaryManyInput):
     Promise<ReadonlyMap<string, number>>;
   getStaffAuthoredOperationalNotesMany(input: StaffOperationalSummaryManyInput):
@@ -36,7 +42,7 @@ export interface ReportsReadModel extends StaffOperationalSummaryPort {
   getStaffDailyCompletionTrend(input: StaffOperationalSummaryOneInput):
     Promise<Array<{ date: string; count: number }>>;
   getStaffIdentity(input: { organizationId: string; staffUserId: string }):
-    Promise<ReportStaffIdentity | null>;
+    Promise<ReportStaffLifecycleIdentity | null>;
   getStaffDeliveriesByPurpose(input: StaffOperationalSummaryOneInput):
     Promise<DeliveryPurposeItem[]>;
   getStaffMeetingsByOutcome(input: StaffOperationalSummaryOneInput):

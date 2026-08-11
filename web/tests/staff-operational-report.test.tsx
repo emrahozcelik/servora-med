@@ -22,8 +22,17 @@ const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 const report: StaffReportResponse = {
   staff: { userId: STAFF_ID, name: 'Emrah Demir', isActive: false },
   range: { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' },
+  priorRange: { from: '2026-05-31', to: '2026-06-30', timezone: 'Europe/Istanbul' },
   performance: { completedJobs: 4, completionDays: 2, jobsPerCompletionDay: 2,
     correctionRequestEvents: 1, authoredOperationalNotes: 3 },
+  priorPerformance: { available: true, performance: { completedJobs: 0,
+    completionDays: 0, jobsPerCompletionDay: 0, correctionRequestEvents: 0,
+    authoredOperationalNotes: 0 } },
+  staffExecution: { staffCompletedJobs: 3,
+    staffCompletionDays: 2, jobsPerStaffCompletionDay: 1.5,
+    missingStaffCompletionTimestamp: 1 },
+  onTime: { eligibleScheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
+    lateCompletedJobs: 1, ineligibleOrNoDeadlineCompletedJobs: 1, onTimeRate: 2 / 3 },
   completionWorkTypes: [
     { type: 'GENERAL_TASK', count: 3 },
     { type: 'PRODUCT_DELIVERY', count: 1 },
@@ -64,6 +73,7 @@ describe('Staff operational report', () => {
   it('renders historical performance and keeps the current snapshot last', () => {
     const html = renderToStaticMarkup(<StaffOperationalReport report={report} />);
     expect(html).toContain('1 Temmuz 2026 – 31 Temmuz 2026');
+    expect(html).toContain('31 Mayıs 2026 – 30 Haziran 2026');
     expect(html).toContain('Europe/Istanbul');
     expect(html).toContain('Pasif personel');
     for (const label of [
@@ -72,6 +82,13 @@ describe('Staff operational report', () => {
       expect(html).toContain(label);
     }
     expect(html).toContain('Günlük tamamlamalar');
+    expect(html).toContain('Şimdi 4 · önceki 0');
+    expect(html).not.toContain('Önceki dönem verisi yok');
+    expect(html).toContain('Personelin bitirme zamanı');
+    expect(html).toContain('Bitirme zamanı eksik onaylı iş');
+    expect(html).toContain('Mevcut plana göre zamanında');
+    expect(html).toContain('2 / 3 hesaplanabilir zaman hedefli iş');
+    expect(html).toContain('Zaman hedefi olmayan / hesaplanamayan tamamlanan');
     expect(html).toContain('data-report-trend-bars="true"');
     expect(html).toContain('Günlük tamamlanan işler');
     expect(html).toContain('İş türleri');
@@ -98,6 +115,19 @@ describe('Staff operational report', () => {
       expect((html.match(new RegExp(value, 'g')) ?? []).length).toBeGreaterThanOrEqual(2);
     }
     expect(html).not.toMatch(/puan|sıralama|ciro|stok|komisyon|type="date"|select/i);
+  });
+
+  it('distinguishes an unavailable prior period from valid zero metrics', () => {
+    const validZero = renderToStaticMarkup(<StaffOperationalReport report={report} />);
+    expect(validZero).toContain('Şimdi 4 · önceki 0');
+    expect(validZero).not.toContain('Önceki dönem verisi yok');
+
+    const unavailable = renderToStaticMarkup(<StaffOperationalReport report={{
+      ...report,
+      priorPerformance: { available: false, performance: null },
+    }} />);
+    expect(unavailable).toContain('Önceki dönem verisi yok');
+    expect(unavailable).not.toContain('Şimdi 4 · önceki 0');
   });
 
   it('renders an explanatory no-delivery state', () => {

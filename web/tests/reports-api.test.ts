@@ -21,10 +21,21 @@ afterEach(() => vi.unstubAllGlobals());
 const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 const PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const range = { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' };
+const priorRange = { from: '2026-05-31', to: '2026-06-30', timezone: 'Europe/Istanbul' };
 const performance = {
   completedJobs: 4, completionDays: 2, jobsPerCompletionDay: 2,
   correctionRequestEvents: 1, authoredOperationalNotes: 3,
 };
+const priorPerformance = {
+  available: true,
+  performance: { completedJobs: 0, completionDays: 0, jobsPerCompletionDay: 0,
+    correctionRequestEvents: 0, authoredOperationalNotes: 0 },
+};
+const staffExecution = { staffCompletedJobs: 3,
+  staffCompletionDays: 2, jobsPerStaffCompletionDay: 1.5,
+  missingStaffCompletionTimestamp: 1 };
+const onTime = { eligibleScheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
+  lateCompletedJobs: 1, ineligibleOrNoDeadlineCompletedJobs: 1, onTimeRate: 2 / 3 };
 const currentWorkload = { openJobCards: 3, waitingApproval: 2, revisionRequested: 1,
   overdueJobCards: 1 };
 const completionWorkTypes = [{ type: 'GENERAL_TASK', count: 4 }] as const;
@@ -62,7 +73,11 @@ describe('Reports runtime contract', () => {
     const staff = {
       staff: { userId: STAFF_ID, name: 'Emrah Demir', isActive: false },
       range,
+      priorRange,
       performance,
+      priorPerformance,
+      staffExecution,
+      onTime,
       completionWorkTypes,
       completedTrend,
       deliveriesByPurpose: [{ purpose: 'SALE', unit: null, quantity: '12.500' }],
@@ -92,9 +107,13 @@ describe('Reports runtime contract', () => {
 
     const managerWide = {
       range,
+      priorRange,
       items: [{
         staff: staff.staff,
         performance,
+        priorPerformance,
+        staffExecution,
+        onTime,
         completionWorkTypes,
         currentWorkload,
       }],
@@ -103,6 +122,32 @@ describe('Reports runtime contract', () => {
     expect(() => parseStaffPerformance({ ...managerWide, items: [{
       ...managerWide.items[0],
       performance: { ...performance, jobsPerCompletionDay: -1 },
+    }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+
+    expect(() => parseStaffPerformance({ ...managerWide, items: [{
+      ...managerWide.items[0],
+      priorPerformance: { available: true, performance: null },
+    }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+    expect(() => parseStaffPerformance({ ...managerWide, items: [{
+      ...managerWide.items[0],
+      priorPerformance: { available: false, performance: priorPerformance.performance },
+    }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+    expect(() => parseStaffPerformance({ ...managerWide, items: [{
+      ...managerWide.items[0],
+      onTime: { ...onTime, eligibleScheduledCompletedJobs: 4 },
+    }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+    expect(() => parseStaffPerformance({ ...managerWide, items: [{
+      ...managerWide.items[0],
+      onTime: { eligibleScheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
+        lateCompletedJobs: 0, ineligibleOrNoDeadlineCompletedJobs: 4, onTimeRate: 0 },
+    }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+    expect(() => parseStaffPerformance({ ...managerWide, items: [{
+      ...managerWide.items[0],
+      onTime: { ...onTime, onTimeRate: 0.5 },
+    }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+    expect(() => parseStaffPerformance({ ...managerWide, items: [{
+      ...managerWide.items[0],
+      staffExecution: { ...staffExecution, jobsPerStaffCompletionDay: 2 },
     }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
   });
 
@@ -159,16 +204,19 @@ describe('Reports runtime contract', () => {
         completedInPeriod: 0, cancelledInPeriod: 0 }, completedTrend: [] }))
       .mockResolvedValueOnce(response({ range, items: [{
         staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        performance, completionWorkTypes, currentWorkload,
-      }] }))
+        performance, priorPerformance, staffExecution, onTime,
+        completionWorkTypes, currentWorkload,
+      }], priorRange }))
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        range, performance, completionWorkTypes, completedTrend, currentWorkload,
+        range, priorRange, performance, priorPerformance, staffExecution, onTime,
+        completionWorkTypes, completedTrend, currentWorkload,
         deliveriesByPurpose: [], meetingsByOutcome: [
           { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
           { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
         ] }))
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        range, performance, completionWorkTypes, completedTrend, currentWorkload,
+        range, priorRange, performance, priorPerformance, staffExecution, onTime,
+        completionWorkTypes, completedTrend, currentWorkload,
         deliveriesByPurpose: [], meetingsByOutcome: [
           { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
           { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },

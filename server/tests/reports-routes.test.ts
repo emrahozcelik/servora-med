@@ -57,13 +57,16 @@ function dependencies() {
         userId: staffUserId,
         name: staffUserId === INACTIVE_STAFF ? 'Eski Personel' : 'Aktif Personel',
         isActive: staffUserId !== INACTIVE_STAFF,
+        createdAt: '2025-01-01T00:00:00.000Z',
       };
     }),
     getStaffPerformanceScope: vi.fn(async ({ includeInactive }) => ({
       range: resolvedRange,
-      staff: [{ userId: STAFF_ONE, name: 'Aktif Personel', isActive: true },
+      staff: [{ userId: STAFF_ONE, name: 'Aktif Personel', isActive: true,
+        createdAt: '2025-01-01T00:00:00.000Z' },
         ...(includeInactive
-          ? [{ userId: INACTIVE_STAFF, name: 'Eski Personel', isActive: false }]
+          ? [{ userId: INACTIVE_STAFF, name: 'Eski Personel', isActive: false,
+              createdAt: '2025-01-01T00:00:00.000Z' }]
           : [])],
     })),
     getOne: vi.fn(async ({ staffUserId }) => ({
@@ -91,6 +94,23 @@ function dependencies() {
     )),
     getStaffCorrectionRequestEventsMany: vi.fn(async () => new Map()),
     getStaffAuthoredOperationalNotesMany: vi.fn(async () => new Map()),
+    getStaffExecutionMany: vi.fn(async ({ staffUserIds }) => new Map(
+      staffUserIds.map((staffUserId: string) => [staffUserId, {
+        staffUserId,
+        staffCompletedJobs: 0,
+        staffCompletionDays: 0,
+        missingStaffCompletionTimestamp: 0,
+      }]),
+    )),
+    getStaffOnTimeMany: vi.fn(async ({ staffUserIds }) => new Map(
+      staffUserIds.map((staffUserId: string) => [staffUserId, {
+        staffUserId,
+        eligibleScheduledCompletedJobs: 0,
+        onTimeCompletedJobs: 0,
+        lateCompletedJobs: 0,
+        ineligibleOrNoDeadlineCompletedJobs: 0,
+      }]),
+    )),
     getStaffDailyCompletionTrend: vi.fn(async () => []),
     getStaffDeliveriesByPurpose: vi.fn(async () => []),
     getStaffMeetingsByOutcome: vi.fn(async () => ([
