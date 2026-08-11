@@ -177,13 +177,13 @@ function parseStaffPriorPerformance(value: unknown): StaffPriorPerformance {
 
 function parseStaffExecution(value: unknown): StaffExecutionMetrics {
   const row = exactObject(value, 'staffExecution', [
-    'approvedJobsWithStaffCompletionTimestamp', 'staffCompletionDays',
+    'staffCompletedJobs', 'staffCompletionDays',
     'jobsPerStaffCompletionDay', 'missingStaffCompletionTimestamp',
   ]);
   const result = {
-    approvedJobsWithStaffCompletionTimestamp: nonNegativeInteger(
-      row.approvedJobsWithStaffCompletionTimestamp,
-      'staffExecution.approvedJobsWithStaffCompletionTimestamp',
+    staffCompletedJobs: nonNegativeInteger(
+      row.staffCompletedJobs,
+      'staffExecution.staffCompletedJobs',
     ),
     staffCompletionDays: nonNegativeInteger(
       row.staffCompletionDays,
@@ -198,14 +198,14 @@ function parseStaffExecution(value: unknown): StaffExecutionMetrics {
       'staffExecution.missingStaffCompletionTimestamp',
     ),
   };
-  if ((result.approvedJobsWithStaffCompletionTimestamp === 0)
+  if ((result.staffCompletedJobs === 0)
     !== (result.staffCompletionDays === 0)
-    || result.staffCompletionDays > result.approvedJobsWithStaffCompletionTimestamp) {
+    || result.staffCompletionDays > result.staffCompletedJobs) {
     invalid('staffExecution');
   }
   const expectedRatio = result.staffCompletionDays === 0
     ? 0
-    : result.approvedJobsWithStaffCompletionTimestamp / result.staffCompletionDays;
+    : result.staffCompletedJobs / result.staffCompletionDays;
   if (!approximatelyEqual(result.jobsPerStaffCompletionDay, expectedRatio)) {
     invalid('staffExecution.jobsPerStaffCompletionDay');
   }
@@ -214,32 +214,36 @@ function parseStaffExecution(value: unknown): StaffExecutionMetrics {
 
 function parseStaffOnTime(value: unknown): StaffOnTimeMetrics {
   const row = exactObject(value, 'onTime', [
-    'scheduledCompletedJobs', 'onTimeCompletedJobs', 'lateCompletedJobs',
-    'unscheduledCompletedJobs', 'onTimeRate',
+    'eligibleScheduledCompletedJobs', 'onTimeCompletedJobs', 'lateCompletedJobs',
+    'ineligibleOrNoDeadlineCompletedJobs', 'onTimeRate',
   ]);
   const result = {
-    scheduledCompletedJobs: nonNegativeInteger(
-      row.scheduledCompletedJobs,
-      'onTime.scheduledCompletedJobs',
+    eligibleScheduledCompletedJobs: nonNegativeInteger(
+      row.eligibleScheduledCompletedJobs,
+      'onTime.eligibleScheduledCompletedJobs',
     ),
     onTimeCompletedJobs: nonNegativeInteger(
       row.onTimeCompletedJobs,
       'onTime.onTimeCompletedJobs',
     ),
     lateCompletedJobs: nonNegativeInteger(row.lateCompletedJobs, 'onTime.lateCompletedJobs'),
-    unscheduledCompletedJobs: nonNegativeInteger(
-      row.unscheduledCompletedJobs,
-      'onTime.unscheduledCompletedJobs',
+    ineligibleOrNoDeadlineCompletedJobs: nonNegativeInteger(
+      row.ineligibleOrNoDeadlineCompletedJobs,
+      'onTime.ineligibleOrNoDeadlineCompletedJobs',
     ),
     onTimeRate: nullableRate(row.onTimeRate, 'onTime.onTimeRate'),
   };
-  if (result.scheduledCompletedJobs
+  if (result.eligibleScheduledCompletedJobs
     !== result.onTimeCompletedJobs + result.lateCompletedJobs) invalid('onTime');
-  if (result.scheduledCompletedJobs === 0 && result.onTimeRate !== null) invalid('onTime.onTimeRate');
-  if (result.scheduledCompletedJobs > 0 && result.onTimeRate === null) invalid('onTime.onTimeRate');
+  if (result.eligibleScheduledCompletedJobs === 0 && result.onTimeRate !== null) {
+    invalid('onTime.onTimeRate');
+  }
+  if (result.eligibleScheduledCompletedJobs > 0 && result.onTimeRate === null) {
+    invalid('onTime.onTimeRate');
+  }
   if (result.onTimeRate !== null && !approximatelyEqual(
     result.onTimeRate,
-    result.onTimeCompletedJobs / result.scheduledCompletedJobs,
+    result.onTimeCompletedJobs / result.eligibleScheduledCompletedJobs,
   )) invalid('onTime.onTimeRate');
   return result;
 }

@@ -23,16 +23,16 @@ export type StaffPerformanceTableRecord = Readonly<{
     }> | null;
   }>;
   staffExecution: Readonly<{
-    approvedJobsWithStaffCompletionTimestamp: number;
+    staffCompletedJobs: number;
     staffCompletionDays: number;
     jobsPerStaffCompletionDay: number;
     missingStaffCompletionTimestamp: number;
   }>;
   onTime: Readonly<{
-    scheduledCompletedJobs: number;
+    eligibleScheduledCompletedJobs: number;
     onTimeCompletedJobs: number;
     lateCompletedJobs: number;
-    unscheduledCompletedJobs: number;
+    ineligibleOrNoDeadlineCompletedJobs: number;
     onTimeRate: number | null;
   }>;
   workTypes: ReadonlyArray<{ label: string; count: number }>;
@@ -157,7 +157,7 @@ function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
           iş / bitirme günü
         </p>
         <p className="staff-performance-context-note">
-          {execution.approvedJobsWithStaffCompletionTimestamp} onaylı işte personel bitirme zamanı var;
+          {execution.staffCompletedJobs} onaylı işte personel bitirme zamanı var;
           {' '}{execution.missingStaffCompletionTimestamp} onaylı işte bu zaman eksik.
         </p>
       </section>
@@ -165,17 +165,17 @@ function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
         <h3>Mevcut plana göre zamanında</h3>
         {timing.onTimeRate === null ? (
           <p className="staff-performance-context-empty">
-            Zaman hedefli tamamlanan iş yok; oran hesaplanmadı.
+            Hesaplanabilir zaman hedefli tamamlanan iş yok; oran hesaplanmadı.
           </p>
         ) : (
           <p className="staff-performance-context-copy">
             <strong>{percentFormatter.format(timing.onTimeRate)}</strong> ·{' '}
-            {timing.onTimeCompletedJobs} / {timing.scheduledCompletedJobs} zaman hedefli iş
+            {timing.onTimeCompletedJobs} / {timing.eligibleScheduledCompletedJobs} zaman hedefli iş
           </p>
         )}
         <p className="staff-performance-context-note">
-          {timing.lateCompletedJobs} geç · {timing.unscheduledCompletedJobs} tamamlanan işte
-          zaman hedefi yok.
+          {timing.lateCompletedJobs} geç · {timing.ineligibleOrNoDeadlineCompletedJobs} tamamlanan
+          işte hesaplanabilir zaman hedefi yok.
         </p>
       </section>
       <section className="staff-performance-current" aria-label={`${record.name} şu an`}>

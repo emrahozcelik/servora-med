@@ -98,11 +98,11 @@ describe('Report accessibility contract', () => {
       priorPerformance: { available: true, performance: { completedJobs: 4,
         completionDays: 2, jobsPerCompletionDay: 2, correctionRequestEvents: 0,
         authoredOperationalNotes: 2 } },
-      staffExecution: { approvedJobsWithStaffCompletionTimestamp: 4,
+      staffExecution: { staffCompletedJobs: 4,
         staffCompletionDays: 2, jobsPerStaffCompletionDay: 2,
         missingStaffCompletionTimestamp: 1 },
-      onTime: { scheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
-        lateCompletedJobs: 1, unscheduledCompletedJobs: 2, onTimeRate: 2 / 3 },
+      onTime: { eligibleScheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
+        lateCompletedJobs: 1, ineligibleOrNoDeadlineCompletedJobs: 2, onTimeRate: 2 / 3 },
       completionWorkTypes: [{ type: 'GENERAL_TASK', count: 5 }],
       completedTrend: [{ date: '2026-07-01', count: 5 }],
       deliveriesByPurpose: delivery.items,
@@ -134,7 +134,7 @@ describe('Report accessibility contract', () => {
     expect(staffView.querySelectorAll('.servora-operational-table__field dt').length)
       .toBeGreaterThan(0);
     expect(staffView.textContent).toContain('Pasif personel');
-    expect(staffView.textContent).toContain('2 / 3 zaman hedefli iş');
+    expect(staffView.textContent).toContain('2 / 3 hesaplanabilir zaman hedefli iş');
     const missingTimestampLabel = Array.from(staffView.querySelectorAll('dt'))
       .find((item) => item.textContent === 'Bitirme zamanı eksik onaylı iş');
     expect(missingTimestampLabel?.nextElementSibling?.textContent).toBe('1');

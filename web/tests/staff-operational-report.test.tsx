@@ -28,11 +28,11 @@ const report: StaffReportResponse = {
   priorPerformance: { available: true, performance: { completedJobs: 0,
     completionDays: 0, jobsPerCompletionDay: 0, correctionRequestEvents: 0,
     authoredOperationalNotes: 0 } },
-  staffExecution: { approvedJobsWithStaffCompletionTimestamp: 3,
+  staffExecution: { staffCompletedJobs: 3,
     staffCompletionDays: 2, jobsPerStaffCompletionDay: 1.5,
     missingStaffCompletionTimestamp: 1 },
-  onTime: { scheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
-    lateCompletedJobs: 1, unscheduledCompletedJobs: 1, onTimeRate: 2 / 3 },
+  onTime: { eligibleScheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
+    lateCompletedJobs: 1, ineligibleOrNoDeadlineCompletedJobs: 1, onTimeRate: 2 / 3 },
   completionWorkTypes: [
     { type: 'GENERAL_TASK', count: 3 },
     { type: 'PRODUCT_DELIVERY', count: 1 },
@@ -87,8 +87,8 @@ describe('Staff operational report', () => {
     expect(html).toContain('Personelin bitirme zamanı');
     expect(html).toContain('Bitirme zamanı eksik onaylı iş');
     expect(html).toContain('Mevcut plana göre zamanında');
-    expect(html).toContain('2 / 3 zaman hedefli iş');
-    expect(html).toContain('Zaman hedefi olmayan tamamlanan');
+    expect(html).toContain('2 / 3 hesaplanabilir zaman hedefli iş');
+    expect(html).toContain('Zaman hedefi olmayan / hesaplanamayan tamamlanan');
     expect(html).toContain('data-report-trend-bars="true"');
     expect(html).toContain('Günlük tamamlanan işler');
     expect(html).toContain('İş türleri');

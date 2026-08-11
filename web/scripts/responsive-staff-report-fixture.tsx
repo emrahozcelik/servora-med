@@ -41,16 +41,16 @@ if (root) {
         },
       },
       staffExecution: {
-        approvedJobsWithStaffCompletionTimestamp: 12,
+        staffCompletedJobs: 12,
         staffCompletionDays: 7,
         jobsPerStaffCompletionDay: 12 / 7,
         missingStaffCompletionTimestamp: 2,
       },
       onTime: {
-        scheduledCompletedJobs: 9,
+        eligibleScheduledCompletedJobs: 9,
         onTimeCompletedJobs: 6,
         lateCompletedJobs: 3,
-        unscheduledCompletedJobs: 5,
+        ineligibleOrNoDeadlineCompletedJobs: 5,
         onTimeRate: 6 / 9,
       },
       completionWorkTypes: [
@@ -109,16 +109,16 @@ if (performanceRoot) {
             },
           },
           staffExecution: {
-            approvedJobsWithStaffCompletionTimestamp: 12,
+            staffCompletedJobs: 12,
             staffCompletionDays: 7,
             jobsPerStaffCompletionDay: 12 / 7,
             missingStaffCompletionTimestamp: 2,
           },
           onTime: {
-            scheduledCompletedJobs: 9,
+            eligibleScheduledCompletedJobs: 9,
             onTimeCompletedJobs: 6,
             lateCompletedJobs: 3,
-            unscheduledCompletedJobs: 5,
+            ineligibleOrNoDeadlineCompletedJobs: 5,
             onTimeRate: 6 / 9,
           },
           workTypes: [

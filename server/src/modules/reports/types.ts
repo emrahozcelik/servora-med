@@ -176,13 +176,13 @@ export type StaffCompletionPerformance = Readonly<{
 
 export type StaffExecutionAggregate = Readonly<{
   staffUserId: string;
-  approvedJobsWithStaffCompletionTimestamp: number;
+  staffCompletedJobs: number;
   staffCompletionDays: number;
   missingStaffCompletionTimestamp: number;
 }>;
 
 export type StaffExecutionMetrics = Readonly<{
-  approvedJobsWithStaffCompletionTimestamp: number;
+  staffCompletedJobs: number;
   staffCompletionDays: number;
   jobsPerStaffCompletionDay: number;
   missingStaffCompletionTimestamp: number;
@@ -190,24 +190,27 @@ export type StaffExecutionMetrics = Readonly<{
 
 export type StaffOnTimeAggregate = Readonly<{
   staffUserId: string;
-  scheduledCompletedJobs: number;
+  eligibleScheduledCompletedJobs: number;
   onTimeCompletedJobs: number;
   lateCompletedJobs: number;
-  unscheduledCompletedJobs: number;
+  ineligibleOrNoDeadlineCompletedJobs: number;
 }>;
 
 export type StaffOnTimeMetrics = Readonly<{
-  scheduledCompletedJobs: number;
+  eligibleScheduledCompletedJobs: number;
   onTimeCompletedJobs: number;
   lateCompletedJobs: number;
-  unscheduledCompletedJobs: number;
+  ineligibleOrNoDeadlineCompletedJobs: number;
   onTimeRate: number | null;
 }>;
 
 /**
  * Availability is based only on the user's organization-local creation date:
- * true when the user existed on at least one date in the prior range. Historical
- * deactivation is not inferred, and an available all-zero performance is valid data.
+ * true only when the user existed from the start of the prior range
+ * (created on or before priorRange.from). A user created after the prior start
+ * does not get a full equal-length prior comparison; this is not a fabricated
+ * zero. Historical deactivation is not inferred, and an available all-zero
+ * performance is valid data.
  */
 export type StaffPriorPerformance = Readonly<{
   available: boolean;

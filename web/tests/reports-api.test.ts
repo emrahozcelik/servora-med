@@ -31,11 +31,11 @@ const priorPerformance = {
   performance: { completedJobs: 0, completionDays: 0, jobsPerCompletionDay: 0,
     correctionRequestEvents: 0, authoredOperationalNotes: 0 },
 };
-const staffExecution = { approvedJobsWithStaffCompletionTimestamp: 3,
+const staffExecution = { staffCompletedJobs: 3,
   staffCompletionDays: 2, jobsPerStaffCompletionDay: 1.5,
   missingStaffCompletionTimestamp: 1 };
-const onTime = { scheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
-  lateCompletedJobs: 1, unscheduledCompletedJobs: 1, onTimeRate: 2 / 3 };
+const onTime = { eligibleScheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
+  lateCompletedJobs: 1, ineligibleOrNoDeadlineCompletedJobs: 1, onTimeRate: 2 / 3 };
 const currentWorkload = { openJobCards: 3, waitingApproval: 2, revisionRequested: 1,
   overdueJobCards: 1 };
 const completionWorkTypes = [{ type: 'GENERAL_TASK', count: 4 }] as const;
@@ -134,12 +134,12 @@ describe('Reports runtime contract', () => {
     }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
     expect(() => parseStaffPerformance({ ...managerWide, items: [{
       ...managerWide.items[0],
-      onTime: { ...onTime, scheduledCompletedJobs: 4 },
+      onTime: { ...onTime, eligibleScheduledCompletedJobs: 4 },
     }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
     expect(() => parseStaffPerformance({ ...managerWide, items: [{
       ...managerWide.items[0],
-      onTime: { scheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
-        lateCompletedJobs: 0, unscheduledCompletedJobs: 4, onTimeRate: 0 },
+      onTime: { eligibleScheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
+        lateCompletedJobs: 0, ineligibleOrNoDeadlineCompletedJobs: 4, onTimeRate: 0 },
     }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
     expect(() => parseStaffPerformance({ ...managerWide, items: [{
       ...managerWide.items[0],

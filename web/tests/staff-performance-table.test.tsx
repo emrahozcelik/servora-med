@@ -30,11 +30,11 @@ const records: StaffPerformanceTableRecord[] = [
     priorPerformance: { available: true, performance: { completedJobs: 34,
       completionDays: 17, jobsPerCompletionDay: 3, correctionRequestEvents: 2,
       authoredOperationalNotes: 12 } },
-    staffExecution: { approvedJobsWithStaffCompletionTimestamp: 40,
+    staffExecution: { staffCompletedJobs: 40,
       staffCompletionDays: 16, jobsPerStaffCompletionDay: 2.5,
       missingStaffCompletionTimestamp: 2 },
-    onTime: { scheduledCompletedJobs: 10, onTimeCompletedJobs: 8,
-      lateCompletedJobs: 2, unscheduledCompletedJobs: 32, onTimeRate: 0.8 },
+    onTime: { eligibleScheduledCompletedJobs: 10, onTimeCompletedJobs: 8,
+      lateCompletedJobs: 2, ineligibleOrNoDeadlineCompletedJobs: 32, onTimeRate: 0.8 },
     workTypes: [{ label: 'Satış görüşmesi', count: 14 }],
     currentWorkload: { openJobCards: 5, overdueJobCards: 1, waitingApproval: 2,
       revisionRequested: 0 },
@@ -46,11 +46,11 @@ const records: StaffPerformanceTableRecord[] = [
     correctionRequestEvents: 3, authoredOperationalNotes: 12,
     priorRangeLabel: '31 Mayıs 2026 – 30 Haziran 2026',
     priorPerformance: { available: false, performance: null },
-    staffExecution: { approvedJobsWithStaffCompletionTimestamp: 0,
+    staffExecution: { staffCompletedJobs: 0,
       staffCompletionDays: 0, jobsPerStaffCompletionDay: 0,
       missingStaffCompletionTimestamp: 0 },
-    onTime: { scheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
-      lateCompletedJobs: 0, unscheduledCompletedJobs: 0, onTimeRate: null },
+    onTime: { eligibleScheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
+      lateCompletedJobs: 0, ineligibleOrNoDeadlineCompletedJobs: 0, onTimeRate: null },
     workTypes: [],
     currentWorkload: { openJobCards: 0, overdueJobCards: 0, waitingApproval: 0,
       revisionRequested: 0 },
@@ -90,7 +90,7 @@ describe('StaffPerformanceTable adapter', () => {
     expect(container.textContent).toContain('Personelin bitirme zamanı');
     expect(container.textContent).toContain('2 onaylı işte bu zaman eksik');
     expect(container.textContent).toContain('8 / 10 zaman hedefli iş');
-    expect(container.textContent).toContain('32 tamamlanan işte zaman hedefi yok');
+    expect(container.textContent).toContain('32 tamamlanan işte hesaplanabilir zaman hedefi yok');
     expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]'))
       .not.toBeNull();
 

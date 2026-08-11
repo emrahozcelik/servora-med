@@ -91,7 +91,7 @@ function ports() {
     getStaffExecutionMany: vi.fn(async ({ staffUserIds }) => new Map(
       staffUserIds.map((staffUserId: string) => [staffUserId, {
         staffUserId,
-        approvedJobsWithStaffCompletionTimestamp: staffUserId === INACTIVE_STAFF ? 0 : 4,
+        staffCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 4,
         staffCompletionDays: staffUserId === INACTIVE_STAFF ? 0 : 2,
         missingStaffCompletionTimestamp: 0,
       }]),
@@ -99,10 +99,10 @@ function ports() {
     getStaffOnTimeMany: vi.fn(async ({ staffUserIds }) => new Map(
       staffUserIds.map((staffUserId: string) => [staffUserId, {
         staffUserId,
-        scheduledCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 2,
+        eligibleScheduledCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 2,
         onTimeCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 1,
         lateCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 1,
-        unscheduledCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 2,
+        ineligibleOrNoDeadlineCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 2,
       }]),
     )),
     getStaffDailyCompletionTrend: vi.fn(async () => ([
@@ -238,16 +238,16 @@ describe('ReportsService authorization and composition', () => {
         },
       },
       staffExecution: {
-        approvedJobsWithStaffCompletionTimestamp: 4,
+        staffCompletedJobs: 4,
         staffCompletionDays: 2,
         jobsPerStaffCompletionDay: 2,
         missingStaffCompletionTimestamp: 0,
       },
       onTime: {
-        scheduledCompletedJobs: 2,
+        eligibleScheduledCompletedJobs: 2,
         onTimeCompletedJobs: 1,
         lateCompletedJobs: 1,
-        unscheduledCompletedJobs: 2,
+        ineligibleOrNoDeadlineCompletedJobs: 2,
         onTimeRate: 0.5,
       },
       completionWorkTypes: [{ type: 'GENERAL_TASK', count: 4 }],

@@ -29,17 +29,17 @@ export type StaffPriorPerformance = {
 };
 
 export type StaffExecutionMetrics = {
-  approvedJobsWithStaffCompletionTimestamp: number;
+  staffCompletedJobs: number;
   staffCompletionDays: number;
   jobsPerStaffCompletionDay: number;
   missingStaffCompletionTimestamp: number;
 };
 
 export type StaffOnTimeMetrics = {
-  scheduledCompletedJobs: number;
+  eligibleScheduledCompletedJobs: number;
   onTimeCompletedJobs: number;
   lateCompletedJobs: number;
-  unscheduledCompletedJobs: number;
+  ineligibleOrNoDeadlineCompletedJobs: number;
   onTimeRate: number | null;
 };
 

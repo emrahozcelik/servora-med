@@ -73,17 +73,17 @@ type StaffCompletionPerformanceRow = {
 
 type StaffExecutionRow = {
   staff_user_id: string;
-  approved_jobs_with_staff_completion_timestamp: string | number;
+  staff_completed_jobs: string | number;
   staff_completion_days: string | number;
   missing_staff_completion_timestamp: string | number;
 };
 
 type StaffOnTimeRow = {
   staff_user_id: string;
-  scheduled_completed_jobs: string | number;
+  eligible_scheduled_completed_jobs: string | number;
   on_time_completed_jobs: string | number;
   late_completed_jobs: string | number;
-  unscheduled_completed_jobs: string | number;
+  ineligible_or_no_deadline_completed_jobs: string | number;
 };
 
 type StaffCountRow = {
@@ -380,7 +380,7 @@ ORDER BY requested.staff_user_id`;
 
 const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
-), completed AS (
+), executed AS (
   SELECT jc.assigned_to AS staff_user_id,
     jc.staff_completed_at,
     (jc.staff_completed_at AT TIME ZONE organization_range.timezone)::date
@@ -390,28 +390,44 @@ const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.status = 'COMPLETED'
+    AND jc.staff_completed_at IS NOT NULL
+    AND jc.staff_completed_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.staff_completed_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+), approved_missing AS (
+  SELECT jc.assigned_to AS staff_user_id
+  FROM job_cards jc
+  JOIN requested ON requested.staff_user_id = jc.assigned_to
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.status = 'COMPLETED'
+    AND jc.staff_completed_at IS NULL
     AND jc.manager_approved_at >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.manager_approved_at <
       ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
 )
 SELECT requested.staff_user_id,
-  COUNT(completed.staff_user_id) FILTER (
-    WHERE completed.staff_completed_at IS NOT NULL
-  )::int AS approved_jobs_with_staff_completion_timestamp,
-  COUNT(DISTINCT completed.staff_completion_date)::int AS staff_completion_days,
-  COUNT(completed.staff_user_id) FILTER (
-    WHERE completed.staff_completed_at IS NULL
-  )::int AS missing_staff_completion_timestamp
+  COUNT(executed.staff_user_id)::int AS staff_completed_jobs,
+  COUNT(DISTINCT executed.staff_completion_date)::int AS staff_completion_days,
+  COUNT(approved_missing.staff_user_id)::int AS missing_staff_completion_timestamp
 FROM requested
-LEFT JOIN completed USING (staff_user_id)
+LEFT JOIN executed USING (staff_user_id)
+LEFT JOIN approved_missing USING (staff_user_id)
 GROUP BY requested.staff_user_id
 ORDER BY requested.staff_user_id`;
 
 const STAFF_ON_TIME_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 ), completed AS (
-  SELECT jc.assigned_to AS staff_user_id, jc.staff_completed_at, jc.scheduled_at
+  SELECT jc.assigned_to AS staff_user_id, jc.type, jc.staff_completed_at,
+    jc.scheduled_at, jc.scheduled_ends_at,
+    CASE
+      WHEN jc.scheduled_ends_at IS NOT NULL THEN jc.scheduled_ends_at
+      WHEN jc.type = 'SALES_MEETING' THEN NULL
+      ELSE jc.scheduled_at
+    END AS effective_deadline_at
   FROM job_cards jc
   JOIN requested ON requested.staff_user_id = jc.assigned_to
   CROSS JOIN organization_range
@@ -424,20 +440,23 @@ const STAFF_ON_TIME_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
 )
 SELECT requested.staff_user_id,
   COUNT(completed.staff_user_id) FILTER (
-    WHERE completed.scheduled_at IS NOT NULL
+    WHERE completed.effective_deadline_at IS NOT NULL
       AND completed.staff_completed_at IS NOT NULL
-  )::int AS scheduled_completed_jobs,
+  )::int AS eligible_scheduled_completed_jobs,
   COUNT(completed.staff_user_id) FILTER (
-    WHERE completed.scheduled_at IS NOT NULL
-      AND completed.staff_completed_at <= completed.scheduled_at
+    WHERE completed.effective_deadline_at IS NOT NULL
+      AND completed.staff_completed_at IS NOT NULL
+      AND completed.staff_completed_at <= completed.effective_deadline_at
   )::int AS on_time_completed_jobs,
   COUNT(completed.staff_user_id) FILTER (
-    WHERE completed.scheduled_at IS NOT NULL
-      AND completed.staff_completed_at > completed.scheduled_at
+    WHERE completed.effective_deadline_at IS NOT NULL
+      AND completed.staff_completed_at IS NOT NULL
+      AND completed.staff_completed_at > completed.effective_deadline_at
   )::int AS late_completed_jobs,
   COUNT(completed.staff_user_id) FILTER (
-    WHERE completed.scheduled_at IS NULL
-  )::int AS unscheduled_completed_jobs
+    WHERE completed.effective_deadline_at IS NULL
+      OR completed.staff_completed_at IS NULL
+  )::int AS ineligible_or_no_deadline_completed_jobs
 FROM requested
 LEFT JOIN completed USING (staff_user_id)
 GROUP BY requested.staff_user_id
@@ -893,8 +912,7 @@ export class PostgresReportsRepository implements ReportsReadModel {
     ]);
     return new Map(result.rows.map((row) => [row.staff_user_id, {
       staffUserId: row.staff_user_id,
-      approvedJobsWithStaffCompletionTimestamp:
-        Number(row.approved_jobs_with_staff_completion_timestamp),
+      staffCompletedJobs: Number(row.staff_completed_jobs),
       staffCompletionDays: Number(row.staff_completion_days),
       missingStaffCompletionTimestamp: Number(row.missing_staff_completion_timestamp),
     }]));
@@ -914,10 +932,12 @@ export class PostgresReportsRepository implements ReportsReadModel {
     ]);
     return new Map(result.rows.map((row) => [row.staff_user_id, {
       staffUserId: row.staff_user_id,
-      scheduledCompletedJobs: Number(row.scheduled_completed_jobs),
+      eligibleScheduledCompletedJobs: Number(row.eligible_scheduled_completed_jobs),
       onTimeCompletedJobs: Number(row.on_time_completed_jobs),
       lateCompletedJobs: Number(row.late_completed_jobs),
-      unscheduledCompletedJobs: Number(row.unscheduled_completed_jobs),
+      ineligibleOrNoDeadlineCompletedJobs: Number(
+        row.ineligible_or_no_deadline_completed_jobs,
+      ),
     }]));
   }
 

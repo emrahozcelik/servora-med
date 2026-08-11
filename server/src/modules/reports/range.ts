@@ -63,5 +63,5 @@ export function staffExistedDuringPriorRange(
   const part = (type: Intl.DateTimeFormatPartTypes) =>
     parts.find((entry) => entry.type === type)?.value;
   const localCreationDate = `${part('year')}-${part('month')}-${part('day')}`;
-  return localCreationDate <= priorRange.to;
+  return localCreationDate <= priorRange.from;
 }

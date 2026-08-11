@@ -68,13 +68,13 @@ function publicStaffIdentity(staff: ReportStaffLifecycleIdentity): ReportStaffId
 }
 
 function staffExecution(aggregate: StaffExecutionAggregate): StaffExecutionMetrics {
-  const completed = aggregate.approvedJobsWithStaffCompletionTimestamp;
+  const completed = aggregate.staffCompletedJobs;
   const days = aggregate.staffCompletionDays;
   if ((completed === 0) !== (days === 0) || days > completed) {
     throw new Error('Staff execution aggregate invariant could not be resolved.');
   }
   return {
-    approvedJobsWithStaffCompletionTimestamp: completed,
+    staffCompletedJobs: completed,
     staffCompletionDays: days,
     jobsPerStaffCompletionDay: days === 0
       ? 0
@@ -84,18 +84,18 @@ function staffExecution(aggregate: StaffExecutionAggregate): StaffExecutionMetri
 }
 
 function onTime(aggregate: StaffOnTimeAggregate): StaffOnTimeMetrics {
-  if (aggregate.scheduledCompletedJobs
+  if (aggregate.eligibleScheduledCompletedJobs
     !== aggregate.onTimeCompletedJobs + aggregate.lateCompletedJobs) {
     throw new Error('Staff on-time aggregate invariant could not be resolved.');
   }
   return {
-    scheduledCompletedJobs: aggregate.scheduledCompletedJobs,
+    eligibleScheduledCompletedJobs: aggregate.eligibleScheduledCompletedJobs,
     onTimeCompletedJobs: aggregate.onTimeCompletedJobs,
     lateCompletedJobs: aggregate.lateCompletedJobs,
-    unscheduledCompletedJobs: aggregate.unscheduledCompletedJobs,
-    onTimeRate: aggregate.scheduledCompletedJobs === 0
+    ineligibleOrNoDeadlineCompletedJobs: aggregate.ineligibleOrNoDeadlineCompletedJobs,
+    onTimeRate: aggregate.eligibleScheduledCompletedJobs === 0
       ? null
-      : aggregate.onTimeCompletedJobs / aggregate.scheduledCompletedJobs,
+      : aggregate.onTimeCompletedJobs / aggregate.eligibleScheduledCompletedJobs,
   };
 }
 

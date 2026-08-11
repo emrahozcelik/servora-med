@@ -97,7 +97,7 @@ function dependencies() {
     getStaffExecutionMany: vi.fn(async ({ staffUserIds }) => new Map(
       staffUserIds.map((staffUserId: string) => [staffUserId, {
         staffUserId,
-        approvedJobsWithStaffCompletionTimestamp: 0,
+        staffCompletedJobs: 0,
         staffCompletionDays: 0,
         missingStaffCompletionTimestamp: 0,
       }]),
@@ -105,10 +105,10 @@ function dependencies() {
     getStaffOnTimeMany: vi.fn(async ({ staffUserIds }) => new Map(
       staffUserIds.map((staffUserId: string) => [staffUserId, {
         staffUserId,
-        scheduledCompletedJobs: 0,
+        eligibleScheduledCompletedJobs: 0,
         onTimeCompletedJobs: 0,
         lateCompletedJobs: 0,
-        unscheduledCompletedJobs: 0,
+        ineligibleOrNoDeadlineCompletedJobs: 0,
       }]),
     )),
     getStaffDailyCompletionTrend: vi.fn(async () => []),

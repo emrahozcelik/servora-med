@@ -425,7 +425,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .staff-r2-metric-list { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; margin: 1rem 0 0; border-block: 1px solid var(--rule); }
 .staff-r2-metric-list div { min-width: 0; padding: 0.85rem; border-right: 1px solid var(--rule); }
 .staff-r2-metric-list div:last-child { border-right: 0; }
-.staff-r2-metric-list dt { color: var(--muted); font-size: 0.75rem; line-height: 1.35; }
+.staff-r2-metric-list dt { color: var(--muted); font-size: 0.75rem; line-height: 1.35; overflow-wrap: anywhere; }
 .staff-r2-metric-list dd { margin: 0.3rem 0 0; font-weight: 720; font-variant-numeric: tabular-nums; overflow-wrap: anywhere; }
 .staff-on-time-summary { margin: 0.8rem 0 0; color: var(--ink); }
 .staff-on-time-summary strong { color: var(--ink); font-size: 1.35rem; font-variant-numeric: tabular-nums; }

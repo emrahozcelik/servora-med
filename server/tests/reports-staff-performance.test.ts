@@ -91,13 +91,13 @@ function servicePorts() {
     getStaffExecutionMany: vi.fn(async () => new Map([
       [ACTIVE_STAFF_ID, {
         staffUserId: ACTIVE_STAFF_ID,
-        approvedJobsWithStaffCompletionTimestamp: 5,
+        staffCompletedJobs: 5,
         staffCompletionDays: 3,
         missingStaffCompletionTimestamp: 1,
       }],
       [INACTIVE_STAFF_ID, {
         staffUserId: INACTIVE_STAFF_ID,
-        approvedJobsWithStaffCompletionTimestamp: 0,
+        staffCompletedJobs: 0,
         staffCompletionDays: 0,
         missingStaffCompletionTimestamp: 0,
       }],
@@ -105,17 +105,17 @@ function servicePorts() {
     getStaffOnTimeMany: vi.fn(async () => new Map([
       [ACTIVE_STAFF_ID, {
         staffUserId: ACTIVE_STAFF_ID,
-        scheduledCompletedJobs: 3,
+        eligibleScheduledCompletedJobs: 3,
         onTimeCompletedJobs: 2,
         lateCompletedJobs: 1,
-        unscheduledCompletedJobs: 3,
+        ineligibleOrNoDeadlineCompletedJobs: 3,
       }],
       [INACTIVE_STAFF_ID, {
         staffUserId: INACTIVE_STAFF_ID,
-        scheduledCompletedJobs: 0,
+        eligibleScheduledCompletedJobs: 0,
         onTimeCompletedJobs: 0,
         lateCompletedJobs: 0,
-        unscheduledCompletedJobs: 0,
+        ineligibleOrNoDeadlineCompletedJobs: 0,
       }],
     ])),
     getStaffIdentity: vi.fn(),
@@ -163,16 +163,16 @@ describe('ReportsService manager-wide Staff performance', () => {
           },
         },
         staffExecution: {
-          approvedJobsWithStaffCompletionTimestamp: 5,
+          staffCompletedJobs: 5,
           staffCompletionDays: 3,
           jobsPerStaffCompletionDay: 5 / 3,
           missingStaffCompletionTimestamp: 1,
         },
         onTime: {
-          scheduledCompletedJobs: 3,
+          eligibleScheduledCompletedJobs: 3,
           onTimeCompletedJobs: 2,
           lateCompletedJobs: 1,
-          unscheduledCompletedJobs: 3,
+          ineligibleOrNoDeadlineCompletedJobs: 3,
           onTimeRate: 2 / 3,
         },
         completionWorkTypes: [
@@ -227,7 +227,7 @@ describe('ReportsService manager-wide Staff performance', () => {
         completedJobs: 0,
         jobsPerCompletionDay: 0,
       } },
-      onTime: { scheduledCompletedJobs: 0, onTimeRate: null },
+      onTime: { eligibleScheduledCompletedJobs: 0, onTimeRate: null },
     });
     expect(ports.reports.getStaffPerformanceScope)
       .toHaveBeenCalledWith(expect.objectContaining({ includeInactive: true }));
@@ -310,10 +310,10 @@ describe('ReportsService manager-wide Staff performance', () => {
       ACTIVE_STAFF_ID,
       {
         staffUserId: ACTIVE_STAFF_ID,
-        scheduledCompletedJobs: 3,
+        eligibleScheduledCompletedJobs: 3,
         onTimeCompletedJobs: 2,
         lateCompletedJobs: 2,
-        unscheduledCompletedJobs: 2,
+        ineligibleOrNoDeadlineCompletedJobs: 2,
       },
     ]]));
     const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
@@ -329,7 +329,7 @@ describe('ReportsService manager-wide Staff performance', () => {
       ACTIVE_STAFF_ID,
       {
         staffUserId: ACTIVE_STAFF_ID,
-        approvedJobsWithStaffCompletionTimestamp: 2,
+        staffCompletedJobs: 2,
         staffCompletionDays: 0,
         missingStaffCompletionTimestamp: 1,
       },
@@ -364,9 +364,12 @@ describe('Staff performance prior range', () => {
     expect(precedingEqualLengthRange(current)).toEqual(expected);
   });
 
-  it('uses local creation date for lifecycle availability', () => {
-    expect(staffExistedDuringPriorRange('2026-06-30T21:30:00.000Z', priorRange)).toBe(false);
-    expect(staffExistedDuringPriorRange('2026-06-29T21:30:00.000Z', priorRange)).toBe(true);
+  it('requires creation on or before the prior range start for full-period availability', () => {
+    expect(staffExistedDuringPriorRange('2026-05-30T12:00:00.000Z', priorRange)).toBe(true);
+    expect(staffExistedDuringPriorRange('2026-05-31T12:00:00.000Z', priorRange)).toBe(true);
+    expect(staffExistedDuringPriorRange('2026-06-15T00:00:00.000Z', priorRange)).toBe(false);
+    expect(staffExistedDuringPriorRange('2026-06-30T00:00:00.000Z', priorRange)).toBe(false);
+    expect(staffExistedDuringPriorRange('2026-07-01T00:00:00.000Z', priorRange)).toBe(false);
   });
 });
 
@@ -475,10 +478,10 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
     expect(noteSql).toContain('GROUP BY requested.staff_user_id');
   });
 
-  it('aggregates approved staff execution days and missing timestamp coverage once', async () => {
+  it('selects the staff execution population by staff_completed_at, not manager_approved_at', async () => {
     const { pool, query } = queuedPool([[
       { staff_user_id: ACTIVE_STAFF_ID,
-        approved_jobs_with_staff_completion_timestamp: '5',
+        staff_completed_jobs: '5',
         staff_completion_days: '3', missing_staff_completion_timestamp: '1' },
     ]]);
     const repository = new PostgresReportsRepository(pool);
@@ -493,24 +496,27 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
       ACTIVE_STAFF_ID,
       {
         staffUserId: ACTIVE_STAFF_ID,
-        approvedJobsWithStaffCompletionTimestamp: 5,
+        staffCompletedJobs: 5,
         staffCompletionDays: 3,
         missingStaffCompletionTimestamp: 1,
       },
     ]]));
     const sql = query.mock.calls[0]?.[0] ?? '';
     expect(sql).toContain("jc.status = 'COMPLETED'");
-    expect(sql).toContain('jc.manager_approved_at');
-    expect(sql).toContain('jc.staff_completed_at');
-    expect(sql).toContain('COUNT(DISTINCT completed.staff_completion_date)');
+    expect(sql).toContain('jc.staff_completed_at IS NOT NULL');
+    expect(sql).toContain('COUNT(DISTINCT executed.staff_completion_date)');
+    expect(sql).toMatch(/executed AS/);
     expect(sql).not.toContain("'WAITING_APPROVAL'");
+    const executedWindow = sql.match(/AND jc\.staff_completed_at <\s*\n\s*\(\(organization_range\.to_date/);
+    expect(executedWindow).not.toBeNull();
   });
 
-  it('uses only current scheduled_at and staff_completed_at for the bounded on-time metric', async () => {
+  it('judges on-time against the interval end and excludes work types without a deadline', async () => {
     const { pool, query } = queuedPool([[
-      { staff_user_id: ACTIVE_STAFF_ID, scheduled_completed_jobs: '3',
+      { staff_user_id: ACTIVE_STAFF_ID,
+        eligible_scheduled_completed_jobs: '3',
         on_time_completed_jobs: '2', late_completed_jobs: '1',
-        unscheduled_completed_jobs: '3' },
+        ineligible_or_no_deadline_completed_jobs: '3' },
     ]]);
     const repository = new PostgresReportsRepository(pool);
     const input = {
@@ -524,15 +530,16 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
       ACTIVE_STAFF_ID,
       {
         staffUserId: ACTIVE_STAFF_ID,
-        scheduledCompletedJobs: 3,
+        eligibleScheduledCompletedJobs: 3,
         onTimeCompletedJobs: 2,
         lateCompletedJobs: 1,
-        unscheduledCompletedJobs: 3,
+        ineligibleOrNoDeadlineCompletedJobs: 3,
       },
     ]]));
     const sql = query.mock.calls[0]?.[0] ?? '';
-    expect(sql).toContain('completed.staff_completed_at <= completed.scheduled_at');
-    expect(sql).toContain('completed.staff_completed_at > completed.scheduled_at');
+    expect(sql).toContain("jc.type = 'SALES_MEETING'");
+    expect(sql).toContain('completed.staff_completed_at <= completed.effective_deadline_at');
+    expect(sql).toContain('completed.staff_completed_at > completed.effective_deadline_at');
     expect(sql).not.toContain('due_date');
     expect(sql).not.toContain('job_card_activity_logs');
   });

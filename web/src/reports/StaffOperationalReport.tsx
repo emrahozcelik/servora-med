@@ -184,7 +184,7 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
         <div><dt>Personelin bitirme günü</dt><dd>{report.staffExecution.staffCompletionDays}</dd></div>
         <div><dt>İş / bitirme günü</dt><dd>{jobsPerStaffCompletionDay}</dd></div>
         <div><dt>Bitirme zamanı bulunan onaylı iş</dt><dd>
-          {report.staffExecution.approvedJobsWithStaffCompletionTimestamp}</dd></div>
+          {report.staffExecution.staffCompletedJobs}</dd></div>
         <div><dt>Bitirme zamanı eksik onaylı iş</dt><dd>
           {report.staffExecution.missingStaffCompletionTimestamp}</dd></div>
       </dl>
@@ -199,23 +199,26 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
       <h3 id="on-time-title">Mevcut plana göre zamanında</h3>
       {onTimeRate === null ? (
         <p className="report-empty-copy">
-          Bu dönemde zaman hedefli tamamlanan iş yok; oran hesaplanmadı.
+          Bu dönemde hesaplanabilir zaman hedefli tamamlanan iş yok; oran hesaplanmadı.
         </p>
       ) : (
         <p className="staff-on-time-summary">
           <strong>{onTimeRate}</strong> · {report.onTime.onTimeCompletedJobs} /{' '}
-          {report.onTime.scheduledCompletedJobs} zaman hedefli iş
+          {report.onTime.eligibleScheduledCompletedJobs} hesaplanabilir zaman hedefli iş
         </p>
       )}
       <dl className="staff-r2-metric-list">
-        <div><dt>Zaman hedefli tamamlanan</dt><dd>{report.onTime.scheduledCompletedJobs}</dd></div>
+        <div><dt>Hesaplanabilir zaman hedefli tamamlanan</dt><dd>
+          {report.onTime.eligibleScheduledCompletedJobs}</dd></div>
         <div><dt>Zamanında</dt><dd>{report.onTime.onTimeCompletedJobs}</dd></div>
         <div><dt>Geç</dt><dd>{report.onTime.lateCompletedJobs}</dd></div>
-        <div><dt>Zaman hedefi olmayan tamamlanan</dt><dd>
-          {report.onTime.unscheduledCompletedJobs}</dd></div>
+        <div><dt>Zaman hedefi olmayan / hesaplanamayan tamamlanan</dt><dd>
+          {report.onTime.ineligibleOrNoDeadlineCompletedJobs}</dd></div>
       </dl>
       <p className="report-section-hint">
         Yalnız kayıttaki güncel plan zamanı kullanılır; orijinal plan iddiası taşımaz.
+        Bitiş zamanı kayıtlı işlerde bitiş hedef alınır; toplantıda yalnız başlangıç zamanı
+        kayıtlıysa hesaplanabilir hedef yoktur.
       </p>
     </section>
 

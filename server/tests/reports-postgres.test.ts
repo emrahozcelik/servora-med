@@ -995,16 +995,16 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     },
   });
   expect(staffReport.staffExecution).toEqual({
-    approvedJobsWithStaffCompletionTimestamp: 5,
+    staffCompletedJobs: 5,
     staffCompletionDays: 4,
     jobsPerStaffCompletionDay: 1.25,
     missingStaffCompletionTimestamp: 0,
   });
   expect(staffReport.onTime).toEqual({
-    scheduledCompletedJobs: 3,
+    eligibleScheduledCompletedJobs: 3,
     onTimeCompletedJobs: 2,
     lateCompletedJobs: 1,
-    unscheduledCompletedJobs: 2,
+    ineligibleOrNoDeadlineCompletedJobs: 2,
     onTimeRate: 2 / 3,
   });
   expect(staffReport.completionWorkTypes).toEqual([
@@ -1086,16 +1086,16 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       },
     },
     staffExecution: {
-      approvedJobsWithStaffCompletionTimestamp: 5,
+      staffCompletedJobs: 5,
       staffCompletionDays: 4,
       jobsPerStaffCompletionDay: 1.25,
       missingStaffCompletionTimestamp: 0,
     },
     onTime: {
-      scheduledCompletedJobs: 3,
+      eligibleScheduledCompletedJobs: 3,
       onTimeCompletedJobs: 2,
       lateCompletedJobs: 1,
-      unscheduledCompletedJobs: 2,
+      ineligibleOrNoDeadlineCompletedJobs: 2,
       onTimeRate: 2 / 3,
     },
     completionWorkTypes: [
@@ -1444,6 +1444,239 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
       expect(berlinDashboard.counters.overdueJobCards).toBe(0);
       expect(tokyoDashboard.range.timezone).toBe('Asia/Tokyo');
       expect(tokyoDashboard.counters.overdueJobCards).toBe(1);
+    } finally {
+      await pool?.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
+
+  it('keeps staff-execution and canonical approval timelines distinct across a cross-day approval', async () => {
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `crossday_${randomUUID().replaceAll('-', '')}`;
+    let pool: Pool | null = null;
+    try {
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      await applyCurrentMigrations(pool);
+
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone)
+         VALUES ('Cross-Day Approval', 'Europe/Berlin') RETURNING id`,
+      )).rows[0]!.id;
+      const manager = toSafeUser((await pool.query<{
+        id: string; organization_id: string; name: string; email: string;
+        role: SafeUser['role']; is_active: boolean; version: number;
+      }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Cross-Day Manager', $2, 'unused-test-hash', 'MANAGER')
+         RETURNING id, organization_id, name, email, role, is_active, version`,
+        [organizationId, `${randomUUID()}@test.local`],
+      )).rows[0]!);
+      const staff = toSafeUser((await pool.query<{
+        id: string; organization_id: string; name: string; email: string;
+        role: SafeUser['role']; is_active: boolean; version: number;
+      }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Cross-Day Staff', $2, 'unused-test-hash', 'STAFF')
+         RETURNING id, organization_id, name, email, role, is_active, version`,
+        [organizationId, `${randomUUID()}@test.local`],
+      )).rows[0]!);
+      await pool.query(
+        `INSERT INTO staff_profiles (organization_id, user_id, title)
+         VALUES ($1, $2, 'Field Staff')`,
+        [organizationId, staff.id],
+      );
+      // Submitted on July 31 local, approved on August 1 local (Europe/Berlin, UTC+2).
+      await pool.query(
+        `INSERT INTO job_cards (
+           organization_id, type, status, title, assigned_to, created_by,
+           started_at,
+           staff_completed_at, staff_completed_by,
+           manager_approved_at, manager_approved_by
+         ) VALUES (
+           $1, 'GENERAL_TASK', 'COMPLETED', 'Cross-day delivery',
+           $2, $3, '2026-07-31T19:00:00.000Z',
+           '2026-07-31T20:00:00.000Z', $2,
+           '2026-07-31T22:30:00.000Z', $3
+         )`,
+        [organizationId, staff.id, manager.id],
+      );
+
+      const reports = new PostgresReportsRepository(pool);
+      const service = new ReportsService(reports, reports, () => new Date('2026-07-31T23:00:00.000Z'));
+      const julyRange = { from: '2026-07-01', to: '2026-07-31' };
+      const augustRange = { from: '2026-08-01', to: '2026-08-31' };
+
+      const julyReport = await service.getStaffReport(manager, staff.id, {
+        requestedRange: julyRange,
+      });
+      // Submitted (staff_completed_at) July 31 => July staff-execution.
+      expect(julyReport.staffExecution).toEqual({
+        staffCompletedJobs: 1,
+        staffCompletionDays: 1,
+        jobsPerStaffCompletionDay: 1,
+        missingStaffCompletionTimestamp: 0,
+      });
+      // Approved August 1 => not a canonical July completion.
+      expect(julyReport.performance.completedJobs).toBe(0);
+
+      const augustReport = await service.getStaffReport(manager, staff.id, {
+        requestedRange: augustRange,
+      });
+      // Approved August 1 => canonical August completion.
+      expect(augustReport.performance.completedJobs).toBe(1);
+      // Executed July 31 => not an August staff-execution.
+      expect(augustReport.staffExecution).toEqual({
+        staffCompletedJobs: 0,
+        staffCompletionDays: 0,
+        jobsPerStaffCompletionDay: 0,
+        missingStaffCompletionTimestamp: 0,
+      });
+    } finally {
+      await pool?.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
+
+  it('uses the saved interval end as the deadline and excludes no-deadline work types', async () => {
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `ontime_${randomUUID().replaceAll('-', '')}`;
+    let pool: Pool | null = null;
+    try {
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      await applyCurrentMigrations(pool);
+
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone)
+         VALUES ('On-Time Deadline', 'Europe/Istanbul') RETURNING id`,
+      )).rows[0]!.id;
+      const manager = toSafeUser((await pool.query<{
+        id: string; organization_id: string; name: string; email: string;
+        role: SafeUser['role']; is_active: boolean; version: number;
+      }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Deadline Manager', $2, 'unused-test-hash', 'MANAGER')
+         RETURNING id, organization_id, name, email, role, is_active, version`,
+        [organizationId, `${randomUUID()}@test.local`],
+      )).rows[0]!);
+      const staff = toSafeUser((await pool.query<{
+        id: string; organization_id: string; name: string; email: string;
+        role: SafeUser['role']; is_active: boolean; version: number;
+      }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Deadline Staff', $2, 'unused-test-hash', 'STAFF')
+         RETURNING id, organization_id, name, email, role, is_active, version`,
+        [organizationId, `${randomUUID()}@test.local`],
+      )).rows[0]!);
+      await pool.query(
+        `INSERT INTO staff_profiles (organization_id, user_id, title)
+         VALUES ($1, $2, 'Field Staff')`,
+        [organizationId, staff.id],
+      );
+      const insertJob = async (input: {
+        title: string;
+        type: string;
+        scheduledAt: string | null;
+        scheduledEndsAt: string | null;
+        staffCompletedAt: string;
+        managerApprovedAt: string;
+      }) => {
+        const engagementKind = input.type === 'SALES_MEETING' ? 'SALES_MEETING' : null;
+        await pool.query(
+          `INSERT INTO job_cards (
+             organization_id, type, status, title, assigned_to, created_by,
+             started_at,
+             scheduled_at, scheduled_ends_at,
+             staff_completed_at, staff_completed_by,
+             manager_approved_at, manager_approved_by,
+             engagement_kind
+           ) VALUES ($1, $2, 'COMPLETED', $3, $4, $5,
+             $8, $6, $7, $9, $4, $10, $5, $11)`,
+          [
+            organizationId, input.type, input.title, staff.id, manager.id,
+            input.scheduledAt, input.scheduledEndsAt,
+            new Date(new Date(input.staffCompletedAt).getTime() - 60 * 60 * 1000),
+            input.staffCompletedAt, input.managerApprovedAt,
+            engagementKind,
+          ],
+        );
+      };
+      // Interval: completed inside [start, end] => on-time, not late.
+      await insertJob({
+        title: 'Interval inside', type: 'PRODUCT_DELIVERY',
+        scheduledAt: '2026-07-10T08:00:00.000Z',
+        scheduledEndsAt: '2026-07-10T12:00:00.000Z',
+        staffCompletedAt: '2026-07-10T10:00:00.000Z',
+        managerApprovedAt: '2026-07-10T13:00:00.000Z',
+      });
+      // Exact interval end => on-time.
+      await insertJob({
+        title: 'Exact end', type: 'PRODUCT_DELIVERY',
+        scheduledAt: '2026-07-11T08:00:00.000Z',
+        scheduledEndsAt: '2026-07-11T12:00:00.000Z',
+        staffCompletedAt: '2026-07-11T12:00:00.000Z',
+        managerApprovedAt: '2026-07-11T13:00:00.000Z',
+      });
+      // After the accepted deadline => late.
+      await insertJob({
+        title: 'After end', type: 'PRODUCT_DELIVERY',
+        scheduledAt: '2026-07-12T08:00:00.000Z',
+        scheduledEndsAt: '2026-07-12T12:00:00.000Z',
+        staffCompletedAt: '2026-07-12T13:00:00.000Z',
+        managerApprovedAt: '2026-07-12T14:00:00.000Z',
+      });
+      // Point-scheduled GENERAL_TASK: deadline is the saved scheduled_at.
+      await insertJob({
+        title: 'Point task on time', type: 'GENERAL_TASK',
+        scheduledAt: '2026-07-13T10:00:00.000Z',
+        scheduledEndsAt: null,
+        staffCompletedAt: '2026-07-13T10:00:00.000Z',
+        managerApprovedAt: '2026-07-13T11:00:00.000Z',
+      });
+      // SALES_MEETING without a saved end: scheduled_at is a start, not a deadline.
+      await insertJob({
+        title: 'Meeting without end', type: 'SALES_MEETING',
+        scheduledAt: '2026-07-14T10:00:00.000Z',
+        scheduledEndsAt: null,
+        staffCompletedAt: '2026-07-14T11:00:00.000Z',
+        managerApprovedAt: '2026-07-14T12:00:00.000Z',
+      });
+
+      const reports = new PostgresReportsRepository(pool);
+      const service = new ReportsService(reports, reports, () => new Date('2026-07-15T12:00:00.000Z'));
+      const report = await service.getStaffReport(manager, staff.id, {
+        requestedRange: { from: '2026-07-01', to: '2026-07-31' },
+      });
+
+      expect(report.onTime).toEqual({
+        eligibleScheduledCompletedJobs: 4,
+        onTimeCompletedJobs: 3,
+        lateCompletedJobs: 1,
+        ineligibleOrNoDeadlineCompletedJobs: 1,
+        onTimeRate: 3 / 4,
+      });
+
+      // Zero eligible denominator remains null.
+      const emptyRange = { from: '2026-09-01', to: '2026-09-30' };
+      const emptyReport = await service.getStaffReport(manager, staff.id, {
+        requestedRange: emptyRange,
+      });
+      expect(emptyReport.onTime).toEqual({
+        eligibleScheduledCompletedJobs: 0,
+        onTimeCompletedJobs: 0,
+        lateCompletedJobs: 0,
+        ineligibleOrNoDeadlineCompletedJobs: 0,
+        onTimeRate: null,
+      });
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

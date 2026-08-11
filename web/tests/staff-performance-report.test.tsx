@@ -40,11 +40,11 @@ const report: StaffPerformanceResponse = {
         performance: { completedJobs: 34, completionDays: 17, jobsPerCompletionDay: 2,
           correctionRequestEvents: 2, authoredOperationalNotes: 12 },
       },
-      staffExecution: { approvedJobsWithStaffCompletionTimestamp: 40,
+      staffExecution: { staffCompletedJobs: 40,
         staffCompletionDays: 16, jobsPerStaffCompletionDay: 2.5,
         missingStaffCompletionTimestamp: 2 },
-      onTime: { scheduledCompletedJobs: 10, onTimeCompletedJobs: 8,
-        lateCompletedJobs: 2, unscheduledCompletedJobs: 32, onTimeRate: 0.8 },
+      onTime: { eligibleScheduledCompletedJobs: 10, onTimeCompletedJobs: 8,
+        lateCompletedJobs: 2, ineligibleOrNoDeadlineCompletedJobs: 32, onTimeRate: 0.8 },
       completionWorkTypes: [
         { type: 'SALES_MEETING', count: 14 },
         { type: 'PRODUCT_DELIVERY', count: 9 },
@@ -57,11 +57,11 @@ const report: StaffPerformanceResponse = {
       performance: { completedJobs: 0, completionDays: 0, jobsPerCompletionDay: 0,
         correctionRequestEvents: 3, authoredOperationalNotes: 12 },
       priorPerformance: { available: false, performance: null },
-      staffExecution: { approvedJobsWithStaffCompletionTimestamp: 0,
+      staffExecution: { staffCompletedJobs: 0,
         staffCompletionDays: 0, jobsPerStaffCompletionDay: 0,
         missingStaffCompletionTimestamp: 0 },
-      onTime: { scheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
-        lateCompletedJobs: 0, unscheduledCompletedJobs: 0, onTimeRate: null },
+      onTime: { eligibleScheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
+        lateCompletedJobs: 0, ineligibleOrNoDeadlineCompletedJobs: 0, onTimeRate: null },
       completionWorkTypes: [],
       currentWorkload: { openJobCards: 0, overdueJobCards: 0, waitingApproval: 0,
         revisionRequested: 0 },
@@ -121,7 +121,7 @@ describe('StaffPerformanceReport', () => {
     expect(container.textContent).toContain('Personelin bitirme zamanı');
     expect(container.textContent).toContain('Mevcut plana göre zamanında');
     expect(container.textContent).toContain('8 / 10 zaman hedefli iş');
-    expect(container.textContent).toContain('Zaman hedefli tamamlanan iş yok; oran hesaplanmadı.');
+    expect(container.textContent).toContain('Hesaplanabilir zaman hedefli tamamlanan iş yok; oran hesaplanmadı.');
     const reportLinks = Array.from(container.querySelectorAll('a'))
       .filter((link) => link.textContent?.includes('Raporu aç'));
     expect(reportLinks[0]?.getAttribute('href')).toBe(
