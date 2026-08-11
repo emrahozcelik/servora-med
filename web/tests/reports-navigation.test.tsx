@@ -65,13 +65,14 @@ async function render(path: string, user: CurrentUser) {
 describe('Management report navigation', () => {
   it.each([
     ['/reports', 'Rapor özeti yükleniyor'],
+    ['/reports/staff', 'Personel performansı yükleniyor'],
     ['/reports/deliveries', 'Teslim raporu yükleniyor'],
     ['/reports/approvals', 'Onay raporu yükleniyor'],
   ])('registers stable management route %s', async (path, expected) => {
     expect(await render(path, manager)).toContain(expected);
   });
 
-  it.each(['/reports', '/reports/deliveries', '/reports/approvals'])
+  it.each(['/reports', '/reports/staff', '/reports/deliveries', '/reports/approvals'])
     ('labels report section navigation on %s', async (path) => {
       expect(await render(path, manager)).toContain('aria-label="Rapor bölümleri"');
     });
@@ -83,7 +84,7 @@ describe('Management report navigation', () => {
     expect(await render('/jobs', staff)).not.toContain('href="/reports"');
   });
 
-  it.each(['/reports', '/reports/deliveries', '/reports/approvals'])
+  it.each(['/reports', '/reports/staff', '/reports/deliveries', '/reports/approvals'])
     ('denies Staff direct report route %s', async (path) => {
       expect(await render(path, staff)).toContain('Erişim yetkiniz yok');
     });

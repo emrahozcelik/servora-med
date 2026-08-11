@@ -82,6 +82,7 @@ const fixture = `<!doctype html><html lang="tr"><head><meta charset="utf-8"/><me
         <div id="responsive-approval-report-root"></div>
       </section>
       <section class="report-workspace" aria-label="Personel raporu responsive fixture" data-smoke-staff-report>
+        <div id="responsive-staff-performance-root"></div>
         <div id="responsive-staff-report-root"></div>
       </section>
       <section class="report-workspace" aria-label="Ortak durum bileşenleri responsive fixture" data-smoke-state-adapters>
@@ -705,6 +706,28 @@ async function measure(page) {
         rowHeader: table.querySelector('tbody th[scope="row"]')?.textContent?.trim() ?? '',
       };
     });
+    const staffPerformanceDesktop = staffSection?.querySelector(
+      '[data-staff-performance-desktop="true"]',
+    );
+    const staffPerformanceMobile = staffSection?.querySelector(
+      '[data-staff-performance-mobile="true"]',
+    );
+    const staffPerformanceDesktopVisible = Boolean(staffPerformanceDesktop
+      && getComputedStyle(staffPerformanceDesktop).display !== 'none');
+    const staffPerformanceMobileDisplay = staffPerformanceMobile
+      ? getComputedStyle(staffPerformanceMobile).display
+      : 'none';
+    const staffPerformanceMobileVisible = Boolean(staffPerformanceMobile
+      && staffPerformanceMobileDisplay !== 'none'
+      && staffPerformanceMobileDisplay !== 'contents');
+    const visibleStaffPerformance = staffPerformanceMobileVisible
+      ? staffPerformanceMobile
+      : staffPerformanceDesktop;
+    const visibleStaffPerformanceRect = visibleStaffPerformance?.getBoundingClientRect();
+    const staffPerformanceOverflow = Boolean(staffSectionRect && visibleStaffPerformanceRect
+      && (visibleStaffPerformanceRect.right > staffSectionRect.right + 2
+        || visibleStaffPerformanceRect.left < staffSectionRect.left - 2
+        || visibleStaffPerformance.scrollWidth > visibleStaffPerformance.clientWidth + 2));
     const stateAdapterSection = document.querySelector('[data-smoke-state-adapters]');
     const stateAdapterSectionRect = stateAdapterSection?.getBoundingClientRect();
     const stateAdapters = stateAdapterSection
@@ -821,8 +844,13 @@ async function measure(page) {
       approvalDesktopValues,
       approvalMobileValues,
       approvalLinkName: approvalLink?.getAttribute('aria-label') ?? '',
-      staffPresent: staffTableMetrics.length === 2,
+      staffPresent: staffTableMetrics.length === 3,
       staffTables: staffTableMetrics,
+      staffPerformancePresent: Boolean(staffPerformanceDesktop && staffPerformanceMobile),
+      staffPerformanceDesktopVisible,
+      staffPerformanceMobileVisible,
+      staffPerformanceOverflow,
+      staffPerformanceCurrentLabel: staffPerformanceMobile?.textContent?.includes('Şu an') ?? false,
       stateAdaptersPresent: stateAdapters.length === 3,
       stateAdapterOverflow,
       resultStateAnnounced: Boolean(stateAdapterSection?.querySelector(
@@ -1155,6 +1183,7 @@ try {
     await page.goto(url, { waitUntil: 'load' });
     await waitForJobDetailFixture(page, diag);
     await page.waitForSelector('[data-servora-operational-table="true"]');
+    await page.waitForSelector('[data-staff-performance-mobile="true"]', { state: 'attached' });
     await waitForChartFixtures(page);
     await page.waitForSelector('[data-smoke-notification] [role="dialog"]');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
@@ -1196,6 +1225,10 @@ try {
         failures.push(`${vp.name}: Staff table needs caption and row header`);
       }
     }
+    if (!m.staffPerformancePresent || m.staffPerformanceOverflow
+      || !m.staffPerformanceCurrentLabel) {
+      failures.push(`${vp.name}: Staff Performance responsive contract failure`);
+    }
     if (!m.stateAdaptersPresent || m.stateAdapterOverflow || !m.resultStateAnnounced
       || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.loadingSkeletonDecorative
       || !m.loadingStatusOutsideBusy || !m.loadingTitleVisible || !m.stateActionVisible) {
@@ -1214,6 +1247,9 @@ try {
       if (m.staffTables.some((table) => table.desktopVisible || !table.mobileVisible)) {
         failures.push(`${vp.name}: Staff must use mobile cards at/under 720px`);
       }
+      if (m.staffPerformanceDesktopVisible || !m.staffPerformanceMobileVisible) {
+        failures.push(`${vp.name}: Staff Performance must use mobile records at/under 720px`);
+      }
     }
     if (vp.width > 720) {
       if (!m.desktopVisible) failures.push(`${vp.name}: OperationalTable desktop must be visible above 720px`);
@@ -1226,6 +1262,9 @@ try {
       }
       if (m.staffTables.some((table) => !table.desktopVisible || table.mobileVisible)) {
         failures.push(`${vp.name}: Staff must use desktop tables above 720px`);
+      }
+      if (!m.staffPerformanceDesktopVisible || m.staffPerformanceMobileVisible) {
+        failures.push(`${vp.name}: Staff Performance must use desktop table above 720px`);
       }
     }
     if ((vp.width === 390 || vp.width === 1024) && !m.descriptionsUseFullWidth) {
@@ -1432,6 +1471,7 @@ try {
     await page.goto(url, { waitUntil: 'load' });
     await waitForJobDetailFixture(page, diag);
     await page.waitForSelector('[data-servora-operational-table="true"]');
+    await page.waitForSelector('[data-staff-performance-mobile="true"]', { state: 'attached' });
     await waitForChartFixtures(page);
     await page.waitForSelector('[data-smoke-notification] [role="dialog"]');
     await page.addStyleTag({ content: 'html { font-size: 200% !important; }' });
@@ -1454,6 +1494,11 @@ try {
       || !table.mobileVisible || table.desktopVisible
       || JSON.stringify(table.desktopValues) !== JSON.stringify(table.mobileValues))) {
       failures.push('200% text: Staff mobile reflow failure');
+    }
+    if (!m.staffPerformancePresent || m.staffPerformanceOverflow
+      || !m.staffPerformanceMobileVisible || m.staffPerformanceDesktopVisible
+      || !m.staffPerformanceCurrentLabel) {
+      failures.push('200% text: Staff Performance mobile reflow failure');
     }
     if (!m.stateAdaptersPresent || m.stateAdapterOverflow || !m.resultStateAnnounced
       || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.loadingSkeletonDecorative
@@ -1526,6 +1571,7 @@ try {
     await page.goto(url, { waitUntil: 'load' });
     await waitForJobDetailFixture(page, diag);
     await page.waitForSelector('[data-servora-operational-table="true"]');
+    await page.waitForSelector('[data-staff-performance-mobile="true"]', { state: 'attached' });
     await waitForChartFixtures(page);
     await page.waitForSelector('[data-smoke-notification] [role="dialog"]');
     await page.evaluate(() => window.dispatchEvent(new Event('resize')));
@@ -1547,6 +1593,11 @@ try {
       || !table.mobileVisible || table.desktopVisible
       || JSON.stringify(table.desktopValues) !== JSON.stringify(table.mobileValues))) {
       failures.push('400% reflow: Staff mobile reflow failure');
+    }
+    if (!m.staffPerformancePresent || m.staffPerformanceOverflow
+      || !m.staffPerformanceMobileVisible || m.staffPerformanceDesktopVisible
+      || !m.staffPerformanceCurrentLabel) {
+      failures.push('400% reflow: Staff Performance mobile reflow failure');
     }
     if (!m.stateAdaptersPresent || m.stateAdapterOverflow || !m.resultStateAnnounced
       || !m.emptyStateExplained || !m.loadingSkeletonBusy || !m.loadingSkeletonDecorative

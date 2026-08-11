@@ -7,6 +7,7 @@ export type DashboardUrlState = {
   to: string | null;
   canonical: boolean;
 };
+export type StaffPerformanceUrlState = DashboardUrlState;
 export type DeliveryUrlState = {
   from: string | null;
   to: string | null;
@@ -103,6 +104,9 @@ export function readDashboardSearch(search: URLSearchParams): DashboardUrlState 
   const state = { ...range, canonical: true };
   return { ...state, canonical: same(search, dashboardSearch(state)) };
 }
+
+export const staffPerformanceSearch = dashboardSearch;
+export const readStaffPerformanceSearch = readDashboardSearch;
 
 export function readDeliverySearch(search: URLSearchParams): DeliveryUrlState {
   const range = readRange(search);

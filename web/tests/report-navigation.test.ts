@@ -3,11 +3,14 @@ import { describe, expect, it } from 'vitest';
 import { reportSectionHref } from '../src/reports/report-navigation';
 
 describe('reportSectionHref', () => {
-  it('preserves from/to between summary and deliveries only', () => {
+  it('preserves from/to among summary, Staff, and deliveries only', () => {
     const range = { from: '2026-07-01', to: '2026-07-07' };
     expect(reportSectionHref('summary', range)).toBe('/reports?from=2026-07-01&to=2026-07-07');
     expect(reportSectionHref('deliveries', range)).toBe(
       '/reports/deliveries?from=2026-07-01&to=2026-07-07',
+    );
+    expect(reportSectionHref('staff', range)).toBe(
+      '/reports/staff?from=2026-07-01&to=2026-07-07',
     );
     expect(reportSectionHref('approvals', range)).toBe('/reports/approvals');
   });
@@ -16,5 +19,7 @@ describe('reportSectionHref', () => {
     expect(reportSectionHref('deliveries', { from: '2026-07-01', to: null }))
       .toBe('/reports/deliveries');
     expect(reportSectionHref('summary', null)).toBe('/reports');
+    expect(reportSectionHref('staff', { from: null, to: '2026-07-31' }))
+      .toBe('/reports/staff');
   });
 });

@@ -22,8 +22,16 @@ const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 const report: StaffReportResponse = {
   staff: { userId: STAFF_ID, name: 'Emrah Demir', isActive: false },
   range: { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' },
-  counters: { openJobCards: 3, waitingApproval: 2, revisionRequested: 1,
-    overdueJobCards: 1, completedInPeriod: 4 },
+  performance: { completedJobs: 4, completionDays: 2, jobsPerCompletionDay: 2,
+    correctionRequestEvents: 1, authoredOperationalNotes: 3 },
+  completionWorkTypes: [
+    { type: 'GENERAL_TASK', count: 3 },
+    { type: 'PRODUCT_DELIVERY', count: 1 },
+  ],
+  completedTrend: [
+    { date: '2026-07-01', count: 0 },
+    { date: '2026-07-02', count: 4 },
+  ],
   deliveriesByPurpose: [
     { purpose: 'SALE', unit: 'Kutu', quantity: '12.500' },
     { purpose: 'SAMPLE', unit: null, quantity: '3.000' },
@@ -32,6 +40,8 @@ const report: StaffReportResponse = {
     { outcome: 'POSITIVE', count: 1 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 2 },
     { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
   ],
+  currentWorkload: { openJobCards: 3, waitingApproval: 2, revisionRequested: 1,
+    overdueJobCards: 1 },
 };
 
 describe('Staff operational report', () => {
@@ -51,26 +61,37 @@ describe('Staff operational report', () => {
     container.remove();
   });
 
-  it('renders the echoed range, five counters, inactive state, and exact quantities', () => {
+  it('renders historical performance and keeps the current snapshot last', () => {
     const html = renderToStaticMarkup(<StaffOperationalReport report={report} />);
     expect(html).toContain('1 Temmuz 2026 – 31 Temmuz 2026');
     expect(html).toContain('Europe/Istanbul');
     expect(html).toContain('Pasif personel');
-    for (const label of ['Açık işler', 'Onay bekliyor', 'Düzeltme istendi', 'Geciken', 'Dönemde tamamlandı']) {
+    for (const label of [
+      'Tamamlanan iş', 'Tamamlama günü', 'İş / gün', 'Düzeltme isteği', 'Eklediği not',
+    ]) {
       expect(html).toContain(label);
     }
+    expect(html).toContain('Günlük tamamlamalar');
+    expect(html).toContain('data-report-trend-bars="true"');
+    expect(html).toContain('Günlük tamamlanan işler');
+    expect(html).toContain('İş türleri');
+    expect(html).toContain('Genel görev');
     expect(html).toContain('Onaylı teslimler');
     expect(html).toContain('12.500');
     expect(html).toContain('Birim belirtilmedi');
     expect(html).toContain('Görüşme sonuçları');
     expect(html).toContain('Takip gerekli');
-    expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(2);
+    expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(3);
     expect(html).toContain('<caption>Onaylı teslimler</caption>');
     expect(html).toContain('<caption>Görüşme sonuçları</caption>');
     expect(html).toMatch(/<th[^>]*scope="row"[^>]*>Satış<\/th>/);
     expect(html).toMatch(/<th[^>]*scope="row"[^>]*>Olumlu<\/th>/);
     for (const heading of ['Amaç', 'Birim', 'Miktar', 'Sonuç', 'Görüşme sayısı']) {
       expect(html).toContain(`<dt>${heading}</dt>`);
+    }
+    expect(html.lastIndexOf('Şu an')).toBeGreaterThan(html.lastIndexOf('Görüşme sonuçları'));
+    for (const label of ['Açık işler', 'Gecikmiş', 'Onay bekliyor', 'Düzeltme bekliyor']) {
+      expect(html).toContain(label);
     }
     // Every first-row value is emitted by both the desktop table and mobile card.
     for (const value of ['Satış', 'Kutu', '12.500', 'Olumlu']) {
@@ -86,7 +107,7 @@ describe('Staff operational report', () => {
     }} />);
     expect(html).toContain('Bu dönemde onaylı teslim bulunmuyor.');
     expect(html).toContain('Bu dönemde onaylı satış görüşmesi bulunmuyor.');
-    expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(1);
+    expect((html.match(/data-servora-operational-table="true"/g) ?? [])).toHaveLength(2);
     expect(html).not.toContain('<caption>Onaylı teslimler</caption>');
     expect(html).toContain('<caption>Görüşme sonuçları</caption>');
   });
@@ -129,5 +150,23 @@ describe('Staff operational report', () => {
     await act(async () => { await Promise.resolve(); });
     expect(getStaffReport).toHaveBeenCalledTimes(2);
     expect(container.textContent).toContain('Onaylı teslimler');
+  });
+
+  it('forwards the selected range to a management detail request', async () => {
+    vi.mocked(getStaffReport).mockResolvedValue(report);
+    const requestedRange = { from: '2026-07-01', to: '2026-07-31' };
+
+    await act(async () => root.render(
+      <StaffOperationalReportScreen
+        staffUserId={STAFF_ID}
+        requestedRange={requestedRange}
+        backLabel="Personel performansına dön"
+        onBack={() => {}}
+      />,
+    ));
+    await act(async () => { await Promise.resolve(); });
+
+    expect(getStaffReport).toHaveBeenCalledWith(STAFF_ID, requestedRange);
+    expect(container.textContent).toContain('Personel performansına dön');
   });
 });

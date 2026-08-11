@@ -1,14 +1,15 @@
 import type { FormEvent, ReactNode, RefObject } from 'react';
 import { Link } from 'react-router-dom';
 
-import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
+import { EmptyState, IconSegmented, LoadingSkeleton, ResultState } from '../ui/antd';
 import type { ReportDatePreset } from './report-range';
 import { reportSectionHref, type ReportRangeContext } from './report-navigation';
 
-export type ReportNavSection = 'summary' | 'deliveries' | 'approvals';
+export type ReportNavSection = 'summary' | 'staff' | 'deliveries' | 'approvals';
 
 const NAV: Array<{ id: ReportNavSection; label: string }> = [
   { id: 'summary', label: 'Özet' },
+  { id: 'staff', label: 'Personel' },
   { id: 'deliveries', label: 'Teslimler' },
   { id: 'approvals', label: 'Onaylar' },
 ];
@@ -99,6 +100,8 @@ export function ReportDateRangeForm({
   onSubmit,
   onPreset,
   presetsDisabled,
+  presetControl = 'buttons',
+  selectedPreset,
   wide,
   children,
 }: {
@@ -111,6 +114,8 @@ export function ReportDateRangeForm({
   onPreset?: (preset: ReportDatePreset) => void;
   /** Disable until organization timezone is known from a successful report response. */
   presetsDisabled?: boolean;
+  presetControl?: 'buttons' | 'segmented';
+  selectedPreset?: ReportDatePreset | null;
   wide?: boolean;
   children?: ReactNode;
 }) {
@@ -118,17 +123,29 @@ export function ReportDateRangeForm({
     <>
       {onPreset ? (
         <div className="report-presets" role="group" aria-label="Hızlı tarih aralığı">
-          {PRESETS.map((preset) => (
-            <button
-              key={preset.id}
-              type="button"
-              className="report-preset-button"
+          {presetControl === 'segmented' ? (
+            <IconSegmented
+              options={PRESETS.map((preset) => ({
+                value: preset.id,
+                label: preset.label,
+              }))}
+              value={selectedPreset ?? undefined}
+              onChange={(value) => onPreset(value as ReportDatePreset)}
+              ariaLabel="Hızlı tarih aralığı"
               disabled={presetsDisabled}
-              onClick={() => onPreset(preset.id)}
-            >
-              {preset.label}
-            </button>
-          ))}
+              responsiveVertical
+            />
+          ) : PRESETS.map((preset) => (
+              <button
+                key={preset.id}
+                type="button"
+                className="report-preset-button"
+                disabled={presetsDisabled}
+                onClick={() => onPreset(preset.id)}
+              >
+                {preset.label}
+              </button>
+            ))}
         </div>
       ) : null}
       <div className="filter-region">

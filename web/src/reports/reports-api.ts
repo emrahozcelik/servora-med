@@ -9,6 +9,7 @@ import {
 } from '../services/api';
 import {
   DELIVERY_PURPOSES,
+  JOB_CARD_TYPES,
   MEETING_OUTCOMES,
   parsePersistedJobCardListItem,
 } from '../jobs/jobs-api';
@@ -24,7 +25,11 @@ import type {
   DeliveryStaffItem,
   RequestedReportRange,
   ResolvedReportRange,
-  StaffOperationalCounters,
+  CompletionWorkType,
+  StaffCurrentWorkload,
+  StaffHistoricalPerformance,
+  StaffPerformanceItem,
+  StaffPerformanceResponse,
   StaffReportResponse,
 } from './report-types';
 
@@ -67,6 +72,12 @@ function nonNegativeInteger(value: unknown, field: string) {
   return parsed;
 }
 
+function nonNegativeNumber(value: unknown, field: string) {
+  const parsed = number(value, field);
+  if (parsed < 0) invalid(field);
+  return parsed;
+}
+
 function positiveInteger(value: unknown, field: string) {
   const parsed = nonNegativeInteger(value, field);
   if (parsed === 0) invalid(field);
@@ -101,17 +112,72 @@ function parseStaffIdentity(value: unknown) {
   };
 }
 
-function parseStaffCounters(value: unknown): StaffOperationalCounters {
-  const row = exactObject(value, 'counters', [
-    'openJobCards', 'waitingApproval', 'revisionRequested', 'overdueJobCards',
-    'completedInPeriod',
+function parseStaffCurrentWorkload(value: unknown): StaffCurrentWorkload {
+  const row = exactObject(value, 'currentWorkload', [
+    'openJobCards', 'overdueJobCards', 'waitingApproval', 'revisionRequested',
   ]);
   return {
-    openJobCards: nonNegativeInteger(row.openJobCards, 'counters.openJobCards'),
-    waitingApproval: nonNegativeInteger(row.waitingApproval, 'counters.waitingApproval'),
-    revisionRequested: nonNegativeInteger(row.revisionRequested, 'counters.revisionRequested'),
-    overdueJobCards: nonNegativeInteger(row.overdueJobCards, 'counters.overdueJobCards'),
-    completedInPeriod: nonNegativeInteger(row.completedInPeriod, 'counters.completedInPeriod'),
+    openJobCards: nonNegativeInteger(row.openJobCards, 'currentWorkload.openJobCards'),
+    overdueJobCards: nonNegativeInteger(row.overdueJobCards, 'currentWorkload.overdueJobCards'),
+    waitingApproval: nonNegativeInteger(row.waitingApproval, 'currentWorkload.waitingApproval'),
+    revisionRequested: nonNegativeInteger(
+      row.revisionRequested,
+      'currentWorkload.revisionRequested',
+    ),
+  };
+}
+
+function parseStaffHistoricalPerformance(value: unknown): StaffHistoricalPerformance {
+  const row = exactObject(value, 'performance', [
+    'completedJobs', 'completionDays', 'jobsPerCompletionDay',
+    'correctionRequestEvents', 'authoredOperationalNotes',
+  ]);
+  return {
+    completedJobs: nonNegativeInteger(row.completedJobs, 'performance.completedJobs'),
+    completionDays: nonNegativeInteger(row.completionDays, 'performance.completionDays'),
+    jobsPerCompletionDay: nonNegativeNumber(
+      row.jobsPerCompletionDay,
+      'performance.jobsPerCompletionDay',
+    ),
+    correctionRequestEvents: nonNegativeInteger(
+      row.correctionRequestEvents,
+      'performance.correctionRequestEvents',
+    ),
+    authoredOperationalNotes: nonNegativeInteger(
+      row.authoredOperationalNotes,
+      'performance.authoredOperationalNotes',
+    ),
+  };
+}
+
+function parseCompletionWorkType(value: unknown): CompletionWorkType {
+  const row = exactObject(value, 'completionWorkType', ['type', 'count']);
+  return {
+    type: oneOf(row.type, 'completionWorkType.type', JOB_CARD_TYPES),
+    count: positiveInteger(row.count, 'completionWorkType.count'),
+  };
+}
+
+function parseCompletedTrend(value: unknown) {
+  return array(value, 'completedTrend').map((entry) => {
+    const point = exactObject(entry, 'completedTrend', ['date', 'count']);
+    return {
+      date: string(point.date, 'completedTrend.date'),
+      count: nonNegativeInteger(point.count, 'completedTrend.count'),
+    };
+  });
+}
+
+function parseStaffPerformanceItem(value: unknown): StaffPerformanceItem {
+  const row = exactObject(value, 'staffPerformanceItem', [
+    'staff', 'performance', 'completionWorkTypes', 'currentWorkload',
+  ]);
+  return {
+    staff: parseStaffIdentity(row.staff),
+    performance: parseStaffHistoricalPerformance(row.performance),
+    completionWorkTypes: array(row.completionWorkTypes, 'completionWorkTypes')
+      .map(parseCompletionWorkType),
+    currentWorkload: parseStaffCurrentWorkload(row.currentWorkload),
   };
 }
 
@@ -194,24 +260,35 @@ export function parseDashboardReport(value: unknown): DashboardReportResponse {
       completedInPeriod: nonNegativeInteger(counters.completedInPeriod, 'counters.completedInPeriod'),
       cancelledInPeriod: nonNegativeInteger(counters.cancelledInPeriod, 'counters.cancelledInPeriod'),
     },
-    completedTrend: array(row.completedTrend, 'completedTrend').map((value) => {
-      const point = exactObject(value, 'completedTrend', ['date', 'count']);
-      return { date: string(point.date, 'completedTrend.date'),
-        count: nonNegativeInteger(point.count, 'completedTrend.count') };
-    }),
+    completedTrend: parseCompletedTrend(row.completedTrend),
+  };
+}
+
+export function parseStaffPerformance(value: unknown): StaffPerformanceResponse {
+  const row = exactObject(value, 'staffPerformance', ['range', 'items']);
+  return {
+    range: parseResolvedRange(row.range),
+    items: array(row.items, 'items').map(parseStaffPerformanceItem),
   };
 }
 
 export function parseStaffReport(value: unknown): StaffReportResponse {
   const row = exactObject(value, 'staffReport', [
-    'staff', 'range', 'counters', 'deliveriesByPurpose', 'meetingsByOutcome',
+    'staff', 'range', 'performance', 'completionWorkTypes', 'completedTrend',
+    'deliveriesByPurpose', 'meetingsByOutcome', 'currentWorkload',
   ]);
-  return { staff: parseStaffIdentity(row.staff), range: parseResolvedRange(row.range),
-    counters: parseStaffCounters(row.counters), deliveriesByPurpose: array(
-      row.deliveriesByPurpose, 'deliveriesByPurpose',
-    ).map(parseDeliveryPurposeItem), meetingsByOutcome: parseMeetingsByOutcome(
-      row.meetingsByOutcome,
-    ) };
+  return {
+    staff: parseStaffIdentity(row.staff),
+    range: parseResolvedRange(row.range),
+    performance: parseStaffHistoricalPerformance(row.performance),
+    completionWorkTypes: array(row.completionWorkTypes, 'completionWorkTypes')
+      .map(parseCompletionWorkType),
+    completedTrend: parseCompletedTrend(row.completedTrend),
+    deliveriesByPurpose: array(row.deliveriesByPurpose, 'deliveriesByPurpose')
+      .map(parseDeliveryPurposeItem),
+    meetingsByOutcome: parseMeetingsByOutcome(row.meetingsByOutcome),
+    currentWorkload: parseStaffCurrentWorkload(row.currentWorkload),
+  };
 }
 
 function parseApprovalItem(value: unknown): ApprovalItem {
@@ -261,6 +338,8 @@ function rangeQuery(requestedRange: RequestedReportRange) {
 
 export const getDashboardReport = async (requestedRange: RequestedReportRange) =>
   parseDashboardReport(await request(`/api/reports/dashboard${query(rangeQuery(requestedRange))}`));
+export const getStaffPerformance = async (requestedRange: RequestedReportRange) =>
+  parseStaffPerformance(await request(`/api/reports/staff${query(rangeQuery(requestedRange))}`));
 export const getOwnStaffReport = async (requestedRange: RequestedReportRange) =>
   parseStaffReport(await request(`/api/reports/staff/me${query(rangeQuery(requestedRange))}`));
 export const getStaffReport = async (staffUserId: string, requestedRange: RequestedReportRange) =>

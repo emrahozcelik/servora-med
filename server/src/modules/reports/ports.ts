@@ -7,10 +7,13 @@ import type {
   DeliveryReportResponse,
   MeetingOutcomeItem,
   ReportStaffIdentity,
+  StaffCompletionPerformance,
   StaffOperationalSummary,
   StaffOperationalSummaryManyInput,
   StaffOperationalSummaryOneInput,
   StaffOperationalSummaryScope,
+  StaffPerformanceScope,
+  StaffPerformanceScopeInput,
   WorkTypeDistributionInput,
   WorkTypeDistributionItem,
 } from './types.js';
@@ -23,6 +26,15 @@ export interface StaffOperationalSummaryPort {
 
 export interface ReportsReadModel extends StaffOperationalSummaryPort {
   getDashboard(input: StaffOperationalSummaryScope): Promise<DashboardReportResponse>;
+  getStaffPerformanceScope(input: StaffPerformanceScopeInput): Promise<StaffPerformanceScope>;
+  getStaffCompletionPerformanceMany(input: StaffOperationalSummaryManyInput):
+    Promise<ReadonlyMap<string, StaffCompletionPerformance>>;
+  getStaffCorrectionRequestEventsMany(input: StaffOperationalSummaryManyInput):
+    Promise<ReadonlyMap<string, number>>;
+  getStaffAuthoredOperationalNotesMany(input: StaffOperationalSummaryManyInput):
+    Promise<ReadonlyMap<string, number>>;
+  getStaffDailyCompletionTrend(input: StaffOperationalSummaryOneInput):
+    Promise<Array<{ date: string; count: number }>>;
   getStaffIdentity(input: { organizationId: string; staffUserId: string }):
     Promise<ReportStaffIdentity | null>;
   getStaffDeliveriesByPurpose(input: StaffOperationalSummaryOneInput):

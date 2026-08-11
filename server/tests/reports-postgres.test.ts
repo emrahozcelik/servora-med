@@ -325,7 +325,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     unit: 'Kutu',
     productNameSnapshot: 'Implant Classic',
   });
-  await insertJob({
+  const revisionJobId = await insertJob({
     organizationId: organizationOne,
     type: 'GENERAL_TASK',
     status: 'REVISION_REQUESTED',
@@ -447,7 +447,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
   });
   await insertJob({
     organizationId: organizationOne,
-    type: 'PRODUCT_DELIVERY',
+    type: 'GENERAL_TASK',
     status: 'COMPLETED',
     title: 'Completed overdue due date never counts',
     assignedTo: activeStaff.id,
@@ -477,6 +477,96 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
   const activeAllTypes = 18;
   // due_date < Berlin-local 2026-07-14 across five actionable statuses
   const overdueJobCards = 3;
+
+  // --- Staff Performance date boundaries (Europe/Berlin) ---
+  // 22:30Z is 00:30 on July 1 locally and must be included.
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'GENERAL_TASK',
+    status: 'COMPLETED',
+    title: 'Local July boundary completion',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+    startedAt: new Date('2026-06-30T20:00:00.000Z'),
+    staffCompletedAt: new Date('2026-06-30T21:30:00.000Z'),
+    staffCompletedBy: activeStaff.id,
+    managerApprovedAt: new Date('2026-06-30T22:30:00.000Z'),
+    managerApprovedBy: manager.id,
+  });
+  // 22:30Z is 00:30 on August 1 locally and must be excluded from July.
+  await insertJob({
+    organizationId: organizationOne,
+    type: 'GENERAL_TASK',
+    status: 'COMPLETED',
+    title: 'Local August boundary completion',
+    assignedTo: activeStaff.id,
+    createdBy: manager.id,
+    startedAt: new Date('2026-07-31T20:00:00.000Z'),
+    staffCompletedAt: new Date('2026-07-31T21:30:00.000Z'),
+    staffCompletedBy: activeStaff.id,
+    managerApprovedAt: new Date('2026-07-31T22:30:00.000Z'),
+    managerApprovedBy: manager.id,
+  });
+
+  const revisionActivityIds: string[] = [];
+  for (const createdAt of [
+    '2026-07-09T10:00:00.000Z',
+    '2026-07-11T10:00:00.000Z',
+    '2026-06-30T20:00:00.000Z',
+  ]) {
+    revisionActivityIds.push((await pool.query<{ id: string }>(
+      `INSERT INTO job_card_activity_logs (
+         organization_id, job_card_id, actor_id, event_type, created_at
+       ) VALUES ($1, $2, $3, 'JOB_REVISION_REQUESTED', $4)
+       RETURNING id`,
+      [organizationOne, revisionJobId, manager.id, createdAt],
+    )).rows[0]!.id);
+  }
+
+  await pool.query(
+    `INSERT INTO job_card_notes (
+       organization_id, job_card_id, author_id, note, record_version, created_at
+     ) VALUES ($1, $2, $3, 'Legacy human note', 0, '2026-07-02T10:00:00.000Z')`,
+    [organizationOne, revisionJobId, activeStaff.id],
+  );
+  const generalActivityId = (await pool.query<{ id: string }>(
+    `INSERT INTO job_card_activity_logs (
+       organization_id, job_card_id, actor_id, event_type, created_at
+     ) VALUES ($1, $2, $3, 'NOTE_ADDED', '2026-07-03T10:00:00.000Z')
+     RETURNING id`,
+    [organizationOne, revisionJobId, activeStaff.id],
+  )).rows[0]!.id;
+  await pool.query(
+    `INSERT INTO job_card_notes (
+       organization_id, job_card_id, author_id, note,
+       author_name_snapshot, author_role_snapshot, workflow_stage,
+       context, related_activity_id, record_version, created_at
+     ) VALUES (
+       $1, $2, $3, 'Human operational note',
+       'Active Staff', 'STAFF', 'REVISION_REQUESTED',
+       'GENERAL', $4, 1, '2026-07-03T10:00:00.000Z'
+     )`,
+    [organizationOne, revisionJobId, activeStaff.id, generalActivityId],
+  );
+  // Transition-generated note with a Staff author is deliberately excluded by context.
+  await pool.query(
+    `INSERT INTO job_card_notes (
+       organization_id, job_card_id, author_id, note,
+       author_name_snapshot, author_role_snapshot, workflow_stage,
+       context, related_activity_id, record_version, created_at
+     ) VALUES (
+       $1, $2, $3, 'Transition note',
+       'Active Staff', 'STAFF', 'REVISION_REQUESTED',
+       'REQUEST_REVISION', $4, 1, '2026-07-09T10:00:00.000Z'
+     )`,
+    [organizationOne, revisionJobId, activeStaff.id, revisionActivityIds[0]],
+  );
+  await pool.query(
+    `INSERT INTO job_card_notes (
+       organization_id, job_card_id, author_id, note, record_version, created_at
+     ) VALUES ($1, $2, $3, 'Outside range note', 0, '2026-06-30T20:00:00.000Z')`,
+    [organizationOne, revisionJobId, activeStaff.id],
+  );
 
   // --- DST transition deliveries (Europe/Berlin spring 2026) ---
   const dstJobId = await insertJob({
@@ -836,8 +926,8 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(dashboard.counters.waitingApproval).toBe(9);
   expect(dashboard.counters.revisionRequested).toBe(2);
   expect(dashboard.counters.cancelledInPeriod).toBe(2);
-  // July completed approvals: reassigned, july variety, rename, completed-fixture
-  expect(dashboard.counters.completedInPeriod).toBe(4);
+  // July completed approvals include the organization-local July 1 boundary.
+  expect(dashboard.counters.completedInPeriod).toBe(5);
   // Canonical overdue: due_date < Berlin-local current date, scheduled_at ignored
   expect(dashboard.counters.overdueJobCards).toBe(fixture.expected.overdueJobCards);
 
@@ -880,11 +970,29 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(staffReport.staff.userId).toBe(fixture.activeStaff.id);
   expect(staffReport.staff.isActive).toBe(true);
   expect(staffReport.deliveriesByPurpose).toEqual(fixture.expected.purposeRows);
-  // GENERAL_TASK revision + open pipeline contribute to Staff counters
-  expect(staffReport.counters.revisionRequested).toBe(2);
-  expect(staffReport.counters.waitingApproval).toBe(9);
-  expect(staffReport.counters.openJobCards).toBe(7); // 3 original + 4 overdue fixtures
-  expect(staffReport.counters.overdueJobCards).toBe(fixture.expected.overdueJobCards);
+  expect(staffReport.performance).toEqual({
+    completedJobs: 5,
+    completionDays: 4,
+    jobsPerCompletionDay: 1.25,
+    correctionRequestEvents: 2,
+    authoredOperationalNotes: 2,
+  });
+  expect(staffReport.completionWorkTypes).toEqual([
+    { type: 'PRODUCT_DELIVERY', count: 3 },
+    { type: 'GENERAL_TASK', count: 2 },
+  ]);
+  expect(staffReport.completedTrend).toHaveLength(31);
+  expect(staffReport.completedTrend.find(({ date }) => date === '2026-07-01')?.count)
+    .toBe(1);
+  expect(staffReport.completedTrend.find(({ date }) => date === '2026-07-10')?.count)
+    .toBe(2);
+  // GENERAL_TASK revision + open pipeline contribute only to the current snapshot.
+  expect(staffReport.currentWorkload).toEqual({
+    openJobCards: 7,
+    overdueJobCards: fixture.expected.overdueJobCards,
+    waitingApproval: 9,
+    revisionRequested: 2,
+  });
 
   const inactiveReport = await service.getStaffReport(
     fixture.manager,
@@ -894,7 +1002,8 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(inactiveReport.staff.userId).toBe(fixture.inactiveStaff.id);
   expect(inactiveReport.staff.isActive).toBe(false);
   // Reassigned job is no longer on inactiveStaff despite staff_completed_by
-  expect(inactiveReport.counters.completedInPeriod).toBe(0);
+  expect(inactiveReport.performance.completedJobs).toBe(0);
+  expect(inactiveReport.performance.jobsPerCompletionDay).toBe(0);
   expect(inactiveReport.deliveriesByPurpose).toEqual([]);
 
   await expect(service.getStaffReport(
@@ -912,6 +1021,61 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   });
   expect(ownReport.staff.userId).toBe(fixture.activeStaff.id);
   expect(ownReport.deliveriesByPurpose).toEqual(fixture.expected.purposeRows);
+
+  const managerPerformance = await service.getStaffPerformance(fixture.manager, {
+    requestedRange: julyRange,
+  });
+  expect(managerPerformance.range).toEqual({
+    from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Berlin',
+  });
+  expect(managerPerformance.items).toHaveLength(1);
+  expect(managerPerformance.items[0]).toEqual({
+    staff: {
+      userId: fixture.activeStaff.id,
+      name: fixture.activeStaff.name,
+      isActive: true,
+    },
+    performance: {
+      completedJobs: 5,
+      completionDays: 4,
+      jobsPerCompletionDay: 1.25,
+      correctionRequestEvents: 2,
+      authoredOperationalNotes: 2,
+    },
+    completionWorkTypes: [
+      { type: 'PRODUCT_DELIVERY', count: 3 },
+      { type: 'GENERAL_TASK', count: 2 },
+    ],
+    currentWorkload: {
+      openJobCards: 7,
+      overdueJobCards: fixture.expected.overdueJobCards,
+      waitingApproval: 9,
+      revisionRequested: 2,
+    },
+  });
+
+  const adminPerformance = await service.getStaffPerformance(fixture.admin, {
+    requestedRange: julyRange,
+  });
+  expect(adminPerformance.items.map(({ staff }) => staff.userId)).toEqual([
+    fixture.activeStaff.id,
+    fixture.inactiveStaff.id,
+  ]);
+  expect(adminPerformance.items[1]?.performance).toEqual({
+    completedJobs: 0,
+    completionDays: 0,
+    jobsPerCompletionDay: 0,
+    correctionRequestEvents: 0,
+    authoredOperationalNotes: 0,
+  });
+  expect(JSON.stringify(adminPerformance)).not.toContain(fixture.otherOrganizationStaff.id);
+
+  const leapPerformance = await service.getStaffPerformance(fixture.manager, {
+    requestedRange: { from: '2024-02-29', to: '2024-02-29' },
+  });
+  expect(leapPerformance.items[0]?.performance.completedJobs).toBe(1);
+  expect(leapPerformance.items[0]?.currentWorkload)
+    .toEqual(managerPerformance.items[0]?.currentWorkload);
 
   const deliveries = await reports.getDeliveryReport({
     organizationId: fixture.organizationOne,
@@ -1075,6 +1239,52 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   const recordedReports = new PostgresReportsRepository(recordingPool as never);
   const recordedJobCards = new PostgresJobCardRepository(recordingPool as never);
   await exerciseEveryReportQuery(recordedReports, recordedJobCards, fixture);
+  const recordedService = new ReportsService(
+    recordedReports,
+    recordedJobCards,
+    () => fixture.requestTime,
+  );
+
+  const emptyOrganizationId = (await pool.query<{ id: string }>(
+    `INSERT INTO organizations (name, timezone)
+     VALUES ('Empty Staff Organization', 'Europe/Istanbul')
+     RETURNING id`,
+  )).rows[0]!.id;
+  const emptyOrganizationManager = toSafeUser((await pool.query<{
+    id: string;
+    organization_id: string;
+    name: string;
+    email: string;
+    role: SafeUser['role'];
+    is_active: boolean;
+    version: number;
+  }>(
+    `INSERT INTO users (
+       organization_id, name, email, password_hash, role, is_active
+     ) VALUES ($1, 'Empty Organization Manager', $2, 'test-hash', 'MANAGER', TRUE)
+     RETURNING id, organization_id, name, email, role, is_active, version`,
+    [emptyOrganizationId, `${randomUUID()}@test.local`],
+  )).rows[0]!);
+  const emptyPerformanceQueryStart = calls.length;
+  const emptyPerformance = await recordedService.getStaffPerformance(
+    emptyOrganizationManager,
+    { requestedRange: julyRange },
+  );
+  expect(emptyPerformance).toEqual({
+    range: {
+      from: '2026-07-01',
+      to: '2026-07-31',
+      timezone: 'Europe/Istanbul',
+    },
+    items: [],
+  });
+  expect(calls.length - emptyPerformanceQueryStart).toBe(1);
+
+  const staffPerformanceQueryStart = calls.length;
+  await recordedService.getStaffPerformance(fixture.manager, {
+    requestedRange: julyRange,
+  });
+  expect(calls.length - staffPerformanceQueryStart).toBe(5);
 
   const selectCalls = calls.filter(({ text }) => /^\s*(WITH|SELECT)/i.test(text));
   expect(selectCalls.length).toBeGreaterThan(5);

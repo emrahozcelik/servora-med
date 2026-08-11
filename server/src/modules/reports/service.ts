@@ -5,6 +5,11 @@ import type {
   ApprovalReportQuery,
   DeliveryReportQuery,
   ReportRangeQuery,
+  StaffCompletionPerformance,
+  StaffCurrentWorkload,
+  StaffHistoricalPerformance,
+  StaffOperationalSummary,
+  StaffPerformanceResponse,
   StaffReportResponse,
 } from './types.js';
 
@@ -22,6 +27,33 @@ const staffProfileNotFound = () => new AppError(
 
 function requireManagement(actor: SafeUser) {
   if (actor.role !== 'ADMIN' && actor.role !== 'MANAGER') throw forbidden();
+}
+
+function currentWorkload(summary: StaffOperationalSummary): StaffCurrentWorkload {
+  return {
+    openJobCards: summary.counters.openJobCards,
+    overdueJobCards: summary.counters.overdueJobCards,
+    waitingApproval: summary.counters.waitingApproval,
+    revisionRequested: summary.counters.revisionRequested,
+  };
+}
+
+function historicalPerformance(
+  summary: StaffOperationalSummary,
+  completion: StaffCompletionPerformance,
+  correctionRequestEvents: number,
+  authoredOperationalNotes: number,
+): StaffHistoricalPerformance {
+  const completedJobs = summary.counters.completedInPeriod;
+  return {
+    completedJobs,
+    completionDays: completion.completionDays,
+    jobsPerCompletionDay: completion.completionDays === 0
+      ? 0
+      : completedJobs / completion.completionDays,
+    correctionRequestEvents,
+    authoredOperationalNotes,
+  };
 }
 
 export class ReportsService {
@@ -52,6 +84,58 @@ export class ReportsService {
   ) {
     requireManagement(actor);
     return this.staffReport(actor.organizationId, staffUserId, query, this.now());
+  }
+
+  async getStaffPerformance(
+    actor: SafeUser,
+    query: ReportRangeQuery,
+  ): Promise<StaffPerformanceResponse> {
+    requireManagement(actor);
+    const requestTime = this.now();
+    const scopeInput = {
+      organizationId: actor.organizationId,
+      requestedRange: query.requestedRange,
+      requestTime,
+      includeInactive: actor.role === 'ADMIN',
+    };
+    const scope = await this.reports.getStaffPerformanceScope(scopeInput);
+    if (scope.staff.length === 0) return { range: scope.range, items: [] };
+
+    const staffUserIds = scope.staff.map((staff) => staff.userId);
+    const batchInput = {
+      organizationId: actor.organizationId,
+      requestedRange: query.requestedRange,
+      requestTime,
+      staffUserIds,
+    };
+    const [summaries, completions, correctionEvents, authoredNotes] = await Promise.all([
+      this.reports.getMany(batchInput),
+      this.reports.getStaffCompletionPerformanceMany(batchInput),
+      this.reports.getStaffCorrectionRequestEventsMany(batchInput),
+      this.reports.getStaffAuthoredOperationalNotesMany(batchInput),
+    ]);
+
+    return {
+      range: scope.range,
+      items: scope.staff.map((staff) => {
+        const summary = summaries.get(staff.userId);
+        const completion = completions.get(staff.userId);
+        if (!summary || !completion) {
+          throw new Error('Staff performance aggregate could not be resolved.');
+        }
+        return {
+          staff,
+          performance: historicalPerformance(
+            summary,
+            completion,
+            correctionEvents.get(staff.userId) ?? 0,
+            authoredNotes.get(staff.userId) ?? 0,
+          ),
+          completionWorkTypes: completion.completionWorkTypes,
+          currentWorkload: currentWorkload(summary),
+        };
+      }),
+    };
   }
 
   async getDeliveries(actor: SafeUser, query: DeliveryReportQuery) {
@@ -111,19 +195,48 @@ export class ReportsService {
       requestedRange: query.requestedRange,
       requestTime,
     };
-    const [identity, summary, deliveriesByPurpose, meetingsByOutcome] = await Promise.all([
+    const batchInput = {
+      organizationId,
+      staffUserIds: [staffUserId],
+      requestedRange: query.requestedRange,
+      requestTime,
+    };
+    const [
+      identity,
+      summary,
+      completions,
+      correctionEvents,
+      authoredNotes,
+      completedTrend,
+      deliveriesByPurpose,
+      meetingsByOutcome,
+    ] = await Promise.all([
       this.reports.getStaffIdentity({ organizationId, staffUserId }),
       this.reports.getOne(input),
+      this.reports.getStaffCompletionPerformanceMany(batchInput),
+      this.reports.getStaffCorrectionRequestEventsMany(batchInput),
+      this.reports.getStaffAuthoredOperationalNotesMany(batchInput),
+      this.reports.getStaffDailyCompletionTrend(input),
       this.reports.getStaffDeliveriesByPurpose(input),
       this.reports.getStaffMeetingsByOutcome(input),
     ]);
     if (!identity || !summary) throw staffProfileNotFound();
+    const completion = completions.get(staffUserId);
+    if (!completion) throw new Error('Staff completion performance could not be resolved.');
     return {
       staff: identity,
       range: summary.range,
-      counters: summary.counters,
+      performance: historicalPerformance(
+        summary,
+        completion,
+        correctionEvents.get(staffUserId) ?? 0,
+        authoredNotes.get(staffUserId) ?? 0,
+      ),
+      completionWorkTypes: completion.completionWorkTypes,
+      completedTrend,
       deliveriesByPurpose,
       meetingsByOutcome,
+      currentWorkload: currentWorkload(summary),
     };
   }
 }

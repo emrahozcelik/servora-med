@@ -3,8 +3,8 @@ import { useCallback, useEffect, useState } from 'react';
 import { getOwnStaffReport, getStaffReport } from './reports-api';
 import type {
   DeliveryPurposeItem,
+  RequestedReportRange,
   ResolvedReportRange,
-  StaffOperationalCounters,
   StaffReportResponse,
 } from './report-types';
 import type { DeliveryPurpose, MeetingOutcome } from '../jobs/jobs-api';
@@ -14,15 +14,9 @@ import {
   type OperationalTableColumn,
   type OperationalTableRow,
 } from '../ui/OperationalTable';
-import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
-
-const staffCounterLabels: Record<keyof StaffOperationalCounters, string> = {
-  openJobCards: 'Açık işler',
-  waitingApproval: 'Onay bekliyor',
-  revisionRequested: 'Düzeltme istendi',
-  overdueJobCards: 'Geciken',
-  completedInPeriod: 'Dönemde tamamlandı',
-};
+import { EmptyState, LoadingSkeleton, MetricStatistic, ResultState } from '../ui/antd';
+import { jobTypeLabels } from '../jobs/job-labels';
+import { TrendBars } from './report-charts';
 
 const purposeLabels: Record<DeliveryPurpose, string> = {
   SALE: 'Satış',
@@ -45,6 +39,11 @@ const DELIVERY_PURPOSE_COLUMNS: readonly OperationalTableColumn[] = [
 const MEETING_OUTCOME_COLUMNS: readonly OperationalTableColumn[] = [
   { key: 'outcome', title: 'Sonuç' },
   { key: 'count', title: 'Görüşme sayısı' },
+];
+
+const COMPLETION_TREND_COLUMNS: readonly OperationalTableColumn[] = [
+  { key: 'date', title: 'Tarih' },
+  { key: 'count', title: 'Tamamlanan iş' },
 ];
 
 function deliveryPurposeRows(items: readonly DeliveryPurposeItem[]): OperationalTableRow[] {
@@ -83,14 +82,11 @@ function formatReportRange(range: ResolvedReportRange) {
   return `${formatDate(range.from)} – ${formatDate(range.to)} · ${range.timezone}`;
 }
 
-function StaffCounterList({ counters }: { counters: StaffOperationalCounters }) {
-  return <dl className="counter-grid report-counter-grid">
-    {(Object.keys(staffCounterLabels) as Array<keyof StaffOperationalCounters>)
-      .map((key) => <div key={key}>
-        <dt>{staffCounterLabels[key]}</dt>
-        <dd>{counters[key]}</dd>
-      </div>)}
-  </dl>;
+function dailyCompletionRows(report: StaffReportResponse): OperationalTableRow[] {
+  return report.completedTrend.map((point) => ({
+    key: point.date,
+    cells: { date: formatDate(point.date), count: point.count },
+  }));
 }
 
 function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
@@ -126,18 +122,84 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
 }
 
 export function StaffOperationalReport({ report }: { report: StaffReportResponse }) {
+  const performance = report.performance;
+  const trendTotal = report.completedTrend.reduce((sum, point) => sum + point.count, 0);
+  const jobsPerDay = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
+    .format(performance.jobsPerCompletionDay);
   return <section className="staff-operational-report" aria-labelledby="staff-report-title">
     <div className="report-section-heading">
       <div>
-        <p className="eyebrow">Operasyon raporu</p>
-        <h2 id="staff-report-title">Aylık çalışma özeti</h2>
+        <p className="eyebrow">Seçilen dönem</p>
+        <h2 id="staff-report-title">Performans</h2>
       </div>
       {!report.staff.isActive && <span className="status-label">Pasif personel</span>}
     </div>
     <p className="report-range">{formatReportRange(report.range)}</p>
-    <StaffCounterList counters={report.counters} />
-    <DeliveryPurposeTable items={report.deliveriesByPurpose} />
-    <MeetingOutcomeTable items={report.meetingsByOutcome} />
+
+    <div className="staff-performance-statistics" aria-label="Seçilen dönem performans göstergeleri">
+      <MetricStatistic title="Tamamlanan iş" value={performance.completedJobs} />
+      <MetricStatistic title="Tamamlama günü" value={performance.completionDays} />
+      <MetricStatistic title="İş / gün" value={jobsPerDay} />
+      <MetricStatistic title="Düzeltme isteği" value={performance.correctionRequestEvents} />
+      <MetricStatistic title="Eklediği not" value={performance.authoredOperationalNotes} />
+    </div>
+    <p className="report-section-hint">
+      Tamamlama günü, en az bir iş tamamlanan organizasyon-yerel günü ifade eder. İş / gün
+      yalnız bu günler üzerinden hesaplanır. Düzeltme isteği olay sayısıdır; aynı iş tekrar
+      sayılabilir. Not sayısı yalnız insan tarafından eklenen operasyon notlarını içerir.
+    </p>
+
+    <section className="staff-detail-section" aria-labelledby="daily-completion-title">
+      <h3 id="daily-completion-title">Günlük tamamlamalar</h3>
+      <p className="report-chart-summary">
+        Seçilen dönemde toplam {trendTotal} tamamlanan iş. Sıfır tamamlamalı günler de seride yer alır.
+      </p>
+      <TrendBars points={report.completedTrend} />
+      <details className="report-data-disclosure">
+        <summary>Günlük veriyi tablo olarak göster</summary>
+        <OperationalTable
+          caption="Günlük tamamlanan işler"
+          columns={COMPLETION_TREND_COLUMNS}
+          rows={dailyCompletionRows(report)}
+          rowHeaderKey="date"
+        />
+      </details>
+    </section>
+
+    <section className="staff-detail-section" aria-labelledby="completion-types-title">
+      <h3 id="completion-types-title">İş türleri</h3>
+      {report.completionWorkTypes.length === 0 ? (
+        <p className="report-empty-copy">Bu dönemde tamamlanan iş bulunmuyor.</p>
+      ) : (
+        <ul className="staff-work-type-list">
+          {report.completionWorkTypes.map((item) => (
+            <li key={item.type}>
+              <span>{jobTypeLabels[item.type]}</span>
+              <strong>{item.count}</strong>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+
+    <section className="staff-detail-section" aria-labelledby="delivery-purpose-title">
+      <h3 id="delivery-purpose-title">Teslimler</h3>
+      <DeliveryPurposeTable items={report.deliveriesByPurpose} />
+    </section>
+    <section className="staff-detail-section">
+      <MeetingOutcomeTable items={report.meetingsByOutcome} />
+    </section>
+
+    <section className="staff-detail-section staff-current-workload" aria-labelledby="current-workload-title">
+      <p className="eyebrow">Anlık iş yükü</p>
+      <h3 id="current-workload-title">Şu an</h3>
+      <dl className="counter-grid staff-current-workload-grid">
+        <div><dt>Açık işler</dt><dd>{report.currentWorkload.openJobCards}</dd></div>
+        <div><dt>Gecikmiş</dt><dd>{report.currentWorkload.overdueJobCards}</dd></div>
+        <div><dt>Onay bekliyor</dt><dd>{report.currentWorkload.waitingApproval}</dd></div>
+        <div><dt>Düzeltme bekliyor</dt><dd>{report.currentWorkload.revisionRequested}</dd></div>
+      </dl>
+    </section>
   </section>;
 }
 
@@ -145,10 +207,14 @@ export function StaffOperationalReportScreen({
   staffUserId,
   onBack,
   embedded = false,
+  requestedRange = null,
+  backLabel = 'Personel profiline dön',
 }: {
   staffUserId?: string;
   onBack: () => void;
   embedded?: boolean;
+  requestedRange?: RequestedReportRange;
+  backLabel?: string;
 }) {
   const [report, setReport] = useState<StaffReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
@@ -159,21 +225,21 @@ export function StaffOperationalReportScreen({
     setError('');
     try {
       const next = staffUserId
-        ? await getStaffReport(staffUserId, null)
-        : await getOwnStaffReport(null);
+        ? await getStaffReport(staffUserId, requestedRange)
+        : await getOwnStaffReport(requestedRange);
       setReport(next);
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : 'Operasyon raporu yüklenemedi.');
     } finally {
       setLoading(false);
     }
-  }, [staffUserId]);
+  }, [staffUserId, requestedRange?.from, requestedRange?.to]);
 
   useEffect(() => { void load(); }, [load]);
   useRealtimeInvalidation(['reports'], () => { void load(); });
 
   const content = <>
-    {!embedded && <button className="back-link" type="button" onClick={onBack}>Personel profiline dön</button>}
+    {!embedded && <button className="back-link" type="button" onClick={onBack}>{backLabel}</button>}
     {loading && <LoadingSkeleton
       title="Operasyon raporu yükleniyor"
       headingLevel={embedded ? 2 : 1}
