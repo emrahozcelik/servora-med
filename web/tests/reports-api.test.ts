@@ -45,6 +45,7 @@ const listItem = {
   id: 'job-1', type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', version: 7,
   title: 'Klinik ziyareti', priority: 'urgent', dueDate: '2026-07-20',
   scheduledAt: '2026-07-20T09:00:00.000Z',
+  scheduledEndsAt: null,
   engagementKind: null,
   createdAt: '2026-07-10T10:00:00.000Z', updatedAt: '2026-07-13T10:00:00.000Z',
   staffCompletedAt: '2026-07-12T10:00:00.000Z', customer: null, contact: null,
@@ -195,6 +196,23 @@ describe('Reports runtime contract', () => {
     expect(() => parseApprovalReport({ ...value,
       items: [{ ...listItem, waitingMinutes: 1.5 }] }))
       .toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+  });
+
+  it('parses canonical approval items with a scheduled end timestamp', () => {
+    const item = {
+      ...listItem,
+      scheduledEndsAt: '2026-07-20T11:00:00.000Z',
+      waitingMinutes: 120,
+    };
+    const value = {
+      summary: { pendingCount: 1, oldestWaitingMinutes: 120,
+        averageWaitingMinutes: 120, under2Hours: 0, between2And8Hours: 1,
+        between8And24Hours: 0, over24Hours: 0 },
+      items: [item], total: 1, limit: 50, offset: 0,
+    };
+    expect(parseApprovalReport(value)).toEqual(value);
+    expect(parseApprovalReport(value).items[0]!.scheduledEndsAt)
+      .toBe('2026-07-20T11:00:00.000Z');
   });
 
   it('builds each request with one encoded scalar and preserves API errors', async () => {

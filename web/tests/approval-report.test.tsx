@@ -10,6 +10,7 @@ const report: ApprovalReportResponse = {
     under2Hours: 0, between2And8Hours: 1, between8And24Hours: 0, over24Hours: 1 },
   items: [{ id: 'job-1', type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', version: 3,
     title: 'Klinik ziyareti', priority: 'normal', dueDate: '2026-07-20',
+    scheduledAt: '2026-07-10T09:00:00Z', scheduledEndsAt: null,
     createdAt: '2026-07-10T10:00:00Z', updatedAt: '2026-07-12T10:00:00Z',
     staffCompletedAt: '2026-07-12T10:00:00Z', customer: null, contact: null,
     assignee: { id: 's1', name: 'Ayşe' }, deliveryItemCount: 0, waitingMinutes: 1500 }],
@@ -61,6 +62,23 @@ describe('Approval report presentation', () => {
       <MemoryRouter><ApprovalReportView report={reportWithCustomer} /></MemoryRouter>,
     );
     expect(html).toContain('DentArt Klinik');
+  });
+
+  it('renders a non-empty runtime-shape item that carries scheduledEndsAt', () => {
+    const runtimeShape: ApprovalReportResponse = {
+      ...report,
+      items: [{
+        ...report.items[0]!,
+        id: 'job-runtime',
+        scheduledEndsAt: '2026-07-10T12:00:00Z',
+      }],
+    };
+    const html = renderToStaticMarkup(
+      <MemoryRouter><ApprovalReportView report={runtimeShape} /></MemoryRouter>,
+    );
+    expect(html).toContain('Klinik ziyareti');
+    expect(html).toContain('href="/jobs/job-runtime"');
+    expect(html).not.toContain('approvalItem alanı geçersiz');
   });
 
   it('renders an explanatory empty queue without a table', () => {
