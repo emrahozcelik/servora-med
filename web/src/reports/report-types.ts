@@ -23,6 +23,26 @@ export type StaffHistoricalPerformance = {
   authoredOperationalNotes: number;
 };
 
+export type StaffPriorPerformance = {
+  available: boolean;
+  performance: StaffHistoricalPerformance | null;
+};
+
+export type StaffExecutionMetrics = {
+  approvedJobsWithStaffCompletionTimestamp: number;
+  staffCompletionDays: number;
+  jobsPerStaffCompletionDay: number;
+  missingStaffCompletionTimestamp: number;
+};
+
+export type StaffOnTimeMetrics = {
+  scheduledCompletedJobs: number;
+  onTimeCompletedJobs: number;
+  lateCompletedJobs: number;
+  unscheduledCompletedJobs: number;
+  onTimeRate: number | null;
+};
+
 export type CompletionWorkType = {
   type: JobCardType;
   count: number;
@@ -86,7 +106,11 @@ export type DashboardReportResponse = {
 export type StaffReportResponse = {
   staff: { userId: string; name: string; isActive: boolean };
   range: ResolvedReportRange;
+  priorRange: ResolvedReportRange;
   performance: StaffHistoricalPerformance;
+  priorPerformance: StaffPriorPerformance;
+  staffExecution: StaffExecutionMetrics;
+  onTime: StaffOnTimeMetrics;
   completionWorkTypes: CompletionWorkType[];
   completedTrend: Array<{ date: string; count: number }>;
   deliveriesByPurpose: DeliveryPurposeItem[];
@@ -97,12 +121,16 @@ export type StaffReportResponse = {
 export type StaffPerformanceItem = {
   staff: { userId: string; name: string; isActive: boolean };
   performance: StaffHistoricalPerformance;
+  priorPerformance: StaffPriorPerformance;
+  staffExecution: StaffExecutionMetrics;
+  onTime: StaffOnTimeMetrics;
   completionWorkTypes: CompletionWorkType[];
   currentWorkload: StaffCurrentWorkload;
 };
 
 export type StaffPerformanceResponse = {
   range: ResolvedReportRange;
+  priorRange: ResolvedReportRange;
   items: StaffPerformanceItem[];
 };
 

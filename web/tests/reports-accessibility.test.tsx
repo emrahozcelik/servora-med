@@ -91,8 +91,18 @@ describe('Report accessibility contract', () => {
     const staff: StaffReportResponse = {
       staff: { userId: 'staff-1', name: 'Ayşe', isActive: false },
       range: dashboard.range,
+      priorRange: { from: '2026-05-31', to: '2026-06-30',
+        timezone: 'Europe/Istanbul' },
       performance: { completedJobs: 5, completionDays: 2, jobsPerCompletionDay: 2.5,
         correctionRequestEvents: 1, authoredOperationalNotes: 3 },
+      priorPerformance: { available: true, performance: { completedJobs: 4,
+        completionDays: 2, jobsPerCompletionDay: 2, correctionRequestEvents: 0,
+        authoredOperationalNotes: 2 } },
+      staffExecution: { approvedJobsWithStaffCompletionTimestamp: 4,
+        staffCompletionDays: 2, jobsPerStaffCompletionDay: 2,
+        missingStaffCompletionTimestamp: 1 },
+      onTime: { scheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
+        lateCompletedJobs: 1, unscheduledCompletedJobs: 2, onTimeRate: 2 / 3 },
       completionWorkTypes: [{ type: 'GENERAL_TASK', count: 5 }],
       completedTrend: [{ date: '2026-07-01', count: 5 }],
       deliveriesByPurpose: delivery.items,
@@ -124,6 +134,10 @@ describe('Report accessibility contract', () => {
     expect(staffView.querySelectorAll('.servora-operational-table__field dt').length)
       .toBeGreaterThan(0);
     expect(staffView.textContent).toContain('Pasif personel');
+    expect(staffView.textContent).toContain('2 / 3 zaman hedefli iş');
+    const missingTimestampLabel = Array.from(staffView.querySelectorAll('dt'))
+      .find((item) => item.textContent === 'Bitirme zamanı eksik onaylı iş');
+    expect(missingTimestampLabel?.nextElementSibling?.textContent).toBe('1');
   });
 
   it('keeps approval age buckets textual instead of relying on color', () => {

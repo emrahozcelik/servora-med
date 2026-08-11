@@ -7,6 +7,7 @@ const STAFF_ONE = '11111111-1111-4111-8111-111111111111';
 const INACTIVE_STAFF = '22222222-2222-4222-8222-222222222222';
 const HIDDEN_USER = '33333333-3333-4333-8333-333333333333';
 const requestTime = new Date('2026-07-14T09:00:00.000Z');
+const staffCreatedAt = new Date('2025-01-01T00:00:00.000Z');
 
 type QueryResult = { rows: unknown[] };
 
@@ -24,14 +25,18 @@ describe('PostgresReportsRepository Staff report reads', () => {
     {
       label: 'active',
       staffUserId: STAFF_ONE,
-      row: { id: STAFF_ONE, name: 'Aktif Personel', is_active: true },
-      expected: { userId: STAFF_ONE, name: 'Aktif Personel', isActive: true },
+      row: { id: STAFF_ONE, name: 'Aktif Personel', is_active: true,
+        created_at: staffCreatedAt },
+      expected: { userId: STAFF_ONE, name: 'Aktif Personel', isActive: true,
+        createdAt: staffCreatedAt.toISOString() },
     },
     {
       label: 'inactive',
       staffUserId: INACTIVE_STAFF,
-      row: { id: INACTIVE_STAFF, name: 'Eski Personel', is_active: false },
-      expected: { userId: INACTIVE_STAFF, name: 'Eski Personel', isActive: false },
+      row: { id: INACTIVE_STAFF, name: 'Eski Personel', is_active: false,
+        created_at: staffCreatedAt },
+      expected: { userId: INACTIVE_STAFF, name: 'Eski Personel', isActive: false,
+        createdAt: staffCreatedAt.toISOString() },
     },
   ])('returns a concealed $label same-organization Staff identity', async ({
     staffUserId,

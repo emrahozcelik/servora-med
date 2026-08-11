@@ -155,13 +155,17 @@ export type ReportStaffIdentity = {
   isActive: boolean;
 };
 
+export type ReportStaffLifecycleIdentity = ReportStaffIdentity & Readonly<{
+  createdAt: string;
+}>;
+
 export type StaffPerformanceScopeInput = StaffOperationalSummaryScope & Readonly<{
   includeInactive: boolean;
 }>;
 
 export type StaffPerformanceScope = Readonly<{
   range: ResolvedReportRange;
-  staff: ReportStaffIdentity[];
+  staff: ReportStaffLifecycleIdentity[];
 }>;
 
 export type StaffCompletionPerformance = Readonly<{
@@ -170,15 +174,59 @@ export type StaffCompletionPerformance = Readonly<{
   completionWorkTypes: WorkTypeDistributionItem[];
 }>;
 
+export type StaffExecutionAggregate = Readonly<{
+  staffUserId: string;
+  approvedJobsWithStaffCompletionTimestamp: number;
+  staffCompletionDays: number;
+  missingStaffCompletionTimestamp: number;
+}>;
+
+export type StaffExecutionMetrics = Readonly<{
+  approvedJobsWithStaffCompletionTimestamp: number;
+  staffCompletionDays: number;
+  jobsPerStaffCompletionDay: number;
+  missingStaffCompletionTimestamp: number;
+}>;
+
+export type StaffOnTimeAggregate = Readonly<{
+  staffUserId: string;
+  scheduledCompletedJobs: number;
+  onTimeCompletedJobs: number;
+  lateCompletedJobs: number;
+  unscheduledCompletedJobs: number;
+}>;
+
+export type StaffOnTimeMetrics = Readonly<{
+  scheduledCompletedJobs: number;
+  onTimeCompletedJobs: number;
+  lateCompletedJobs: number;
+  unscheduledCompletedJobs: number;
+  onTimeRate: number | null;
+}>;
+
+/**
+ * Availability is based only on the user's organization-local creation date:
+ * true when the user existed on at least one date in the prior range. Historical
+ * deactivation is not inferred, and an available all-zero performance is valid data.
+ */
+export type StaffPriorPerformance = Readonly<{
+  available: boolean;
+  performance: StaffHistoricalPerformance | null;
+}>;
+
 export type StaffPerformanceItem = Readonly<{
   staff: ReportStaffIdentity;
   performance: StaffHistoricalPerformance;
+  priorPerformance: StaffPriorPerformance;
+  staffExecution: StaffExecutionMetrics;
+  onTime: StaffOnTimeMetrics;
   completionWorkTypes: WorkTypeDistributionItem[];
   currentWorkload: StaffCurrentWorkload;
 }>;
 
 export type StaffPerformanceResponse = Readonly<{
   range: ResolvedReportRange;
+  priorRange: ResolvedReportRange;
   items: StaffPerformanceItem[];
 }>;
 
@@ -190,7 +238,11 @@ export type MeetingOutcomeItem = {
 export type StaffReportResponse = {
   staff: ReportStaffIdentity;
   range: ResolvedReportRange;
+  priorRange: ResolvedReportRange;
   performance: StaffHistoricalPerformance;
+  priorPerformance: StaffPriorPerformance;
+  staffExecution: StaffExecutionMetrics;
+  onTime: StaffOnTimeMetrics;
   completionWorkTypes: WorkTypeDistributionItem[];
   completedTrend: Array<{ date: string; count: number }>;
   deliveriesByPurpose: DeliveryPurposeItem[];

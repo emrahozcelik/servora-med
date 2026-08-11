@@ -9,6 +9,7 @@ const INACTIVE_STAFF = '22222222-2222-4222-8222-222222222222';
 const MISSING_STAFF = '33333333-3333-4333-8333-333333333333';
 const requestTime = new Date('2026-07-14T12:00:00.000Z');
 const range = { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' };
+const priorRange = { from: '2026-05-31', to: '2026-06-30', timezone: 'Europe/Istanbul' };
 const counters = {
   openJobCards: 3,
   waitingApproval: 2,
@@ -41,6 +42,7 @@ function ports() {
         userId: staffUserId,
         name: staffUserId === INACTIVE_STAFF ? 'Eski Personel' : 'Aktif Personel',
         isActive: staffUserId !== INACTIVE_STAFF,
+        createdAt: '2025-01-01T00:00:00.000Z',
       };
   const reports = {
     getDashboard: vi.fn(async (input) => ({
@@ -60,9 +62,11 @@ function ports() {
     getStaffPerformanceScope: vi.fn(async ({ includeInactive }) => ({
       range,
       staff: [
-        { userId: STAFF_ONE, name: 'Aktif Personel', isActive: true },
+        { userId: STAFF_ONE, name: 'Aktif Personel', isActive: true,
+          createdAt: '2025-01-01T00:00:00.000Z' },
         ...(includeInactive
-          ? [{ userId: INACTIVE_STAFF, name: 'Eski Personel', isActive: false }]
+          ? [{ userId: INACTIVE_STAFF, name: 'Eski Personel', isActive: false,
+              createdAt: '2025-01-01T00:00:00.000Z' }]
           : []),
       ],
     })),
@@ -84,6 +88,23 @@ function ports() {
     )),
     getStaffCorrectionRequestEventsMany: vi.fn(async () => new Map([[STAFF_ONE, 1]])),
     getStaffAuthoredOperationalNotesMany: vi.fn(async () => new Map([[STAFF_ONE, 3]])),
+    getStaffExecutionMany: vi.fn(async ({ staffUserIds }) => new Map(
+      staffUserIds.map((staffUserId: string) => [staffUserId, {
+        staffUserId,
+        approvedJobsWithStaffCompletionTimestamp: staffUserId === INACTIVE_STAFF ? 0 : 4,
+        staffCompletionDays: staffUserId === INACTIVE_STAFF ? 0 : 2,
+        missingStaffCompletionTimestamp: 0,
+      }]),
+    )),
+    getStaffOnTimeMany: vi.fn(async ({ staffUserIds }) => new Map(
+      staffUserIds.map((staffUserId: string) => [staffUserId, {
+        staffUserId,
+        scheduledCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 2,
+        onTimeCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 1,
+        lateCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 1,
+        unscheduledCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 2,
+      }]),
+    )),
     getStaffDailyCompletionTrend: vi.fn(async () => ([
       { date: '2026-07-01', count: 0 },
       { date: '2026-07-02', count: 4 },
@@ -198,12 +219,36 @@ describe('ReportsService authorization and composition', () => {
     expect(result).toEqual({
       staff: { userId: STAFF_ONE, name: 'Aktif Personel', isActive: true },
       range,
+      priorRange,
       performance: {
         completedJobs: 4,
         completionDays: 2,
         jobsPerCompletionDay: 2,
         correctionRequestEvents: 1,
         authoredOperationalNotes: 3,
+      },
+      priorPerformance: {
+        available: true,
+        performance: {
+          completedJobs: 4,
+          completionDays: 2,
+          jobsPerCompletionDay: 2,
+          correctionRequestEvents: 1,
+          authoredOperationalNotes: 3,
+        },
+      },
+      staffExecution: {
+        approvedJobsWithStaffCompletionTimestamp: 4,
+        staffCompletionDays: 2,
+        jobsPerStaffCompletionDay: 2,
+        missingStaffCompletionTimestamp: 0,
+      },
+      onTime: {
+        scheduledCompletedJobs: 2,
+        onTimeCompletedJobs: 1,
+        lateCompletedJobs: 1,
+        unscheduledCompletedJobs: 2,
+        onTimeRate: 0.5,
       },
       completionWorkTypes: [{ type: 'GENERAL_TASK', count: 4 }],
       completedTrend: [

@@ -123,9 +123,16 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
 
 export function StaffOperationalReport({ report }: { report: StaffReportResponse }) {
   const performance = report.performance;
+  const priorPerformance = report.priorPerformance.performance;
   const trendTotal = report.completedTrend.reduce((sum, point) => sum + point.count, 0);
   const jobsPerDay = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
     .format(performance.jobsPerCompletionDay);
+  const jobsPerStaffCompletionDay = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
+    .format(report.staffExecution.jobsPerStaffCompletionDay);
+  const onTimeRate = report.onTime.onTimeRate === null
+    ? null
+    : new Intl.NumberFormat('tr-TR', { style: 'percent', maximumFractionDigits: 0 })
+      .format(report.onTime.onTimeRate);
   return <section className="staff-operational-report" aria-labelledby="staff-report-title">
     <div className="report-section-heading">
       <div>
@@ -148,6 +155,69 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
       yalnız bu günler üzerinden hesaplanır. Düzeltme isteği olay sayısıdır; aynı iş tekrar
       sayılabilir. Not sayısı yalnız insan tarafından eklenen operasyon notlarını içerir.
     </p>
+
+    <section className="staff-detail-section staff-r2-section" aria-labelledby="prior-period-title">
+      <p className="eyebrow">Karşılaştırma</p>
+      <h3 id="prior-period-title">Önceki dönem</h3>
+      <p className="report-range">{formatReportRange(report.priorRange)}</p>
+      {!report.priorPerformance.available || !priorPerformance ? (
+        <p className="report-empty-copy">Önceki dönem verisi yok.</p>
+      ) : (
+        <dl className="staff-r2-metric-list">
+          <div><dt>Tamamlanan iş</dt><dd>Şimdi {performance.completedJobs} · önceki{' '}
+            {priorPerformance.completedJobs}</dd></div>
+          <div><dt>İş / tamamlama günü</dt><dd>Şimdi {jobsPerDay} · önceki{' '}
+            {new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
+              .format(priorPerformance.jobsPerCompletionDay)}</dd></div>
+          <div><dt>Düzeltme isteği</dt><dd>Şimdi {performance.correctionRequestEvents} · önceki{' '}
+            {priorPerformance.correctionRequestEvents}</dd></div>
+          <div><dt>Eklediği not</dt><dd>Şimdi {performance.authoredOperationalNotes} · önceki{' '}
+            {priorPerformance.authoredOperationalNotes}</dd></div>
+        </dl>
+      )}
+    </section>
+
+    <section className="staff-detail-section staff-r2-section" aria-labelledby="staff-execution-title">
+      <p className="eyebrow">Personel zamanı</p>
+      <h3 id="staff-execution-title">Personelin bitirme zamanı</h3>
+      <dl className="staff-r2-metric-list">
+        <div><dt>Personelin bitirme günü</dt><dd>{report.staffExecution.staffCompletionDays}</dd></div>
+        <div><dt>İş / bitirme günü</dt><dd>{jobsPerStaffCompletionDay}</dd></div>
+        <div><dt>Bitirme zamanı bulunan onaylı iş</dt><dd>
+          {report.staffExecution.approvedJobsWithStaffCompletionTimestamp}</dd></div>
+        <div><dt>Bitirme zamanı eksik onaylı iş</dt><dd>
+          {report.staffExecution.missingStaffCompletionTimestamp}</dd></div>
+      </dl>
+      <p className="report-section-hint">
+        İşin personel tarafından tamamlanıp onaya gönderildiği günler üzerinden hesaplanır.
+        R1 tamamlama günü ise yönetici onayına göre hesaplanmaya devam eder.
+      </p>
+    </section>
+
+    <section className="staff-detail-section staff-r2-section" aria-labelledby="on-time-title">
+      <p className="eyebrow">Zaman hedefi</p>
+      <h3 id="on-time-title">Mevcut plana göre zamanında</h3>
+      {onTimeRate === null ? (
+        <p className="report-empty-copy">
+          Bu dönemde zaman hedefli tamamlanan iş yok; oran hesaplanmadı.
+        </p>
+      ) : (
+        <p className="staff-on-time-summary">
+          <strong>{onTimeRate}</strong> · {report.onTime.onTimeCompletedJobs} /{' '}
+          {report.onTime.scheduledCompletedJobs} zaman hedefli iş
+        </p>
+      )}
+      <dl className="staff-r2-metric-list">
+        <div><dt>Zaman hedefli tamamlanan</dt><dd>{report.onTime.scheduledCompletedJobs}</dd></div>
+        <div><dt>Zamanında</dt><dd>{report.onTime.onTimeCompletedJobs}</dd></div>
+        <div><dt>Geç</dt><dd>{report.onTime.lateCompletedJobs}</dd></div>
+        <div><dt>Zaman hedefi olmayan tamamlanan</dt><dd>
+          {report.onTime.unscheduledCompletedJobs}</dd></div>
+      </dl>
+      <p className="report-section-hint">
+        Yalnız kayıttaki güncel plan zamanı kullanılır; orijinal plan iddiası taşımaz.
+      </p>
+    </section>
 
     <section className="staff-detail-section" aria-labelledby="daily-completion-title">
       <h3 id="daily-completion-title">Günlük tamamlamalar</h3>

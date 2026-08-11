@@ -116,6 +116,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     name: string,
     role: SafeUser['role'],
     isActive = true,
+    createdAt = '2024-01-01T00:00:00.000Z',
   ) {
     const row = (await pool.query<{
       id: string;
@@ -127,10 +128,10 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
       version: number;
     }>(
       `INSERT INTO users (
-         organization_id, name, email, password_hash, role, is_active
-       ) VALUES ($1, $2, $3, 'unused-test-hash', $4, $5)
+         organization_id, name, email, password_hash, role, is_active, created_at
+       ) VALUES ($1, $2, $3, 'unused-test-hash', $4, $5, $6)
        RETURNING id, organization_id, name, email, role, is_active, version`,
-      [organizationId, name, `${randomUUID()}@test.local`, role, isActive],
+      [organizationId, name, `${randomUUID()}@test.local`, role, isActive, createdAt],
     )).rows[0]!;
     if (role === 'STAFF') {
       await pool.query(
@@ -455,6 +456,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     startedAt: new Date('2026-07-10T08:00:00.000Z'),
     staffCompletedAt: new Date('2026-07-10T09:00:00.000Z'),
     staffCompletedBy: activeStaff.id,
+    scheduledAt: new Date('2026-07-10T09:00:00.000Z'),
     managerApprovedAt: new Date('2026-07-10T12:00:00.000Z'),
     managerApprovedBy: manager.id,
     dueDate: '2026-07-13',
@@ -490,6 +492,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     startedAt: new Date('2026-06-30T20:00:00.000Z'),
     staffCompletedAt: new Date('2026-06-30T21:30:00.000Z'),
     staffCompletedBy: activeStaff.id,
+    scheduledAt: new Date('2026-06-30T22:00:00.000Z'),
     managerApprovedAt: new Date('2026-06-30T22:30:00.000Z'),
     managerApprovedBy: manager.id,
   });
@@ -627,6 +630,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     startedAt: new Date('2026-07-04T08:00:00.000Z'),
     staffCompletedAt: new Date('2026-07-05T08:00:00.000Z'),
     staffCompletedBy: inactiveStaff.id,
+    scheduledAt: new Date('2026-07-05T07:00:00.000Z'),
     managerApprovedAt: new Date('2026-07-05T10:00:00.000Z'),
     managerApprovedBy: manager.id,
   });
@@ -977,6 +981,32 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     correctionRequestEvents: 2,
     authoredOperationalNotes: 2,
   });
+  expect(staffReport.priorRange).toEqual({
+    from: '2026-05-31', to: '2026-06-30', timezone: 'Europe/Berlin',
+  });
+  expect(staffReport.priorPerformance).toEqual({
+    available: true,
+    performance: {
+      completedJobs: 0,
+      completionDays: 0,
+      jobsPerCompletionDay: 0,
+      correctionRequestEvents: 1,
+      authoredOperationalNotes: 1,
+    },
+  });
+  expect(staffReport.staffExecution).toEqual({
+    approvedJobsWithStaffCompletionTimestamp: 5,
+    staffCompletionDays: 4,
+    jobsPerStaffCompletionDay: 1.25,
+    missingStaffCompletionTimestamp: 0,
+  });
+  expect(staffReport.onTime).toEqual({
+    scheduledCompletedJobs: 3,
+    onTimeCompletedJobs: 2,
+    lateCompletedJobs: 1,
+    unscheduledCompletedJobs: 2,
+    onTimeRate: 2 / 3,
+  });
   expect(staffReport.completionWorkTypes).toEqual([
     { type: 'PRODUCT_DELIVERY', count: 3 },
     { type: 'GENERAL_TASK', count: 2 },
@@ -1028,6 +1058,9 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(managerPerformance.range).toEqual({
     from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Berlin',
   });
+  expect(managerPerformance.priorRange).toEqual({
+    from: '2026-05-31', to: '2026-06-30', timezone: 'Europe/Berlin',
+  });
   expect(managerPerformance.items).toHaveLength(1);
   expect(managerPerformance.items[0]).toEqual({
     staff: {
@@ -1041,6 +1074,29 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       jobsPerCompletionDay: 1.25,
       correctionRequestEvents: 2,
       authoredOperationalNotes: 2,
+    },
+    priorPerformance: {
+      available: true,
+      performance: {
+        completedJobs: 0,
+        completionDays: 0,
+        jobsPerCompletionDay: 0,
+        correctionRequestEvents: 1,
+        authoredOperationalNotes: 1,
+      },
+    },
+    staffExecution: {
+      approvedJobsWithStaffCompletionTimestamp: 5,
+      staffCompletionDays: 4,
+      jobsPerStaffCompletionDay: 1.25,
+      missingStaffCompletionTimestamp: 0,
+    },
+    onTime: {
+      scheduledCompletedJobs: 3,
+      onTimeCompletedJobs: 2,
+      lateCompletedJobs: 1,
+      unscheduledCompletedJobs: 2,
+      onTimeRate: 2 / 3,
     },
     completionWorkTypes: [
       { type: 'PRODUCT_DELIVERY', count: 3 },
@@ -1276,6 +1332,11 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       to: '2026-07-31',
       timezone: 'Europe/Istanbul',
     },
+    priorRange: {
+      from: '2026-05-31',
+      to: '2026-06-30',
+      timezone: 'Europe/Istanbul',
+    },
     items: [],
   });
   expect(calls.length - emptyPerformanceQueryStart).toBe(1);
@@ -1284,7 +1345,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   await recordedService.getStaffPerformance(fixture.manager, {
     requestedRange: julyRange,
   });
-  expect(calls.length - staffPerformanceQueryStart).toBe(5);
+  expect(calls.length - staffPerformanceQueryStart).toBe(11);
 
   const selectCalls = calls.filter(({ text }) => /^\s*(WITH|SELECT)/i.test(text));
   expect(selectCalls.length).toBeGreaterThan(5);

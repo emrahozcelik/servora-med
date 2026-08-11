@@ -27,7 +27,10 @@ import type {
   ResolvedReportRange,
   CompletionWorkType,
   StaffCurrentWorkload,
+  StaffExecutionMetrics,
   StaffHistoricalPerformance,
+  StaffOnTimeMetrics,
+  StaffPriorPerformance,
   StaffPerformanceItem,
   StaffPerformanceResponse,
   StaffReportResponse,
@@ -86,6 +89,17 @@ function positiveInteger(value: unknown, field: string) {
 
 function nullableNonNegativeInteger(value: unknown, field: string) {
   return value === null ? null : nonNegativeInteger(value, field);
+}
+
+function nullableRate(value: unknown, field: string) {
+  if (value === null) return null;
+  const parsed = nonNegativeNumber(value, field);
+  if (parsed > 1) invalid(field);
+  return parsed;
+}
+
+function approximatelyEqual(left: number, right: number) {
+  return Math.abs(left - right) <= 1e-12;
 }
 
 function decimalQuantity(value: unknown, field: string) {
@@ -150,6 +164,86 @@ function parseStaffHistoricalPerformance(value: unknown): StaffHistoricalPerform
   };
 }
 
+function parseStaffPriorPerformance(value: unknown): StaffPriorPerformance {
+  const row = exactObject(value, 'priorPerformance', ['available', 'performance']);
+  const available = boolean(row.available, 'priorPerformance.available');
+  if (available && row.performance === null) invalid('priorPerformance.performance');
+  if (!available && row.performance !== null) invalid('priorPerformance.performance');
+  return {
+    available,
+    performance: available ? parseStaffHistoricalPerformance(row.performance) : null,
+  };
+}
+
+function parseStaffExecution(value: unknown): StaffExecutionMetrics {
+  const row = exactObject(value, 'staffExecution', [
+    'approvedJobsWithStaffCompletionTimestamp', 'staffCompletionDays',
+    'jobsPerStaffCompletionDay', 'missingStaffCompletionTimestamp',
+  ]);
+  const result = {
+    approvedJobsWithStaffCompletionTimestamp: nonNegativeInteger(
+      row.approvedJobsWithStaffCompletionTimestamp,
+      'staffExecution.approvedJobsWithStaffCompletionTimestamp',
+    ),
+    staffCompletionDays: nonNegativeInteger(
+      row.staffCompletionDays,
+      'staffExecution.staffCompletionDays',
+    ),
+    jobsPerStaffCompletionDay: nonNegativeNumber(
+      row.jobsPerStaffCompletionDay,
+      'staffExecution.jobsPerStaffCompletionDay',
+    ),
+    missingStaffCompletionTimestamp: nonNegativeInteger(
+      row.missingStaffCompletionTimestamp,
+      'staffExecution.missingStaffCompletionTimestamp',
+    ),
+  };
+  if ((result.approvedJobsWithStaffCompletionTimestamp === 0)
+    !== (result.staffCompletionDays === 0)
+    || result.staffCompletionDays > result.approvedJobsWithStaffCompletionTimestamp) {
+    invalid('staffExecution');
+  }
+  const expectedRatio = result.staffCompletionDays === 0
+    ? 0
+    : result.approvedJobsWithStaffCompletionTimestamp / result.staffCompletionDays;
+  if (!approximatelyEqual(result.jobsPerStaffCompletionDay, expectedRatio)) {
+    invalid('staffExecution.jobsPerStaffCompletionDay');
+  }
+  return result;
+}
+
+function parseStaffOnTime(value: unknown): StaffOnTimeMetrics {
+  const row = exactObject(value, 'onTime', [
+    'scheduledCompletedJobs', 'onTimeCompletedJobs', 'lateCompletedJobs',
+    'unscheduledCompletedJobs', 'onTimeRate',
+  ]);
+  const result = {
+    scheduledCompletedJobs: nonNegativeInteger(
+      row.scheduledCompletedJobs,
+      'onTime.scheduledCompletedJobs',
+    ),
+    onTimeCompletedJobs: nonNegativeInteger(
+      row.onTimeCompletedJobs,
+      'onTime.onTimeCompletedJobs',
+    ),
+    lateCompletedJobs: nonNegativeInteger(row.lateCompletedJobs, 'onTime.lateCompletedJobs'),
+    unscheduledCompletedJobs: nonNegativeInteger(
+      row.unscheduledCompletedJobs,
+      'onTime.unscheduledCompletedJobs',
+    ),
+    onTimeRate: nullableRate(row.onTimeRate, 'onTime.onTimeRate'),
+  };
+  if (result.scheduledCompletedJobs
+    !== result.onTimeCompletedJobs + result.lateCompletedJobs) invalid('onTime');
+  if (result.scheduledCompletedJobs === 0 && result.onTimeRate !== null) invalid('onTime.onTimeRate');
+  if (result.scheduledCompletedJobs > 0 && result.onTimeRate === null) invalid('onTime.onTimeRate');
+  if (result.onTimeRate !== null && !approximatelyEqual(
+    result.onTimeRate,
+    result.onTimeCompletedJobs / result.scheduledCompletedJobs,
+  )) invalid('onTime.onTimeRate');
+  return result;
+}
+
 function parseCompletionWorkType(value: unknown): CompletionWorkType {
   const row = exactObject(value, 'completionWorkType', ['type', 'count']);
   return {
@@ -170,11 +264,15 @@ function parseCompletedTrend(value: unknown) {
 
 function parseStaffPerformanceItem(value: unknown): StaffPerformanceItem {
   const row = exactObject(value, 'staffPerformanceItem', [
-    'staff', 'performance', 'completionWorkTypes', 'currentWorkload',
+    'staff', 'performance', 'priorPerformance', 'staffExecution', 'onTime',
+    'completionWorkTypes', 'currentWorkload',
   ]);
   return {
     staff: parseStaffIdentity(row.staff),
     performance: parseStaffHistoricalPerformance(row.performance),
+    priorPerformance: parseStaffPriorPerformance(row.priorPerformance),
+    staffExecution: parseStaffExecution(row.staffExecution),
+    onTime: parseStaffOnTime(row.onTime),
     completionWorkTypes: array(row.completionWorkTypes, 'completionWorkTypes')
       .map(parseCompletionWorkType),
     currentWorkload: parseStaffCurrentWorkload(row.currentWorkload),
@@ -265,22 +363,28 @@ export function parseDashboardReport(value: unknown): DashboardReportResponse {
 }
 
 export function parseStaffPerformance(value: unknown): StaffPerformanceResponse {
-  const row = exactObject(value, 'staffPerformance', ['range', 'items']);
+  const row = exactObject(value, 'staffPerformance', ['range', 'priorRange', 'items']);
   return {
     range: parseResolvedRange(row.range),
+    priorRange: parseResolvedRange(row.priorRange),
     items: array(row.items, 'items').map(parseStaffPerformanceItem),
   };
 }
 
 export function parseStaffReport(value: unknown): StaffReportResponse {
   const row = exactObject(value, 'staffReport', [
-    'staff', 'range', 'performance', 'completionWorkTypes', 'completedTrend',
+    'staff', 'range', 'priorRange', 'performance', 'priorPerformance',
+    'staffExecution', 'onTime', 'completionWorkTypes', 'completedTrend',
     'deliveriesByPurpose', 'meetingsByOutcome', 'currentWorkload',
   ]);
   return {
     staff: parseStaffIdentity(row.staff),
     range: parseResolvedRange(row.range),
+    priorRange: parseResolvedRange(row.priorRange),
     performance: parseStaffHistoricalPerformance(row.performance),
+    priorPerformance: parseStaffPriorPerformance(row.priorPerformance),
+    staffExecution: parseStaffExecution(row.staffExecution),
+    onTime: parseStaffOnTime(row.onTime),
     completionWorkTypes: array(row.completionWorkTypes, 'completionWorkTypes')
       .map(parseCompletionWorkType),
     completedTrend: parseCompletedTrend(row.completedTrend),

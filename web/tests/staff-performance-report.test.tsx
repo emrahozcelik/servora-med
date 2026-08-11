@@ -26,13 +26,25 @@ vi.stubGlobal('ResizeObserver', class {
 });
 
 const range = { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' };
+const priorRange = { from: '2026-05-31', to: '2026-06-30', timezone: 'Europe/Istanbul' };
 const report: StaffPerformanceResponse = {
   range,
+  priorRange,
   items: [
     {
       staff: { userId: '11111111-1111-4111-8111-111111111111', name: 'Ayşe Yılmaz', isActive: true },
       performance: { completedJobs: 42, completionDays: 18, jobsPerCompletionDay: 42 / 18,
         correctionRequestEvents: 1, authoredOperationalNotes: 17 },
+      priorPerformance: {
+        available: true,
+        performance: { completedJobs: 34, completionDays: 17, jobsPerCompletionDay: 2,
+          correctionRequestEvents: 2, authoredOperationalNotes: 12 },
+      },
+      staffExecution: { approvedJobsWithStaffCompletionTimestamp: 40,
+        staffCompletionDays: 16, jobsPerStaffCompletionDay: 2.5,
+        missingStaffCompletionTimestamp: 2 },
+      onTime: { scheduledCompletedJobs: 10, onTimeCompletedJobs: 8,
+        lateCompletedJobs: 2, unscheduledCompletedJobs: 32, onTimeRate: 0.8 },
       completionWorkTypes: [
         { type: 'SALES_MEETING', count: 14 },
         { type: 'PRODUCT_DELIVERY', count: 9 },
@@ -44,6 +56,12 @@ const report: StaffPerformanceResponse = {
       staff: { userId: '22222222-2222-4222-8222-222222222222', name: 'Mehmet Kaya', isActive: false },
       performance: { completedJobs: 0, completionDays: 0, jobsPerCompletionDay: 0,
         correctionRequestEvents: 3, authoredOperationalNotes: 12 },
+      priorPerformance: { available: false, performance: null },
+      staffExecution: { approvedJobsWithStaffCompletionTimestamp: 0,
+        staffCompletionDays: 0, jobsPerStaffCompletionDay: 0,
+        missingStaffCompletionTimestamp: 0 },
+      onTime: { scheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
+        lateCompletedJobs: 0, unscheduledCompletedJobs: 0, onTimeRate: null },
       completionWorkTypes: [],
       currentWorkload: { openJobCards: 0, overdueJobCards: 0, waitingApproval: 0,
         revisionRequested: 0 },
@@ -86,6 +104,9 @@ describe('StaffPerformanceReport', () => {
     });
     expect(container.querySelector('h1')?.textContent).toBe('Personel performansı');
     expect(container.textContent).toContain('Performans — 1 Temmuz 2026 – 31 Temmuz 2026');
+    expect(container.textContent).toContain('Önceki dönem: 31 Mayıs 2026 – 30 Haziran 2026');
+    expect(container.textContent).toContain('Önceki 34 · değişim +8');
+    expect(container.textContent).toContain('Önceki dönem verisi yok');
     for (const label of [
       'Personel', 'Tamamlanan', 'Tamamlama günü', 'İş / gün',
       'Düzeltme isteği', 'Eklediği not',
@@ -97,6 +118,10 @@ describe('StaffPerformanceReport', () => {
     expect(container.textContent).toContain('Şu an');
     expect(container.textContent).toContain('Satış görüşmesi');
     expect(container.textContent).toContain('Ürün teslimi');
+    expect(container.textContent).toContain('Personelin bitirme zamanı');
+    expect(container.textContent).toContain('Mevcut plana göre zamanında');
+    expect(container.textContent).toContain('8 / 10 zaman hedefli iş');
+    expect(container.textContent).toContain('Zaman hedefli tamamlanan iş yok; oran hesaplanmadı.');
     const reportLinks = Array.from(container.querySelectorAll('a'))
       .filter((link) => link.textContent?.includes('Raporu aç'));
     expect(reportLinks[0]?.getAttribute('href')).toBe(
@@ -108,6 +133,7 @@ describe('StaffPerformanceReport', () => {
       .map((header) => header.textContent);
     expect(headers).not.toContain('Açık');
     expect(headers).not.toContain('Geciken');
+    expect(headers).not.toContain('Zamanında');
   });
 
   it('filters staff without recomputing server metrics', async () => {

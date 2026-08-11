@@ -1,14 +1,21 @@
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
 import type { ApprovalQueueItemPort, ReportsReadModel } from './ports.js';
+import { precedingEqualLengthRange, staffExistedDuringPriorRange } from './range.js';
 import type {
   ApprovalReportQuery,
   DeliveryReportQuery,
   ReportRangeQuery,
   StaffCompletionPerformance,
   StaffCurrentWorkload,
+  StaffExecutionAggregate,
+  StaffExecutionMetrics,
   StaffHistoricalPerformance,
+  StaffOnTimeAggregate,
+  StaffOnTimeMetrics,
   StaffOperationalSummary,
+  ReportStaffLifecycleIdentity,
+  ReportStaffIdentity,
   StaffPerformanceResponse,
   StaffReportResponse,
 } from './types.js';
@@ -56,6 +63,42 @@ function historicalPerformance(
   };
 }
 
+function publicStaffIdentity(staff: ReportStaffLifecycleIdentity): ReportStaffIdentity {
+  return { userId: staff.userId, name: staff.name, isActive: staff.isActive };
+}
+
+function staffExecution(aggregate: StaffExecutionAggregate): StaffExecutionMetrics {
+  const completed = aggregate.approvedJobsWithStaffCompletionTimestamp;
+  const days = aggregate.staffCompletionDays;
+  if ((completed === 0) !== (days === 0) || days > completed) {
+    throw new Error('Staff execution aggregate invariant could not be resolved.');
+  }
+  return {
+    approvedJobsWithStaffCompletionTimestamp: completed,
+    staffCompletionDays: days,
+    jobsPerStaffCompletionDay: days === 0
+      ? 0
+      : completed / days,
+    missingStaffCompletionTimestamp: aggregate.missingStaffCompletionTimestamp,
+  };
+}
+
+function onTime(aggregate: StaffOnTimeAggregate): StaffOnTimeMetrics {
+  if (aggregate.scheduledCompletedJobs
+    !== aggregate.onTimeCompletedJobs + aggregate.lateCompletedJobs) {
+    throw new Error('Staff on-time aggregate invariant could not be resolved.');
+  }
+  return {
+    scheduledCompletedJobs: aggregate.scheduledCompletedJobs,
+    onTimeCompletedJobs: aggregate.onTimeCompletedJobs,
+    lateCompletedJobs: aggregate.lateCompletedJobs,
+    unscheduledCompletedJobs: aggregate.unscheduledCompletedJobs,
+    onTimeRate: aggregate.scheduledCompletedJobs === 0
+      ? null
+      : aggregate.onTimeCompletedJobs / aggregate.scheduledCompletedJobs,
+  };
+}
+
 export class ReportsService {
   constructor(
     private readonly reports: ReportsReadModel,
@@ -99,7 +142,8 @@ export class ReportsService {
       includeInactive: actor.role === 'ADMIN',
     };
     const scope = await this.reports.getStaffPerformanceScope(scopeInput);
-    if (scope.staff.length === 0) return { range: scope.range, items: [] };
+    const priorRange = precedingEqualLengthRange(scope.range);
+    if (scope.staff.length === 0) return { range: scope.range, priorRange, items: [] };
 
     const staffUserIds = scope.staff.map((staff) => staff.userId);
     const batchInput = {
@@ -108,29 +152,70 @@ export class ReportsService {
       requestTime,
       staffUserIds,
     };
-    const [summaries, completions, correctionEvents, authoredNotes] = await Promise.all([
+    const priorBatchInput = {
+      ...batchInput,
+      requestedRange: { from: priorRange.from, to: priorRange.to },
+    };
+    const [
+      summaries,
+      completions,
+      correctionEvents,
+      authoredNotes,
+      priorSummaries,
+      priorCompletions,
+      priorCorrectionEvents,
+      priorAuthoredNotes,
+      executionAggregates,
+      onTimeAggregates,
+    ] = await Promise.all([
       this.reports.getMany(batchInput),
       this.reports.getStaffCompletionPerformanceMany(batchInput),
       this.reports.getStaffCorrectionRequestEventsMany(batchInput),
       this.reports.getStaffAuthoredOperationalNotesMany(batchInput),
+      this.reports.getMany(priorBatchInput),
+      this.reports.getStaffCompletionPerformanceMany(priorBatchInput),
+      this.reports.getStaffCorrectionRequestEventsMany(priorBatchInput),
+      this.reports.getStaffAuthoredOperationalNotesMany(priorBatchInput),
+      this.reports.getStaffExecutionMany(batchInput),
+      this.reports.getStaffOnTimeMany(batchInput),
     ]);
 
     return {
       range: scope.range,
+      priorRange,
       items: scope.staff.map((staff) => {
         const summary = summaries.get(staff.userId);
         const completion = completions.get(staff.userId);
-        if (!summary || !completion) {
+        const priorSummary = priorSummaries.get(staff.userId);
+        const priorCompletion = priorCompletions.get(staff.userId);
+        const executionAggregate = executionAggregates.get(staff.userId);
+        const onTimeAggregate = onTimeAggregates.get(staff.userId);
+        if (!summary || !completion || !priorSummary || !priorCompletion
+          || !executionAggregate || !onTimeAggregate) {
           throw new Error('Staff performance aggregate could not be resolved.');
         }
+        const priorAvailable = staffExistedDuringPriorRange(staff.createdAt, priorRange);
         return {
-          staff,
+          staff: publicStaffIdentity(staff),
           performance: historicalPerformance(
             summary,
             completion,
             correctionEvents.get(staff.userId) ?? 0,
             authoredNotes.get(staff.userId) ?? 0,
           ),
+          priorPerformance: {
+            available: priorAvailable,
+            performance: priorAvailable
+              ? historicalPerformance(
+                  priorSummary,
+                  priorCompletion,
+                  priorCorrectionEvents.get(staff.userId) ?? 0,
+                  priorAuthoredNotes.get(staff.userId) ?? 0,
+                )
+              : null,
+          },
+          staffExecution: staffExecution(executionAggregate),
+          onTime: onTime(onTimeAggregate),
           completionWorkTypes: completion.completionWorkTypes,
           currentWorkload: currentWorkload(summary),
         };
@@ -195,43 +280,82 @@ export class ReportsService {
       requestedRange: query.requestedRange,
       requestTime,
     };
+    const [identity, summary] = await Promise.all([
+      this.reports.getStaffIdentity({ organizationId, staffUserId }),
+      this.reports.getOne(input),
+    ]);
+    if (!identity || !summary) throw staffProfileNotFound();
+    const priorRange = precedingEqualLengthRange(summary.range);
     const batchInput = {
       organizationId,
       staffUserIds: [staffUserId],
       requestedRange: query.requestedRange,
       requestTime,
     };
+    const priorBatchInput = {
+      ...batchInput,
+      requestedRange: { from: priorRange.from, to: priorRange.to },
+    };
     const [
-      identity,
-      summary,
       completions,
       correctionEvents,
       authoredNotes,
       completedTrend,
       deliveriesByPurpose,
       meetingsByOutcome,
+      priorSummaries,
+      priorCompletions,
+      priorCorrectionEvents,
+      priorAuthoredNotes,
+      executionAggregates,
+      onTimeAggregates,
     ] = await Promise.all([
-      this.reports.getStaffIdentity({ organizationId, staffUserId }),
-      this.reports.getOne(input),
       this.reports.getStaffCompletionPerformanceMany(batchInput),
       this.reports.getStaffCorrectionRequestEventsMany(batchInput),
       this.reports.getStaffAuthoredOperationalNotesMany(batchInput),
       this.reports.getStaffDailyCompletionTrend(input),
       this.reports.getStaffDeliveriesByPurpose(input),
       this.reports.getStaffMeetingsByOutcome(input),
+      this.reports.getMany(priorBatchInput),
+      this.reports.getStaffCompletionPerformanceMany(priorBatchInput),
+      this.reports.getStaffCorrectionRequestEventsMany(priorBatchInput),
+      this.reports.getStaffAuthoredOperationalNotesMany(priorBatchInput),
+      this.reports.getStaffExecutionMany(batchInput),
+      this.reports.getStaffOnTimeMany(batchInput),
     ]);
-    if (!identity || !summary) throw staffProfileNotFound();
     const completion = completions.get(staffUserId);
-    if (!completion) throw new Error('Staff completion performance could not be resolved.');
+    const priorSummary = priorSummaries.get(staffUserId);
+    const priorCompletion = priorCompletions.get(staffUserId);
+    const executionAggregate = executionAggregates.get(staffUserId);
+    const onTimeAggregate = onTimeAggregates.get(staffUserId);
+    if (!completion || !priorSummary || !priorCompletion
+      || !executionAggregate || !onTimeAggregate) {
+      throw new Error('Staff performance aggregate could not be resolved.');
+    }
+    const priorAvailable = staffExistedDuringPriorRange(identity.createdAt, priorRange);
     return {
-      staff: identity,
+      staff: publicStaffIdentity(identity),
       range: summary.range,
+      priorRange,
       performance: historicalPerformance(
         summary,
         completion,
         correctionEvents.get(staffUserId) ?? 0,
         authoredNotes.get(staffUserId) ?? 0,
       ),
+      priorPerformance: {
+        available: priorAvailable,
+        performance: priorAvailable
+          ? historicalPerformance(
+              priorSummary,
+              priorCompletion,
+              priorCorrectionEvents.get(staffUserId) ?? 0,
+              priorAuthoredNotes.get(staffUserId) ?? 0,
+            )
+          : null,
+      },
+      staffExecution: staffExecution(executionAggregate),
+      onTime: onTime(onTimeAggregate),
       completionWorkTypes: completion.completionWorkTypes,
       completedTrend,
       deliveriesByPurpose,
