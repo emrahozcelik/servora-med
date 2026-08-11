@@ -35,9 +35,9 @@ const settingsLandingItems = [
 
 export function SettingsLandingPage() {
   return <main className="workspace settings-workspace">
-    <header className="workspace-heading"><div>
-      <p className="eyebrow">Hesap</p><h1>Ayarlar</h1>
-    </div></header>
+    <header className="workspace-heading workspace-heading--semantic-only">
+      <h1 className="route-identity-heading">Ayarlar</h1>
+    </header>
     <nav className="settings-card-grid" aria-label="Ayar bölümleri">
       {settingsLandingItems.map((item) => (
         <Link key={item.key} to={item.to} className="settings-card-link">
@@ -54,7 +54,7 @@ export function ProfileSettingsPage({ user }: { user: CurrentUser }) {
   return <main className="workspace settings-workspace">
     <SettingsTabs items={SETTINGS_TABS} activeKey="profile" />
     <header className="workspace-heading"><div>
-      <p className="eyebrow">Hesap</p><h1>Profil</h1>
+      <h1>Profil</h1>
     </div></header>
     <OperationalCard title="Profil bilgileri">
       <div className="profile-header">
@@ -108,7 +108,7 @@ export function SecuritySettingsPage({ onSessionEnded }: { onSessionEnded: () =>
   if (changed) return <main className="workspace settings-workspace">
     <SettingsTabs items={SETTINGS_TABS} activeKey="security" />
     <header className="workspace-heading"><div>
-      <p className="eyebrow">Hesap</p><h1>Parolanız değiştirildi</h1>
+      <h1>Parolanız değiştirildi</h1>
     </div></header>
     <OperationalCard title="Parola değiştir">
       <p role="status">Yeni parolanızla yeniden giriş yapabilirsiniz.</p>
@@ -119,7 +119,7 @@ export function SecuritySettingsPage({ onSessionEnded }: { onSessionEnded: () =>
   return <main className="workspace settings-workspace">
     <SettingsTabs items={SETTINGS_TABS} activeKey="security" />
     <header className="workspace-heading"><div>
-      <p className="eyebrow">Hesap</p><h1>Güvenlik</h1>
+      <h1>Güvenlik</h1>
     </div></header>
     <OperationalCard title="Parola değiştir">
       {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
@@ -157,7 +157,7 @@ export function NotificationSettingsPage() {
   return <main className="workspace settings-workspace">
     <SettingsTabs items={SETTINGS_TABS} activeKey="notifications" />
     <header className="workspace-heading"><div>
-      <p className="eyebrow">Hesap</p><h1>Bildirimler</h1>
+      <h1>Bildirimler</h1>
     </div></header>
     <OperationalCard title="Cihaz bildirimleri">
       <h2 id="device-notifications-title" className="sr-only">Bu cihaz</h2>
@@ -204,7 +204,7 @@ export function ApplicationSettingsPage() {
   return <main className="workspace settings-workspace">
     <SettingsTabs items={SETTINGS_TABS} activeKey="application" />
     <header className="workspace-heading"><div>
-      <p className="eyebrow">Ayarlar</p><h1>Uygulama</h1>
+      <h1>Uygulama</h1>
     </div></header>
     <div className="settings-panel">
     <OperationalCard title="Uygulama kurulumu">

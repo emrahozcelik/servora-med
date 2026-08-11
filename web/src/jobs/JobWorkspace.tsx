@@ -162,7 +162,7 @@ export function JobWorkspace({ user, notice = '', onCreateDelivery, onCreateTask
     <div className="workspace-heading job-workspace-heading">
       <div>
         <p className="eyebrow">Çalışma alanı</p>
-        <h1>{user.role === 'STAFF' ? 'İşlerim' : 'İşler'}</h1>
+        <h1 className="route-identity-heading">{user.role === 'STAFF' ? 'İşlerim' : 'İşler'}</h1>
       </div>
       <div className="workspace-create-actions workspace-create-actions--toolbar">
         <NewJobMenu

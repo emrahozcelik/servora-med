@@ -197,6 +197,7 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
             </div>
           </aside>
           <header className="desktop-shell-topbar">
+            <p className="desktop-shell-title">{title}</p>
             <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
           </header>
         </>

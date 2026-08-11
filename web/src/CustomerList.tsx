@@ -258,7 +258,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   const canManage = user.role !== 'STAFF';
 
   return <main className="workspace customer-workspace">
-    <div className="workspace-heading"><div><h1 ref={headingRef} tabIndex={-1}>Müşteriler</h1></div>
+    <div className="workspace-heading workspace-heading--route-actions"><div><h1 className="route-identity-heading" ref={headingRef} tabIndex={-1}>Müşteriler</h1></div>
       <button className="primary-button compact-button" type="button" onClick={onCreate}>Yeni müşteri</button>
     </div>
     {filters && onFilterChange && <CustomerFiltersView filters={filters} staff={staff} onChange={onFilterChange} onApplyMany={onApplyFilters} />}

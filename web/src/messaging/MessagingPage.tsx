@@ -660,11 +660,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   // --- Render ---
 
   if (listState.kind === 'loading') {
-    return <main className="workspace messaging-workspace"><LoadConversations /></main>;
+    return <main className="workspace messaging-workspace"><h1 className="sr-only">Mesajlar</h1><LoadConversations /></main>;
   }
   if (listState.kind === 'error') {
     return (
       <main className="workspace messaging-workspace">
+        <h1 className="sr-only">Mesajlar</h1>
         <ResultState status="error" title="Konuşmalar yüklenemedi" description={listState.message}
           action={<button className="primary-button" onClick={refresh}>Tekrar dene</button>} />
       </main>
@@ -679,6 +680,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   return (
     <main className="workspace messaging-workspace">
+      <h1 className="sr-only">Mesajlar</h1>
       <div className={`messaging-container${createOpen ? ' composing' : ''}`} ref={containerRef}>
         <aside className="messaging-sidebar">
           <header className="messaging-sidebar-header" hidden={createOpen}>

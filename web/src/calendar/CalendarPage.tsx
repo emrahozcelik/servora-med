@@ -442,7 +442,7 @@ export function CalendarPage({ user }: { user: CurrentUser }) {
       <header className="workspace-heading">
         <div>
           <p className="eyebrow">Aylık planlama</p>
-          <h1>Takvim</h1>
+          <h1 className="route-identity-heading">Takvim</h1>
           <p>İşlerinizi ve operasyonel planlarınızı aylık zaman çizelgesinde görün.</p>
         </div>
         <button

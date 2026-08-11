@@ -89,7 +89,7 @@ export function OverviewPage({
       <header className="workspace-heading">
         <div>
           <p className="eyebrow">{isStaff ? 'Kişisel çalışma alanı' : 'Operasyon görünümü'}</p>
-          <h1>Genel Bakış</h1>
+          <h1 className="route-identity-heading">Genel Bakış</h1>
           <p>{user.name}, {overview.range.from} – {overview.range.to} dönemi.</p>
         </div>
       </header>

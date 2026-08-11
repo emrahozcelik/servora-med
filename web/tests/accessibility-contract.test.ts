@@ -104,6 +104,22 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/body \{[^}]*overflow-x: clip;/);
   });
 
+  it('reveals desktop-suppressed route headings when they receive programmatic focus', () => {
+    expect(css).toMatch(
+      /@media \(min-width: 64rem\)[\s\S]*\.route-identity-heading\s*\{[^}]*position:\s*absolute;[^}]*clip:\s*rect\(0, 0, 0, 0\);/s,
+    );
+    expect(css).toMatch(
+      /\.route-identity-heading:focus\s*\{[^}]*position:\s*static;[^}]*overflow:\s*visible;[^}]*white-space:\s*normal;[^}]*outline:\s*var\(--focus-width\) solid var\(--focus\);/s,
+    );
+  });
+
+  it('keeps long desktop route titles on one safely truncated line beside notifications', () => {
+    expect(css).toMatch(
+      /\.desktop-shell-title\s*\{[^}]*min-width:\s*0;[^}]*overflow:\s*hidden;[^}]*text-overflow:\s*ellipsis;[^}]*white-space:\s*nowrap;/s,
+    );
+    expect(css).toMatch(/\.desktop-shell-topbar\s*>\s*\.notification-center\s*\{[^}]*flex:\s*0 0 auto;/s);
+  });
+
   it('keeps the shell flat and restrained while elevating only the modal drawer', () => {
     expect(css).not.toMatch(/\.shell-sidebar[^}]*box-shadow/);
     expect(css).not.toMatch(/\.authenticated-shell[^}]*gradient|\.shell-sidebar[^}]*gradient/);

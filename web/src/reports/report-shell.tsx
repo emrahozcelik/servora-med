@@ -195,7 +195,6 @@ export function ReportShell({
     <main className="workspace report-workspace">
       <header className="workspace-heading">
         <div>
-          <p className="eyebrow">Raporlar</p>
           <h1>{title}</h1>
           {refreshLabel ? <ReportRefreshStatus label={refreshLabel} /> : null}
         </div>
