@@ -7,10 +7,12 @@ import {
   getDashboardReport,
   getDeliveryReport,
   getOwnStaffReport,
+  getStaffPerformance,
   getStaffReport,
   parseApprovalReport,
   parseDashboardReport,
   parseDeliveryReport,
+  parseStaffPerformance,
   parseStaffReport,
 } from '../src/reports/reports-api';
 
@@ -19,10 +21,15 @@ afterEach(() => vi.unstubAllGlobals());
 const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 const PRODUCT_ID = '22222222-2222-4222-8222-222222222222';
 const range = { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' };
-const counters = {
-  openJobCards: 3, waitingApproval: 2, revisionRequested: 1,
-  overdueJobCards: 1, completedInPeriod: 4,
+const performance = {
+  completedJobs: 4, completionDays: 2, jobsPerCompletionDay: 2,
+  correctionRequestEvents: 1, authoredOperationalNotes: 3,
 };
+const currentWorkload = { openJobCards: 3, waitingApproval: 2, revisionRequested: 1,
+  overdueJobCards: 1 };
+const completionWorkTypes = [{ type: 'GENERAL_TASK', count: 4 }] as const;
+const completedTrend = [{ date: '2026-07-01', count: 0 },
+  { date: '2026-07-02', count: 4 }];
 const listItem = {
   id: 'job-1', type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', version: 7,
   title: 'Klinik ziyareti', priority: 'urgent', dueDate: '2026-07-20',
@@ -55,7 +62,9 @@ describe('Reports runtime contract', () => {
     const staff = {
       staff: { userId: STAFF_ID, name: 'Emrah Demir', isActive: false },
       range,
-      counters,
+      performance,
+      completionWorkTypes,
+      completedTrend,
       deliveriesByPurpose: [{ purpose: 'SALE', unit: null, quantity: '12.500' }],
       meetingsByOutcome: [
         { outcome: 'POSITIVE', count: 1 },
@@ -63,6 +72,7 @@ describe('Reports runtime contract', () => {
         { outcome: 'NO_DECISION', count: 0 },
         { outcome: 'NOT_INTERESTED', count: 0 },
       ],
+      currentWorkload,
     };
     expect(parseStaffReport(staff)).toEqual(staff);
     expect(() => parseStaffReport({ ...staff, staff: { ...staff.staff, role: 'STAFF' } }))
@@ -79,6 +89,21 @@ describe('Reports runtime contract', () => {
       expect(() => parseStaffReport({ ...staff, meetingsByOutcome }))
         .toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
     }
+
+    const managerWide = {
+      range,
+      items: [{
+        staff: staff.staff,
+        performance,
+        completionWorkTypes,
+        currentWorkload,
+      }],
+    };
+    expect(parseStaffPerformance(managerWide)).toEqual(managerWide);
+    expect(() => parseStaffPerformance({ ...managerWide, items: [{
+      ...managerWide.items[0],
+      performance: { ...performance, jobsPerCompletionDay: -1 },
+    }] })).toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
   });
 
   it.each([
@@ -132,13 +157,19 @@ describe('Reports runtime contract', () => {
       .mockResolvedValueOnce(response({ range, counters: { activeJobCards: 0,
         overdueJobCards: 0, waitingApproval: 0, revisionRequested: 0,
         completedInPeriod: 0, cancelledInPeriod: 0 }, completedTrend: [] }))
+      .mockResolvedValueOnce(response({ range, items: [{
+        staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
+        performance, completionWorkTypes, currentWorkload,
+      }] }))
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        range, counters, deliveriesByPurpose: [], meetingsByOutcome: [
+        range, performance, completionWorkTypes, completedTrend, currentWorkload,
+        deliveriesByPurpose: [], meetingsByOutcome: [
           { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
           { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
         ] }))
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        range, counters, deliveriesByPurpose: [], meetingsByOutcome: [
+        range, performance, completionWorkTypes, completedTrend, currentWorkload,
+        deliveriesByPurpose: [], meetingsByOutcome: [
           { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
           { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
         ] }))
@@ -153,6 +184,7 @@ describe('Reports runtime contract', () => {
     vi.stubGlobal('fetch', fetchMock);
 
     await getDashboardReport({ from: '2026-07-01', to: '2026-07-31' });
+    await getStaffPerformance({ from: '2026-07-01', to: '2026-07-31' });
     await getOwnStaffReport(null);
     await getStaffReport(STAFF_ID, null);
     await getDeliveryReport({ groupBy: 'staff', staffUserId: STAFF_ID,
@@ -164,6 +196,7 @@ describe('Reports runtime contract', () => {
 
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
       '/api/reports/dashboard?from=2026-07-01&to=2026-07-31',
+      '/api/reports/staff?from=2026-07-01&to=2026-07-31',
       '/api/reports/staff/me',
       `/api/reports/staff/${STAFF_ID}`,
       `/api/reports/deliveries?groupBy=staff&staffUserId=${STAFF_ID}&limit=25&offset=10`,

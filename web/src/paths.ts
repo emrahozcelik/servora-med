@@ -22,6 +22,7 @@ export const paths = {
   user: (id: string) => `/users/${encoded(id)}`,
   staff: '/staff',
   reports: '/reports',
+  staffPerformanceReports: '/reports/staff',
   deliveryReports: '/reports/deliveries',
   approvalReports: '/reports/approvals',
   customers: '/customers',
@@ -30,7 +31,12 @@ export const paths = {
   newProduct: '/products/new',
   job: (id: string) => `/jobs/${encoded(id)}`,
   staffProfile: (id: string) => `/staff/${encoded(id)}`,
-  staffReport: (id: string) => `/staff/${encoded(id)}/reports`,
+  staffReport: (id: string, range?: { from: string; to: string } | null) => {
+    const base = `/staff/${encoded(id)}/reports`;
+    if (!range) return base;
+    const search = new URLSearchParams({ from: range.from, to: range.to });
+    return `${base}?${search.toString()}`;
+  },
   customer: (id: string) => `/customers/${encoded(id)}`,
   product: (id: string) => `/products/${encoded(id)}`,
   contact: (customerId: string, contactId: string) =>

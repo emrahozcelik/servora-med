@@ -53,3 +53,5 @@ export { ContentAnchor } from './ContentAnchor';
 export type { ContentAnchorItem, ContentAnchorProps } from './ContentAnchor';
 export { SettingsTabs } from './SettingsTabs';
 export type { SettingsTab, SettingsTabsProps } from './SettingsTabs';
+export { StaffPerformanceTable } from './StaffPerformanceTable';
+export type { StaffPerformanceTableRecord } from './StaffPerformanceTable';

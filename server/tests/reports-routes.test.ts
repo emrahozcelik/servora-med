@@ -59,6 +59,13 @@ function dependencies() {
         isActive: staffUserId !== INACTIVE_STAFF,
       };
     }),
+    getStaffPerformanceScope: vi.fn(async ({ includeInactive }) => ({
+      range: resolvedRange,
+      staff: [{ userId: STAFF_ONE, name: 'Aktif Personel', isActive: true },
+        ...(includeInactive
+          ? [{ userId: INACTIVE_STAFF, name: 'Eski Personel', isActive: false }]
+          : [])],
+    })),
     getOne: vi.fn(async ({ staffUserId }) => ({
       staffUserId,
       range: resolvedRange,
@@ -70,7 +77,21 @@ function dependencies() {
         completedInPeriod: 0,
       },
     })),
-    getMany: vi.fn(),
+    getMany: vi.fn(async ({ staffUserIds }) => new Map(staffUserIds.map((staffUserId: string) => [
+      staffUserId,
+      { staffUserId, range: resolvedRange, counters: {
+        openJobCards: 1, waitingApproval: 1, revisionRequested: 0,
+        overdueJobCards: 0, completedInPeriod: 0,
+      } },
+    ]))),
+    getStaffCompletionPerformanceMany: vi.fn(async ({ staffUserIds }) => new Map(
+      staffUserIds.map((staffUserId: string) => [staffUserId, {
+        staffUserId, completionDays: 0, completionWorkTypes: [],
+      }]),
+    )),
+    getStaffCorrectionRequestEventsMany: vi.fn(async () => new Map()),
+    getStaffAuthoredOperationalNotesMany: vi.fn(async () => new Map()),
+    getStaffDailyCompletionTrend: vi.fn(async () => []),
     getStaffDeliveriesByPurpose: vi.fn(async () => []),
     getStaffMeetingsByOutcome: vi.fn(async () => ([
       { outcome: 'POSITIVE', count: 0 },
@@ -132,21 +153,23 @@ afterEach(async () => {
 });
 
 describe('Reports HTTP routes', () => {
-  it('registers exactly the five authenticated GET report routes', async () => {
+  it('registers exactly the six authenticated GET report routes', async () => {
     const { app, reports, approvalItems } = await createApp(actor('MANAGER'));
 
     const responses = await Promise.all([
       app.inject({ method: 'GET', url: '/api/reports/dashboard' }),
+      app.inject({ method: 'GET', url: '/api/reports/staff' }),
       app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}` }),
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
     ]);
-    expect(responses.map((response) => response.statusCode)).toEqual([200, 200, 200, 200]);
+    expect(responses.map((response) => response.statusCode)).toEqual([200, 200, 200, 200, 200]);
     expect((await app.inject({
       method: 'GET',
       url: '/api/reports/staff/me',
     })).statusCode).toBe(403);
     expect(reports.getDashboard).toHaveBeenCalledOnce();
+    expect(reports.getStaffPerformanceScope).toHaveBeenCalledOnce();
     expect(reports.getDeliveryReport).toHaveBeenCalledOnce();
     expect(reports.getApprovalSummary).toHaveBeenCalledOnce();
     expect(approvalItems.getApprovalItems).toHaveBeenCalledOnce();
@@ -155,18 +178,19 @@ describe('Reports HTTP routes', () => {
       .toBe(404);
   });
 
-  it('allows Staff only its own report and denies four management reports', async () => {
+  it('allows Staff only its own report and denies five management reports', async () => {
     const { app } = await createApp(actor('STAFF'));
 
     expect((await app.inject({ method: 'GET', url: '/api/reports/staff/me' })).statusCode)
       .toBe(200);
     const responses = await Promise.all([
       app.inject({ method: 'GET', url: '/api/reports/dashboard' }),
+      app.inject({ method: 'GET', url: '/api/reports/staff' }),
       app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}` }),
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
     ]);
-    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403]);
+    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403, 403]);
   });
 
   it.each(['ADMIN', 'MANAGER'] as const)(
@@ -174,6 +198,8 @@ describe('Reports HTTP routes', () => {
     async (role) => {
       const { app } = await createApp(actor(role));
       expect((await app.inject({ method: 'GET', url: '/api/reports/dashboard' })).statusCode)
+        .toBe(200);
+      expect((await app.inject({ method: 'GET', url: '/api/reports/staff' })).statusCode)
         .toBe(200);
       expect((await app.inject({
         method: 'GET',
@@ -228,6 +254,7 @@ describe('Reports HTTP routes', () => {
     '/api/reports/dashboard?unknown=value',
     '/api/reports/dashboard?from=2026-07-01&from=2026-07-02&to=2026-07-31',
     '/api/reports/staff/me?to=2026-07-31&to=2026-07-30&from=2026-07-01',
+    '/api/reports/staff?unknown=value',
     `/api/reports/staff/${STAFF_ONE}?unknown=value`,
     '/api/reports/deliveries?groupBy=day&groupBy=staff',
     '/api/reports/deliveries?groupBy=day&limit=10&limit=20',
@@ -251,19 +278,21 @@ describe('Reports HTTP routes', () => {
 
     const responses = await Promise.all([
       app.inject({ method: 'GET', url: '/api/reports/dashboard' }),
+      app.inject({ method: 'GET', url: '/api/reports/staff' }),
       app.inject({ method: 'GET', url: '/api/reports/staff/me' }),
       app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}` }),
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
     ]);
-    expect(responses.map((response) => response.statusCode)).toEqual([401, 401, 401, 401, 401]);
+    expect(responses.map((response) => response.statusCode))
+      .toEqual([401, 401, 401, 401, 401, 401]);
 
     const source = readFileSync(
       new URL('../src/modules/reports/routes.ts', import.meta.url),
       'utf8',
     );
     expect(source).toContain('const secured = { preHandler: options.authenticate }');
-    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(5);
+    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(6);
     expect(source).not.toMatch(/app\.get\([^\n]+options\.authenticate/);
   });
 });

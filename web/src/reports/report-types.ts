@@ -1,5 +1,6 @@
 import type {
   DeliveryPurpose,
+  JobCardType,
   MeetingOutcome,
   PersistedJobCardListItem,
 } from '../jobs/jobs-api';
@@ -7,12 +8,24 @@ import type {
 export type RequestedReportRange = { from: string; to: string } | null;
 export type ResolvedReportRange = { from: string; to: string; timezone: string };
 
-export type StaffOperationalCounters = {
+export type StaffCurrentWorkload = {
   openJobCards: number;
+  overdueJobCards: number;
   waitingApproval: number;
   revisionRequested: number;
-  overdueJobCards: number;
-  completedInPeriod: number;
+};
+
+export type StaffHistoricalPerformance = {
+  completedJobs: number;
+  completionDays: number;
+  jobsPerCompletionDay: number;
+  correctionRequestEvents: number;
+  authoredOperationalNotes: number;
+};
+
+export type CompletionWorkType = {
+  type: JobCardType;
+  count: number;
 };
 
 export type DeliveryDayItem = {
@@ -73,9 +86,24 @@ export type DashboardReportResponse = {
 export type StaffReportResponse = {
   staff: { userId: string; name: string; isActive: boolean };
   range: ResolvedReportRange;
-  counters: StaffOperationalCounters;
+  performance: StaffHistoricalPerformance;
+  completionWorkTypes: CompletionWorkType[];
+  completedTrend: Array<{ date: string; count: number }>;
   deliveriesByPurpose: DeliveryPurposeItem[];
   meetingsByOutcome: Array<{ outcome: MeetingOutcome; count: number }>;
+  currentWorkload: StaffCurrentWorkload;
+};
+
+export type StaffPerformanceItem = {
+  staff: { userId: string; name: string; isActive: boolean };
+  performance: StaffHistoricalPerformance;
+  completionWorkTypes: CompletionWorkType[];
+  currentWorkload: StaffCurrentWorkload;
+};
+
+export type StaffPerformanceResponse = {
+  range: ResolvedReportRange;
+  items: StaffPerformanceItem[];
 };
 
 /** Approval queue rows reuse the persisted list projection, not actor-scoped commands. */

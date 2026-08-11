@@ -91,13 +91,17 @@ describe('Report accessibility contract', () => {
     const staff: StaffReportResponse = {
       staff: { userId: 'staff-1', name: 'Ayşe', isActive: false },
       range: dashboard.range,
-      counters: { openJobCards: 1, waitingApproval: 2, revisionRequested: 3,
-        overdueJobCards: 4, completedInPeriod: 5 },
+      performance: { completedJobs: 5, completionDays: 2, jobsPerCompletionDay: 2.5,
+        correctionRequestEvents: 1, authoredOperationalNotes: 3 },
+      completionWorkTypes: [{ type: 'GENERAL_TASK', count: 5 }],
+      completedTrend: [{ date: '2026-07-01', count: 5 }],
       deliveriesByPurpose: delivery.items,
       meetingsByOutcome: [
         { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
         { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
       ],
+      currentWorkload: { openJobCards: 1, waitingApproval: 2, revisionRequested: 3,
+        overdueJobCards: 4 },
     };
 
     const deliveryView = markup(<DeliveryReportView report={delivery} />);
@@ -112,11 +116,11 @@ describe('Report accessibility contract', () => {
       .toBeGreaterThan(0);
 
     const staffView = markup(<StaffOperationalReport report={staff} />);
-    expect(staffView.querySelectorAll('[data-servora-operational-table="true"]')).toHaveLength(2);
+    expect(staffView.querySelectorAll('[data-servora-operational-table="true"]')).toHaveLength(3);
     expect(staffView.querySelector('table caption')?.textContent).not.toBe('');
     expect(staffView.querySelectorAll('thead th[scope="col"]').length).toBeGreaterThan(0);
     expect(staffView.querySelector('tbody th[scope="row"]')).not.toBeNull();
-    expect(staffView.querySelectorAll('.servora-operational-table__mobile')).toHaveLength(2);
+    expect(staffView.querySelectorAll('.servora-operational-table__mobile')).toHaveLength(3);
     expect(staffView.querySelectorAll('.servora-operational-table__field dt').length)
       .toBeGreaterThan(0);
     expect(staffView.textContent).toContain('Pasif personel');

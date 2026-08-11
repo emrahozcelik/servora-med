@@ -3,6 +3,8 @@ import { Link, Navigate, Route, Routes, useNavigate, useParams, useSearchParams 
 
 import { JobWorkspace } from './jobs/JobWorkspace';
 import { paths } from './paths';
+import { reportSectionHref } from './reports/report-navigation';
+import { readStaffPerformanceSearch } from './reports/report-search';
 import type { CurrentUser } from './services/api';
 import { LoadingSkeleton } from './ui/antd/LoadingSkeleton';
 import { ResultState } from './ui/antd/ResultState';
@@ -117,6 +119,12 @@ const ReportsDashboard = lazy(() =>
   })),
 );
 
+const StaffPerformanceReport = lazy(() =>
+  import('./reports/StaffPerformanceReport').then((module) => ({
+    default: module.StaffPerformanceReport,
+  })),
+);
+
 const DeliveryReport = lazy(() =>
   import('./reports/DeliveryReport').then((module) => ({
     default: module.DeliveryReport,
@@ -216,10 +224,19 @@ function StaffRoute({ user }: Pick<AppRouterProps, 'user'>) {
 function StaffReportRoute({ user }: Pick<AppRouterProps, 'user'>) {
   const { staffUserId } = useParams();
   const navigate = useNavigate();
+  const [search] = useSearchParams();
+  const rangeState = readStaffPerformanceSearch(search);
   if (user.role === 'STAFF') return <ForbiddenView />;
   if (!staffUserId) return <NotFoundView />;
+  const requestedRange = rangeState.from && rangeState.to
+    ? { from: rangeState.from, to: rangeState.to }
+    : null;
   return <StaffOperationalReportScreen staffUserId={staffUserId}
-    onBack={() => navigate(paths.staffProfile(staffUserId))} />;
+    requestedRange={requestedRange}
+    backLabel={requestedRange ? 'Personel performansına dön' : 'Personel profiline dön'}
+    onBack={() => navigate(requestedRange
+      ? reportSectionHref('staff', rangeState)
+      : paths.staffProfile(staffUserId))} />;
 }
 
 export function CustomerRoute({ user }: Pick<AppRouterProps, 'user'>) {
@@ -329,6 +346,9 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path="/staff/:staffUserId" element={<StaffRoute user={user} />} />
         <Route path="/staff/:staffUserId/reports" element={<StaffReportRoute user={user} />} />
         <Route path={paths.reports} element={user.role === 'STAFF' ? <ForbiddenView /> : <ReportsDashboard />} />
+        <Route path={paths.staffPerformanceReports} element={user.role === 'STAFF'
+          ? <ForbiddenView />
+          : <StaffPerformanceReport />} />
         <Route path={paths.deliveryReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <DeliveryReport user={user} />} />
         <Route path={paths.approvalReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <ApprovalReport />} />
         <Route path={paths.customers} element={<CustomerListScreen user={user} />} />

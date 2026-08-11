@@ -57,10 +57,37 @@ function ports() {
       input,
     })),
     getStaffIdentity: vi.fn(async ({ staffUserId }) => identity(staffUserId)),
+    getStaffPerformanceScope: vi.fn(async ({ includeInactive }) => ({
+      range,
+      staff: [
+        { userId: STAFF_ONE, name: 'Aktif Personel', isActive: true },
+        ...(includeInactive
+          ? [{ userId: INACTIVE_STAFF, name: 'Eski Personel', isActive: false }]
+          : []),
+      ],
+    })),
     getOne: vi.fn(async (input) => input.staffUserId === MISSING_STAFF
       ? null
       : { staffUserId: input.staffUserId, range, counters }),
-    getMany: vi.fn(),
+    getMany: vi.fn(async ({ staffUserIds }) => new Map(staffUserIds.map((staffUserId: string) => [
+      staffUserId,
+      { staffUserId, range, counters },
+    ]))),
+    getStaffCompletionPerformanceMany: vi.fn(async ({ staffUserIds }) => new Map(
+      staffUserIds.map((staffUserId: string) => [staffUserId, {
+        staffUserId,
+        completionDays: staffUserId === INACTIVE_STAFF ? 0 : 2,
+        completionWorkTypes: staffUserId === INACTIVE_STAFF
+          ? []
+          : [{ type: 'GENERAL_TASK', count: 4 }],
+      }]),
+    )),
+    getStaffCorrectionRequestEventsMany: vi.fn(async () => new Map([[STAFF_ONE, 1]])),
+    getStaffAuthoredOperationalNotesMany: vi.fn(async () => new Map([[STAFF_ONE, 3]])),
+    getStaffDailyCompletionTrend: vi.fn(async () => ([
+      { date: '2026-07-01', count: 0 },
+      { date: '2026-07-02', count: 4 },
+    ])),
     getStaffDeliveriesByPurpose: vi.fn(async () => ([
       { purpose: 'SALE', unit: 'Kutu', quantity: '3.000' },
     ])),
@@ -114,6 +141,8 @@ describe('ReportsService authorization and composition', () => {
 
     await expect(service.dashboard(STAFF, { requestedRange: null }))
       .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
+    await expect(service.getStaffPerformance(STAFF, { requestedRange: null }))
+      .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
     await expect(service.getStaffReport(STAFF, STAFF_ONE, { requestedRange: null }))
       .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
     await expect(service.getDeliveries(STAFF, {
@@ -127,6 +156,7 @@ describe('ReportsService authorization and composition', () => {
       .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
 
     expect(reports.getDashboard).not.toHaveBeenCalled();
+    expect(reports.getStaffPerformanceScope).not.toHaveBeenCalled();
     expect(reports.getDeliveryReport).not.toHaveBeenCalled();
     expect(reports.getApprovalSummary).not.toHaveBeenCalled();
     expect(approvalItems.getApprovalItems).not.toHaveBeenCalled();
@@ -136,6 +166,8 @@ describe('ReportsService authorization and composition', () => {
     const { service } = createService();
 
     await expect(service.dashboard(management, { requestedRange: null })).resolves.toBeDefined();
+    await expect(service.getStaffPerformance(management, { requestedRange: null }))
+      .resolves.toBeDefined();
     await expect(service.getStaffReport(
       management,
       INACTIVE_STAFF,
@@ -166,7 +198,18 @@ describe('ReportsService authorization and composition', () => {
     expect(result).toEqual({
       staff: { userId: STAFF_ONE, name: 'Aktif Personel', isActive: true },
       range,
-      counters,
+      performance: {
+        completedJobs: 4,
+        completionDays: 2,
+        jobsPerCompletionDay: 2,
+        correctionRequestEvents: 1,
+        authoredOperationalNotes: 3,
+      },
+      completionWorkTypes: [{ type: 'GENERAL_TASK', count: 4 }],
+      completedTrend: [
+        { date: '2026-07-01', count: 0 },
+        { date: '2026-07-02', count: 4 },
+      ],
       deliveriesByPurpose: [{ purpose: 'SALE', unit: 'Kutu', quantity: '3.000' }],
       meetingsByOutcome: [
         { outcome: 'POSITIVE', count: 0 },
@@ -174,6 +217,12 @@ describe('ReportsService authorization and composition', () => {
         { outcome: 'NO_DECISION', count: 0 },
         { outcome: 'NOT_INTERESTED', count: 0 },
       ],
+      currentWorkload: {
+        openJobCards: 3,
+        overdueJobCards: 1,
+        waitingApproval: 2,
+        revisionRequested: 1,
+      },
     });
     expect(reports.getStaffIdentity).toHaveBeenCalledWith({
       organizationId: ORG_ONE,

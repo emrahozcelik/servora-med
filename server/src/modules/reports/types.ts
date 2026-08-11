@@ -36,6 +36,21 @@ export type StaffOperationalSummaryOneInput = StaffOperationalSummaryScope
 export type StaffOperationalSummaryManyInput = StaffOperationalSummaryScope
   & Readonly<{ staffUserIds: readonly string[] }>;
 
+export type StaffCurrentWorkload = Readonly<{
+  openJobCards: number;
+  overdueJobCards: number;
+  waitingApproval: number;
+  revisionRequested: number;
+}>;
+
+export type StaffHistoricalPerformance = Readonly<{
+  completedJobs: number;
+  completionDays: number;
+  jobsPerCompletionDay: number;
+  correctionRequestEvents: number;
+  authoredOperationalNotes: number;
+}>;
+
 export type DeliveryDayItem = {
   date: string;
   unit: string | null;
@@ -140,6 +155,33 @@ export type ReportStaffIdentity = {
   isActive: boolean;
 };
 
+export type StaffPerformanceScopeInput = StaffOperationalSummaryScope & Readonly<{
+  includeInactive: boolean;
+}>;
+
+export type StaffPerformanceScope = Readonly<{
+  range: ResolvedReportRange;
+  staff: ReportStaffIdentity[];
+}>;
+
+export type StaffCompletionPerformance = Readonly<{
+  staffUserId: string;
+  completionDays: number;
+  completionWorkTypes: WorkTypeDistributionItem[];
+}>;
+
+export type StaffPerformanceItem = Readonly<{
+  staff: ReportStaffIdentity;
+  performance: StaffHistoricalPerformance;
+  completionWorkTypes: WorkTypeDistributionItem[];
+  currentWorkload: StaffCurrentWorkload;
+}>;
+
+export type StaffPerformanceResponse = Readonly<{
+  range: ResolvedReportRange;
+  items: StaffPerformanceItem[];
+}>;
+
 export type MeetingOutcomeItem = {
   outcome: MeetingOutcome;
   count: number;
@@ -148,9 +190,12 @@ export type MeetingOutcomeItem = {
 export type StaffReportResponse = {
   staff: ReportStaffIdentity;
   range: ResolvedReportRange;
-  counters: StaffOperationalCounters;
+  performance: StaffHistoricalPerformance;
+  completionWorkTypes: WorkTypeDistributionItem[];
+  completedTrend: Array<{ date: string; count: number }>;
   deliveriesByPurpose: DeliveryPurposeItem[];
   meetingsByOutcome: MeetingOutcomeItem[];
+  currentWorkload: StaffCurrentWorkload;
 };
 
 export type ReportRangeQuery = { requestedRange: RequestedReportRange };

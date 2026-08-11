@@ -1,6 +1,6 @@
 import type { Pool } from 'pg';
 
-import type { StaffOperationalSummaryPort } from './ports.js';
+import type { ReportsReadModel } from './ports.js';
 import type {
   ApprovalSummary,
   DashboardReportResponse,
@@ -13,10 +13,13 @@ import type {
   MeetingOutcomeItem,
   ReportStaffIdentity,
   ResolvedReportRange,
+  StaffCompletionPerformance,
   StaffOperationalSummary,
   StaffOperationalSummaryManyInput,
   StaffOperationalSummaryOneInput,
   StaffOperationalSummaryScope,
+  StaffPerformanceScope,
+  StaffPerformanceScopeInput,
   WorkTypeDistributionInput,
   WorkTypeDistributionItem,
 } from './types.js';
@@ -50,6 +53,29 @@ type StaffIdentityRow = {
   id: string;
   name: string;
   is_active: boolean;
+};
+
+type StaffPerformanceScopeRow = {
+  from_date: string;
+  to_date: string;
+  timezone: string;
+  staff: ReportStaffIdentity[];
+};
+
+type StaffCompletionPerformanceRow = {
+  staff_user_id: string;
+  completion_days: string | number;
+  completion_work_types: Array<{ type: string; count: string | number }>;
+};
+
+type StaffCountRow = {
+  staff_user_id: string;
+  count: string | number;
+};
+
+type DailyCompletionRow = {
+  date: string;
+  count: string | number;
 };
 
 type DeliveryPurposeRow = {
@@ -263,6 +289,141 @@ JOIN staff_profiles sp
   ON sp.organization_id = u.organization_id AND sp.user_id = u.id
 WHERE u.organization_id = $1 AND u.id = $2 AND u.role = 'STAFF'
 LIMIT 1`;
+
+const STAFF_PERFORMANCE_SCOPE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, staff_scope AS (
+  SELECT u.id, u.name, u.is_active
+  FROM users u
+  JOIN staff_profiles sp ON sp.organization_id = u.organization_id
+    AND sp.user_id = u.id
+  WHERE u.organization_id = $1
+    AND u.role = 'STAFF'
+    AND ($5::boolean OR u.is_active)
+)
+SELECT to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
+  to_char(organization_range.to_date, 'YYYY-MM-DD') AS to_date,
+  organization_range.timezone,
+  COALESCE(
+    json_agg(
+      json_build_object(
+        'userId', staff_scope.id,
+        'name', staff_scope.name,
+        'isActive', staff_scope.is_active
+      ) ORDER BY staff_scope.name COLLATE "C", staff_scope.id
+    ) FILTER (WHERE staff_scope.id IS NOT NULL),
+    '[]'::json
+  ) AS staff
+FROM organization_range
+LEFT JOIN staff_scope ON TRUE
+GROUP BY organization_range.from_date, organization_range.to_date,
+  organization_range.timezone`;
+
+const STAFF_COMPLETION_PERFORMANCE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+  SELECT unnest($5::uuid[]) AS staff_user_id
+), completed AS (
+  SELECT jc.assigned_to AS staff_user_id,
+    (jc.manager_approved_at AT TIME ZONE organization_range.timezone)::date
+      AS completion_date,
+    jc.type
+  FROM job_cards jc
+  JOIN requested ON requested.staff_user_id = jc.assigned_to
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.status = 'COMPLETED'
+    AND jc.manager_approved_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.manager_approved_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+), completion_days AS (
+  SELECT staff_user_id, COUNT(DISTINCT completion_date)::int AS completion_days
+  FROM completed
+  GROUP BY staff_user_id
+), work_types AS (
+  SELECT staff_user_id, type, COUNT(*)::int AS count
+  FROM completed
+  GROUP BY staff_user_id, type
+), work_type_lists AS (
+  SELECT staff_user_id,
+    json_agg(
+      json_build_object('type', type, 'count', count)
+      ORDER BY count DESC, type ASC
+    ) AS completion_work_types
+  FROM work_types
+  GROUP BY staff_user_id
+)
+SELECT requested.staff_user_id,
+  COALESCE(completion_days.completion_days, 0)::int AS completion_days,
+  COALESCE(work_type_lists.completion_work_types, '[]'::json)
+    AS completion_work_types
+FROM requested
+LEFT JOIN completion_days USING (staff_user_id)
+LEFT JOIN work_type_lists USING (staff_user_id)
+ORDER BY requested.staff_user_id`;
+
+const STAFF_CORRECTION_EVENTS_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+  SELECT unnest($5::uuid[]) AS staff_user_id
+)
+SELECT requested.staff_user_id, COUNT(activity.id)::int AS count
+FROM requested
+JOIN job_cards jc ON jc.organization_id = $1
+  AND jc.assigned_to = requested.staff_user_id
+JOIN job_card_activity_logs activity ON activity.organization_id = jc.organization_id
+  AND activity.job_card_id = jc.id
+CROSS JOIN organization_range
+WHERE activity.event_type = 'JOB_REVISION_REQUESTED'
+  AND activity.created_at >=
+    (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+  AND activity.created_at <
+    ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+GROUP BY requested.staff_user_id
+ORDER BY requested.staff_user_id`;
+
+const STAFF_AUTHORED_OPERATIONAL_NOTES_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
+  SELECT unnest($5::uuid[]) AS staff_user_id
+)
+SELECT requested.staff_user_id, COUNT(n.id)::int AS count
+FROM requested
+JOIN job_card_notes n ON n.organization_id = $1
+  AND n.author_id = requested.staff_user_id
+CROSS JOIN organization_range
+WHERE (n.record_version = 0 OR n.context = 'GENERAL')
+  AND n.created_at >=
+    (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+  AND n.created_at <
+    ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+GROUP BY requested.staff_user_id
+ORDER BY requested.staff_user_id`;
+
+const STAFF_DAILY_COMPLETION_TREND_SQL = `WITH organization_range AS (
+  SELECT o.timezone,
+    COALESCE($3::date,
+      date_trunc('month', $5::timestamptz AT TIME ZONE o.timezone)::date) AS from_date,
+    COALESCE($4::date,
+      (date_trunc('month', $5::timestamptz AT TIME ZONE o.timezone)
+        + interval '1 month - 1 day')::date) AS to_date
+  FROM organizations o
+  WHERE o.id = $1
+), days AS (
+  SELECT day::date
+  FROM organization_range,
+    generate_series(
+      organization_range.from_date,
+      organization_range.to_date,
+      interval '1 day'
+    ) day
+)
+SELECT to_char(days.day, 'YYYY-MM-DD') AS date,
+  COUNT(jc.id)::int AS count
+FROM days
+CROSS JOIN organization_range
+LEFT JOIN job_cards jc ON jc.organization_id = $1
+  AND jc.assigned_to = $2
+  AND jc.status = 'COMPLETED'
+  AND jc.manager_approved_at >=
+    (days.day::timestamp AT TIME ZONE organization_range.timezone)
+  AND jc.manager_approved_at <
+    ((days.day + 1)::timestamp AT TIME ZONE organization_range.timezone)
+GROUP BY days.day
+ORDER BY days.day`;
 
 const STAFF_DELIVERIES_BY_PURPOSE_SQL = `WITH organization_range AS (
   SELECT o.timezone,
@@ -541,7 +702,7 @@ function mapDashboard(row: DashboardRow): DashboardReportResponse {
   };
 }
 
-export class PostgresReportsRepository implements StaffOperationalSummaryPort {
+export class PostgresReportsRepository implements ReportsReadModel {
   constructor(private readonly pool: Pool) {}
 
   async getOne(input: StaffOperationalSummaryOneInput) {
@@ -579,6 +740,85 @@ export class PostgresReportsRepository implements StaffOperationalSummaryPort {
     const row = result.rows[0];
     if (!row) throw new Error('Dashboard organization range could not be resolved.');
     return mapDashboard(row);
+  }
+
+  async getStaffPerformanceScope(
+    input: StaffPerformanceScopeInput,
+  ): Promise<StaffPerformanceScope> {
+    const result = await this.pool.query<StaffPerformanceScopeRow>(
+      STAFF_PERFORMANCE_SCOPE_SQL,
+      [
+        input.organizationId,
+        input.requestedRange?.from ?? null,
+        input.requestedRange?.to ?? null,
+        input.requestTime,
+        input.includeInactive,
+      ],
+    );
+    const row = result.rows[0];
+    if (!row) throw new Error('Staff performance organization range could not be resolved.');
+    return {
+      range: {
+        from: row.from_date,
+        to: row.to_date,
+        timezone: row.timezone,
+      },
+      staff: row.staff,
+    };
+  }
+
+  async getStaffCompletionPerformanceMany(
+    input: StaffOperationalSummaryManyInput,
+  ): Promise<ReadonlyMap<string, StaffCompletionPerformance>> {
+    const staffUserIds = [...new Set(input.staffUserIds)];
+    if (staffUserIds.length === 0) return new Map();
+    const result = await this.pool.query<StaffCompletionPerformanceRow>(
+      STAFF_COMPLETION_PERFORMANCE_SQL,
+      [
+        input.organizationId,
+        input.requestedRange?.from ?? null,
+        input.requestedRange?.to ?? null,
+        input.requestTime,
+        staffUserIds,
+      ],
+    );
+    return new Map(result.rows.map((row) => [
+      row.staff_user_id,
+      {
+        staffUserId: row.staff_user_id,
+        completionDays: Number(row.completion_days),
+        completionWorkTypes: row.completion_work_types.map((item) => ({
+          type: item.type,
+          count: Number(item.count),
+        })),
+      },
+    ]));
+  }
+
+  async getStaffCorrectionRequestEventsMany(
+    input: StaffOperationalSummaryManyInput,
+  ): Promise<ReadonlyMap<string, number>> {
+    return this.getStaffGroupedCounts(STAFF_CORRECTION_EVENTS_SQL, input);
+  }
+
+  async getStaffAuthoredOperationalNotesMany(
+    input: StaffOperationalSummaryManyInput,
+  ): Promise<ReadonlyMap<string, number>> {
+    return this.getStaffGroupedCounts(STAFF_AUTHORED_OPERATIONAL_NOTES_SQL, input);
+  }
+
+  async getStaffDailyCompletionTrend(input: StaffOperationalSummaryOneInput) {
+    const result = await this.pool.query<DailyCompletionRow>(
+      STAFF_DAILY_COMPLETION_TREND_SQL,
+      [
+        input.organizationId,
+        input.staffUserId,
+        input.requestedRange?.from ?? null,
+        input.requestedRange?.to ?? null,
+        input.requestTime,
+      ],
+    );
+    return result.rows.map((row) => ({ date: row.date, count: Number(row.count) }));
   }
 
   async getStaffIdentity(input: {
@@ -754,5 +994,21 @@ OFFSET $${offsetParameter}`;
       type: row.type,
       count: parseInt(row.count, 10),
     }));
+  }
+
+  private async getStaffGroupedCounts(
+    sql: string,
+    input: StaffOperationalSummaryManyInput,
+  ) {
+    const staffUserIds = [...new Set(input.staffUserIds)];
+    if (staffUserIds.length === 0) return new Map<string, number>();
+    const result = await this.pool.query<StaffCountRow>(sql, [
+      input.organizationId,
+      input.requestedRange?.from ?? null,
+      input.requestedRange?.to ?? null,
+      input.requestTime,
+      staffUserIds,
+    ]);
+    return new Map(result.rows.map((row) => [row.staff_user_id, Number(row.count)]));
   }
 }

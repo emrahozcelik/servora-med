@@ -25,6 +25,10 @@ export function createReportsHandlers(service: ReportsService) {
       request.currentUser!,
       parseStaffReportQuery(request.query),
     ),
+    getStaffPerformance: (request: FastifyRequest) => service.getStaffPerformance(
+      request.currentUser!,
+      parseStaffReportQuery(request.query),
+    ),
     getStaffReport: (request: FastifyRequest) => service.getStaffReport(
       request.currentUser!,
       staffUserId(request),

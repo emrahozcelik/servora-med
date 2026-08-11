@@ -1,6 +1,8 @@
 import { createRoot } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 
 import { StaffOperationalReport } from '../src/reports/StaffOperationalReport';
+import { ServoraAntProvider, StaffPerformanceTable } from '../src/ui/antd';
 
 const root = document.getElementById('responsive-staff-report-root');
 if (root) {
@@ -16,24 +18,72 @@ if (root) {
         to: '2026-07-31',
         timezone: 'Europe/Istanbul',
       },
-      counters: {
-        openJobCards: 8,
-        waitingApproval: 3,
-        revisionRequested: 1,
-        overdueJobCards: 2,
-        completedInPeriod: 14,
+      performance: {
+        completedJobs: 14,
+        completionDays: 8,
+        jobsPerCompletionDay: 1.75,
+        correctionRequestEvents: 2,
+        authoredOperationalNotes: 11,
       },
+      completionWorkTypes: [
+        { type: 'SALES_MEETING', count: 8 },
+        { type: 'PRODUCT_DELIVERY', count: 4 },
+        { type: 'GENERAL_TASK', count: 2 },
+      ],
+      completedTrend: Array.from({ length: 31 }, (_, index) => ({
+        date: `2026-07-${String(index + 1).padStart(2, '0')}`,
+        count: index % 5 === 0 ? 2 : 0,
+      })),
       deliveriesByPurpose: [{
         purpose: 'CONSIGNMENT',
         unit: 'SterilizasyonPaketleriİçinÇokUzunBirimTanımı',
         quantity: '123456789.500',
       }],
       meetingsByOutcome: [
-        { outcome: 'FOLLOW_UP_REQUIRED', count: 7 },
         { outcome: 'POSITIVE', count: 4 },
+        { outcome: 'FOLLOW_UP_REQUIRED', count: 7 },
         { outcome: 'NO_DECISION', count: 2 },
         { outcome: 'NOT_INTERESTED', count: 1 },
       ],
+      currentWorkload: {
+        openJobCards: 8,
+        overdueJobCards: 2,
+        waitingApproval: 3,
+        revisionRequested: 1,
+      },
     }} />,
+  );
+}
+
+const performanceRoot = document.getElementById('responsive-staff-performance-root');
+if (performanceRoot) {
+  createRoot(performanceRoot).render(
+    <MemoryRouter>
+      <ServoraAntProvider>
+        <StaffPerformanceTable records={[{
+          key: 'smoke-staff',
+          name: 'Ayşe Çok Uzun Personel Soyadı',
+          isActive: true,
+          completedJobs: 14,
+          completionDays: 8,
+          jobsPerCompletionDay: 1.75,
+          jobsPerCompletionDayLabel: '1,8',
+          correctionRequestEvents: 2,
+          authoredOperationalNotes: 11,
+          workTypes: [
+            { label: 'Satış görüşmesi', count: 8 },
+            { label: 'Ürün teslimi', count: 4 },
+            { label: 'Genel görev', count: 2 },
+          ],
+          currentWorkload: {
+            openJobCards: 8,
+            overdueJobCards: 2,
+            waitingApproval: 3,
+            revisionRequested: 1,
+          },
+          reportHref: '/staff/smoke-staff/reports?from=2026-07-01&to=2026-07-31',
+        }]} />
+      </ServoraAntProvider>
+    </MemoryRouter>,
   );
 }

@@ -76,6 +76,9 @@ describe('Ant Design ownership boundary', () => {
       Collapse: 'ContentCollapse.tsx',
       Anchor: 'ContentAnchor.tsx',
       Tabs: 'SettingsTabs.tsx',
+      Table: 'StaffPerformanceTable.tsx',
+      Tag: 'StaffPerformanceTable.tsx',
+      Tooltip: 'StaffPerformanceTable.tsx',
     } as const;
     const violations: string[] = [];
     const imports = new Map<string, string[]>();

@@ -154,7 +154,10 @@ describe('application routes', () => {
     expect(paths.newMeeting).toBe('/jobs/new-meeting');
     expect(paths.staffProfile('staff 1')).toBe('/staff/staff%201');
     expect(paths.staffReport('staff 1')).toBe('/staff/staff%201/reports');
+    expect(paths.staffReport('staff 1', { from: '2026-07-01', to: '2026-07-31' }))
+      .toBe('/staff/staff%201/reports?from=2026-07-01&to=2026-07-31');
     expect(paths.reports).toBe('/reports');
+    expect(paths.staffPerformanceReports).toBe('/reports/staff');
     expect(paths.deliveryReports).toBe('/reports/deliveries');
     expect(paths.approvalReports).toBe('/reports/approvals');
     expect(paths.customer('customer/1')).toBe('/customers/customer%2F1');
