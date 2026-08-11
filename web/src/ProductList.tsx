@@ -77,12 +77,11 @@ export function ProductListView({ state, user, filters = {}, hasFilters, onFilte
   const canManage = user.role !== 'STAFF';
 
   if (state.kind === 'error' && state.code === 'FORBIDDEN') return <main className="workspace product-workspace">
-    <p className="eyebrow">Ürün kataloğu</p>
     <ResultState status="403" title="Bu alana erişim yetkiniz yok" description={state.message} headingLevel={1} />
   </main>;
 
   return <main className="workspace product-workspace">
-    <div className="workspace-heading"><div><p className="eyebrow">Ürün kataloğu</p><h1 ref={headingRef} tabIndex={-1}>Ürünler</h1></div>
+    <div className="workspace-heading workspace-heading--route-actions"><div><h1 className="route-identity-heading" ref={headingRef} tabIndex={-1}>Ürünler</h1></div>
       {canManage && <Link className="primary-button compact-button product-create-link" to={paths.newProduct}>Yeni ürün</Link>}</div>
     <ProductFiltersView filters={filters} onChange={onFilterChange} />
     <div className="sr-only" role="status" aria-live="polite">{feedback}</div>

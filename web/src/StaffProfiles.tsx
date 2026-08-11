@@ -97,7 +97,7 @@ export function StaffDirectoryView({ profiles, onOpen, onBack }: {
   onBack: () => void;
 }) {
   return <main className="workspace"><button className="back-link" onClick={onBack}>İşlere dön</button>
-    <div className="workspace-heading"><div><p className="eyebrow">Ekip</p><h1>Personel</h1></div></div>
+    <div className="workspace-heading"><div><p className="eyebrow">Ekip</p><h1 className="route-identity-heading">Personel</h1></div></div>
     {profiles.length === 0 ? <EmptyState title="Personel bulunamadı" description="Aktif personel profili yok." />
       : <ul className="people-list">{profiles.map((profile) => <li key={profile.id}>
         <article className="people-row people-list-card" data-staff-id={profile.user.id}

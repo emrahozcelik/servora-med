@@ -68,6 +68,7 @@ describe('Customer list and creation', () => {
   it('renders customer headings without a CRM eyebrow label', () => {
     const listHtml = list({ kind: 'ready', customers: [] });
     expect(listHtml).toContain('Müşteriler');
+    expect(listHtml).toContain('route-identity-heading');
     expect(listHtml).not.toContain('>CRM<');
     expect(listHtml).not.toContain('eyebrow">CRM');
 
@@ -358,6 +359,7 @@ describe('routed Customer list delete flow', () => {
     expect(remove).toHaveBeenCalledWith('customer-1', 1);
     expect(container.querySelector('[aria-label="Demo Dental Klinik müşterisini sil"]')).toBeNull();
     const heading = container.querySelector('.workspace-heading h1') as HTMLHeadingElement;
+    expect(heading.classList.contains('route-identity-heading')).toBe(true);
     expect(document.activeElement).toBe(heading);
     expect(document.activeElement).not.toBe(document.body);
   });

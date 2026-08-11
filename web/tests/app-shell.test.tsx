@@ -189,6 +189,24 @@ describe('responsive authenticated AppShell', () => {
     expect(topbar.querySelector('[aria-label="Bildirimler"] svg')).not.toBeNull();
   });
 
+  it('renders the shared route title as neutral desktop text and updates it after navigation', async () => {
+    await render(manager, true, '/products');
+    const topbar = container.querySelector('.desktop-shell-topbar')!;
+    const title = topbar.querySelector('.desktop-shell-title')!;
+    expect(title.tagName).toBe('P');
+    expect(title.textContent).toBe('Ürünler');
+    expect(topbar.querySelector('h1')).toBeNull();
+    expect(topbar.querySelector('[aria-label="Bildirimler"]')).not.toBeNull();
+
+    const customers = Array.from(container.querySelectorAll<HTMLAnchorElement>('.shell-sidebar nav a'))
+      .find((link) => link.textContent === 'Müşteriler')!;
+    await act(async () => customers.click());
+
+    expect(container.querySelector('.desktop-shell-title')?.textContent).toBe('Müşteriler');
+    expect(container.querySelector('[data-location]')?.textContent).toBe('/customers');
+    expect(topbar.querySelector('[aria-label="Bildirimler"]')).not.toBeNull();
+  });
+
   it('renders only compact structure below 64rem and opens a labelled modal drawer', async () => {
     await render(staff, false);
     expect(container.querySelector('aside')).toBeNull();

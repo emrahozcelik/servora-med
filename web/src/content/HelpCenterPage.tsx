@@ -66,8 +66,7 @@ export function HelpCenterPage({ user }: { user: CurrentUser }) {
     <main className="workspace content-workspace">
       <header className="workspace-heading">
         <div>
-          <p className="eyebrow">Yardım</p>
-          <h1>Yardım Merkezi</h1>
+          <h1 className="route-identity-heading">Yardım Merkezi</h1>
           <p>Karşılaştığınız sorunlar için çözüm adımlarını inceleyin veya destek kanalına ulaşın.</p>
         </div>
       </header>

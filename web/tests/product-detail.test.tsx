@@ -68,6 +68,9 @@ describe('Product detail', () => {
 
   it('renders every nullable field as meaningful absence without fabricated values', async () => {
     await render();
+    const heading = container.querySelector('.detail-heading h1')!;
+    expect(heading.textContent).toBe(product.name);
+    expect(heading.classList.contains('route-identity-heading')).toBe(false);
     for (const label of ['SKU', 'Marka', 'Kategori', 'Model', 'Birim', 'Referans fiyat']) {
       expect(container.textContent).toContain(label);
     }

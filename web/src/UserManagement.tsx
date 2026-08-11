@@ -23,7 +23,7 @@ function openCardIfEmpty(
 }
 
 export function UserListView({ users, onCreate, onOpen }: { users: ManagedUser[]; onCreate: () => void; onOpen: (id: string) => void }) {
-  return <main className="workspace"><div className="workspace-heading"><div><p className="eyebrow">Yönetim</p><h1>Kullanıcılar</h1></div>
+  return <main className="workspace"><div className="workspace-heading"><div><p className="eyebrow">Yönetim</p><h1 className="route-identity-heading">Kullanıcılar</h1></div>
     <button className="primary-button compact-button" type="button" onClick={onCreate}>Kullanıcı oluştur</button></div>
     {users.length === 0 ? <EmptyState title="Henüz kullanıcı yok" description="İlk kullanıcıyı oluşturarak başlayın." />
       : <ul className="people-list">{users.map((user) => <li key={user.id}>

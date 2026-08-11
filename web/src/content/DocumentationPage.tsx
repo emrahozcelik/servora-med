@@ -63,7 +63,6 @@ export function DocumentationPage({ user }: { user: CurrentUser }) {
     <main className="workspace content-workspace">
       <header className="workspace-heading">
         <div>
-          <p className="eyebrow">Dokümantasyon</p>
           <h1>Ürün dokümantasyonu</h1>
           <p>İş akışları, kayıtlar, bildirimler ve raporlar için kullanım kılavuzları.</p>
         </div>

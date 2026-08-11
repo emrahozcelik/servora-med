@@ -130,6 +130,22 @@ describe('settings pages', () => {
     expect(html).toContain('Uygulama');
   });
 
+  it('suppresses only the landing route duplicate while keeping nested headings visible', async () => {
+    const landing = await render(<SettingsLandingPage />);
+    expect(landing).toContain('<h1 class="route-identity-heading">Ayarlar</h1>');
+    expect(landing).not.toContain('class="eyebrow"');
+
+    const profile = await render(<ProfileSettingsPage user={user} />);
+    expect(profile).toContain('<h1>Profil</h1>');
+    expect(profile).not.toContain('route-identity-heading');
+    expect(profile).not.toContain('class="eyebrow"');
+
+    const application = await renderApplicationPage({});
+    expect(application).toContain('<h1>Uygulama</h1>');
+    expect(application).not.toContain('route-identity-heading');
+    expect(application).not.toContain('class="eyebrow"');
+  });
+
   it('shows profile data as read-only facts', async () => {
     const html = await render(<ProfileSettingsPage user={user} />);
     expect(html).toContain('Ayşe Yılmaz');
@@ -192,7 +208,7 @@ describe('settings pages', () => {
 
   it('shows the bounded application about area with Servora-Med as the only technical reference', async () => {
     const html = await renderApplicationPage({});
-    expect(html).toContain('Ayarlar');
+    expect(html).toContain('<h1>Uygulama</h1>');
     expect(html).toContain('Uygulama hakkında');
     expect(html).toContain('Altyapı / Teknik ürün');
     expect(html).toContain('Servora-Med');
