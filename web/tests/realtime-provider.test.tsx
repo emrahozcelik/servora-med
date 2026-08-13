@@ -49,6 +49,16 @@ function change(id: string, resourceKeys: string[]) {
   });
 }
 
+function envelope(id: string, type: string, entity: { type: string; id: string }, resourceKeys: string[]) {
+  return JSON.stringify({
+    id,
+    type,
+    entity,
+    resourceKeys,
+    occurredAt: '2026-07-20T10:00:00.000Z',
+  });
+}
+
 describe('RealtimeProvider', () => {
   let host: HTMLDivElement | null = null;
   let root: Root | null = null;
@@ -164,5 +174,87 @@ describe('RealtimeProvider', () => {
     expect(view.querySelector('output')?.textContent).toBe('3');
 
     if (originalVisibility) Object.defineProperty(document, 'visibilityState', originalVisibility);
+  });
+
+  it('accepts a canonical message.sent conversation entity and reaches the conversation:<id> subscriber', async () => {
+    const source = new FakeEventSource();
+    const view = await render(source, <>
+      <Subscription resourceKey="conversation:conv-1" />
+      <Subscription resourceKey="job-list" />
+    </>);
+
+    await act(async () => {
+      source.emit('servora.change', envelope('10', 'message.sent', { type: 'conversation', id: 'conv-1' }, ['conversations', 'conversation:conv-1', 'message-unread']));
+      await Promise.resolve();
+    });
+
+    expect(view.querySelector('[data-resource="conversation:conv-1"]')?.textContent).toBe('1');
+    expect(view.querySelector('[data-resource="job-list"]')?.textContent).toBe('0');
+  });
+
+  it('accepts a canonical conversation.created event', async () => {
+    const source = new FakeEventSource();
+    const view = await render(source, <Subscription resourceKey="conversations" />);
+
+    await act(async () => {
+      source.emit('servora.change', envelope('11', 'conversation.created', { type: 'conversation', id: 'conv-2' }, ['conversations']));
+      await Promise.resolve();
+    });
+
+    expect(view.querySelector('[data-resource="conversations"]')?.textContent).toBe('1');
+  });
+
+  it.each([
+    ['calendar.created', 'calendar'],
+    ['calendar.updated', 'calendar'],
+    ['calendar.cancelled', 'calendar'],
+    ['calendar.reminder_due', 'calendar'],
+  ] as const)('accepts canonical %s calendar-event entity and reaches the calendar subscriber', async (type, resourceKey) => {
+    const source = new FakeEventSource();
+    const view = await render(source, <Subscription resourceKey={resourceKey} />);
+
+    await act(async () => {
+      source.emit('servora.change', envelope('12', type, { type: 'calendar-event', id: 'evt-1' }, [resourceKey]));
+      await Promise.resolve();
+    });
+
+    expect(view.querySelector(`[data-resource="${resourceKey}"]`)?.textContent).toBe('1');
+  });
+
+  it('accepts canonical confidential-note entities', async () => {
+    const source = new FakeEventSource();
+    const view = await render(source, <Subscription resourceKey="staff-profile" />);
+
+    await act(async () => {
+      source.emit('servora.change', envelope('13', 'confidential-note.created', { type: 'confidential-note', id: 'note-1' }, ['staff-profile']));
+      await Promise.resolve();
+    });
+
+    expect(view.querySelector('[data-resource="staff-profile"]')?.textContent).toBe('1');
+  });
+
+  it('rejects unknown entity types', async () => {
+    const source = new FakeEventSource();
+    const view = await render(source, <Subscription resourceKey="job-list" />);
+
+    await act(async () => {
+      source.emit('servora.change', envelope('14', 'job.updated', { type: 'invoice', id: 'inv-1' }, ['job-list']));
+      await Promise.resolve();
+    });
+
+    expect(view.querySelector('[data-resource="job-list"]')?.textContent).toBe('0');
+  });
+
+  it('rejects malformed entities (missing or empty id)', async () => {
+    const source = new FakeEventSource();
+    const view = await render(source, <Subscription resourceKey="job-list" />);
+
+    await act(async () => {
+      source.emit('servora.change', envelope('15', 'job.updated', { type: 'job-card', id: '' }, ['job-list']));
+      source.emit('servora.change', envelope('16', 'job.updated', { type: 'job-card', id: 'x'.repeat(0) }, ['job-list']));
+      await Promise.resolve();
+    });
+
+    expect(view.querySelector('[data-resource="job-list"]')?.textContent).toBe('0');
   });
 });

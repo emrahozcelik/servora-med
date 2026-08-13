@@ -12,6 +12,21 @@ import {
 const REALTIME_EVENT_NAME = 'servora.change';
 const FALLBACK_RECONCILIATION_MS = 60_000;
 
+// Canonical server entity types (server/src/modules/realtime/types.ts).
+// The parser is an explicit allowlist, not permissive.
+const REALTIME_ENTITY_TYPES = new Set([
+  'job-card',
+  'calendar-event',
+  'conversation',
+  'confidential-note',
+]);
+
+type RealtimeEntityType = 'job-card' | 'calendar-event' | 'conversation' | 'confidential-note';
+
+function isRealtimeEntityType(value: unknown): value is RealtimeEntityType {
+  return typeof value === 'string' && REALTIME_ENTITY_TYPES.has(value as RealtimeEntityType);
+}
+
 const CHANGE_TYPES = new Set([
   'job.created',
   'job.assignment_changed',
@@ -22,6 +37,10 @@ const CHANGE_TYPES = new Set([
   'job.revision_requested',
   'job.cancelled',
   'job.updated',
+  'calendar.created',
+  'calendar.updated',
+  'calendar.cancelled',
+  'calendar.reminder_due',
   'conversation.created',
   'message.sent',
   'confidential-note.created',
@@ -101,7 +120,7 @@ function parseEnvelope(input: string): RealtimeEnvelope | null {
   if (!record.entity || typeof record.entity !== 'object') return null;
   const entity = record.entity as Record<string, unknown>;
   if (
-    (entity.type !== 'job-card' && entity.type !== 'confidential-note')
+    !isRealtimeEntityType(entity.type)
     || typeof entity.id !== 'string' || entity.id.length === 0
   ) {
     return null;
