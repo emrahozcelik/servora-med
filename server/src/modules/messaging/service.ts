@@ -605,7 +605,10 @@ export class MessagingService {
       // participants, restricted for JOB conversations to users who currently
       // have access to the underlying JobCard (stale/unassigned Staff are
       // excluded and must not receive activity for threads they can no longer
-      // read).
+      // read). MANAGER/ADMIN are additionally addressed by role: R1 grants
+      // same-org organization-wide Messaging read authority, so their live
+      // invalidation must not depend on a persisted participant row. STAFF
+      // stays participant/resource scoped.
       let realtimeEventId: bigint | null = null;
       let audienceUserIds: readonly string[] = [...participantIds];
       if (activity) {
@@ -622,7 +625,7 @@ export class MessagingService {
           entityType: 'conversation',
           entityId: conversation.id,
           actorUserId: actor.id,
-          audienceRoles: [],
+          audienceRoles: ['ADMIN', 'MANAGER'],
           audienceUserIds: [...audienceUserIds],
           resourceKeys: [
             'conversations',
@@ -671,7 +674,7 @@ export class MessagingService {
             entityType: 'conversation',
             entityId: conversation.id,
             actorUserId: actor.id,
-            audience: { roles: [], userIds: [...audienceUserIds] },
+            audience: { roles: ['ADMIN', 'MANAGER'], userIds: [...audienceUserIds] },
             resourceKeys: ['conversations', `conversation:${conversationId}`, 'message-unread', 'overview', 'notifications'],
             occurredAt: now,
           },
