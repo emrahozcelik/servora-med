@@ -35,6 +35,7 @@ export type MessageRecord = Readonly<{
   conversationId: string;
   organizationId: string;
   senderUserId: string;
+  senderName: string;
   clientActionId: string;
   body: string;
   createdAt: Date;

@@ -961,7 +961,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               {threadError && <div className="inline-error">{threadError}<button className="ghost-button" onClick={() => selectedId && loadMessages(selectedId)}>Tekrar dene</button></div>}
               {messageLoading && <LoadMessages />}
               {!messageLoading && !threadError && messages.length === 0 && <EmptyState title="Henüz mesaj yok" description="İlk mesajı siz gönderin." />}
-              {messages.map((msg) => (<div key={msg.id} className={`message-bubble ${msg.senderUserId === user.id ? 'own' : 'other'}`}><div className="message-body">{msg.body}</div><time className="message-time">{formatMessageTime(msg.createdAt)}</time></div>))}
+              {messages.map((msg) => { const isOwn = msg.senderUserId === user.id; return (<div key={msg.id} className={`message-bubble ${isOwn ? 'own' : 'other'}`}>{!isOwn && <span className="message-sender">{msg.senderName}</span>}<div className="message-body">{msg.body}</div><time className="message-time">{formatMessageTime(msg.createdAt)}</time></div>); })}
               {isSending && draft && <div className="message-bubble own pending"><div className="message-body">{draft.body}</div><time className="message-time">Gönderiliyor…</time></div>}
               <div ref={threadEndRef} />
             </div>

@@ -265,6 +265,16 @@
   overflow-wrap: break-word;
 }
 
+.message-sender {
+  display: block;
+  font-size: 0.72rem;
+  font-weight: 600;
+  line-height: 1.35;
+  margin-bottom: 0.15rem;
+  opacity: 0.8;
+  overflow-wrap: break-word;
+}
+
 .message-time {
   display: block;
   font-size: 0.7rem;

@@ -43,6 +43,7 @@ type MessageRow = {
   conversation_id: string;
   organization_id: string;
   sender_user_id: string;
+  sender_name: string;
   client_action_id: string;
   body: string;
   created_at: Date;
@@ -119,6 +120,7 @@ function mapMessage(row: MessageRow): MessageRecord {
     conversationId: row.conversation_id,
     organizationId: row.organization_id,
     senderUserId: row.sender_user_id,
+    senderName: row.sender_name,
     clientActionId: row.client_action_id,
     body: row.body,
     createdAt: row.created_at,
@@ -518,8 +520,11 @@ export class PostgresMessagingRepository implements MessagingRepository {
     // Query DESC (newest first) to get the bounded window; return ASC for display
     const result = await this.pool.query<MessageRow>(
       `SELECT m.id, m.conversation_id, m.organization_id, m.sender_user_id,
+              u.name AS sender_name,
               m.client_action_id, m.body, m.created_at
          FROM messages m
+         JOIN users u
+           ON u.organization_id = m.organization_id AND u.id = m.sender_user_id
         WHERE m.organization_id = $1
           AND m.conversation_id = $2
           ${cursorClause}
@@ -549,10 +554,16 @@ export class PostgresMessagingRepository implements MessagingRepository {
     body: string,
   ): Promise<MessageRecord> {
     const result = await this.pool.query<MessageRow>(
-      `INSERT INTO messages (organization_id, conversation_id, sender_user_id, client_action_id, body)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (conversation_id, sender_user_id, client_action_id) DO NOTHING
-       RETURNING id, conversation_id, organization_id, sender_user_id, client_action_id, body, created_at`,
+      `WITH ins AS (
+         INSERT INTO messages (organization_id, conversation_id, sender_user_id, client_action_id, body)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (conversation_id, sender_user_id, client_action_id) DO NOTHING
+         RETURNING id, conversation_id, organization_id, sender_user_id, client_action_id, body, created_at
+       )
+       SELECT ins.*, u.name AS sender_name
+         FROM ins
+         JOIN users u
+           ON u.organization_id = ins.organization_id AND u.id = ins.sender_user_id`,
       [organizationId, conversationId, senderUserId, clientActionId, body],
     );
     const row = result.rows[0];
@@ -566,12 +577,15 @@ export class PostgresMessagingRepository implements MessagingRepository {
     clientActionId: string,
   ): Promise<MessageRecord | null> {
     const result = await this.pool.query<MessageRow>(
-      `SELECT id, conversation_id, organization_id, sender_user_id,
-              client_action_id, body, created_at
-         FROM messages
-        WHERE conversation_id = $1
-          AND sender_user_id = $2
-          AND client_action_id = $3`,
+      `SELECT m.id, m.conversation_id, m.organization_id, m.sender_user_id,
+              u.name AS sender_name,
+              m.client_action_id, m.body, m.created_at
+         FROM messages m
+         JOIN users u
+           ON u.organization_id = m.organization_id AND u.id = m.sender_user_id
+        WHERE m.conversation_id = $1
+          AND m.sender_user_id = $2
+          AND m.client_action_id = $3`,
       [conversationId, senderUserId, clientActionId],
     );
     return result.rows[0] ? mapMessage(result.rows[0]) : null;
@@ -1054,10 +1068,16 @@ export class PostgresMessagingTransaction {
     body: string,
   ): Promise<MessageRecord> {
     const result = await this.client.query<MessageRow>(
-      `INSERT INTO messages (organization_id, conversation_id, sender_user_id, client_action_id, body)
-       VALUES ($1, $2, $3, $4, $5)
-       ON CONFLICT (conversation_id, sender_user_id, client_action_id) DO NOTHING
-       RETURNING id, conversation_id, organization_id, sender_user_id, client_action_id, body, created_at`,
+      `WITH ins AS (
+         INSERT INTO messages (organization_id, conversation_id, sender_user_id, client_action_id, body)
+         VALUES ($1, $2, $3, $4, $5)
+         ON CONFLICT (conversation_id, sender_user_id, client_action_id) DO NOTHING
+         RETURNING id, conversation_id, organization_id, sender_user_id, client_action_id, body, created_at
+       )
+       SELECT ins.*, u.name AS sender_name
+         FROM ins
+         JOIN users u
+           ON u.organization_id = ins.organization_id AND u.id = ins.sender_user_id`,
       [organizationId, conversationId, senderUserId, clientActionId, body],
     );
     const row = result.rows[0];
