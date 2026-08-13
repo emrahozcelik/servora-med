@@ -225,29 +225,31 @@ describe('M5 exact JOB conversation lookup (GET /api/messaging/conversations/job
     });
   });
 
-  itSlow('D: same-org Job-authorized Admin who is NOT a participant gets 404 with zero metadata', async () => {
+  itSlow('D: same-org Job-authorized Admin who is NOT a participant resolves 200 with canonical metadata', async () => {
     await withFixture(async ({ pool, adminA, adminB, staff1A, activeJob1A }) => {
       const canonicalId = await createCanonical(pool, adminA, activeJob1A, staff1A);
       const app = await withLookupApp(pool, adminB);
       const res = await getLookup(app, activeJob1A);
 
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
       const { body } = res;
-      expect(JSON.stringify(body)).not.toContain(canonicalId);
-      expect(JSON.stringify(body)).not.toContain(staff1A.id);
-      expect(JSON.stringify(body)).not.toContain(staff1A.name);
-      expect(JSON.stringify(body)).not.toContain('JOB');
+      expect(body.contextType).toBe('JOB');
+      expect(body.jobId).toBe(activeJob1A);
+      expect(body.id).toBe(canonicalId);
       await app.close();
     });
   });
 
-  itSlow('E: Job-authorized Manager who is NOT a participant gets 404 with zero metadata', async () => {
+  itSlow('E: Job-authorized Manager who is NOT a participant resolves 200 with canonical metadata', async () => {
     await withFixture(async ({ pool, adminA, managerA, managerB, staff1A, activeJob1A }) => {
-      await createCanonical(pool, adminA, activeJob1A, staff1A);
+      const canonicalId = await createCanonical(pool, adminA, activeJob1A, staff1A);
       const app = await withLookupApp(pool, managerB);
       const res = await getLookup(app, activeJob1A);
 
-      expect(res.status).toBe(404);
+      expect(res.status).toBe(200);
+      const { body } = res;
+      expect(body.id).toBe(canonicalId);
+      expect(body.jobId).toBe(activeJob1A);
       await app.close();
     });
   });

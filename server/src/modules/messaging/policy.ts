@@ -4,17 +4,22 @@ import type { JobCardStatus } from '../job-cards/types.js';
 import type { ConversationRecord } from './types.js';
 
 /**
- * Contextual Messaging authorization policy (M3).
+ * Contextual Messaging authorization policy (M3, organization-wide MANAGER RBAC).
  *
  * Conversation membership and resource authorization are separate concepts.
- * JOB conversations require BOTH participant membership AND current access to
- * the underlying JobCard, using the authoritative JobCard access semantics
- * (actorCanReachJob in job-cards/policy.ts: non-STAFF actors reach org jobs,
- * STAFF actors reach only their assigned jobs).
+ *
+ * MANAGER and ADMIN hold organization-wide operational Messaging authority:
+ * same-org conversations are reachable without persisted membership, and JOB
+ * conversations additionally require current access to the underlying JobCard
+ * (actorCanReachJob in job-cards/policy.ts: non-STAFF actors reach org jobs).
+ *
+ * STAFF remains self/resource scoped: persisted membership is required, and
+ * JOB conversations additionally require the JobCard to be currently assigned
+ * to the actor.
  *
  * CUSTOMER and titled GENERAL conversations are authorization-free beyond
- * explicit participant membership (there is no authoritative Staff-to-Customer
- * ownership model yet).
+ * explicit participant membership for STAFF (there is no authoritative
+ * Staff-to-Customer ownership model yet).
  *
  * Legacy titleless GENERAL conversations are handled by the legacy pairwise
  * policy in MessagingService and never reach this module's membership path.
@@ -38,13 +43,23 @@ export function isLegacyGeneralConversation(conversation: ConversationRecord): b
 }
 
 export function canReadConversation(input: MessagingAccessInput): boolean {
-  if (!input.isParticipant) return false;
   const { actor, conversation, job } = input;
+  if (actor.role !== 'STAFF') {
+    // MANAGER/ADMIN: organization-wide operational authority. Persisted
+    // membership is not an authorization gate; the hard boundary is same-org.
+    if (conversation.organizationId !== actor.organizationId) return false;
+    // JOB: membership alone is never sufficient — the JobCard must be reachable.
+    if (conversation.contextType !== 'JOB') return true;
+    if (!job) return false;
+    return job.organizationId === actor.organizationId;
+  }
+  // STAFF: persisted membership remains required.
+  if (!input.isParticipant) return false;
   if (conversation.contextType !== 'JOB') return true;
   // JOB: membership alone is never sufficient — the JobCard must be reachable.
   if (!job) return false;
   return job.organizationId === actor.organizationId
-    && (actor.role !== 'STAFF' || job.assignedTo === actor.id);
+    && job.assignedTo === actor.id;
 }
 
 export function canSendMessage(input: MessagingAccessInput): boolean {

@@ -160,12 +160,12 @@ describe('M4 initial multi-participant create contract', () => {
     });
   });
 
-  itSlow('MANAGER GENERAL recipients include management peers and only own-team Staff', async () => {
-    await withFixture(async ({ adminA, adminB, managerA, managerB, staff1A, staff2A, pool }) => {
+  itSlow('MANAGER GENERAL recipients include management peers and all active same-org Staff', async () => {
+    await withFixture(async ({ pool, adminA, adminB, managerA, managerB, staff1A, staff2A, staff3A }) => {
       const recipients = await service(pool).getRecipients(managerA, 'GENERAL');
 
       expect(recipients.map((recipient) => recipient.id).sort()).toEqual(
-        [adminA.id, adminB.id, managerB.id, staff1A.id, staff2A.id].sort(),
+        [adminA.id, adminB.id, managerB.id, staff1A.id, staff2A.id, staff3A.id].sort(),
       );
     });
   });
@@ -231,19 +231,21 @@ describe('M4 initial multi-participant create contract', () => {
     });
   });
 
-  itSlow('MANAGER out-of-scope Staff: denied, no conversation, no participant rows', async () => {
+  itSlow('MANAGER can create a GENERAL conversation with any active same-org Staff (organization-wide RBAC)', async () => {
     await withFixture(async ({ pool, orgA, managerA, staff1A, staff3A }) => {
       const svc = service(pool);
-      await expect(
-        svc.createOrGetConversation(managerA, {
-          participantUserIds: [staff1A.id, staff3A.id],
-          contextType: 'GENERAL',
-          title: 'Kapsam dışı deneme',
-        }),
-      ).rejects.toMatchObject({ statusCode: 403 });
+      const conv = await svc.createOrGetConversation(managerA, {
+        participantUserIds: [staff1A.id, staff3A.id],
+        contextType: 'GENERAL',
+        title: 'Kapsam dışı deneme',
+      });
 
-      expect(await countRows(pool, 'conversations', orgA)).toBe(0);
-      expect(await countRows(pool, 'conversation_participants', orgA)).toBe(0);
+      const ids = conv.participants.map((p) => p.userId);
+      expect(new Set(ids).size).toBe(3);
+      expect(ids).toContain(managerA.id);
+      expect(ids).toContain(staff1A.id);
+      expect(ids).toContain(staff3A.id);
+      expect(await countRows(pool, 'conversations', orgA)).toBe(1);
     });
   });
 
@@ -493,7 +495,7 @@ describe('M4 initial multi-participant create contract', () => {
     return rows.rows.map((r) => r.user_id);
   }
 
-  itSlow('canonical JOB: non-participant ADMIN create/get is denied with 403 and no side effects', async () => {
+  itSlow('canonical JOB: non-participant ADMIN create/get resolves the canonical thread without membership mutation', async () => {
     await withFixture(async ({ pool, orgA, adminA, adminB, staff1A, job1A }) => {
       const svc = service(pool);
       const canonical = await svc.createOrGetConversation(adminA, {
@@ -502,14 +504,14 @@ describe('M4 initial multi-participant create contract', () => {
         jobId: job1A,
       });
 
-      await expect(
-        svc.createOrGetConversation(adminB, {
-          participantUserIds: [staff1A.id],
-          contextType: 'JOB',
-          jobId: job1A,
-        }),
-      ).rejects.toMatchObject({ statusCode: 403 });
+      const opened = await svc.createOrGetConversation(adminB, {
+        participantUserIds: [staff1A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+      expect(opened.id).toBe(canonical.id);
 
+      // No membership mutation: adminB is not silently inserted.
       expect(await canonicalJobMembership(pool, canonical.id)).toEqual(
         [adminA.id, staff1A.id].sort(),
       );
@@ -531,7 +533,7 @@ describe('M4 initial multi-participant create contract', () => {
     });
   });
 
-  itSlow('canonical JOB: non-participant MANAGER (Job resource authorized) is denied — resource auth alone grants no membership', async () => {
+  itSlow('canonical JOB: non-participant MANAGER (Job resource authorized) resolves the canonical thread without membership', async () => {
     await withFixture(async ({ pool, orgA, adminA, managerA, staff1A, job1A }) => {
       const svc = service(pool);
       const canonical = await svc.createOrGetConversation(adminA, {
@@ -541,14 +543,14 @@ describe('M4 initial multi-participant create contract', () => {
       });
 
       // managerA is Job-resource authorized (non-STAFF reaches org JobCards)
-      // and is the team manager of staff1A, but is NOT a Messaging participant.
-      await expect(
-        svc.createOrGetConversation(managerA, {
-          participantUserIds: [staff1A.id],
-          contextType: 'JOB',
-          jobId: job1A,
-        }),
-      ).rejects.toMatchObject({ statusCode: 403 });
+      // and is NOT a Messaging participant. Organization-wide MANAGER RBAC
+      // grants same-org operational access without persisted membership.
+      const opened = await svc.createOrGetConversation(managerA, {
+        participantUserIds: [staff1A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+      expect(opened.id).toBe(canonical.id);
 
       expect(await canonicalJobMembership(pool, canonical.id)).toEqual(
         [adminA.id, staff1A.id].sort(),
@@ -586,7 +588,7 @@ describe('M4 initial multi-participant create contract', () => {
     });
   });
 
-  itSlow('canonical JOB: denied non-participant create/get adds no participant, activity or realtime event', async () => {
+  itSlow('canonical JOB: non-participant ADMIN create/get returns canonical with no participant/activity/realtime side effects', async () => {
     await withFixture(async ({ pool, orgA, adminA, adminB, staff1A, job1A }) => {
       const svc = service(pool);
       const canonical = await svc.createOrGetConversation(adminA, {
@@ -605,13 +607,12 @@ describe('M4 initial multi-participant create contract', () => {
         [],
       )).rows[0]!.c;
 
-      await expect(
-        svc.createOrGetConversation(adminB, {
-          participantUserIds: [staff1A.id],
-          contextType: 'JOB',
-          jobId: job1A,
-        }),
-      ).rejects.toMatchObject({ statusCode: 403 });
+      const opened = await svc.createOrGetConversation(adminB, {
+        participantUserIds: [staff1A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+      expect(opened.id).toBe(canonical.id);
 
       expect(await canonicalJobMembership(pool, canonical.id)).toEqual(participantsBefore);
       const activityAfter = (await pool.query(
@@ -627,7 +628,7 @@ describe('M4 initial multi-participant create contract', () => {
     });
   });
 
-  itSlow('HTTP: canonical JOB create/get for a non-participant admin returns 403 with no conversation metadata', async () => {
+  itSlow('HTTP: canonical JOB create/get for a non-participant admin returns the canonical thread with no membership mutation', async () => {
     await withFixture(async ({ pool, adminA, adminB, staff1A, job1A }) => {
       const svc = service(pool);
       const canonical = await svc.createOrGetConversation(adminA, {
@@ -656,15 +657,14 @@ describe('M4 initial multi-participant create contract', () => {
         payload: { participantUserIds: [staff1A.id], contextType: 'JOB', jobId: job1A },
       });
 
-      expect(res.statusCode).toBe(403);
+      expect(res.statusCode).toBe(201);
       const body = JSON.parse(res.body) as Record<string, unknown>;
-      expect(body.id).toBeUndefined();
-      expect(body.jobTitle).toBeUndefined();
-      expect(body.participants).toBeUndefined();
-      expect(body.participantName).toBeUndefined();
-      expect(res.body).not.toContain(canonical.id);
-      expect(res.body).not.toContain(staff1A.id);
-      expect(res.body).not.toContain(staff1A.name);
+      expect(body.id).toBe(canonical.id);
+      expect(body.jobId).toBe(job1A);
+      expect(JSON.stringify(body)).not.toContain('FORBIDDEN');
+      expect(await canonicalJobMembership(pool, canonical.id)).toEqual(
+        [adminA.id, staff1A.id].sort(),
+      );
       await app.close();
     });
   });

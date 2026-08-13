@@ -395,6 +395,18 @@ export class PostgresMessagingRepository implements MessagingRepository {
              OR c.context_type <> 'JOB'
              OR (j.organization_id IS NOT NULL AND j.assigned_to = $2))`;
 
+    // Organization-wide MANAGER/ADMIN RBAC: persisted membership is no longer
+    // an authorization gate for ADMIN/MANAGER, so their conversation list is
+    // org-wide. STAFF remains participant-scoped. The unread FILTER additionally
+    // requires a participant row so a non-participant MANAGER/ADMIN never
+    // receives a fabricated unread count (access authority != read-state
+    // subscription; nonparticipant read-state is a documented idempotent no-op).
+    const participantJoin = role === 'STAFF'
+      ? `JOIN conversation_participants cp
+           ON cp.conversation_id = c.id AND cp.user_id = $2 AND cp.organization_id = c.organization_id`
+      : `LEFT JOIN conversation_participants cp
+           ON cp.conversation_id = c.id AND cp.user_id = $2 AND cp.organization_id = c.organization_id`;
+
     const result = await this.pool.query<ConversationListItemRow>(
       `SELECT c.id, c.direct_key, c.context_type, c.job_id,
               c.customer_id, c.title,
@@ -406,6 +418,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
               COALESCE(other_participants.participants, '[]'::jsonb) AS participants,
               COUNT(m.id) FILTER (
                 WHERE m.sender_user_id <> $2
+                  AND cp.user_id = $2
                   AND (cp.last_read_message_id IS NULL
                        OR (m.created_at, m.id) > (rm.created_at, rm.id))
               ) AS unread_count,
@@ -415,8 +428,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
               ) AS last_activity_at,
               c.updated_at
          FROM conversations c
-         JOIN conversation_participants cp
-           ON cp.conversation_id = c.id AND cp.user_id = $2 AND cp.organization_id = c.organization_id
+         ${participantJoin}
          LEFT JOIN LATERAL (
            SELECT u.id, u.name, u.is_active
              FROM conversation_participants other_cp
@@ -448,6 +460,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
          LEFT JOIN messages m
            ON m.conversation_id = c.id
         WHERE c.organization_id = $1
+          AND ($3::text = 'STAFF' OR cp.user_id = $2 OR cp.user_id IS NULL)
           ${staffJobFilter}
           ${cursorClause}
         GROUP BY c.id, c.direct_key, c.context_type, c.job_id,
@@ -656,27 +669,17 @@ export class PostgresMessagingRepository implements MessagingRepository {
     let query: string;
     const values: unknown[] = [organizationId, userId];
 
-    if (role === 'ADMIN') {
+    if (role === 'ADMIN' || role === 'MANAGER') {
+      // Organization-wide operational authority: MANAGER mirrors ADMIN.
+      // GENERAL recipients are all active same-org users except self; JOB and
+      // CUSTOMER recipients are active same-org STAFF (the JOB recipient is
+      // further constrained to the current assigned Staff by validateJobContext).
       query = `SELECT u.id, u.name, u.role, u.is_active
                  FROM users u
                 WHERE u.organization_id = $1
                   AND u.id <> $2
                   AND ($3 = 'GENERAL' OR u.role = 'STAFF')
                   AND u.is_active = TRUE
-                ORDER BY u.name ASC`;
-      values.push(contextType);
-    } else if (role === 'MANAGER') {
-      query = `SELECT u.id, u.name, u.role, u.is_active
-                 FROM users u
-                 LEFT JOIN staff_profiles sp
-                   ON sp.organization_id = u.organization_id AND sp.user_id = u.id
-                WHERE u.organization_id = $1
-                  AND u.id <> $2
-                  AND u.is_active = TRUE
-                  AND (
-                    ($3 = 'GENERAL' AND u.role IN ('ADMIN', 'MANAGER'))
-                    OR (u.role = 'STAFF' AND sp.manager_user_id = $2)
-                  )
                 ORDER BY u.name ASC`;
       values.push(contextType);
     } else {

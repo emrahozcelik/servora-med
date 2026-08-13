@@ -189,7 +189,7 @@ describe('M7 canonical JOB create concurrency race', () => {
     await adminPool.end();
   });
 
-  itSlow('two different Admin actors racing the same JOB: winner owns membership, loser is forbidden, no duplicate side effects', async () => {
+  itSlow('two different Admin actors racing the same JOB: single canonical, winner owns membership, loser resolves canonical without side effects', async () => {
     await withFixture(async ({ pool, adminA, adminB, staff1A, job1A }) => {
       const { pool: barrierPool, waitForBothArrivals } = withInsertBarrier(pool);
       const { publisher, conversationCreatedEvents } = makePublisher();
@@ -210,15 +210,15 @@ describe('M7 canonical JOB create concurrency race', () => {
 
       const [resultA, resultB] = await Promise.allSettled([first, second]);
 
-      const fulfilled = [resultA, resultB].filter(
-        (r): r is PromiseFulfilledResult<Awaited<ReturnType<MessagingService['createOrGetConversation']>>> =>
-          r.status === 'fulfilled',
-      );
-      const rejected = [resultA, resultB].filter((r) => r.status === 'rejected');
-
-      expect(fulfilled).toHaveLength(1);
-      expect(rejected).toHaveLength(1);
-      expect(rejected[0]!.reason).toMatchObject({ statusCode: 403 });
+      // Organization-wide MANAGER/ADMIN RBAC: both Admins resolve the single
+      // canonical conversation. Only the insert-winner persists members and
+      // emits creation side effects; the loser gets the canonical-return
+      // semantics with no membership mutation and no duplicate events.
+      expect(resultA.status).toBe('fulfilled');
+      expect(resultB.status).toBe('fulfilled');
+      const valueA = (resultA as PromiseFulfilledResult<Awaited<ReturnType<MessagingService['createOrGetConversation']>>>).value;
+      const valueB = (resultB as PromiseFulfilledResult<Awaited<ReturnType<MessagingService['createOrGetConversation']>>>).value;
+      expect(valueA.id).toBe(valueB.id);
 
       const canonicalRows = await pool.query(
         `SELECT id FROM conversations
@@ -235,8 +235,7 @@ describe('M7 canonical JOB create concurrency race', () => {
       );
       const participantIds = participantRows.rows.map((r) => r.user_id);
 
-      const winner = fulfilled[0]!.value;
-      const winnerActor = winner.participants.some((p) => p.userId === adminA.id)
+      const winnerActor = valueA.participants.some((p) => p.userId === adminA.id)
         ? adminA
         : adminB;
 
@@ -307,7 +306,7 @@ describe('M7 canonical JOB create concurrency race', () => {
     });
   });
 
-  itSlow('pre-existing canonical: non-participant Admin create is forbidden, membership unchanged', async () => {
+  itSlow('pre-existing canonical: non-participant Admin resolves canonical, membership unchanged', async () => {
     await withFixture(async ({ pool, adminA, adminB, staff1A, job1A }) => {
       const svc = new MessagingService(pool, true);
       const created = await svc.createOrGetConversation(adminA, {
@@ -316,13 +315,12 @@ describe('M7 canonical JOB create concurrency race', () => {
         jobId: job1A,
       });
 
-      await expect(
-        svc.createOrGetConversation(adminB, {
-          participantUserIds: [staff1A.id],
-          contextType: 'JOB',
-          jobId: job1A,
-        }),
-      ).rejects.toMatchObject({ statusCode: 403 });
+      const opened = await svc.createOrGetConversation(adminB, {
+        participantUserIds: [staff1A.id],
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+      expect(opened.id).toBe(created.id);
 
       const participantRows = await pool.query<{ user_id: string }>(
         `SELECT user_id FROM conversation_participants

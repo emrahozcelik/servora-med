@@ -218,15 +218,10 @@ describe('M5 Job Detail Messaging action', () => {
       expect(host.querySelector('[data-job-detail-messaging="true"] [role="alert"]')).toBeNull();
     });
 
-    it('Case 4: canonical exists but caller is non-participant → create 403 → no metadata, safe error, no join/add retry', async () => {
+    it('Case 4: canonical exists but caller is non-participant → create returns canonical (org-wide Manager RBAC) → opens same thread, no join/add retry', async () => {
       const fetch = mockFetch(jobWith('IN_PROGRESS'), () => Response.json(
         { status: 404, ok: false }, { status: 404 },
-      ), {
-        createResponse: Response.json(
-          { error: 'Bu işlem için yetkiniz bulunmuyor.', code: 'FORBIDDEN' },
-          { status: 403 },
-        ),
-      });
+      ));
       await renderScreen(jobWith('IN_PROGRESS'), adminUser, fetch);
 
       const startButton = button(host);
@@ -234,12 +229,15 @@ describe('M5 Job Detail Messaging action', () => {
       await act(async () => { startButton?.dispatchEvent(new MouseEvent('click', { bubbles: true })); });
       await new Promise((resolve) => setTimeout(resolve, 0));
 
-      expect(openedConversations).toEqual([]);
-      const alert = host.querySelector('[role="alert"]');
-      expect(alert?.textContent).toBe('Konuşma açılamadı.');
-      expect(host.textContent).not.toContain('conv-1');
-      expect(host.textContent).not.toContain('FORBIDDEN');
-      expect(host.textContent).not.toContain('s1');
+      const createCall = fetch.mock.calls.find(([input]) =>
+        String(input) === '/api/messaging/conversations');
+      expect(createCall).toBeTruthy();
+      expect(JSON.parse(String(createCall![1]?.body))).toEqual({
+        contextType: 'JOB', jobId: 'job-1', participantUserIds: ['s1'],
+      });
+      expect(openedConversations).toEqual(['conv-1']);
+      const alert = host.querySelector('[data-job-detail-messaging="true"] [role="alert"]');
+      expect(alert).toBeNull();
     });
 
     it('Case 5: loading — duplicate click suppressed during create', async () => {

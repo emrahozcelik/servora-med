@@ -150,15 +150,14 @@ describe('M2 messaging context runtime contracts', () => {
       });
       expect(second.id).toBe(first.id);
 
-      // M4 security contract: a Job-resource-authorized non-participant is
-      // NOT granted Messaging membership through create/get.
-      await expect(
-        svc.createOrGetConversation(managerA, {
-          recipientUserId: staff1A.id,
-          contextType: 'JOB',
-          jobId: job1A,
-        }),
-      ).rejects.toMatchObject({ statusCode: 403 });
+      // Organization-wide MANAGER RBAC: a Job-resource-authorized Manager
+      // resolves the canonical thread without persisted membership.
+      const opened = await svc.createOrGetConversation(managerA, {
+        recipientUserId: staff1A.id,
+        contextType: 'JOB',
+        jobId: job1A,
+      });
+      expect(opened.id).toBe(first.id);
 
       const count = (await pool.query(
         `SELECT COUNT(*)::int AS c FROM conversations
@@ -396,7 +395,7 @@ describe('M2 messaging context runtime contracts', () => {
     });
   });
 
-  it('multi-participant: service send fails closed for N>2 with no side effects', async () => {
+  it('multi-participant: service send fails closed for STAFF in N>2; org-wide ADMIN/manager unaffected', async () => {
     await withFixture(async ({ pool, orgA, adminA, managerA, staff1A, staff2A }) => {
       const svc = service(pool);
       const repo = new PostgresMessagingRepository(pool);
@@ -406,11 +405,7 @@ describe('M2 messaging context runtime contracts', () => {
       await repo.addParticipants(orgA, t.id, [managerA.id, staff2A.id]);
       expect((await repo.findParticipants(orgA, t.id)).length).toBe(4);
 
-      // ADMIN in an N>2 conversation is not authorized to send until M3.
-      await expect(
-        svc.sendMessage(adminA, t.id, 'Herkese merhaba', `c-${randomUUID()}`),
-      ).rejects.toMatchObject({ statusCode: 403 });
-      // STAFF in an N>2 conversation is equally rejected.
+      // STAFF in an N>2 titleless GENERAL stays fail-closed.
       await expect(
         svc.sendMessage(staff1A, t.id, 'Ben de yazayım', `c-${randomUUID()}`),
       ).rejects.toMatchObject({ statusCode: 403 });
