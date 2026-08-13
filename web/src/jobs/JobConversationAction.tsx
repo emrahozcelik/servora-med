@@ -22,8 +22,9 @@ type Resolution =
  * - Authorized persisted participant: "Konuşmayı aç" → deep link.
  * - Admin/Manager with no authorized conversation on an eligible active Job:
  *   "Konuşma başlat" → reuses the frozen M4 create-or-get contract; the server
- *   stays the authority (existing canonical is returned, non-participants are
- *   denied 403 with no metadata and are never added).
+ *   stays the authority. Organization-wide MANAGER RBAC: a same-org accessible
+ *   Job resolves its canonical thread even without persisted membership
+ *   (non-participants are never inserted; membership stays immutable).
  * - Staff / terminal / no-assignee without an authorized conversation: no action.
  */
 export function JobConversationAction({

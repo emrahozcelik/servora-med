@@ -151,12 +151,15 @@ export class MessagingService {
     const participants = await this.repository.findParticipantsWithUsers(
       actor.organizationId, canonical.id,
     );
-    if (!participants.some((p) => p.userId === actor.id)) {
-      throw notFound();
-    }
     const jobAccess = await this.fetchJobAccess(actor.organizationId, jobId);
+    // Organization-wide MANAGER/ADMIN RBAC: ADMIN/MANAGER may resolve the
+    // canonical same-org Job conversation without persisted membership.
+    // STAFF requires membership + current Job resource authorization. Every
+    // denied case (no thread, non-participant STAFF, cross-org) returns the
+    // same opaque 404 with zero metadata.
     if (!canReadConversation({
-      actor, conversation: canonical, job: jobAccess, isParticipant: true,
+      actor, conversation: canonical, job: jobAccess,
+      isParticipant: participants.some((p) => p.userId === actor.id),
     })) {
       throw notFound();
     }
@@ -277,12 +280,14 @@ export class MessagingService {
         actor.organizationId, jobId,
       );
       if (canonical) {
+        // Organization-wide MANAGER/ADMIN RBAC: persisted membership is not an
+        // authorization gate for ADMIN/MANAGER. STAFF cannot create
+        // conversations (rejected above), so every actor reaching here holds
+        // same-org operational authority; the canonical thread is returned
+        // without mutating membership (no auto-join, no duplicate).
         const canonicalParticipants = await this.repository.findParticipantsWithUsers(
           actor.organizationId, canonical.id,
         );
-        if (!canonicalParticipants.some((p) => p.userId === actor.id)) {
-          throw forbidden();
-        }
         let canonicalJobTitle: string | null = null;
         const jobResult = await this.pool.query<{ title: string }>(
           `SELECT title FROM job_cards
@@ -377,12 +382,12 @@ export class MessagingService {
         conversation = await tx.findConversationByDirectKey(actor.organizationId, directKey);
       }
       if (conversation) {
+        // Organization-wide MANAGER/ADMIN RBAC: persisted membership is not an
+        // authorization gate here (STAFF cannot create conversations). An
+        // existing conversation is returned as-is without mutating membership.
         const participants = await tx.findParticipantsWithUsers(
           actor.organizationId, conversation.id,
         );
-        if (!participants.some((p) => p.userId === actor.id)) {
-          throw forbidden();
-        }
         return {
           result: {
             id: conversation.id,
@@ -417,12 +422,12 @@ export class MessagingService {
       const created = createdResult.conversation;
 
       if (!createdResult.inserted) {
+        // Concurrent create loser: org-wide MANAGER/ADMIN may return the
+        // winner's canonical conversation without persisted membership; the
+        // membership of the existing conversation is never mutated.
         const recoveredParticipants = await tx.findParticipantsWithUsers(
           actor.organizationId, created.id,
         );
-        if (!recoveredParticipants.some((p) => p.userId === actor.id)) {
-          throw forbidden();
-        }
         return {
           result: {
             id: created.id,
@@ -541,23 +546,31 @@ export class MessagingService {
       const participants = await tx.findAllParticipants(actor.organizationId, conversation.id);
       const participantIds = participants.map((p) => p.userId);
       const isParticipant = participantIds.includes(actor.id);
-      if (!isParticipant) {
+      // Organization-wide MANAGER/ADMIN RBAC: STAFF keeps the persisted
+      // membership gate; ADMIN/MANAGER are authorized by same-org operational
+      // authority and do not require a participant row.
+      if (actor.role === 'STAFF' && !isParticipant) {
         throw forbidden();
       }
 
       // Legacy titleless GENERAL direct conversations keep the pre-M3
-      // pairwise reauthorization policy (N=2 only; N>2 stays fail-closed).
+      // pairwise reauthorization policy for STAFF (N=2 only; N>2 stays
+      // fail-closed). ADMIN/MANAGER use the org-wide resource-based policy.
       // All contextual conversations (JOB, CUSTOMER, titled GENERAL) use the
-      // resource-based policy: membership + current JobCard authorization.
+      // resource-based policy: membership (STAFF) + current JobCard authorization.
       let jobAccess: JobAccessContext | null = null;
       if (conversation.contextType === 'JOB' && conversation.jobId) {
         jobAccess = await this.fetchJobAccess(actor.organizationId, conversation.jobId);
       }
       if (isLegacyGeneralConversation(conversation)) {
-        if (participants.length === 2) {
-          const otherParticipant = participants.find((p) => p.userId !== actor.id)!;
-          await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
-        } else {
+        if (actor.role === 'STAFF') {
+          if (participants.length === 2) {
+            const otherParticipant = participants.find((p) => p.userId !== actor.id)!;
+            await this.reauthorizeSend(actor, otherParticipant.userId, conversation);
+          } else {
+            throw forbidden();
+          }
+        } else if (!canSendMessage({ actor, conversation, job: jobAccess, isParticipant })) {
           throw forbidden();
         }
       } else if (!canSendMessage({ actor, conversation, job: jobAccess, isParticipant })) {
@@ -1135,24 +1148,12 @@ export class MessagingService {
       throw new AppError('VALIDATION_ERROR', 400, 'Alıcı kullanıcı pasif durumda.');
     }
 
-    // MANAGER: verify other participant is still in their team (must be STAFF)
-    if (actor.role === 'MANAGER') {
-      if (otherUser.role !== 'STAFF') throw forbidden();
-      const teamCheck = await this.pool.query<{ exists: boolean }>(
-        `SELECT EXISTS (
-           SELECT 1 FROM staff_profiles
-            WHERE organization_id = $1
-              AND user_id = $2
-              AND manager_user_id = $3
-         ) AS exists`,
-        [actor.organizationId, otherUserId, actor.id],
-      );
-      if (!teamCheck.rows[0]?.exists) throw forbidden();
-    }
-
-    // ADMIN: verify other participant is still active STAFF in same org
-    if (actor.role === 'ADMIN') {
-      if (otherUser.role !== 'STAFF') throw forbidden();
+    // MANAGER/ADMIN: organization-wide operational authority — same-org active
+    // participant is sufficient (no team relationship, no role restriction).
+    // Legacy pairwise role constraints are no longer authorization for
+    // ADMIN/MANAGER under the frozen organization-wide RBAC.
+    if (actor.role === 'MANAGER' || actor.role === 'ADMIN') {
+      // same-org active is already verified above; nothing else to enforce.
     }
 
     // STAFF: verify other participant is ADMIN or MANAGER and active
@@ -1175,20 +1176,6 @@ export class MessagingService {
 
       // The other participant must be the currently assigned staff
       if (job.assigned_to !== otherUserId) throw forbidden();
-
-      // MANAGER: verify assigned staff is still in their team
-      if (actor.role === 'MANAGER') {
-        const jobStaffCheck = await this.pool.query<{ exists: boolean }>(
-          `SELECT EXISTS (
-             SELECT 1 FROM staff_profiles sp
-              WHERE sp.organization_id = $1
-               AND sp.user_id = $2
-               AND sp.manager_user_id = $3
-           ) AS exists`,
-          [actor.organizationId, job.assigned_to, actor.id],
-        );
-        if (!jobStaffCheck.rows[0]?.exists) throw forbidden();
-      }
 
       // STAFF: verify the job is still assigned to the actor
       if (actor.role === 'STAFF') {
@@ -1215,20 +1202,8 @@ export class MessagingService {
     if (job.assigned_to !== recipientUserId) {
       throw new AppError('VALIDATION_ERROR', 400, 'İş bağlamında alıcı, işin atandığı personel olmalıdır.');
     }
-
-    // MANAGER: verify assigned staff is in their team
-    if (actor.role === 'MANAGER') {
-      const teamCheck = await this.pool.query<{ exists: boolean }>(
-        `SELECT EXISTS (
-           SELECT 1 FROM staff_profiles
-            WHERE organization_id = $1
-              AND user_id = $2
-              AND manager_user_id = $3
-         ) AS exists`,
-        [actor.organizationId, job.assigned_to, actor.id],
-      );
-      if (!teamCheck.rows[0]?.exists) throw forbidden();
-    }
+    // Organization-wide MANAGER/ADMIN RBAC: no Manager team relationship is
+    // checked. The recipient must simply be the Job's current assigned Staff.
   }
 
   private async isForwardMove(

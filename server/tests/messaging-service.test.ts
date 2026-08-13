@@ -217,7 +217,7 @@ describe('MessagingService', () => {
       ).rejects.toMatchObject({ statusCode: 400 });
     });
 
-    it('rejects manager creating conversation with non-team staff', async () => {
+    it('rejects manager creating conversation with an unknown (non-resolvable) recipient', async () => {
       const organizationId = randomUUID();
       const manager = managerActor(organizationId);
       const staffId = randomUUID();
