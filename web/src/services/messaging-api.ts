@@ -36,6 +36,7 @@ export type Message = {
   conversationId: string;
   organizationId: string;
   senderUserId: string;
+  senderName: string;
   clientActionId: string;
   body: string;
   createdAt: string;
@@ -99,6 +100,7 @@ function parseMessage(value: unknown): Message {
     conversationId: string(v.conversationId, 'conversationId'),
     organizationId: string(v.organizationId, 'organizationId'),
     senderUserId: string(v.senderUserId, 'senderUserId'),
+    senderName: string(v.senderName, 'senderName'),
     clientActionId: string(v.clientActionId, 'clientActionId'),
     body: string(v.body, 'body'),
     createdAt: string(v.createdAt, 'createdAt'),
