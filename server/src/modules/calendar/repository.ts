@@ -73,12 +73,6 @@ LEFT JOIN job_card_meeting_details md
 WHERE j.organization_id = $1
   AND ($2::uuid IS NULL OR j.assigned_to = $2)
   AND ($5::text <> 'STAFF' OR j.assigned_to = $6)
-  AND ($5::text <> 'MANAGER' OR EXISTS (
-    SELECT 1 FROM staff_profiles sp
-    WHERE sp.organization_id = j.organization_id
-      AND sp.user_id = j.assigned_to
-      AND sp.manager_user_id = $6
-  ))
   AND j.scheduled_at IS NOT NULL
   AND j.scheduled_at < $4
   AND COALESCE(j.scheduled_ends_at, j.scheduled_at) >= $3
@@ -100,12 +94,6 @@ JOIN users updater
 WHERE e.organization_id = $1
   AND ($2::uuid IS NULL OR e.assigned_user_id = $2)
   AND ($5::text <> 'STAFF' OR e.assigned_user_id = $6)
-  AND ($5::text <> 'MANAGER' OR EXISTS (
-    SELECT 1 FROM staff_profiles sp
-    WHERE sp.organization_id = e.organization_id
-      AND sp.user_id = e.assigned_user_id
-      AND sp.manager_user_id = $6
-  ))
   AND e.status = 'ACTIVE'
   AND e.starts_at < $4
   AND e.ends_at > $3
@@ -201,12 +189,6 @@ export class PostgresCalendarRepository implements CalendarRepository {
        FROM users u
        WHERE u.organization_id = $1 AND u.role = 'STAFF' AND u.is_active = TRUE
          AND ($2::text <> 'STAFF' OR u.id = $3)
-         AND ($2::text <> 'MANAGER' OR EXISTS (
-           SELECT 1 FROM staff_profiles sp
-           WHERE sp.organization_id = u.organization_id
-             AND sp.user_id = u.id
-             AND sp.manager_user_id = $3
-         ))
        ORDER BY u.name ASC, u.id ASC`,
       [actor.organizationId, actor.role, actor.id],
     );
