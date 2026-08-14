@@ -81,6 +81,14 @@ class MemoryJobCardRepository implements JobCardRepository {
     return { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true };
   }
 
+  async getOrganizationTimezone() {
+    return 'Europe/Istanbul';
+  }
+
+  async listActiveOnSiteJobs() { return []; }
+
+  async listRecentOnSiteVisits() { return []; }
+
   async getSubmissionCustomer() {
     return { id: 'customer-1', organizationId: 'org-1', status: 'active' as const };
   }
@@ -116,6 +124,12 @@ class MemoryJobCardRepository implements JobCardRepository {
         return { ...this.job };
       },
       createMeetingDetails: async () => { throw new Error('unused'); },
+      getAssigneeForUpdate: async () => ({
+        id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true,
+      }),
+      getOrganizationTimezone: async () => 'Europe/Istanbul',
+      listActiveOnSiteJobs: async () => [],
+      listRecentOnSiteVisits: async () => [],
       createNote: async (input) => ({
         id: input.id,
         jobCardId: input.jobCardId,
@@ -539,6 +553,12 @@ describe('JobCardService realtime event emission', () => {
       expectedVersion: 2,
       clientActionId: 'submit-action',
       note: 'Görev tamamlandı.',
+      followUpProposal: {
+        scheduledAt: '2026-07-27T10:00:00.000Z',
+        type: 'GENERAL_TASK',
+        assignedTo: 'staff-1',
+        followUpInstructions: 'Takip: Görev takibi',
+      },
     });
 
     expect(repository.notificationAppends).toEqual([

@@ -70,16 +70,14 @@ describe('MeetingDetailsSection', () => {
       .toBe('Görüşme sonucunda kaydedilecek bir değişiklik yok.');
   });
 
-  it('saves canonical result fields and keeps follow-up optional with linked guidance', async () => {
+  it('saves canonical result fields and keeps the legacy follow-up time out of the primary workflow', async () => {
     const onSave = vi.fn(async (input) => ({ ...details, ...input, jobCardVersion: 4 }));
     await act(async () => root.render(<MeetingDetailsSection job={job} details={details} user={user} mutationPending={false} onSave={onSave} />));
     change(container.querySelector('#meeting-actual-at')!, '2026-07-15T12:30');
     change(container.querySelector('#meeting-outcome')!, 'FOLLOW_UP_REQUIRED');
     change(container.querySelector('#meeting-summary')!, '  Ürün sunumu yapıldı.  ');
-    const followUp = container.querySelector('#meeting-follow-up-at') as HTMLInputElement;
-    expect(container.textContent).toContain('Takip zamanı eklemeniz önerilir');
-    expect(followUp.required).toBe(false); expect(followUp.hasAttribute('aria-required')).toBe(false);
-    expect(followUp.getAttribute('aria-describedby')).toBe('meeting-follow-up-help');
+    expect(container.querySelector('#meeting-follow-up-at')).toBeNull();
+    expect(container.textContent).toContain('Takip işi planı, işi kontrole gönderirken oluşturulur.');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(onSave).toHaveBeenCalledWith(expect.objectContaining({
       clientActionId: 'save-1', expectedVersion: 3, outcome: 'FOLLOW_UP_REQUIRED',
@@ -137,7 +135,6 @@ describe('MeetingDetailsSection', () => {
       ['meeting-actual-at', 'meeting-actual-at-error'],
       ['meeting-outcome', 'meeting-outcome-error'],
       ['meeting-summary', 'meeting-summary-error'],
-      ['meeting-follow-up-at', 'meeting-follow-up-at-error'],
     ]) {
       const control = container.querySelector(`#${controlId}`);
       expect(control?.getAttribute('aria-invalid')).toBe('true');

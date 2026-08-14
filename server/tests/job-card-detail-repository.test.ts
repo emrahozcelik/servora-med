@@ -7,9 +7,14 @@ const baseRow = {
   title: 'Doktoru ara', description: null, customer_id: 'customer-1', contact_id: null,
   assigned_to: 'staff-1', created_by: 'manager-1', priority: 'normal', due_date: null,
   engagement_kind: null,
+  source_job_card_id: null, follow_up_instructions: null,
+  follow_up_proposed_at: null, follow_up_proposed_type: null,
+  follow_up_proposed_assignee: null, follow_up_proposal_instructions: null,
+  follow_up_proposal_origin: null, follow_up_proposed_by: null,
   assignee_id: 'staff-1', assignee_name: 'Emrah Demir',
   customer_id_join: 'customer-1', customer_name: 'Demo Dental Klinik',
   contact_id_join: null, contact_name: null,
+  proposer_id: null, proposer_name: null,
 };
 
 const lifecycleRow = {
@@ -71,10 +76,19 @@ describe('Postgres JobCard detail projection', () => {
       scheduledAt: '2026-07-17T08:30:00.000Z',
       scheduledEndsAt: null,
       engagementKind: null,
+      sourceJobCardId: null,
+      followUpInstructions: null,
+      followUpProposedAt: null,
+      followUpProposedType: null,
+      followUpProposedAssignee: null,
+      followUpProposalInstructions: null,
+      followUpProposalOrigin: null,
+      followUpProposedBy: null,
       assignee: { id: 'staff-1', name: 'Emrah Demir' },
       customer: { id: 'customer-1', name: 'Demo Dental Klinik' },
       contact: null,
       lifecycle: expectedLifecycle,
+      proposer: null,
     });
     const projection = calls.at(-1)!;
     expect(projection.values).toEqual(['org-1', 'job-1']);

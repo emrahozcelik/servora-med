@@ -3074,6 +3074,11 @@ describe('Staff JobCard detail', () => {
     expect(start).toHaveBeenCalledWith('job-1', { clientActionId: 'action-1', expectedVersion: 2 });
     expect(submit).toHaveBeenCalledWith('job-1', {
       clientActionId: 'action-2', expectedVersion: 3, note: 'Teslim tamamlandı',
+      followUpProposal: expect.objectContaining({
+        type: 'SALES_MEETING',
+        assignedTo: 's1',
+        followUpInstructions: expect.any(String),
+      }),
     });
   });
 
@@ -3136,7 +3141,7 @@ describe('Staff JobCard detail', () => {
               submittedAt: '2026-07-17T12:00:00.000Z',
             }, { allowedActions: [] }),
           },
-          confirm: 'Kontrole gönder',
+          confirm: 'Tamamla ve yönetici onayına gönder',
           reason: 'Teslim tamamlandı',
           needsDialog: true as const,
         };
@@ -3144,7 +3149,7 @@ describe('Staff JobCard detail', () => {
     },
     {
       command: 'APPROVE' as const,
-      expected: 'İş tamamlandı ve aktif işlerden çıkarıldı.',
+      expected: 'İş tamamlandı ve takip işi planlandı.',
       setup: () => {
         const card = {
           ...job,
@@ -3166,7 +3171,7 @@ describe('Staff JobCard detail', () => {
           card,
           user: managerUser,
           trigger: 'Kontrolü tamamla ve işi kapat',
-          confirm: 'İşi tamamla',
+          confirm: 'İşi onayla ve takip işini planla',
           endpoint: '/approve',
           next: {
             ...card,
@@ -3285,6 +3290,21 @@ describe('Staff JobCard detail', () => {
       if (url.endsWith(`/api/job-cards/${scenario.card.id}`)) {
         return Response.json(scenario.card);
       }
+      if (url.includes('/follow-up-suggestion')) {
+        return Response.json({
+          scheduledAt: '2026-07-24T10:00:00.000Z',
+          type: scenario.card.type === 'GENERAL_TASK' ? 'GENERAL_TASK' : 'SALES_MEETING',
+          assignedTo: scenario.card.assignedTo,
+          followUpInstructions: 'Takip: Test takibi',
+          evaluation: {
+            level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+            suggestedAlternativeAt: null,
+          },
+        });
+      }
+      if (url.endsWith('/api/calendar/assignees')) {
+        return Response.json({ items: [{ id: 's1', name: 'Ayşe Personel' }] });
+      }
       throw new Error(`Unexpected request: ${url}`);
     }));
 
@@ -3321,7 +3341,7 @@ describe('Staff JobCard detail', () => {
       }
       if (command === 'APPROVE') expect(dialog.textContent).toContain('Onay notu');
       if ('reason' in scenario && scenario.reason) {
-        const textarea = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
+        const textarea = dialog.querySelector<HTMLTextAreaElement>('form textarea')!;
         await act(async () => {
           Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
             ?.set?.call(textarea, scenario.reason);

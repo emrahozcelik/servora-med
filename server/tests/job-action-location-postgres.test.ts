@@ -33,6 +33,7 @@ const migrations = [
   '021_job_card_note_added_notification_kind.sql',
   '022_job_card_follow_up_links.sql',
   '024_job_card_notes_invoice_number.sql',
+  '027_follow_up_proposals.sql',
 
 ] as const;
 

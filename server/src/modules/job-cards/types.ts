@@ -60,6 +60,34 @@ export type JobCard = {
   engagementKind: JobCardEngagementKind | null;
   sourceJobCardId: string | null;
   followUpInstructions: string | null;
+  followUpProposedAt: string | null;
+  followUpProposedType: JobCardType | null;
+  followUpProposedAssignee: string | null;
+  followUpProposalInstructions: string | null;
+  followUpProposalOrigin: FollowUpProposalOrigin | null;
+  followUpProposedBy: string | null;
+};
+
+export type FollowUpProposalOrigin = 'SYSTEM' | 'STAFF_ADJUSTED';
+
+export type FollowUpProposalInput = {
+  scheduledAt: string;
+  type: JobCardType;
+  assignedTo: string;
+  followUpInstructions: string;
+};
+
+export type ApproveFollowUpInput = FollowUpProposalInput & {
+  overrideReason?: string | null;
+};
+
+export type FollowUpProposal = {
+  scheduledAt: string;
+  type: JobCardType;
+  assignedTo: string;
+  followUpInstructions: string;
+  origin: FollowUpProposalOrigin;
+  proposedBy: RelatedIdentity | null;
 };
 
 export type JobCardCreateInput =
@@ -165,6 +193,7 @@ export type PersistedJobCardDetail = JobCard & {
   customer: RelatedIdentity | null;
   contact: RelatedIdentity | null;
   lifecycle: JobLifecycleFacts;
+  proposer: RelatedIdentity | null;
 };
 
 export type JobWorkflowContext = {
@@ -197,10 +226,11 @@ export type JobCardFollowUpContext = {
 
 export type JobCardDetail = Omit<
   PersistedJobCardDetail,
-  'lifecycle' | 'sourceJobCardId' | 'followUpInstructions'
+  'lifecycle' | 'sourceJobCardId' | 'followUpInstructions' | 'proposer'
 > & {
   workflowContext: JobWorkflowContext;
   followUpContext: JobCardFollowUpContext | null;
+  followUpProposal: FollowUpProposal | null;
 };
 
 export type DeliveryItem = {
@@ -322,7 +352,11 @@ export type FollowUpListItem = JobCardListItem & {
 
 export type PaginatedFollowUpList = Paginated<FollowUpListItem>;
 
-export type JobCardMutationReceipt = { jobCardId: string; evaluatedAt?: string };
+export type JobCardMutationReceipt = {
+  jobCardId: string;
+  evaluatedAt?: string;
+  followUpJobCardId?: string;
+};
 
 export type FollowUpCreateReceipt = JobCardMutationReceipt;
 
@@ -466,3 +500,25 @@ export type JobCardActivityDto = {
 };
 
 export type PaginatedJobCardActivity = Paginated<JobCardActivityDto>;
+
+import type {
+  CustomerScheduleConflictDetail,
+  CustomerScheduleLevel,
+  RecentVisitSummary,
+} from './customer-schedule.js';
+
+export type RoleProjectedCustomerScheduleEvaluation = {
+  level: CustomerScheduleLevel;
+  safeMessage: string | null;
+  conflicts: CustomerScheduleConflictDetail[];
+  recentVisit: RecentVisitSummary | null;
+  suggestedAlternativeAt: string | null;
+};
+
+export type FollowUpSuggestion = {
+  scheduledAt: string | null;
+  type: JobCardType;
+  assignedTo: string;
+  followUpInstructions: string;
+  evaluation: RoleProjectedCustomerScheduleEvaluation;
+};

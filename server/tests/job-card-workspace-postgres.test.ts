@@ -11,6 +11,18 @@ import type { JobCardActor, JobCardBaseFilters, JobCardListQuery } from '../src/
 import { PostgresReportsRepository } from '../src/modules/reports/repository.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
+const taskProposal = (assignedTo: string) => ({
+  scheduledAt: '2026-07-21T10:00:00.000Z',
+  type: 'GENERAL_TASK' as const,
+  assignedTo,
+  followUpInstructions: 'Takip: Klinik dönüşü takibi',
+});
+const salesProposal = (assignedTo: string, scheduledAt: string) => ({
+  scheduledAt,
+  type: 'SALES_MEETING' as const,
+  assignedTo,
+  followUpInstructions: 'Takip: Kontrol görüşmesi',
+});
 const filters: JobCardBaseFilters = {
   q: null, type: null, assignedTo: null, customerId: null, priority: null,
   dueBefore: null, dueAfter: null,
@@ -41,6 +53,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         '021_job_card_note_added_notification_kind.sql',
         '022_job_card_follow_up_links.sql',
         '024_job_card_notes_invoice_number.sql',
+        '027_follow_up_proposals.sql',
 
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
@@ -153,6 +166,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       generalTask = await service.submitForApproval(staff, generalTask.id, {
         clientActionId: 'submit-general-task', expectedVersion: generalTask.version,
         note: 'Takip sonucu kaydedildi.',
+        followUpProposal: taskProposal(staffId),
       });
       generalTask = await service.requestRevision(manager, generalTask.id, {
         clientActionId: 'revise-general-task', expectedVersion: generalTask.version,
@@ -164,6 +178,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       generalTask = await service.submitForApproval(staff, generalTask.id, {
         clientActionId: 'resubmit-general-task', expectedVersion: generalTask.version,
         note: 'Düzeltme tamamlandı.',
+        followUpProposal: taskProposal(staffId),
       });
       generalTask = await service.approve(manager, generalTask.id, {
         clientActionId: 'approve-general-task', expectedVersion: generalTask.version,
@@ -222,6 +237,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         clientActionId: 'submit-sales-meeting',
         expectedVersion: meetingDetails.jobCardVersion,
         note: 'Kontrol ziyareti tamamlandı.',
+        followUpProposal: salesProposal(staffId, '2026-07-21T10:00:00.000Z'),
       });
       const waitingReports = new PostgresReportsRepository(pool);
       await expect(waitingReports.getApprovalSummary({
@@ -289,6 +305,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       completed = await service.submitForApproval(staff, completedJobId, {
         clientActionId: 'submit', expectedVersion: completedActual.jobCardVersion,
         note: 'Teslim tamamlandı.',
+        followUpProposal: salesProposal(staffId, '2026-07-22T10:00:00.000Z'),
       });
       completed = await service.approve(manager, completedJobId, { clientActionId: 'approve', expectedVersion: completed.version });
       expect(completed).toMatchObject({ status: 'COMPLETED', version: 7 });
@@ -309,6 +326,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       revised = await service.submitForApproval(staff, cancelledJobId, {
         clientActionId: 'submit-revision', expectedVersion: revised.version,
         note: 'Teslim sonucu kaydedildi.',
+        followUpProposal: salesProposal(staffId, '2026-07-23T10:00:00.000Z'),
       });
       revised = await service.requestRevision(manager, cancelledJobId, {
         clientActionId: 'revision', expectedVersion: revised.version, revisionReason: 'Miktarı doğrulayın',

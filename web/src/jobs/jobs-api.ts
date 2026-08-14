@@ -113,6 +113,46 @@ export type JobCardFollowUpContext = {
   sourceJobPath: string | null;
   sourceSummary: FollowUpSourceSummary;
 };
+export type FollowUpProposalOrigin = 'SYSTEM' | 'STAFF_ADJUSTED';
+export type FollowUpProposal = {
+  scheduledAt: string;
+  type: JobCardType;
+  assignedTo: string;
+  followUpInstructions: string;
+  origin: FollowUpProposalOrigin;
+  proposedBy: RelatedName | null;
+};
+export type CustomerScheduleLevel = 'CLEAR' | 'WARNING' | 'CONFLICT' | 'FREQUENCY_EXCEEDED';
+export type CustomerScheduleConflictDetail = {
+  jobCardId: string;
+  title: string;
+  scheduledAt: string;
+  type: JobCardType;
+  status: string;
+  assignee: RelatedName;
+  jobPath: string;
+};
+export type RecentVisitSummary = {
+  occurredAt: string;
+  jobType: JobCardType;
+  title: string;
+  staffName: string;
+  resultSummary: string | null;
+};
+export type CustomerScheduleEvaluation = {
+  level: CustomerScheduleLevel;
+  safeMessage: string | null;
+  conflicts: CustomerScheduleConflictDetail[];
+  recentVisit: RecentVisitSummary | null;
+  suggestedAlternativeAt: string | null;
+};
+export type FollowUpSuggestion = {
+  scheduledAt: string | null;
+  type: JobCardType;
+  assignedTo: string;
+  followUpInstructions: string;
+  evaluation: CustomerScheduleEvaluation;
+};
 export type JobCard = {
   id: string; organizationId: string; type: JobCardType; status: JobCardStatus;
   version: number; title: string; description: string | null; customerId: string | null;
@@ -122,6 +162,7 @@ export type JobCard = {
   assignee: RelatedName;
   customer: RelatedName | null; contact: RelatedName | null; workflowContext: JobWorkflowContext;
   followUpContext: JobCardFollowUpContext | null;
+  followUpProposal: FollowUpProposal | null;
 };
 type FollowUpCreateCommon = {
   clientActionId: string;
@@ -266,6 +307,12 @@ type DeliveryInput = {
 };
 type LifecycleInput = { clientActionId: string; expectedVersion: number };
 export type StartJobCardInput = LifecycleInput & { locationCapture?: StartLocationCapture };
+export type FollowUpProposalInput = {
+  scheduledAt: string;
+  type: JobCardType;
+  assignedTo: string;
+  followUpInstructions: string;
+};
 
 function invalid(field: string): never {
   throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
@@ -445,6 +492,71 @@ function parseFollowUpContext(value: unknown): JobCardFollowUpContext | null {
     sourceSummary: parseFollowUpSourceSummary(v.sourceSummary),
   };
 }
+function parseFollowUpProposal(value: unknown): FollowUpProposal | null {
+  if (value === null) return null;
+  const v = exactObject(value, 'followUpProposal', [
+    'scheduledAt', 'type', 'assignedTo', 'followUpInstructions', 'origin', 'proposedBy',
+  ]);
+  return {
+    scheduledAt: canonicalInstant(v.scheduledAt, 'followUpProposal.scheduledAt'),
+    type: oneOf(v.type, 'followUpProposal.type', JOB_CARD_TYPES),
+    assignedTo: string(v.assignedTo, 'followUpProposal.assignedTo'),
+    followUpInstructions: string(v.followUpInstructions, 'followUpProposal.followUpInstructions'),
+    origin: oneOf(v.origin, 'followUpProposal.origin', ['SYSTEM', 'STAFF_ADJUSTED'] as const),
+    proposedBy: nullableRelated(v.proposedBy, 'followUpProposal.proposedBy'),
+  };
+}
+function parseCustomerScheduleEvaluation(value: unknown): CustomerScheduleEvaluation {
+  const v = exactObject(value, 'evaluation', [
+    'level', 'safeMessage', 'conflicts', 'recentVisit', 'suggestedAlternativeAt',
+  ]);
+  return {
+    level: oneOf(v.level, 'evaluation.level', ['CLEAR', 'WARNING', 'CONFLICT', 'FREQUENCY_EXCEEDED'] as const),
+    safeMessage: nullableString(v.safeMessage, 'evaluation.safeMessage'),
+    conflicts: array(v.conflicts, 'evaluation.conflicts').map((entry) => {
+      const c = exactObject(entry, 'conflict', [
+        'jobCardId', 'title', 'scheduledAt', 'type', 'status', 'assignee', 'jobPath',
+      ]);
+      return {
+        jobCardId: string(c.jobCardId, 'conflict.jobCardId'),
+        title: string(c.title, 'conflict.title'),
+        scheduledAt: canonicalInstant(c.scheduledAt, 'conflict.scheduledAt'),
+        type: oneOf(c.type, 'conflict.type', JOB_CARD_TYPES),
+        status: string(c.status, 'conflict.status'),
+        assignee: related(c.assignee, 'conflict.assignee'),
+        jobPath: string(c.jobPath, 'conflict.jobPath'),
+      };
+    }),
+    recentVisit: v.recentVisit === null ? null : (() => {
+      const r = exactObject(v.recentVisit, 'recentVisit', [
+        'occurredAt', 'jobType', 'title', 'staffName', 'resultSummary',
+      ]);
+      return {
+        occurredAt: canonicalInstant(r.occurredAt, 'recentVisit.occurredAt'),
+        jobType: oneOf(r.jobType, 'recentVisit.jobType', JOB_CARD_TYPES),
+        title: string(r.title, 'recentVisit.title'),
+        staffName: string(r.staffName, 'recentVisit.staffName'),
+        resultSummary: nullableString(r.resultSummary, 'recentVisit.resultSummary'),
+      };
+    })(),
+    suggestedAlternativeAt: nullableCanonicalInstant(
+      v.suggestedAlternativeAt,
+      'evaluation.suggestedAlternativeAt',
+    ),
+  };
+}
+export function parseFollowUpSuggestion(value: unknown): FollowUpSuggestion {
+  const v = exactObject(value, 'followUpSuggestion', [
+    'scheduledAt', 'type', 'assignedTo', 'followUpInstructions', 'evaluation',
+  ]);
+  return {
+    scheduledAt: nullableCanonicalInstant(v.scheduledAt, 'scheduledAt'),
+    type: oneOf(v.type, 'type', JOB_CARD_TYPES),
+    assignedTo: string(v.assignedTo, 'assignedTo'),
+    followUpInstructions: string(v.followUpInstructions, 'followUpInstructions'),
+    evaluation: parseCustomerScheduleEvaluation(v.evaluation),
+  };
+}
 function parseJobCard(value: unknown): JobCard {
   const v = object(value);
   if ('sourceJobCardId' in v || 'followUpInstructions' in v) invalid('jobCard');
@@ -467,6 +579,9 @@ function parseJobCard(value: unknown): JobCard {
     contact: nullableRelated(v.contact, 'contact'),
     workflowContext: parseWorkflowContext(v.workflowContext),
     followUpContext: parseFollowUpContext(v.followUpContext),
+    followUpProposal: 'followUpProposal' in v
+      ? parseFollowUpProposal(v.followUpProposal)
+      : null,
   };
 }
 export function parsePersistedJobCardListItem(value: unknown): PersistedJobCardListItem {
@@ -761,8 +876,19 @@ const lifecycle = async (id: string, command: string, input: object) =>
   parseJobCard(await request(`${jobPath(id)}/${command}`, json('POST', input)));
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
 export const startJobCard = (id: string, input: StartJobCardInput) => lifecycle(id, 'start', input);
-export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note: string }) => lifecycle(id, 'submit-for-approval', input);
-export const approveJobCard = (id: string, input: LifecycleInput & { note?: string }) => lifecycle(id, 'approve', input);
+export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note: string; followUpProposal: FollowUpProposalInput }) =>
+  lifecycle(id, 'submit-for-approval', input);
+export const approveJobCard = async (id: string, input: LifecycleInput & { note?: string; followUp?: FollowUpProposalInput & { overrideReason?: string } }) => {
+  const raw = await request(`${jobPath(id)}/approve`, json('POST', input));
+  const parsed = parseJobCard(raw);
+  const v = raw as Record<string, unknown>;
+  return {
+    ...parsed,
+    followUpJobCardId: typeof v.followUpJobCardId === 'string' ? v.followUpJobCardId : null,
+  };
+};
+export const getFollowUpSuggestion = async (id: string, at?: string) =>
+  parseFollowUpSuggestion(await request(`${jobPath(id)}/follow-up-suggestion${at === undefined ? '' : query({ at })}`));
 export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);
 export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);
 export const resumeJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'resume', input);

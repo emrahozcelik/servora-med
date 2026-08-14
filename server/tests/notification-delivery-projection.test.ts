@@ -16,6 +16,13 @@ import type { JobCardActor } from '../src/modules/job-cards/types.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 
+const taskProposal = (assignedTo: string) => ({
+  scheduledAt: '2026-07-29T10:00:00.000Z',
+  type: 'GENERAL_TASK' as const,
+  assignedTo,
+  followUpInstructions: 'Takip: Projeksiyon testi takibi',
+});
+
 const MIGRATIONS = [
   '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
   '004_crm_contacts.sql', '005_product_catalog.sql', '006_jobcard_workspace.sql',
@@ -32,6 +39,7 @@ const MIGRATIONS = [
   '021_job_card_note_added_notification_kind.sql',
   '022_job_card_follow_up_links.sql',
   '024_job_card_notes_invoice_number.sql',
+  '027_follow_up_proposals.sql',
 
 ] as const;
 
@@ -222,6 +230,7 @@ describe.skipIf(!databaseUrl)('Notification-to-outbox projection (PostgreSQL)', 
         expectedVersion: 3,
         clientActionId: randomUUID(),
         note: 'Test for push projection.',
+        followUpProposal: taskProposal(actor.id),
       });
 
       const deliveries = await pool.query<{ id: string; state: string }>(
@@ -271,6 +280,7 @@ describe.skipIf(!databaseUrl)('Notification-to-outbox projection (PostgreSQL)', 
         expectedVersion: 3,
         clientActionId: randomUUID(),
         note: 'Test disabled push.',
+        followUpProposal: taskProposal(actor.id),
       });
 
       const deliveryCount = await pool.query<{ count: number }>(
