@@ -22,6 +22,12 @@ import type {
 import type { JobCardActor } from '../src/modules/job-cards/types.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
+const taskProposal = (assignedTo: string) => ({
+  scheduledAt: '2026-07-27T10:00:00.000Z',
+  type: 'GENERAL_TASK' as const,
+  assignedTo,
+  followUpInstructions: 'Takip: İş kaydı takibi',
+});
 
 const MIGRATIONS = [
   '001_auth_foundation.sql', '002_delivery_tracer.sql', '003_people.sql',
@@ -39,6 +45,7 @@ const MIGRATIONS = [
   '021_job_card_note_added_notification_kind.sql',
   '022_job_card_follow_up_links.sql',
   '024_job_card_notes_invoice_number.sql',
+  '027_follow_up_proposals.sql',
 
 ] as const;
 
@@ -338,6 +345,7 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
           expectedVersion: jobVersion + 1,
           clientActionId: randomUUID(),
           note: 'Teslim tamamlandı.',
+        followUpProposal: taskProposal(assignedStaffUserId),
         });
         await expect.poll(() => managerEvents, {
           interval: 5,
@@ -382,11 +390,13 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
         expectedVersion: jobVersion + 1,
         clientActionId: submitActionId,
         note: 'Teslim tamamlandı.',
+        followUpProposal: taskProposal(assignedStaffUserId),
       });
       await jobCards.submitForApproval(staff, jobCardId, {
         expectedVersion: jobVersion + 1,
         clientActionId: submitActionId,
         note: 'Teslim tamamlandı.',
+        followUpProposal: taskProposal(assignedStaffUserId),
       });
 
       const notification = await pool.query<{
@@ -451,6 +461,7 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
         expectedVersion: jobVersion + 1,
         clientActionId: randomUUID(),
         note: 'Teslim tamamlandı.',
+        followUpProposal: taskProposal(assignedStaffUserId),
       })).rejects.toThrow('notification append failed');
 
       const job = await pool.query<{ status: string; version: number }>(
@@ -511,6 +522,7 @@ describe.skipIf(!databaseUrl)('Realtime JobCard integration (PostgreSQL)', () =>
         expectedVersion: jobVersion + 1,
         clientActionId: randomUUID(),
         note: 'Teslim tamamlandı.',
+        followUpProposal: taskProposal(assignedStaffUserId),
       });
 
       const replayed: RealtimeEventEnvelope[] = [];

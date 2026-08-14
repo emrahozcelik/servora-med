@@ -24,9 +24,28 @@ class LifecycleRepository implements JobCardRepository {
     version: 2, title: 'Teslim', description: null, customerId: 'customer-1', contactId: null,
     assignedTo: 'staff-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
     scheduledAt: null,
+    scheduledEndsAt: null,
+    engagementKind: null,
+    sourceJobCardId: null,
+    followUpInstructions: null,
+    followUpProposedAt: null,
+    followUpProposedType: null,
+    followUpProposedAssignee: null,
+    followUpProposalInstructions: null,
+    followUpProposalOrigin: null,
+    followUpProposedBy: null,
   };
   assignee = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' as const, isActive: true };
   customerExistsValue = true;
+  activeOnSiteJobs: {
+    id: string; title: string; scheduledAt: string; type: JobCard['type'];
+    status: string; assignedTo: string; assigneeName: string;
+  }[] = [];
+  recentOnSiteVisits: {
+    id: string; type: JobCard['type']; title: string; occurredAt: string;
+    staffName: string; resultSummary: string | null;
+  }[] = [];
+  timezone = 'Europe/Istanbul';
   submissionCustomer: {
     id: string;
     organizationId: string;
@@ -144,6 +163,45 @@ class LifecycleRepository implements JobCardRepository {
         return this.meetingDetails;
       },
       getSubmissionDeliveryItems: async () => this.items,
+      getAssigneeForUpdate: async () => this.assignee,
+      getCustomerForUpdate: async () => ({ id: 'customer-1', status: 'active' }),
+      getOrganizationTimezone: async () => this.timezone,
+      listActiveOnSiteJobs: async () => this.activeOnSiteJobs,
+      listRecentOnSiteVisits: async () => this.recentOnSiteVisits,
+      getFollowUpSource: async (_org, id) => (
+        id === this.job.id ? {
+          id: this.job.id,
+          organizationId: this.job.organizationId,
+          type: this.job.type,
+          status: this.job.status,
+          customerId: this.job.customerId,
+          contactId: this.job.contactId,
+          sourceJobCardId: this.job.sourceJobCardId,
+          assignedTo: this.job.assignedTo,
+          scheduledAt: this.job.scheduledAt,
+          startedAt: null,
+          staffCompletedAt: null,
+          managerApprovedAt: null,
+          customer: this.job.customerId
+            ? { id: this.job.customerId, name: 'Demo Klinik', customerType: 'clinic', status: 'active' }
+            : null,
+          contact: null,
+          meetingAt: null,
+          outcome: null,
+        } : null
+      ),
+      createJobCard: async (input) => ({
+        id: 'child-job-1', organizationId: input.organizationId, type: input.type,
+        status: input.status, version: 1, title: input.title, description: input.description,
+        customerId: input.customerId, contactId: input.contactId, assignedTo: input.assignedTo,
+        createdBy: input.createdBy, priority: input.priority, dueDate: input.dueDate,
+        scheduledAt: input.scheduledAt, scheduledEndsAt: input.scheduledEndsAt,
+        engagementKind: input.engagementKind, sourceJobCardId: input.sourceJobCardId,
+        followUpInstructions: input.followUpInstructions,
+        followUpProposedAt: null, followUpProposedType: null, followUpProposedAssignee: null,
+        followUpProposalInstructions: null, followUpProposalOrigin: null, followUpProposedBy: null,
+      }),
+      createMeetingDetails: async () => {},
       getNoteAuthorSnapshot: async (_organizationId, userId) => userId === 'manager-1'
         ? { id: userId, name: 'Manager One', role: 'MANAGER' as const, isActive: true }
         : { id: userId, name: 'Staff One', role: 'STAFF' as const, isActive: true },
@@ -294,7 +352,17 @@ function twoJobRepository() {
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
 const time = new Date('2026-07-13T12:00:00.000Z');
-const input = (clientActionId: string, expectedVersion = 2) => ({ clientActionId, expectedVersion, note: 'Tamamlandı' });
+const proposal = {
+  scheduledAt: '2026-07-20T12:00:00.000Z',
+  type: 'SALES_MEETING' as const,
+  assignedTo: 'staff-1',
+  followUpInstructions: 'Takip: Kontrol görüşmesi',
+};
+const input = (clientActionId: string, expectedVersion = 2) => ({
+  clientActionId, expectedVersion, note: 'Tamamlandı',
+  followUpProposal: proposal,
+  followUp: proposal,
+});
 
 function advancingClock(): () => Date {
   let step = 0;
@@ -398,8 +466,13 @@ describe('JobCard lifecycle commands', () => {
     const result = await service[method](method === 'approve' || method === 'requestRevision' || method === 'cancel' ? manager : staff, 'job-1', commandInput as never);
 
     expect(result).toMatchObject({ status: target, version: 3 });
-    expect(repo.events.map((item) => item.event)).toEqual([event]);
+    const expectedEvents = method === 'approve' ? [event, 'JOB_CREATED'] : [event];
+    expect(repo.events.map((item) => item.event)).toEqual(expectedEvents);
     expect(repo.events[0]).toMatchObject({ clientActionId: method });
+    if (method === 'approve') {
+      expect(repo.events[1]).toMatchObject({ jobCardId: 'child-job-1', event: 'JOB_CREATED' });
+      expect(result).toMatchObject({ followUpJobCardId: 'child-job-1' });
+    }
     expect(repo.claims[0]).toMatchObject({ operationKey: `${operationKey}:job-1`, clientActionId: method });
     expect(repo.transitions).toHaveLength(1);
   });
@@ -621,7 +694,11 @@ describe('JobCard lifecycle commands', () => {
       ? { ...input(`task-${method}`), revisionReason: ' Düzeltin ' }
       : method === 'cancel'
         ? { ...input(`task-${method}`), cancelReason: ' İptal edildi ' }
-        : input(`task-${method}`);
+        : {
+            ...input(`task-${method}`),
+            followUpProposal: { ...proposal, type: 'GENERAL_TASK' as const },
+            followUp: { ...proposal, type: 'GENERAL_TASK' as const },
+          };
     const commandActor = method === 'approve' || method === 'requestRevision' || method === 'cancel'
       ? manager : staff;
 
@@ -631,7 +708,8 @@ describe('JobCard lifecycle commands', () => {
 
     expect(result).toMatchObject({ type: 'GENERAL_TASK', status: target, version: 3 });
     expect(result).toMatchObject({ assignee: { id: 'staff-1', name: 'Staff One' } });
-    expect(repo.events.map((item) => item.event)).toEqual([event]);
+    const expectedEvents = method === 'approve' ? [event, 'JOB_CREATED'] : [event];
+    expect(repo.events.map((item) => item.event)).toEqual(expectedEvents);
     expect(repo.transitions).toHaveLength(1);
   });
 
@@ -726,14 +804,18 @@ describe('JobCard lifecycle commands', () => {
         ...input('calendar-cancel'),
         cancelReason: 'İptal',
       });
+      expect(repo.calendarSyncs).toEqual([expect.objectContaining({
+        jobCardId: 'job-1',
+        active: false,
+      })]);
     } else {
       await service.approve(manager, 'job-1', input('calendar-complete'));
+      expect(repo.calendarSyncs).toEqual([
+        expect.objectContaining({ jobCardId: 'job-1', active: false }),
+        expect.objectContaining({ jobCardId: 'child-job-1', active: true }),
+      ]);
     }
     expect(repo.job.status).toBe(target);
-    expect(repo.calendarSyncs).toEqual([expect.objectContaining({
-      jobCardId: 'job-1',
-      active: false,
-    })]);
   });
 
   it('allows assigned Staff to cancel throughout the active lifecycle', async () => {
@@ -803,14 +885,19 @@ describe('JobCard lifecycle commands', () => {
   it('trims optional approval notes and accepts their 0/2,000 code-point bounds', async () => {
     const empty = new LifecycleRepository();
     empty.job.status = 'WAITING_APPROVAL';
-    await new JobCardService(empty).approve(manager, 'job-1', { ...input('empty-note'), note: '  ' });
+    await new JobCardService(empty, () => time).approve(manager, 'job-1', { ...input('empty-note'), note: '  ' });
     expect(empty.transitions[0]!.note).toBeNull();
     expect(empty.notes).toHaveLength(0);
-    expect(empty.events[0]?.metadata).toBeUndefined();
+    expect(empty.events[0]?.metadata).toMatchObject({
+      followUpProposal: expect.objectContaining({
+        type: 'SALES_MEETING',
+        assignedTo: 'staff-1',
+      }),
+    });
 
     const max = new LifecycleRepository();
     max.job.status = 'WAITING_APPROVAL';
-    await new JobCardService(max).approve(manager, 'job-1', {
+    await new JobCardService(max, () => time).approve(manager, 'job-1', {
       ...input('max-note'), note: ` ${'😀'.repeat(2_000)} `,
     });
     expect(max.transitions[0]!.note).toBe('😀'.repeat(2_000));
@@ -876,13 +963,13 @@ describe('JobCard lifecycle commands', () => {
     expect(denied.events).toHaveLength(0);
 
     const failed = new LifecycleRepository(); failed.failActivity = true;
-    await expect(new JobCardService(failed).submitForApproval(staff, 'job-1', input('activity-fails')))
+    await expect(new JobCardService(failed, () => time).submitForApproval(staff, 'job-1', input('activity-fails')))
       .rejects.toThrow('activity failed');
     expect(failed.job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
     expect(failed.events).toHaveLength(0); expect(failed.transitions).toHaveLength(0);
 
     const noteFailed = new LifecycleRepository(); noteFailed.failNote = true;
-    await expect(new JobCardService(noteFailed).submitForApproval(
+    await expect(new JobCardService(noteFailed, () => time).submitForApproval(
       staff, 'job-1', input('note-fails'),
     )).rejects.toThrow('note failed');
     expect(noteFailed.job).toMatchObject({ status: 'IN_PROGRESS', version: 2 });
@@ -907,7 +994,10 @@ describe('JobCard lifecycle commands', () => {
     };
     repo.items = [];
 
-    await expect(new JobCardService(repo).submitForApproval(staff, 'job-1', input('task-submit')))
+    await expect(new JobCardService(repo, () => time).submitForApproval(staff, 'job-1', {
+      ...input('task-submit'),
+      followUpProposal: { ...proposal, type: 'GENERAL_TASK' as const },
+    }))
       .resolves.toMatchObject({ type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', version: 3 });
     expect(repo.events.map((item) => item.event)).toEqual(['JOB_SUBMITTED_FOR_APPROVAL']);
   });
@@ -1121,6 +1211,7 @@ describe('Postgres lifecycle transition persistence', () => {
     expect(update.text.match(/\bWHERE\b/g)).toHaveLength(1);
     expect(update.values).toEqual([
       'org-1', 'job-1', 2, 'IN_PROGRESS', time, 'staff-1', null, null, null, 'START',
+      null, null, null, null, null, null,
     ]);
   });
 });

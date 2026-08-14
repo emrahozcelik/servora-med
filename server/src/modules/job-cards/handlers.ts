@@ -93,6 +93,8 @@ const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deli
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
 const START_FIELDS = [...LIFECYCLE_FIELDS, 'locationCapture'] as const;
 const LIFECYCLE_NOTE_FIELDS = [...LIFECYCLE_FIELDS, 'note'] as const;
+const SUBMIT_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUpProposal'] as const;
+const APPROVE_FIELDS = [...LIFECYCLE_NOTE_FIELDS, 'followUp'] as const;
 
 export function createJobCardHandlers(service: JobCardService) {
   return {
@@ -140,9 +142,15 @@ export function createJobCardHandlers(service: JobCardService) {
     start: async (request: FastifyRequest<{ Params: Params }>) =>
       service.start(actor(request), request.params.id, body(request, START_FIELDS) as never),
     submit: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.submitForApproval(actor(request), request.params.id, body(request, LIFECYCLE_NOTE_FIELDS) as never),
+      service.submitForApproval(actor(request), request.params.id, body(request, SUBMIT_FIELDS) as never),
     approve: async (request: FastifyRequest<{ Params: Params }>) =>
-      service.approve(actor(request), request.params.id, body(request, LIFECYCLE_NOTE_FIELDS) as never),
+      service.approve(actor(request), request.params.id, body(request, APPROVE_FIELDS) as never),
+    followUpSuggestion: async (request: FastifyRequest<{ Params: Params }>) => {
+      const raw = request.query as Record<string, unknown> | null;
+      const at = raw && typeof raw === 'object' && !Array.isArray(raw)
+        && typeof raw.at === 'string' ? raw.at : undefined;
+      return service.getFollowUpSuggestion(actor(request), request.params.id, at);
+    },
     requestRevision: async (request: FastifyRequest<{ Params: Params }>) =>
       service.requestRevision(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'revisionReason']) as never),
     withdrawFromApproval: async (request: FastifyRequest<{ Params: Params }>) =>

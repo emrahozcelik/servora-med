@@ -32,6 +32,7 @@ import {
   DELIVERY_PURPOSES,
   JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
+  JOB_CARD_TYPES,
   type DeliveryPurpose,
   type JobCard,
   type JobCardActor,
@@ -60,6 +61,13 @@ import {
   type MeetingDetails,
   type MeetingDetailsCandidate,
   type PatchMeetingDetailsInput,
+  type ApproveFollowUpInput,
+  type FollowUpProposal,
+  type FollowUpProposalInput,
+  type FollowUpProposalOrigin,
+  type FollowUpSuggestion,
+  type JobCardType,
+  type RoleProjectedCustomerScheduleEvaluation,
 } from './types.js';
 import {
   isoInstant,
@@ -68,6 +76,7 @@ import {
   requireLifecycleReason,
   requireSubmissionNote,
   validation,
+  boundedTrimmedString,
 } from './validation.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 import {
@@ -76,6 +85,17 @@ import {
   type SubmissionEvaluation,
 } from './submission-policy.js';
 import { validateMeetingDetailsCandidate } from './meeting-details-input.js';
+import {
+  evaluateCustomerSchedule,
+  type CustomerScheduleEvaluation,
+} from './customer-schedule.js';
+import {
+  defaultFollowUpInstructions,
+  defaultFollowUpType,
+  deriveProposalOrigin,
+  suggestedFollowUpInstant,
+  type FollowUpProposalFields,
+} from './follow-up-policy.js';
 import {
   mapJobCardActivityToRealtime,
 } from '../realtime/event-mapper.js';
@@ -114,7 +134,13 @@ type DeliveryInput = {
 };
 type AddDeliveryInput = DeliveryInput & { clientActionId: string };
 type PatchDeliveryInput = { expectedVersion: number } & Partial<Omit<DeliveryInput, 'expectedVersion'>>;
-type LifecycleInput = { expectedVersion: number; clientActionId: string; note?: string | null };
+type LifecycleInput = {
+  expectedVersion: number;
+  clientActionId: string;
+  note?: string | null;
+};
+type SubmitInput = LifecycleInput & { followUpProposal?: FollowUpProposalInput };
+type ApproveInput = LifecycleInput & { followUp?: ApproveFollowUpInput };
 type StartInput = LifecycleInput & { locationCapture?: unknown };
 type RevisionInput = LifecycleInput & { revisionReason: string };
 type CancelInput = LifecycleInput & { cancelReason: string };
@@ -132,6 +158,8 @@ type LifecycleDefinition = {
   revisionReason: string | null;
   cancelReason: string | null;
   noteContext: JobCardOperationalNoteContext | null;
+  followUpProposal?: FollowUpProposalInput;
+  approveFollowUp?: ApproveFollowUpInput;
 };
 
 function parseDeliveredAt(value: string | null): Date | null {
@@ -181,7 +209,11 @@ function followUpInvariantViolation(): never {
   );
 }
 
-type DecodedLifecycleReceipt = { jobCardId: string; evaluatedAt: Date | null };
+type DecodedLifecycleReceipt = {
+  jobCardId: string;
+  evaluatedAt: Date | null;
+  followUpJobCardId: string | null;
+};
 
 function decodeJobCardMutationReceipt(value: unknown): DecodedLifecycleReceipt {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -197,7 +229,10 @@ function decodeJobCardMutationReceipt(value: unknown): DecodedLifecycleReceipt {
     const parsed = new Date(record.evaluatedAt);
     if (!Number.isNaN(parsed.valueOf())) evaluatedAt = parsed;
   }
-  return { jobCardId, evaluatedAt };
+  const followUpJobCardId = typeof record.followUpJobCardId === 'string'
+    ? record.followUpJobCardId
+    : null;
+  return { jobCardId, evaluatedAt, followUpJobCardId };
 }
 
 function assertStaffStartActor(actor: JobCardActor) {
@@ -508,81 +543,20 @@ export class JobCardService {
           );
         }
 
-        const assignee = await transaction.getAssigneeForUpdate(
-          actor.organizationId,
-          input.assignedTo,
-        );
-        if (!assignee) {
-          throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
-        }
-        assertCanCreateForAssignee(actor, assignee);
-
-        const job = await transaction.createJobCard({
-          organizationId: actor.organizationId,
-          type: input.type,
-          status: 'NEW',
-          title: input.title,
-          description: null,
+        const { job, realtimeEvents } = await this.createFollowUpChild(transaction, actor, {
+          sourceJobCardId,
           customerId: source.customerId,
-          contactId: input.contactId,
+          type: input.type,
+          title: input.title,
+          followUpInstructions: input.followUpInstructions,
+          scheduledAt: input.scheduledAt,
           assignedTo: input.assignedTo,
-          createdBy: actor.id,
           priority: input.priority,
           dueDate: input.dueDate,
-          scheduledAt: input.scheduledAt,
-          scheduledEndsAt: null,
+          contactId: input.contactId,
           engagementKind: input.type === 'SALES_MEETING' ? input.engagementKind : null,
-          acceptedAt: null,
-          acceptedBy: null,
-          sourceJobCardId,
-          followUpInstructions: input.followUpInstructions,
-        });
-        if (this.calendar.enabled) {
-          await transaction.synchronizeCalendarReminder({
-            organizationId: actor.organizationId,
-            jobCardId: job.id,
-            assignedUserId: job.assignedTo,
-            startsAt: job.scheduledAt,
-            endsAt: job.scheduledEndsAt,
-            version: job.version,
-            active: true,
-            now: requestTime,
-            reminderLeadMinutes: this.calendar.reminderLeadMinutes,
-          });
-        }
-        if (input.type === 'SALES_MEETING') {
-          await transaction.createMeetingDetails({
-            organizationId: actor.organizationId,
-            jobCardId: job.id,
-          });
-        }
-        const createdValue: Record<string, unknown> = {
-          status: job.status,
-          assignedTo: job.assignedTo,
-          version: job.version,
-        };
-        if (job.scheduledAt !== null) createdValue.scheduledAt = job.scheduledAt;
-        if (job.engagementKind !== null) createdValue.engagementKind = job.engagementKind;
-        const activity = await transaction.appendActivity({
-          organizationId: actor.organizationId,
-          jobCardId: job.id,
-          actorId: actor.id,
-          event: 'JOB_CREATED',
           clientActionId: input.clientActionId,
-          newValue: createdValue,
-          metadata: { sourceJobCardId },
-        });
-        const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
-          activity,
-          organizationId: actor.organizationId,
-          jobCardId: job.id,
-          actorUserId: actor.id,
-          event: 'JOB_CREATED',
-          beforeAssigneeId: null,
-          afterAssigneeId: job.assignedTo,
-          calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
-          sourceJobCardId,
-          customerId: source.customerId,
+          requestTime,
         });
         return { response: { jobCardId: job.id }, realtimeEvents };
       },
@@ -592,6 +566,112 @@ export class JobCardService {
     }
     if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
     return this.detail(actor, result.response.jobCardId);
+  }
+
+  /**
+   * Shared linked-child creation used by both the post-hoc follow-up flow and
+   * the unified approval flow. Runs fully inside the caller's transaction and
+   * emits exactly one JOB_CREATED activity + realtime event for the child.
+   */
+  private async createFollowUpChild(
+    transaction: JobCardTransaction,
+    actor: JobCardActor,
+    input: {
+      sourceJobCardId: string;
+      customerId: string | null;
+      type: JobCardType;
+      title: string;
+      followUpInstructions: string;
+      scheduledAt: string | null;
+      assignedTo: string;
+      priority: JobCardPriority;
+      dueDate: string | null;
+      contactId: string | null;
+      engagementKind: JobCardEngagementKind | null;
+      clientActionId: string;
+      requestTime: Date;
+      activityMetadata?: unknown;
+    },
+  ): Promise<{ job: JobCard; realtimeEvents: RealtimeEventRecord[] }> {
+    const assignee = await transaction.getAssigneeForUpdate(
+      actor.organizationId,
+      input.assignedTo,
+    );
+    if (!assignee) {
+      throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+    }
+    assertCanCreateForAssignee(actor, assignee);
+
+    const job = await transaction.createJobCard({
+      organizationId: actor.organizationId,
+      type: input.type,
+      status: 'NEW',
+      title: input.title,
+      description: null,
+      customerId: input.customerId,
+      contactId: input.contactId,
+      assignedTo: input.assignedTo,
+      createdBy: actor.id,
+      priority: input.priority,
+      dueDate: input.dueDate,
+      scheduledAt: input.scheduledAt,
+      scheduledEndsAt: null,
+      engagementKind: input.engagementKind,
+      acceptedAt: null,
+      acceptedBy: null,
+      sourceJobCardId: input.sourceJobCardId,
+      followUpInstructions: input.followUpInstructions,
+    });
+    if (this.calendar.enabled) {
+      await transaction.synchronizeCalendarReminder({
+        organizationId: actor.organizationId,
+        jobCardId: job.id,
+        assignedUserId: job.assignedTo,
+        startsAt: job.scheduledAt,
+        endsAt: job.scheduledEndsAt,
+        version: job.version,
+        active: true,
+        now: input.requestTime,
+        reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+      });
+    }
+    if (input.type === 'SALES_MEETING') {
+      await transaction.createMeetingDetails({
+        organizationId: actor.organizationId,
+        jobCardId: job.id,
+      });
+    }
+    const createdValue: Record<string, unknown> = {
+      status: job.status,
+      assignedTo: job.assignedTo,
+      version: job.version,
+    };
+    if (job.scheduledAt !== null) createdValue.scheduledAt = job.scheduledAt;
+    if (job.engagementKind !== null) createdValue.engagementKind = job.engagementKind;
+    const activity = await transaction.appendActivity({
+      organizationId: actor.organizationId,
+      jobCardId: job.id,
+      actorId: actor.id,
+      event: 'JOB_CREATED',
+      clientActionId: input.clientActionId,
+      newValue: createdValue,
+      metadata: input.activityMetadata === undefined
+        ? { sourceJobCardId: input.sourceJobCardId }
+        : input.activityMetadata,
+    });
+    const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
+      activity,
+      organizationId: actor.organizationId,
+      jobCardId: job.id,
+      actorUserId: actor.id,
+      event: 'JOB_CREATED',
+      beforeAssigneeId: null,
+      afterAssigneeId: job.assignedTo,
+      calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
+      sourceJobCardId: input.sourceJobCardId,
+      customerId: input.customerId,
+    });
+    return { job, realtimeEvents };
   }
 
   async listFollowUps(
@@ -1199,20 +1279,22 @@ export class JobCardService {
     return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, resolvedCapture);
   }
 
-  async submitForApproval(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
+  async submitForApproval(actor: JobCardActor, jobCardId: string, input: SubmitInput) {
     return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
       command: 'SUBMIT_FOR_APPROVAL', operationKey: 'JOB_SUBMIT_FOR_APPROVAL',
       target: 'WAITING_APPROVAL', event: 'JOB_SUBMITTED_FOR_APPROVAL',
       note: requireSubmissionNote(input.note), revisionReason: null, cancelReason: null,
       noteContext: 'SUBMIT_FOR_APPROVAL',
+      followUpProposal: input.followUpProposal,
     });
   }
 
-  async approve(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {
+  async approve(actor: JobCardActor, jobCardId: string, input: ApproveInput) {
     return this.runLifecycle(actor, jobCardId, this.lifecycleInput(input), {
       command: 'APPROVE', operationKey: 'JOB_APPROVE', target: 'COMPLETED', event: 'JOB_APPROVED',
       note: optionalLifecycleNote(input.note), revisionReason: null, cancelReason: null,
       noteContext: 'APPROVE',
+      approveFollowUp: input.followUp,
     });
   }
 
@@ -1278,8 +1360,41 @@ export class JobCardService {
           actor, job, definition.command,
           definition.revisionReason ?? definition.cancelReason ?? undefined,
         );
+        let persistedProposal: {
+          scheduledAt: Date;
+          type: JobCardType;
+          assignedTo: string;
+          instructions: string;
+          origin: FollowUpProposalOrigin;
+          proposedBy: string | null;
+        } | null = null;
+        let approval: {
+          proposal: FollowUpProposalFields;
+          overrideReason: string | null;
+        } | null = null;
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
           await validateSubmission(tx, actor, job, requestTime);
+          const proposal = await this.validateFollowUpProposal(
+            tx, actor, job, definition.followUpProposal, requestTime,
+          );
+          await this.evaluateProposalAdvisory(tx, actor, job, proposal, requestTime);
+          const suggestion = await this.computeFollowUpSuggestion(tx, actor, job, requestTime);
+          const origin = suggestion.fields === null
+            ? 'STAFF_ADJUSTED'
+            : deriveProposalOrigin(proposal, suggestion.fields);
+          persistedProposal = {
+            scheduledAt: new Date(proposal.scheduledAt),
+            type: proposal.type,
+            assignedTo: proposal.assignedTo,
+            instructions: proposal.followUpInstructions,
+            origin,
+            proposedBy: actor.id,
+          };
+        }
+        if (definition.command === 'APPROVE') {
+          approval = await this.resolveApproveFollowUp(
+            tx, actor, job, definition.approveFollowUp, requestTime,
+          );
         }
         const occurredAt = requestTime;
         const updated = await tx.transitionWithVersion({
@@ -1287,6 +1402,7 @@ export class JobCardService {
           command: definition.command, status: definition.target, occurredAt, actorId: actor.id,
           note: definition.note, revisionReason: definition.revisionReason,
           cancelReason: definition.cancelReason,
+          followUpProposal: persistedProposal,
         });
         if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
         const calendarTerminal = definition.target === 'CANCELLED'
@@ -1309,7 +1425,7 @@ export class JobCardService {
         let noteId: string | null = null;
         let authorNameSnapshot: string | null = null;
         let authorRoleSnapshot: JobCardAssignee['role'] | null = null;
-        let metadata: unknown = undefined;
+        let metadata: Record<string, unknown> | undefined;
 
         if (definition.noteContext && transitionNoteBody) {
           const author = await tx.getNoteAuthorSnapshot(
@@ -1323,6 +1439,20 @@ export class JobCardService {
           authorRoleSnapshot = author.role;
           noteId = randomUUID();
           metadata = { noteId };
+        }
+        if (approval) {
+          metadata = {
+            ...(metadata ?? {}),
+            followUpProposal: {
+              scheduledAt: approval.proposal.scheduledAt.toISOString(),
+              type: approval.proposal.type,
+              assignedTo: approval.proposal.assignedTo,
+              followUpInstructions: approval.proposal.followUpInstructions,
+            },
+            ...(approval.overrideReason
+              ? { customerVisitOverrideReason: approval.overrideReason }
+              : {}),
+          };
         }
 
         const activity = await tx.appendActivity({
@@ -1362,6 +1492,37 @@ export class JobCardService {
             capture: startLocation,
           });
         }
+        let childRealtimeEvents: RealtimeEventRecord[] = [];
+        let followUpJobCardId: string | null = null;
+        if (approval) {
+          const source = await tx.getFollowUpSource(actor.organizationId, jobCardId);
+          if (!source) followUpInvariantViolation();
+          await this.assertFollowUpDepth(tx, source);
+          const childTitle = Array.from(`Takip: ${updated.title.trim()}`).slice(0, 250).join('');
+          const child = await this.createFollowUpChild(tx, actor, {
+            sourceJobCardId: jobCardId,
+            customerId: updated.customerId,
+            type: approval.proposal.type,
+            title: childTitle,
+            followUpInstructions: approval.proposal.followUpInstructions,
+            scheduledAt: approval.proposal.scheduledAt.toISOString(),
+            assignedTo: approval.proposal.assignedTo,
+            priority: 'normal',
+            dueDate: null,
+            contactId: null,
+            engagementKind: approval.proposal.type === 'SALES_MEETING' ? 'FOLLOW_UP' : null,
+            clientActionId: input.clientActionId,
+            requestTime,
+            activityMetadata: {
+              sourceJobCardId: jobCardId,
+              ...(approval.overrideReason
+                ? { customerVisitOverrideReason: approval.overrideReason }
+                : {}),
+            },
+          });
+          followUpJobCardId = child.job.id;
+          childRealtimeEvents = child.realtimeEvents;
+        }
         const realtimeEvents = await this.appendRealtimeForActivity(tx, {
           activity,
           organizationId: actor.organizationId,
@@ -1374,14 +1535,22 @@ export class JobCardService {
           customerId: updated.customerId,
         });
         return {
-          response: { jobCardId, evaluatedAt: requestTime.toISOString() },
-          realtimeEvents,
+          response: {
+            jobCardId,
+            evaluatedAt: requestTime.toISOString(),
+            ...(followUpJobCardId ? { followUpJobCardId } : {}),
+          },
+          realtimeEvents: [...realtimeEvents, ...childRealtimeEvents],
         };
       });
     if (result.kind === 'processing') throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
     const receipt = decodeJobCardMutationReceipt(result.response);
-    return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now());
+    const detail = await this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now());
+    if (definition.command === 'APPROVE' && receipt.followUpJobCardId) {
+      return { ...detail, followUpJobCardId: receipt.followUpJobCardId };
+    }
+    return detail;
   }
 
   private lifecycleClaim(
@@ -1395,6 +1564,313 @@ export class JobCardService {
       userId: actor.id,
       clientActionId,
       operationKey: `${definition.operationKey}:${jobCardId}`,
+    };
+  }
+
+  /**
+   * Normalize + validate a follow-up proposal against the source Job and the
+   * acting role. Shared by Staff submission and Manager approval so the
+   * mandatory invariant has one server-side truth.
+   */
+  private async validateFollowUpProposal(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    input: FollowUpProposalInput | undefined,
+    requestTime: Date,
+  ): Promise<FollowUpProposalFields> {
+    if (!input || typeof input !== 'object') {
+      throw new AppError('FOLLOW_UP_PROPOSAL_REQUIRED', 400, 'Takip işi planı zorunludur.');
+    }
+    const scheduled = isoInstant(input.scheduledAt, 'followUpProposal.scheduledAt');
+    const scheduledAt = new Date(scheduled);
+    if (scheduledAt.valueOf() <= requestTime.valueOf()) {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        400,
+        'Takip işi planı için gelecek bir tarih zorunludur.',
+      );
+    }
+    if (!(JOB_CARD_TYPES as readonly string[]).includes(input.type)) {
+      throw new AppError('FOLLOW_UP_PROPOSAL_INVALID', 400, 'Takip işi türü geçersizdir.');
+    }
+    if (job.customerId === null && input.type !== 'GENERAL_TASK') {
+      throw new AppError(
+        'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED',
+        409,
+        'Bu takip işi türü için kaynak JobCard müşteriye bağlı olmalıdır.',
+      );
+    }
+    const assignee = await tx.getAssigneeForUpdate(actor.organizationId, input.assignedTo);
+    if (!assignee) {
+      throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+    }
+    assertCanCreateForAssignee(actor, assignee);
+    const followUpInstructions = boundedTrimmedString(
+      input.followUpInstructions,
+      'followUpProposal.followUpInstructions',
+      1,
+      4_000,
+    );
+    return { scheduledAt, type: input.type, assignedTo: input.assignedTo, followUpInstructions };
+  }
+
+  /** Advisory evaluation at Staff submission; never blocks, informs the suggestion only. */
+  private evaluateProposalAdvisory(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    proposal: FollowUpProposalFields,
+    requestTime: Date,
+  ): Promise<CustomerScheduleEvaluation> {
+    return evaluateCustomerSchedule({
+      reader: tx,
+      organizationId: actor.organizationId,
+      customerId: job.customerId,
+      proposedAt: new Date(proposal.scheduledAt),
+      jobType: proposal.type,
+      excludeJobId: job.id,
+      now: requestTime,
+    });
+  }
+
+  /**
+   * Authoritative evaluation at Manager approval. Locks the Customer row
+   * first so same-Customer scheduling decisions serialize; second transaction
+   * wakes and sees the first one's committed child.
+   */
+  private async evaluateForApproval(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    proposal: FollowUpProposalFields,
+    requestTime: Date,
+  ): Promise<CustomerScheduleEvaluation> {
+    if (job.customerId !== null) {
+      const customer = await tx.getCustomerForUpdate(actor.organizationId, job.customerId);
+      if (!customer) {
+        throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
+      }
+    }
+    return evaluateCustomerSchedule({
+      reader: tx,
+      organizationId: actor.organizationId,
+      customerId: job.customerId,
+      proposedAt: new Date(proposal.scheduledAt),
+      jobType: proposal.type,
+      excludeJobId: job.id,
+      now: requestTime,
+    });
+  }
+
+  private async resolveApproveFollowUp(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    input: ApproveFollowUpInput | undefined,
+    requestTime: Date,
+  ): Promise<{ proposal: FollowUpProposalFields; overrideReason: string | null }> {
+    const persisted = job.followUpProposedAt !== null
+      && job.followUpProposedType !== null
+      && job.followUpProposedAssignee !== null
+      && job.followUpProposalInstructions !== null;
+    if (!persisted && !input) {
+      throw new AppError('FOLLOW_UP_PROPOSAL_REQUIRED', 400, 'Takip işi planı zorunludur.');
+    }
+    const proposal = await this.validateFollowUpProposal(
+      tx,
+      actor,
+      job,
+      input ?? (persisted ? {
+        scheduledAt: job.followUpProposedAt!,
+        type: job.followUpProposedType!,
+        assignedTo: job.followUpProposedAssignee!,
+        followUpInstructions: job.followUpProposalInstructions!,
+      } : undefined),
+      requestTime,
+    );
+    const evaluation = await this.evaluateForApproval(tx, actor, job, proposal, requestTime);
+    let overrideReason: string | null = null;
+    if (evaluation.level === 'FREQUENCY_EXCEEDED') {
+      if (typeof input?.overrideReason !== 'string' || !input.overrideReason.trim()) {
+        throw new AppError(
+          'FOLLOW_UP_OVERRIDE_REASON_REQUIRED',
+          400,
+          'Sık ziyaret uyarısı için neden zorunludur.',
+        );
+      }
+      overrideReason = boundedTrimmedString(input.overrideReason, 'followUp.overrideReason', 1, 2_000);
+    }
+    if (evaluation.level === 'CONFLICT') {
+      throw new AppError(
+        'FOLLOW_UP_CUSTOMER_CONFLICT',
+        409,
+        'Aynı müşteri için aynı tarihte başka bir plan bulunuyor.',
+        {
+          conflicts: evaluation.conflicts,
+          suggestedAlternativeAt: evaluation.suggestedAlternativeAt,
+        },
+      );
+    }
+    return { proposal, overrideReason };
+  }
+
+  private computeFollowUpSuggestion(
+    reader: JobCardTransaction,
+    actor: JobCardActor,
+    job: JobCard,
+    evaluatedAt: Date,
+  ): Promise<{
+    fields: FollowUpProposalFields | null;
+    baseEvaluation: CustomerScheduleEvaluation;
+    skippedConflict: boolean;
+  }> {
+    const baseAt = suggestedFollowUpInstant({
+      evaluatedAt,
+      sourceScheduledAt: job.scheduledAt ? new Date(job.scheduledAt) : null,
+    });
+    const baseFields: FollowUpProposalFields = {
+      scheduledAt: baseAt,
+      type: defaultFollowUpType(job.type),
+      assignedTo: job.assignedTo,
+      followUpInstructions: defaultFollowUpInstructions(job.title),
+    };
+    return evaluateCustomerSchedule({
+      reader,
+      organizationId: actor.organizationId,
+      customerId: job.customerId,
+      proposedAt: baseAt,
+      jobType: baseFields.type,
+      excludeJobId: job.id,
+      now: evaluatedAt,
+    }).then((baseEvaluation) => {
+      if (baseEvaluation.level !== 'CONFLICT') {
+        return { fields: baseFields, baseEvaluation, skippedConflict: false };
+      }
+      if (baseEvaluation.suggestedAlternativeAt === null) {
+        return { fields: null, baseEvaluation, skippedConflict: false };
+      }
+      return {
+        fields: {
+          ...baseFields,
+          scheduledAt: new Date(baseEvaluation.suggestedAlternativeAt),
+        },
+        baseEvaluation,
+        skippedConflict: true,
+      };
+    });
+  }
+
+  private projectEvaluation(
+    actor: JobCardActor,
+    evaluation: CustomerScheduleEvaluation,
+    overrides?: { safeMessage?: string | null },
+  ): RoleProjectedCustomerScheduleEvaluation {
+    const safeMessage = overrides?.safeMessage !== undefined
+      ? overrides.safeMessage
+      : evaluation.safeMessage;
+    if (actor.role === 'STAFF') {
+      return {
+        level: evaluation.level,
+        safeMessage,
+        conflicts: [],
+        recentVisit: null,
+        suggestedAlternativeAt: evaluation.suggestedAlternativeAt,
+      };
+    }
+    return {
+      level: evaluation.level,
+      safeMessage,
+      conflicts: evaluation.conflicts,
+      recentVisit: evaluation.recentVisit === null
+        ? null
+        : {
+            ...evaluation.recentVisit,
+            resultSummary: evaluation.recentVisit.resultSummary === null
+              ? null
+              : Array.from(evaluation.recentVisit.resultSummary).slice(0, 200).join(''),
+          },
+      suggestedAlternativeAt: evaluation.suggestedAlternativeAt,
+    };
+  }
+
+  async getFollowUpSuggestion(
+    actor: JobCardActor,
+    jobCardId: string,
+    at?: string,
+  ): Promise<FollowUpSuggestion> {
+    const detail = await this.detail(actor, jobCardId);
+    if (detail.status === 'COMPLETED' || detail.status === 'CANCELLED') {
+      throw new AppError('INVALID_TRANSITION', 409, 'Bu iş için takip önerisi oluşturulamaz.');
+    }
+    const defaultFields: FollowUpProposalFields = {
+      scheduledAt: suggestedFollowUpInstant({
+        evaluatedAt: this.now(),
+        sourceScheduledAt: detail.scheduledAt ? new Date(detail.scheduledAt) : null,
+      }),
+      type: defaultFollowUpType(detail.type),
+      assignedTo: detail.assignedTo,
+      followUpInstructions: defaultFollowUpInstructions(detail.title),
+    };
+    const job: JobCard = {
+      ...detail,
+      sourceJobCardId: null,
+      followUpInstructions: null,
+    } as unknown as JobCard;
+
+    if (at !== undefined) {
+      const evaluatedAt = new Date(isoInstant(at, 'at'));
+      const evaluation = await this.repository.executeTransaction((tx) => (
+        evaluateCustomerSchedule({
+          reader: tx,
+          organizationId: actor.organizationId,
+          customerId: detail.customerId,
+          proposedAt: evaluatedAt,
+          jobType: defaultFields.type,
+          excludeJobId: detail.id,
+          now: this.now(),
+        })
+      ));
+      return {
+        scheduledAt: null,
+        type: defaultFields.type,
+        assignedTo: defaultFields.assignedTo,
+        followUpInstructions: defaultFields.followUpInstructions,
+        evaluation: this.projectEvaluation(actor, evaluation),
+      };
+    }
+    const { fields, baseEvaluation, skippedConflict } = await this.repository
+      .executeTransaction((tx) => this.computeFollowUpSuggestion(tx, actor, job, this.now()));
+    if (fields === null) {
+      return {
+        scheduledAt: null,
+        type: defaultFields.type,
+        assignedTo: defaultFields.assignedTo,
+        followUpInstructions: defaultFields.followUpInstructions,
+        evaluation: this.projectEvaluation(actor, baseEvaluation),
+      };
+    }
+    const finalEvaluation = await this.repository.executeTransaction((tx) => (
+      evaluateCustomerSchedule({
+        reader: tx,
+        organizationId: actor.organizationId,
+        customerId: job.customerId,
+        proposedAt: fields.scheduledAt,
+        jobType: fields.type,
+        excludeJobId: job.id,
+        now: this.now(),
+      })
+    ));
+    return {
+      scheduledAt: fields.scheduledAt.toISOString(),
+      type: fields.type,
+      assignedTo: fields.assignedTo,
+      followUpInstructions: fields.followUpInstructions,
+      evaluation: this.projectEvaluation(actor, finalEvaluation, skippedConflict
+        ? {
+            safeMessage: 'Bu müşteri için yakın tarihte başka bir plan bulunduğundan sonraki uygun tarih önerildi.',
+          }
+        : undefined),
     };
   }
 
@@ -1522,6 +1998,19 @@ export class JobCardService {
         sourceSummary,
       };
     }
+    const followUpProposal: FollowUpProposal | null = job.followUpProposedAt !== null
+      && job.followUpProposedType !== null
+      && job.followUpProposedAssignee !== null
+      && job.followUpProposalInstructions !== null
+      ? {
+          scheduledAt: job.followUpProposedAt,
+          type: job.followUpProposedType,
+          assignedTo: job.followUpProposedAssignee,
+          followUpInstructions: job.followUpProposalInstructions,
+          origin: job.followUpProposalOrigin ?? 'SYSTEM',
+          proposedBy: persisted.proposer,
+        }
+      : null;
     return {
       ...job,
       workflowContext: {
@@ -1534,6 +2023,7 @@ export class JobCardService {
         submissionReadiness: evaluation?.readiness ?? null,
       },
       followUpContext,
+      followUpProposal,
     };
   }
 
