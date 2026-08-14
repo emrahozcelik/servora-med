@@ -136,6 +136,8 @@ describe('CustomerCreateScreen contact orchestration', () => {
     expect(container.querySelector('#customer-name')?.closest('.field-group')?.textContent)
       .toContain('Müşteri / kurum adı');
     expect(container.textContent).toContain('Klinik, poliklinik, şirket veya kişi adı yazabilirsiniz.');
+    expect(container.textContent).toContain('Müşteri kaydını oluşturun. İletişim kişisi eklemek isteğe bağlıdır.');
+    expect(container.textContent).not.toContain('İlgili kişiler müşteri kaydından sonra eklenir.');
   });
 
   it('CUX-3: shows a collapsed optional Contact section for MANAGER and creates a real Contact', async () => {
@@ -170,7 +172,7 @@ describe('CustomerCreateScreen contact orchestration', () => {
 
   it('CUX-3B: hides the optional Contact section from STAFF and never calls createContact', async () => {
     await renderScreen(staff);
-    expect(container.textContent).not.toContain('İletişim kişisi ekle');
+    expect(container.querySelector('details')).toBeNull();
     expect(container.querySelector('#customer-contact-name')).toBeNull();
     change(container.querySelector('#customer-name') as HTMLInputElement, 'Mehmet Yılmaz');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
@@ -192,5 +194,34 @@ describe('CustomerCreateScreen contact orchestration', () => {
     expect(navigate).not.toHaveBeenCalled();
     expect(container.textContent).toContain('Müşteri oluşturuldu ancak iletişim kişisi eklenemedi.');
     expect(container.textContent).toContain('İletişim kişisini müşteri detayından tekrar ekleyebilirsiniz.');
+  });
+
+  it('CUX-3D: rejects incomplete optional Contact before creating the Customer', async () => {
+    await renderScreen(manager);
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Evaden');
+    change(container.querySelector('#customer-contact-phone') as HTMLInputElement, '0555 123 45 67');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await settle();
+    expect(crmApi.createCustomer).not.toHaveBeenCalled();
+    expect(crmApi.createContact).not.toHaveBeenCalled();
+    expect(navigate).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('İletişim kişisi bilgileri girildiğinde ad soyad zorunludur.');
+    const contactName = container.querySelector('#customer-contact-name') as HTMLInputElement;
+    expect(contactName.getAttribute('aria-invalid')).toBe('true');
+    expect(contactName.getAttribute('aria-describedby')).toContain('customer-contact-name-error');
+    expect(container.querySelector('#customer-contact-name-error')?.textContent)
+      .toContain('İletişim kişisi bilgileri girildiğinde ad soyad zorunludur.');
+  });
+
+  it('CUX-3D whitespace: treats whitespace-only Contact fields as empty', async () => {
+    await renderScreen(manager);
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'ABC Dental');
+    change(container.querySelector('#customer-contact-phone') as HTMLInputElement, '   ');
+    change(container.querySelector('#customer-contact-email') as HTMLInputElement, '  ');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await settle();
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createContact).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith('/customers/new-customer-1');
   });
 });

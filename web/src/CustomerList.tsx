@@ -292,7 +292,7 @@ export function CustomerListView({ state, user, hasFilters, onRetry, onCreate, f
   </main>;
 }
 
-export type CustomerFieldErrors = Partial<Record<'name' | 'customerType' | 'email', string>>;
+export type CustomerFieldErrors = Partial<Record<'name' | 'customerType' | 'email' | 'contactName', string>>;
 
 export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErrors = {}, error = '', errorRef, onCancel, onSubmit, onNameChange, staffMode = false, currentUserName = '', contactNotice = '', contactNoticeCustomerId = '', onOpenCreatedCustomer = () => {} }: {
   staff: StaffProfile[];
@@ -311,7 +311,7 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
   onOpenCreatedCustomer?: (customerId: string) => void;
 }) {
   return <main className="customer-create"><div className="create-heading"><div><h1>Yeni müşteri</h1></div></div>
-    <p className="form-intro">Klinik veya firma kaydını oluşturun. İlgili kişiler müşteri kaydından sonra eklenir.</p>
+    <p className="form-intro">Müşteri kaydını oluşturun. İletişim kişisi eklemek isteğe bağlıdır.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
     {contactNotice && <div className="success-message" role="status">{contactNotice}
       {contactNoticeCustomerId && <div><button className="inline-action" type="button" onClick={() => onOpenCreatedCustomer(contactNoticeCustomerId)}>Müşteri detayına git</button></div>}</div>}
@@ -342,7 +342,10 @@ export function CustomerCreateForm({ staff, pending, similarCustomers, fieldErro
         <summary>İletişim kişisi ekle</summary>
         <div className="task-optional-fields">
           <div className="field-group"><label htmlFor="customer-contact-name">Ad soyad
-            <input id="customer-contact-name" name="contactName" autoComplete="off" disabled={pending} /></label></div>
+            <input id="customer-contact-name" name="contactName" autoComplete="off" disabled={pending}
+              aria-invalid={fieldErrors.contactName ? true : undefined}
+              aria-describedby={fieldErrors.contactName ? 'customer-contact-name-error' : undefined} /></label></div>
+          {fieldErrors.contactName && <p className="field-error" id="customer-contact-name-error">{fieldErrors.contactName}</p>}
           <div className="field-group"><label htmlFor="customer-contact-title">Görev / ünvan
             <input id="customer-contact-title" name="contactTitle" autoComplete="off" disabled={pending} /></label></div>
           <div className="customer-form-pair">
@@ -400,6 +403,13 @@ export function contactInputFromFormData(data: FormData): ContactFields | null {
     phone: nullable(data, 'contactPhone'),
     email: nullable(data, 'contactEmail'),
   };
+}
+
+export function incompleteContactInput(data: FormData): boolean {
+  const name = String(data.get('contactName') ?? '').trim();
+  if (name) return false;
+  return ['contactTitle', 'contactPhone', 'contactEmail']
+    .some((field) => String(data.get(field) ?? '').trim() !== '');
 }
 
 export function CustomerListScreen({ user, load = listCustomers, remove = deleteCustomer }: {
@@ -534,10 +544,17 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
     const errors: CustomerFieldErrors = {};
     if (!name) errors.name = 'Müşteri adı zorunludur.';
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) errors.email = 'Geçerli bir e-posta adresi yazın.';
+    if (!staffMode && !contactInputFromFormData(data) && incompleteContactInput(data)) {
+      errors.contactName = 'İletişim kişisi bilgileri girildiğinde ad soyad zorunludur.';
+    }
     if (Object.keys(errors).length > 0) {
       setFieldErrors(errors);
-      const firstErrorId = errors.name ? 'customer-name' : 'customer-email';
-      setTimeout(() => document.getElementById(firstErrorId)?.focus(), 0);
+      const firstErrorId = errors.name ? 'customer-name' : errors.email ? 'customer-email' : 'customer-contact-name';
+      setTimeout(() => {
+        const target = document.getElementById(firstErrorId);
+        if (firstErrorId === 'customer-contact-name') target?.closest('details')?.setAttribute('open', '');
+        target?.focus();
+      }, 0);
       return;
     }
     setPending(true);
