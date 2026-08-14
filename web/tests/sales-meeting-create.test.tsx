@@ -147,29 +147,16 @@ describe('Sales Meeting planning flow', () => {
     }
   });
 
-  it('clears stale Contact selection and ignores an older Customer response', async () => {
-    const old = deferred<unknown>();
-    crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A'), customer('c2', 'B')], total: 2, limit: 200, offset: 0 });
-    crm.listContacts.mockImplementation((id: string) => id === 'c1' ? old.promise : Promise.resolve({
-      items: [contact('c2', 'ct2', 'Dr. Yeni')], total: 1, limit: 200, offset: 0,
-    }));
+  it('CUX-5: omits the Contact selector and never loads Contacts for it', async () => {
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
-    const select = container.querySelector('#meeting-customer') as HTMLSelectElement;
-    await act(async () => change(select, 'c1'));
-    await act(async () => change(select, 'c2')); await settle();
-    await act(async () => old.resolve({ items: [contact('c1', 'old', 'Dr. Eski')], total: 1, limit: 200, offset: 0 }));
-    expect(container.querySelector('#meeting-contact')?.textContent).toContain('Dr. Yeni');
-    expect(container.querySelector('#meeting-contact')?.textContent).not.toContain('Dr. Eski');
-  });
-
-  it('keeps Contact failure non-blocking and offers an adjacent retry', async () => {
-    crm.listContacts.mockRejectedValueOnce(new Error('Kişiler yok'));
-    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    expect(container.querySelector('#meeting-contact')).toBeNull();
+    expect(container.textContent).not.toContain('Görüşülecek kişi');
+    expect(container.textContent).not.toContain('Kişi seçilmedi');
+    expect(container.textContent).not.toContain('muhatap');
+    await act(async () => change(container.querySelector('#meeting-customer')!, 'c1'));
     await settle();
-    await act(async () => change(container.querySelector('#meeting-customer')!, 'c1')); await settle();
-    expect(container.textContent).toContain('İlgili kişiler yüklenemedi');
-    expect(container.querySelector('[data-retry-contacts]')).not.toBeNull();
+    expect(crm.listContacts).not.toHaveBeenCalled();
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'SALES_MEETING');
     change(container.querySelector('#meeting-scheduled-at')!, '2025-01-01T09:00');
@@ -179,26 +166,23 @@ describe('Sales Meeting planning flow', () => {
       engagementKind: 'SALES_MEETING',
       scheduledAt: localDateTimeToIso('2025-01-01T09:00'),
     }));
+    expect(crm.listContacts).not.toHaveBeenCalled();
   });
 
-  it('auto-selects Customer and loads Contacts when initialCustomerId matches a loaded customer', async () => {
+  it('auto-selects Customer when initialCustomerId matches without loading Contacts', async () => {
     crm.listCustomers.mockResolvedValue({
       items: [customer('c1', 'A Klinik'), customer('c2', 'B Klinik')], total: 2, limit: 200, offset: 0,
-    });
-    crm.listContacts.mockResolvedValue({
-      items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0,
     });
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c1" /></MemoryRouter>));
     await settle();
     expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('c1');
-    expect(container.querySelector('#meeting-contact')?.textContent).toContain('Dr. Ayşe');
+    expect(crm.listContacts).not.toHaveBeenCalled();
   });
 
   it('resets Customer when initialCustomerId does not match any loaded customer', async () => {
     crm.listCustomers.mockResolvedValue({
       items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0,
     });
-    crm.listContacts.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c404" /></MemoryRouter>));
     await settle();
     expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('');

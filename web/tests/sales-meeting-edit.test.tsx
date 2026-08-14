@@ -38,10 +38,6 @@ const customer = (id: string, name: string) => ({
   email: null, city: null, district: null, address: null, assignedStaffUserId: null,
   assignedStaffName: null, status: 'active', version: 1, primaryContact: null,
 });
-const contact = (customerId: string, id: string, name: string) => ({
-  id, organizationId: 'org-1', customerId, name, title: null, phone: null, email: null,
-  isPrimary: false, isActive: true, version: 1,
-});
 const profile = (id: string, name: string) => ({
   id: `profile-${id}`, user: { ...staff, id, name, email: `${id}@test.local` },
   title: null, phone: null, region: null, managerUserId: null, managerName: null, version: 1,
@@ -63,16 +59,13 @@ describe('SalesMeetingEditForm', () => {
       items: [customer('customer-1', 'A Klinik'), customer('customer-2', 'B Klinik')],
       total: 2, limit: 200, offset: 0,
     });
-    crm.listContacts.mockImplementation((customerId: string) => Promise.resolve({
-      items: customerId === 'customer-1' ? [contact(customerId, 'contact-1', 'Dr. A')]
-        : [contact(customerId, 'contact-2', 'Dr. B')], total: 1, limit: 200, offset: 0,
-    }));
+    crm.listContacts.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
     people.listStaff.mockResolvedValue([profile('staff-1', 'Sezer Dener'), profile('staff-2', 'Bora')]);
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
-  it('loads canonical fields and keeps Staff assignment fixed', async () => {
+  it('loads canonical fields, keeps Staff assignment fixed, and shows no Contact selector', async () => {
     await act(async () => root.render(<SalesMeetingEditForm job={job} user={staff} pending={false}
       onCancel={vi.fn()} onSave={vi.fn()} />));
     await settle();
@@ -80,31 +73,49 @@ describe('SalesMeetingEditForm', () => {
     expect((container.querySelector('#meeting-edit-description') as HTMLTextAreaElement).value).toBe(job.description);
     expect(container.querySelector('#meeting-edit-due-date')).toBeNull();
     expect((container.querySelector('#meeting-edit-customer') as HTMLSelectElement).value).toBe(job.customerId);
-    expect((container.querySelector('#meeting-edit-contact') as HTMLSelectElement).value).toBe(job.contactId);
+    expect(container.querySelector('#meeting-edit-contact')).toBeNull();
+    expect(container.textContent).not.toContain('Görüşülecek kişi');
+    expect(container.textContent).not.toContain('Kişi seçilmedi');
     expect(container.querySelector('#meeting-edit-assignee')).toBeNull();
     expect(people.listStaff).not.toHaveBeenCalled();
+    expect(crm.listContacts).not.toHaveBeenCalled();
   });
 
-  it('loads management assignment and submits the full canonical patch', async () => {
+  it('CUX-6B: preserves a historical Contact when unrelated fields are edited', async () => {
+    const onSave = vi.fn().mockResolvedValue(undefined);
+    await act(async () => root.render(<SalesMeetingEditForm job={job} user={manager} pending={false}
+      onCancel={vi.fn()} onSave={onSave} />));
+    await settle();
+    change(container.querySelector('#meeting-edit-title')!, '  Güncel başlık  ');
+    change(container.querySelector('#meeting-edit-description')!, '  Güncel açıklama  ');
+    change(container.querySelector('#meeting-edit-priority')!, 'urgent');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(onSave).toHaveBeenCalledTimes(1);
+    const patch = onSave.mock.calls[0]![0];
+    expect(patch).toEqual({
+      expectedVersion: 5, title: 'Güncel başlık', description: 'Güncel açıklama',
+      customerId: 'customer-1', assignedTo: 'staff-1', priority: 'urgent',
+      engagementKind: 'SALES_MEETING',
+    });
+    expect(patch).not.toHaveProperty('contactId');
+  });
+
+  it('loads management assignment and submits a canonical patch without any contactId', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     await act(async () => root.render(<SalesMeetingEditForm job={job} user={manager} pending={false}
       onCancel={vi.fn()} onSave={onSave} />));
     await settle();
     expect(container.querySelector('#meeting-edit-assignee')).not.toBeNull();
     change(container.querySelector('#meeting-edit-title')!, '  Güncel başlık  ');
-    change(container.querySelector('#meeting-edit-description')!, '  Güncel açıklama  ');
-    await act(async () => change(container.querySelector('#meeting-edit-customer')!, 'customer-2'));
-    await settle();
-    expect((container.querySelector('#meeting-edit-contact') as HTMLSelectElement).value).toBe('');
-    change(container.querySelector('#meeting-edit-contact')!, 'contact-2');
     change(container.querySelector('#meeting-edit-assignee')!, 'staff-2');
     change(container.querySelector('#meeting-edit-priority')!, 'urgent');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
-    expect(onSave).toHaveBeenCalledWith({
-      expectedVersion: 5, title: 'Güncel başlık', description: 'Güncel açıklama',
-      customerId: 'customer-2', contactId: 'contact-2', assignedTo: 'staff-2',
+    const patch = onSave.mock.calls[0]![0];
+    expect(patch).toMatchObject({
+      expectedVersion: 5, title: 'Güncel başlık', assignedTo: 'staff-2',
       priority: 'urgent', engagementKind: 'SALES_MEETING',
     });
+    expect(patch).not.toHaveProperty('contactId');
   });
 
   it('requires title, customer, and manager assignee and supports cancel', async () => {

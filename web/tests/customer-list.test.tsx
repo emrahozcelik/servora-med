@@ -135,9 +135,10 @@ describe('Customer list and creation', () => {
     const form = renderToStaticMarkup(<MemoryRouter><CustomerCreateForm staff={[profile]} pending similarCustomers={[customer]}
       fieldErrors={{ name: 'Müşteri adı zorunludur.' }} error="Sunucu alanları kabul etmedi."
       onCancel={() => {}} onSubmit={() => {}} /></MemoryRouter>);
-    expect(form).toContain('<label for="customer-name">Müşteri adı</label>');
+    expect(form).toContain('<label for="customer-name">Müşteri / kurum adı</label>');
+    expect(form).toContain('Klinik, poliklinik, şirket veya kişi adı yazabilirsiniz.');
     expect(form).toContain('Müşteri adı zorunludur.');
-    expect(form).toContain('aria-describedby="customer-name-error"');
+    expect(form).toContain('aria-describedby="customer-name-error customer-name-help"');
     expect(form).toContain('Benzer müşteri kayıtları');
     expect(form).toContain('Demo Dental Klinik');
     expect(form).toContain('disabled=""');

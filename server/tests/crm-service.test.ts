@@ -135,6 +135,18 @@ describe('CRM service policy', () => {
     })).rejects.toMatchObject({ code: 'CUSTOMER_NOT_FOUND' });
   });
 
+  it('CUX-1: accepts free-form Customer names without human first+last semantics', async () => {
+    const { service } = fixture();
+    const names = ['Evaden', 'ABC', 'Mehmet', 'Evaden Ağız ve Diş Sağlığı', 'ABC Dental Polikliniği'];
+    for (const name of names) {
+      await expect(service.createCustomer(manager, {
+        name, customerType: 'clinic', status: 'prospect', taxNumber: null,
+        phone: null, email: null, city: null, district: null, address: null,
+        assignedStaffUserId: null,
+      })).resolves.toMatchObject({ name });
+    }
+  });
+
   it('requires prospect or active initial status and an eligible Staff assignee', async () => {
     const { service, audits } = fixture();
     await expect(service.createCustomer(manager, {

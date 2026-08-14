@@ -15,7 +15,7 @@ vi.mock('react-router-dom', async (original) => ({
   useSearchParams: () => [searchParams, vi.fn()],
 }));
 
-const crmApi = vi.hoisted(() => ({ createCustomer: vi.fn(), listCustomers: vi.fn() }));
+const crmApi = vi.hoisted(() => ({ createCustomer: vi.fn(), listCustomers: vi.fn(), createContact: vi.fn() }));
 vi.mock('../src/services/crm-api', async (original) => ({
   ...await original<typeof import('../src/services/crm-api')>(), ...crmApi,
 }));
@@ -100,5 +100,97 @@ describe('CustomerCreateScreen redirect', () => {
     await settle();
     await act(async () => Array.from(container.querySelectorAll('button')).find((btn) => btn.textContent === 'Vazgeç')!.click());
     expect(navigate).toHaveBeenCalledWith('/jobs/new-task');
+  });
+});
+
+describe('CustomerCreateScreen contact orchestration', () => {
+  let root: Root; let container: HTMLDivElement;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    searchParams.delete('source');
+    crmApi.createCustomer.mockResolvedValue({
+      id: 'new-customer-1', version: 1, organizationId: 'org-1', name: 'Evaden',
+      customerType: 'clinic', status: 'prospect', taxNumber: null, phone: null, email: null,
+      city: null, district: null, address: null, assignedStaffUserId: null,
+      assignedStaffName: null, primaryContact: null,
+    });
+    crmApi.createContact.mockResolvedValue({
+      id: 'contact-1', organizationId: 'org-1', customerId: 'new-customer-1',
+      name: 'Ayşe Demir', title: 'Satın Alma', phone: '555', email: 'a@b.com',
+      isPrimary: true, isActive: true, version: 1,
+    });
+    crmApi.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 5, offset: 0 });
+    peopleApi.listStaff.mockResolvedValue([]);
+    container = document.createElement('div'); document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+
+  async function renderScreen(user: typeof manager) {
+    await act(async () => root.render(<CustomerCreateScreen user={user} />));
+    await settle();
+  }
+
+  it('CUX-1: labels the Customer field as organization/account oriented', async () => {
+    await renderScreen(manager);
+    expect(container.querySelector('#customer-name')?.closest('.field-group')?.textContent)
+      .toContain('Müşteri / kurum adı');
+    expect(container.textContent).toContain('Klinik, poliklinik, şirket veya kişi adı yazabilirsiniz.');
+  });
+
+  it('CUX-3: shows a collapsed optional Contact section for MANAGER and creates a real Contact', async () => {
+    await renderScreen(manager);
+    const details = Array.from(container.querySelectorAll('details'))
+      .find((item) => item.textContent?.includes('İletişim kişisi ekle'));
+    expect(details).toBeDefined();
+    expect((details as HTMLDetailsElement).open).toBe(false);
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Evaden Ağız ve Diş Sağlığı');
+    change(container.querySelector('#customer-contact-name') as HTMLInputElement, 'Ayşe Demir');
+    change(container.querySelector('#customer-contact-title') as HTMLInputElement, 'Satın Alma');
+    change(container.querySelector('#customer-contact-phone') as HTMLInputElement, '555');
+    change(container.querySelector('#customer-contact-email') as HTMLInputElement, 'a@b.com');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await settle();
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createContact).toHaveBeenCalledWith('new-customer-1', {
+      name: 'Ayşe Demir', title: 'Satın Alma', phone: '555', email: 'a@b.com',
+    });
+    expect(navigate).toHaveBeenCalledWith('/customers/new-customer-1');
+  });
+
+  it('CUX-3 empty: creates the Customer only when the Contact section stays empty', async () => {
+    await renderScreen(manager);
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'ABC Dental Polikliniği');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await settle();
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createContact).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith('/customers/new-customer-1');
+  });
+
+  it('CUX-3B: hides the optional Contact section from STAFF and never calls createContact', async () => {
+    await renderScreen(staff);
+    expect(container.textContent).not.toContain('İletişim kişisi ekle');
+    expect(container.querySelector('#customer-contact-name')).toBeNull();
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Mehmet Yılmaz');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await settle();
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createContact).not.toHaveBeenCalled();
+    expect(navigate).toHaveBeenCalledWith('/customers/new-customer-1');
+  });
+
+  it('CUX-3C: keeps the created Customer and communicates partial success when Contact creation fails', async () => {
+    crmApi.createContact.mockRejectedValue(new Error('Kişi eklenemedi'));
+    await renderScreen(manager);
+    change(container.querySelector('#customer-name') as HTMLInputElement, 'Özel Dünya Ağız ve Diş Sağlığı Polikliniği');
+    change(container.querySelector('#customer-contact-name') as HTMLInputElement, 'Ayşe Demir');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await settle();
+    expect(crmApi.createCustomer).toHaveBeenCalledTimes(1);
+    expect(crmApi.createContact).toHaveBeenCalledTimes(1);
+    expect(navigate).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Müşteri oluşturuldu ancak iletişim kişisi eklenemedi.');
+    expect(container.textContent).toContain('İletişim kişisini müşteri detayından tekrar ekleyebilirsiniz.');
   });
 });
