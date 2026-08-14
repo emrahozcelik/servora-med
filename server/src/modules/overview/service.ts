@@ -49,7 +49,6 @@ export class OverviewService {
           from: detailedOverview.range.from,
           to: detailedOverview.range.to,
           staffUserId: null,
-          managerUserId: actor.role === 'MANAGER' ? actor.id : undefined,
         });
       } catch {
         workTypeDistribution = undefined;

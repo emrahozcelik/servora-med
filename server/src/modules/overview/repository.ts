@@ -176,12 +176,6 @@ export class PostgresOverviewRepository implements OverviewReadModel {
        JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
        WHERE j.organization_id = $1
          AND ($2::text <> 'STAFF' OR j.assigned_to = $3)
-         AND ($2::text <> 'MANAGER' OR EXISTS (
-           SELECT 1 FROM staff_profiles sp
-           WHERE sp.organization_id = j.organization_id
-             AND sp.user_id = j.assigned_to
-             AND sp.manager_user_id = $3
-         ))
          AND j.status NOT IN ('COMPLETED','CANCELLED')
          AND j.scheduled_at >= $4 AND j.scheduled_at < $5
        UNION ALL
@@ -190,12 +184,6 @@ export class PostgresOverviewRepository implements OverviewReadModel {
        JOIN users u ON u.organization_id = e.organization_id AND u.id = e.assigned_user_id
        WHERE e.organization_id = $1
          AND ($2::text <> 'STAFF' OR e.assigned_user_id = $3)
-         AND ($2::text <> 'MANAGER' OR EXISTS (
-           SELECT 1 FROM staff_profiles sp
-           WHERE sp.organization_id = e.organization_id
-             AND sp.user_id = e.assigned_user_id
-             AND sp.manager_user_id = $3
-         ))
          AND e.status = 'ACTIVE' AND e.starts_at >= $4 AND e.starts_at < $5
        ORDER BY starts_at ASC, source ASC, id ASC LIMIT $6`,
       [actor.organizationId, actor.role, actor.id, from, to, limit],
