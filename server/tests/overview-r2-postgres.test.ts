@@ -237,15 +237,25 @@ describe.skipIf(!databaseUrl)('Overview R2 organization-wide Manager RBAC (Postg
   });
 
   it('O-R2-5: cross-org isolation — Org B Manager never sees Org A upcoming data', async () => {
-    await withFixture(async ({ pool, managerB, orgA, staffBJobId, manualBId }) => {
+    await withFixture(async ({ pool, managerB, staffA1JobIds, staffA2JobIds, manualA2Id, staffBJobId, manualBId }) => {
       const result = await repository(pool).getUpcomingWork(managerB, requestTime);
       const ids = result.items.map((item) => item.id);
-      expect(ids).toContain(staffBJobId);
-      expect(ids).toContain(manualBId);
-      expect(ids.length).toBeGreaterThanOrEqual(2);
-      // Aggregate isolation: no Org A identifiers anywhere in the result.
-      const serialized = JSON.stringify(result);
-      expect(serialized).not.toContain(orgA);
+
+      // Org B fixture contains exactly two eligible upcoming items.
+      expect(ids).toHaveLength(2);
+      expect(ids).toEqual(expect.arrayContaining([
+        staffBJobId,
+        manualBId,
+      ]));
+
+      // Explicit identity-based leakage proof: no foreign Org A item ID.
+      for (const foreignId of [
+        ...staffA1JobIds,
+        ...staffA2JobIds,
+        manualA2Id,
+      ]) {
+        expect(ids).not.toContain(foreignId);
+      }
     });
   });
 
