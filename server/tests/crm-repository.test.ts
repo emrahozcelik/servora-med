@@ -111,6 +111,26 @@ describe('CRM persistence', () => {
     expect(audit.values.at(-1)).toEqual({ changedFields: ['name'] });
   });
 
+  it('CUX-2: represents a Customer with zero Contacts as contacts: [] and primaryContact: null', async () => {
+    const recorded = recordingPool((text) => {
+      if (text.includes('FROM customers c') && !text.includes('COUNT')) return [{
+        id: 'customer-1', organization_id: 'org-1', name: 'Evaden', customer_type: 'clinic',
+        tax_number: null, phone: null, email: null, city: null, district: null, address: null,
+        assigned_staff_user_id: null, status: 'active', version: 1,
+        created_at: new Date('2026-07-12T00:00:00Z'), updated_at: new Date('2026-07-12T00:00:00Z'),
+      }];
+      return [];
+    });
+    const repository = new PostgresCrmRepository(recorded.pool);
+    const detail = await repository.getCustomerDetail(
+      { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' },
+      'customer-1',
+    );
+    expect(detail).not.toBeNull();
+    expect(detail!.contacts).toEqual([]);
+    expect(detail!.primaryContact).toBeNull();
+  });
+
   it('caps Customer and Contact pagination at 200 records', async () => {
     const recorded = recordingPool((text) => text.includes('COUNT(*)') ? [{ total: '0' }] : []);
     const repository = new PostgresCrmRepository(recorded.pool);
