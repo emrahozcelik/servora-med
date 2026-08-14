@@ -4,6 +4,7 @@ import {
   evaluateCustomerSchedule,
   isOnSiteJobType,
   localDateKey,
+  maxCommitmentsInWindow,
   type ActiveOnSiteJobRecord,
   type CustomerScheduleReader,
   type RecentOnSiteVisitRecord,
@@ -237,6 +238,62 @@ describe('evaluateCustomerSchedule', () => {
     });
     expect(result.level).not.toBe('FREQUENCY_EXCEEDED');
     expect(result.frequencyCount).toBe(3);
+  });
+
+  it('R1-5: does not flag records spread across more than one 14-day window', async () => {
+    const proposedAt = instant('2026-08-15T10:30:00.000Z');
+    const result = await evaluateCustomerSchedule({
+      ...baseInput({ proposedAt }),
+      reader: stubReader({
+        recentVisits: [
+          visit({ id: 'v-a', occurredAt: '2026-08-02T09:00:00.000Z' }),
+          visit({ id: 'v-b', occurredAt: '2026-08-03T09:00:00.000Z' }),
+        ],
+        activeJobs: [activeJob({
+          id: 'plan-c',
+          scheduledAt: '2026-08-27T10:00:00.000Z',
+        })],
+      }),
+    });
+    expect(result.level).not.toBe('FREQUENCY_EXCEEDED');
+    expect(result.frequencyCount).toBe(3);
+  });
+
+  it('R1-5: flags a future cluster of three planned visits in one 14-day window', async () => {
+    const proposedAt = instant('2026-08-15T10:30:00.000Z');
+    const result = await evaluateCustomerSchedule({
+      ...baseInput({ proposedAt }),
+      reader: stubReader({
+        activeJobs: [
+          activeJob({ id: 'f1', scheduledAt: '2026-08-16T10:00:00.000Z' }),
+          activeJob({ id: 'f2', scheduledAt: '2026-08-17T10:00:00.000Z' }),
+          activeJob({ id: 'f3', scheduledAt: '2026-08-18T10:00:00.000Z' }),
+        ],
+      }),
+    });
+    expect(result.level).toBe('FREQUENCY_EXCEEDED');
+    expect(result.frequencyCount).toBe(4);
+  });
+
+  it('R1-5: flags a past cluster of three visits in one 14-day window', async () => {
+    const proposedAt = instant('2026-08-15T10:30:00.000Z');
+    const result = await evaluateCustomerSchedule({
+      ...baseInput({ proposedAt }),
+      reader: stubReader({
+        recentVisits: [
+          visit({ id: 'p1', occurredAt: '2026-08-02T09:00:00.000Z' }),
+          visit({ id: 'p2', occurredAt: '2026-08-03T09:00:00.000Z' }),
+          visit({ id: 'p3', occurredAt: '2026-08-04T09:00:00.000Z' }),
+        ],
+      }),
+    });
+    expect(result.level).toBe('FREQUENCY_EXCEEDED');
+    expect(result.frequencyCount).toBe(4);
+  });
+
+  it('maxCommitmentsInWindow never unions disjoint clusters into a false positive', () => {
+    const count = maxCommitmentsInWindow('2026-08-15', ['2026-08-02', '2026-08-03', '2026-08-27'], 14);
+    expect(count).toBe(3);
   });
 
   it('prefers CONFLICT over FREQUENCY_EXCEEDED when both apply', async () => {

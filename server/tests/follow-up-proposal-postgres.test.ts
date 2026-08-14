@@ -298,6 +298,78 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
+  it('FUP-M18B: forbids Staff from overriding the follow-up type on a SALES_MEETING source', async () => {
+    await withFixture(async ({ service, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', title: 'Kontrol görüşmesi', assignedTo: staffA.id,
+      });
+      await expect(service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Görüşme tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'PRODUCT_DELIVERY',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Kontrol görüşmesi',
+        },
+      })).rejects.toMatchObject(appError('FORBIDDEN', 403));
+      const after = await service.detail(staffA, job.id);
+      expect(after.status).toBe('IN_PROGRESS');
+      expect(after.followUpProposal).toBeNull();
+    });
+  });
+
+  it('FUP-M18B: forbids Staff from overriding the PRODUCT_DELIVERY default type (SALES_MEETING)', async () => {
+    await withFixture(async ({ service, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: staffA.id,
+      });
+      await expect(service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Teslim tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'PRODUCT_DELIVERY',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Teslim',
+        },
+      })).rejects.toMatchObject(appError('FORBIDDEN', 403));
+    });
+  });
+
+  it('R1-6: Staff receives the frequency warning with Manager-review wording and no override surface', async () => {
+    await withFixture(async ({
+      service, pool, manager, staffA, staffB, organizationId, customerId, createInProgressJob,
+    }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', title: 'Kontrol görüşmesi', assignedTo: staffA.id,
+      });
+      for (const [index, at] of ['2026-08-01T09:00:00.000Z', '2026-08-02T09:00:00.000Z', '2026-08-03T09:00:00.000Z'].entries()) {
+        const visit = await pool.query<{ id: string }>(
+          `INSERT INTO job_cards (organization_id, type, status, title, customer_id, assigned_to, created_by,
+             started_at, staff_completed_at, staff_completed_by, manager_approved_at, manager_approved_by,
+             engagement_kind)
+           VALUES ($1, 'SALES_MEETING', 'COMPLETED', $2, $3, $4, $5, NOW(), NOW(), $6, NOW(), $5, 'SALES_MEETING')
+           RETURNING id`,
+          [organizationId, `Ziyaret ${index}`, customerId, staffB.id, manager.id, staffB.id],
+        );
+        await pool.query(
+          `INSERT INTO job_card_meeting_details (organization_id, job_card_id, meeting_at, outcome, meeting_summary)
+           VALUES ($1, $2, $3, 'POSITIVE', 'Geçmiş ziyaret')`,
+          [organizationId, visit.rows[0]!.id, at],
+        );
+      }
+      const staffSuggestion = await service.getFollowUpSuggestion(staffA, job.id);
+      expect(staffSuggestion.evaluation.level).toBe('FREQUENCY_EXCEEDED');
+      expect(staffSuggestion.evaluation.safeMessage).toContain('yönetici onayında ayrıca değerlendirilecek');
+      expect(staffSuggestion.evaluation.safeMessage).not.toContain('nedeni belirtin');
+      const managerSuggestion = await service.getFollowUpSuggestion(manager, job.id);
+      expect(managerSuggestion.evaluation.safeMessage).toContain('14 günlük bir dönemde ziyaret sıklığı sınırını aşıyor');
+    });
+  });
+
   it('FUP-M17: cross-organization access fails closed', async () => {
     await withFixture(async ({ service, otherStaff, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({

@@ -40,6 +40,7 @@ ALTER TABLE job_cards
       AND char_length(follow_up_proposal_instructions) BETWEEN 1 AND 4000
       AND follow_up_proposal_instructions ~ '[^[:space:]]'
       AND follow_up_proposal_origin IN ('SYSTEM', 'STAFF_ADJUSTED')
+      AND follow_up_proposed_by IS NOT NULL
     )
   );
 

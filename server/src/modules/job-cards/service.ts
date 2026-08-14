@@ -1594,6 +1594,9 @@ export class JobCardService {
     if (!(JOB_CARD_TYPES as readonly string[]).includes(input.type)) {
       throw new AppError('FOLLOW_UP_PROPOSAL_INVALID', 400, 'Takip işi türü geçersizdir.');
     }
+    if (actor.role === 'STAFF' && input.type !== defaultFollowUpType(job.type)) {
+      throw new AppError('FORBIDDEN', 403, 'Personel takip işi türünü değiştiremez.');
+    }
     if (job.customerId === null && input.type !== 'GENERAL_TASK') {
       throw new AppError(
         'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED',
@@ -1715,7 +1718,7 @@ export class JobCardService {
     return { proposal, overrideReason };
   }
 
-  private computeFollowUpSuggestion(
+  private async computeFollowUpSuggestion(
     reader: JobCardTransaction,
     actor: JobCardActor,
     job: JobCard,
@@ -1725,9 +1728,11 @@ export class JobCardService {
     baseEvaluation: CustomerScheduleEvaluation;
     skippedConflict: boolean;
   }> {
+    const timezone = await reader.getOrganizationTimezone(actor.organizationId);
     const baseAt = suggestedFollowUpInstant({
       evaluatedAt,
       sourceScheduledAt: job.scheduledAt ? new Date(job.scheduledAt) : null,
+      timezone,
     });
     const baseFields: FollowUpProposalFields = {
       scheduledAt: baseAt,
@@ -1772,7 +1777,9 @@ export class JobCardService {
     if (actor.role === 'STAFF') {
       return {
         level: evaluation.level,
-        safeMessage,
+        safeMessage: evaluation.level === 'FREQUENCY_EXCEEDED'
+          ? 'Bu müşteri için ziyaret sıklığı yüksek. Takip planı yönetici onayında ayrıca değerlendirilecek.'
+          : safeMessage,
         conflicts: [],
         recentVisit: null,
         suggestedAlternativeAt: evaluation.suggestedAlternativeAt,
@@ -1803,10 +1810,12 @@ export class JobCardService {
     if (detail.status === 'COMPLETED' || detail.status === 'CANCELLED') {
       throw new AppError('INVALID_TRANSITION', 409, 'Bu iş için takip önerisi oluşturulamaz.');
     }
+    const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
     const defaultFields: FollowUpProposalFields = {
       scheduledAt: suggestedFollowUpInstant({
         evaluatedAt: this.now(),
         sourceScheduledAt: detail.scheduledAt ? new Date(detail.scheduledAt) : null,
+        timezone,
       }),
       type: defaultFollowUpType(detail.type),
       assignedTo: detail.assignedTo,

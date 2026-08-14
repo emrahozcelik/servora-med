@@ -1,4 +1,10 @@
 import type { JobCardType } from './types.js';
+import {
+  addCalendarDaysToDateKey,
+  instantFromLocal,
+  localClockParts,
+  localDateKey,
+} from './local-calendar.js';
 
 /**
  * V1 mandatory follow-up policy constants.
@@ -25,27 +31,32 @@ export function defaultFollowUpType(sourceType: JobCardType): JobCardType {
   return FOLLOW_UP_TYPE_DEFAULTS[sourceType];
 }
 
-const DAY_MS = 24 * 60 * 60 * 1000;
-
 /**
- * Base candidate instant: evaluation date + 7 calendar days, preserving the
- * preferred clock time (source scheduledAt when available, otherwise the
- * evaluation clock time). No business-day/weekend rules exist in Servora;
- * this deliberately does not introduce any.
+ * Base candidate instant: the organization-local completion/evaluation date
+ * + 7 calendar days, preserving the preferred local clock time (source
+ * scheduledAt when available, otherwise the evaluation clock). No
+ * business-day/weekend rules exist in Servora; this deliberately does not
+ * introduce any.
  */
 export function suggestedFollowUpInstant(input: {
   evaluatedAt: Date;
   sourceScheduledAt: Date | null;
+  timezone: string;
 }): Date {
-  const base = new Date(input.evaluatedAt.valueOf() + FOLLOW_UP_DEFAULT_INTERVAL_DAYS * DAY_MS);
   const preferred = input.sourceScheduledAt ?? input.evaluatedAt;
-  base.setHours(preferred.getHours(), preferred.getMinutes(), 0, 0);
-  return base;
+  const clock = localClockParts(preferred, input.timezone);
+  const baseDate = addCalendarDaysToDateKey(
+    localDateKey(input.evaluatedAt, input.timezone),
+    FOLLOW_UP_DEFAULT_INTERVAL_DAYS,
+  );
+  return instantFromLocal(baseDate, clock.hour, clock.minute, input.timezone);
 }
 
-/** Advance a candidate by one calendar day, preserving the clock time. */
-export function advanceByOneDay(instant: Date): Date {
-  return new Date(instant.valueOf() + DAY_MS);
+/** Advance a candidate by one organization-local calendar day, preserving the clock time. */
+export function advanceByOneDay(instant: Date, timezone: string): Date {
+  const clock = localClockParts(instant, timezone);
+  const nextDate = addCalendarDaysToDateKey(localDateKey(instant, timezone), 1);
+  return instantFromLocal(nextDate, clock.hour, clock.minute, timezone);
 }
 
 /**

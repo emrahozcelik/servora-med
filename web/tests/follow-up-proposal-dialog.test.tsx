@@ -133,6 +133,31 @@ describe('FollowUpProposalSection', () => {
     const { host } = renderSection({ draft: null });
     expect(host.textContent).toContain('uygun bir tarih bulunamadı');
   });
+
+  it('R1-7: a null origin in the manager flow renders the ÖNERİLEN badge', () => {
+    const { host } = renderSection({
+      mode: 'manager',
+      origin: null,
+      evaluation: {
+        level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+        suggestedAlternativeAt: null,
+      },
+    });
+    expect(host.textContent).toContain('ÖNERİLEN');
+    expect(host.textContent).not.toContain('PERSONEL ÖNERİSİ');
+  });
+
+  it('R1-6: Staff frequency warning has no override reason field', () => {
+    const { host } = renderSection({
+      evaluation: {
+        level: 'FREQUENCY_EXCEEDED',
+        safeMessage: 'Bu müşteri için ziyaret sıklığı yüksek. Takip planı yönetici onayında ayrıca değerlendirilecek.',
+        conflicts: [], recentVisit: null, suggestedAlternativeAt: null,
+      },
+    });
+    expect(host.textContent).toContain('yönetici onayında ayrıca değerlendirilecek');
+    expect(host.querySelector('#follow-up-override-reason')).toBeNull();
+  });
 });
 
 describe('JobDetail follow-up proposal integration', () => {

@@ -12,6 +12,10 @@ import {
   deriveProposalOrigin,
   suggestedFollowUpInstant,
 } from '../src/modules/job-cards/follow-up-policy.js';
+import {
+  localClockParts,
+  localDateKey,
+} from '../src/modules/job-cards/local-calendar.js';
 
 const instant = (value: string) => new Date(value);
 const proposal = (overrides: Partial<{
@@ -52,6 +56,7 @@ describe('suggestedFollowUpInstant', () => {
     const result = suggestedFollowUpInstant({
       evaluatedAt: instant('2026-08-01T09:00:00.000Z'),
       sourceScheduledAt: null,
+      timezone: 'UTC',
     });
     expect(result.toISOString()).toBe('2026-08-08T09:00:00.000Z');
   });
@@ -60,6 +65,7 @@ describe('suggestedFollowUpInstant', () => {
     const result = suggestedFollowUpInstant({
       evaluatedAt: instant('2026-08-01T18:45:00.000Z'),
       sourceScheduledAt: instant('2026-07-30T10:30:00.000Z'),
+      timezone: 'UTC',
     });
     expect(result.toISOString()).toBe('2026-08-08T10:30:00.000Z');
   });
@@ -68,15 +74,42 @@ describe('suggestedFollowUpInstant', () => {
     const result = suggestedFollowUpInstant({
       evaluatedAt: instant('2026-08-08T10:00:00.000Z'),
       sourceScheduledAt: null,
+      timezone: 'UTC',
     });
     expect(result.toISOString()).toBe('2026-08-15T10:00:00.000Z');
+  });
+
+  it('R1-3: computes +7 on the organization-local calendar date near midnight', () => {
+    // 2026-08-14T22:30Z is already 15 Aug 01:30 in Europe/Istanbul.
+    const result = suggestedFollowUpInstant({
+      evaluatedAt: instant('2026-08-14T22:30:00.000Z'),
+      sourceScheduledAt: instant('2026-08-14T07:00:00.000Z'), // 10:00 Istanbul
+      timezone: 'Europe/Istanbul',
+    });
+    expect(localDateKey(result, 'Europe/Istanbul')).toBe('2026-08-22');
+    expect(localClockParts(result, 'Europe/Istanbul')).toEqual({ hour: 10, minute: 0 });
+    expect(result.toISOString()).toBe('2026-08-22T07:00:00.000Z');
   });
 });
 
 describe('advanceByOneDay', () => {
   it('advances one calendar day and preserves the clock time', () => {
-    expect(advanceByOneDay(instant('2026-08-15T10:30:00.000Z')).toISOString())
+    expect(advanceByOneDay(instant('2026-08-15T10:30:00.000Z'), 'UTC').toISOString())
       .toBe('2026-08-16T10:30:00.000Z');
+  });
+
+  it('R1-4: advances one organization-local calendar day', () => {
+    const result = advanceByOneDay(instant('2026-08-08T23:30:00.000Z'), 'Europe/Istanbul');
+    expect(localDateKey(result, 'Europe/Istanbul')).toBe('2026-08-10');
+    expect(localClockParts(result, 'Europe/Istanbul')).toEqual({ hour: 2, minute: 30 });
+  });
+
+  it('R1-4 DST: preserves local clock across a spring-forward boundary', () => {
+    // 2026-03-07T15:00Z is 10:00 EST in America/New_York; 2026-03-08 is EDT.
+    const result = advanceByOneDay(instant('2026-03-07T15:00:00.000Z'), 'America/New_York');
+    expect(localDateKey(result, 'America/New_York')).toBe('2026-03-08');
+    expect(localClockParts(result, 'America/New_York')).toEqual({ hour: 10, minute: 0 });
+    expect(result.toISOString()).toBe('2026-03-08T14:00:00.000Z');
   });
 });
 

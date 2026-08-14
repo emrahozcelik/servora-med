@@ -48,7 +48,7 @@ function formatDay(value: string): string {
 
 function badgeLabel(origin: FollowUpProposalOrigin | null, mode: 'staff' | 'manager'): string {
   if (mode === 'staff') return 'ÖNERİLEN';
-  return origin === 'SYSTEM' ? 'ÖNERİLEN' : 'PERSONEL ÖNERİSİ';
+  return origin === 'STAFF_ADJUSTED' ? 'PERSONEL ÖNERİSİ' : 'ÖNERİLEN';
 }
 
 const TYPE_OPTIONS: JobCardType[] = ['SALES_MEETING', 'PRODUCT_DELIVERY', 'GENERAL_TASK'];
@@ -234,8 +234,8 @@ export function FollowUpProposalSection({
           {frequencyExceeded && (
             <div className="follow-up-frequency-warning" role="alert">
               <p className="follow-up-recent-visit-title">Sık ziyaret uyarısı</p>
-              <p className="form-help">Bu müşteriye son 14 gün içinde sık ziyaret gerçekleştirildi.
-                Yeni ziyareti yine de planlamak için nedeni belirtin.</p>
+              <p className="form-help">Bu ziyaret, müşteri için 14 günlük bir dönemde
+                ziyaret sıklığı sınırını aşıyor. Yeni ziyareti yine de planlamak için nedeni belirtin.</p>
               <div className="field-group">
                 <label htmlFor="follow-up-override-reason">Neden *</label>
                 <textarea

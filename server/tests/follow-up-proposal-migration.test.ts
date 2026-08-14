@@ -136,6 +136,12 @@ describe.skipIf(!databaseUrl)('027 follow-up proposal PostgreSQL contract', () =
         [legacyId, userId],
       )).resolves.toMatchObject({ rowCount: 1 });
 
+      // Complete proposal but proposed_by NULL -> rejected (present-iff requires proposer).
+      await expect(client.query(
+        `UPDATE job_cards SET follow_up_proposed_by = NULL WHERE id = $1`,
+        [legacyId],
+      )).rejects.toMatchObject({ code: '23514' });
+
       // Whitespace-only instructions -> rejected.
       await expect(client.query(
         `UPDATE job_cards SET follow_up_proposal_instructions = '   ' WHERE id = $1`,

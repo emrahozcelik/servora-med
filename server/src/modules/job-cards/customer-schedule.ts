@@ -5,7 +5,14 @@ import {
   RECENT_VISIT_WARNING_DAYS,
   advanceByOneDay,
 } from './follow-up-policy.js';
+import {
+  addCalendarDaysToDateKey,
+  dateKeyToOrdinal,
+  localDateKey,
+} from './local-calendar.js';
 import type { JobCardType } from './types.js';
+
+export { localDateKey } from './local-calendar.js';
 
 /**
  * Shared domain-layer Customer scheduling intelligence.
@@ -86,20 +93,35 @@ export type CustomerScheduleEvaluation = {
   frequencyCount: number;
 };
 
-/** Canonical org-local calendar date key ('YYYY-MM-DD') for a timezone. */
-export function localDateKey(instant: Date, timezone: string): string {
-  const parts = new Intl.DateTimeFormat('en-CA', {
-    timeZone: timezone,
-    year: 'numeric',
-    month: '2-digit',
-    day: '2-digit',
-  }).formatToParts(instant);
-  const get = (type: Intl.DateTimeFormatPartTypes) => parts.find((p) => p.type === type)?.value;
-  return `${get('year')}-${get('month')}-${get('day')}`;
-}
-
 const DAY_MS = 24 * 60 * 60 * 1000;
 const MAX_TZ_OFFSET_MS = 15 * 60 * 60 * 1000;
+
+/**
+ * Maximum number of ON_SITE commitments/history records (including the
+ * candidate itself) inside any contiguous `windowDays`-calendar-day window that
+ * contains the candidate's local date. This is a true rolling window: records
+ * are only counted when a single window spans them, never a past-union-future
+ * ~2×window aggregation.
+ */
+export function maxCommitmentsInWindow(
+  candidateDate: string,
+  recordDates: string[],
+  windowDays: number,
+): number {
+  const candidateOrdinal = dateKeyToOrdinal(candidateDate);
+  let max = 1;
+  for (let offset = -(windowDays - 1); offset <= 0; offset += 1) {
+    const start = addCalendarDaysToDateKey(candidateDate, offset);
+    const startOrdinal = dateKeyToOrdinal(start);
+    const endOrdinal = startOrdinal + (windowDays - 1);
+    const count = 1 + recordDates.reduce((total, date) => {
+      const ordinal = dateKeyToOrdinal(date);
+      return ordinal >= startOrdinal && ordinal <= endOrdinal ? total + 1 : total;
+    }, 0);
+    if (count > max) max = count;
+  }
+  return max;
+}
 
 export type EvaluateCustomerScheduleInput = {
   reader: CustomerScheduleReader;
@@ -169,22 +191,29 @@ export async function evaluateCustomerSchedule(
   const frequencyPast = await reader.listRecentOnSiteVisits(
     organizationId,
     customerId,
-    new Date(proposedAt.valueOf() - FREQUENT_VISIT_WINDOW_DAYS * DAY_MS),
+    new Date(proposedAt.valueOf() - FREQUENT_VISIT_WINDOW_DAYS * DAY_MS - MAX_TZ_OFFSET_MS),
     proposedAt,
   );
   const frequencyFuture = activeJobs.filter((job) => {
     const value = new Date(job.scheduledAt).valueOf();
     return value > proposedAt.valueOf()
-      && value <= proposedAt.valueOf() + FREQUENT_VISIT_WINDOW_DAYS * DAY_MS;
+      && value <= proposedAt.valueOf() + FREQUENT_VISIT_WINDOW_DAYS * DAY_MS + MAX_TZ_OFFSET_MS;
   });
-  const frequencyCount = frequencyPast.length + frequencyFuture.length + 1;
+  const frequencyCount = maxCommitmentsInWindow(
+    proposedDate,
+    [
+      ...frequencyPast.map((visit) => localDateKey(new Date(visit.occurredAt), timezone)),
+      ...frequencyFuture.map((job) => localDateKey(new Date(job.scheduledAt), timezone)),
+    ],
+    FREQUENT_VISIT_WINDOW_DAYS,
+  );
   const frequencyExceeded = frequencyCount > FREQUENT_VISIT_MAX_COUNT;
 
   let suggestedAlternativeAt: string | null = null;
   if (conflicts.length > 0) {
     let candidate = proposedAt;
     for (let step = 0; step < FOLLOW_UP_SEARCH_HORIZON_DAYS; step += 1) {
-      candidate = advanceByOneDay(candidate);
+      candidate = advanceByOneDay(candidate, timezone);
       if (!occupiedDates.has(localDateKey(candidate, timezone))) {
         suggestedAlternativeAt = candidate.toISOString();
         break;
@@ -199,7 +228,7 @@ export async function evaluateCustomerSchedule(
     safeMessage = 'Bu müşteri için yakın tarihte başka bir iş planlandı.';
   } else if (frequencyExceeded) {
     level = 'FREQUENCY_EXCEEDED';
-    safeMessage = 'Bu müşteri son 14 gün içinde sık ziyaret edildi. Yine de yeni ziyaret planlamak için nedeni belirtin.';
+    safeMessage = 'Bu ziyaret, müşteri için 14 günlük bir dönemde ziyaret sıklığı sınırını aşıyor.';
   } else if (recentVisit !== null) {
     level = 'WARNING';
     safeMessage = 'Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.';
