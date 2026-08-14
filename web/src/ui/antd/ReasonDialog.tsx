@@ -32,6 +32,7 @@ export type ReasonDialogProps = {
   pending: boolean;
   pendingLabel?: string;
   destructive?: boolean;
+  prelude?: ReactNode;
   onConfirm: (reason: string) => void;
   onCancel: () => void;
   returnFocusRef?: RefObject<HTMLElement | null>;
@@ -56,6 +57,7 @@ export function ReasonDialog({
   pending,
   pendingLabel = 'İşleniyor…',
   destructive = false,
+  prelude,
   onConfirm,
   onCancel,
   returnFocusRef,
@@ -162,6 +164,7 @@ export function ReasonDialog({
       >
         <h2 id={titleId}>{title}</h2>
         <p>{description}</p>
+        {prelude}
         <form onSubmit={submit} noValidate>
           <div className="field-group">
             <label htmlFor={reasonId}>{reasonLabel}</label>

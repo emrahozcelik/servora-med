@@ -74,17 +74,18 @@ const page = { items: [], total: 0, limit: 25, offset: 0, nextCursor: null };
 const approvePresentation: TransitionPresentation = {
   command: 'APPROVE',
   label: 'Kontrolü tamamla ve işi kapat',
-  consequence: 'İş “Tamamlandı” durumuna geçecek ve aktif işlerden çıkacaktır.',
-  successMessage: 'İş tamamlandı ve aktif işlerden çıkarıldı.',
+  consequence: 'İş “Tamamlandı” durumuna geçecek, onaylanan takip işi planı bağlantılı yeni bir iş olarak oluşturulacaktır.',
+  successMessage: 'İş tamamlandı ve takip işi planlandı.',
   confirmation: {
     title: 'İşi tamamlamak üzeresiniz',
     details: [
       'Yönetici kontrolünü tamamlar',
       'İşi “Tamamlandı” durumuna geçirir',
+      'Takip işi planını onaylar ve bağlantılı takip işini oluşturur',
       'Aktif iş listesinden kaldırır',
       'İş geçmişine onay kaydı ekler',
     ],
-    confirmLabel: 'İşi tamamla',
+    confirmLabel: 'İşi onayla ve takip işini planla',
   },
 };
 
@@ -186,6 +187,21 @@ describe('Manager review', () => {
       if (url.endsWith('/delivery-items')) return Response.json({ items: [item] });
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
+      if (url.includes('/follow-up-suggestion')) {
+        return Response.json({
+          scheduledAt: '2026-07-24T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: 's1',
+          followUpInstructions: 'Takip: Klinik teslimi',
+          evaluation: {
+            level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+            suggestedAlternativeAt: null,
+          },
+        });
+      }
+      if (url.endsWith('/api/calendar/assignees')) {
+        return Response.json({ items: [{ id: 's1', name: 'Ayşe Personel' }] });
+      }
       if (url.endsWith('/approve') && method === 'POST') {
         return Response.json({ ...waitingJob, status: 'COMPLETED', version: 5, workflowContext: contextWith([], ['VIEW_NOTES'], {
           ...waitingLifecycle,
@@ -213,7 +229,7 @@ describe('Manager review', () => {
       expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).endsWith('/approve')
         && (init as RequestInit | undefined)?.method === 'POST')).toBe(false);
       await act(async () => {
-        buttonByName(dialog, 'İşi tamamla')!.click();
+        buttonByName(dialog, 'İşi onayla ve takip işini planla')!.click();
         await flush();
       });
       expect(vi.mocked(fetch).mock.calls.some(([url, init]) => String(url).endsWith('/approve')
@@ -743,6 +759,18 @@ describe('Manager review', () => {
           nextFollowUpAt: null, jobCardVersion: meeting.version,
         });
       }
+      if (url.includes('/follow-up-suggestion')) {
+        return Response.json({
+          scheduledAt: '2026-07-24T10:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignedTo: staff.id,
+          followUpInstructions: 'Takip: Satış görüşmesi',
+          evaluation: {
+            level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null,
+            suggestedAlternativeAt: null,
+          },
+        });
+      }
       if (url.includes('/notes?')) return Response.json(page);
       if (url.includes('/activity?')) return Response.json({ ...page, limit: 50 });
       if (url.endsWith('/submit-for-approval') && init?.method === 'POST') {
@@ -771,12 +799,12 @@ describe('Manager review', () => {
       const submit = buttonByName(host, 'Kontrole gönder')!;
       await act(async () => { submit.click(); await flush(); });
       const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
-      const textarea = dialog.querySelector<HTMLTextAreaElement>('textarea')!;
+      const textarea = dialog.querySelector<HTMLTextAreaElement>('form textarea')!;
       await act(async () => {
         Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')
           ?.set?.call(textarea, 'Görüşme sonucu kaydedildi');
         textarea.dispatchEvent(new Event('input', { bubbles: true }));
-        buttonByName(dialog, 'Kontrole gönder')!.click();
+        buttonByName(dialog, 'Tamamla ve yönetici onayına gönder')!.click();
         await flush();
       });
 
@@ -787,7 +815,6 @@ describe('Manager review', () => {
         ['meeting-actual-at', 'meeting-actual-at-error'],
         ['meeting-outcome', 'meeting-outcome-error'],
         ['meeting-summary', 'meeting-summary-error'],
-        ['meeting-follow-up-at', 'meeting-follow-up-at-error'],
       ]) {
         const control = host.querySelector(`#${controlId}`);
         expect(control?.getAttribute('aria-invalid')).toBe('true');

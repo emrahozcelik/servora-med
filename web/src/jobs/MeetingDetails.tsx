@@ -50,7 +50,6 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
   const [meetingAt, setMeetingAt] = useState(() => meetingLocalValue(details.meetingAt));
   const [outcome, setOutcome] = useState<MeetingOutcome | ''>(details.outcome ?? '');
   const [summary, setSummary] = useState(details.meetingSummary ?? '');
-  const [followUp, setFollowUp] = useState(localValue(details.nextFollowUpAt));
   const [feedback, setFeedback] = useState(''); const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<MeetingFieldErrors>({});
   const actionId = useRef<string | null>(null); const feedbackRef = useRef<HTMLDivElement>(null);
@@ -60,7 +59,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       && canonicalRef.current.version === details.jobCardVersion) return;
     canonicalRef.current = { jobCardId: details.jobCardId, version: details.jobCardVersion };
     setMeetingAt(meetingLocalValue(details.meetingAt)); setOutcome(details.outcome ?? '');
-    setSummary(details.meetingSummary ?? ''); setFollowUp(localValue(details.nextFollowUpAt));
+    setSummary(details.meetingSummary ?? '');
   }, [details]);
   useEffect(() => { setFieldErrors(serverFieldErrors(submissionError)); }, [submissionError]);
   useEffect(() => { if (feedback || error) feedbackRef.current?.focus(); }, [feedback, error]);
@@ -79,7 +78,10 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
     }
     const candidate = {
       meetingAt: instant(meetingAt), outcome: outcome || null,
-      meetingSummary: normalizedSummary || null, nextFollowUpAt: instant(followUp),
+      meetingSummary: normalizedSummary || null,
+      // Legacy follow-up time stays historical/API compatible; the mandatory
+      // follow-up proposal is planned in the completion dialog instead.
+      nextFollowUpAt: details.nextFollowUpAt,
     };
     if (candidate.meetingAt === details.meetingAt && candidate.outcome === details.outcome
       && candidate.meetingSummary === details.meetingSummary
@@ -107,9 +109,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
       <div className="detail-summary-wide"><dt>Görüşme özeti</dt><dd>{details.meetingSummary ?? 'Belirtilmedi'}</dd></div>
     </dl></section>;
 
-  const followUpHelp = outcome === 'FOLLOW_UP_REQUIRED'
-    ? 'Takip zamanı eklemeniz önerilir; tarih henüz belli değilse boş bırakabilirsiniz.'
-    : 'Takip zamanı isteğe bağlıdır.';
+  const followUpHint = 'Takip işi planı, işi kontrole gönderirken oluşturulur.';
   return <section className="meeting-details" aria-labelledby="meeting-details-title">
     <h2 id="meeting-details-title">Görüşme sonucu</h2>
     {(feedback || error) && <div ref={feedbackRef} className={`detail-feedback${error ? ' detail-feedback-error' : ''}`}
@@ -134,13 +134,7 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
           aria-describedby={fieldErrors.meetingSummary ? 'meeting-summary-error' : undefined}
           onChange={(event) => setSummary(event.target.value)} />
         {fieldErrors.meetingSummary && <span id="meeting-summary-error" className="field-error">{fieldErrors.meetingSummary}</span>}</div>
-      <div className="field-group"><label htmlFor="meeting-follow-up-at">Takip zamanı (isteğe bağlı)</label>
-        <input id="meeting-follow-up-at" type="datetime-local" value={followUp}
-          aria-invalid={fieldErrors.nextFollowUpAt ? true : undefined}
-          aria-describedby={describedBy('meeting-follow-up-help', fieldErrors.nextFollowUpAt && 'meeting-follow-up-at-error')}
-          onChange={(event) => setFollowUp(event.target.value)} />
-        <span id="meeting-follow-up-help" className={outcome === 'FOLLOW_UP_REQUIRED' ? 'field-guidance' : 'field-status'}>{followUpHelp}</span>
-        {fieldErrors.nextFollowUpAt && <span id="meeting-follow-up-at-error" className="field-error">{fieldErrors.nextFollowUpAt}</span>}</div>
+      <p className="form-help">{followUpHint}</p>
     </fieldset><button className="primary-button compact-button" type="submit" disabled={mutationPending}>
       {mutationPending ? 'Kaydediliyor…' : 'Görüşme sonucunu kaydet'}</button></form>
   </section>;

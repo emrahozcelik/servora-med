@@ -235,12 +235,16 @@ describe('deriveJobWorkflowPresentation', () => {
     const model = derive(managerWaitingJob, manager);
     expect(model.primaryTransition).toMatchObject({
       command: 'APPROVE', label: 'Kontrolü tamamla ve işi kapat',
-      successMessage: 'İş tamamlandı ve aktif işlerden çıkarıldı.',
-      confirmation: { title: 'İşi tamamlamak üzeresiniz', confirmLabel: 'İşi tamamla' },
+      successMessage: 'İş tamamlandı ve takip işi planlandı.',
+      confirmation: {
+        title: 'İşi tamamlamak üzeresiniz',
+        confirmLabel: 'İşi onayla ve takip işini planla',
+      },
     });
     expect(model.primaryTransition?.confirmation?.details).toEqual([
       'Yönetici kontrolünü tamamlar',
       'İşi “Tamamlandı” durumuna geçirir',
+      'Takip işi planını onaylar ve bağlantılı takip işini oluşturur',
       'Aktif iş listesinden kaldırır',
       'İş geçmişine onay kaydı ekler',
     ]);

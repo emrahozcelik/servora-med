@@ -117,10 +117,11 @@ const APPROVE_CONFIRMATION = {
   details: [
     'Yönetici kontrolünü tamamlar',
     'İşi “Tamamlandı” durumuna geçirir',
+    'Takip işi planını onaylar ve bağlantılı takip işini oluşturur',
     'Aktif iş listesinden kaldırır',
     'İş geçmişine onay kaydı ekler',
   ],
-  confirmLabel: 'İşi tamamla',
+  confirmLabel: 'İşi onayla ve takip işini planla',
 } as const;
 
 type CommandCopy = {
@@ -200,14 +201,23 @@ function commandCopy(
     case 'SUBMIT_FOR_APPROVAL':
       return {
         label: opts.revisionActive ? 'Yeniden kontrole gönder' : 'Kontrole gönder',
-        consequence: 'İş yönetici kontrolüne geçecek ve kontrol sona erene kadar kayıtlar düzenlenemeyecektir.',
+        consequence: 'İş yönetici kontrolüne geçecek ve kontrol sona erene kadar kayıtlar düzenlenemeyecektir. Takip işi planı zorunludur.',
         successMessage: 'İş yönetici kontrolüne gönderildi. Kontrol tamamlanana veya iş geri çekilene kadar kayıtlar düzenlenemez.',
+        confirmation: {
+          title: 'İşi kontrole göndermek üzeresiniz',
+          details: [
+            'İş “Yönetici kontrolünde” durumuna geçer',
+            'Takip işi planı işle birlikte yöneticiye iletilir',
+            'İş geçmişine kayıt ekler',
+          ],
+          confirmLabel: 'Tamamla ve yönetici onayına gönder',
+        },
       };
     case 'APPROVE':
       return {
         label: 'Kontrolü tamamla ve işi kapat',
-        consequence: 'İş “Tamamlandı” durumuna geçecek ve aktif işlerden çıkacaktır.',
-        successMessage: 'İş tamamlandı ve aktif işlerden çıkarıldı.',
+        consequence: 'İş “Tamamlandı” durumuna geçecek, onaylanan takip işi planı bağlantılı yeni bir iş olarak oluşturulacaktır.',
+        successMessage: 'İş tamamlandı ve takip işi planlandı.',
         confirmation: { ...APPROVE_CONFIRMATION, details: [...APPROVE_CONFIRMATION.details] },
       };
     case 'REQUEST_REVISION':

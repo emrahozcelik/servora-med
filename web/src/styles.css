@@ -2272,6 +2272,20 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .reason-dialog h2, .workflow-dialog h2 { margin: 0; }
 .reason-dialog > p, .workflow-dialog > p { color: var(--muted); line-height: 1.5; }
 .reason-dialog .review-buttons, .workflow-dialog .review-buttons { margin-top: 1rem; }
+.follow-up-proposal-card { margin: 1rem 0; padding: 0.9rem; border: 1px solid var(--rule); border-left: 4px solid var(--accent); border-radius: 0.6rem; background: var(--accent-soft); }
+.follow-up-proposal-heading { display: flex; align-items: center; justify-content: space-between; gap: 0.6rem; }
+.follow-up-proposal-heading h3 { margin: 0; font-size: 1rem; }
+.follow-up-proposal-badge { padding: 0.15rem 0.55rem; border-radius: 999px; background: var(--accent); color: var(--paper); font-size: 0.72rem; font-weight: 700; letter-spacing: 0.04em; text-transform: uppercase; }
+.follow-up-proposal-summary { margin: 0.5rem 0 0; font-weight: 650; line-height: 1.45; }
+.follow-up-proposal-notice { margin-top: 0.35rem; }
+.follow-up-edit { margin-top: 0.6rem; border-top: 1px dashed var(--rule); padding-top: 0.5rem; }
+.follow-up-edit .field-group { margin-top: 0.5rem; }
+.follow-up-proposal-fields { display: grid; gap: 0.65rem; margin-top: 0.75rem; padding-top: 0.6rem; border-top: 1px dashed var(--rule); }
+.follow-up-conflict-list { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid var(--error); border-radius: 0.45rem; }
+.follow-up-conflict-list ul { margin: 0.35rem 0 0.5rem; padding-left: 1.1rem; }
+.follow-up-recent-visit { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid oklch(55% 0.12 85deg); border-radius: 0.45rem; }
+.follow-up-recent-visit-title { margin: 0 0 0.25rem; font-weight: 700; }
+.follow-up-frequency-warning { margin-top: 0.5rem; padding: 0.5rem 0.65rem; border: 1px solid var(--rule); border-left: 3px solid var(--error); border-radius: 0.45rem; }
 .workflow-dialog .review-buttons button, .reason-dialog .review-buttons button { min-height: var(--control-height); }
 .workflow-dialog-details { margin: 0.85rem 0 0; padding-left: 1.2rem; color: var(--ink); line-height: 1.5; }
 .workflow-dialog-details li { margin: 0.25rem 0; }

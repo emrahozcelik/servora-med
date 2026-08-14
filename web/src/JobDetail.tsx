@@ -5,13 +5,17 @@ import {
 
 import { ApiError, type CurrentUser } from './services/api';
 import {
-  acceptJobCard, approveJobCard, cancelJobCard, getJobCard, getMeetingDetails, listDeliveryItems,
+  acceptJobCard, approveJobCard, cancelJobCard, getFollowUpSuggestion, getJobCard,
+  getMeetingDetails, listDeliveryItems,
   patchDeliveryItem, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
-  type DeliveryItem, type JobCard, type LifecycleCommand, type MeetingDetails,
-  type PatchJobCardInput, type PatchMeetingDetailsInput, type StartJobCardInput,
+  type CustomerScheduleEvaluation, type DeliveryItem, type FollowUpProposalInput,
+  type FollowUpProposalOrigin, type JobCard, type LifecycleCommand, type MeetingDetails,
+  type PatchJobCardInput, type PatchMeetingDetailsInput, type RelatedName,
+  type StartJobCardInput,
 } from './jobs/jobs-api';
+import { listCalendarAssignees } from './services/calendar-api';
 import {
   captureStartLocation,
   type StartLocationCapture,
@@ -40,6 +44,9 @@ import {
   JobWorkflowDialog,
   type JobWorkflowDialogKind,
 } from './jobs/JobWorkflowDialog';
+import {
+  type FollowUpDraft,
+} from './jobs/FollowUpProposalSection';
 import { MeetingDetailsSection } from './jobs/MeetingDetails';
 import { SalesMeetingEditForm } from './jobs/SalesMeetingEditForm';
 import { DeliveryAssigneeEditForm } from './jobs/DeliveryAssigneeEditForm';
@@ -81,12 +88,22 @@ export async function runStaffJobCommand(
   command: StaffCommand,
   dependencies: CommandDependencies = commandDependencies,
   note = '',
+  followUpProposal: FollowUpProposalInput = {
+    scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
+    type: job.type === 'GENERAL_TASK' ? 'GENERAL_TASK' : 'SALES_MEETING',
+    assignedTo: job.assignedTo,
+    followUpInstructions: `Takip: ${job.title}`,
+  },
 ) {
   const input = { clientActionId: dependencies.createActionId(), expectedVersion: job.version };
   try {
     const updated = command === 'start'
       ? await dependencies.start(job.id, input)
-      : await dependencies.submit(job.id, { ...input, note: note.trim() });
+      : await dependencies.submit(job.id, {
+          ...input,
+          note: note.trim(),
+          followUpProposal,
+        });
     return { kind: 'success' as const, job: updated };
   } catch (error) {
     if (error instanceof ApiError && error.code === 'VERSION_CONFLICT') {
@@ -682,7 +699,10 @@ async function loadJobDetail(jobId: string) {
 async function executeLifecycleCommand(
   jobId: string,
   command: LifecycleCommand,
-  input: StartJobCardInput,
+  input: StartJobCardInput & {
+    followUpProposal?: FollowUpProposalInput;
+    followUp?: FollowUpProposalInput & { overrideReason?: string };
+  },
   reason: string,
 ): Promise<JobCard> {
   switch (command) {
@@ -691,9 +711,17 @@ async function executeLifecycleCommand(
     case 'START':
       return startJobCard(jobId, input);
     case 'SUBMIT_FOR_APPROVAL':
-      return submitJobCardForApproval(jobId, { ...input, note: reason.trim() });
-    case 'APPROVE':
-      return approveJobCard(jobId, reason.trim() ? { ...input, note: reason.trim() } : input);
+      return submitJobCardForApproval(jobId, {
+        ...input,
+        note: reason.trim(),
+        followUpProposal: input.followUpProposal!,
+      });
+    case 'APPROVE': {
+      const base = { ...input, ...(reason.trim() ? { note: reason.trim() } : {}) };
+      return approveJobCard(jobId, input.followUp
+        ? { ...base, followUp: input.followUp }
+        : base);
+    }
     case 'REQUEST_REVISION':
       return requestJobCardRevision(jobId, { ...input, revisionReason: reason });
     case 'WITHDRAW_FROM_APPROVAL':
@@ -743,6 +771,15 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const [notesRealtimeKey, setNotesRealtimeKey] = useState(0);
   const [messagingActionVisible, setMessagingActionVisible] = useState(false);
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
+  const [followUp, setFollowUp] = useState<{
+    draft: FollowUpDraft | null;
+    origin: FollowUpProposalOrigin | null;
+    evaluation: CustomerScheduleEvaluation | null;
+    assigneeName: string;
+    assignees: RelatedName[];
+    overrideReason: string;
+    inlineError: string | null;
+  } | null>(null);
   const dialogTriggerRef = useRef<HTMLElement | null>(null);
   const dialogFocusRestoreEnabledRef = useRef(true);
   const mutationInFlight = useRef(false);
@@ -878,6 +915,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     // Focus restoration is owned by ConfirmationAction / ReasonDialog.
     dialogFocusRestoreEnabledRef.current = true;
     setDialog(null);
+    setFollowUp(null);
   }
   async function refreshTruth(): Promise<boolean> {
     const operationJobId = jobId;
@@ -1020,7 +1058,14 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       meetingDetails: detail.kind === 'SALES_MEETING' ? detail.meetingDetails : null,
     });
   }
-  async function execute(command: LifecycleCommand, reason = '') {
+  async function execute(
+    command: LifecycleCommand,
+    reason = '',
+    extra?: {
+      followUpProposal?: FollowUpProposalInput;
+      followUp?: FollowUpProposalInput & { overrideReason?: string };
+    },
+  ) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
     const owner = startMutationOperation();
     if (!owner) return;
@@ -1031,7 +1076,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     const input = { clientActionId: actionIds.current[command]!, expectedVersion: state.detail.job.version };
     const presentation = presentationFor(state.detail);
     try {
-      let commandInput: StartJobCardInput = input;
+      let commandInput: StartJobCardInput & {
+        followUpProposal?: FollowUpProposalInput;
+        followUp?: FollowUpProposalInput & { overrideReason?: string };
+      } = input;
       if (command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
         if (startCapture.current?.clientActionId !== input.clientActionId) {
           setStartPendingPhase('capturing');
@@ -1043,6 +1091,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         setStartPendingPhase('submitting');
         commandInput = { ...input, locationCapture: startCapture.current.capture };
       }
+      if (extra?.followUpProposal) commandInput = { ...commandInput, followUpProposal: extra.followUpProposal };
+      if (extra?.followUp) commandInput = { ...commandInput, followUp: extra.followUp };
       const updated = await executeLifecycleCommand(operationJobId, command, commandInput, reason);
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (state.detail.kind === 'SALES_MEETING' && command === 'START') {
@@ -1071,7 +1121,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       setTimelineKey((value) => value + 1);
       setLifecycleNoteKey((value) => value + 1);
       const completedDialogCommand = dialog !== null;
-      if (completedDialogCommand) setDialog(null);
+      if (completedDialogCommand) {
+        setDialog(null);
+        setFollowUp(null);
+      }
       const transition = findTransition(presentation, command);
       if (transition) setMessage(transition.successMessage);
       if (completedDialogCommand) setFeedbackFocusRequest((value) => value + 1);
@@ -1093,6 +1146,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         }
         if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
         setDialog(null);
+        setFollowUp(null);
         setFeedbackFocusRequest((value) => value + 1);
       } else {
         if (!(caught instanceof ApiError) || !caught.retryable) {
@@ -1102,12 +1156,33 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
         if (hasPendingRealtimeInvalidation()) {
           setRealtimeStale(true);
         }
+        const dialogErrorCodes = [
+          'FOLLOW_UP_PROPOSAL_REQUIRED', 'FOLLOW_UP_PROPOSAL_INVALID',
+          'FOLLOW_UP_OVERRIDE_REASON_REQUIRED', 'FOLLOW_UP_CUSTOMER_CONFLICT',
+          'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED', 'ASSIGNEE_NOT_FOUND',
+        ];
+        if (caught instanceof ApiError && dialogErrorCodes.includes(caught.code)
+          && dialog !== null && (dialog.kind === 'submit' || dialog.kind === 'approve')) {
+          setFollowUp((current) => current ? { ...current, inlineError: caught.message } : current);
+          if (caught.code === 'FOLLOW_UP_CUSTOMER_CONFLICT'
+            && typeof caught.details?.suggestedAlternativeAt === 'string') {
+            setFollowUp((current) => current ? {
+              ...current,
+              inlineError: caught.message,
+              evaluation: current.evaluation
+                ? { ...current.evaluation, suggestedAlternativeAt: caught.details!.suggestedAlternativeAt as string }
+                : current.evaluation,
+            } : current);
+          }
+          return;
+        }
         setMessage(caught instanceof ApiError ? caught.message : 'İşlem tamamlanamadı. Lütfen tekrar deneyin.');
         setMessageIsError(true);
         if (caught instanceof ApiError && caught.code === 'MEETING_NOT_READY') {
           setMeetingSubmissionError(caught);
           dialogFocusRestoreEnabledRef.current = false;
           setDialog(null);
+          setFollowUp(null);
         }
         setFeedbackFocusRequest((value) => value + 1);
       }
@@ -1390,6 +1465,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       dialogTriggerRef.current = trigger;
       dialogFocusRestoreEnabledRef.current = true;
       setDialog({ kind: 'approve', presentation: transition });
+      void prepareApproveFollowUp(state.detail.job);
       return;
     }
     if (commandName === 'SUBMIT_FOR_APPROVAL') {
@@ -1398,6 +1474,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       dialogTriggerRef.current = trigger;
       dialogFocusRestoreEnabledRef.current = true;
       setDialog({ kind: 'submit', presentation: transition });
+      void prepareSubmitFollowUp(state.detail.job);
       return;
     }
     if (commandName === 'REQUEST_REVISION') {
@@ -1419,14 +1496,147 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     void execute(commandName);
   }
 
+  async function prepareSubmitFollowUp(job: JobCard) {
+    try {
+      const suggestion = await getFollowUpSuggestion(job.id);
+      setFollowUp({
+        draft: {
+          scheduledAt: suggestion.scheduledAt ?? '',
+          type: suggestion.type,
+          assignedTo: suggestion.assignedTo,
+          followUpInstructions: suggestion.followUpInstructions,
+        },
+        origin: null,
+        evaluation: suggestion.evaluation,
+        assigneeName: job.assignee.name,
+        assignees: [],
+        overrideReason: '',
+        inlineError: null,
+      });
+    } catch {
+      setFollowUp({
+        draft: null, origin: null, evaluation: null,
+        assigneeName: job.assignee.name, assignees: [], overrideReason: '', inlineError: null,
+      });
+    }
+  }
+
+  async function prepareApproveFollowUp(job: JobCard) {
+    const persisted = job.followUpProposal;
+    let evaluation: CustomerScheduleEvaluation | null = null;
+    let fallbackDraft: FollowUpDraft | null = null;
+    try {
+      const suggestion = await getFollowUpSuggestion(job.id, persisted?.scheduledAt);
+      evaluation = suggestion.evaluation;
+      if (!persisted && suggestion.scheduledAt !== null) {
+        fallbackDraft = {
+          scheduledAt: suggestion.scheduledAt,
+          type: suggestion.type,
+          assignedTo: suggestion.assignedTo,
+          followUpInstructions: suggestion.followUpInstructions,
+        };
+      }
+    } catch {
+      evaluation = null;
+    }
+    let assignees: RelatedName[] = [];
+    try {
+      assignees = await listCalendarAssignees();
+    } catch {
+      assignees = [];
+    }
+    setFollowUp({
+      draft: persisted
+        ? {
+            scheduledAt: persisted.scheduledAt,
+            type: persisted.type,
+            assignedTo: persisted.assignedTo,
+            followUpInstructions: persisted.followUpInstructions,
+          }
+        : fallbackDraft,
+      origin: persisted?.origin ?? null,
+      evaluation,
+      assigneeName: job.assignee.name,
+      assignees,
+      overrideReason: '',
+      inlineError: null,
+    });
+  }
+
+  function updateFollowUpDraft(next: Partial<FollowUpDraft>) {
+    setFollowUp((current) => current?.draft
+      ? { ...current, draft: { ...current.draft, ...next }, inlineError: null }
+      : current);
+  }
+
+  function useSuggestedAlternative() {
+    setFollowUp((current) => {
+      const alternative = current?.evaluation?.suggestedAlternativeAt;
+      if (!current?.draft || !alternative) return current;
+      return {
+        ...current,
+        draft: { ...current.draft, scheduledAt: alternative },
+        evaluation: current.evaluation
+          ? {
+              ...current.evaluation,
+              level: 'CLEAR',
+              conflicts: [],
+              safeMessage: null,
+              suggestedAlternativeAt: null,
+            }
+          : current.evaluation,
+        inlineError: null,
+      };
+    });
+  }
+
   function confirmDialog(reason: string) {
     if (!dialog) return;
     if (dialog.kind === 'approve') {
-      void execute('APPROVE', reason);
+      if (!followUp?.draft) return;
+      if (!followUp.draft.scheduledAt) {
+        setFollowUp((current) => current ? { ...current, inlineError: 'Takip tarihi ve saati zorunludur.' } : current);
+        return;
+      }
+      if (!followUp.draft.followUpInstructions.trim()) {
+        setFollowUp((current) => current ? { ...current, inlineError: 'Takip kapsamı zorunludur.' } : current);
+        return;
+      }
+      if (followUp.evaluation?.level === 'FREQUENCY_EXCEEDED' && !followUp.overrideReason.trim()) {
+        setFollowUp((current) => current ? { ...current, inlineError: 'Sık ziyaret uyarısı için neden zorunludur.' } : current);
+        return;
+      }
+      void execute('APPROVE', reason, {
+        followUp: {
+          scheduledAt: followUp.draft.scheduledAt,
+          type: followUp.draft.type,
+          assignedTo: followUp.draft.assignedTo,
+          followUpInstructions: followUp.draft.followUpInstructions.trim(),
+          ...(followUp.overrideReason.trim()
+            ? { overrideReason: followUp.overrideReason.trim() }
+            : {}),
+        },
+      });
       return;
     }
     if (dialog.kind === 'submit') {
-      void execute('SUBMIT_FOR_APPROVAL', reason);
+      if (!followUp?.draft) return;
+      if (!followUp.draft.scheduledAt) {
+        setFollowUp((current) => current ? { ...current, inlineError: 'Takip tarihi ve saati zorunludur.' } : current);
+        return;
+      }
+      if (!followUp.draft.followUpInstructions.trim()) {
+        setFollowUp((current) => current ? { ...current, inlineError: 'Takip kapsamı zorunludur.' } : current);
+        return;
+      }
+      void execute('SUBMIT_FOR_APPROVAL', reason, {
+        followUpProposal: {
+          scheduledAt: followUp.draft.scheduledAt,
+          type: followUp.draft.type,
+          assignedTo: followUp.draft.assignedTo,
+          followUpInstructions: followUp.draft.followUpInstructions.trim(),
+        },
+      });
       return;
     }
     if (dialog.kind === 'revision') {
@@ -1543,6 +1753,24 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       pending={pending}
       onClose={closeDialog}
       onConfirm={confirmDialog}
+      followUp={(dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
+        ? {
+            mode: dialog.kind === 'submit' ? 'staff' : 'manager',
+            draft: followUp.draft,
+            origin: followUp.origin,
+            evaluation: followUp.evaluation,
+            assigneeName: followUp.assigneeName,
+            assignees: followUp.assignees,
+            allowTypeEdit: dialog.kind === 'approve',
+            overrideReason: followUp.overrideReason,
+            inlineError: followUp.inlineError,
+            onChange: updateFollowUpDraft,
+            onOverrideReasonChange: (value) => setFollowUp((current) => current
+              ? { ...current, overrideReason: value }
+              : current),
+            onUseSuggestedAlternative: useSuggestedAlternative,
+          }
+        : undefined}
       returnFocusRef={dialogTriggerRef}
       restoreFocusEnabledRef={dialogFocusRestoreEnabledRef}
     />}

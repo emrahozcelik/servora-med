@@ -5,6 +5,11 @@ import type {
   RecordEditPresentation,
   TransitionPresentation,
 } from './job-workflow-presentation';
+import {
+  FollowUpProposalSection,
+  type FollowUpDraft,
+  type FollowUpProposalSectionProps,
+} from './FollowUpProposalSection';
 
 export type JobWorkflowDialogKind =
   | { kind: 'submit'; presentation: TransitionPresentation }
@@ -22,11 +27,12 @@ export function JobWorkflowDialog(props: {
   pending: boolean;
   onClose: () => void;
   onConfirm: (reason: string) => void;
+  followUp?: FollowUpProposalSectionProps;
   returnFocusRef?: RefObject<HTMLElement | null>;
   restoreFocusEnabledRef?: RefObject<boolean>;
 }): ReactNode {
   const {
-    dialog, pending, onClose, onConfirm, returnFocusRef, restoreFocusEnabledRef,
+    dialog, pending, onClose, onConfirm, followUp, returnFocusRef, restoreFocusEnabledRef,
   } = props;
 
   if (dialog.kind === 'withdraw-edit') {
@@ -77,6 +83,10 @@ export function JobWorkflowDialog(props: {
         ? 'Düzeltme için geri gönder'
         : 'İşi iptal et';
 
+  const prelude = (dialog.kind === 'submit' || dialog.kind === 'approve') && followUp
+    ? <FollowUpProposalSection {...followUp} />
+    : undefined;
+
   return (
     <ReasonDialog
       open
@@ -94,6 +104,7 @@ export function JobWorkflowDialog(props: {
       required={dialog.kind !== 'approve'}
       pending={pending}
       destructive={dialog.kind === 'cancel'}
+      prelude={prelude}
       returnFocusRef={returnFocusRef}
       restoreFocusEnabledRef={restoreFocusEnabledRef}
       onCancel={onClose}
