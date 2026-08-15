@@ -214,7 +214,7 @@ function followUpInvariantViolation(): never {
 }
 
 /**
- * Role projection for assignee calendar conflicts on create: STAFF actors get
+ * Role projection for assignee calendar conflicts on calendar mutations: STAFF actors get
  * the same code/status/message but never the conflict details (which may
  * expose other staff members' plans). MANAGER/ADMIN keep the rich details.
  */
@@ -975,8 +975,8 @@ export class JobCardService {
       if (fields.engagementKind !== undefined && snapshot.type !== 'SALES_MEETING') {
         throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
       }
-      // Lock order correction: Job row FIRST, then target Customer row, to avoid a
-      // Customer→Job order that could deadlock against the approval path (Job→Customer).
+      // Lock order correction: Job row FIRST, then assignee User, then target Customer,
+      // to serialize calendar capacity without introducing a User↔Customer deadlock.
       const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
       if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       if (job.version !== input.expectedVersion) {
@@ -984,10 +984,22 @@ export class JobCardService {
       }
       assertCanEdit(actor, job);
 
-      if (fields.assignedTo !== undefined && fields.assignedTo !== job.assignedTo) {
+      const isCalendarIntervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';
+      const scheduleChanged = fields.scheduledAt !== undefined
+        && fields.scheduledAt !== job.scheduledAt
+        || fields.scheduledEndsAt !== undefined
+        && fields.scheduledEndsAt !== (job.scheduledEndsAt ?? null);
+      const assigneeChanged = fields.assignedTo !== undefined
+        && fields.assignedTo !== job.assignedTo;
+      const needsCalendarAssigneeLock = this.calendar.enabled
+        && isCalendarIntervalJob
+        && (scheduleChanged || assigneeChanged);
+      if (fields.assignedTo !== undefined && assigneeChanged) {
         const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, fields.assignedTo);
         if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
         assertCanCreateForAssignee(actor, assignee);
+      } else if (needsCalendarAssigneeLock) {
+        await transaction.getAssigneeForUpdate(actor.organizationId, job.assignedTo);
       }
       const nextCustomerId = fields.customerId !== undefined ? fields.customerId : job.customerId;
       const nextContactId = fields.contactId !== undefined ? fields.contactId
@@ -1012,7 +1024,6 @@ export class JobCardService {
       let nextScheduledEndsAt = fields.scheduledEndsAt === undefined
         ? job.scheduledEndsAt ?? null
         : fields.scheduledEndsAt;
-      const isCalendarIntervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';
       const scheduleFieldProvided = fields.scheduledAt !== undefined
         || fields.scheduledEndsAt !== undefined;
       if (job.type === 'GENERAL_TASK' && fields.scheduledEndsAt !== undefined
@@ -1053,12 +1064,6 @@ export class JobCardService {
         );
       }
 
-      const scheduleChanged = fields.scheduledAt !== undefined
-        && fields.scheduledAt !== job.scheduledAt
-        || fields.scheduledEndsAt !== undefined
-        && fields.scheduledEndsAt !== (job.scheduledEndsAt ?? null);
-      const assigneeChanged = fields.assignedTo !== undefined
-        && fields.assignedTo !== job.assignedTo;
       if ((scheduleChanged || assigneeChanged)
         && job.status !== 'NEW' && job.status !== 'ACCEPTED') {
         throw new AppError('JOB_NOT_EDITABLE', 409, 'JobCard bu durumda düzenlenemez.');
@@ -1165,6 +1170,9 @@ export class JobCardService {
     }).then((committed) => {
       this.publishRealtime(committed.realtimeEvents);
       return committed.response;
+    }).catch((caught) => {
+      if (caught instanceof AppError) throw projectCalendarConflict(actor, caught);
+      throw caught;
     });
   }
 
