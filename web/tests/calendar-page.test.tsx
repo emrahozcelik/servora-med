@@ -15,8 +15,9 @@ const calendarApi = vi.hoisted(() => ({
   patchManualEvent: vi.fn(),
   cancelManualEvent: vi.fn(),
 }));
+const jobsApi = vi.hoisted(() => ({ patchJobCard: vi.fn() }));
 vi.mock('../src/services/calendar-api', () => calendarApi);
-vi.mock('../src/jobs/jobs-api', () => ({ patchJobCard: vi.fn() }));
+vi.mock('../src/jobs/jobs-api', () => jobsApi);
 vi.mock('../src/realtime/RealtimeProvider', () => ({
   useRealtimeInvalidation: vi.fn(),
 }));
@@ -63,6 +64,16 @@ const jobEvent = {
   assignedUser: { id: 'staff-1', name: 'Ayşe Personel' }, version: 2,
   jobCardId: 'job-1', jobType: 'PRODUCT_DELIVERY', jobStatus: 'NEW',
   priority: 'normal', customer: null, relatedJobPath: '/jobs/job-1',
+  canEdit: true, canCancel: false,
+};
+
+const generalTaskEvent = {
+  id: 'general-task-event-1', source: 'JOB' as const, title: 'Doktoru ara',
+  startsAt: '2026-07-28T14:00:00.000Z', endsAt: null,
+  timezone: 'Europe/Istanbul',
+  assignedUser: { id: 'staff-1', name: 'Ayşe Personel' }, version: 2,
+  jobCardId: 'general-task-1', jobType: 'GENERAL_TASK', jobStatus: 'NEW',
+  priority: 'normal', customer: null, relatedJobPath: '/jobs/general-task-1',
   canEdit: true, canCancel: false,
 };
 
@@ -320,6 +331,54 @@ describe('CalendarPage', () => {
     await act(async () => createBtn.click());
     const dialog = document.querySelector('[role="dialog"][aria-modal="true"]');
     expect(dialog).toBeTruthy();
+  });
+
+  it('edits a General Task as a point without an end field or implicit duration', async () => {
+    calendarApi.listCalendar.mockResolvedValue([generalTaskEvent]);
+    calendarApi.getCalendarEvent.mockResolvedValue(generalTaskEvent);
+    jobsApi.patchJobCard.mockResolvedValue({});
+    await render(manager, '/calendar?event=general-task-event-1');
+
+    const editButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('Düzenle'));
+    expect(editButton).toBeTruthy();
+    await act(async () => editButton!.click());
+
+    const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+    expect(dialog.textContent).not.toContain('Bitiş');
+    expect(dialog.querySelectorAll('input[type="datetime-local"]')).toHaveLength(1);
+
+    await act(async () => {
+      dialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+
+    expect(jobsApi.patchJobCard).toHaveBeenCalledWith('general-task-1', expect.objectContaining({
+      expectedVersion: 2,
+      scheduledAt: expect.any(String) as string,
+    }));
+    expect(jobsApi.patchJobCard.mock.calls[0]?.[1]).not.toHaveProperty('scheduledEndsAt');
+  });
+
+  it('keeps start and end editing for Product Delivery jobs', async () => {
+    jobsApi.patchJobCard.mockResolvedValue({});
+    await render(manager, '/calendar?event=job-event-1');
+
+    const editButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('Düzenle'));
+    await act(async () => editButton!.click());
+
+    const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+    expect(dialog.querySelectorAll('input[type="datetime-local"]')).toHaveLength(2);
+    await act(async () => {
+      dialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+    await act(async () => {});
+
+    expect(jobsApi.patchJobCard.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
+      scheduledAt: expect.any(String),
+      scheduledEndsAt: expect.any(String),
+    }));
   });
 
   it('deep-link selects the event', async () => {

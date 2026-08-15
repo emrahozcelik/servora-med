@@ -310,6 +310,23 @@ describe('JobCardService create and reads', () => {
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });
 
+  it('creates a scheduled General Task without an availability check', async () => {
+    const repository = new CrudMemoryRepository();
+
+    const result = await calendarServiceOf(repository).create(staff, {
+      ...generalTaskInput,
+      clientActionId: 'gt-create-no-calendar-check',
+      scheduledAt: SCHEDULED_AT,
+    });
+
+    expect(result).toMatchObject({
+      type: 'GENERAL_TASK',
+      scheduledAt: SCHEDULED_AT,
+      scheduledEndsAt: null,
+    });
+    expect(repository.calendarChecks).toEqual([]);
+  });
+
   it('persists optional matching Customer and Contact context on a General Task', async () => {
     const repository = new CrudMemoryRepository();
     const result = await serviceOf(repository).create(staff, {
@@ -732,6 +749,151 @@ describe('JobCardService create and reads', () => {
     expect(cleared).toMatchObject({
       type: 'GENERAL_TASK', scheduledAt: null, version: 2,
     });
+  });
+
+  it('canonicalizes a legacy General Task interval on reschedule without checking availability', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(staff, {
+      ...generalTaskInput,
+      clientActionId: 'gt-legacy-reschedule',
+      scheduledAt: SCHEDULED_AT,
+    });
+    repository.jobs[0] = {
+      ...repository.jobs[0]!,
+      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+    };
+    repository.calendarChecks = [];
+
+    const updated = await service.patch(staff, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T09:00:00.000Z',
+    });
+
+    expect(updated).toMatchObject({
+      type: 'GENERAL_TASK',
+      scheduledAt: '2026-07-21T09:00:00.000Z',
+      scheduledEndsAt: null,
+    });
+    expect(repository.calendarChecks).toEqual([]);
+  });
+
+  it('rejects a non-null General Task scheduled end on patch', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = serviceOf(repository);
+    const created = await service.create(staff, {
+      ...generalTaskInput,
+      clientActionId: 'gt-reject-end',
+      scheduledAt: SCHEDULED_AT,
+    });
+
+    await expect(service.patch(staff, created.id, {
+      expectedVersion: 1,
+      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+    })).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      statusCode: 400,
+    });
+    expect(repository.jobs[0]).toMatchObject({
+      scheduledAt: SCHEDULED_AT,
+      scheduledEndsAt: null,
+      version: 1,
+    });
+  });
+
+  it('clears both fields when a legacy General Task schedule is cleared', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(staff, {
+      ...generalTaskInput,
+      clientActionId: 'gt-legacy-clear',
+      scheduledAt: SCHEDULED_AT,
+    });
+    repository.jobs[0] = {
+      ...repository.jobs[0]!,
+      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+    };
+    repository.calendarChecks = [];
+
+    const cleared = await service.patch(staff, created.id, {
+      expectedVersion: 1,
+      scheduledAt: null,
+    });
+
+    expect(cleared).toMatchObject({
+      type: 'GENERAL_TASK',
+      scheduledAt: null,
+      scheduledEndsAt: null,
+    });
+    expect(repository.calendarChecks).toEqual([]);
+  });
+
+  it('accepts an explicit null end as a legacy General Task repair', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = serviceOf(repository);
+    const created = await service.create(staff, {
+      ...generalTaskInput,
+      clientActionId: 'gt-explicit-null-end',
+      scheduledAt: SCHEDULED_AT,
+    });
+    repository.jobs[0] = {
+      ...repository.jobs[0]!,
+      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+    };
+
+    const repaired = await service.patch(staff, created.id, {
+      expectedVersion: 1,
+      scheduledEndsAt: null,
+    });
+
+    expect(repaired).toMatchObject({
+      scheduledAt: SCHEDULED_AT,
+      scheduledEndsAt: null,
+    });
+  });
+
+  it('does not rewrite a legacy General Task end on an unrelated patch', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = serviceOf(repository);
+    const created = await service.create(staff, {
+      ...generalTaskInput,
+      clientActionId: 'gt-legacy-unrelated-patch',
+      scheduledAt: SCHEDULED_AT,
+    });
+    repository.jobs[0] = {
+      ...repository.jobs[0]!,
+      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+    };
+
+    const updated = await service.patch(staff, created.id, {
+      expectedVersion: 1,
+      title: 'Yeni başlık',
+    });
+
+    expect(updated).toMatchObject({
+      title: 'Yeni başlık',
+      scheduledAt: SCHEDULED_AT,
+      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+    });
+  });
+
+  it('does not check availability when reassigning a General Task', async () => {
+    const repository = new CrudMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, {
+      ...generalTaskInput,
+      clientActionId: 'gt-reassign-no-calendar-check',
+      scheduledAt: SCHEDULED_AT,
+    });
+    repository.calendarChecks = [];
+
+    const updated = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      assignedTo: 'staff-2',
+    });
+
+    expect(updated).toMatchObject({ assignedTo: 'staff-2' });
+    expect(repository.calendarChecks).toEqual([]);
   });
 
   it('checks conflicts, replaces the reminder, invalidates calendar and notifies on reschedule', async () => {

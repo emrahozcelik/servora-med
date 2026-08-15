@@ -1454,6 +1454,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
        JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
        WHERE j.organization_id = $1 AND j.assigned_to = $2
          AND ($5::uuid IS NULL OR j.id <> $5)
+         AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
          AND j.status NOT IN ('COMPLETED', 'CANCELLED')
          AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at

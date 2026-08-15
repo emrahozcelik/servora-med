@@ -1012,9 +1012,25 @@ export class JobCardService {
       let nextScheduledEndsAt = fields.scheduledEndsAt === undefined
         ? job.scheduledEndsAt ?? null
         : fields.scheduledEndsAt;
+      const isCalendarIntervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';
+      const scheduleFieldProvided = fields.scheduledAt !== undefined
+        || fields.scheduledEndsAt !== undefined;
+      if (job.type === 'GENERAL_TASK' && fields.scheduledEndsAt !== undefined
+        && fields.scheduledEndsAt !== null) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          400,
+          'General Task için planlanan bitiş zamanı desteklenmiyor.',
+        );
+      }
+      if (job.type === 'GENERAL_TASK' && scheduleFieldProvided) {
+        nextScheduledEndsAt = null;
+        fields.scheduledEndsAt = null;
+      }
       // When only the start moves, preserve the existing interval length so a
       // scheduledAt-only reschedule keeps a valid calendar interval.
-      if (fields.scheduledEndsAt === undefined
+      if (isCalendarIntervalJob
+        && fields.scheduledEndsAt === undefined
         && fields.scheduledAt !== undefined
         && job.scheduledAt !== null
         && job.scheduledEndsAt !== null
@@ -1063,7 +1079,7 @@ export class JobCardService {
             overrideReason: overrideReasonInput,
           })
         : null;
-      if (this.calendar.enabled && (scheduleChanged || assigneeChanged)) {
+      if (this.calendar.enabled && isCalendarIntervalJob && (scheduleChanged || assigneeChanged)) {
         await transaction.assertCalendarAvailability({
           organizationId: actor.organizationId,
           jobCardId,

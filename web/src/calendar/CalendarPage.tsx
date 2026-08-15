@@ -115,6 +115,7 @@ function EventForm({
   }) => void;
 }) {
   const initialAssignee = event?.assignedUser.id ?? defaultAssigneeId;
+  const isGeneralTaskJob = event?.source === 'JOB' && event.jobType === 'GENERAL_TASK';
   const now = new Date();
   now.setMinutes(Math.ceil(now.getMinutes() / 30) * 30, 0, 0);
   const defaultEnd = new Date(now.valueOf() + 60 * 60_000);
@@ -124,7 +125,9 @@ function EventForm({
     title: event?.title ?? '',
     description: event?.source === 'MANUAL' ? event.description ?? '' : '',
     startsAt: event ? localInput(event.startsAt) : localInput(now.toISOString()),
-    endsAt: event?.endsAt ? localInput(event.endsAt) : localInput(defaultEnd.toISOString()),
+    endsAt: event?.endsAt
+      ? localInput(event.endsAt)
+      : isGeneralTaskJob ? '' : localInput(defaultEnd.toISOString()),
   });
   const [error, setError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<Array<Record<string, unknown>>>([]);
@@ -158,12 +161,18 @@ function EventForm({
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
       } else {
-        const patched = await patchJobCard(event.jobCardId, {
-          expectedVersion: event.version,
-          assignedTo: draft.assignedUserId,
-          scheduledAt: instant(draft.startsAt),
-          scheduledEndsAt: instant(draft.endsAt),
-        });
+        const patched = event.jobType === 'GENERAL_TASK'
+          ? await patchJobCard(event.jobCardId, {
+              expectedVersion: event.version,
+              assignedTo: draft.assignedUserId,
+              scheduledAt: instant(draft.startsAt),
+            })
+          : await patchJobCard(event.jobCardId, {
+              expectedVersion: event.version,
+              assignedTo: draft.assignedUserId,
+              scheduledAt: instant(draft.startsAt),
+              scheduledEndsAt: instant(draft.endsAt),
+            });
         if (
           patched.assignmentTransitionId
           && draft.assignedUserId !== initialAssignee
@@ -224,10 +233,12 @@ function EventForm({
           <input required type="datetime-local" value={draft.startsAt}
             onChange={(e) => setDraft({ ...draft, startsAt: e.target.value })} />
         </label>
-        <label className="field-group"><span className="field-label">Bitiş</span>
-          <input required type="datetime-local" value={draft.endsAt}
-            onChange={(e) => setDraft({ ...draft, endsAt: e.target.value })} />
-        </label>
+        {!isGeneralTaskJob && (
+          <label className="field-group"><span className="field-label">Bitiş</span>
+            <input required type="datetime-local" value={draft.endsAt}
+              onChange={(e) => setDraft({ ...draft, endsAt: e.target.value })} />
+          </label>
+        )}
       </div>
       {error && <div className="form-error" role="alert"><p>{error}</p>
         {conflicts.map((c) => (
