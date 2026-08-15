@@ -31,6 +31,7 @@ describe('linked follow-up create input', () => {
       dueDate: null,
       contactId: null,
       engagementKind: null,
+      overrideReason: null,
     });
   });
 

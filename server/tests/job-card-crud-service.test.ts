@@ -123,6 +123,9 @@ class CrudMemoryRepository implements JobCardRepository {
       customerExists: async (org, id) => this.customers.some((item) => item.organizationId === org && item.id === id),
       getCustomerForUpdate: async (org, id) => this.customers.find((item) => item.organizationId === org && item.id === id) ?? null,
       getContactForUpdate: async (org, id) => this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
+      getOrganizationTimezone: async () => 'Europe/Istanbul',
+      listActiveOnSiteJobs: async () => [],
+      listRecentOnSiteVisits: async () => [],
       createJobCard: async (input: CreateJobCardRecord) => {
         const job: JobCard = {
           id: `job-${this.jobs.length + 1}`,
@@ -217,6 +220,9 @@ class CrudMemoryRepository implements JobCardRepository {
       customerExists: async (org, id) => this.customers.some((item) => item.organizationId === org && item.id === id),
       getCustomerForUpdate: async (org, id) => this.customers.find((item) => item.organizationId === org && item.id === id) ?? null,
       getContactForUpdate: async (org, id) => this.contacts.find((item) => item.organizationId === org && item.id === id) ?? null,
+      getOrganizationTimezone: async () => 'Europe/Istanbul',
+      listActiveOnSiteJobs: async () => [],
+      listRecentOnSiteVisits: async () => [],
       createJobCard: async () => { throw new Error('unused'); },
       createMeetingDetails: async () => { throw new Error('unused'); },
       updateFieldsWithVersion: async (input) => {

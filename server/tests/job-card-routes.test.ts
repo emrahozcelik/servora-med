@@ -88,6 +88,7 @@ describe('JobCard routes', () => {
     expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), {
       ...body, description: null, priority: 'normal', dueDate: null,
       scheduledAt: '2026-07-16T11:30:00.000Z',
+      overrideReason: null,
     });
     expect(service.list).toHaveBeenCalledWith(
       expect.objectContaining({ id: 'staff-1' }),
@@ -95,6 +96,22 @@ describe('JobCard routes', () => {
     );
     expect(service.detail).toHaveBeenCalledWith(expect.anything(), 'job-1');
     expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' });
+  });
+
+  it('dispatches patch with an override reason for frequency-exceeded reschedules', async () => {
+    const { app, service } = await createApp();
+    const response = await app.inject({
+      method: 'PATCH', url: '/api/job-cards/job-1',
+      payload: {
+        expectedVersion: 1, scheduledAt: '2026-08-23T10:00:00.000Z',
+        overrideReason: 'Yönetici onayı: yoğun dönem',
+      },
+    });
+    expect(response.statusCode).toBe(200);
+    expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', {
+      expectedVersion: 1, scheduledAt: '2026-08-23T10:00:00.000Z',
+      overrideReason: 'Yönetici onayı: yoğun dönem',
+    });
   });
 
   it('dispatches the exact normalized General Task create body', async () => {
@@ -147,6 +164,7 @@ describe('JobCard routes', () => {
         priority: 'normal',
         dueDate: null,
         contactId: null,
+        overrideReason: null,
       },
     );
     expect(service.listFollowUps).toHaveBeenCalledWith(

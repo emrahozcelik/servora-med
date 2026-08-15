@@ -62,6 +62,7 @@ describe('JobCard create input', () => {
       priority: 'high',
       dueDate: '2026-07-20',
       scheduledAt: '2026-07-20T10:30:00.000Z',
+      overrideReason: null,
     });
   });
 
@@ -86,6 +87,7 @@ describe('JobCard create input', () => {
       dueDate: null,
       scheduledAt: SCHEDULED_AT,
       engagementKind: 'SALES_MEETING',
+      overrideReason: null,
     });
     expect(parseJobCardCreateInput({
       clientActionId: 'meeting-create-2',
