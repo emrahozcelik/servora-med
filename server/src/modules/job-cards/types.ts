@@ -118,12 +118,23 @@ type NormalizedCommonCreateInput = {
 };
 
 export type NormalizedJobCardCreateInput =
-  | NormalizedCommonCreateInput & { type: 'PRODUCT_DELIVERY'; customerId: string; scheduledAt: string }
+  | NormalizedCommonCreateInput & {
+      type: 'PRODUCT_DELIVERY'; customerId: string; scheduledAt: string;
+      overrideReason?: string | null;
+    }
   | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null }
   | NormalizedCommonCreateInput & {
       type: 'SALES_MEETING'; customerId: string; scheduledAt: string;
       engagementKind: JobCardEngagementKind;
+      overrideReason?: string | null;
     };
+
+export type CustomerSchedulePreviewInput = {
+  type: JobCardType;
+  customerId: string | null;
+  scheduledAt: string;
+  jobCardId?: string | null;
+};
 
 export type MeetingDetails = {
   jobCardId: string;
@@ -371,6 +382,7 @@ export type FollowUpCreateInput = {
   dueDate: string | null;
   contactId: string | null;
   engagementKind: JobCardEngagementKind | null;
+  overrideReason?: string | null;
 };
 
 export type JobCardBoardColumn = { items: JobCardListItem[]; count: number };
