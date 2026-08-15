@@ -123,8 +123,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   });
 
   function useSuggestedAlternative() {
-    if (!evaluation?.suggestedAlternativeAt) return;
-    setScheduledLocal(isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt));
+    const alternativeAt = (authoritativeEvaluation ?? evaluation)?.suggestedAlternativeAt;
+    if (!alternativeAt) return;
+    setScheduledLocal(isoInstantToLocalDateTime(alternativeAt));
   }
   async function loadCustomers() {
     setCustomerState('loading');

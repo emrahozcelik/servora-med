@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
+import { DeliveryCreateView } from '../src/DeliveryCreate';
 import { CustomerScheduleNotice } from '../src/jobs/CustomerScheduleNotice';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
 import { ApiError, type CurrentUser } from '../src/services/api';
@@ -16,7 +17,13 @@ const jobs = vi.hoisted(() => ({
   previewCustomerSchedule: vi.fn(),
 }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
-const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn(), getCustomer: vi.fn() }));
+const api = vi.hoisted(() => ({
+  listReferenceCustomers: vi.fn(),
+  createJobCard: vi.fn(),
+  addDeliveryItem: vi.fn(),
+}));
+const products = vi.hoisted(() => ({ listProducts: vi.fn() }));
 const scheduling = vi.hoisted(() => ({
   defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
   isoInstantToLocalDateTime: (value: string) => {
@@ -40,6 +47,12 @@ vi.mock('../src/services/people-api', async (original) => ({
 }));
 vi.mock('../src/services/crm-api', async (original) => ({
   ...await original<typeof import('../src/services/crm-api')>(), ...crm,
+}));
+vi.mock('../src/services/api', async (original) => ({
+  ...await original<typeof import('../src/services/api')>(), ...api,
+}));
+vi.mock('../src/services/products-api', async (original) => ({
+  ...await original<typeof import('../src/services/products-api')>(), ...products,
 }));
 vi.mock('../src/jobs/scheduling', () => scheduling);
 
@@ -323,5 +336,70 @@ describe('CustomerScheduleNotice presentation', () => {
       onOverrideReasonChange: () => {}, onUseSuggestedAlternative: () => {},
     });
     expect(container.textContent).toContain('Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.');
+  });
+});
+
+describe('Delivery authoritative conflict alternative', () => {
+  let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    vi.useFakeTimers();
+    scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
+    Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
+    people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
+    crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0 });
+    crm.listContacts.mockResolvedValue({ items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0 });
+    api.listReferenceCustomers.mockResolvedValue([customer('c1', 'A Klinik')]);
+    crm.getCustomer.mockResolvedValue({ ...customer('c1', 'A Klinik'), contacts: [contact('c1', 'ct1', 'Dr. Ayşe')] });
+    products.listProducts.mockResolvedValue({
+      items: [{
+        id: 'p1', organizationId: 'org-1', name: 'Kompozit', sku: 'K-1', brand: null,
+        category: null, model: null, unit: 'adet', referencePrice: null, isActive: true,
+        version: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
+      }],
+      total: 1, limit: 25, offset: 0,
+    });
+    jobs.previewCustomerSchedule.mockResolvedValue({ level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null, suggestedAlternativeAt: null });
+    onCreated = vi.fn(); container = document.createElement('div'); document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(async () => {
+    await act(async () => root.unmount()); container.remove();
+    vi.useRealTimers();
+  });
+
+  it('applies the authoritative suggested alternative after a rejected delivery create', async () => {
+    api.createJobCard.mockRejectedValue(new ApiError(
+      409, 'CUSTOMER_SCHEDULE_CONFLICT',
+      'Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin.',
+      false,
+      {
+        conflicts: [{
+          jobCardId: 'j-other', title: 'A Klinik teslim', scheduledAt: '2026-07-01T09:00:00.000Z',
+          type: 'PRODUCT_DELIVERY', status: 'ACCEPTED',
+          assignee: { id: 'staff-2', name: 'Bora' }, jobPath: '/jobs/j-other',
+        }],
+        suggestedAlternativeAt: '2026-07-03T10:00:00.000Z',
+      },
+    ));
+    await act(async () => root.render(<MemoryRouter><DeliveryCreateView user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    change(container.querySelector('#delivery-customer')!, 'c1'); await settle();
+    const productButton = container.querySelector('[data-product-id="p1"]') as HTMLButtonElement;
+    await act(async () => productButton.click());
+    change(container.querySelector('#delivery-scheduled-at')!, '2026-07-01T10:00');
+    change(container.querySelector('#delivery-quantity')!, '2');
+    change(container.querySelector('#delivery-assignee')!, 'staff-2');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    await settle();
+    expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
+    expect(container.textContent).toContain('A Klinik teslim');
+    const alternativeButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('önerilen alternatif zamanı kullan'));
+    expect(alternativeButton).toBeTruthy();
+    await act(async () => alternativeButton!.click());
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value)
+      .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
+    expect(onCreated).not.toHaveBeenCalled();
   });
 });
