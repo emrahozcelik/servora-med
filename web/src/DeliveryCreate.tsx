@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import {
   addDeliveryItem,
+  ApiError,
   createJobCard,
   listReferenceCustomers,
   type CurrentUser,
@@ -9,7 +10,10 @@ import {
   type ReferenceCustomer,
 } from './services/api';
 import { ProductSelect } from './ProductSelect';
-import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
+import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
+import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
+import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
+import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { getCustomer, type Contact, type CustomerDetail } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import type { Product } from './services/products-api';
@@ -26,6 +30,7 @@ export type DeliveryFormValues = {
   /** Device-local `YYYY-MM-DDTHH:mm` planned time for the JobCard. */
   scheduledAt: string;
   deliveryNote?: string;
+  overrideReason?: string | null;
 };
 
 export function deliveryDefaultsForCustomer(customer: CustomerDetail, activeStaffIds: Set<string>) {
@@ -63,6 +68,7 @@ export async function createProductDelivery(
     assignedTo: user.role === 'STAFF' ? user.id : values.assignedTo,
     priority: 'normal',
     scheduledAt: localDateTimeToIso(values.scheduledAt),
+    ...(values.overrideReason?.trim() ? { overrideReason: values.overrideReason.trim() } : {}),
   });
   const delivery = await dependencies.addItem(job.id, {
     clientActionId: dependencies.createActionId(),
@@ -97,12 +103,30 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   const [scheduledLocal, setScheduledLocal] = useState(
     () => defaultScheduledLocalValue(new Date()),
   );
+  const [overrideReason, setOverrideReason] = useState('');
+  const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const customerGate = useRef(createRequestGate());
   const activeStaffIds = useRef(new Set<string>());
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  // An authoritative conflict belongs to the submitted form state; once the
+  // user changes a scheduling-relevant field the advisory preview takes over.
+  useEffect(() => { setAuthoritativeEvaluation(null); }, [customerId, scheduledLocal]);
+
+  const { evaluation, previewing } = useCustomerSchedulePreview({
+    type: 'PRODUCT_DELIVERY',
+    customerId: customerId || null,
+    scheduledLocal,
+    enabled: customerState === 'ready',
+  });
+
+  function useSuggestedAlternative() {
+    const alternativeAt = (authoritativeEvaluation ?? evaluation)?.suggestedAlternativeAt;
+    if (!alternativeAt) return;
+    setScheduledLocal(isoInstantToLocalDateTime(alternativeAt));
+  }
   async function loadCustomers() {
     setCustomerState('loading');
     try {
@@ -167,9 +191,24 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
         quantity: Number(data.get('quantity')),
         scheduledAt: scheduledLocal,
         deliveryNote: String(data.get('deliveryNote') ?? ''),
+        overrideReason: overrideReason.trim() || null,
       });
       onCreated(result);
     } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
+        const details = caught.details ?? {};
+        setAuthoritativeEvaluation({
+          level: 'CONFLICT',
+          safeMessage: null,
+          conflicts: Array.isArray(details.conflicts)
+            ? details.conflicts as CustomerScheduleConflictDetail[]
+            : [],
+          recentVisit: null,
+          suggestedAlternativeAt: typeof details.suggestedAlternativeAt === 'string'
+            ? details.suggestedAlternativeAt
+            : null,
+        });
+      }
       setError(caught instanceof Error ? caught.message : 'Teslim kaydı oluşturulamadı. Tekrar deneyin.');
       setPending(false);
     }
@@ -219,6 +258,14 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
       <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
         <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={pending}
           value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
+      <CustomerScheduleNotice
+        evaluation={authoritativeEvaluation ?? evaluation}
+        mode={user.role === 'STAFF' ? 'staff' : 'manager'}
+        overrideReason={overrideReason}
+        onOverrideReasonChange={setOverrideReason}
+        onUseSuggestedAlternative={useSuggestedAlternative}
+      />
+      {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
         <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={pending} /></div>
       <div className="form-actions">

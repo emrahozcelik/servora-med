@@ -27,6 +27,8 @@ import {
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './scheduling';
+import { CustomerScheduleNotice } from './CustomerScheduleNotice';
+import { useCustomerSchedulePreview } from './useCustomerSchedulePreview';
 
 type LoadState =
   | { kind: 'loading' }
@@ -94,6 +96,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const [pending, setPending] = useState(false);
   const [submitError, setSubmitError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [overrideReason, setOverrideReason] = useState('');
   const [fatalError, setFatalError] = useState<{ status: '403' | '404' | 'error'; message: string } | null>(null);
   const attempt = useRef<Attempt | null>(null);
   const pendingRef = useRef(false);
@@ -114,6 +117,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setPending(false);
     setSubmitError('');
     setFieldErrors({});
+    setOverrideReason('');
     setFatalError(null);
     attempt.current = null;
     pendingRef.current = false;
@@ -159,6 +163,19 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   }, [reloadKey, sourceId, user.role]);
 
   useEffect(() => { if (submitError) errorRef.current?.focus(); }, [submitError]);
+
+  const readySource = state.kind === 'ready' ? state.source : null;
+  const { evaluation, previewing } = useCustomerSchedulePreview({
+    type,
+    customerId: readySource?.customerId ?? null,
+    scheduledLocal,
+    enabled: state.kind === 'ready' && type !== 'GENERAL_TASK' && readySource?.customerId != null,
+  });
+
+  function useSuggestedAlternative() {
+    if (!evaluation?.suggestedAlternativeAt) return;
+    setScheduledLocal(isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt));
+  }
 
   if (user.role === 'STAFF') {
     return <main className="workspace"><ResultState status="403" title="Erişim yetkiniz yok"
@@ -229,6 +246,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       priority,
       dueDate: type === 'SALES_MEETING' ? null : dueDate || null,
       contactId: customerless ? null : contactId || null,
+      ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
       ...(type === 'SALES_MEETING' ? { engagementKind } : {}),
     };
     const fingerprint = payloadFingerprint(base);
@@ -386,6 +404,14 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
             <input id="follow-up-due-date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
           </div>}
         </div>
+        <CustomerScheduleNotice
+          evaluation={evaluation}
+          mode="manager"
+          overrideReason={overrideReason}
+          onOverrideReasonChange={setOverrideReason}
+          onUseSuggestedAlternative={useSuggestedAlternative}
+        />
+        {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       </fieldset>
       <div className="form-actions">
         <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>

@@ -100,6 +100,9 @@ class SalesMeetingRepository implements JobCardRepository {
           (contact) => contact.organizationId === organizationId && contact.id === contactId,
         ) ?? null;
       },
+      getOrganizationTimezone: async () => 'Europe/Istanbul',
+      listActiveOnSiteJobs: async () => [],
+      listRecentOnSiteVisits: async () => [],
       createJobCard: async (input: CreateJobCardRecord) => {
         this.lockOrder.push('job_cards');
         const job: JobCard = {

@@ -1,10 +1,13 @@
 import {
   JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
+  JOB_CARD_TYPES,
+  type CustomerSchedulePreviewInput,
   type FollowUpCreateInput,
   type JobCardCreateInput,
   type JobCardEngagementKind,
   type JobCardPriority,
+  type JobCardType,
   type NormalizedJobCardCreateInput,
 } from './types.js';
 import { AppError } from '../../errors/index.js';
@@ -23,9 +26,9 @@ const COMMON_CREATE_FIELDS = [
 ] as const;
 
 const CREATE_FIELDS_BY_TYPE = {
-  PRODUCT_DELIVERY: COMMON_CREATE_FIELDS,
+  PRODUCT_DELIVERY: [...COMMON_CREATE_FIELDS, 'overrideReason'] as const,
   GENERAL_TASK: COMMON_CREATE_FIELDS,
-  SALES_MEETING: [...COMMON_CREATE_FIELDS, 'engagementKind'] as const,
+  SALES_MEETING: [...COMMON_CREATE_FIELDS, 'engagementKind', 'overrideReason'] as const,
 } as const;
 
 type CreateType = keyof typeof CREATE_FIELDS_BY_TYPE;
@@ -74,6 +77,12 @@ function requiredScheduledAt(value: unknown) {
   return isoInstant(value, 'scheduledAt');
 }
 
+function optionalOverrideReason(value: unknown) {
+  if (value === undefined || value === null) return null;
+  if (typeof value !== 'string') throw validation('overrideReason');
+  return value.trim() || null;
+}
+
 function parseEngagementKind(value: unknown): JobCardEngagementKind {
   if (value === undefined) return 'SALES_MEETING';
   if (!JOB_CARD_ENGAGEMENT_KINDS.includes(value as JobCardEngagementKind)) {
@@ -99,6 +108,7 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
       type: input.type,
       customerId: uuidString(input.customerId, 'customerId'),
       scheduledAt: requiredScheduledAt(input.scheduledAt),
+      overrideReason: optionalOverrideReason(input.overrideReason),
     };
   }
   if (input.type === 'SALES_MEETING') {
@@ -110,6 +120,7 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
       dueDate: null,
       scheduledAt: requiredScheduledAt(input.scheduledAt),
       engagementKind: parseEngagementKind(input.engagementKind),
+      overrideReason: optionalOverrideReason(input.overrideReason),
     };
   }
   return {
@@ -122,7 +133,7 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
 
 const FOLLOW_UP_COMMON_FIELDS = [
   'clientActionId', 'type', 'title', 'followUpInstructions', 'scheduledAt',
-  'assignedTo', 'priority', 'dueDate', 'contactId',
+  'assignedTo', 'priority', 'dueDate', 'contactId', 'overrideReason',
 ] as const;
 
 const FOLLOW_UP_FIELDS_BY_TYPE = {
@@ -174,6 +185,7 @@ export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
     priority: priority(input.priority),
     dueDate: dueDate(input.dueDate),
     contactId: optionalUuid(input.contactId, 'contactId'),
+    overrideReason: optionalOverrideReason(input.overrideReason),
   };
   if (input.type === 'PRODUCT_DELIVERY') {
     return {
@@ -202,3 +214,23 @@ export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
 }
 
 export type { JobCardCreateInput };
+
+const PREVIEW_FIELDS = ['type', 'customerId', 'scheduledAt', 'jobCardId'] as const;
+
+/** Parse the generic customer-schedule preview body. jobCardId is optional (edit preview). */
+export function parseCustomerSchedulePreviewInput(value: unknown): CustomerSchedulePreviewInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw validation('body');
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !PREVIEW_FIELDS.includes(key as never))) {
+    throw validation('body');
+  }
+  if (!JOB_CARD_TYPES.includes(record.type as JobCardType)) throw validation('type');
+  return {
+    type: record.type as JobCardType,
+    customerId: optionalUuid(record.customerId, 'customerId'),
+    scheduledAt: requiredScheduledAt(record.scheduledAt),
+    jobCardId: record.jobCardId === undefined || record.jobCardId === null
+      ? null
+      : uuidString(record.jobCardId, 'jobCardId'),
+  };
+}

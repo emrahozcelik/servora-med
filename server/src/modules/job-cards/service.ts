@@ -68,6 +68,7 @@ import {
   type FollowUpSuggestion,
   type JobCardType,
   type RoleProjectedCustomerScheduleEvaluation,
+  type CustomerSchedulePreviewInput,
 } from './types.js';
 import {
   isoInstant,
@@ -87,6 +88,7 @@ import {
 import { validateMeetingDetailsCandidate } from './meeting-details-input.js';
 import {
   evaluateCustomerSchedule,
+  isOnSiteJobType,
   type CustomerScheduleEvaluation,
 } from './customer-schedule.js';
 import {
@@ -126,6 +128,7 @@ type PatchInput = {
   dueDate?: string | null; scheduledAt?: string | null;
   scheduledEndsAt?: string | null;
   engagementKind?: JobCardEngagementKind;
+  overrideReason?: string | null;
 };
 type DeliveryInput = {
   expectedVersion: number; productId: string; deliveryPurpose: DeliveryPurpose;
@@ -147,7 +150,7 @@ type CancelInput = LifecycleInput & { cancelReason: string };
 const JOB_CARD_PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'scheduledEndsAt',
-  'engagementKind',
+  'engagementKind', 'overrideReason',
 ] as const;
 type LifecycleDefinition = {
   command: LifecycleCommand;
@@ -417,6 +420,12 @@ export class JobCardService {
         if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
         assertCanCreateForAssignee(actor, assignee);
         await this.validateJobReferences(transaction, actor.organizationId, input.customerId, input.contactId);
+        const overrideReason = await this.enforceCustomerSchedule(transaction, actor, {
+          customerId: input.customerId,
+          proposedAt: input.scheduledAt ? new Date(input.scheduledAt) : null,
+          jobType: input.type,
+          overrideReason: (input as { overrideReason?: string | null }).overrideReason ?? null,
+        });
         const selfAccepted = actor.role === 'STAFF' && actor.id === input.assignedTo;
         const engagementKind = input.type === 'SALES_MEETING' ? input.engagementKind : null;
         const job = await transaction.createJobCard({
@@ -467,6 +476,9 @@ export class JobCardService {
           organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
           event: 'JOB_CREATED', clientActionId: input.clientActionId,
           newValue: createdValue,
+          metadata: overrideReason !== null
+            ? { customerVisitOverrideReason: overrideReason }
+            : undefined,
         });
         const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
           activity,
@@ -519,6 +531,7 @@ export class JobCardService {
         assertFollowUpSourceEligible(source);
         await this.assertFollowUpDepth(transaction, source);
 
+        let followUpOverrideReason: string | null = null;
         if (source.customerId === null) {
           if (input.contactId !== null) {
             throw new AppError(
@@ -541,6 +554,16 @@ export class JobCardService {
             source.customerId,
             input.contactId,
           );
+          // Customer scheduling for post-hoc follow-up: the source is already
+          // COMPLETED, so it is never part of the active set; evaluate the
+          // manually selected child date against the inherited Customer.
+          followUpOverrideReason = await this.enforceCustomerSchedule(transaction, actor, {
+            customerId: source.customerId,
+            proposedAt: input.scheduledAt !== null ? new Date(input.scheduledAt) : null,
+            jobType: input.type,
+            overrideReason: input.overrideReason,
+            errorMode: 'follow-up',
+          });
         }
 
         const { job, realtimeEvents } = await this.createFollowUpChild(transaction, actor, {
@@ -557,6 +580,12 @@ export class JobCardService {
           engagementKind: input.type === 'SALES_MEETING' ? input.engagementKind : null,
           clientActionId: input.clientActionId,
           requestTime,
+          activityMetadata: {
+            sourceJobCardId,
+            ...(followUpOverrideReason !== null
+              ? { customerVisitOverrideReason: followUpOverrideReason }
+              : {}),
+          },
         });
         return { response: { jobCardId: job.id }, realtimeEvents };
       },
@@ -879,6 +908,8 @@ export class JobCardService {
       status?: JobCardStatus;
       clearAcceptance?: boolean;
     };
+    const overrideReasonInput = fields.overrideReason ?? null;
+    delete fields.overrideReason;
     if (Object.keys(fields).length === 0 || (fields.title !== undefined && !fields.title.trim()) ||
       (fields.priority !== undefined && !JOB_CARD_PRIORITIES.includes(fields.priority))) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
@@ -913,25 +944,28 @@ export class JobCardService {
       if (fields.engagementKind !== undefined && snapshot.type !== 'SALES_MEETING') {
         throw new AppError('VALIDATION_ERROR', 400, 'JobCard güncelleme bilgileri geçersiz.');
       }
-      if (fields.assignedTo !== undefined && fields.assignedTo !== snapshot.assignedTo) {
-        const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, fields.assignedTo);
-        if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
-        assertCanCreateForAssignee(actor, assignee);
-      }
-      const nextCustomerId = fields.customerId !== undefined ? fields.customerId : snapshot.customerId;
-      const nextContactId = fields.contactId !== undefined ? fields.contactId
-        : fields.customerId !== undefined && fields.customerId !== snapshot.customerId ? null : snapshot.contactId;
-      if (nextCustomerId) await this.validateJobReferences(transaction, actor.organizationId, nextCustomerId, nextContactId);
-      else if (nextContactId) throw new AppError('CONTACT_NOT_IN_CUSTOMER', 409, 'İlgili kişi seçilen müşteriye bağlı değil.');
-      if (fields.customerId !== undefined && fields.contactId === undefined && fields.customerId !== snapshot.customerId) {
-        fields.contactId = null;
-      }
+      // Lock order correction: Job row FIRST, then target Customer row, to avoid a
+      // Customer→Job order that could deadlock against the approval path (Job→Customer).
       const job = await transaction.getJobForUpdate(actor.organizationId, jobCardId);
       if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       if (job.version !== input.expectedVersion) {
         throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
       }
       assertCanEdit(actor, job);
+
+      if (fields.assignedTo !== undefined && fields.assignedTo !== job.assignedTo) {
+        const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, fields.assignedTo);
+        if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+        assertCanCreateForAssignee(actor, assignee);
+      }
+      const nextCustomerId = fields.customerId !== undefined ? fields.customerId : job.customerId;
+      const nextContactId = fields.contactId !== undefined ? fields.contactId
+        : fields.customerId !== undefined && fields.customerId !== job.customerId ? null : job.contactId;
+      if (nextCustomerId) await this.validateJobReferences(transaction, actor.organizationId, nextCustomerId, nextContactId);
+      else if (nextContactId) throw new AppError('CONTACT_NOT_IN_CUSTOMER', 409, 'İlgili kişi seçilen müşteriye bağlı değil.');
+      if (fields.customerId !== undefined && fields.contactId === undefined && fields.customerId !== job.customerId) {
+        fields.contactId = null;
+      }
 
       if (fields.scheduledAt === null
         && (job.type === 'PRODUCT_DELIVERY' || job.type === 'SALES_MEETING')) {
@@ -976,6 +1010,17 @@ export class JobCardService {
         fields.status = 'NEW';
         fields.clearAcceptance = true;
       }
+      const customerChanged = fields.customerId !== undefined
+        && fields.customerId !== job.customerId;
+      const overrideReason = (scheduleChanged || customerChanged)
+        ? await this.enforceCustomerSchedule(transaction, actor, {
+            customerId: nextCustomerId,
+            proposedAt: nextScheduledAt !== null ? new Date(nextScheduledAt) : null,
+            jobType: job.type,
+            excludeJobId: job.id,
+            overrideReason: overrideReasonInput,
+          })
+        : null;
       if (this.calendar.enabled && (scheduleChanged || assigneeChanged)) {
         await transaction.assertCalendarAvailability({
           organizationId: actor.organizationId,
@@ -1033,6 +1078,9 @@ export class JobCardService {
           event: 'JOB_FIELDS_UPDATED',
           oldValue: Object.fromEntries(nonAssignmentFields.map((key) => [key, job[key as keyof typeof job]])),
           newValue: Object.fromEntries(nonAssignmentFields.map((key) => [key, updated[key as keyof typeof updated]])),
+          metadata: overrideReason !== null
+            ? { customerVisitOverrideReason: overrideReason }
+            : undefined,
         });
         realtimeEvents.push(...await this.appendRealtimeForActivity(transaction, {
           activity,
@@ -1666,6 +1714,76 @@ export class JobCardService {
     });
   }
 
+  /**
+   * Authoritative Customer-schedule enforcement for normal ON_SITE writers
+   * (create, patch/reschedule, post-hoc follow-up). Returns a normalized
+   * override reason when a Manager/Admin overrides FREQUENCY_EXCEEDED, or
+   * null when no override occurred. The caller is responsible for locking the
+   * target Customer row before invoking this so same-Customer decisions
+   * serialize. Error details are role-projected (Staff never sees other
+   * Staff's conflicts or recent-visit detail).
+   */
+  private async enforceCustomerSchedule(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    input: {
+      customerId: string | null;
+      proposedAt: Date | null;
+      jobType: JobCardType;
+      excludeJobId?: string;
+      overrideReason?: string | null;
+      errorMode?: 'normal' | 'follow-up';
+    },
+  ): Promise<string | null> {
+    if (input.customerId === null || !isOnSiteJobType(input.jobType) || input.proposedAt === null) {
+      return null;
+    }
+    const evaluation = await evaluateCustomerSchedule({
+      reader: tx,
+      organizationId: actor.organizationId,
+      customerId: input.customerId,
+      proposedAt: input.proposedAt,
+      jobType: input.jobType,
+      excludeJobId: input.excludeJobId,
+      now: this.now(),
+    });
+    const projected = this.projectEvaluation(actor, evaluation);
+    if (evaluation.level === 'CONFLICT') {
+      const followUp = input.errorMode === 'follow-up';
+      throw new AppError(
+        followUp ? 'FOLLOW_UP_CUSTOMER_CONFLICT' : 'CUSTOMER_SCHEDULE_CONFLICT',
+        409,
+        followUp
+          ? 'Aynı müşteri için aynı tarihte başka bir plan bulunuyor.'
+          : 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
+        {
+          conflicts: projected.conflicts,
+          suggestedAlternativeAt: projected.suggestedAlternativeAt,
+        },
+      );
+    }
+    if (evaluation.level === 'FREQUENCY_EXCEEDED') {
+      if (actor.role === 'STAFF' && input.errorMode !== 'follow-up') {
+        throw new AppError(
+          'CUSTOMER_VISIT_FREQUENCY_REVIEW_REQUIRED',
+          409,
+          'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlama için yönetici değerlendirmesi gerekiyor.',
+        );
+      }
+      if (typeof input.overrideReason !== 'string' || !input.overrideReason.trim()) {
+        throw new AppError(
+          input.errorMode === 'follow-up'
+            ? 'FOLLOW_UP_OVERRIDE_REASON_REQUIRED'
+            : 'CUSTOMER_VISIT_OVERRIDE_REASON_REQUIRED',
+          400,
+          'Sık ziyaret uyarısı için neden zorunludur.',
+        );
+      }
+      return boundedTrimmedString(input.overrideReason, 'overrideReason', 1, 2_000);
+    }
+    return null;
+  }
+
   private async resolveApproveFollowUp(
     tx: JobCardTransaction,
     actor: JobCardActor,
@@ -1769,7 +1887,7 @@ export class JobCardService {
   private projectEvaluation(
     actor: JobCardActor,
     evaluation: CustomerScheduleEvaluation,
-    overrides?: { safeMessage?: string | null },
+    overrides?: { safeMessage?: string | null; staffFrequencyMessage?: string | null },
   ): RoleProjectedCustomerScheduleEvaluation {
     const safeMessage = overrides?.safeMessage !== undefined
       ? overrides.safeMessage
@@ -1778,7 +1896,8 @@ export class JobCardService {
       return {
         level: evaluation.level,
         safeMessage: evaluation.level === 'FREQUENCY_EXCEEDED'
-          ? 'Bu müşteri için ziyaret sıklığı yüksek. Takip planı yönetici onayında ayrıca değerlendirilecek.'
+          ? (overrides?.staffFrequencyMessage
+            ?? 'Bu müşteri için ziyaret sıklığı yüksek. Takip planı yönetici onayında ayrıca değerlendirilecek.')
           : safeMessage,
         conflicts: [],
         recentVisit: null,
@@ -1881,6 +2000,50 @@ export class JobCardService {
           }
         : undefined),
     };
+  }
+
+  async previewCustomerSchedule(
+    actor: JobCardActor,
+    input: CustomerSchedulePreviewInput,
+  ): Promise<RoleProjectedCustomerScheduleEvaluation> {
+    const proposedAt = new Date(isoInstant(input.scheduledAt, 'scheduledAt'));
+    return this.repository.executeTransaction((tx) => this.previewInTransaction(tx, actor, input, proposedAt));
+  }
+
+  private async previewInTransaction(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    input: CustomerSchedulePreviewInput,
+    proposedAt: Date,
+  ): Promise<RoleProjectedCustomerScheduleEvaluation> {
+    let excludeJobId: string | undefined;
+    if (input.jobCardId !== null && input.jobCardId !== undefined) {
+      // Never trust a client-supplied exclude id. Load the Job under the same
+      // organization and confirm the actor may reach it; derive excludeJobId
+      // server-side from the authorized Job.
+      const job = await tx.getJob(actor.organizationId, input.jobCardId);
+      if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
+        throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      }
+      excludeJobId = job.id;
+    }
+    if (input.customerId !== null) {
+      const exists = await tx.customerExists(actor.organizationId, input.customerId);
+      if (!exists) throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
+    }
+    const evaluation = await evaluateCustomerSchedule({
+      reader: tx,
+      organizationId: actor.organizationId,
+      customerId: input.customerId,
+      proposedAt,
+      jobType: input.type,
+      excludeJobId,
+      now: this.now(),
+    });
+    return this.projectEvaluation(actor, evaluation, {
+      staffFrequencyMessage:
+        'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlama için yönetici değerlendirmesi gerekiyor.',
+    });
   }
 
   private async resolveStartLocation(input: {

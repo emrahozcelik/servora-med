@@ -3,7 +3,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError } from '../../errors/index.js';
 import type { JobCardService } from './service.js';
 import type { JobCardActor } from './types.js';
-import { parseFollowUpCreateInput, parseJobCardCreateInput } from './create-input.js';
+import { parseFollowUpCreateInput, parseCustomerSchedulePreviewInput, parseJobCardCreateInput } from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
 import {
   isoInstant,
@@ -87,7 +87,7 @@ function notePage(raw: unknown, defaultLimit: number) {
 const PATCH_FIELDS = [
   'expectedVersion', 'title', 'description', 'customerId', 'contactId',
   'assignedTo', 'priority', 'dueDate', 'scheduledAt', 'engagementKind',
-  'scheduledEndsAt',
+  'scheduledEndsAt', 'overrideReason',
 ];
 const DELIVERY_FIELDS = ['clientActionId', 'expectedVersion', 'productId', 'deliveryPurpose', 'deliveredAt', 'quantity', 'lotNo', 'serialNo', 'expiryDate', 'deliveryNote'];
 const LIFECYCLE_FIELDS = ['clientActionId', 'expectedVersion'] as const;
@@ -151,6 +151,11 @@ export function createJobCardHandlers(service: JobCardService) {
         && typeof raw.at === 'string' ? raw.at : undefined;
       return service.getFollowUpSuggestion(actor(request), request.params.id, at);
     },
+    previewCustomerSchedule: async (request: FastifyRequest) =>
+      service.previewCustomerSchedule(
+        actor(request),
+        parseCustomerSchedulePreviewInput(request.body),
+      ),
     requestRevision: async (request: FastifyRequest<{ Params: Params }>) =>
       service.requestRevision(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'revisionReason']) as never),
     withdrawFromApproval: async (request: FastifyRequest<{ Params: Params }>) =>

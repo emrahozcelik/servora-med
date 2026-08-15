@@ -28,4 +28,6 @@ export const FOLLOW_UP_ERROR_MESSAGES: Record<string, string> = {
   CONTACT_INACTIVE: 'Seçilen ilgili kişi artık aktif değil.',
   CONTACT_NOT_IN_CUSTOMER: 'Seçilen ilgili kişi kaynak işin müşterisine bağlı değil.',
   ACTION_IN_PROGRESS: 'Bu takip işi oluşturuluyor olabilir. Kısa bir süre bekleyip aynı bilgilerle tekrar deneyin.',
+  FOLLOW_UP_CUSTOMER_CONFLICT: 'Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin.',
+  FOLLOW_UP_OVERRIDE_REASON_REQUIRED: 'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlamak için neden belirtin.',
 };
