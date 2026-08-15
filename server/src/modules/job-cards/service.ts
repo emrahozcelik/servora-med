@@ -563,6 +563,7 @@ export class JobCardService {
         await this.assertFollowUpDepth(transaction, source);
 
         let followUpOverrideReason: string | null = null;
+        let lockedAssignee: JobCardAssignee | null | undefined;
         if (source.customerId === null) {
           if (input.contactId !== null) {
             throw new AppError(
@@ -579,6 +580,13 @@ export class JobCardService {
             );
           }
         } else {
+          // Keep the shared writer order User -> Customer. Defer the
+          // assignee authorization/error until after customer validation so a
+          // customer/contact error keeps its existing precedence.
+          lockedAssignee = await transaction.getAssigneeForUpdate(
+            actor.organizationId,
+            input.assignedTo,
+          );
           await this.validateJobReferences(
             transaction,
             actor.organizationId,
@@ -608,6 +616,7 @@ export class JobCardService {
           priority: input.priority,
           dueDate: input.dueDate,
           contactId: input.contactId,
+          assignee: lockedAssignee,
           engagementKind: input.type === 'SALES_MEETING' ? input.engagementKind : null,
           clientActionId: input.clientActionId,
           requestTime,
@@ -647,16 +656,16 @@ export class JobCardService {
       priority: JobCardPriority;
       dueDate: string | null;
       contactId: string | null;
+      assignee?: JobCardAssignee | null;
       engagementKind: JobCardEngagementKind | null;
       clientActionId: string;
       requestTime: Date;
       activityMetadata?: unknown;
     },
   ): Promise<{ job: JobCard; realtimeEvents: RealtimeEventRecord[] }> {
-    const assignee = await transaction.getAssigneeForUpdate(
-      actor.organizationId,
-      input.assignedTo,
-    );
+    const assignee = input.assignee === undefined
+      ? await transaction.getAssigneeForUpdate(actor.organizationId, input.assignedTo)
+      : input.assignee;
     if (!assignee) {
       throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
     }

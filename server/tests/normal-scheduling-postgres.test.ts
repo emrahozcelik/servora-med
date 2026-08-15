@@ -91,6 +91,81 @@ function withCalendarEventUpdateHold(pool: Pool) {
   return withQueryHold(pool, 'UPDATE calendar_events SET');
 }
 
+function withFollowUpCustomerLockBarrier(pool: Pool): {
+  waitForCustomerLock: () => Promise<void>;
+  waitForPatchAssigneeLock: () => Promise<void>;
+  releaseCustomerLock: () => void;
+  followUpAssigneeLockCount: () => number;
+} {
+  let connectionCount = 0;
+  let followUpAssigneeLocks = 0;
+  let customerLockArrived!: () => void;
+  const customerLockReady = new Promise<void>((resolve) => { customerLockArrived = resolve; });
+  let releaseCustomerLock!: () => void;
+  const customerLockReleased = new Promise<void>((resolve) => { releaseCustomerLock = resolve; });
+  let patchAssigneeLockArrived!: () => void;
+  const patchAssigneeLockReady = new Promise<void>((resolve) => { patchAssigneeLockArrived = resolve; });
+
+  function wrapClient(client: any, connectionOrder: number): any {
+    const originalQuery = client.query.bind(client);
+    client.query = (...qargs: unknown[]) => {
+      const text = typeof qargs[0] === 'string'
+        ? qargs[0]
+        : (qargs[0] as { text?: string } | undefined)?.text;
+      if (text?.includes(
+        'SELECT id, status FROM customers WHERE organization_id = $1 AND id = $2 FOR UPDATE',
+      )) {
+        return Promise.resolve(originalQuery(...qargs)).then((result) => {
+          customerLockArrived();
+          return customerLockReleased.then(() => result);
+        });
+      }
+      if (text?.includes('SELECT id, organization_id, role, is_active FROM users')
+        && text.includes('FOR UPDATE')) {
+        if (connectionOrder === 1) followUpAssigneeLocks += 1;
+        if (connectionOrder !== 2) return originalQuery(...qargs);
+        return Promise.resolve(originalQuery(...qargs)).then((result) => {
+          patchAssigneeLockArrived();
+          return result;
+        });
+      }
+      return originalQuery(...qargs);
+    };
+    return client;
+  }
+
+  const originalConnect = pool.connect.bind(pool);
+  pool.connect = (...args: unknown[]) => {
+    const last = args[args.length - 1];
+    if (typeof last === 'function') {
+      const callback = args.pop() as (
+        err: Error | null,
+        client?: unknown,
+        releaseFn?: () => void,
+      ) => void;
+      originalConnect(...args, (err: Error | null, client?: unknown, releaseFn?: () => void) => {
+        if (err) return callback(err);
+        connectionCount += 1;
+        callback(
+          null,
+          client ? wrapClient(client, connectionCount) : client,
+          releaseFn,
+        );
+      });
+      return;
+    }
+    connectionCount += 1;
+    return originalConnect(...args).then((client: unknown) => wrapClient(client, connectionCount));
+  };
+
+  return {
+    waitForCustomerLock: () => customerLockReady,
+    waitForPatchAssigneeLock: () => patchAssigneeLockReady,
+    releaseCustomerLock: () => releaseCustomerLock(),
+    followUpAssigneeLockCount: () => followUpAssigneeLocks,
+  };
+}
+
 function wait(milliseconds: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, milliseconds));
 }
@@ -641,6 +716,84 @@ describe.skipIf(!databaseUrl)('create-time assignee availability parity PostgreS
       expect(results.every((result) => result.status === 'fulfilled')).toBe(true);
     } finally {
       barrier.releaseQuery();
+      await pool.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
+
+  it('R1-C1: schedule patch and post-hoc follow-up serialize without a User-Customer deadlock', async () => {
+    const {
+      pool, adminPool, schema, organizationId, staffId, customerA, jobService, manager,
+    } = await setup();
+    const source = (await pool.query<{ id: string }>(
+      `INSERT INTO job_cards (
+         organization_id, type, status, title, customer_id, assigned_to, created_by,
+         started_at, staff_completed_at, staff_completed_by, manager_approved_at, manager_approved_by
+       ) VALUES ($1, 'GENERAL_TASK', 'COMPLETED', 'Tamamlanan kaynak', $2, $3, $4,
+         '2026-08-20T08:00:00.000Z', '2026-08-20T09:00:00.000Z', $3,
+         '2026-08-20T10:00:00.000Z', $4)
+       RETURNING id`,
+      [organizationId, customerA, staffId, manager.id],
+    )).rows[0]!.id;
+    const existing = await jobService.create(manager, {
+      ...meetingInput(randomUUID(), customerA, staffId),
+      scheduledAt: '2026-08-20T11:00:00.000Z',
+      scheduledEndsAt: '2026-08-20T12:00:00.000Z',
+    });
+    const barrier = withFollowUpCustomerLockBarrier(pool);
+    try {
+      const followUp = jobService.createFollowUp(manager, source, {
+        clientActionId: randomUUID(),
+        type: 'SALES_MEETING',
+        title: 'Takip görüşmesi',
+        followUpInstructions: 'Karar tarihini teyit edin.',
+        scheduledAt: '2026-08-21T10:00:00.000Z',
+        assignedTo: staffId,
+        priority: 'normal',
+        dueDate: null,
+        contactId: null,
+        engagementKind: 'FOLLOW_UP',
+      });
+      await barrier.waitForCustomerLock();
+
+      const patch = jobService.patch(manager, existing.id, {
+        expectedVersion: existing.version,
+        scheduledAt: '2026-08-21T10:00:00.000Z',
+        scheduledEndsAt: '2026-08-21T11:00:00.000Z',
+      });
+
+      // On the old Customer->User path, the patch acquires User while the
+      // follow-up holds Customer. On the corrected User->Customer path, the
+      // follow-up holds User and the patch waits here; both cases are then
+      // released through the same deterministic barrier.
+      await Promise.race([barrier.waitForPatchAssigneeLock(), wait(750)]);
+      barrier.releaseCustomerLock();
+
+      const results = await Promise.race([
+        Promise.allSettled([followUp, patch]),
+        wait(5000).then(() => {
+          throw new Error('R1-C1 transactions did not serialize within 5 seconds.');
+        }),
+      ]);
+      expect(results[0]).toMatchObject({ status: 'fulfilled' });
+      expect(results[1]).toMatchObject({
+        status: 'rejected',
+        reason: { code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 },
+      });
+      expect(barrier.followUpAssigneeLockCount()).toBe(1);
+
+      const targetDay = await pool.query<{ id: string; source_job_card_id: string | null }>(
+        `SELECT id, source_job_card_id FROM job_cards
+          WHERE organization_id = $1 AND assigned_to = $2
+            AND scheduled_at = '2026-08-21T10:00:00.000Z'
+            AND status NOT IN ('COMPLETED', 'CANCELLED')`,
+        [organizationId, staffId],
+      );
+      expect(targetDay.rows).toHaveLength(1);
+      expect(targetDay.rows[0]!.source_job_card_id).toBe(source);
+    } finally {
+      barrier.releaseCustomerLock();
       await pool.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
       await adminPool.end();
