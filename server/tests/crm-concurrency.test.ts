@@ -78,6 +78,7 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
           title: 'Customer race', description: null, customerId, contactId: null,
           assignedTo: staffId, priority: 'normal', dueDate: null,
           scheduledAt: '2026-07-16T11:30:00.000Z',
+          scheduledEndsAt: '2026-07-16T12:30:00.000Z',
         }),
         crm.deactivateCustomer(manager, customerId, 1),
       ]);
@@ -110,6 +111,7 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
           title: 'Contact race', description: null, customerId, contactId,
           assignedTo: staffId, priority: 'normal', dueDate: null,
           scheduledAt: '2026-07-16T11:30:00.000Z',
+          scheduledEndsAt: '2026-07-16T12:30:00.000Z',
         }),
         crm.deactivateContact(manager, customerId, contactId, 1),
       ]);

@@ -26,9 +26,9 @@ const COMMON_CREATE_FIELDS = [
 ] as const;
 
 const CREATE_FIELDS_BY_TYPE = {
-  PRODUCT_DELIVERY: [...COMMON_CREATE_FIELDS, 'overrideReason'] as const,
+  PRODUCT_DELIVERY: [...COMMON_CREATE_FIELDS, 'scheduledEndsAt', 'overrideReason'] as const,
   GENERAL_TASK: COMMON_CREATE_FIELDS,
-  SALES_MEETING: [...COMMON_CREATE_FIELDS, 'engagementKind', 'overrideReason'] as const,
+  SALES_MEETING: [...COMMON_CREATE_FIELDS, 'scheduledEndsAt', 'engagementKind', 'overrideReason'] as const,
 } as const;
 
 type CreateType = keyof typeof CREATE_FIELDS_BY_TYPE;
@@ -77,6 +77,19 @@ function requiredScheduledAt(value: unknown) {
   return isoInstant(value, 'scheduledAt');
 }
 
+function requiredScheduledEndsAt(value: unknown, scheduledAt: string) {
+  if (value === undefined || value === null) throw validation('scheduledEndsAt');
+  const endsAt = isoInstant(value, 'scheduledEndsAt');
+  if (Date.parse(endsAt) <= Date.parse(scheduledAt)) {
+    throw new AppError(
+      'VALIDATION_ERROR',
+      400,
+      'Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.',
+    );
+  }
+  return endsAt;
+}
+
 function optionalOverrideReason(value: unknown) {
   if (value === undefined || value === null) return null;
   if (typeof value !== 'string') throw validation('overrideReason');
@@ -103,22 +116,26 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
     dueDate: dueDate(input.dueDate),
   };
   if (input.type === 'PRODUCT_DELIVERY') {
+    const scheduledAt = requiredScheduledAt(input.scheduledAt);
     return {
       ...common,
       type: input.type,
       customerId: uuidString(input.customerId, 'customerId'),
-      scheduledAt: requiredScheduledAt(input.scheduledAt),
+      scheduledAt,
+      scheduledEndsAt: requiredScheduledEndsAt(input.scheduledEndsAt, scheduledAt),
       overrideReason: optionalOverrideReason(input.overrideReason),
     };
   }
   if (input.type === 'SALES_MEETING') {
-    // Active planning SSOT is scheduledAt only; dueDate is not written on create.
+    // Active planning SSOT is scheduledAt + scheduledEndsAt; dueDate is not written on create.
+    const scheduledAt = requiredScheduledAt(input.scheduledAt);
     return {
       ...common,
       type: input.type,
       customerId: uuidString(input.customerId, 'customerId'),
       dueDate: null,
-      scheduledAt: requiredScheduledAt(input.scheduledAt),
+      scheduledAt,
+      scheduledEndsAt: requiredScheduledEndsAt(input.scheduledEndsAt, scheduledAt),
       engagementKind: parseEngagementKind(input.engagementKind),
       overrideReason: optionalOverrideReason(input.overrideReason),
     };

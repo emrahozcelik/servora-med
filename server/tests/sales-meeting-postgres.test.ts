@@ -102,6 +102,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         title: 'İmplant değerlendirme görüşmesi', description: null,
         customerId, contactId, assignedTo: staffId, priority: 'normal' as const,
         dueDate: '2026-07-15', scheduledAt: SCHEDULED_AT,
+        scheduledEndsAt: '2026-07-15T11:30:00.000Z',
         engagementKind: 'SALES_MEETING' as const,
       };
       let meeting = await service.create(staff, createInput);
@@ -243,6 +244,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         clientActionId: 'delivery-create', type: 'PRODUCT_DELIVERY', title: 'Numune teslimi',
         description: null, customerId, contactId, assignedTo: staffId,
         priority: 'normal', dueDate: null, scheduledAt: SCHEDULED_AT,
+        scheduledEndsAt: '2026-07-15T11:30:00.000Z',
       });
       const deliveryPlanned = await service.addDeliveryItem(staff, delivery.id, {
         clientActionId: 'delivery-item', expectedVersion: delivery.version, productId,
@@ -378,7 +380,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
         // follow-ups (2026-07-22/23) plus the completed delivery already count
         // toward the frequency rule; this create exists for the edit/cancel
         // concurrency race, not for schedule-frequency coverage.
-        scheduledAt: '2026-08-05T10:30:00.000Z', engagementKind: 'SALES_MEETING',
+        scheduledAt: '2026-08-05T10:30:00.000Z', scheduledEndsAt: '2026-08-05T11:30:00.000Z',
+        engagementKind: 'SALES_MEETING',
       });
       editCancelRace = await service.start(staff, editCancelRace.id, {
         clientActionId: 'race-edit-cancel-start', expectedVersion: editCancelRace.version,

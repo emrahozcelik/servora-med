@@ -77,6 +77,46 @@ export function localDateTimeToIso(value: string): string {
   return local.toISOString();
 }
 
+/** Device-local `YYYY-MM-DDTHH:mm` plus one hour (client-side convenience default). */
+export function addOneHourLocal(value: string): string {
+  const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+  if (!match) return value;
+  const date = new Date(
+    Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+    Number(match[4]), Number(match[5]),
+  );
+  date.setHours(date.getHours() + 1);
+  const pad = (part: number) => String(part).padStart(2, '0');
+  return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/**
+ * Shift a device-local interval so that it starts at `newStartLocal`,
+ * preserving the original duration exactly. Used by the "use suggested
+ * alternative" CTA so the whole interval moves, never just the start.
+ */
+export function shiftInterval(
+  startLocal: string,
+  endLocal: string,
+  newStartLocal: string,
+): [string, string] {
+  const parse = (value: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
+    if (!match) throw new Error(`Invalid local datetime value: ${value}`);
+    return new Date(
+      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+      Number(match[4]), Number(match[5]),
+    );
+  };
+  const delta = parse(newStartLocal).getTime() - parse(startLocal).getTime();
+  const shiftedEnd = new Date(parse(endLocal).getTime() + delta);
+  const pad = (part: number) => String(part).padStart(2, '0');
+  const format = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return [newStartLocal, format(shiftedEnd)];
+}
+
 export type CardScheduleFact = {
   label: string;
   text: string;

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 
+import { AppError } from '../src/errors/index.js';
 import type {
   ActiveOnSiteJobRecord,
   RecentOnSiteVisitRecord,
@@ -44,6 +45,8 @@ class SchedulingMemoryRepository implements JobCardRepository {
   timezone = 'Europe/Istanbul';
   activeOnSiteJobs: ActiveOnSiteJobRecord[] = [];
   recentOnSiteVisits: RecentOnSiteVisitRecord[] = [];
+  /** Assignee calendar commitments used by the in-memory assertCalendarAvailability. */
+  calendarEvents: Array<{ assignedUserId: string; startsAt: string; endsAt: string }> = [];
   lockOrder: string[] = [];
   customerLockCount = 0;
 
@@ -138,7 +141,31 @@ class SchedulingMemoryRepository implements JobCardRepository {
       appendWebPushDeliveries: async () => [],
       getNoteAuthorSnapshot: async () => null,
       createNote: async (input) => ({ id: input.id, jobCardId: input.jobCardId, note: input.note, invoiceNumber: input.invoiceNumber, author: { id: input.authorId, name: '', role: 'MANAGER' as const, source: 'SNAPSHOT' as const }, workflowStage: input.workflowStage, context: input.context, relatedActivityId: input.relatedActivityId, recordVersion: 1 as const, createdAt: new Date().toISOString() }),
-      assertCalendarAvailability: async () => {},
+      assertCalendarAvailability: async (input) => {
+        if (!input.startsAt || !input.endsAt) return;
+        const conflict = this.calendarEvents.find((event) =>
+          event.assignedUserId === input.assignedUserId
+          && Date.parse(event.startsAt) < Date.parse(input.endsAt!)
+          && Date.parse(input.startsAt!) < Date.parse(event.endsAt));
+        if (conflict) {
+          throw new AppError(
+            'CALENDAR_CONFLICT',
+            409,
+            'Seçilen personelin bu zaman aralığında başka bir planı bulunuyor.',
+            {
+              conflicts: [{
+                source: 'JOB',
+                id: 'existing-cal',
+                title: 'Mevcut plan',
+                startsAt: conflict.startsAt,
+                endsAt: conflict.endsAt,
+                assignedUser: { id: input.assignedUserId, name: 'Staff One' },
+                relatedJobPath: '/jobs/existing-cal',
+              }],
+            },
+          );
+        }
+      },
       synchronizeCalendarReminder: async () => {},
       getProduct: async () => null,
       getDeliveryItemForUpdate: async () => null,
@@ -263,7 +290,8 @@ function meetingInput(overrides: Partial<NormalizedJobCardCreateInput> = {}): No
     clientActionId: 'meeting-create', type: 'SALES_MEETING', title: 'Görüşme',
     description: null, customerId: 'customer-1', contactId: null,
     assignedTo: 'staff-1', priority: 'normal', dueDate: null,
-    scheduledAt: '2026-07-20T10:30:00.000Z', engagementKind: 'SALES_MEETING',
+    scheduledAt: '2026-07-20T10:30:00.000Z', scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+    engagementKind: 'SALES_MEETING',
     ...overrides,
   } as NormalizedJobCardCreateInput;
 }
@@ -273,7 +301,7 @@ function deliveryInput(overrides: Partial<NormalizedJobCardCreateInput> = {}): N
     clientActionId: 'delivery-create', type: 'PRODUCT_DELIVERY', title: 'Teslim',
     description: null, customerId: 'customer-1', contactId: null,
     assignedTo: 'staff-1', priority: 'normal', dueDate: null,
-    scheduledAt: '2026-07-20T10:30:00.000Z',
+    scheduledAt: '2026-07-20T10:30:00.000Z', scheduledEndsAt: '2026-07-20T11:30:00.000Z',
     ...overrides,
   } as NormalizedJobCardCreateInput;
 }
@@ -301,6 +329,12 @@ const visit = (overrides: Partial<RecentOnSiteVisitRecord> = {}): RecentOnSiteVi
 
 function serviceOf(repository: SchedulingMemoryRepository) {
   return new JobCardService(repository, () => now);
+}
+
+/** Service with the calendar feature enabled (create-time availability parity). */
+function calendarServiceOf(repository: SchedulingMemoryRepository) {
+  return new JobCardService(repository, () => now, undefined, undefined, undefined,
+    { enabled: true, reminderLeadMinutes: 30 });
 }
 
 describe('normal customer scheduling — create', () => {
@@ -527,12 +561,145 @@ describe('normal customer scheduling — patch / reschedule', () => {
     expect(created.customerId).toBeNull();
   });
 
-  it('NJS-20: existing assignee CALENDAR_CONFLICT stays independent', async () => {
-    // This is proven via the existing crud test; here we assert normal create with a
-    // clear customer schedule does not interact with assignee availability. The create
-    // path must NOT call assertCalendarAvailability.
+  it('NJS-20: create-time assignee availability parity — SALES_MEETING create rejects overlapping assignee calendar', async () => {
+    // Replaces the previous invariant that create must NOT call
+    // assertCalendarAvailability: create now runs the authoritative assignee
+    // availability check for SALES_MEETING/PRODUCT_DELIVERY when calendar is enabled.
     const repository = new SchedulingMemoryRepository();
-    const created = await serviceOf(repository).create(manager, meetingInput());
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z' },
+    ];
+    await expect(calendarServiceOf(repository).create(manager, meetingInput()))
+      .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+    expect(repository.jobs).toHaveLength(0);
+  });
+});
+
+describe('create-time assignee availability parity (AAP)', () => {
+  it('AAP-1: SALES_MEETING create overlapping existing JobCard → 409 CALENDAR_CONFLICT', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z' },
+    ];
+    await expect(calendarServiceOf(repository).create(manager, meetingInput()))
+      .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+    expect(repository.jobs).toHaveLength(0);
+  });
+
+  it('AAP-2: PRODUCT_DELIVERY create overlapping MANUAL event → 409 CALENDAR_CONFLICT', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T11:00:00.000Z', endsAt: '2026-07-20T12:00:00.000Z' },
+    ];
+    await expect(calendarServiceOf(repository).create(manager, deliveryInput()))
+      .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+  });
+
+  it('AAP-3: same assignee, non-overlapping interval → success', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T12:00:00.000Z', endsAt: '2026-07-20T13:00:00.000Z' },
+    ];
+    const created = await calendarServiceOf(repository).create(manager, meetingInput());
+    expect(created.type).toBe('SALES_MEETING');
+    expect(created.scheduledEndsAt).toBe('2026-07-20T11:30:00.000Z');
+  });
+
+  it('AAP-4: different assignee, overlapping clock interval → success', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-2', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T12:00:00.000Z' },
+    ];
+    const created = await calendarServiceOf(repository).create(manager, meetingInput());
+    expect(created.type).toBe('SALES_MEETING');
+  });
+
+  it('AAP-5: touching boundary (existing ends exactly when proposed starts) → success', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T09:00:00.000Z', endsAt: '2026-07-20T10:30:00.000Z' },
+    ];
+    const created = await calendarServiceOf(repository).create(manager, meetingInput());
+    expect(created.type).toBe('SALES_MEETING');
+  });
+
+  it('AAP-6: invalid create interval (scheduledEndsAt <= scheduledAt) → 400 validation error', async () => {
+    const repository = new SchedulingMemoryRepository();
+    await expect(calendarServiceOf(repository).create(manager, meetingInput({
+      scheduledEndsAt: '2026-07-20T10:30:00.000Z',
+    }))).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    await expect(calendarServiceOf(repository).create(manager, meetingInput({
+      scheduledEndsAt: '2026-07-20T10:00:00.000Z',
+    }))).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+  });
+
+  it('AAP-7: STAFF conflict response → 409 CALENDAR_CONFLICT, conflicts [], no private metadata', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z' },
+    ];
+    const error = await calendarServiceOf(repository).create(staff, meetingInput({ assignedTo: 'staff-1' }))
+      .catch((caught) => caught);
+    expect(error).toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+    expect(error.details).toEqual({ conflicts: [] });
+  });
+
+  it('AAP-8: MANAGER conflict → same-org rich conflict detail retained', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z' },
+    ];
+    const error = await calendarServiceOf(repository).create(manager, meetingInput())
+      .catch((caught) => caught);
+    expect(error).toMatchObject({ code: 'CALENDAR_CONFLICT' });
+    expect(error.details.conflicts).toEqual([expect.objectContaining({
+      source: 'JOB', title: 'Mevcut plan', relatedJobPath: '/jobs/existing-cal',
+    })]);
+  });
+
+  it('AAP-9: customer + assignee conflict both present → CUSTOMER_SCHEDULE_CONFLICT wins', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.activeOnSiteJobs = [activeJob()];
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z' },
+    ];
+    await expect(calendarServiceOf(repository).create(manager, meetingInput()))
+      .rejects.toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 });
+  });
+
+  it('AAP-10: failed create is atomic → no job/activity side effects', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z' },
+    ];
+    await expect(calendarServiceOf(repository).create(manager, meetingInput()))
+      .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT' });
+    expect(repository.jobs).toHaveLength(0);
+    expect(repository.activities).toHaveLength(0);
+  });
+
+  it('AAP-11: successful completed idempotent replay does not re-evaluate new calendar conflict', async () => {
+    const repository = new SchedulingMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, meetingInput());
+    expect(created.type).toBe('SALES_MEETING');
+    // A later calendar commitment now overlaps the original interval.
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T12:00:00.000Z' },
+    ];
+    const replayed = await service.create(manager, meetingInput());
+    expect(replayed.id).toBe(created.id);
+    expect(repository.jobs).toHaveLength(1);
+  });
+
+  it('AAP-15: CALENDAR_ENABLED=false preserves disabled-calendar semantics → no availability rejection', async () => {
+    const repository = new SchedulingMemoryRepository();
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:00:00.000Z', endsAt: '2026-07-20T11:00:00.000Z' },
+    ];
+    const disabled = new JobCardService(repository, () => now, undefined, undefined, undefined,
+      { enabled: false, reminderLeadMinutes: 30 });
+    const created = await disabled.create(manager, meetingInput());
     expect(created.type).toBe('SALES_MEETING');
   });
 });

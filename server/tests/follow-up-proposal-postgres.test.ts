@@ -134,6 +134,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
         priority: 'normal',
         dueDate: null,
         scheduledAt,
+        scheduledEndsAt: type === 'GENERAL_TASK' ? undefined : '2026-08-01T11:00:00.000Z',
         engagementKind: type === 'SALES_MEETING' ? 'SALES_MEETING' : undefined,
       } as never);
       const started = await service.start(staffA, job.id, {

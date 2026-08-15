@@ -13,7 +13,7 @@ import { ProductSelect } from './ProductSelect';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
-import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
+import { addOneHourLocal, defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso, shiftInterval } from './jobs/scheduling';
 import { getCustomer, type Contact, type CustomerDetail } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import type { Product } from './services/products-api';
@@ -29,6 +29,8 @@ export type DeliveryFormValues = {
   quantity: number;
   /** Device-local `YYYY-MM-DDTHH:mm` planned time for the JobCard. */
   scheduledAt: string;
+  /** Device-local `YYYY-MM-DDTHH:mm` planned end for the JobCard. */
+  scheduledEndsAt: string;
   deliveryNote?: string;
   overrideReason?: string | null;
 };
@@ -59,6 +61,9 @@ export async function createProductDelivery(
   values: DeliveryFormValues,
   dependencies: FlowDependencies = defaultDependencies,
 ) {
+  if (Date.parse(localDateTimeToIso(values.scheduledEndsAt)) <= Date.parse(localDateTimeToIso(values.scheduledAt))) {
+    throw new Error('Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.');
+  }
   const job = await dependencies.createJob({
     clientActionId: dependencies.createActionId(),
     type: 'PRODUCT_DELIVERY',
@@ -68,6 +73,7 @@ export async function createProductDelivery(
     assignedTo: user.role === 'STAFF' ? user.id : values.assignedTo,
     priority: 'normal',
     scheduledAt: localDateTimeToIso(values.scheduledAt),
+    scheduledEndsAt: localDateTimeToIso(values.scheduledEndsAt),
     ...(values.overrideReason?.trim() ? { overrideReason: values.overrideReason.trim() } : {}),
   });
   const delivery = await dependencies.addItem(job.id, {
@@ -103,8 +109,12 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   const [scheduledLocal, setScheduledLocal] = useState(
     () => defaultScheduledLocalValue(new Date()),
   );
+  const [scheduledEndsLocal, setScheduledEndsLocal] = useState(
+    () => addOneHourLocal(scheduledLocal),
+  );
   const [overrideReason, setOverrideReason] = useState('');
   const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
+  const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null);
   const customerGate = useRef(createRequestGate());
   const activeStaffIds = useRef(new Set<string>());
@@ -113,7 +123,10 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   // An authoritative conflict belongs to the submitted form state; once the
   // user changes a scheduling-relevant field the advisory preview takes over.
-  useEffect(() => { setAuthoritativeEvaluation(null); }, [customerId, scheduledLocal]);
+  useEffect(() => {
+    setAuthoritativeEvaluation(null);
+    setCalendarConflicts([]);
+  }, [customerId, scheduledLocal, scheduledEndsLocal]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
     type: 'PRODUCT_DELIVERY',
@@ -125,7 +138,13 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   function useSuggestedAlternative() {
     const alternativeAt = (authoritativeEvaluation ?? evaluation)?.suggestedAlternativeAt;
     if (!alternativeAt) return;
-    setScheduledLocal(isoInstantToLocalDateTime(alternativeAt));
+    const [nextStart, nextEnd] = shiftInterval(
+      scheduledLocal,
+      scheduledEndsLocal,
+      isoInstantToLocalDateTime(alternativeAt),
+    );
+    setScheduledLocal(nextStart);
+    setScheduledEndsLocal(nextEnd);
   }
   async function loadCustomers() {
     setCustomerState('loading');
@@ -179,6 +198,10 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
       if (!customer) throw new Error('Geçerli bir müşteri seçin.');
       if (!selectedProduct) throw new Error('Geçerli bir ürün seçin.');
       if (!scheduledLocal) throw new Error('Planlanan teslim zamanını seçin.');
+      if (!scheduledEndsLocal) throw new Error('Planlanan bitiş zamanını seçin.');
+      if (Date.parse(localDateTimeToIso(scheduledEndsLocal)) <= Date.parse(localDateTimeToIso(scheduledLocal))) {
+        throw new Error('Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.');
+      }
       const selectedAssignee = user.role === 'STAFF' ? user.id : String(data.get('assignedTo') ?? '');
       if (!selectedAssignee) throw new Error('Geçerli bir sorumlu personel seçin.');
       const result = await createProductDelivery(user, {
@@ -190,6 +213,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
         deliveryPurpose: String(data.get('deliveryPurpose') ?? '') as DeliveryPurpose,
         quantity: Number(data.get('quantity')),
         scheduledAt: scheduledLocal,
+        scheduledEndsAt: scheduledEndsLocal,
         deliveryNote: String(data.get('deliveryNote') ?? ''),
         overrideReason: overrideReason.trim() || null,
       });
@@ -209,6 +233,14 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
             : null,
         });
       }
+      if (caught instanceof ApiError && caught.code === 'CALENDAR_CONFLICT') {
+        // STAFF never receives conflict details (server projects them away);
+        // MANAGER/ADMIN may see the rich same-org conflict list.
+        const raw = caught.details?.conflicts;
+        setCalendarConflicts(user.role === 'STAFF'
+          ? []
+          : Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
+      }
       setError(caught instanceof Error ? caught.message : 'Teslim kaydı oluşturulamadı. Tekrar deneyin.');
       setPending(false);
     }
@@ -221,7 +253,13 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   return <main className="delivery-create">
     <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div></div>
     <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. İlgili kişi ve teslim notu isteğe bağlıdır.</p>
-    {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
+    {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
+      {calendarConflicts.map((conflict) => (
+        <p key={String(conflict.id)}>
+          {String(conflict.title)} · {new Date(String(conflict.startsAt)).toLocaleString('tr-TR')}
+        </p>
+      ))}
+    </div>}
     {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
     {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
       <button data-retry-customers className="inline-action" type="button" onClick={() => void loadCustomers()}>Tekrar dene</button></p>}
@@ -258,6 +296,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
       <div className="field-group"><label htmlFor="delivery-scheduled-at">Planlanan teslim zamanı</label>
         <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={pending}
           value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
+      <div className="field-group"><label htmlFor="delivery-scheduled-ends-at">Planlanan bitiş</label>
+        <input id="delivery-scheduled-ends-at" name="scheduledEndsAt" type="datetime-local" required disabled={pending}
+          value={scheduledEndsLocal} onChange={(event) => setScheduledEndsLocal(event.target.value)} /></div>
       <CustomerScheduleNotice
         evaluation={authoritativeEvaluation ?? evaluation}
         mode={user.role === 'STAFF' ? 'staff' : 'manager'}

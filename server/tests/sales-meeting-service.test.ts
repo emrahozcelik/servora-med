@@ -261,6 +261,7 @@ const input: NormalizedJobCardCreateInput = {
   priority: 'normal',
   dueDate: '2026-07-20',
   scheduledAt: '2026-07-20T10:00:00.000Z',
+  scheduledEndsAt: '2026-07-20T11:00:00.000Z',
   engagementKind: 'SALES_MEETING',
 };
 

@@ -203,6 +203,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         customerId, contactId: null, assignedTo: staffId,
         priority: 'normal', dueDate: '2026-07-14',
         scheduledAt: '2026-07-14T10:00:00.000Z',
+        scheduledEndsAt: '2026-07-14T11:00:00.000Z',
         engagementKind: 'SALES_MEETING',
       });
       expect(salesMeeting).toMatchObject({
