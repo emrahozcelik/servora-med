@@ -12,15 +12,34 @@ Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
 const crm = vi.hoisted(() => ({ listCustomers: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
-const scheduling = vi.hoisted(() => ({
-  defaultScheduledLocalValue: vi.fn(() => '2026-08-01T12:30'),
-  isoInstantToLocalDateTime: vi.fn(() => '2026-08-10T09:30'),
-  localDateTimeToIso: vi.fn((value: string) => value === '2026-08-01T12:30'
-    ? '2026-08-01T09:30:00.000Z' : value === '2026-08-01T13:30'
-      ? '2026-08-01T10:30:00.000Z' : '2026-08-01T09:30:00.000Z'),
-  addOneHourLocal: vi.fn((value: string) => value === '2026-08-01T12:30'
-    ? '2026-08-01T13:30' : '2026-08-01T13:30'),
-}));
+const scheduling = vi.hoisted(() => {
+  const parseLocal = (value: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+    if (!match) throw new Error(value);
+    return new Date(
+      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+      Number(match[4]), Number(match[5]), 0, 0,
+    );
+  };
+  const pad = (part: number) => String(part).padStart(2, '0');
+  const formatLocal = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return {
+    defaultScheduledLocalValue: vi.fn(() => '2026-08-01T12:30'),
+    isoInstantToLocalDateTime: vi.fn(() => '2026-08-10T09:30'),
+    localDateTimeToIso: vi.fn((value: string) => value === '2026-08-01T12:30'
+      ? '2026-08-01T09:30:00.000Z' : value === '2026-08-01T13:30'
+        ? '2026-08-01T10:30:00.000Z' : value === '2026-08-10T09:30'
+          ? '2026-08-10T06:30:00.000Z' : value === '2026-08-10T10:30'
+            ? '2026-08-10T07:30:00.000Z' : '2026-08-01T09:30:00.000Z'),
+    addOneHourLocal: vi.fn((value: string) => value === '2026-08-01T12:30'
+      ? '2026-08-01T13:30' : '2026-08-01T13:30'),
+    shiftInterval: (start: string, end: string, newStart: string): [string, string] => {
+      const delta = parseLocal(newStart).getTime() - parseLocal(start).getTime();
+      return [newStart, formatLocal(new Date(parseLocal(end).getTime() + delta))];
+    },
+  };
+});
 const preview = vi.hoisted(() => ({ useCustomerSchedulePreview: vi.fn() }));
 
 vi.mock('../src/jobs/jobs-api', async (original) => ({
@@ -34,9 +53,6 @@ vi.mock('../src/services/people-api', async (original) => ({
 }));
 vi.mock('../src/jobs/scheduling', () => scheduling);
 vi.mock('../src/jobs/useCustomerSchedulePreview', () => preview);
-vi.mock('../src/jobs/CustomerScheduleNotice', () => ({
-  CustomerScheduleNotice: () => null,
-}));
 
 const manager: CurrentUser = {
   id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici', email: 'm@test.local',
@@ -169,5 +185,54 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect(host.textContent).toContain('Seçilen personelin bu zaman aralığında başka bir planı bulunuyor.');
     expect(host.textContent).toContain('Klinik teslimi');
     expect(onCreated).not.toHaveBeenCalled();
+  });
+
+  it('AAP-24: advisory suggested alternative CTA moves start and end together', async () => {
+    preview.useCustomerSchedulePreview.mockReturnValue({
+      evaluation: {
+        level: 'CONFLICT',
+        safeMessage: 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
+        conflicts: [], recentVisit: null,
+        suggestedAlternativeAt: '2026-08-10T09:30:00.000Z',
+      },
+      previewing: false,
+    });
+    await render(staffUser);
+    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
+    change(host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement, '2026-08-01T13:30');
+    const cta = host.querySelector('button.compact-button') as HTMLButtonElement;
+    expect(cta).toBeTruthy();
+    await act(async () => cta.click());
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
+    expect((host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
+    await fillAndSubmit();
+    expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+      scheduledAt: '2026-08-10T06:30:00.000Z',
+      scheduledEndsAt: '2026-08-10T07:30:00.000Z',
+    }));
+  });
+
+  it('AAP-25: authoritative CUSTOMER_SCHEDULE_CONFLICT alternative moves start and end together', async () => {
+    jobs.createJobCard.mockRejectedValue(new ApiError(
+      409, 'CUSTOMER_SCHEDULE_CONFLICT', 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
+      false, { conflicts: [], suggestedAlternativeAt: '2026-08-10T09:30:00.000Z' },
+    ));
+    await render(staffUser);
+    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
+    change(host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement, '2026-08-01T13:30');
+    await fillAndSubmit();
+    expect(host.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
+    const cta = host.querySelector('button.compact-button') as HTMLButtonElement;
+    expect(cta).toBeTruthy();
+    await act(async () => cta.click());
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
+    expect((host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
+    jobs.createJobCard.mockResolvedValue({ id: 'job-2', version: 1 });
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).toHaveBeenLastCalledWith(expect.objectContaining({
+      scheduledAt: '2026-08-10T06:30:00.000Z',
+      scheduledEndsAt: '2026-08-10T07:30:00.000Z',
+    }));
+    expect(onCreated).toHaveBeenCalledWith('job-2');
   });
 });

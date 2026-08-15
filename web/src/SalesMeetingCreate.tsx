@@ -17,6 +17,7 @@ import {
   defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
+  shiftInterval,
 } from './jobs/scheduling';
 import { ApiError, type CurrentUser } from './services/api';
 import { listCustomers, type CustomerSummary } from './services/crm-api';
@@ -85,7 +86,13 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   function useSuggestedAlternative() {
     const alternativeAt = (authoritativeEvaluation ?? evaluation)?.suggestedAlternativeAt;
     if (!alternativeAt) return;
-    setScheduledLocal(isoInstantToLocalDateTime(alternativeAt));
+    const [nextStart, nextEnd] = shiftInterval(
+      scheduledLocal,
+      scheduledEndsLocal,
+      isoInstantToLocalDateTime(alternativeAt),
+    );
+    setScheduledLocal(nextStart);
+    setScheduledEndsLocal(nextEnd);
   }
 
   async function loadCustomers() {

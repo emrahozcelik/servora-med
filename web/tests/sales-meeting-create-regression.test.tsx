@@ -1,0 +1,281 @@
+/** @vitest-environment jsdom */
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { SalesMeetingCreateScreen } from '../src/SalesMeetingCreate';
+import { localDateTimeToIso } from '../src/jobs/scheduling';
+import { ApiError, type CurrentUser } from '../src/services/api';
+
+Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
+const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
+const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn() }));
+const scheduling = vi.hoisted(() => {
+  const parseLocal = (value: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+    if (!match) throw new Error(value);
+    return new Date(
+      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+      Number(match[4]), Number(match[5]), 0, 0,
+    );
+  };
+  const pad = (part: number) => String(part).padStart(2, '0');
+  const formatLocal = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  return {
+    defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
+    isoInstantToLocalDateTime: (value: string) => formatLocal(new Date(value)),
+    localDateTimeToIso: (value: string) => {
+      const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+      if (!match) throw new Error(value);
+      return new Date(
+        Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+        Number(match[4]), Number(match[5]), 0, 0,
+      ).toISOString();
+    },
+    addOneHourLocal: (value: string) => {
+      const date = parseLocal(value);
+      date.setHours(date.getHours() + 1);
+      return formatLocal(date);
+    },
+    shiftInterval: (start: string, end: string, newStart: string): [string, string] => {
+      const delta = parseLocal(newStart).getTime() - parseLocal(start).getTime();
+      return [newStart, formatLocal(new Date(parseLocal(end).getTime() + delta))];
+    },
+  };
+});
+const preview = vi.hoisted(() => ({ useCustomerSchedulePreview: vi.fn() }));
+
+vi.mock('../src/jobs/jobs-api', async (original) => ({
+  ...await original<typeof import('../src/jobs/jobs-api')>(), ...jobs,
+}));
+vi.mock('../src/services/people-api', async (original) => ({
+  ...await original<typeof import('../src/services/people-api')>(), ...people,
+}));
+vi.mock('../src/services/crm-api', async (original) => ({
+  ...await original<typeof import('../src/services/crm-api')>(), ...crm,
+}));
+vi.mock('../src/jobs/scheduling', () => scheduling);
+vi.mock('../src/jobs/useCustomerSchedulePreview', () => preview);
+vi.mock('../src/jobs/CustomerScheduleNotice', () => ({
+  CustomerScheduleNotice: () => null,
+}));
+
+const manager: CurrentUser = {
+  id: 'manager-1', organizationId: 'org-1', name: 'Murat Yönetici', email: 'm@test.local',
+  role: 'MANAGER', mustChangePassword: false, isActive: true, version: 1,
+};
+const staff: CurrentUser = { ...manager, id: 'staff-1', name: 'Ayşe Personel', role: 'STAFF' };
+const profile = (id: string, name: string, isActive = true) => ({
+  id: `profile-${id}`, user: { ...staff, id, name, isActive, email: `${id}@test.local` },
+  title: null, phone: null, region: null, managerUserId: null, managerName: null, version: 1,
+  counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 },
+});
+const customer = (id: string, name: string) => ({
+  id, organizationId: 'org-1', name, customerType: 'clinic', taxNumber: null, phone: null,
+  email: null, city: null, district: null, address: null, assignedStaffUserId: null,
+  assignedStaffName: null, status: 'active', version: 1, primaryContact: null,
+});
+const contact = (customerId: string, id: string, name: string) => ({
+  id, organizationId: 'org-1', customerId, name, title: null, phone: null, email: null,
+  isPrimary: false, isActive: true, version: 1,
+});
+function deferred<T>() {
+  let resolve!: (value: T) => void; let reject!: (reason?: unknown) => void;
+  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  return { promise, resolve, reject };
+}
+async function settle() { await act(async () => { await Promise.resolve(); }); }
+function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
+  const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype
+    : element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
+  Object.getOwnPropertyDescriptor(prototype, 'value')?.set?.call(element, value);
+  element.dispatchEvent(new Event(element instanceof HTMLSelectElement ? 'change' : 'input', { bubbles: true }));
+}
+
+describe('Sales Meeting planning flow (preserved regression contracts)', () => {
+  let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
+  beforeEach(() => {
+    vi.clearAllMocks();
+    scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
+    Object.defineProperty(globalThis.crypto, 'randomUUID', { configurable: true, value: vi.fn(() => 'action-1') });
+    people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
+    crm.listCustomers.mockResolvedValue({ items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0 });
+    crm.listContacts.mockResolvedValue({ items: [contact('c1', 'ct1', 'Dr. Ayşe')], total: 1, limit: 200, offset: 0 });
+    jobs.createJobCard.mockResolvedValue({ id: 'meeting-1', version: 1 });
+    preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
+    onCreated = vi.fn(); container = document.createElement('div'); document.body.append(container);
+    root = createRoot(container);
+  });
+  afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
+
+  it('keeps Staff ownership fixed and submits scheduledAt and scheduledEndsAt without dueDate', async () => {
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    expect(people.listStaff).not.toHaveBeenCalled();
+    expect(container.querySelector('#meeting-assignee')).toBeNull();
+    expect(container.textContent).toContain('Planlanan görüşme zamanı');
+    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-17T14:30');
+    expect(container.textContent).toContain('Görüşme / ziyaret planla');
+    change(container.querySelector('#meeting-title')!, '  İmplant değerlendirme görüşmesi  ');
+    change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
+    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
+    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-07-01T11:00');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).toHaveBeenCalledWith({
+      clientActionId: 'action-1', type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT',
+      title: 'İmplant değerlendirme görüşmesi', customerId: 'c1', assignedTo: 'staff-1',
+      scheduledAt: localDateTimeToIso('2026-07-01T10:00'),
+      scheduledEndsAt: localDateTimeToIso('2026-07-01T11:00'),
+      description: null, contactId: null, priority: 'normal',
+    });
+    expect(onCreated).toHaveBeenCalledWith('meeting-1');
+  });
+
+  it('initializes planned time once and preserves edits across Customer reload and validation', async () => {
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
+    const scheduled = container.querySelector('#meeting-scheduled-at') as HTMLInputElement;
+    change(scheduled, '2026-08-05T15:00');
+    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-08-05T16:00');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).not.toHaveBeenCalled();
+    expect(scheduled.value).toBe('2026-08-05T15:00');
+    await act(async () => (container.querySelector('[data-retry-customers]') as HTMLButtonElement | null)?.click());
+    await settle();
+    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-05T15:00');
+    expect((container.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-05T16:00');
+    expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks on required Customer loading, supports retry, and loads active Staff for managers', async () => {
+    crm.listCustomers.mockRejectedValueOnce(new Error('CRM yok'));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    expect(container.textContent).toContain('Müşteriler yüklenemedi');
+    expect((container.querySelector('[type="submit"]') as HTMLButtonElement).disabled).toBe(true);
+    await act(async () => (container.querySelector('[data-retry-customers]') as HTMLButtonElement).click());
+    await settle();
+    expect(crm.listCustomers).toHaveBeenCalledTimes(2);
+    expect((container.querySelector('#meeting-assignee') as HTMLSelectElement).textContent).toContain('Bora');
+  });
+
+  it('requires title, Customer, scheduled time, end time, and manager assignee with accessible errors', async () => {
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    change(container.querySelector('#meeting-scheduled-at')!, '');
+    change(container.querySelector('#meeting-scheduled-ends-at')!, '');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).not.toHaveBeenCalled();
+    expect(container.querySelector('.form-error')).toBe(document.activeElement);
+    for (const id of ['meeting-title', 'meeting-customer', 'meeting-scheduled-at', 'meeting-scheduled-ends-at', 'meeting-assignee']) {
+      const control = container.querySelector(`#${id}`);
+      expect(control?.getAttribute('aria-invalid')).toBe('true');
+      const errorId = control?.getAttribute('aria-describedby');
+      expect(errorId).toBe(`${id}-error`);
+      expect(container.querySelector(`#${errorId}`)?.textContent).not.toBe('');
+    }
+  });
+
+  it('CUX-5: omits the Contact selector and never loads Contacts for it', async () => {
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    expect(container.querySelector('#meeting-contact')).toBeNull();
+    expect(container.textContent).not.toContain('Görüşülecek kişi');
+    expect(container.textContent).not.toContain('Kişi seçilmedi');
+    expect(container.textContent).not.toContain('muhatap');
+    await act(async () => change(container.querySelector('#meeting-customer')!, 'c1'));
+    await settle();
+    expect(crm.listContacts).not.toHaveBeenCalled();
+    change(container.querySelector('#meeting-title')!, 'Görüşme');
+    change(container.querySelector('#meeting-engagement-kind')!, 'SALES_MEETING');
+    change(container.querySelector('#meeting-scheduled-at')!, '2025-01-01T09:00');
+    change(container.querySelector('#meeting-scheduled-ends-at')!, '2025-01-01T10:00');
+    await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
+    expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+      contactId: null,
+      engagementKind: 'SALES_MEETING',
+      scheduledAt: localDateTimeToIso('2025-01-01T09:00'),
+      scheduledEndsAt: localDateTimeToIso('2025-01-01T10:00'),
+    }));
+    expect(crm.listContacts).not.toHaveBeenCalled();
+  });
+
+  it('auto-selects Customer when initialCustomerId matches without loading Contacts', async () => {
+    crm.listCustomers.mockResolvedValue({
+      items: [customer('c1', 'A Klinik'), customer('c2', 'B Klinik')], total: 2, limit: 200, offset: 0,
+    });
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c1" /></MemoryRouter>));
+    await settle();
+    expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('c1');
+    expect(crm.listContacts).not.toHaveBeenCalled();
+  });
+
+  it('resets Customer when initialCustomerId does not match any loaded customer', async () => {
+    crm.listCustomers.mockResolvedValue({
+      items: [customer('c1', 'A Klinik')], total: 1, limit: 200, offset: 0,
+    });
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} initialCustomerId="c404" /></MemoryRouter>));
+    await settle();
+    expect((container.querySelector('#meeting-customer') as HTMLSelectElement).value).toBe('');
+    expect(crm.listContacts).not.toHaveBeenCalled();
+  });
+
+  it('shows a link to create a new Customer when the customer list is empty', async () => {
+    crm.listCustomers.mockResolvedValue({ items: [], total: 0, limit: 200, offset: 0 });
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    expect(container.querySelector('[href="/customers/new?source=meeting"]')).not.toBeNull();
+  });
+
+  it('keeps the create-customer link available when customers already exist', async () => {
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle();
+    expect(container.querySelector('[href="/customers/new?source=meeting"]')).not.toBeNull();
+  });
+
+  it('locks double submit and reuses the action ID after a retryable error', async () => {
+    const pending = deferred<never>(); jobs.createJobCard.mockReturnValueOnce(pending.promise)
+      .mockRejectedValueOnce(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi', true));
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
+    await settle(); change(container.querySelector('#meeting-title')!, 'Görüşme');
+    change(container.querySelector('#meeting-engagement-kind')!, 'PRODUCT_DEMO');
+    await act(async () => change(container.querySelector('#meeting-customer')!, 'c1')); await settle();
+    change(container.querySelector('#meeting-scheduled-at')!, '2026-07-15T11:00');
+    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-07-15T12:00');
+    const form = container.querySelector('form') as HTMLFormElement;
+    await act(async () => form.requestSubmit()); form.requestSubmit();
+    expect(jobs.createJobCard).toHaveBeenCalledTimes(1);
+    await act(async () => pending.reject(new ApiError(0, 'NETWORK_ERROR', 'Bağlantı kesildi', true)));
+    await act(async () => form.requestSubmit());
+    expect(jobs.createJobCard.mock.calls[1]![0].clientActionId).toBe('action-1');
+    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-15T11:00');
+    expect((container.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-07-15T12:00');
+  });
+
+  it('uses the shared create-heading and form-actions contract (T4A)', async () => {
+    await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={() => {}} /></MemoryRouter>));
+    await settle();
+    expect(container.querySelector('.create-heading')).toBeTruthy();
+    expect(container.querySelector('.delivery-heading')).toBeNull();
+    const actions = container.querySelector('.form-actions');
+    expect(actions).toBeTruthy();
+    // Heading must not contain the cancel button.
+    expect(container.querySelector('.create-heading [data-cancel-meeting]')).toBeNull();
+    // Action footer contains both buttons with expected hooks.
+    expect(actions!.querySelectorAll('.secondary-button').length).toBe(1);
+    expect(actions!.querySelectorAll('.primary-button').length).toBe(1);
+    expect(actions!.querySelector('[data-cancel-meeting]')).toBeTruthy();
+    expect(actions!.querySelector('[type="submit"]')).toBeTruthy();
+    // DOM order: secondary cancel first, primary submit second.
+    const buttons = actions!.querySelectorAll('button');
+    expect(buttons[0]?.classList.contains('secondary-button')).toBe(true);
+    expect(buttons[0]?.textContent).toBe('Vazgeç');
+    expect(buttons[1]?.classList.contains('primary-button')).toBe(true);
+  });
+});

@@ -13,7 +13,7 @@ import { ProductSelect } from './ProductSelect';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
-import { addOneHourLocal, defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
+import { addOneHourLocal, defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso, shiftInterval } from './jobs/scheduling';
 import { getCustomer, type Contact, type CustomerDetail } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import type { Product } from './services/products-api';
@@ -138,7 +138,13 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   function useSuggestedAlternative() {
     const alternativeAt = (authoritativeEvaluation ?? evaluation)?.suggestedAlternativeAt;
     if (!alternativeAt) return;
-    setScheduledLocal(isoInstantToLocalDateTime(alternativeAt));
+    const [nextStart, nextEnd] = shiftInterval(
+      scheduledLocal,
+      scheduledEndsLocal,
+      isoInstantToLocalDateTime(alternativeAt),
+    );
+    setScheduledLocal(nextStart);
+    setScheduledEndsLocal(nextEnd);
   }
   async function loadCustomers() {
     setCustomerState('loading');
