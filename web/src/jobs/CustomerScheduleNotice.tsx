@@ -39,13 +39,14 @@ export function CustomerScheduleNotice({
   if (evaluation === null || evaluation.level === 'CLEAR') return null;
 
   const frequencyExceeded = evaluation.level === 'FREQUENCY_EXCEEDED';
-  const hasConflict = evaluation.conflicts.length > 0;
 
-  if (hasConflict) {
+  if (evaluation.level === 'CONFLICT') {
     return (
       <div className="follow-up-conflict-list customer-schedule-notice" role="alert">
         <p className="follow-up-recent-visit-title">{conflictHeading}</p>
-        <p className="field-error">Aynı müşteriye aynı gün başka bir saha işi planlanmış.</p>
+        <p className="field-error">
+          {evaluation.safeMessage ?? 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.'}
+        </p>
         {mode === 'manager' && (
           <ul>
             {evaluation.conflicts.map((conflict) => (
@@ -88,6 +89,13 @@ export function CustomerScheduleNotice({
               </>
             )}
           </p>
+        </div>
+      )}
+
+      {mode === 'staff' && evaluation.safeMessage && !frequencyExceeded && (
+        <div className="follow-up-frequency-warning" role="status">
+          <p className="follow-up-recent-visit-title">Yakın tarihli müşteri ziyareti</p>
+          <p className="form-help">{evaluation.safeMessage}</p>
         </div>
       )}
 

@@ -35,6 +35,10 @@ export function useCustomerSchedulePreview(inputs: CustomerSchedulePreviewInputs
   } = inputs;
 
   useEffect(() => {
+    // Invalidate any in-flight request on every effect generation, including
+    // early-return paths (disabled, non-ON_SITE, blank inputs): a stale
+    // response must never resurrect an evaluation for cleared form state.
+    requestSeq.current += 1;
     if (!enabled) {
       setEvaluation(null);
       setPreviewing(false);
@@ -49,7 +53,7 @@ export function useCustomerSchedulePreview(inputs: CustomerSchedulePreviewInputs
       setPreviewing(false);
       return;
     }
-    const seq = ++requestSeq.current;
+    const seq = requestSeq.current;
     setPreviewing(true);
     const timer = setTimeout(() => {
       try {

@@ -91,6 +91,22 @@ const frequencyEvaluation = {
   },
   suggestedAlternativeAt: null,
 };
+// Real Staff-projected server shape: conflicts/recentVisit are stripped,
+// only safeMessage and suggestedAlternativeAt survive projection.
+const staffConflictEvaluation = {
+  level: 'CONFLICT',
+  safeMessage: 'Bu müşteri için yakın tarihte başka bir iş planlandı.',
+  conflicts: [],
+  recentVisit: null,
+  suggestedAlternativeAt: '2026-07-03T10:00:00.000Z',
+};
+const staffWarningEvaluation = {
+  level: 'WARNING',
+  safeMessage: 'Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.',
+  conflicts: [],
+  recentVisit: null,
+  suggestedAlternativeAt: null,
+};
 
 describe('Customer Scheduling preview in Sales Meeting planning', () => {
   let root: Root; let container: HTMLDivElement; let onCreated: ReturnType<typeof vi.fn>;
@@ -153,15 +169,46 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
   });
 
   it('keeps the conflict notice visible for Staff without conflict details', async () => {
-    jobs.previewCustomerSchedule.mockResolvedValue(conflictEvaluation);
+    jobs.previewCustomerSchedule.mockResolvedValue(staffConflictEvaluation);
     await render(staff);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
     change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
     await advancePreview();
-    expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
+    expect(container.textContent).toContain('Bu müşteri için yakın tarihte başka bir iş planlandı.');
     expect(container.textContent).not.toContain('A Klinik teslim');
+    const alternativeButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('önerilen alternatif zamanı kullan'));
+    expect(alternativeButton).toBeTruthy();
+  });
+
+  it('shows the safe warning message for Staff on a WARNING evaluation', async () => {
+    jobs.previewCustomerSchedule.mockResolvedValue(staffWarningEvaluation);
+    await render(staff);
+    change(container.querySelector('#meeting-title')!, 'Görüşme');
+    change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
+    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
+    await advancePreview();
+    expect(container.textContent).toContain('Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.');
+  });
+
+  it('discards a stale preview response after the customer is cleared', async () => {
+    let resolvePreview!: (value: unknown) => void;
+    jobs.previewCustomerSchedule.mockReturnValue(new Promise((resolve) => { resolvePreview = resolve; }));
+    await render(manager);
+    change(container.querySelector('#meeting-title')!, 'Görüşme');
+    change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
+    change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
+    change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
+    await advancePreview();
+    expect(jobs.previewCustomerSchedule).toHaveBeenCalledTimes(1);
+    change(container.querySelector('#meeting-customer')!, ''); await settle();
+    await act(async () => { resolvePreview(staffConflictEvaluation); });
+    await settle();
+    expect(container.textContent).not.toContain('Bu müşteri için yakın tarihte başka bir iş planlandı.');
+    expect(container.textContent).not.toContain('Müşteri planı kontrol ediliyor');
   });
 
   it('shows the frequency review message for Staff without an override reason field', async () => {
@@ -203,6 +250,14 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
       409, 'CUSTOMER_SCHEDULE_CONFLICT',
       'Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin.',
       false,
+      {
+        conflicts: [{
+          jobCardId: 'j-other', title: 'A Klinik teslim', scheduledAt: '2026-07-01T09:00:00.000Z',
+          type: 'PRODUCT_DELIVERY', status: 'ACCEPTED',
+          assignee: { id: 'staff-2', name: 'Bora' }, jobPath: '/jobs/j-other',
+        }],
+        suggestedAlternativeAt: '2026-07-03T10:00:00.000Z',
+      },
     ));
     await render(manager);
     change(container.querySelector('#meeting-title')!, 'Görüşme');
@@ -212,7 +267,13 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     change(container.querySelector('#meeting-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
-    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-01T10:00');
+    expect(container.textContent).toContain('A Klinik teslim');
+    const alternativeButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('önerilen alternatif zamanı kullan'));
+    expect(alternativeButton).toBeTruthy();
+    await act(async () => alternativeButton!.click());
+    expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value)
+      .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
     expect(onCreated).not.toHaveBeenCalled();
   });
 });
@@ -244,5 +305,23 @@ describe('CustomerScheduleNotice presentation', () => {
     });
     expect(container.textContent).toContain('Yakın tarihli müşteri ziyareti');
     expect(container.textContent).toContain('Ayşe Personel');
+  });
+
+  it('renders the conflict message and alternative CTA for Staff from the projected shape', async () => {
+    await renderNotice({
+      evaluation: staffConflictEvaluation, mode: 'staff', overrideReason: '',
+      onOverrideReasonChange: () => {}, onUseSuggestedAlternative: () => {},
+    });
+    expect(container.textContent).toContain('Bu müşteri için yakın tarihte başka bir iş planlandı.');
+    expect(container.textContent).not.toContain('A Klinik teslim');
+    expect(container.textContent).toContain('önerilen alternatif zamanı kullan');
+  });
+
+  it('renders the safe warning message for Staff on a WARNING evaluation', async () => {
+    await renderNotice({
+      evaluation: staffWarningEvaluation, mode: 'staff', overrideReason: '',
+      onOverrideReasonChange: () => {}, onUseSuggestedAlternative: () => {},
+    });
+    expect(container.textContent).toContain('Bu müşteriye yakın tarihte ziyaret gerçekleştirildi.');
   });
 });

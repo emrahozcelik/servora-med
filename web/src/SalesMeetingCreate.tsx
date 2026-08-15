@@ -4,6 +4,8 @@ import { Link } from 'react-router-dom';
 import {
   createJobCard,
   JOB_CARD_ENGAGEMENT_KINDS,
+  type CustomerScheduleConflictDetail,
+  type CustomerScheduleEvaluation,
   type JobCardEngagementKind,
   type JobCardPriority,
 } from './jobs/jobs-api';
@@ -56,9 +58,13 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [pending, setPending] = useState(false); const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [overrideReason, setOverrideReason] = useState('');
+  const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const errorRef = useRef<HTMLDivElement>(null); const actionIdRef = useRef<string | null>(null);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  // An authoritative conflict belongs to the submitted form state; once the
+  // user changes a scheduling-relevant field the advisory preview takes over.
+  useEffect(() => { setAuthoritativeEvaluation(null); }, [customerId, scheduledLocal, engagementKind]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
     type: 'SALES_MEETING',
@@ -68,8 +74,9 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   });
 
   function useSuggestedAlternative() {
-    if (!evaluation?.suggestedAlternativeAt) return;
-    setScheduledLocal(isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt));
+    const alternativeAt = (authoritativeEvaluation ?? evaluation)?.suggestedAlternativeAt;
+    if (!alternativeAt) return;
+    setScheduledLocal(isoInstantToLocalDateTime(alternativeAt));
   }
 
   async function loadCustomers() {
@@ -121,6 +128,20 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       onCreated(job.id);
     } catch (caught) {
       if (caught instanceof ApiError && !caught.retryable) actionIdRef.current = null;
+      if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
+        const details = caught.details ?? {};
+        setAuthoritativeEvaluation({
+          level: 'CONFLICT',
+          safeMessage: null,
+          conflicts: Array.isArray(details.conflicts)
+            ? details.conflicts as CustomerScheduleConflictDetail[]
+            : [],
+          recentVisit: null,
+          suggestedAlternativeAt: typeof details.suggestedAlternativeAt === 'string'
+            ? details.suggestedAlternativeAt
+            : null,
+        });
+      }
       // Retain entered form data; show the authoritative server error inline.
       setError(caught instanceof Error ? caught.message : 'Görüşme veya ziyaret planlanamadı. Tekrar deneyin.');
       setPending(false);
@@ -183,7 +204,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
           {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
       </div>
       <CustomerScheduleNotice
-        evaluation={evaluation}
+        evaluation={authoritativeEvaluation ?? evaluation}
         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
         overrideReason={overrideReason}
         onOverrideReasonChange={setOverrideReason}

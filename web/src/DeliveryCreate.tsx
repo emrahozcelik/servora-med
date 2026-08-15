@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import {
   addDeliveryItem,
+  ApiError,
   createJobCard,
   listReferenceCustomers,
   type CurrentUser,
@@ -11,6 +12,7 @@ import {
 import { ProductSelect } from './ProductSelect';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
+import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
 import { getCustomer, type Contact, type CustomerDetail } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
@@ -102,12 +104,16 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
     () => defaultScheduledLocalValue(new Date()),
   );
   const [overrideReason, setOverrideReason] = useState('');
+  const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
   const customerGate = useRef(createRequestGate());
   const activeStaffIds = useRef(new Set<string>());
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+  // An authoritative conflict belongs to the submitted form state; once the
+  // user changes a scheduling-relevant field the advisory preview takes over.
+  useEffect(() => { setAuthoritativeEvaluation(null); }, [customerId, scheduledLocal]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
     type: 'PRODUCT_DELIVERY',
@@ -188,6 +194,20 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
       });
       onCreated(result);
     } catch (caught) {
+      if (caught instanceof ApiError && caught.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
+        const details = caught.details ?? {};
+        setAuthoritativeEvaluation({
+          level: 'CONFLICT',
+          safeMessage: null,
+          conflicts: Array.isArray(details.conflicts)
+            ? details.conflicts as CustomerScheduleConflictDetail[]
+            : [],
+          recentVisit: null,
+          suggestedAlternativeAt: typeof details.suggestedAlternativeAt === 'string'
+            ? details.suggestedAlternativeAt
+            : null,
+        });
+      }
       setError(caught instanceof Error ? caught.message : 'Teslim kaydı oluşturulamadı. Tekrar deneyin.');
       setPending(false);
     }
@@ -238,7 +258,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
         <input id="delivery-scheduled-at" name="scheduledAt" type="datetime-local" required disabled={pending}
           value={scheduledLocal} onChange={(event) => setScheduledLocal(event.target.value)} /></div>
       <CustomerScheduleNotice
-        evaluation={evaluation}
+        evaluation={authoritativeEvaluation ?? evaluation}
         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
         overrideReason={overrideReason}
         onOverrideReasonChange={setOverrideReason}
