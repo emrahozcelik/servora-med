@@ -18,6 +18,7 @@ import {
   resolveSourceAccess,
 } from './policy.js';
 import type {
+  CriticalActionResult,
   DeliveryItemRecord,
   FollowUpSourceReference,
   JobCardRepository,
@@ -210,6 +211,18 @@ function followUpInvariantViolation(): never {
     500,
     'Takip işinin kaynak bağlantısı geçersizdir.',
   );
+}
+
+/**
+ * Role projection for assignee calendar conflicts on create: STAFF actors get
+ * the same code/status/message but never the conflict details (which may
+ * expose other staff members' plans). MANAGER/ADMIN keep the rich details.
+ */
+function projectCalendarConflict(actor: JobCardActor, error: AppError): AppError {
+  if (actor.role === 'STAFF' && error.code === 'CALENDAR_CONFLICT') {
+    return new AppError(error.code, error.statusCode, error.message, { conflicts: [] });
+  }
+  return error;
 }
 
 type DecodedLifecycleReceipt = {
@@ -405,17 +418,20 @@ export class JobCardService {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard oluşturma bilgileri geçersiz.');
     }
     if ((input.type === 'PRODUCT_DELIVERY' || input.type === 'SALES_MEETING')
-      && !input.scheduledAt) {
+      && (!input.scheduledAt || !input.scheduledEndsAt
+        || Date.parse(input.scheduledEndsAt) <= Date.parse(input.scheduledAt))) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard oluşturma bilgileri geçersiz.');
     }
     assertCreateAssignmentRequest(actor, input.assignedTo);
     const requestTime = this.now();
-    const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
-      {
-        organizationId: actor.organizationId, userId: actor.id,
-        clientActionId: input.clientActionId, operationKey: 'JOB_CREATE',
-      },
-      async (transaction) => {
+    let result: CriticalActionResult<JobCardMutationReceipt>;
+    try {
+      result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
+        {
+          organizationId: actor.organizationId, userId: actor.id,
+          clientActionId: input.clientActionId, operationKey: 'JOB_CREATE',
+        },
+        async (transaction) => {
         const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, input.assignedTo);
         if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
         assertCanCreateForAssignee(actor, assignee);
@@ -426,6 +442,17 @@ export class JobCardService {
           jobType: input.type,
           overrideReason: (input as { overrideReason?: string | null }).overrideReason ?? null,
         });
+        if (this.calendar.enabled
+          && (input.type === 'SALES_MEETING' || input.type === 'PRODUCT_DELIVERY')
+          && input.scheduledAt && input.scheduledEndsAt) {
+          await transaction.assertCalendarAvailability({
+            organizationId: actor.organizationId,
+            jobCardId: null,
+            assignedUserId: input.assignedTo,
+            startsAt: input.scheduledAt,
+            endsAt: input.scheduledEndsAt,
+          });
+        }
         const selfAccepted = actor.role === 'STAFF' && actor.id === input.assignedTo;
         const engagementKind = input.type === 'SALES_MEETING' ? input.engagementKind : null;
         const job = await transaction.createJobCard({
@@ -437,7 +464,7 @@ export class JobCardService {
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
           dueDate: input.dueDate,
           scheduledAt: input.scheduledAt,
-          scheduledEndsAt: null,
+          scheduledEndsAt: input.scheduledEndsAt ?? null,
           engagementKind,
           acceptedAt: selfAccepted ? requestTime : null,
           acceptedBy: selfAccepted ? actor.id : null,
@@ -495,8 +522,12 @@ export class JobCardService {
           response: { jobCardId: job.id },
           realtimeEvents,
         };
-      },
-    );
+        },
+      );
+    } catch (caught) {
+      if (caught instanceof AppError) throw projectCalendarConflict(actor, caught);
+      throw caught;
+    }
     if (result.kind === 'processing') {
       throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
     }
@@ -978,9 +1009,20 @@ export class JobCardService {
       const nextScheduledAt = fields.scheduledAt === undefined
         ? job.scheduledAt
         : fields.scheduledAt;
-      const nextScheduledEndsAt = fields.scheduledEndsAt === undefined
+      let nextScheduledEndsAt = fields.scheduledEndsAt === undefined
         ? job.scheduledEndsAt ?? null
         : fields.scheduledEndsAt;
+      // When only the start moves, preserve the existing interval length so a
+      // scheduledAt-only reschedule keeps a valid calendar interval.
+      if (fields.scheduledEndsAt === undefined
+        && fields.scheduledAt !== undefined
+        && job.scheduledAt !== null
+        && job.scheduledEndsAt !== null
+        && nextScheduledAt !== null) {
+        const delta = Date.parse(nextScheduledAt) - Date.parse(job.scheduledAt);
+        nextScheduledEndsAt = new Date(Date.parse(job.scheduledEndsAt) + delta).toISOString();
+        fields.scheduledEndsAt = nextScheduledEndsAt;
+      }
       if (
         nextScheduledEndsAt !== null
         && (

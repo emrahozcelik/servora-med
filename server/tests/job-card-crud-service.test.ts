@@ -267,7 +267,7 @@ const createInput: NormalizedJobCardCreateInput = {
   clientActionId: 'create-1', type: 'PRODUCT_DELIVERY' as const, title: ' ABC Klinik teslimi ',
   description: null, customerId: 'customer-1', contactId: null,
   assignedTo: 'staff-1', priority: 'normal' as const, dueDate: null,
-  scheduledAt: SCHEDULED_AT,
+  scheduledAt: SCHEDULED_AT, scheduledEndsAt: '2026-07-20T11:30:00.000Z',
 };
 const generalTaskInput: NormalizedJobCardCreateInput = {
   clientActionId: 'task-create-1', type: 'GENERAL_TASK' as const, title: ' Doktoru ara ',
@@ -702,6 +702,7 @@ describe('JobCardService create and reads', () => {
       priority: 'normal',
       dueDate: '2026-07-20',
       scheduledAt: SCHEDULED_AT,
+      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
       engagementKind: 'SALES_MEETING',
     });
     await expect(service.patch(staff, meeting.id, {

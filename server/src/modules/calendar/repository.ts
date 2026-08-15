@@ -229,6 +229,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
     return this.transaction(async (client) => {
       const replay = await this.findReplay(client, actor, input.clientActionId, 'CREATED');
       if (replay) return replay;
+      await this.lockUser(client, actor.organizationId, input.assignedUserId);
       await this.assertNoConflict(
         client, actor.organizationId, input.assignedUserId,
         input.startsAt, input.endsAt, null,
@@ -277,6 +278,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
       if (Date.parse(endsAt) <= Date.parse(startsAt)) {
         throw new AppError('VALIDATION_ERROR', 400, 'Bitiş zamanı başlangıç zamanından sonra olmalıdır.');
       }
+      await this.lockUser(client, actor.organizationId, assignedUserId);
       await this.assertNoConflict(
         client, actor.organizationId, assignedUserId, startsAt, endsAt, eventId,
       );
@@ -366,6 +368,19 @@ export class PostgresCalendarRepository implements CalendarRepository {
       [actor.organizationId, eventId],
     );
     return result.rows[0] ?? null;
+  }
+
+  /**
+   * Serializes MANUAL calendar mutations against JobCard create/patch: the
+   * assignee user row is locked FOR UPDATE before the availability check so a
+   * concurrent JobCard create for the same assignee cannot slip in between the
+   * conflict SELECT and the INSERT/UPDATE.
+   */
+  private async lockUser(client: PoolClient, organizationId: string, userId: string) {
+    await client.query(
+      `SELECT id FROM users WHERE organization_id = $1 AND id = $2 FOR UPDATE`,
+      [organizationId, userId],
+    );
   }
 
   private async assertNoConflict(

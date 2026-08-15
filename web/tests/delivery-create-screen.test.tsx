@@ -22,6 +22,18 @@ const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const productsApi = vi.hoisted(() => ({ listProducts: vi.fn() }));
 const scheduling = vi.hoisted(() => ({
   defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
+  addOneHourLocal: (value: string) => {
+    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+    if (!match) throw new Error(value);
+    const date = new Date(
+      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+      Number(match[4]), Number(match[5]), 0, 0,
+    );
+    date.setHours(date.getHours() + 1);
+    const pad = (part: number) => String(part).padStart(2, '0');
+    return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
+      + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+  },
   localDateTimeToIso: (value: string) => {
     const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
     if (!match) throw new Error(value);
@@ -134,11 +146,13 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
     (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '1';
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-07-20T11:00'));
+    await act(async () => changeInput(container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement, '2026-07-20T12:00'));
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
     expect(api.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
       type: 'PRODUCT_DELIVERY',
       scheduledAt: localDateTimeToIso('2026-07-20T11:00'),
+      scheduledEndsAt: localDateTimeToIso('2026-07-20T12:00'),
     }));
     expect(api.addDeliveryItem).toHaveBeenCalledWith('job-1', expect.objectContaining({ deliveredAt: null }));
   });
@@ -184,6 +198,7 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
     await settle();
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-09-01T16:00'));
+    await act(async () => changeInput(container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement, '2026-09-01T17:00'));
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
@@ -196,6 +211,7 @@ describe('Delivery create CRM defaults', () => {
     await settle();
     expect(api.createJobCard).toHaveBeenLastCalledWith(expect.objectContaining({
       scheduledAt: localDateTimeToIso('2026-09-01T16:00'),
+      scheduledEndsAt: localDateTimeToIso('2026-09-01T17:00'),
     }));
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-09-01T16:00');
   });

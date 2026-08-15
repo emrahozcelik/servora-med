@@ -13,6 +13,7 @@ import { JOB_CARD_ENGAGEMENT_LABELS } from './jobs/job-labels';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import {
+  addOneHourLocal,
   defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
@@ -26,6 +27,7 @@ type FieldErrors = {
   title?: string;
   customerId?: string;
   scheduledAt?: string;
+  scheduledEndsAt?: string;
   assignedTo?: string;
   engagementKind?: string;
 };
@@ -50,6 +52,9 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [scheduledLocal, setScheduledLocal] = useState(
     () => defaultScheduledLocalValue(new Date()),
   );
+  const [scheduledEndsLocal, setScheduledEndsLocal] = useState(
+    () => addOneHourLocal(scheduledLocal),
+  );
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [customerState, setCustomerState] = useState<LoadState>('loading'); const [customerId, setCustomerId] = useState(initialCustomerId);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
@@ -59,12 +64,16 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
   const [overrideReason, setOverrideReason] = useState('');
   const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
+  const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null); const actionIdRef = useRef<string | null>(null);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
   // An authoritative conflict belongs to the submitted form state; once the
   // user changes a scheduling-relevant field the advisory preview takes over.
-  useEffect(() => { setAuthoritativeEvaluation(null); }, [customerId, scheduledLocal, engagementKind]);
+  useEffect(() => {
+    setAuthoritativeEvaluation(null);
+    setCalendarConflicts([]);
+  }, [customerId, scheduledLocal, scheduledEndsLocal, engagementKind]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
     type: 'SALES_MEETING',
@@ -107,6 +116,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     if (!engagementKind) nextErrors.engagementKind = 'Görüşme veya ziyaret türünü seçin.';
     if (!customerId) nextErrors.customerId = 'Aktif veya aday bir müşteri seçin.';
     if (!scheduledLocal) nextErrors.scheduledAt = 'Planlanan görüşme zamanını seçin.';
+    if (!scheduledEndsLocal) {
+      nextErrors.scheduledEndsAt = 'Planlanan bitiş zamanını seçin.';
+    } else if (scheduledLocal
+      && Date.parse(localDateTimeToIso(scheduledEndsLocal)) <= Date.parse(localDateTimeToIso(scheduledLocal))) {
+      nextErrors.scheduledEndsAt = 'Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.';
+    }
     if (!selectedAssignee) nextErrors.assignedTo = 'Aktif bir sorumlu personel seçin.';
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
@@ -122,6 +137,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         title: trimmedTitle,
         customerId, assignedTo: selectedAssignee,
         scheduledAt: localDateTimeToIso(scheduledLocal),
+        scheduledEndsAt: localDateTimeToIso(scheduledEndsLocal),
         description: description.trim() || null, contactId: null, priority,
         ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
       });
@@ -142,6 +158,14 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
             : null,
         });
       }
+      if (caught instanceof ApiError && caught.code === 'CALENDAR_CONFLICT') {
+        // STAFF never receives conflict details (server projects them away);
+        // MANAGER/ADMIN may see the rich same-org conflict list.
+        const raw = caught.details?.conflicts;
+        setCalendarConflicts(user.role === 'STAFF'
+          ? []
+          : Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
+      }
       // Retain entered form data; show the authoritative server error inline.
       setError(caught instanceof Error ? caught.message : 'Görüşme veya ziyaret planlanamadı. Tekrar deneyin.');
       setPending(false);
@@ -156,7 +180,13 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
       Görüşme türünü, planlanan zamanı, müşteriyi ve sorumlu personeli belirleyin.
       Görüşme veya ziyaret sonucu daha sonra kaydedilir.
     </p>
-    {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}
+    {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
+      {calendarConflicts.map((conflict) => (
+        <p key={String(conflict.id)}>
+          {String(conflict.title)} · {new Date(String(conflict.startsAt)).toLocaleString('tr-TR')}
+        </p>
+      ))}
+    </div>}
     {customerState === 'loading' && <p className="field-status" role="status">Müşteriler yükleniyor…</p>}
     {customerState === 'error' && <p className="field-error" role="alert">Müşteriler yüklenemedi.{' '}
       <button data-retry-customers className="inline-action" type="button" onClick={() => void loadCustomers()}>Tekrar dene</button></p>}
@@ -203,6 +233,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
             onChange={(event) => setScheduledLocal(event.target.value)} />
           {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
       </div>
+      <div className="field-group"><label htmlFor="meeting-scheduled-ends-at">Planlanan bitiş</label>
+        <input id="meeting-scheduled-ends-at" type="datetime-local" required value={scheduledEndsLocal}
+          aria-invalid={fieldErrors.scheduledEndsAt ? true : undefined}
+          aria-describedby={fieldErrors.scheduledEndsAt ? 'meeting-scheduled-ends-at-error' : undefined}
+          onChange={(event) => setScheduledEndsLocal(event.target.value)} />
+        {fieldErrors.scheduledEndsAt && <span id="meeting-scheduled-ends-at-error" className="field-error">{fieldErrors.scheduledEndsAt}</span>}</div>
       <CustomerScheduleNotice
         evaluation={authoritativeEvaluation ?? evaluation}
         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
