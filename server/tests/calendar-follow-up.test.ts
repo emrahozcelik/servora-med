@@ -45,4 +45,21 @@ describe('Calendar follow-up context', () => {
     const [event] = await repository.list(manager, queryInput);
     expect(event).toMatchObject({ source: 'JOB', followUpContext: null });
   });
+
+  it('projects a legacy General Task interval as a point', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [row] });
+    const repository = new PostgresCalendarRepository({ query } as never);
+
+    const [event] = await repository.list(manager, queryInput);
+
+    expect(event).toMatchObject({
+      source: 'JOB',
+      jobType: 'GENERAL_TASK',
+      startsAt: '2026-07-25T09:00:00.000Z',
+      endsAt: null,
+    });
+    expect(String(query.mock.calls[0]?.[0])).toContain(
+      "CASE WHEN j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')",
+    );
+  });
 });

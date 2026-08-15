@@ -741,7 +741,10 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         expectedVersion: submitted.version,
       }) as JobCard & { followUpJobCardId: string };
       const child = await service.detail(manager, approved.followUpJobCardId);
-      expect(child).toMatchObject({ type: 'GENERAL_TASK', customerId: null, contactId: null });
+      expect(child).toMatchObject({
+        type: 'GENERAL_TASK', customerId: null, contactId: null,
+        scheduledAt: PROPOSAL_AT, scheduledEndsAt: null,
+      });
     });
   });
 

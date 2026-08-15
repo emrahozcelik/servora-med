@@ -357,6 +357,7 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         input(fixture.staffA.id),
       );
       expect(general.customerId).toBeNull();
+      expect(general).toMatchObject({ scheduledAt: null, scheduledEndsAt: null });
       const event = fixture.published.find((candidate) => candidate.entityId === general.id)!;
       expect(event.resourceKeys).toContain(`job-detail:${customerless}`);
       expect(event.resourceKeys.some((key) => key.startsWith('customer-detail:'))).toBe(false);

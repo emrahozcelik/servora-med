@@ -381,4 +381,46 @@ describe.skipIf(!databaseUrl)('create-time assignee availability parity PostgreS
       await adminPool.end();
     }
   });
+
+  it('GT-A: legacy General Task intervals are visible as points and do not block SM or MANUAL', async () => {
+    const { pool, adminPool, schema, organizationId, staffId, customerA, jobService, calendarService, manager } = await setup();
+    try {
+      const legacy = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards
+          (organization_id, type, status, title, assigned_to, created_by, scheduled_at, scheduled_ends_at)
+         VALUES ($1, 'GENERAL_TASK', 'NEW', 'Legacy görev', $2, $3, $4, $5)
+         RETURNING id`,
+        [organizationId, staffId, manager.id, '2026-08-21T10:00:00.000Z', '2026-08-21T11:00:00.000Z'],
+      )).rows[0]!;
+
+      const meeting = await jobService.create(manager, meetingInput(randomUUID(), customerA, staffId));
+      expect(meeting.type).toBe('SALES_MEETING');
+      await jobService.cancel(manager, meeting.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: meeting.version,
+        cancelReason: 'GT-A availability test cleanup',
+      });
+
+      const manual = await calendarService.create(
+        manager,
+        manualInput(randomUUID(), staffId, '2026-08-21T10:00:00.000Z'),
+      );
+      expect(manual.source).toBe('MANUAL');
+
+      const listed = await calendarService.list(manager, {
+        from: '2026-08-21T00:00:00.000Z',
+        to: '2026-08-22T00:00:00.000Z',
+        assignedTo: null,
+      });
+      expect(listed.items.find((item) => item.id === legacy.id)).toMatchObject({
+        source: 'JOB',
+        jobType: 'GENERAL_TASK',
+        endsAt: null,
+      });
+    } finally {
+      await pool.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
 });

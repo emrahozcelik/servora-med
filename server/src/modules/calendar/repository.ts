@@ -46,7 +46,9 @@ type CalendarRow = {
 
 const CALENDAR_LIST_SQL = `
 SELECT j.id, 'JOB'::text AS source, j.title, NULL::text AS description,
-  j.scheduled_at AS starts_at, j.scheduled_ends_at AS ends_at,
+  j.scheduled_at AS starts_at,
+  CASE WHEN j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
+    THEN j.scheduled_ends_at ELSE NULL END AS ends_at,
   o.timezone, j.assigned_to AS assigned_user_id, assignee.name AS assigned_user_name,
   j.version, j.status, j.type AS job_type, j.status AS job_status, j.priority,
   c.id AS customer_id, c.name AS customer_name,
@@ -105,7 +107,9 @@ function event(row: CalendarRow, actor: CalendarActor): CalendarEvent {
     source: row.source,
     title: row.title,
     startsAt: row.starts_at.toISOString(),
-    endsAt: row.ends_at?.toISOString() ?? null,
+    endsAt: row.source === 'JOB' && row.job_type === 'GENERAL_TASK'
+      ? null
+      : row.ends_at?.toISOString() ?? null,
     timezone: row.timezone,
     assignedUser: { id: row.assigned_user_id, name: row.assigned_user_name },
     version: row.version,
@@ -410,6 +414,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
        FROM job_cards j
        JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
        WHERE j.organization_id = $1 AND j.assigned_to = $2
+         AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
          AND j.status NOT IN ('COMPLETED', 'CANCELLED')
          AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
