@@ -173,6 +173,7 @@ type FollowUpCreateCommon = {
   priority: JobCardPriority;
   dueDate: string | null;
   contactId: string | null;
+  overrideReason?: string | null;
 };
 export type FollowUpCreateInput = FollowUpCreateCommon & (
   | { type: 'PRODUCT_DELIVERY' | 'GENERAL_TASK' }
@@ -181,14 +182,14 @@ export type FollowUpCreateInput = FollowUpCreateCommon & (
 export type JobCardCreateInput =
   | { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
     assignedTo: string; scheduledAt: string; description?: string | null; contactId?: string | null;
-    priority?: JobCardPriority; dueDate?: string | null }
+    priority?: JobCardPriority; dueDate?: string | null; overrideReason?: string | null }
   | { clientActionId: string; type: 'GENERAL_TASK'; title: string; assignedTo: string;
     description?: string | null; customerId?: string | null; contactId?: string | null;
     priority?: JobCardPriority; dueDate?: string | null; scheduledAt?: string | null }
   | { clientActionId: string; type: 'SALES_MEETING'; title: string; customerId: string;
     assignedTo: string; scheduledAt: string; engagementKind: JobCardEngagementKind;
     dueDate?: string | null; description?: string | null;
-    contactId?: string | null; priority?: JobCardPriority };
+    contactId?: string | null; priority?: JobCardPriority; overrideReason?: string | null };
 export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; scheduledAt: string | null;
@@ -291,6 +292,7 @@ export type PatchJobCardInput = {
   scheduledAt?: string | null;
   scheduledEndsAt?: string | null;
   engagementKind?: JobCardEngagementKind;
+  overrideReason?: string | null;
 };
 
 export type JobCardListFilters = Partial<{
@@ -889,6 +891,17 @@ export const approveJobCard = async (id: string, input: LifecycleInput & { note?
 };
 export const getFollowUpSuggestion = async (id: string, at?: string) =>
   parseFollowUpSuggestion(await request(`${jobPath(id)}/follow-up-suggestion${at === undefined ? '' : query({ at })}`));
+
+export type CustomerSchedulePreviewInput = {
+  type: JobCardType;
+  customerId: string | null;
+  scheduledAt: string;
+  jobCardId?: string | null;
+};
+export const previewCustomerSchedule = async (input: CustomerSchedulePreviewInput) =>
+  parseCustomerScheduleEvaluation(
+    await request('/api/job-cards/customer-schedule/evaluate', json('POST', input)),
+  );
 export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);
 export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);
 export const resumeJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'resume', input);

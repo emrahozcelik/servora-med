@@ -8,7 +8,13 @@ import {
   type JobCardPriority,
 } from './jobs/jobs-api';
 import { JOB_CARD_ENGAGEMENT_LABELS } from './jobs/job-labels';
-import { defaultScheduledLocalValue, localDateTimeToIso } from './jobs/scheduling';
+import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
+import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
+import {
+  defaultScheduledLocalValue,
+  isoInstantToLocalDateTime,
+  localDateTimeToIso,
+} from './jobs/scheduling';
 import { ApiError, type CurrentUser } from './services/api';
 import { listCustomers, type CustomerSummary } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
@@ -49,9 +55,22 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
   const [pending, setPending] = useState(false); const [error, setError] = useState('');
   const [fieldErrors, setFieldErrors] = useState<FieldErrors>({});
+  const [overrideReason, setOverrideReason] = useState('');
   const errorRef = useRef<HTMLDivElement>(null); const actionIdRef = useRef<string | null>(null);
 
   useEffect(() => { if (error) errorRef.current?.focus(); }, [error]);
+
+  const { evaluation, previewing } = useCustomerSchedulePreview({
+    type: 'SALES_MEETING',
+    customerId: customerId || null,
+    scheduledLocal,
+    enabled: customerState === 'ready' && engagementKind !== '',
+  });
+
+  function useSuggestedAlternative() {
+    if (!evaluation?.suggestedAlternativeAt) return;
+    setScheduledLocal(isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt));
+  }
 
   async function loadCustomers() {
     setCustomerState('loading');
@@ -97,10 +116,12 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         customerId, assignedTo: selectedAssignee,
         scheduledAt: localDateTimeToIso(scheduledLocal),
         description: description.trim() || null, contactId: null, priority,
+        ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
       });
       onCreated(job.id);
     } catch (caught) {
       if (caught instanceof ApiError && !caught.retryable) actionIdRef.current = null;
+      // Retain entered form data; show the authoritative server error inline.
       setError(caught instanceof Error ? caught.message : 'Görüşme veya ziyaret planlanamadı. Tekrar deneyin.');
       setPending(false);
     }
@@ -161,6 +182,14 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
             onChange={(event) => setScheduledLocal(event.target.value)} />
           {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
       </div>
+      <CustomerScheduleNotice
+        evaluation={evaluation}
+        mode={user.role === 'STAFF' ? 'staff' : 'manager'}
+        overrideReason={overrideReason}
+        onOverrideReasonChange={setOverrideReason}
+        onUseSuggestedAlternative={useSuggestedAlternative}
+      />
+      {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
       {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
         : <div className="field-group"><label htmlFor="meeting-assignee">Sorumlu personel</label>
           <select id="meeting-assignee" required value={assignedTo} disabled={staffState !== 'ready'}

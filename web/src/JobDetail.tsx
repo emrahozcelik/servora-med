@@ -58,6 +58,8 @@ import { jobEngagementLabel, jobTypeLabels } from './jobs/job-labels';
 import { JobConversationAction } from './jobs/JobConversationAction';
 import { useReassignmentConversationSync } from './jobs/useReassignmentConversationSync';
 import { ReassignmentSyncPrompt } from './jobs/ReassignmentSyncPrompt';
+import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
+import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
 import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
@@ -263,20 +265,38 @@ function JobScheduleEditForm({
   job,
   scheduleEdit,
   pending,
+  user,
   onSave,
 }: {
   job: JobCard;
   scheduleEdit: ScheduleEditPresentation;
   pending: boolean;
-  onSave?: (scheduledAt: string | null) => Promise<void> | void;
+  user: CurrentUser;
+  onSave?: (scheduledAt: string | null, overrideReason?: string | null) => Promise<void> | void;
 }) {
   const [localValue, setLocalValue] = useState(() => (
     job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
   ));
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
+  const [overrideReason, setOverrideReason] = useState('');
   const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}`;
   const lastKey = useRef(canonicalKey);
+
+  const { evaluation, previewing } = useCustomerSchedulePreview({
+    type: job.type,
+    customerId: job.customerId,
+    scheduledLocal: localValue,
+    jobCardId: job.id,
+    enabled: job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY',
+  });
+
+  function useSuggestedAlternative() {
+    if (!evaluation?.suggestedAlternativeAt) return;
+    setLocalValue(isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt));
+    setFieldError('');
+    setSubmitError('');
+  }
 
   useEffect(() => {
     if (lastKey.current === canonicalKey) return;
@@ -284,6 +304,7 @@ function JobScheduleEditForm({
     setLocalValue(job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
     setFieldError('');
     setSubmitError('');
+    setOverrideReason('');
   }, [canonicalKey, job.scheduledAt]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -297,7 +318,7 @@ function JobScheduleEditForm({
       }
       setFieldError('');
       try {
-        await onSave(null);
+        await onSave(null, overrideReason.trim() || null);
       } catch (caught) {
         setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
       }
@@ -305,7 +326,7 @@ function JobScheduleEditForm({
     }
     setFieldError('');
     try {
-      await onSave(localDateTimeToIso(localValue));
+      await onSave(localDateTimeToIso(localValue), overrideReason.trim() || null);
     } catch (caught) {
       setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
     }
@@ -336,6 +357,14 @@ function JobScheduleEditForm({
           />
           {fieldError && <span id="job-scheduled-at-error" className="field-error">{fieldError}</span>}
         </div>
+        <CustomerScheduleNotice
+          evaluation={evaluation}
+          mode={user.role === 'STAFF' ? 'staff' : 'manager'}
+          overrideReason={overrideReason}
+          onOverrideReasonChange={setOverrideReason}
+          onUseSuggestedAlternative={useSuggestedAlternative}
+        />
+        {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
         {submitError && <p className="field-error" role="alert">{submitError}</p>}
         <div className="review-buttons">
           <button className="secondary-button" type="submit" disabled={pending || !onSave}>
@@ -553,6 +582,7 @@ export function JobDetailPanel({
               job={job}
               scheduleEdit={presentation.scheduleEdit}
               pending={pending}
+              user={user}
               onSave={onSaveSchedule}
             />
           )}
@@ -1359,7 +1389,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       'Görev bilgileri güncellendi.',
     );
   }
-  async function saveSchedule(scheduledAt: string | null) {
+  async function saveSchedule(scheduledAt: string | null, overrideReason?: string | null) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
     }
@@ -1374,6 +1404,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       await patchJobCard(operationJobId, {
         expectedVersion: state.detail.job.version,
         scheduledAt,
+        ...(overrideReason?.trim() ? { overrideReason: overrideReason.trim() } : {}),
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;
       if (!(await refreshTruth())) return;

@@ -182,6 +182,12 @@ function EventForm({
         setError('Bu zaman aralığı başka bir planla çakışıyor. Taslağınız korundu.');
         const raw = api.details?.conflicts;
         setConflicts(Array.isArray(raw) ? raw as Array<Record<string, unknown>> : []);
+      } else if (api.code === 'CUSTOMER_SCHEDULE_CONFLICT') {
+        setError('Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin; taslağınız korundu.');
+      } else if (api.code === 'CUSTOMER_VISIT_FREQUENCY_REVIEW_REQUIRED') {
+        setError('Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlama için yönetici değerlendirmesi gerekiyor.');
+      } else if (api.code === 'CUSTOMER_VISIT_OVERRIDE_REASON_REQUIRED') {
+        setError('Bu müşteri için ziyaret sıklığı sınırı aşılıyor. İş detayından planlama nedenini belirterek kaydedebilirsiniz.');
       } else if (api.code === 'VERSION_CONFLICT') {
         setError('Bu kayıt başka bir kullanıcı tarafından değiştirildi. Taslağınız korundu; güncel değerleri yükleyin.');
       } else {
