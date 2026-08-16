@@ -198,6 +198,9 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
           </aside>
           <header className="desktop-shell-topbar">
             <p className="desktop-shell-title">{title}</p>
+            <div className="desktop-shell-topbar-brand">
+              <DunyaDentalBrand variant="topbar" />
+            </div>
             <NotificationCenter identityKey={`${user.organizationId}:${user.id}`} mobile={false} />
           </header>
         </>
