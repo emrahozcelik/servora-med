@@ -2368,19 +2368,21 @@ export class JobCardService {
         sourceSummary,
       };
     }
-    const followUpProposal: FollowUpProposal | null = job.followUpProposedAt !== null
-      && job.followUpProposedType !== null
-      && job.followUpProposedAssignee !== null
-      && job.followUpProposalInstructions !== null
-      ? {
-          scheduledAt: job.followUpProposedAt,
-          type: job.followUpProposedType,
-          assignedTo: job.followUpProposedAssignee,
-          followUpInstructions: job.followUpProposalInstructions,
-          origin: job.followUpProposalOrigin ?? 'SYSTEM',
-          proposedBy: persisted.proposer,
-        }
-      : null;
+    let followUpProposal: FollowUpProposal | null = null;
+    if (job.followUpProposedAt != null
+      && job.followUpProposedType != null
+      && job.followUpProposedAssignee != null
+      && job.followUpProposalInstructions != null) {
+      if (!persisted.proposer) followUpInvariantViolation();
+      followUpProposal = {
+        scheduledAt: job.followUpProposedAt,
+        type: job.followUpProposedType,
+        assignedTo: job.followUpProposedAssignee,
+        followUpInstructions: job.followUpProposalInstructions,
+        origin: job.followUpProposalOrigin ?? 'SYSTEM',
+        proposedBy: persisted.proposer,
+      };
+    }
     return {
       ...job,
       workflowContext: {

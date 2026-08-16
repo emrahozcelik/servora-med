@@ -99,6 +99,73 @@ describe('JobCard workspace transport', () => {
     });
   });
 
+  it('accepts a canonical follow-up proposal with a proposer identity', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      ...job,
+      status: 'COMPLETED',
+      followUpProposal: {
+        scheduledAt: '2026-08-01T10:00:00.000Z',
+        type: 'SALES_MEETING',
+        assignedTo: 's1',
+        followUpInstructions: 'Klinik ile takip görüşmesi planla.',
+        origin: 'SYSTEM',
+        proposedBy: {
+          id: 'c488b5fa-8bea-4b96-9a41-272355e62201',
+          name: 'Ayşe Personel',
+        },
+      },
+    })));
+
+    await expect(getJobCard('job-1')).resolves.toMatchObject({
+      followUpProposal: {
+        proposedBy: {
+          id: 'c488b5fa-8bea-4b96-9a41-272355e62201',
+          name: 'Ayşe Personel',
+        },
+      },
+    });
+  });
+
+  it('rejects a proposal that is missing its required proposer identity', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      ...job,
+      status: 'COMPLETED',
+      followUpProposal: {
+        scheduledAt: '2026-08-01T10:00:00.000Z',
+        type: 'SALES_MEETING',
+        assignedTo: 's1',
+        followUpInstructions: 'Klinik ile takip görüşmesi planla.',
+        origin: 'SYSTEM',
+        proposedBy: null,
+      },
+    })));
+
+    await expect(getJobCard('job-1')).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+      message: 'Sunucudan geçersiz yanıt alındı.',
+    });
+  });
+
+  it('rejects the malformed empty proposer object from the original contract failure', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      ...job,
+      status: 'COMPLETED',
+      followUpProposal: {
+        scheduledAt: '2026-08-01T10:00:00.000Z',
+        type: 'SALES_MEETING',
+        assignedTo: 's1',
+        followUpInstructions: 'Klinik ile takip görüşmesi planla.',
+        origin: 'SYSTEM',
+        proposedBy: {},
+      },
+    })));
+
+    await expect(getJobCard('job-1')).rejects.toMatchObject({
+      code: 'INVALID_RESPONSE',
+      message: 'Yanıtta followUpProposal.proposedBy.id alanı geçersiz.',
+    });
+  });
+
   it('normalizes an absent start location capability to false and preserves server true', async () => {
     const { startLocationCaptureEnabled: _omitted, ...legacyContext } = workflowContext;
     vi.stubGlobal('fetch', vi.fn()

@@ -494,7 +494,10 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         revisionReason: 'Özeti düzeltin.',
       });
       const detail = await service.detail(manager, job.id);
-      expect(detail.followUpProposal).toMatchObject({ scheduledAt: PROPOSAL_AT });
+      expect(detail.followUpProposal).toMatchObject({
+        scheduledAt: PROPOSAL_AT,
+        proposedBy: { id: staffA.id, name: 'Staff A' },
+      });
 
       const resumed = await service.resume(staffA, job.id, {
         clientActionId: randomUUID(),

@@ -112,6 +112,41 @@ describe('Postgres JobCard detail projection', () => {
     expect(projection.text).toMatch(/cancellation_actor\.organization_id = j\.organization_id/);
   });
 
+  it('projects a proposal proposer from the same organization through explicit query aliases', async () => {
+    const { repository, calls } = repositoryDouble({
+      ...baseRow,
+      ...lifecycleRow,
+      follow_up_proposed_at: new Date('2026-07-24T10:00:00.000Z'),
+      follow_up_proposed_type: 'SALES_MEETING',
+      follow_up_proposed_assignee: 'staff-1',
+      follow_up_proposal_instructions: 'Klinik ile takip görüşmesi planla.',
+      follow_up_proposal_origin: 'SYSTEM',
+      follow_up_proposed_by: 'staff-1',
+      proposer_id: 'staff-1',
+      proposer_name: 'Emrah Demir',
+    });
+
+    await expect(repository.findJobCardDetail('org-1', 'job-1')).resolves.toMatchObject({
+      proposer: { id: 'staff-1', name: 'Emrah Demir' },
+    });
+
+    const projection = calls.at(-1)!.text;
+    expect(projection).toContain('proposer.id AS proposer_id');
+    expect(projection).toContain('proposer.name AS proposer_name');
+    expect(projection).toMatch(/proposer\.organization_id = j\.organization_id/);
+  });
+
+  it('does not manufacture a partial proposer identity when a projection alias is absent', async () => {
+    const incompleteRow: Record<string, unknown> = { ...baseRow, ...lifecycleRow };
+    delete incompleteRow.proposer_id;
+    delete incompleteRow.proposer_name;
+    const { repository } = repositoryDouble(incompleteRow);
+
+    await expect(repository.findJobCardDetail('org-1', 'job-1')).resolves.toMatchObject({
+      proposer: null,
+    });
+  });
+
   it('maps a valid WAITING_APPROVAL cancellation source and drops malformed sources without leaking raw JSON', async () => {
     const cancelledBase = {
       ...baseRow,

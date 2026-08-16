@@ -723,6 +723,7 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        revision_actor.id AS revision_actor_id, revision_actor.name AS revision_actor_name,
        cancellation_actor.id AS cancellation_actor_id,
        cancellation_actor.name AS cancellation_actor_name,
+       proposer.id AS proposer_id, proposer.name AS proposer_name,
        cancellation.cancelled_from_status
 FROM job_cards j
 JOIN users assignee
@@ -761,8 +762,8 @@ function mapInstant(value: Date | null): string | null {
   return value?.toISOString() ?? null;
 }
 
-function mapRelatedIdentity(id: string | null, name: string | null): RelatedIdentity | null {
-  if (id === null || name === null) return null;
+function mapRelatedIdentity(id: string | null | undefined, name: string | null | undefined): RelatedIdentity | null {
+  if (id == null || name == null) return null;
   return { id, name };
 }
 

@@ -162,6 +162,12 @@ describe.skipIf(!databaseUrl)('027 follow-up proposal PostgreSQL contract', () =
         [legacyId, otherUser.rows[0]!.id],
       )).rejects.toMatchObject({ code: '23503' });
 
+      // Cross-org proposer FK -> rejected, preserving the hard organization boundary.
+      await expect(client.query(
+        `UPDATE job_cards SET follow_up_proposed_by = $2 WHERE id = $1`,
+        [legacyId, otherUser.rows[0]!.id],
+      )).rejects.toMatchObject({ code: '23503' });
+
       // The customer scheduling lookup indexes exist.
       for (const indexName of ['job_cards_customer_scheduled_idx', 'job_cards_customer_completed_idx']) {
         await expect(client.query(
