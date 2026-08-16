@@ -11,7 +11,10 @@ import {
 } from './jobs/jobs-api';
 import { JOB_CARD_ENGAGEMENT_LABELS } from './jobs/job-labels';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
+import { AvailableSlotsNotice } from './jobs/AvailableSlotsNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
+import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
+import type { AvailableSlot } from './jobs/jobs-api';
 import {
   addOneHourLocal,
   defaultScheduledLocalValue,
@@ -74,13 +77,24 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   useEffect(() => {
     setAuthoritativeEvaluation(null);
     setCalendarConflicts([]);
-  }, [customerId, scheduledLocal, scheduledEndsLocal, engagementKind]);
+  }, [assignedTo, customerId, scheduledLocal, scheduledEndsLocal, engagementKind]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
     type: 'SALES_MEETING',
     customerId: customerId || null,
     scheduledLocal,
     enabled: customerState === 'ready' && engagementKind !== '',
+  });
+  const availableSlotSearch = useAvailableSlotSearch({
+    type: 'SALES_MEETING',
+    customerId: customerId || null,
+    assignedTo: user.role === 'STAFF' ? user.id : assignedTo || null,
+    scheduledStartLocal: scheduledLocal,
+    scheduledEndLocal: scheduledEndsLocal,
+    jobCardId: null,
+    enabled: user.capabilities?.calendar === true
+      && customerState === 'ready'
+      && engagementKind !== '',
   });
 
   function useSuggestedAlternative() {
@@ -93,6 +107,11 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     );
     setScheduledLocal(nextStart);
     setScheduledEndsLocal(nextEnd);
+  }
+
+  function useAvailableSlot(slot: AvailableSlot) {
+    setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
+    setScheduledEndsLocal(isoInstantToLocalDateTime(slot.endsAt));
   }
 
   async function loadCustomers() {
@@ -254,6 +273,10 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         onUseSuggestedAlternative={useSuggestedAlternative}
       />
       {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
+      <AvailableSlotsNotice
+        {...availableSlotSearch}
+        onSelect={useAvailableSlot}
+      />
       {user.role === 'STAFF' ? <div className="field-group"><span className="field-label">Sorumlu personel</span><p className="fixed-field-value">{user.name}</p></div>
         : <div className="field-group"><label htmlFor="meeting-assignee">Sorumlu personel</label>
           <select id="meeting-assignee" required value={assignedTo} disabled={staffState !== 'ready'}

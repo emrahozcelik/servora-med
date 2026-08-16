@@ -13,6 +13,7 @@ function serviceDouble() {
   const page = { items: [result], total: 1, limit: 25, offset: 0 };
   return {
     create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
+    availableSlots: vi.fn().mockResolvedValue({ slots: [{ startsAt: '2026-07-17T11:00:00.000Z', endsAt: '2026-07-17T12:00:00.000Z' }] }),
     createFollowUp: vi.fn().mockResolvedValue(result),
     listFollowUps: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
     board: vi.fn().mockResolvedValue({
@@ -98,6 +99,38 @@ describe('JobCard routes', () => {
     );
     expect(service.detail).toHaveBeenCalledWith(expect.anything(), 'job-1');
     expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' });
+  });
+
+  it('dispatches the joint available-slot request with a strict normalized body', async () => {
+    const { app, service } = await createApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/available-slots',
+      payload: {
+        type: 'SALES_MEETING',
+        customerId: '22222222-2222-4222-8222-222222222222',
+        assignedTo: '11111111-1111-4111-8111-111111111111',
+        scheduledAt: '2026-07-17T14:00:00+03:00',
+        scheduledEndsAt: '2026-07-17T15:00:00+03:00',
+        jobCardId: null,
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      slots: [{ startsAt: '2026-07-17T11:00:00.000Z', endsAt: '2026-07-17T12:00:00.000Z' }],
+    });
+    expect(service.availableSlots).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
+      {
+        type: 'SALES_MEETING',
+        customerId: '22222222-2222-4222-8222-222222222222',
+        assignedTo: '11111111-1111-4111-8111-111111111111',
+        scheduledAt: '2026-07-17T11:00:00.000Z',
+        scheduledEndsAt: '2026-07-17T12:00:00.000Z',
+        jobCardId: null,
+      },
+    );
   });
 
   it('dispatches patch with an override reason for frequency-exceeded reschedules', async () => {

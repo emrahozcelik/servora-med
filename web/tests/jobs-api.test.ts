@@ -3,7 +3,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   acceptJobCard, addJobCardNote, approveJobCard, cancelJobCard, createFollowUp, createJobCard, getJobCard,
   getJobCardBoard, getMeetingDetails, listActivity, listDeliveryItems, listJobCardNotes,
-  listFollowUps, listJobCards, patchJobCard, patchMeetingDetails,
+  listFollowUps, listJobCards, findAvailableSlots, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
 } from '../src/jobs/jobs-api';
@@ -55,6 +55,37 @@ function json(body: unknown, status = 200) {
 }
 
 describe('JobCard workspace transport', () => {
+  it('requests and strictly parses the minimal joint available-slot response', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      slots: [
+        { startsAt: '2026-08-17T10:00:00.000Z', endsAt: '2026-08-17T11:00:00.000Z' },
+      ],
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(findAvailableSlots({
+      type: 'SALES_MEETING',
+      customerId: 'customer-1',
+      assignedTo: 'staff-1',
+      scheduledAt: '2026-08-16T10:00:00.000Z',
+      scheduledEndsAt: '2026-08-16T11:00:00.000Z',
+      jobCardId: null,
+    })).resolves.toEqual({
+      slots: [{ startsAt: '2026-08-17T10:00:00.000Z', endsAt: '2026-08-17T11:00:00.000Z' }],
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/available-slots', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'SALES_MEETING',
+        customerId: 'customer-1',
+        assignedTo: 'staff-1',
+        scheduledAt: '2026-08-16T10:00:00.000Z',
+        scheduledEndsAt: '2026-08-16T11:00:00.000Z',
+        jobCardId: null,
+      }),
+    }));
+  });
+
   it('strictly parses workflow context and actor-scoped list commands', async () => {
     vi.stubGlobal('fetch', vi.fn()
       .mockResolvedValueOnce(json({ ...job, workflowContext }))

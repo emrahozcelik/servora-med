@@ -11,7 +11,10 @@ import {
 } from './services/api';
 import { ProductSelect } from './ProductSelect';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
+import { AvailableSlotsNotice } from './jobs/AvailableSlotsNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
+import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
+import type { AvailableSlot } from './jobs/jobs-api';
 import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
 import { addOneHourLocal, defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso, shiftInterval } from './jobs/scheduling';
 import { getCustomer, type Contact, type CustomerDetail } from './services/crm-api';
@@ -126,13 +129,23 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   useEffect(() => {
     setAuthoritativeEvaluation(null);
     setCalendarConflicts([]);
-  }, [customerId, scheduledLocal, scheduledEndsLocal]);
+  }, [assignedTo, customerId, scheduledLocal, scheduledEndsLocal]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
     type: 'PRODUCT_DELIVERY',
     customerId: customerId || null,
     scheduledLocal,
     enabled: customerState === 'ready',
+  });
+  const availableSlotSearch = useAvailableSlotSearch({
+    type: 'PRODUCT_DELIVERY',
+    customerId: customerId || null,
+    assignedTo: user.role === 'STAFF' ? user.id : assignedTo || null,
+    scheduledStartLocal: scheduledLocal,
+    scheduledEndLocal: scheduledEndsLocal,
+    jobCardId: null,
+    enabled: user.capabilities?.calendar === true
+      && customerState === 'ready',
   });
 
   function useSuggestedAlternative() {
@@ -145,6 +158,11 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
     );
     setScheduledLocal(nextStart);
     setScheduledEndsLocal(nextEnd);
+  }
+
+  function useAvailableSlot(slot: AvailableSlot) {
+    setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
+    setScheduledEndsLocal(isoInstantToLocalDateTime(slot.endsAt));
   }
   async function loadCustomers() {
     setCustomerState('loading');
@@ -307,6 +325,10 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
         onUseSuggestedAlternative={useSuggestedAlternative}
       />
       {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
+      <AvailableSlotsNotice
+        {...availableSlotSearch}
+        onSelect={useAvailableSlot}
+      />
       <div className="field-group"><label htmlFor="delivery-note">Teslim notu (isteğe bağlı)</label>
         <textarea id="delivery-note" name="deliveryNote" rows={3} disabled={pending} /></div>
       <div className="form-actions">

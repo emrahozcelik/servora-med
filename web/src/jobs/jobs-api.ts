@@ -146,6 +146,16 @@ export type CustomerScheduleEvaluation = {
   recentVisit: RecentVisitSummary | null;
   suggestedAlternativeAt: string | null;
 };
+export type AvailableSlotsInput = {
+  type: 'SALES_MEETING' | 'PRODUCT_DELIVERY';
+  customerId: string;
+  assignedTo: string;
+  scheduledAt: string;
+  scheduledEndsAt: string;
+  jobCardId?: string | null;
+};
+export type AvailableSlot = { startsAt: string; endsAt: string };
+export type AvailableSlotsResponse = { slots: AvailableSlot[] };
 export type FollowUpSuggestion = {
   scheduledAt: string | null;
   type: JobCardType;
@@ -549,6 +559,20 @@ function parseCustomerScheduleEvaluation(value: unknown): CustomerScheduleEvalua
     ),
   };
 }
+
+function parseAvailableSlotsResponse(value: unknown): AvailableSlotsResponse {
+  const root = exactObject(value, 'availableSlots', ['slots']);
+  if (!Array.isArray(root.slots)) invalid('slots');
+  return {
+    slots: root.slots.map((raw, index) => {
+      const slot = exactObject(raw, `slots[${index}]`, ['startsAt', 'endsAt']);
+      const startsAt = canonicalInstant(slot.startsAt, `slots[${index}].startsAt`);
+      const endsAt = canonicalInstant(slot.endsAt, `slots[${index}].endsAt`);
+      if (Date.parse(endsAt) <= Date.parse(startsAt)) invalid(`slots[${index}]`);
+      return { startsAt, endsAt };
+    }),
+  };
+}
 export function parseFollowUpSuggestion(value: unknown): FollowUpSuggestion {
   const v = exactObject(value, 'followUpSuggestion', [
     'scheduledAt', 'type', 'assignedTo', 'followUpInstructions', 'evaluation',
@@ -903,6 +927,10 @@ export type CustomerSchedulePreviewInput = {
 export const previewCustomerSchedule = async (input: CustomerSchedulePreviewInput) =>
   parseCustomerScheduleEvaluation(
     await request('/api/job-cards/customer-schedule/evaluate', json('POST', input)),
+  );
+export const findAvailableSlots = async (input: AvailableSlotsInput) =>
+  parseAvailableSlotsResponse(
+    await request('/api/job-cards/available-slots', json('POST', input)),
   );
 export const requestJobCardRevision = (id: string, input: LifecycleInput & { revisionReason: string }) => lifecycle(id, 'request-revision', input);
 export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);

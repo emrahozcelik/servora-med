@@ -9,7 +9,7 @@ import { ApiError, type CurrentUser } from '../src/services/api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const jobs = vi.hoisted(() => ({ createJobCard: vi.fn() }));
+const jobs = vi.hoisted(() => ({ createJobCard: vi.fn(), findAvailableSlots: vi.fn() }));
 const crm = vi.hoisted(() => ({ listCustomers: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const scheduling = vi.hoisted(() => {
@@ -92,6 +92,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    scheduling.isoInstantToLocalDateTime.mockImplementation(() => '2026-08-10T09:30');
     vi.stubGlobal('matchMedia', vi.fn().mockReturnValue({
       matches: false, media: '', onchange: null,
       addEventListener: vi.fn(), removeEventListener: vi.fn(),
@@ -102,6 +103,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
       configurable: true, value: vi.fn(() => `action-${++action}`),
     });
     jobs.createJobCard.mockResolvedValue({ id: 'job-1', version: 1 });
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [] });
     crm.listCustomers.mockResolvedValue({ items: [customer], total: 1, limit: 200, offset: 0 });
     people.listStaff.mockResolvedValue([profile]);
     preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
@@ -138,6 +140,28 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
       scheduledEndsAt: '2026-08-01T10:30:00.000Z',
     }));
     expect(onCreated).toHaveBeenCalledWith('job-1');
+  });
+
+  it('offers a joint slot and moves both interval fields when selected', async () => {
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [{
+      startsAt: '2026-08-10T06:30:00.000Z',
+      endsAt: '2026-08-10T07:30:00.000Z',
+    }] });
+    scheduling.isoInstantToLocalDateTime.mockImplementation((value: string) => (
+      value.endsWith('06:30:00.000Z') ? '2026-08-10T09:30' : '2026-08-10T10:30'
+    ));
+    await render(manager);
+    change(host.querySelector('#meeting-engagement-kind') as HTMLSelectElement, 'SALES_MEETING');
+    change(host.querySelector('#meeting-customer') as HTMLSelectElement, 'customer-1');
+    change(host.querySelector('#meeting-assignee') as HTMLSelectElement, 'staff-2');
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    await flush();
+
+    const slotButton = host.querySelector('button[data-available-slot]') as HTMLButtonElement;
+    expect(slotButton).toBeTruthy();
+    await act(async () => slotButton.click());
+    expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
+    expect((host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
   });
 
   it('AAP-21: rejects an end not strictly later than the start without calling the API', async () => {

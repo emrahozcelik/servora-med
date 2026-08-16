@@ -94,7 +94,38 @@ export type CustomerScheduleEvaluation = {
 };
 
 const DAY_MS = 24 * 60 * 60 * 1000;
-const MAX_TZ_OFFSET_MS = 15 * 60 * 60 * 1000;
+export const MAX_TZ_OFFSET_MS = 15 * 60 * 60 * 1000;
+
+export type CustomerScheduleSnapshot = Readonly<{
+  timezone: string;
+  activeJobs: readonly ActiveOnSiteJobRecord[];
+  recentVisits: readonly RecentOnSiteVisitRecord[];
+}>;
+
+/**
+ * Adapter used by bounded joint-slot evaluation. It preserves the canonical
+ * customer evaluator while ensuring every candidate reads the same already
+ * loaded snapshot instead of issuing candidate-sized database queries.
+ */
+export function createCustomerScheduleSnapshotReader(
+  snapshot: CustomerScheduleSnapshot,
+): CustomerScheduleReader {
+  const inRange = (value: string, from: Date, to: Date) => {
+    const timestamp = new Date(value).valueOf();
+    return timestamp >= from.valueOf() && timestamp <= to.valueOf();
+  };
+  return {
+    async getOrganizationTimezone() {
+      return snapshot.timezone;
+    },
+    async listActiveOnSiteJobs(_organizationId, _customerId, from, to) {
+      return snapshot.activeJobs.filter((job) => inRange(job.scheduledAt, from, to));
+    },
+    async listRecentOnSiteVisits(_organizationId, _customerId, from, to) {
+      return snapshot.recentVisits.filter((visit) => inRange(visit.occurredAt, from, to));
+    },
+  };
+}
 
 /**
  * Maximum number of ON_SITE commitments/history records (including the
