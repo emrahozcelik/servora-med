@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react'
 
 import { AppRouter } from './AppRouter';
 import { AppShell } from './AppShell';
+import { setDocumentTitle } from './document-title';
 import { DunyaDentalBrand } from './shell/DunyaDentalBrand';
 import { PasswordChangeScreen } from './PasswordChange';
 import { RealtimeProvider } from './realtime/RealtimeProvider';
@@ -134,6 +135,12 @@ function ProtectedShell({ user, onSignedOut }: { user: CurrentUser; onSignedOut:
 export function App({ initialUser }: AppProps) {
   const [user, setUser] = useState<CurrentUser | null | undefined>(initialUser);
   const [identityError, setIdentityError] = useState('');
+
+  useEffect(() => {
+    if (user === undefined) return;
+    if (user === null) setDocumentTitle('Giriş');
+    else if (user.mustChangePassword) setDocumentTitle('Parola değiştir');
+  }, [user]);
 
   useEffect(() => {
     if (initialUser !== undefined) return;
