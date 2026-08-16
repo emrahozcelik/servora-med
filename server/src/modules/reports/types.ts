@@ -274,5 +274,4 @@ export type WorkTypeDistributionInput = Readonly<{
   from: string;
   to: string;
   staffUserId: string | null;
-  managerUserId?: string;
 }>;
