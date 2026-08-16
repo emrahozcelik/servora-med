@@ -1,13 +1,22 @@
+import { useEffect, useState } from 'react';
+
 import type { AvailableSlot } from './jobs-api';
 
-function labelForSlot(slot: AvailableSlot): string {
-  const start = new Date(slot.startsAt).toLocaleString('tr-TR', {
-    weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit',
-  });
-  const end = new Date(slot.endsAt).toLocaleTimeString('tr-TR', {
-    hour: '2-digit', minute: '2-digit',
-  });
-  return `${start}–${end}`;
+const INITIAL_VISIBLE_SLOTS = 6;
+
+function dateLabelForSlot(slot: AvailableSlot): string {
+  return new Intl.DateTimeFormat('tr-TR', {
+    weekday: 'short', day: '2-digit', month: '2-digit',
+  }).format(new Date(slot.startsAt));
+}
+
+function timeLabelForSlot(slot: AvailableSlot): string {
+  const time = new Intl.DateTimeFormat('tr-TR', { hour: '2-digit', minute: '2-digit' });
+  return `${time.format(new Date(slot.startsAt))}–${time.format(new Date(slot.endsAt))}`;
+}
+
+function slotKey(slot: AvailableSlot): string {
+  return `${slot.startsAt}:${slot.endsAt}`;
 }
 
 export function AvailableSlotsNotice({
@@ -25,6 +34,14 @@ export function AvailableSlotsNotice({
   featureDisabled: boolean;
   onSelect: (slot: AvailableSlot) => void;
 }) {
+  const [expanded, setExpanded] = useState(false);
+  const [selectedSlotKey, setSelectedSlotKey] = useState<string | null>(null);
+
+  useEffect(() => {
+    setExpanded(false);
+    setSelectedSlotKey(null);
+  }, [slots]);
+
   if (!searched && !searching && !error && !featureDisabled) return null;
   return <section className="available-slots-notice" aria-live="polite" aria-labelledby="available-slots-heading">
     <h2 id="available-slots-heading">Ortak uygun saatler</h2>
@@ -37,19 +54,43 @@ export function AvailableSlotsNotice({
       <p role="status">Bu aralık için ortak uygun saat bulunamadı.</p>
     )}
     {!searching && !error && !featureDisabled && slots.length > 0 && (
-      <div className="available-slots-list">
-        {slots.map((slot) => (
+      <>
+        <div className="available-slots-list" role="group" aria-label="Ortak uygun saat seçenekleri">
+          {(expanded ? slots : slots.slice(0, INITIAL_VISIBLE_SLOTS)).map((slot) => {
+            const key = slotKey(slot);
+            const dateLabel = dateLabelForSlot(slot);
+            const timeLabel = timeLabelForSlot(slot);
+            const selected = selectedSlotKey === key;
+            return (
+              <button
+                key={key}
+                data-available-slot
+                className={`available-slot-option${selected ? ' available-slot-option--selected' : ''}`}
+                type="button"
+                aria-label={`${dateLabel}, ${timeLabel}`}
+                aria-pressed={selected}
+                onClick={() => {
+                  setSelectedSlotKey(key);
+                  onSelect(slot);
+                }}
+              >
+                <span className="available-slots-slot-date">{dateLabel}</span>
+                <span className="available-slots-slot-time">{timeLabel}</span>
+              </button>
+            );
+          })}
+        </div>
+        {slots.length > INITIAL_VISIBLE_SLOTS && (
           <button
-            key={`${slot.startsAt}:${slot.endsAt}`}
-            data-available-slot
-            className="secondary-button"
+            className="available-slots-toggle secondary-button"
             type="button"
-            onClick={() => onSelect(slot)}
+            aria-expanded={expanded}
+            onClick={() => setExpanded((current) => !current)}
           >
-            {labelForSlot(slot)}
+            {expanded ? 'Daha az göster' : 'Daha fazla göster'}
           </button>
-        ))}
-      </div>
+        )}
+      </>
     )}
   </section>;
 }

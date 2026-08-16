@@ -185,7 +185,9 @@ describe('responsive authenticated AppShell', () => {
     expect(getComputedStyle(copyright!).textAlign === 'center'
       || copyright!.className.includes('shell-copyright')).toBe(true);
     const topbar = container.querySelector('.desktop-shell-topbar')!;
-    expect(topbar.querySelector('.dunya-dental-brand')).toBeNull();
+    const topbarBrand = topbar.querySelector('.desktop-shell-topbar-brand .dunya-dental-brand--topbar');
+    expect(topbarBrand).not.toBeNull();
+    expect(topbarBrand?.querySelector('img')?.getAttribute('src')).toBe('/branding/dunya-dental.png');
     expect(topbar.querySelector('[aria-label="Bildirimler"] svg')).not.toBeNull();
   });
 
@@ -412,6 +414,10 @@ describe('responsive authenticated AppShell', () => {
     expect(exactRuleBody('.shell-sidebar .shell-signout')).toMatch(/font-weight:\s*680/);
     expect(css).toMatch(/\.shell-sidebar-brand\s*\{/s);
     expect(css).toMatch(/\.shell-sidebar-footer\s*\{[^}]*margin-top:\s*auto/s);
+    expect(exactRuleBody('.desktop-shell-topbar-brand')).toMatch(/flex:\s*0 0 auto/);
+    expect(css).toMatch(
+      /@media \(min-width: 64rem\)[\s\S]*\.desktop-shell-topbar-brand \.dunya-dental-brand--topbar img\s*\{[^}]*height:\s*3\.25rem/s,
+    );
     // Default operational workspace stays near 68rem; board gates remain separate.
     expect(css).toMatch(/\.workspace\s*\{[^}]*width:\s*min\(100% - 2rem,\s*68rem\)/s);
     expect(css).toMatch(/@container job-board \(min-width: 68rem\)/);

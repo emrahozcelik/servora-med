@@ -59,6 +59,19 @@ describe('Apple / PWA identity contract', () => {
     }
   });
 
+  it('resolves every manifest icon URL to a real public PNG asset', () => {
+    const manifest = JSON.parse(readFileSync(resolve(publicRoot, 'manifest.webmanifest'), 'utf8'));
+    for (const icon of manifest.icons as Array<{ src: string; sizes: string; type: string }>) {
+      expect(icon.src).toMatch(/^\/icons\/[\w-]+\.png$/);
+      expect(icon.type).toBe('image/png');
+      const asset = resolve(publicRoot, icon.src.slice(1));
+      expect(asset.startsWith(publicRoot)).toBe(true);
+      expect(statSync(asset).size).toBeGreaterThan(100);
+      const [width, height] = icon.sizes.split('x').map(Number);
+      expect(pngDimensions(asset)).toEqual({ width, height });
+    }
+  });
+
   it('provides the cropped sidebar branding asset', () => {
     const asset = resolve(publicRoot, 'branding/dunya-dental-sidebar.png');
     expect(pngDimensions(asset)).toEqual({ width: 4538, height: 3210 });
