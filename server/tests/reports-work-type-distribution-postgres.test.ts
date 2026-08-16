@@ -126,11 +126,13 @@ describe.skipIf(!databaseUrl)('Work-type distribution PostgreSQL RBAC contract',
         assignedTo: string,
         createdAt: string,
       ) {
+        const engagementKind = type === 'SALES_MEETING' ? 'SALES_MEETING' : null;
         await pool!.query(
           `INSERT INTO job_cards (
-             organization_id, type, status, title, assigned_to, created_by, created_at
-           ) VALUES ($1, $2, 'NEW', $3, $4, $4, $5)`,
-          [organizationId, type, `${type} ${assignedTo}`, assignedTo, createdAt],
+             organization_id, type, status, title, assigned_to, created_by, created_at,
+             engagement_kind
+           ) VALUES ($1, $2, 'NEW', $3, $4, $4, $5, $6)`,
+          [organizationId, type, `${type} ${assignedTo}`, assignedTo, createdAt, engagementKind],
         );
       }
 
