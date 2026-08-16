@@ -4,6 +4,7 @@ import {
   deriveCompactWorkflowSummary,
   deriveJobWorkflowPresentation,
   requirementLabels,
+  requiresMandatoryFollowUpProposal,
 } from '../src/jobs/job-workflow-presentation';
 import { jobStatusLabels } from '../src/jobs/job-labels';
 import type {
@@ -73,6 +74,22 @@ function jobAt(status: JobCardStatus, lifecycle: JobLifecycleFacts) {
 }
 
 describe('deriveJobWorkflowPresentation', () => {
+  it('requires a proposal only for explicit CUSTOMER_VISIT sales meetings', () => {
+    expect(requiresMandatoryFollowUpProposal({
+      type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT',
+    })).toBe(true);
+    for (const input of [
+      { type: 'SALES_MEETING' as const, engagementKind: 'TRAINING' as const },
+      { type: 'SALES_MEETING' as const, engagementKind: 'PRODUCT_DEMO' as const },
+      { type: 'SALES_MEETING' as const, engagementKind: 'FOLLOW_UP' as const },
+      { type: 'SALES_MEETING' as const, engagementKind: 'OTHER' as const },
+      { type: 'GENERAL_TASK' as const, engagementKind: null },
+      { type: 'PRODUCT_DELIVERY' as const, engagementKind: null },
+    ]) {
+      expect(requiresMandatoryFollowUpProposal(input)).toBe(false);
+    }
+  });
+
   it('marks acceptance missing only when execution exists without an accepted timestamp', () => {
     const model = derive(jobWith({
       status: 'IN_PROGRESS',
@@ -235,16 +252,15 @@ describe('deriveJobWorkflowPresentation', () => {
     const model = derive(managerWaitingJob, manager);
     expect(model.primaryTransition).toMatchObject({
       command: 'APPROVE', label: 'Kontrolü tamamla ve işi kapat',
-      successMessage: 'İş tamamlandı ve takip işi planlandı.',
+      successMessage: 'İş tamamlandı.',
       confirmation: {
         title: 'İşi tamamlamak üzeresiniz',
-        confirmLabel: 'İşi onayla ve takip işini planla',
+        confirmLabel: 'İşi onayla',
       },
     });
     expect(model.primaryTransition?.confirmation?.details).toEqual([
       'Yönetici kontrolünü tamamlar',
       'İşi “Tamamlandı” durumuna geçirir',
-      'Takip işi planını onaylar ve bağlantılı takip işini oluşturur',
       'Aktif iş listesinden kaldırır',
       'İş geçmişine onay kaydı ekler',
     ]);
@@ -254,6 +270,37 @@ describe('deriveJobWorkflowPresentation', () => {
       ['CANCEL', 'İşi iptal et'],
     ]);
     expect(model.responsibility.role).toBe('MANAGEMENT');
+  });
+
+  it('shows mandatory follow-up copy only for CUSTOMER_VISIT completion', () => {
+    const visit = derive(jobWith({
+      type: 'SALES_MEETING',
+      engagementKind: 'CUSTOMER_VISIT',
+      status: 'IN_PROGRESS',
+      workflowContext: contextWith({
+        allowedCommands: ['SUBMIT_FOR_APPROVAL'],
+      }),
+    }));
+    expect(visit.primaryTransition?.consequence).toContain('Takip işi planı zorunludur.');
+    expect(visit.primaryTransition?.confirmation?.details).toContain(
+      'Takip işi planı işle birlikte yöneticiye iletilir',
+    );
+
+    for (const job of [
+      jobWith({ type: 'PRODUCT_DELIVERY', engagementKind: null }),
+      jobWith({ type: 'GENERAL_TASK', engagementKind: null }),
+      jobWith({ type: 'SALES_MEETING', engagementKind: 'TRAINING' }),
+      jobWith({ type: 'SALES_MEETING', engagementKind: 'PRODUCT_DEMO' }),
+      jobWith({ type: 'SALES_MEETING', engagementKind: 'SALES_MEETING' }),
+      jobWith({ type: 'SALES_MEETING', engagementKind: 'FOLLOW_UP' }),
+      jobWith({ type: 'SALES_MEETING', engagementKind: 'OTHER' }),
+    ]) {
+      const model = derive(job);
+      expect(model.primaryTransition?.consequence).not.toContain('Takip işi planı zorunludur.');
+      expect(model.primaryTransition?.confirmation?.details).not.toContain(
+        'Takip işi planı işle birlikte yöneticiye iletilir',
+      );
+    }
   });
 
   it('keeps management interventions secondary outside the management review phase', () => {

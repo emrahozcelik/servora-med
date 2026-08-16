@@ -13,6 +13,7 @@ import { CalendarService } from '../src/modules/calendar/service.js';
 import type {
   JobCard,
   JobCardActor,
+  JobCardEngagementKind,
   JobCardType,
 } from '../src/modules/job-cards/types.js';
 import type { RealtimeEventPublisher } from '../src/modules/realtime/event-bus.js';
@@ -48,6 +49,7 @@ type Fixture = {
     customerId?: string | null;
     assignedTo: string;
     scheduledAt?: string | null;
+    engagementKind?: JobCardEngagementKind;
   }): Promise<JobCard>;
 };
 
@@ -123,6 +125,9 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       const resolvedCustomerId = input.customerId === undefined ? customerId : input.customerId;
       const assignedTo = input.assignedTo;
       const scheduledAt = input.scheduledAt === undefined ? '2026-08-01T10:00:00.000Z' : input.scheduledAt;
+      const scheduledEndsAt = scheduledAt === null
+        ? null
+        : new Date(Date.parse(scheduledAt) + 60 * 60 * 1_000).toISOString();
       const job = await service.create(staffA, {
         clientActionId: randomUUID(),
         type,
@@ -134,8 +139,10 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
         priority: 'normal',
         dueDate: null,
         scheduledAt,
-        scheduledEndsAt: type === 'GENERAL_TASK' ? undefined : '2026-08-01T11:00:00.000Z',
-        engagementKind: type === 'SALES_MEETING' ? 'SALES_MEETING' : undefined,
+        scheduledEndsAt: type === 'GENERAL_TASK' ? undefined : scheduledEndsAt,
+        engagementKind: type === 'SALES_MEETING'
+          ? input.engagementKind ?? 'CUSTOMER_VISIT'
+          : undefined,
       } as never);
       const started = await service.start(staffA, job.id, {
         clientActionId: randomUUID(),
@@ -195,18 +202,75 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
 const appError = (code: string, statusCode: number) => expect.objectContaining({ code, statusCode });
 
 describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract', () => {
-  it('FUP-M1: rejects a Staff submission without a follow-up proposal', async () => {
+  it('D1-1: CUSTOMER_VISIT still rejects a Staff submission without a follow-up proposal', async () => {
     await withFixture(async ({ service, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({
-        type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: staffA.id,
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        title: 'Klinik ziyareti',
+        assignedTo: staffA.id,
       });
       await expect(service.submitForApproval(staffA, job.id, {
         clientActionId: randomUUID(),
         expectedVersion: job.version,
-        note: 'Teslim tamamlandı.',
+        note: 'Ziyaret tamamlandı.',
       })).rejects.toMatchObject(appError('FOLLOW_UP_PROPOSAL_REQUIRED', 400));
       const after = await service.detail(staffA, job.id);
       expect(after.status).toBe('IN_PROGRESS');
+    });
+  });
+
+  it('D1-2: Product Delivery submits and approves without a follow-up proposal', async () => {
+    await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Teslim tamamlandı.',
+      });
+      expect(submitted.status).toBe('WAITING_APPROVAL');
+      expect(submitted.followUpProposal).toBeNull();
+
+      const approved = await service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+      });
+      expect(approved.status).toBe('COMPLETED');
+      expect(approved.followUpProposal).toBeNull();
+    });
+  });
+
+  it('D1-3/D1-8: non-visit Sales Meeting kinds submit without recursive proposal requirements', async () => {
+    await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      for (const [index, engagementKind] of [
+        'TRAINING', 'PRODUCT_DEMO', 'SALES_MEETING', 'FOLLOW_UP', 'OTHER',
+      ].entries() as IterableIterator<[number, JobCardEngagementKind]>) {
+        const scheduledAt = new Date('2026-08-01T10:00:00.000Z');
+        scheduledAt.setUTCDate(scheduledAt.getUTCDate() + index * 21);
+        const job = await createInProgressJob({
+          type: 'SALES_MEETING',
+          engagementKind,
+          title: `${engagementKind} işi`,
+          assignedTo: staffA.id,
+          scheduledAt: scheduledAt.toISOString(),
+        });
+        const submitted = await service.submitForApproval(staffA, job.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: job.version,
+          note: `${engagementKind} tamamlandı.`,
+        });
+        expect(submitted.status).toBe('WAITING_APPROVAL');
+        expect(submitted.followUpProposal).toBeNull();
+
+        const approved = await service.approve(manager, job.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: submitted.version,
+        });
+        expect(approved.status).toBe('COMPLETED');
+        expect(approved.followUpProposal).toBeNull();
+      }
     });
   });
 
@@ -280,7 +344,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
-  it('FUP-M18: forbids Staff from proposing another assignee', async () => {
+  it('D1-16: rejects a new non-visit workflow proposal write before assignee validation', async () => {
     await withFixture(async ({ service, staffA, staffB, createInProgressJob }) => {
       const job = await createInProgressJob({
         type: 'GENERAL_TASK', title: 'Görev', assignedTo: staffA.id, customerId: null,
@@ -295,14 +359,17 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
           assignedTo: staffB.id,
           followUpInstructions: 'Takip: Görev',
         },
-      })).rejects.toMatchObject(appError('FORBIDDEN', 403));
+      })).rejects.toMatchObject(appError('FOLLOW_UP_PROPOSAL_INVALID', 400));
     });
   });
 
-  it('FUP-M18B: forbids Staff from overriding the follow-up type on a SALES_MEETING source', async () => {
+  it('D1-16: rejects a non-visit Sales Meeting workflow proposal write', async () => {
     await withFixture(async ({ service, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({
-        type: 'SALES_MEETING', title: 'Kontrol görüşmesi', assignedTo: staffA.id,
+        type: 'SALES_MEETING',
+        engagementKind: 'TRAINING',
+        title: 'Eğitim görüşmesi',
+        assignedTo: staffA.id,
       });
       await expect(service.submitForApproval(staffA, job.id, {
         clientActionId: randomUUID(),
@@ -314,14 +381,14 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
           assignedTo: staffA.id,
           followUpInstructions: 'Takip: Kontrol görüşmesi',
         },
-      })).rejects.toMatchObject(appError('FORBIDDEN', 403));
+      })).rejects.toMatchObject(appError('FOLLOW_UP_PROPOSAL_INVALID', 400));
       const after = await service.detail(staffA, job.id);
       expect(after.status).toBe('IN_PROGRESS');
       expect(after.followUpProposal).toBeNull();
     });
   });
 
-  it('FUP-M18B: forbids Staff from overriding the PRODUCT_DELIVERY default type (SALES_MEETING)', async () => {
+  it('D1-16: rejects a Product Delivery workflow proposal write', async () => {
     await withFixture(async ({ service, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({
         type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: staffA.id,
@@ -336,7 +403,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
           assignedTo: staffA.id,
           followUpInstructions: 'Takip: Teslim',
         },
-      })).rejects.toMatchObject(appError('FORBIDDEN', 403));
+      })).rejects.toMatchObject(appError('FOLLOW_UP_PROPOSAL_INVALID', 400));
     });
   });
 
@@ -395,7 +462,10 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       service, calendar, manager, staffA, createInProgressJob, customerId,
     }) => {
       const job = await createInProgressJob({
-        type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: staffA.id,
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        title: 'Ziyaret',
+        assignedTo: staffA.id,
       });
       const submitted = await service.submitForApproval(staffA, job.id, {
         clientActionId: randomUUID(),
@@ -444,7 +514,10 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
   it('FUP-M14/M10: replays return the original child and never create a second one', async () => {
     await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({
-        type: 'GENERAL_TASK', title: 'Görev', assignedTo: staffA.id, customerId: null,
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        title: 'Ziyaret',
+        assignedTo: staffA.id,
       });
       const submitted = await service.submitForApproval(staffA, job.id, {
         clientActionId: randomUUID(),
@@ -452,7 +525,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         note: 'Görev tamamlandı.',
         followUpProposal: {
           scheduledAt: PROPOSAL_AT,
-          type: 'GENERAL_TASK',
+          type: 'SALES_MEETING',
           assignedTo: staffA.id,
           followUpInstructions: 'Takip: Görev',
         },
@@ -528,7 +601,10 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
   it('FUP-M8: Manager may change the assignee at approval', async () => {
     await withFixture(async ({ service, manager, staffA, staffB, createInProgressJob }) => {
       const job = await createInProgressJob({
-        type: 'GENERAL_TASK', title: 'Görev', assignedTo: staffA.id, customerId: null,
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        title: 'Ziyaret',
+        assignedTo: staffA.id,
       });
       const submitted = await service.submitForApproval(staffA, job.id, {
         clientActionId: randomUUID(),
@@ -536,7 +612,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         note: 'Görev tamamlandı.',
         followUpProposal: {
           scheduledAt: PROPOSAL_AT,
-          type: 'GENERAL_TASK',
+          type: 'SALES_MEETING',
           assignedTo: staffA.id,
           followUpInstructions: 'Takip: Görev',
         },
@@ -546,7 +622,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         expectedVersion: submitted.version,
         followUp: {
           scheduledAt: PROPOSAL_AT,
-          type: 'GENERAL_TASK',
+          type: 'SALES_MEETING',
           assignedTo: staffB.id,
           followUpInstructions: 'Takip: Görev',
         },
@@ -723,7 +799,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
     });
   });
 
-  it('CSI-16: customerless General Tasks skip scheduling evaluation and still require a proposal', async () => {
+  it('D1-4/CSI-16: customerless General Tasks submit and approve without a proposal', async () => {
     await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
       const job = await createInProgressJob({
         type: 'GENERAL_TASK', title: 'Uzaktan görev', assignedTo: staffA.id, customerId: null,
@@ -732,49 +808,59 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         clientActionId: randomUUID(),
         expectedVersion: job.version,
         note: 'Görev tamamlandı.',
-        followUpProposal: {
-          scheduledAt: PROPOSAL_AT,
-          type: 'GENERAL_TASK',
-          assignedTo: staffA.id,
-          followUpInstructions: 'Takip: Uzaktan görev',
-        },
       });
+      expect(submitted.followUpProposal).toBeNull();
       const approved = await service.approve(manager, job.id, {
         clientActionId: randomUUID(),
         expectedVersion: submitted.version,
-      }) as JobCard & { followUpJobCardId: string };
-      const child = await service.detail(manager, approved.followUpJobCardId);
-      expect(child).toMatchObject({
-        type: 'GENERAL_TASK', customerId: null, contactId: null,
-        scheduledAt: PROPOSAL_AT, scheduledEndsAt: null,
       });
+      expect(approved.status).toBe('COMPLETED');
+      expect(approved.followUpProposal).toBeNull();
     });
   });
 
-  it('legacy WAITING_APPROVAL rows without a proposal require a Manager-supplied one at approval', async () => {
+  it('D1-15: legacy non-visit approval rows remain resolvable with and without persisted proposals', async () => {
     await withFixture(async ({ service, pool, manager, staffA, organizationId }) => {
-      const legacy = await pool.query<{ id: string }>(
+      const noProposal = await pool.query<{ id: string }>(
         `INSERT INTO job_cards (organization_id, type, status, version, title, assigned_to, created_by,
            started_at, staff_completed_at, staff_completed_by)
          VALUES ($1, 'GENERAL_TASK', 'WAITING_APPROVAL', 2, 'Eski iş', $2, $3, NOW(), NOW(), $2) RETURNING id`,
         [organizationId, staffA.id, manager.id],
       );
-      await expect(service.approve(manager, legacy.rows[0]!.id, {
+      const approvedWithoutProposal = await service.approve(manager, noProposal.rows[0]!.id, {
         clientActionId: randomUUID(),
         expectedVersion: 2,
-      })).rejects.toMatchObject(appError('FOLLOW_UP_PROPOSAL_REQUIRED', 400));
+      });
+      expect(approvedWithoutProposal.status).toBe('COMPLETED');
+      expect(approvedWithoutProposal.followUpProposal).toBeNull();
+      expect((approvedWithoutProposal as JobCard & { followUpJobCardId?: string }).followUpJobCardId)
+        .toBeUndefined();
 
-      const approved = await service.approve(manager, legacy.rows[0]!.id, {
+      const persistedProposal = await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (
+           organization_id, type, status, version, title, assigned_to, created_by,
+           started_at, staff_completed_at, staff_completed_by,
+           follow_up_proposed_at, follow_up_proposed_type, follow_up_proposed_assignee,
+           follow_up_proposal_instructions, follow_up_proposal_origin, follow_up_proposed_by
+         )
+         VALUES ($1, 'GENERAL_TASK', 'WAITING_APPROVAL', 2, 'Eski teklifli iş', $2, $3,
+           NOW(), NOW(), $2, $4, 'GENERAL_TASK', $2, 'Takip: Eski iş takibi', 'SYSTEM', $3)
+         RETURNING id`,
+        [organizationId, staffA.id, manager.id, PROPOSAL_AT],
+      );
+      const approvedWithProposal = await service.approve(manager, persistedProposal.rows[0]!.id, {
         clientActionId: randomUUID(),
         expectedVersion: 2,
-        followUp: {
-          scheduledAt: PROPOSAL_AT,
-          type: 'GENERAL_TASK',
-          assignedTo: staffA.id,
-          followUpInstructions: 'Takip: Eski iş takibi',
-        },
       }) as JobCard & { followUpJobCardId: string };
-      expect(approved.followUpJobCardId).toBeTypeOf('string');
+      expect(approvedWithProposal.followUpJobCardId).toBeTypeOf('string');
+      const child = await service.detail(manager, approvedWithProposal.followUpJobCardId);
+      expect(child).toMatchObject({
+        type: 'GENERAL_TASK',
+        scheduledAt: PROPOSAL_AT,
+      });
+      expect(child.followUpContext).toMatchObject({
+        sourceJobCardId: persistedProposal.rows[0]!.id,
+      });
     });
   });
 });

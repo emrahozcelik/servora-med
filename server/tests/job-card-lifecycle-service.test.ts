@@ -352,16 +352,8 @@ function twoJobRepository() {
 const staff: JobCardActor = { id: 'staff-1', organizationId: 'org-1', role: 'STAFF' };
 const manager: JobCardActor = { id: 'manager-1', organizationId: 'org-1', role: 'MANAGER' };
 const time = new Date('2026-07-13T12:00:00.000Z');
-const proposal = {
-  scheduledAt: '2026-07-20T12:00:00.000Z',
-  type: 'SALES_MEETING' as const,
-  assignedTo: 'staff-1',
-  followUpInstructions: 'Takip: Kontrol görüşmesi',
-};
 const input = (clientActionId: string, expectedVersion = 2) => ({
   clientActionId, expectedVersion, note: 'Tamamlandı',
-  followUpProposal: proposal,
-  followUp: proposal,
 });
 
 function advancingClock(): () => Date {
@@ -378,6 +370,7 @@ function salesMeetingRepository() {
     customerId: 'customer-1',
     contactId: null,
     dueDate: '2026-07-15',
+    engagementKind: 'SALES_MEETING',
   };
   repository.items = [];
   return repository;
@@ -466,13 +459,9 @@ describe('JobCard lifecycle commands', () => {
     const result = await service[method](method === 'approve' || method === 'requestRevision' || method === 'cancel' ? manager : staff, 'job-1', commandInput as never);
 
     expect(result).toMatchObject({ status: target, version: 3 });
-    const expectedEvents = method === 'approve' ? [event, 'JOB_CREATED'] : [event];
+    const expectedEvents = [event];
     expect(repo.events.map((item) => item.event)).toEqual(expectedEvents);
     expect(repo.events[0]).toMatchObject({ clientActionId: method });
-    if (method === 'approve') {
-      expect(repo.events[1]).toMatchObject({ jobCardId: 'child-job-1', event: 'JOB_CREATED' });
-      expect(result).toMatchObject({ followUpJobCardId: 'child-job-1' });
-    }
     expect(repo.claims[0]).toMatchObject({ operationKey: `${operationKey}:job-1`, clientActionId: method });
     expect(repo.transitions).toHaveLength(1);
   });
@@ -694,11 +683,7 @@ describe('JobCard lifecycle commands', () => {
       ? { ...input(`task-${method}`), revisionReason: ' Düzeltin ' }
       : method === 'cancel'
         ? { ...input(`task-${method}`), cancelReason: ' İptal edildi ' }
-        : {
-            ...input(`task-${method}`),
-            followUpProposal: { ...proposal, type: 'GENERAL_TASK' as const },
-            followUp: { ...proposal, type: 'GENERAL_TASK' as const },
-          };
+        : { ...input(`task-${method}`) };
     const commandActor = method === 'approve' || method === 'requestRevision' || method === 'cancel'
       ? manager : staff;
 
@@ -708,7 +693,7 @@ describe('JobCard lifecycle commands', () => {
 
     expect(result).toMatchObject({ type: 'GENERAL_TASK', status: target, version: 3 });
     expect(result).toMatchObject({ assignee: { id: 'staff-1', name: 'Staff One' } });
-    const expectedEvents = method === 'approve' ? [event, 'JOB_CREATED'] : [event];
+    const expectedEvents = [event];
     expect(repo.events.map((item) => item.event)).toEqual(expectedEvents);
     expect(repo.transitions).toHaveLength(1);
   });
@@ -812,7 +797,6 @@ describe('JobCard lifecycle commands', () => {
       await service.approve(manager, 'job-1', input('calendar-complete'));
       expect(repo.calendarSyncs).toEqual([
         expect.objectContaining({ jobCardId: 'job-1', active: false }),
-        expect.objectContaining({ jobCardId: 'child-job-1', active: true }),
       ]);
     }
     expect(repo.job.status).toBe(target);
@@ -888,12 +872,6 @@ describe('JobCard lifecycle commands', () => {
     await new JobCardService(empty, () => time).approve(manager, 'job-1', { ...input('empty-note'), note: '  ' });
     expect(empty.transitions[0]!.note).toBeNull();
     expect(empty.notes).toHaveLength(0);
-    expect(empty.events[0]?.metadata).toMatchObject({
-      followUpProposal: expect.objectContaining({
-        type: 'SALES_MEETING',
-        assignedTo: 'staff-1',
-      }),
-    });
 
     const max = new LifecycleRepository();
     max.job.status = 'WAITING_APPROVAL';
@@ -996,7 +974,6 @@ describe('JobCard lifecycle commands', () => {
 
     await expect(new JobCardService(repo, () => time).submitForApproval(staff, 'job-1', {
       ...input('task-submit'),
-      followUpProposal: { ...proposal, type: 'GENERAL_TASK' as const },
     }))
       .resolves.toMatchObject({ type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', version: 3 });
     expect(repo.events.map((item) => item.event)).toEqual(['JOB_SUBMITTED_FOR_APPROVAL']);

@@ -106,6 +106,7 @@ import {
   defaultFollowUpInstructions,
   defaultFollowUpType,
   deriveProposalOrigin,
+  requiresMandatoryFollowUpProposal,
   suggestedFollowUpInstant,
   type FollowUpProposalFields,
 } from './follow-up-policy.js';
@@ -1507,22 +1508,32 @@ export class JobCardService {
         } | null = null;
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
           await validateSubmission(tx, actor, job, requestTime);
-          const proposal = await this.validateFollowUpProposal(
-            tx, actor, job, definition.followUpProposal, requestTime,
-          );
-          await this.evaluateProposalAdvisory(tx, actor, job, proposal, requestTime);
-          const suggestion = await this.computeFollowUpSuggestion(tx, actor, job, requestTime);
-          const origin = suggestion.fields === null
-            ? 'STAFF_ADJUSTED'
-            : deriveProposalOrigin(proposal, suggestion.fields);
-          persistedProposal = {
-            scheduledAt: new Date(proposal.scheduledAt),
-            type: proposal.type,
-            assignedTo: proposal.assignedTo,
-            instructions: proposal.followUpInstructions,
-            origin,
-            proposedBy: actor.id,
-          };
+          if (!requiresMandatoryFollowUpProposal(job)
+            && definition.followUpProposal !== undefined) {
+            throw new AppError(
+              'FOLLOW_UP_PROPOSAL_INVALID',
+              400,
+              'Bu iş türü için takip işi planı desteklenmiyor.',
+            );
+          }
+          if (requiresMandatoryFollowUpProposal(job)) {
+            const proposal = await this.validateFollowUpProposal(
+              tx, actor, job, definition.followUpProposal, requestTime,
+            );
+            await this.evaluateProposalAdvisory(tx, actor, job, proposal, requestTime);
+            const suggestion = await this.computeFollowUpSuggestion(tx, actor, job, requestTime);
+            const origin = suggestion.fields === null
+              ? 'STAFF_ADJUSTED'
+              : deriveProposalOrigin(proposal, suggestion.fields);
+            persistedProposal = {
+              scheduledAt: new Date(proposal.scheduledAt),
+              type: proposal.type,
+              assignedTo: proposal.assignedTo,
+              instructions: proposal.followUpInstructions,
+              origin,
+              proposedBy: actor.id,
+            };
+          }
         }
         if (definition.command === 'APPROVE') {
           approval = await this.resolveApproveFollowUp(
@@ -1875,13 +1886,23 @@ export class JobCardService {
     job: JobCard,
     input: ApproveFollowUpInput | undefined,
     requestTime: Date,
-  ): Promise<{ proposal: FollowUpProposalFields; overrideReason: string | null }> {
+  ): Promise<{ proposal: FollowUpProposalFields; overrideReason: string | null } | null> {
     const persisted = job.followUpProposedAt !== null
       && job.followUpProposedType !== null
       && job.followUpProposedAssignee !== null
       && job.followUpProposalInstructions !== null;
     if (!persisted && !input) {
-      throw new AppError('FOLLOW_UP_PROPOSAL_REQUIRED', 400, 'Takip işi planı zorunludur.');
+      if (requiresMandatoryFollowUpProposal(job)) {
+        throw new AppError('FOLLOW_UP_PROPOSAL_REQUIRED', 400, 'Takip işi planı zorunludur.');
+      }
+      return null;
+    }
+    if (!requiresMandatoryFollowUpProposal(job) && !persisted && input) {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        400,
+        'Bu iş türü için takip işi planı desteklenmiyor.',
+      );
     }
     const proposal = await this.validateFollowUpProposal(
       tx,
@@ -2013,6 +2034,13 @@ export class JobCardService {
     const detail = await this.detail(actor, jobCardId);
     if (detail.status === 'COMPLETED' || detail.status === 'CANCELLED') {
       throw new AppError('INVALID_TRANSITION', 409, 'Bu iş için takip önerisi oluşturulamaz.');
+    }
+    if (at === undefined && !requiresMandatoryFollowUpProposal(detail)) {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        400,
+        'Bu iş türü için takip işi önerisi bulunmuyor.',
+      );
     }
     const timezone = await this.repository.getOrganizationTimezone(actor.organizationId);
     const defaultFields: FollowUpProposalFields = {

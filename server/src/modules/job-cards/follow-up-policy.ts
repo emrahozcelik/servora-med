@@ -1,4 +1,4 @@
-import type { JobCardType } from './types.js';
+import type { JobCardEngagementKind, JobCardType } from './types.js';
 import {
   addCalendarDaysToDateKey,
   instantFromLocal,
@@ -29,6 +29,13 @@ const FOLLOW_UP_TYPE_DEFAULTS: Record<JobCardType, JobCardType> = {
 
 export function defaultFollowUpType(sourceType: JobCardType): JobCardType {
   return FOLLOW_UP_TYPE_DEFAULTS[sourceType];
+}
+
+export function requiresMandatoryFollowUpProposal(input: {
+  type: JobCardType;
+  engagementKind: JobCardEngagementKind | null;
+}): boolean {
+  return input.type === 'SALES_MEETING' && input.engagementKind === 'CUSTOMER_VISIT';
 }
 
 /**
