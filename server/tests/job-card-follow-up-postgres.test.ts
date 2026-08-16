@@ -596,6 +596,11 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         inactiveCustomerSource,
         input(fixture.staffA.id),
       )).rejects.toMatchObject(appError('CUSTOMER_INACTIVE', 409));
+      await expect(fixture.service.createFollowUp(
+        fixture.admin,
+        inactiveCustomerSource,
+        input(randomUUID()),
+      )).rejects.toMatchObject(appError('CUSTOMER_INACTIVE', 409));
       const customerless = await fixture.createSource({ customerId: null, contactId: null });
       await expect(fixture.service.createFollowUp(
         fixture.admin,

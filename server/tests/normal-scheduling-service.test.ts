@@ -46,7 +46,12 @@ class SchedulingMemoryRepository implements JobCardRepository {
   activeOnSiteJobs: ActiveOnSiteJobRecord[] = [];
   recentOnSiteVisits: RecentOnSiteVisitRecord[] = [];
   /** Assignee calendar commitments used by the in-memory assertCalendarAvailability. */
-  calendarEvents: Array<{ assignedUserId: string; startsAt: string; endsAt: string }> = [];
+  calendarEvents: Array<{
+    assignedUserId: string;
+    startsAt: string;
+    endsAt: string;
+    source?: 'JOB' | 'MANUAL';
+  }> = [];
   lockOrder: string[] = [];
   customerLockCount = 0;
 
@@ -67,8 +72,10 @@ class SchedulingMemoryRepository implements JobCardRepository {
       transitionWithVersion: async () => null,
       getAssignee: async (org, id) =>
         this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
-      getAssigneeForUpdate: async (org, id) =>
-        this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null,
+      getAssigneeForUpdate: async (org, id) => {
+        this.lockOrder.push('assignee');
+        return this.assignees.find((item) => item.organizationId === org && item.id === id) ?? null;
+      },
       customerExists: async (org, id) =>
         this.customers.some((item) => item.organizationId === org && item.id === id),
       getCustomerForUpdate: async (org, id) => {
@@ -154,13 +161,13 @@ class SchedulingMemoryRepository implements JobCardRepository {
             'Seçilen personelin bu zaman aralığında başka bir planı bulunuyor.',
             {
               conflicts: [{
-                source: 'JOB',
+                source: conflict.source ?? 'JOB',
                 id: 'existing-cal',
-                title: 'Mevcut plan',
+                title: conflict.source === 'MANUAL' ? 'Özel manuel plan' : 'Mevcut plan',
                 startsAt: conflict.startsAt,
                 endsAt: conflict.endsAt,
                 assignedUser: { id: input.assignedUserId, name: 'Staff One' },
-                relatedJobPath: '/jobs/existing-cal',
+                relatedJobPath: conflict.source === 'MANUAL' ? null : '/jobs/existing-cal',
               }],
             },
           );
@@ -550,6 +557,51 @@ describe('normal customer scheduling — patch / reschedule', () => {
     expect(repository.lockOrder.indexOf('job')).toBeLessThan(repository.lockOrder.indexOf('customer'));
   });
 
+  it('P0-C5: same-assignee interval patch locks User before Customer availability evaluation', async () => {
+    const repository = new SchedulingMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, deliveryInput({ clientActionId: 'p0-same-assignee-lock' }));
+    repository.lockOrder = [];
+
+    await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-30T10:00:00.000Z',
+    });
+
+    expect(repository.lockOrder.indexOf('job')).toBeLessThan(repository.lockOrder.indexOf('assignee'));
+    expect(repository.lockOrder.indexOf('assignee')).toBeLessThan(repository.lockOrder.indexOf('customer'));
+  });
+
+  it('P0-C6: metadata-only patch does not acquire calendar capacity lock', async () => {
+    const repository = new SchedulingMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, meetingInput({ clientActionId: 'p0-metadata-only' }));
+    repository.lockOrder = [];
+
+    await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      title: 'Güncellenmiş başlık',
+    });
+
+    expect(repository.lockOrder).not.toContain('assignee');
+  });
+
+  it('P0-C7: Customer schedule conflict still precedes calendar conflict on patch', async () => {
+    const repository = new SchedulingMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, deliveryInput({ clientActionId: 'p0-precedence' }));
+    repository.activeOnSiteJobs = [activeJob({ scheduledAt: '2026-07-25T09:00:00.000Z' })];
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-25T10:00:00.000Z', endsAt: '2026-07-25T11:00:00.000Z' },
+    ];
+
+    await expect(service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-25T10:00:00.000Z',
+      scheduledEndsAt: '2026-07-25T11:00:00.000Z',
+    })).rejects.toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 });
+  });
+
   it('NJS-15: Customerless General Task create is unaffected', async () => {
     const repository = new SchedulingMemoryRepository();
     const created = await serviceOf(repository).create(staff, {
@@ -642,6 +694,68 @@ describe('create-time assignee availability parity (AAP)', () => {
       .catch((caught) => caught);
     expect(error).toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
     expect(error.details).toEqual({ conflicts: [] });
+  });
+
+  it('AAP-P1: STAFF schedule patch hides JobCard calendar conflict details', async () => {
+    const repository = new SchedulingMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(staff, meetingInput());
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-21T10:00:00.000Z', endsAt: '2026-07-21T11:00:00.000Z' },
+    ];
+
+    const error = await service.patch(staff, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T10:00:00.000Z',
+    }).catch((caught) => caught);
+
+    expect(error).toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+    expect(error.details).toEqual({ conflicts: [] });
+  });
+
+  it('AAP-P2: STAFF schedule patch hides Manual Calendar conflict details', async () => {
+    const repository = new SchedulingMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(staff, meetingInput({
+      clientActionId: 'staff-manual-conflict-create',
+    }));
+    repository.calendarEvents = [{
+      assignedUserId: 'staff-1',
+      startsAt: '2026-07-21T10:00:00.000Z',
+      endsAt: '2026-07-21T11:00:00.000Z',
+      source: 'MANUAL',
+    }];
+
+    const error = await service.patch(staff, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T10:00:00.000Z',
+    }).catch((caught) => caught);
+
+    expect(error).toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+    expect(error.details).toEqual({ conflicts: [] });
+  });
+
+  it('AAP-P3: MANAGER schedule patch retains approved same-org conflict detail', async () => {
+    const repository = new SchedulingMemoryRepository();
+    const service = calendarServiceOf(repository);
+    const created = await service.create(manager, meetingInput({
+      clientActionId: 'manager-patch-conflict-create',
+    }));
+    repository.calendarEvents = [
+      { assignedUserId: 'staff-1', startsAt: '2026-07-21T10:00:00.000Z', endsAt: '2026-07-21T11:00:00.000Z' },
+    ];
+
+    const error = await service.patch(manager, created.id, {
+      expectedVersion: 1,
+      scheduledAt: '2026-07-21T10:00:00.000Z',
+    }).catch((caught) => caught);
+
+    expect(error).toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });
+    expect(error.details.conflicts).toEqual([expect.objectContaining({
+      source: 'JOB',
+      title: 'Mevcut plan',
+      relatedJobPath: '/jobs/existing-cal',
+    })]);
   });
 
   it('AAP-8: MANAGER conflict → same-org rich conflict detail retained', async () => {
