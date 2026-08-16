@@ -1115,18 +1115,9 @@ OFFSET $${offsetParameter}`;
   async getWorkTypeDistribution(
     input: WorkTypeDistributionInput,
   ): Promise<WorkTypeDistributionItem[]> {
-    const managerFilter = input.managerUserId
-      ? `AND EXISTS (
-           SELECT 1 FROM staff_profiles sp
-            WHERE sp.organization_id = j.organization_id
-              AND sp.user_id = j.assigned_to
-              AND sp.manager_user_id = $${input.staffUserId ? 5 : 4}
-         )`
-      : '';
     const staffFilter = input.staffUserId ? 'AND j.assigned_to = $4' : '';
     const values: unknown[] = [input.organizationId, input.from, input.to];
     if (input.staffUserId) values.push(input.staffUserId);
-    if (input.managerUserId) values.push(input.managerUserId);
     const result = await this.pool.query<{ type: string; count: string }>(
       `SELECT j.type, COUNT(*)::int AS count
          FROM job_cards j
@@ -1135,7 +1126,6 @@ OFFSET $${offsetParameter}`;
           AND j.created_at >= ($2::date AT TIME ZONE o.timezone)
           AND j.created_at < (($3::date + 1) AT TIME ZONE o.timezone)
           ${staffFilter}
-          ${managerFilter}
         GROUP BY j.type
         ORDER BY count DESC, j.type ASC
         LIMIT 10`,

@@ -64,7 +64,7 @@ describe('OverviewService', () => {
     },
   );
 
-  it('O-R2-9: Manager work-type distribution is requested organization-wide without managerUserId', async () => {
+  it('O-R2-9: Manager work-type distribution is requested organization-wide without team scope', async () => {
     const getWorkTypeDistribution = vi.fn().mockResolvedValue([]);
     const reports = { getWorkTypeDistribution } as never;
     const repository = {
@@ -87,14 +87,18 @@ describe('OverviewService', () => {
       staffUserId: null,
     }));
     const managerCall = getWorkTypeDistribution.mock.calls[0]![0] as Record<string, unknown>;
-    expect(managerCall.managerUserId).toBeUndefined();
+    expect(Object.keys(managerCall).sort()).toEqual(['from', 'organizationId', 'staffUserId', 'to']);
 
     const admin = { ...staff, role: 'ADMIN' as const };
     getWorkTypeDistribution.mockClear();
     await service.getOverview(admin, { requestedRange: null });
     expect(getWorkTypeDistribution).toHaveBeenCalledTimes(1);
     const adminCall = getWorkTypeDistribution.mock.calls[0]![0] as Record<string, unknown>;
-    expect(adminCall.managerUserId).toBeUndefined();
-    expect(adminCall.organizationId).toBe(staff.organizationId);
+    expect(adminCall).toEqual({
+      organizationId: staff.organizationId,
+      from: '2026-07-01',
+      to: '2026-07-31',
+      staffUserId: null,
+    });
   });
 });
