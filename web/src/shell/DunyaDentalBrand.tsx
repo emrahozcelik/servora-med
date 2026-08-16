@@ -2,9 +2,9 @@ import { useState } from 'react';
 
 type DunyaDentalBrandVariant = 'login' | 'sidebar' | 'topbar';
 
-/** Explicit variant source map: sidebar uses the cropped Dünya Dental mark. */
+/** Explicit variant source map: login and sidebar use the cropped Dünya Dental mark. */
 const BRAND_SOURCES: Record<DunyaDentalBrandVariant, string> = {
-  login: '/branding/dunya-dental.png',
+  login: '/branding/dunya-dental-sidebar.png',
   topbar: '/branding/dunya-dental.png',
   sidebar: '/branding/dunya-dental-sidebar.png',
 };

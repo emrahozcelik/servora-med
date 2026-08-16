@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type KeyboardEvent, type ReactNode } from 
 import { NavLink, useLocation, useNavigate } from 'react-router-dom';
 
 import { NewJobMenu } from './jobs/NewJobMenu';
+import { setDocumentTitle } from './document-title';
 import { paths } from './paths';
 import type { CurrentUser } from './services/api';
 import { MobileBottomNav } from './shell/MobileBottomNav';
@@ -122,6 +123,10 @@ export function AppShell({ user, pendingSignOut, onSignOut, children }: AppShell
   const drawerDestinations = drawerMode === 'overflow' && model.overflow.length > 0
     ? model.overflow
     : model.destinations;
+
+  useEffect(() => {
+    setDocumentTitle(title);
+  }, [title]);
 
   function closeDrawer(restoreFocus: boolean) {
     restoreFocusRef.current = restoreFocus;

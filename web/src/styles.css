@@ -58,7 +58,12 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .brand-lockup { display: inline-flex; align-items: center; justify-content: center; width: 100%; min-width: 0; }
 .dunya-dental-brand { display: inline-flex; align-items: center; min-width: 0; max-width: 100%; overflow: hidden; color: var(--muted); font-size: 0.68rem; font-weight: 700; }
 .dunya-dental-brand img { display: block; width: auto; max-width: 100%; object-fit: contain; }
-.dunya-dental-brand--login img { height: 4rem; max-width: 12rem; }
+.dunya-dental-brand--login { margin-inline-start: -0.75rem; }
+.dunya-dental-brand--login img {
+  width: clamp(13rem, 15vw, 14rem);
+  height: auto;
+  max-width: 100%;
+}
 .dunya-dental-brand--sidebar { width: 100%; }
 .dunya-dental-brand--sidebar img {
   width: 100%;
@@ -2680,6 +2685,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
 @media (max-width: 720px) {
   .login-layout { display: block; }
   .login-introduction { min-height: auto; padding: 1rem; border-right: 0; border-bottom: 1px solid var(--rule); }
+  .dunya-dental-brand--login { margin-inline-start: -0.25rem; }
+  .dunya-dental-brand--login img { width: clamp(8rem, 35vw, 9rem); height: auto; }
   .login-context { display: none; }
   .context-note { margin-block: 0.4rem 0; }
   .login-panel { min-height: calc(100vh - 4.1rem); place-items: start center; padding: clamp(2.5rem, 12vh, 5rem) 1rem 2rem; }

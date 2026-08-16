@@ -33,6 +33,14 @@ function setDesktop(matches: boolean) {
   }));
 }
 
+function setStandaloneDisplayMode() {
+  vi.stubGlobal('matchMedia', vi.fn().mockImplementation((query: string) => ({
+    matches: query === '(display-mode: standalone)', media: query, onchange: null,
+    addEventListener: vi.fn(), removeEventListener: vi.fn(),
+    addListener: vi.fn(), removeListener: vi.fn(), dispatchEvent: vi.fn(),
+  })));
+}
+
 function LocationProbe() {
   return <span data-location>{useLocation().pathname}</span>;
 }
@@ -207,6 +215,20 @@ describe('responsive authenticated AppShell', () => {
     expect(container.querySelector('.desktop-shell-title')?.textContent).toBe('Müşteriler');
     expect(container.querySelector('[data-location]')?.textContent).toBe('/customers');
     expect(topbar.querySelector('[aria-label="Bildirimler"]')).not.toBeNull();
+  });
+
+  it('uses the route-only title in standalone mode without repeating the product name', async () => {
+    setStandaloneDisplayMode();
+    await act(async () => root.render(
+      <MemoryRouter initialEntries={['/products']}>
+        <AppShell user={manager} pendingSignOut={false} onSignOut={() => {}}>
+          <main><h1>İçerik</h1></main>
+        </AppShell>
+      </MemoryRouter>,
+    ));
+
+    expect(document.title).toBe('Ürünler');
+    expect(document.title).not.toContain('Dünya Dental');
   });
 
   it('renders only compact structure below 64rem and opens a labelled modal drawer', async () => {
