@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CalendarPage } from '../src/calendar/CalendarPage';
+import { isoInstantToLocalDateTime } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
 
 const calendarApi = vi.hoisted(() => ({
@@ -404,8 +405,12 @@ describe('CalendarPage', () => {
     const slotButton = dialog.querySelector('button[data-available-slot]') as HTMLButtonElement;
     expect(slotButton).toBeTruthy();
     await act(async () => slotButton.click());
-    expect(dialog.querySelectorAll('input[type="datetime-local"]')[0]).toHaveProperty('value', '2026-07-29T13:00');
-    expect(dialog.querySelectorAll('input[type="datetime-local"]')[1]).toHaveProperty('value', '2026-07-29T15:00');
+    expect(dialog.querySelectorAll('input[type="datetime-local"]')[0]).toHaveProperty(
+      'value', isoInstantToLocalDateTime('2026-07-29T10:00:00.000Z'),
+    );
+    expect(dialog.querySelectorAll('input[type="datetime-local"]')[1]).toHaveProperty(
+      'value', isoInstantToLocalDateTime('2026-07-29T12:00:00.000Z'),
+    );
   });
 
   it('deep-link selects the event', async () => {

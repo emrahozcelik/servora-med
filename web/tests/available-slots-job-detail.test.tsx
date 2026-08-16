@@ -6,6 +6,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { JobDetailPanel } from '../src/JobDetail';
 import type { CurrentUser } from '../src/services/api';
 import type { CustomerScheduleEvaluation, JobCard } from '../src/jobs/jobs-api';
+import { isoInstantToLocalDateTime } from '../src/jobs/scheduling';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
@@ -91,8 +92,10 @@ describe('JobDetail joint slot edit', () => {
     const button = container.querySelector('button[data-available-slot]') as HTMLButtonElement;
     expect(button).toBeTruthy();
     await act(async () => button.click());
-    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value).toBe('2026-08-17T13:00');
-    expect((container.querySelector('#job-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-17T14:00');
+    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value)
+      .toBe(isoInstantToLocalDateTime('2026-08-17T10:00:00.000Z'));
+    expect((container.querySelector('#job-scheduled-ends-at') as HTMLInputElement).value)
+      .toBe(isoInstantToLocalDateTime('2026-08-17T11:00:00.000Z'));
     await act(async () => (container.querySelector('.job-schedule-edit form') as HTMLFormElement).requestSubmit());
     expect(onSave).toHaveBeenCalledWith(
       '2026-08-17T10:00:00.000Z',
@@ -125,7 +128,9 @@ describe('JobDetail joint slot edit', () => {
       .find((candidate) => candidate.textContent?.includes('Müşteri için önerilen alternatif zamanı kullan'));
     expect(button).toBeTruthy();
     await act(async () => (button as HTMLButtonElement).click());
-    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value).toBe('2026-08-17T13:00');
-    expect((container.querySelector('#job-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-17T14:00');
+    expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value)
+      .toBe(isoInstantToLocalDateTime('2026-08-17T10:00:00.000Z'));
+    expect((container.querySelector('#job-scheduled-ends-at') as HTMLInputElement).value)
+      .toBe(isoInstantToLocalDateTime('2026-08-17T11:00:00.000Z'));
   });
 });
