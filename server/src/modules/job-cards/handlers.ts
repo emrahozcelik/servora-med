@@ -3,7 +3,12 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 import { AppError } from '../../errors/index.js';
 import type { JobCardService } from './service.js';
 import type { JobCardActor } from './types.js';
-import { parseFollowUpCreateInput, parseCustomerSchedulePreviewInput, parseJobCardCreateInput } from './create-input.js';
+import {
+  parseAvailableSlotsInput,
+  parseFollowUpCreateInput,
+  parseCustomerSchedulePreviewInput,
+  parseJobCardCreateInput,
+} from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
 import {
   isoInstant,
@@ -156,6 +161,8 @@ export function createJobCardHandlers(service: JobCardService) {
         actor(request),
         parseCustomerSchedulePreviewInput(request.body),
       ),
+    availableSlots: async (request: FastifyRequest) =>
+      service.availableSlots(actor(request), parseAvailableSlotsInput(request.body)),
     requestRevision: async (request: FastifyRequest<{ Params: Params }>) =>
       service.requestRevision(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'revisionReason']) as never),
     withdrawFromApproval: async (request: FastifyRequest<{ Params: Params }>) =>

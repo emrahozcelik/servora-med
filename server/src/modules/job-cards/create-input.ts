@@ -3,6 +3,7 @@ import {
   JOB_CARD_PRIORITIES,
   JOB_CARD_TYPES,
   type CustomerSchedulePreviewInput,
+  type AvailableSlotsInput,
   type FollowUpCreateInput,
   type JobCardCreateInput,
   type JobCardEngagementKind,
@@ -246,6 +247,32 @@ export function parseCustomerSchedulePreviewInput(value: unknown): CustomerSched
     type: record.type as JobCardType,
     customerId: optionalUuid(record.customerId, 'customerId'),
     scheduledAt: requiredScheduledAt(record.scheduledAt),
+    jobCardId: record.jobCardId === undefined || record.jobCardId === null
+      ? null
+      : uuidString(record.jobCardId, 'jobCardId'),
+  };
+}
+
+const AVAILABLE_SLOTS_FIELDS = [
+  'type', 'customerId', 'assignedTo', 'scheduledAt', 'scheduledEndsAt', 'jobCardId',
+] as const;
+
+export function parseAvailableSlotsInput(value: unknown): AvailableSlotsInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw validation('body');
+  const record = value as Record<string, unknown>;
+  if (Object.keys(record).some((key) => !AVAILABLE_SLOTS_FIELDS.includes(key as never))) {
+    throw validation('body');
+  }
+  if (record.type !== 'SALES_MEETING' && record.type !== 'PRODUCT_DELIVERY') {
+    throw validation('type');
+  }
+  const scheduledAt = requiredScheduledAt(record.scheduledAt);
+  return {
+    type: record.type,
+    customerId: uuidString(record.customerId, 'customerId'),
+    assignedTo: uuidString(record.assignedTo, 'assignedTo'),
+    scheduledAt,
+    scheduledEndsAt: requiredScheduledEndsAt(record.scheduledEndsAt, scheduledAt),
     jobCardId: record.jobCardId === undefined || record.jobCardId === null
       ? null
       : uuidString(record.jobCardId, 'jobCardId'),

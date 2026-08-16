@@ -48,6 +48,14 @@ export function localClockParts(instant: Date, timezone: string): LocalClockPart
   return { hour: Number(partOf(parts, 'hour')), minute: Number(partOf(parts, 'minute')) };
 }
 
+/** Local wall-clock seconds (0-59) for an instant in a timezone. */
+export function localClockSecond(instant: Date, timezone: string): number {
+  const parts = new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone, second: '2-digit', hourCycle: 'h23',
+  }).formatToParts(instant);
+  return Number(partOf(parts, 'second'));
+}
+
 function parseDateKey(key: string): LocalDateParts {
   const [year, month, day] = key.split('-').map(Number) as [number, number, number];
   return { year, month, day };
@@ -102,9 +110,10 @@ export function instantFromLocal(
   hour: number,
   minute: number,
   timezone: string,
+  second = 0,
 ): Date {
   const { year, month, day } = parseDateKey(dateKey);
-  const naive = Date.UTC(year, month - 1, day, hour, minute, 0, 0);
+  const naive = Date.UTC(year, month - 1, day, hour, minute, second, 0);
   let result = naive;
   for (let attempt = 0; attempt < 3; attempt += 1) {
     const offset = timezoneOffsetMs(new Date(result), timezone);

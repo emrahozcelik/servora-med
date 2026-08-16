@@ -5,6 +5,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CalendarPage } from '../src/calendar/CalendarPage';
+import { isoInstantToLocalDateTime } from '../src/jobs/scheduling';
 import type { CurrentUser } from '../src/services/api';
 
 const calendarApi = vi.hoisted(() => ({
@@ -15,7 +16,7 @@ const calendarApi = vi.hoisted(() => ({
   patchManualEvent: vi.fn(),
   cancelManualEvent: vi.fn(),
 }));
-const jobsApi = vi.hoisted(() => ({ patchJobCard: vi.fn() }));
+const jobsApi = vi.hoisted(() => ({ patchJobCard: vi.fn(), findAvailableSlots: vi.fn() }));
 vi.mock('../src/services/calendar-api', () => calendarApi);
 vi.mock('../src/jobs/jobs-api', () => jobsApi);
 vi.mock('../src/realtime/RealtimeProvider', () => ({
@@ -114,6 +115,7 @@ describe('CalendarPage', () => {
     calendarApi.getCalendarEvent.mockImplementation(async (id: string) =>
       id === 'job-event-1' ? jobEvent : manualEvent);
     calendarApi.cancelManualEvent.mockResolvedValue(undefined);
+    jobsApi.findAvailableSlots.mockResolvedValue({ slots: [] });
     // Reset viewport to desktop
     resizeTo(1024);
   });
@@ -379,6 +381,36 @@ describe('CalendarPage', () => {
       scheduledAt: expect.any(String),
       scheduledEndsAt: expect.any(String),
     }));
+  });
+
+  it('offers a joint slot for a customer-bound Product Delivery calendar edit', async () => {
+    const customerEvent = {
+      ...jobEvent,
+      customer: { id: 'customer-1', name: 'Klinik' },
+    };
+    calendarApi.listCalendar.mockResolvedValue([customerEvent]);
+    calendarApi.getCalendarEvent.mockResolvedValue(customerEvent);
+    jobsApi.findAvailableSlots.mockResolvedValue({ slots: [{
+      startsAt: '2026-07-29T10:00:00.000Z',
+      endsAt: '2026-07-29T12:00:00.000Z',
+    }] });
+    await render(manager, '/calendar?event=job-event-1');
+    const editButton = Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent?.includes('Düzenle'))!;
+    await act(async () => editButton.click());
+    await act(async () => { vi.advanceTimersByTime(300); });
+    await act(async () => { await Promise.resolve(); });
+
+    const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
+    const slotButton = dialog.querySelector('button[data-available-slot]') as HTMLButtonElement;
+    expect(slotButton).toBeTruthy();
+    await act(async () => slotButton.click());
+    expect(dialog.querySelectorAll('input[type="datetime-local"]')[0]).toHaveProperty(
+      'value', isoInstantToLocalDateTime('2026-07-29T10:00:00.000Z'),
+    );
+    expect(dialog.querySelectorAll('input[type="datetime-local"]')[1]).toHaveProperty(
+      'value', isoInstantToLocalDateTime('2026-07-29T12:00:00.000Z'),
+    );
   });
 
   it('deep-link selects the event', async () => {

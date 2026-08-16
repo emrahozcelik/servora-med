@@ -62,12 +62,16 @@ const scheduling = vi.hoisted(() => {
   };
 });
 const preview = vi.hoisted(() => ({ useCustomerSchedulePreview: vi.fn() }));
+const jobs = vi.hoisted(() => ({ findAvailableSlots: vi.fn() }));
 vi.mock('../src/services/api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/api')>(), ...api }));
 vi.mock('../src/services/crm-api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/crm-api')>(), ...crm }));
 vi.mock('../src/services/people-api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/people-api')>(), ...people }));
 vi.mock('../src/services/products-api', async (importOriginal) => ({ ...await importOriginal<typeof import('../src/services/products-api')>(), ...productsApi }));
 vi.mock('../src/jobs/scheduling', () => scheduling);
 vi.mock('../src/jobs/useCustomerSchedulePreview', () => preview);
+vi.mock('../src/jobs/jobs-api', async (importOriginal) => ({
+  ...await importOriginal<typeof import('../src/jobs/jobs-api')>(), ...jobs,
+}));
 
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Murat', email: 'murat@example.com', role: 'MANAGER', mustChangePassword: false };
 const staffUser: CurrentUser = { ...manager, id: 'staff-1', role: 'STAFF' };
@@ -107,6 +111,8 @@ describe('Delivery create CRM defaults', () => {
   let root: Root; let container: HTMLDivElement;
   beforeEach(() => {
     vi.clearAllMocks();
+    scheduling.isoInstantToLocalDateTime.mockImplementation(() => '2026-08-10T09:30');
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [] });
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     api.listReferenceCustomers.mockResolvedValue(customers);
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
@@ -139,6 +145,34 @@ describe('Delivery create CRM defaults', () => {
     expect(api.addDeliveryItem).toHaveBeenCalledWith('job-1', expect.objectContaining({
       productId: 'product-1', deliveredAt: null,
     }));
+  });
+
+  it('offers and applies a joint slot for the delivery interval', async () => {
+    const calendarManager: CurrentUser = {
+      ...manager,
+      capabilities: { overviewDashboard: true, calendar: true, messaging: true },
+    };
+    jobs.findAvailableSlots.mockResolvedValue({ slots: [{
+      startsAt: '2026-08-10T06:30:00.000Z',
+      endsAt: '2026-08-10T07:30:00.000Z',
+    }] });
+    scheduling.isoInstantToLocalDateTime.mockImplementation((value: string) => (
+      value.endsWith('06:30:00.000Z') ? '2026-08-10T09:30' : '2026-08-10T10:30'
+    ));
+    crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-1'));
+    await act(async () => root.render(<DeliveryCreateView user={calendarManager} onCancel={() => {}} onCreated={() => {}} />));
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-assignee') as HTMLSelectElement, 'staff-2'));
+    await act(async () => new Promise((resolve) => setTimeout(resolve, 300)));
+    await settle();
+
+    const slotButton = container.querySelector('button[data-available-slot]') as HTMLButtonElement;
+    expect(slotButton).toBeTruthy();
+    await act(async () => slotButton.click());
+    expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
+    expect((container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
   });
 
   it('pre-fills planned delivery time once and preserves a user edit across reference reloads', async () => {

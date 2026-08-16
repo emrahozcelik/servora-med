@@ -14,6 +14,7 @@ import {
   type FollowUpProposalOrigin, type JobCard, type LifecycleCommand, type MeetingDetails,
   type PatchJobCardInput, type PatchMeetingDetailsInput, type RelatedName,
   type StartJobCardInput,
+  type AvailableSlot,
 } from './jobs/jobs-api';
 import { listCalendarAssignees } from './services/calendar-api';
 import {
@@ -28,8 +29,10 @@ import {
   type TransitionPresentation,
 } from './jobs/job-workflow-presentation';
 import {
+  addOneHourLocal,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
+  shiftInterval,
 } from './jobs/scheduling';
 import { ResultState } from './ui/antd/ResultState';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
@@ -59,7 +62,9 @@ import { JobConversationAction } from './jobs/JobConversationAction';
 import { useReassignmentConversationSync } from './jobs/useReassignmentConversationSync';
 import { ReassignmentSyncPrompt } from './jobs/ReassignmentSyncPrompt';
 import { CustomerScheduleNotice } from './jobs/CustomerScheduleNotice';
+import { AvailableSlotsNotice } from './jobs/AvailableSlotsNotice';
 import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
+import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
 import { PriorityChip } from './ui/PriorityChip';
 import { StatusChip } from './ui/StatusChip';
 import { RecordDescriptions, WorkflowSteps, type RecordDescriptionItem } from './ui/antd';
@@ -272,15 +277,30 @@ function JobScheduleEditForm({
   scheduleEdit: ScheduleEditPresentation;
   pending: boolean;
   user: CurrentUser;
-  onSave?: (scheduledAt: string | null, overrideReason?: string | null) => Promise<void> | void;
+  onSave?: (
+    scheduledAt: string | null,
+    scheduledEndsAt?: string | null,
+    overrideReason?: string | null,
+  ) => Promise<void> | void;
 }) {
+  const intervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';
+  const intervalJobType: 'SALES_MEETING' | 'PRODUCT_DELIVERY' = intervalJob
+    ? job.type as 'SALES_MEETING' | 'PRODUCT_DELIVERY'
+    : 'SALES_MEETING';
   const [localValue, setLocalValue] = useState(() => (
     job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
+  ));
+  const [localEndValue, setLocalEndValue] = useState(() => (
+    intervalJob
+      ? job.scheduledEndsAt
+        ? isoInstantToLocalDateTime(job.scheduledEndsAt)
+        : job.scheduledAt ? addOneHourLocal(isoInstantToLocalDateTime(job.scheduledAt)) : ''
+      : ''
   ));
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [overrideReason, setOverrideReason] = useState('');
-  const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}`;
+  const canonicalKey = `${job.id}:${job.version}:${job.scheduledAt ?? ''}:${job.scheduledEndsAt ?? ''}`;
   const lastKey = useRef(canonicalKey);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
@@ -290,10 +310,36 @@ function JobScheduleEditForm({
     jobCardId: job.id,
     enabled: job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY',
   });
+  const availableSlotSearch = useAvailableSlotSearch({
+    type: intervalJobType,
+    customerId: job.customerId,
+    assignedTo: job.assignedTo,
+    scheduledStartLocal: localValue,
+    scheduledEndLocal: localEndValue,
+    jobCardId: job.id,
+    enabled: user.capabilities?.calendar === true && intervalJob,
+  });
 
   function useSuggestedAlternative() {
     if (!evaluation?.suggestedAlternativeAt) return;
-    setLocalValue(isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt));
+    const nextStart = isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt);
+    setLocalValue(nextStart);
+    if (intervalJob && localEndValue) {
+      try {
+        const [, nextEnd] = shiftInterval(localValue, localEndValue, nextStart);
+        setLocalEndValue(nextEnd);
+      } catch {
+        // The end field validation below remains authoritative if the local
+        // draft is incomplete or malformed while the alternative is applied.
+      }
+    }
+    setFieldError('');
+    setSubmitError('');
+  }
+
+  function useAvailableSlot(slot: AvailableSlot) {
+    setLocalValue(isoInstantToLocalDateTime(slot.startsAt));
+    setLocalEndValue(isoInstantToLocalDateTime(slot.endsAt));
     setFieldError('');
     setSubmitError('');
   }
@@ -302,10 +348,15 @@ function JobScheduleEditForm({
     if (lastKey.current === canonicalKey) return;
     lastKey.current = canonicalKey;
     setLocalValue(job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
+    setLocalEndValue(intervalJob
+      ? job.scheduledEndsAt
+        ? isoInstantToLocalDateTime(job.scheduledEndsAt)
+        : job.scheduledAt ? addOneHourLocal(isoInstantToLocalDateTime(job.scheduledAt)) : ''
+      : '');
     setFieldError('');
     setSubmitError('');
     setOverrideReason('');
-  }, [canonicalKey, job.scheduledAt]);
+  }, [canonicalKey, job.scheduledAt, job.scheduledEndsAt, intervalJob]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -318,7 +369,7 @@ function JobScheduleEditForm({
       }
       setFieldError('');
       try {
-        await onSave(null, overrideReason.trim() || null);
+        await onSave(null, null, overrideReason.trim() || null);
       } catch (caught) {
         setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
       }
@@ -326,7 +377,16 @@ function JobScheduleEditForm({
     }
     setFieldError('');
     try {
-      await onSave(localDateTimeToIso(localValue), overrideReason.trim() || null);
+      if (intervalJob && (!localEndValue.trim()
+        || Date.parse(localDateTimeToIso(localEndValue)) <= Date.parse(localDateTimeToIso(localValue)))) {
+        setFieldError('Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.');
+        return;
+      }
+      await onSave(
+        localDateTimeToIso(localValue),
+        intervalJob ? localDateTimeToIso(localEndValue) : null,
+        overrideReason.trim() || null,
+      );
     } catch (caught) {
       setSubmitError(caught instanceof Error ? caught.message : 'Planlanan zaman kaydedilemedi.');
     }
@@ -357,6 +417,23 @@ function JobScheduleEditForm({
           />
           {fieldError && <span id="job-scheduled-at-error" className="field-error">{fieldError}</span>}
         </div>
+        {intervalJob && <div className="field-group">
+          <label htmlFor="job-scheduled-ends-at">Planlanan bitiş</label>
+          <input
+            id="job-scheduled-ends-at"
+            name="scheduledEndsAt"
+            type="datetime-local"
+            value={localEndValue}
+            required
+            disabled={pending}
+            aria-invalid={fieldError ? true : undefined}
+            onChange={(event) => {
+              setLocalEndValue(event.target.value);
+              setFieldError('');
+              setSubmitError('');
+            }}
+          />
+        </div>}
         <CustomerScheduleNotice
           evaluation={evaluation}
           mode={user.role === 'STAFF' ? 'staff' : 'manager'}
@@ -365,6 +442,10 @@ function JobScheduleEditForm({
           onUseSuggestedAlternative={useSuggestedAlternative}
         />
         {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
+        <AvailableSlotsNotice
+          {...availableSlotSearch}
+          onSelect={useAvailableSlot}
+        />
         {submitError && <p className="field-error" role="alert">{submitError}</p>}
         <div className="review-buttons">
           <button className="secondary-button" type="submit" disabled={pending || !onSave}>
@@ -396,7 +477,11 @@ export function JobDetailPanel({
   onRecordEdit?: (
     action: RecordEditPresentation['action'], trigger: HTMLButtonElement,
   ) => void;
-  onSaveSchedule?: (scheduledAt: string | null) => Promise<void> | void;
+  onSaveSchedule?: (
+    scheduledAt: string | null,
+    scheduledEndsAt?: string | null,
+    overrideReason?: string | null,
+  ) => Promise<void> | void;
   onSaveDeliveredAt?: (itemId: string, deliveredAt: string) => Promise<void>;
   meetingDetails?: MeetingDetails | null;
   records?: ReactNode;
@@ -1389,7 +1474,11 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       'Görev bilgileri güncellendi.',
     );
   }
-  async function saveSchedule(scheduledAt: string | null, overrideReason?: string | null) {
+  async function saveSchedule(
+    scheduledAt: string | null,
+    scheduledEndsAt?: string | null,
+    overrideReason?: string | null,
+  ) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) {
       throw new ApiError(409, 'ACTION_IN_PROGRESS', 'Başka bir işlem devam ediyor.', true);
     }
@@ -1404,6 +1493,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       await patchJobCard(operationJobId, {
         expectedVersion: state.detail.job.version,
         scheduledAt,
+        ...(state.detail.job.type === 'SALES_MEETING' || state.detail.job.type === 'PRODUCT_DELIVERY')
+          && scheduledEndsAt !== undefined
+          ? { scheduledEndsAt }
+          : {},
         ...(overrideReason?.trim() ? { overrideReason: overrideReason.trim() } : {}),
       });
       if (!isOperationCurrent(owner.sessionToken, operationJobId)) return;

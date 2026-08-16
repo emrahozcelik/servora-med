@@ -2,6 +2,9 @@ import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 're
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { patchJobCard } from '../jobs/jobs-api';
+import type { AvailableSlot } from '../jobs/jobs-api';
+import { AvailableSlotsNotice } from '../jobs/AvailableSlotsNotice';
+import { useAvailableSlotSearch } from '../jobs/useAvailableSlotSearch';
 import { useReassignmentConversationSync } from '../jobs/useReassignmentConversationSync';
 import { ReassignmentSyncPrompt } from '../jobs/ReassignmentSyncPrompt';
 import { paths } from '../paths';
@@ -116,6 +119,10 @@ function EventForm({
 }) {
   const initialAssignee = event?.assignedUser.id ?? defaultAssigneeId;
   const isGeneralTaskJob = event?.source === 'JOB' && event.jobType === 'GENERAL_TASK';
+  const intervalJobType = event?.source === 'JOB'
+    && (event.jobType === 'SALES_MEETING' || event.jobType === 'PRODUCT_DELIVERY')
+    ? event.jobType
+    : null;
   const now = new Date();
   now.setMinutes(Math.ceil(now.getMinutes() / 30) * 30, 0, 0);
   const defaultEnd = new Date(now.valueOf() + 60 * 60_000);
@@ -132,6 +139,23 @@ function EventForm({
   const [error, setError] = useState<string | null>(null);
   const [conflicts, setConflicts] = useState<Array<Record<string, unknown>>>([]);
   const [pending, setPending] = useState(false);
+  const availableSlotSearch = useAvailableSlotSearch({
+    type: intervalJobType ?? 'SALES_MEETING',
+    customerId: event?.source === 'JOB' ? event.customer?.id ?? null : null,
+    assignedTo: intervalJobType ? draft.assignedUserId : null,
+    scheduledStartLocal: draft.startsAt,
+    scheduledEndLocal: draft.endsAt,
+    jobCardId: event?.source === 'JOB' ? event.jobCardId : null,
+    enabled: user.capabilities?.calendar === true && intervalJobType !== null,
+  });
+
+  function useAvailableSlot(slot: AvailableSlot) {
+    setDraft((current) => ({
+      ...current,
+      startsAt: localInput(slot.startsAt),
+      endsAt: localInput(slot.endsAt),
+    }));
+  }
 
   const submit = async (submitEvent: FormEvent) => {
     submitEvent.preventDefault();
@@ -240,6 +264,10 @@ function EventForm({
           </label>
         )}
       </div>
+      <AvailableSlotsNotice
+        {...availableSlotSearch}
+        onSelect={useAvailableSlot}
+      />
       {error && <div className="form-error" role="alert"><p>{error}</p>
         {conflicts.map((c) => (
           <p key={String(c.id)}>

@@ -166,6 +166,10 @@ export type JobCalendarSchedule = Readonly<{
   now: Date;
   reminderLeadMinutes: number;
 }>;
+export type AssigneeCalendarInterval = Readonly<{
+  startsAt: string;
+  endsAt: string;
+}>;
 export type ProductReference = {
   id: string; organizationId: string; name: string; sku: string | null; model: string | null;
   unit: string | null; isActive: boolean;
@@ -293,6 +297,13 @@ export interface JobCardTransaction extends SubmissionReader {
     from: Date,
     to: Date,
   ): Promise<RecentOnSiteVisitRecord[]>;
+  listAssigneeCalendarIntervals(
+    organizationId: string,
+    assignedUserId: string,
+    from: Date,
+    to: Date,
+    excludeJobId: string | null,
+  ): Promise<AssigneeCalendarInterval[]>;
   getContactForUpdate(organizationId: string, contactId: string): Promise<JobContactReference | null>;
   createJobCard(input: CreateJobCardRecord): Promise<JobCard>;
   createMeetingDetails(input: { organizationId: string; jobCardId: string }): Promise<void>;
@@ -1318,6 +1329,37 @@ class PostgresJobCardTransaction implements JobCardTransaction {
       )!.toISOString(),
       staffName: row.staff_name,
       resultSummary: row.staff_completion_note,
+    }));
+  }
+
+  async listAssigneeCalendarIntervals(
+    organizationId: string,
+    assignedUserId: string,
+    from: Date,
+    to: Date,
+    excludeJobId: string | null,
+  ): Promise<AssigneeCalendarInterval[]> {
+    const result = await this.client.query<{ starts_at: Date; ends_at: Date }>(
+      `SELECT e.starts_at, e.ends_at
+         FROM calendar_events e
+        WHERE e.organization_id = $1 AND e.assigned_user_id = $2
+          AND e.status = 'ACTIVE'
+          AND e.starts_at < $4 AND $3 < e.ends_at
+       UNION ALL
+       SELECT j.scheduled_at, j.scheduled_ends_at
+         FROM job_cards j
+        WHERE j.organization_id = $1 AND j.assigned_to = $2
+          AND ($5::uuid IS NULL OR j.id <> $5)
+          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
+          AND j.status NOT IN ('COMPLETED', 'CANCELLED')
+          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
+          AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
+        ORDER BY starts_at ASC, ends_at ASC`,
+      [organizationId, assignedUserId, from, to, excludeJobId],
+    );
+    return result.rows.map((row) => ({
+      startsAt: row.starts_at.toISOString(),
+      endsAt: row.ends_at.toISOString(),
     }));
   }
 

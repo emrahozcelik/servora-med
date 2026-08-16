@@ -138,6 +138,24 @@ export type CustomerSchedulePreviewInput = {
   jobCardId?: string | null;
 };
 
+export type AvailableSlotsInput = {
+  type: 'SALES_MEETING' | 'PRODUCT_DELIVERY';
+  customerId: string;
+  assignedTo: string;
+  scheduledAt: string;
+  scheduledEndsAt: string;
+  jobCardId?: string | null;
+};
+
+export type AvailableSlot = {
+  startsAt: string;
+  endsAt: string;
+};
+
+export type AvailableSlotsResponse = {
+  slots: AvailableSlot[];
+};
+
 export type MeetingDetails = {
   jobCardId: string;
   meetingAt: string | null;

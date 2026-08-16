@@ -70,6 +70,8 @@ import {
   type JobCardType,
   type RoleProjectedCustomerScheduleEvaluation,
   type CustomerSchedulePreviewInput,
+  type AvailableSlotsInput,
+  type AvailableSlotsResponse,
 } from './types.js';
 import {
   isoInstant,
@@ -88,11 +90,19 @@ import {
 } from './submission-policy.js';
 import { validateMeetingDetailsCandidate } from './meeting-details-input.js';
 import {
+  filterAvailableSlotCandidates,
+  generateAvailableSlotCandidates,
+} from './available-slots.js';
+import {
+  createCustomerScheduleSnapshotReader,
   evaluateCustomerSchedule,
   isOnSiteJobType,
+  MAX_TZ_OFFSET_MS,
   type CustomerScheduleEvaluation,
 } from './customer-schedule.js';
 import {
+  FREQUENT_VISIT_WINDOW_DAYS,
+  FOLLOW_UP_SEARCH_HORIZON_DAYS,
   defaultFollowUpInstructions,
   defaultFollowUpType,
   deriveProposalOrigin,
@@ -2083,6 +2093,119 @@ export class JobCardService {
   ): Promise<RoleProjectedCustomerScheduleEvaluation> {
     const proposedAt = new Date(isoInstant(input.scheduledAt, 'scheduledAt'));
     return this.repository.executeTransaction((tx) => this.previewInTransaction(tx, actor, input, proposedAt));
+  }
+
+  async availableSlots(
+    actor: JobCardActor,
+    input: AvailableSlotsInput,
+  ): Promise<AvailableSlotsResponse> {
+    if (!this.calendar.enabled) {
+      throw new AppError('NOT_FOUND', 404, 'Takvim özelliği etkin değil.');
+    }
+    assertCreateAssignmentRequest(actor, input.assignedTo);
+    const startsAt = new Date(isoInstant(input.scheduledAt, 'scheduledAt'));
+    const endsAt = new Date(isoInstant(input.scheduledEndsAt, 'scheduledEndsAt'));
+    if (endsAt.valueOf() <= startsAt.valueOf() || !isOnSiteJobType(input.type)) {
+      throw validation('scheduledEndsAt');
+    }
+    return this.repository.executeTransaction((tx) => (
+      this.availableSlotsInTransaction(tx, actor, input, startsAt, endsAt)
+    ));
+  }
+
+  private async availableSlotsInTransaction(
+    tx: JobCardTransaction,
+    actor: JobCardActor,
+    input: AvailableSlotsInput,
+    startsAt: Date,
+    endsAt: Date,
+  ): Promise<AvailableSlotsResponse> {
+    let excludeJobId: string | undefined;
+    if (input.jobCardId !== null && input.jobCardId !== undefined) {
+      const job = await tx.getJob(actor.organizationId, input.jobCardId);
+      if (!job
+        || job.organizationId !== actor.organizationId
+        || !isOnSiteJobType(job.type)
+        || job.type !== input.type
+        || job.customerId !== input.customerId) {
+        throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      }
+      try {
+        assertCanEdit(actor, job);
+      } catch {
+        throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      }
+      excludeJobId = job.id;
+    }
+    const assignee = await tx.getAssignee(actor.organizationId, input.assignedTo);
+    if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+    assertCanCreateForAssignee(actor, assignee);
+    if (!(await tx.customerExists(actor.organizationId, input.customerId))) {
+      throw new AppError('CUSTOMER_NOT_FOUND', 404, 'Müşteri bulunamadı.');
+    }
+
+    const timezone = await tx.getOrganizationTimezone(actor.organizationId);
+    const candidates = generateAvailableSlotCandidates({
+      startsAt,
+      endsAt,
+      timezone,
+      horizonDays: FOLLOW_UP_SEARCH_HORIZON_DAYS,
+    });
+    if (candidates.length === 0) return { slots: [] };
+
+    const lastCandidate = candidates[candidates.length - 1]!;
+    const snapshotFrom = new Date(
+      startsAt.valueOf() - FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000 - MAX_TZ_OFFSET_MS,
+    );
+    const snapshotTo = new Date(
+      lastCandidate.endsAt.valueOf()
+        + FREQUENT_VISIT_WINDOW_DAYS * 24 * 60 * 60 * 1000
+        + MAX_TZ_OFFSET_MS,
+    );
+    const [activeJobs, recentVisits, assigneeIntervals] = await Promise.all([
+      tx.listActiveOnSiteJobs(actor.organizationId, input.customerId, snapshotFrom, snapshotTo),
+      tx.listRecentOnSiteVisits(actor.organizationId, input.customerId, snapshotFrom, snapshotTo),
+      tx.listAssigneeCalendarIntervals(
+        actor.organizationId,
+        input.assignedTo,
+        new Date(startsAt.valueOf() - MAX_TZ_OFFSET_MS),
+        new Date(lastCandidate.endsAt.valueOf() + MAX_TZ_OFFSET_MS),
+        excludeJobId ?? null,
+      ),
+    ]);
+    const customerReader = createCustomerScheduleSnapshotReader({
+      timezone,
+      activeJobs,
+      recentVisits,
+    });
+    const customerClearCandidates = [];
+    for (const candidate of candidates) {
+      const evaluation = await evaluateCustomerSchedule({
+        reader: customerReader,
+        organizationId: actor.organizationId,
+        customerId: input.customerId,
+        proposedAt: candidate.startsAt,
+        jobType: input.type,
+        excludeJobId,
+        now: this.now(),
+      });
+      if (evaluation.level !== 'CONFLICT' && evaluation.level !== 'FREQUENCY_EXCEEDED') {
+        customerClearCandidates.push(candidate);
+      }
+    }
+    const available = filterAvailableSlotCandidates(
+      customerClearCandidates,
+      assigneeIntervals.map((interval) => ({
+        startsAt: new Date(interval.startsAt),
+        endsAt: new Date(interval.endsAt),
+      })),
+    );
+    return {
+      slots: available.map((slot) => ({
+        startsAt: slot.startsAt.toISOString(),
+        endsAt: slot.endsAt.toISOString(),
+      })),
+    };
   }
 
   private async previewInTransaction(
