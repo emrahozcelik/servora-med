@@ -2123,7 +2123,16 @@ export class JobCardService {
     let excludeJobId: string | undefined;
     if (input.jobCardId !== null && input.jobCardId !== undefined) {
       const job = await tx.getJob(actor.organizationId, input.jobCardId);
-      if (!job || (actor.role === 'STAFF' && job.assignedTo !== actor.id)) {
+      if (!job
+        || job.organizationId !== actor.organizationId
+        || !isOnSiteJobType(job.type)
+        || job.type !== input.type
+        || job.customerId !== input.customerId) {
+        throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+      }
+      try {
+        assertCanEdit(actor, job);
+      } catch {
         throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       }
       excludeJobId = job.id;

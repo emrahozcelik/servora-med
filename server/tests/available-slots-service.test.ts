@@ -193,7 +193,14 @@ describe('JobCardService.availableSlots', () => {
   it('self-excludes an authorized current job from customer and assignee evaluation', async () => {
     const currentJobId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
     const tx = {
-      getJob: vi.fn().mockResolvedValue({ id: currentJobId, assignedTo: input.assignedTo }),
+      getJob: vi.fn().mockResolvedValue({
+        id: currentJobId,
+        organizationId: actor.organizationId,
+        customerId: input.customerId,
+        type: input.type,
+        assignedTo: input.assignedTo,
+        status: 'NEW',
+      }),
       getAssignee: vi.fn().mockResolvedValue({
         id: input.assignedTo,
         organizationId: actor.organizationId,
@@ -244,6 +251,293 @@ describe('JobCardService.availableSlots', () => {
       expect.any(Date),
       currentJobId,
     );
+  });
+
+  it('does not self-exclude an otherwise editable job for a different customer', async () => {
+    const currentJobId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const tx = {
+      getJob: vi.fn().mockResolvedValue({
+        id: currentJobId,
+        organizationId: actor.organizationId,
+        customerId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        type: input.type,
+        assignedTo: input.assignedTo,
+        status: 'NEW',
+      }),
+      getAssignee: vi.fn().mockResolvedValue({
+        id: input.assignedTo,
+        organizationId: actor.organizationId,
+        role: 'STAFF' as const,
+        isActive: true,
+      }),
+      customerExists: vi.fn().mockResolvedValue(true),
+      getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
+      listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
+      listAssigneeCalendarIntervals: vi.fn((
+        _organizationId: string,
+        _assignedTo: string,
+        _from: Date,
+        _to: Date,
+        excludeJobId: string | null,
+      ) => Promise.resolve(excludeJobId === currentJobId ? [] : [{
+        startsAt: '2026-08-17T10:00:00.000Z',
+        endsAt: '2026-08-17T11:00:00.000Z',
+      }])),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    await expect(new JobCardService(
+      repository,
+      () => new Date('2026-08-01T00:00:00.000Z'),
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, { ...input, jobCardId: currentJobId })).rejects.toMatchObject({
+      code: 'JOB_CARD_NOT_FOUND',
+      statusCode: 404,
+    });
+    expect(tx.listAssigneeCalendarIntervals).not.toHaveBeenCalled();
+  });
+
+  it('does not self-exclude an otherwise editable job for a different type', async () => {
+    const currentJobId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const tx = {
+      getJob: vi.fn().mockResolvedValue({
+        id: currentJobId,
+        organizationId: actor.organizationId,
+        customerId: input.customerId,
+        type: 'PRODUCT_DELIVERY',
+        assignedTo: input.assignedTo,
+        status: 'NEW',
+      }),
+      getAssignee: vi.fn(),
+      customerExists: vi.fn(),
+      getOrganizationTimezone: vi.fn(),
+      listActiveOnSiteJobs: vi.fn(),
+      listRecentOnSiteVisits: vi.fn(),
+      listAssigneeCalendarIntervals: vi.fn(),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    await expect(new JobCardService(
+      repository,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, { ...input, jobCardId: currentJobId })).rejects.toMatchObject({
+      code: 'JOB_CARD_NOT_FOUND',
+      statusCode: 404,
+    });
+    expect(tx.getAssignee).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for a Staff-owned job with a mismatched edit target', async () => {
+    const staffActor: JobCardActor = {
+      id: input.assignedTo,
+      organizationId: actor.organizationId,
+      role: 'STAFF',
+    };
+    const currentJobId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const tx = {
+      getJob: vi.fn().mockResolvedValue({
+        id: currentJobId,
+        organizationId: actor.organizationId,
+        customerId: 'dddddddd-dddd-4ddd-8ddd-dddddddddddd',
+        type: input.type,
+        assignedTo: staffActor.id,
+        status: 'NEW',
+      }),
+      getAssignee: vi.fn(),
+      customerExists: vi.fn(),
+      getOrganizationTimezone: vi.fn(),
+      listActiveOnSiteJobs: vi.fn(),
+      listRecentOnSiteVisits: vi.fn(),
+      listAssigneeCalendarIntervals: vi.fn(),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    await expect(new JobCardService(
+      repository,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(staffActor, { ...input, jobCardId: currentJobId })).rejects.toMatchObject({
+      code: 'JOB_CARD_NOT_FOUND',
+      statusCode: 404,
+    });
+    expect(tx.getAssignee).not.toHaveBeenCalled();
+  });
+
+  it('allows Manager reassignment search when the current job target still matches', async () => {
+    const currentJobId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const previousAssigneeId = 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee';
+    const tx = {
+      getJob: vi.fn().mockResolvedValue({
+        id: currentJobId,
+        organizationId: actor.organizationId,
+        customerId: input.customerId,
+        type: input.type,
+        assignedTo: previousAssigneeId,
+        status: 'NEW',
+      }),
+      getAssignee: vi.fn().mockResolvedValue({
+        id: input.assignedTo,
+        organizationId: actor.organizationId,
+        role: 'STAFF' as const,
+        isActive: true,
+      }),
+      customerExists: vi.fn().mockResolvedValue(true),
+      getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
+      listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
+      listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    const result = await new JobCardService(
+      repository,
+      () => new Date('2026-08-01T00:00:00.000Z'),
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, { ...input, jobCardId: currentJobId });
+
+    expect(result.slots[0]!.startsAt).toBe('2026-08-17T10:00:00.000Z');
+    expect(tx.listAssigneeCalendarIntervals).toHaveBeenCalledWith(
+      actor.organizationId,
+      input.assignedTo,
+      expect.any(Date),
+      expect.any(Date),
+      currentJobId,
+    );
+  });
+
+  it('does not self-exclude a matching job that the Staff actor cannot edit', async () => {
+    const staffActor: JobCardActor = {
+      id: input.assignedTo,
+      organizationId: actor.organizationId,
+      role: 'STAFF',
+    };
+    const currentJobId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const tx = {
+      getJob: vi.fn().mockResolvedValue({
+        id: currentJobId,
+        organizationId: actor.organizationId,
+        customerId: input.customerId,
+        type: input.type,
+        assignedTo: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        status: 'NEW',
+      }),
+      getAssignee: vi.fn(),
+      customerExists: vi.fn(),
+      getOrganizationTimezone: vi.fn(),
+      listActiveOnSiteJobs: vi.fn(),
+      listRecentOnSiteVisits: vi.fn(),
+      listAssigneeCalendarIntervals: vi.fn(),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    await expect(new JobCardService(
+      repository,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(staffActor, { ...input, jobCardId: currentJobId })).rejects.toMatchObject({
+      code: 'JOB_CARD_NOT_FOUND',
+      statusCode: 404,
+    });
+    expect(tx.getAssignee).not.toHaveBeenCalled();
+  });
+
+  it('fails closed for a cross-organization exclusion target', async () => {
+    const currentJobId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const tx = {
+      getJob: vi.fn().mockResolvedValue({
+        id: currentJobId,
+        organizationId: 'eeeeeeee-eeee-4eee-8eee-eeeeeeeeeeee',
+        customerId: input.customerId,
+        type: input.type,
+        assignedTo: input.assignedTo,
+        status: 'NEW',
+      }),
+      getAssignee: vi.fn(),
+      customerExists: vi.fn(),
+      getOrganizationTimezone: vi.fn(),
+      listActiveOnSiteJobs: vi.fn(),
+      listRecentOnSiteVisits: vi.fn(),
+      listAssigneeCalendarIntervals: vi.fn(),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    await expect(new JobCardService(
+      repository,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, { ...input, jobCardId: currentJobId })).rejects.toMatchObject({
+      code: 'JOB_CARD_NOT_FOUND',
+      statusCode: 404,
+    });
+    expect(tx.getAssignee).not.toHaveBeenCalled();
+  });
+
+  it('fails closed when the matching JobCard is not currently editable', async () => {
+    const currentJobId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const tx = {
+      getJob: vi.fn().mockResolvedValue({
+        id: currentJobId,
+        organizationId: actor.organizationId,
+        customerId: input.customerId,
+        type: input.type,
+        assignedTo: input.assignedTo,
+        status: 'WAITING_APPROVAL',
+      }),
+      getAssignee: vi.fn(),
+      customerExists: vi.fn(),
+      getOrganizationTimezone: vi.fn(),
+      listActiveOnSiteJobs: vi.fn(),
+      listRecentOnSiteVisits: vi.fn(),
+      listAssigneeCalendarIntervals: vi.fn(),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    await expect(new JobCardService(
+      repository,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, { ...input, jobCardId: currentJobId })).rejects.toMatchObject({
+      code: 'JOB_CARD_NOT_FOUND',
+      statusCode: 404,
+    });
+    expect(tx.getAssignee).not.toHaveBeenCalled();
   });
 
   it('fails closed before availability reads for an unauthorized self-exclusion job', async () => {
