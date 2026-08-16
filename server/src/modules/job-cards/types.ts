@@ -87,7 +87,7 @@ export type FollowUpProposal = {
   assignedTo: string;
   followUpInstructions: string;
   origin: FollowUpProposalOrigin;
-  proposedBy: RelatedIdentity | null;
+  proposedBy: RelatedIdentity;
 };
 
 export type JobCardCreateInput =

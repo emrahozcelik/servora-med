@@ -120,7 +120,7 @@ export type FollowUpProposal = {
   assignedTo: string;
   followUpInstructions: string;
   origin: FollowUpProposalOrigin;
-  proposedBy: RelatedName | null;
+  proposedBy: RelatedName;
 };
 export type CustomerScheduleLevel = 'CLEAR' | 'WARNING' | 'CONFLICT' | 'FREQUENCY_EXCEEDED';
 export type CustomerScheduleConflictDetail = {
@@ -517,7 +517,7 @@ function parseFollowUpProposal(value: unknown): FollowUpProposal | null {
     assignedTo: string(v.assignedTo, 'followUpProposal.assignedTo'),
     followUpInstructions: string(v.followUpInstructions, 'followUpProposal.followUpInstructions'),
     origin: oneOf(v.origin, 'followUpProposal.origin', ['SYSTEM', 'STAFF_ADJUSTED'] as const),
-    proposedBy: nullableRelated(v.proposedBy, 'followUpProposal.proposedBy'),
+    proposedBy: related(v.proposedBy, 'followUpProposal.proposedBy'),
   };
 }
 function parseCustomerScheduleEvaluation(value: unknown): CustomerScheduleEvaluation {
