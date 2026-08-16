@@ -7,11 +7,11 @@ import { describe, expect, it } from 'vitest';
 import { DunyaDentalBrand } from '../src/shell/DunyaDentalBrand';
 
 describe('DunyaDentalBrand variant source map', () => {
-  it('uses the cropped mark in the sidebar and the existing wordmark elsewhere', () => {
+  it('uses the cropped mark for login and sidebar while preserving the topbar source', () => {
     expect(renderToStaticMarkup(<DunyaDentalBrand variant="sidebar" />))
       .toContain('src="/branding/dunya-dental-sidebar.png"');
     expect(renderToStaticMarkup(<DunyaDentalBrand variant="login" />))
-      .toContain('src="/branding/dunya-dental.png"');
+      .toContain('src="/branding/dunya-dental-sidebar.png"');
     expect(renderToStaticMarkup(<DunyaDentalBrand variant="topbar" />))
       .toContain('src="/branding/dunya-dental.png"');
   });
@@ -22,11 +22,13 @@ describe('DunyaDentalBrand variant source map', () => {
     expect(html).toContain('alt=""');
   });
 
-  it('gives the login brand a materially larger responsive size without changing shell variants', () => {
+  it('uses visible-artwork-first login sizing without changing authenticated shell variants', () => {
     const css = readFileSync(resolve(import.meta.dirname, '../src/styles.css'), 'utf8');
 
-    expect(css).toMatch(/\.dunya-dental-brand--login img\s*\{[^}]*height:\s*clamp\(6rem,\s*8vw,\s*7\.5rem\)/s);
-    expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.dunya-dental-brand--login img\s*\{[^}]*height:\s*clamp\(5rem,\s*22vw,\s*6rem\)/s);
+    expect(css).toMatch(/\.dunya-dental-brand--login\s*\{[^}]*margin-inline-start:\s*-0\.75rem/s);
+    expect(css).toMatch(/\.dunya-dental-brand--login img\s*\{[^}]*width:\s*clamp\(13rem,\s*15vw,\s*14rem\)[^}]*height:\s*auto[^}]*max-width:\s*100%/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.dunya-dental-brand--login\s*\{[^}]*margin-inline-start:\s*-0\.25rem/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.dunya-dental-brand--login img\s*\{[^}]*width:\s*clamp\(8rem,\s*35vw,\s*9rem\)[^}]*height:\s*auto/s);
     expect(css).toMatch(/\.dunya-dental-brand--topbar img\s*\{[^}]*height:\s*2\.25rem/s);
     expect(css).toMatch(/\.dunya-dental-brand--sidebar img\s*\{[^}]*max-height:\s*8rem/s);
   });
