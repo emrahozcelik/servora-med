@@ -40,11 +40,15 @@ const item: DeliveryItem = {
   productModelSnapshot: null, lotNo: null, serialNo: null, expiryDate: null,
   deliveryNote: null,
 };
+const secondItem: DeliveryItem = {
+  ...item, id: 'item-2', productId: 'product-2', productNameSnapshot: 'Cerrahi Vida',
+  productSkuSnapshot: 'V2', quantity: 2, deliveredAt: null,
+};
 
-function render(job: JobCard = delivery) {
+function render(job: JobCard = delivery, items: DeliveryItem[] = [item]) {
   return renderToStaticMarkup(<JobDetailPanel
     job={job}
-    items={[item]}
+    items={items}
     user={manager}
     pending={false}
     message=""
@@ -73,5 +77,15 @@ describe('D5 Product Delivery detail timestamps', () => {
     });
     expect(html).toContain('Kontrole gönderim zamanı');
     expect(html).toContain('Henüz kontrole gönderilmedi');
+  });
+
+  it('renders every delivery item without collapsing sibling product facts', () => {
+    const html = render(delivery, [item, secondItem]);
+    expect(html).toContain('İmplant');
+    expect(html).toContain('I1');
+    expect(html).toContain('1 adet');
+    expect(html).toContain('Cerrahi Vida');
+    expect(html).toContain('V2');
+    expect(html).toContain('2 adet');
   });
 });

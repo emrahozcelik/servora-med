@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   acceptJobCard, addJobCardNote, approveJobCard, cancelJobCard, createFollowUp, createJobCard, getJobCard,
+  createProductDelivery,
   getJobCardBoard, getMeetingDetails, listActivity, listDeliveryItems, listJobCardNotes,
   listFollowUps, listJobCards, findAvailableSlots, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
@@ -56,6 +57,24 @@ function json(body: unknown, status = 200) {
 }
 
 describe('JobCard workspace transport', () => {
+  it('posts the atomic multi-product delivery create and parses its final version', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(json({ jobCardId: 'job-1', version: 4 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(createProductDelivery({
+      clientActionId: 'delivery-batch-1', type: 'PRODUCT_DELIVERY', title: 'Klinik teslimi',
+      customerId: 'customer-1', assignedTo: 'staff-1', scheduledAt: '2026-08-18T07:00:00.000Z',
+      deliveryPurpose: 'SALE', deliveryNote: 'Ortak not',
+      items: [{ productId: 'product-1', quantity: 2 }, { productId: 'product-2', quantity: 1 }],
+    })).resolves.toEqual({ jobCardId: 'job-1', version: 4 });
+    expect(fetchMock.mock.calls[0]?.[0]).toBe('/api/job-cards/product-deliveries');
+    expect(fetchMock.mock.calls[0]?.[1]).toMatchObject({ method: 'POST' });
+    expect(JSON.parse(String((fetchMock.mock.calls[0]?.[1] as RequestInit).body))).toMatchObject({
+      type: 'PRODUCT_DELIVERY', deliveryPurpose: 'SALE',
+      items: [{ productId: 'product-1', quantity: 2 }, { productId: 'product-2', quantity: 1 }],
+    });
+  });
+
   it('requests and strictly parses the minimal joint available-slot response', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({
       slots: [

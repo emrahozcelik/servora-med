@@ -13,6 +13,7 @@ function serviceDouble() {
   const page = { items: [result], total: 1, limit: 25, offset: 0 };
   return {
     create: vi.fn().mockResolvedValue(result), list: vi.fn().mockResolvedValue(page),
+    createProductDelivery: vi.fn().mockResolvedValue({ jobCardId: 'job-1', version: 4 }),
     availableSlots: vi.fn().mockResolvedValue({ slots: [{ startsAt: '2026-07-17T11:00:00.000Z', endsAt: '2026-07-17T12:00:00.000Z' }] }),
     createFollowUp: vi.fn().mockResolvedValue(result),
     listFollowUps: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 20, offset: 0 }),
@@ -98,6 +99,38 @@ describe('JobCard routes', () => {
     );
     expect(service.detail).toHaveBeenCalledWith(expect.anything(), 'job-1');
     expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni' });
+  });
+
+  it('dispatches the atomic Product Delivery create-with-items boundary', async () => {
+    const { app, service } = await createApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/product-deliveries',
+      payload: {
+        clientActionId: 'delivery-batch-1', type: 'PRODUCT_DELIVERY', title: 'Klinik teslimi',
+        customerId: '22222222-2222-4222-8222-222222222222',
+        assignedTo: '11111111-1111-4111-8111-111111111111',
+        scheduledAt: '2026-07-16T14:30:00+03:00', deliveryPurpose: 'SALE',
+        deliveryNote: 'Ortak not', items: [
+          { productId: '44444444-4444-4444-8444-444444444444', quantity: 2 },
+          { productId: '55555555-5555-4555-8555-555555555555', quantity: 0.5 },
+        ],
+      },
+    });
+
+    expect(response.statusCode).toBe(201);
+    expect(service.createProductDelivery).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
+      expect.objectContaining({
+        type: 'PRODUCT_DELIVERY', deliveryPurpose: 'SALE', deliveryNote: 'Ortak not',
+        items: [
+          { productId: '44444444-4444-4444-8444-444444444444', quantity: 2 },
+          { productId: '55555555-5555-4555-8555-555555555555', quantity: 0.5 },
+        ],
+        scheduledAt: '2026-07-16T11:30:00.000Z',
+        scheduledEndsAt: '2026-07-16T12:00:00.000Z',
+      }),
+    );
   });
 
   it('dispatches the joint available-slot request with a strict normalized body', async () => {

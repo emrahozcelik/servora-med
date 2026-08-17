@@ -129,6 +129,15 @@ export type NormalizedJobCardCreateInput =
       overrideReason?: string | null;
     };
 
+export type ProductDeliveryCreateInput = Extract<
+  NormalizedJobCardCreateInput,
+  { type: 'PRODUCT_DELIVERY' }
+> & {
+  deliveryPurpose: DeliveryPurpose;
+  deliveryNote: string | null;
+  items: Array<{ productId: string; quantity: number }>;
+};
+
 export type CustomerSchedulePreviewInput = {
   type: JobCardType;
   customerId: string | null;

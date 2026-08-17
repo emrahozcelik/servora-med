@@ -8,6 +8,7 @@ import {
   parseFollowUpCreateInput,
   parseCustomerSchedulePreviewInput,
   parseJobCardCreateInput,
+  parseProductDeliveryCreateInput,
 } from './create-input.js';
 import { parseMeetingDetailsPatch, parseMeetingJobCardId } from './meeting-details-input.js';
 import {
@@ -105,6 +106,11 @@ export function createJobCardHandlers(service: JobCardService) {
   return {
     create: async (request: FastifyRequest, reply: FastifyReply) =>
       reply.code(201).send(await service.create(actor(request), parseJobCardCreateInput(request.body))),
+    createProductDelivery: async (request: FastifyRequest, reply: FastifyReply) =>
+      reply.code(201).send(await service.createProductDelivery(
+        actor(request),
+        parseProductDeliveryCreateInput(request.body),
+      )),
     createFollowUp: async (
       request: FastifyRequest<{ Params: Params }>,
       reply: FastifyReply,

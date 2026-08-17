@@ -1,5 +1,5 @@
 import {
-  addDeliveryItem, approveJobCard, createJobCard, getJobCard,
+  addDeliveryItem, approveJobCard, createJobCard, createProductDelivery, getJobCard,
   listDeliveryItems,
   patchDeliveryItem, patchJobCard, removeDeliveryItem, requestJobCardRevision,
   startJobCard, submitJobCardForApproval,
@@ -8,12 +8,12 @@ import {
 } from '../jobs/jobs-api';
 
 export {
-  addDeliveryItem, approveJobCard, createJobCard, getJobCard, listDeliveryItems,
+  addDeliveryItem, approveJobCard, createJobCard, createProductDelivery, getJobCard, listDeliveryItems,
   patchDeliveryItem, patchJobCard, removeDeliveryItem, requestJobCardRevision,
   startJobCard, submitJobCardForApproval,
   JOB_CARD_STATUSES,
 } from '../jobs/jobs-api';
-export type { DeliveryItem, DeliveryPurpose, JobCard, JobCardStatus } from '../jobs/jobs-api';
+export type { DeliveryItem, DeliveryPurpose, JobCard, JobCardStatus, ProductDeliveryCreateInput } from '../jobs/jobs-api';
 
 export type UserRole = 'ADMIN' | 'MANAGER' | 'STAFF';
 export type AuthenticatedCapabilities = {
