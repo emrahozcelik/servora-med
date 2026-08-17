@@ -112,6 +112,49 @@ describe('JobCardService.availableSlots', () => {
     });
   });
 
+  it('derives exact elapsed durations across the Europe/Berlin fall-back when the end is omitted', async () => {
+    for (const [type, expectedEnd] of [
+      ['SALES_MEETING', '2026-10-26T02:30:00.000Z'],
+      ['PRODUCT_DELIVERY', '2026-10-26T02:00:00.000Z'],
+    ] as const) {
+      const tx = {
+        getAssignee: vi.fn().mockResolvedValue({
+          id: input.assignedTo,
+          organizationId: actor.organizationId,
+          role: 'STAFF' as const,
+          isActive: true,
+        }),
+        customerExists: vi.fn().mockResolvedValue(true),
+        getOrganizationTimezone: vi.fn().mockResolvedValue('Europe/Berlin'),
+        listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
+        listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
+        listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
+      };
+      const repository = {
+        executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+      } as unknown as JobCardRepository;
+
+      const result = await new JobCardService(
+        repository,
+        () => new Date('2026-10-01T00:00:00.000Z'),
+        undefined,
+        undefined,
+        undefined,
+        { enabled: true, reminderLeadMinutes: 30 },
+      ).availableSlots(actor, {
+        ...input,
+        type,
+        scheduledAt: '2026-10-25T00:30:00.000Z',
+        scheduledEndsAt: undefined,
+      });
+
+      expect(result.slots[0]).toEqual({
+        startsAt: '2026-10-26T01:30:00.000Z',
+        endsAt: expectedEnd,
+      });
+    }
+  });
+
   it('rejects a noncanonical explicit end for a new Product Delivery search', async () => {
     const executeTransaction = vi.fn();
     const repository = { executeTransaction } as unknown as JobCardRepository;
