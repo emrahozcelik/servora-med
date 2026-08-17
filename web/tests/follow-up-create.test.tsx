@@ -169,6 +169,32 @@ describe('Follow-up create page', () => {
     expect(host.textContent).not.toContain('Source Staff Marker');
   });
 
+  it('defaults the existing source-job summary to a closed native disclosure', async () => {
+    await render();
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-create-source-disclosure');
+    expect(disclosure).not.toBeNull();
+    expect(disclosure?.open).toBe(false);
+    expect(disclosure?.querySelector('summary')?.textContent).toContain('Kaynak iş');
+    expect(host.querySelector('form')).not.toBeNull();
+  });
+
+  it('reveals the existing source summary without blocking the create form', async () => {
+    await render();
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-create-source-disclosure')!;
+    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
+    expect(disclosure.open).toBe(true);
+    expect(disclosure.textContent).toContain('Çok Uzun İsimli Klinik');
+    expect(host.querySelector('form')).not.toBeNull();
+  });
+
+  it('does not fetch the source again when the create summary expands', async () => {
+    await render();
+    jobs.getJobCard.mockClear();
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-create-source-disclosure')!;
+    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
+    expect(jobs.getJobCard).not.toHaveBeenCalled();
+  });
+
   it('clears form state and action identity when the source changes on the same route', async () => {
     await render();
     change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Klinik A talimatı');

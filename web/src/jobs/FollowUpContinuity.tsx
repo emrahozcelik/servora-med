@@ -35,21 +35,24 @@ export function FollowUpSourcePanel({ job }: { job: JobCard }) {
   const summary = context.sourceSummary;
   return <section className="follow-up-source-context" aria-labelledby="follow-up-source-context-title"
     data-follow-up-source-access={context.sourceAccess}>
-    <OperationalCard title={<h2 id="follow-up-source-context-title">{FOLLOW_UP_SOURCE_TITLE}</h2>}
-      extra={context.sourceAccess === 'FULL' && context.sourceJobPath
-        ? <a className="inline-action" href={context.sourceJobPath}>Önceki işi aç</a>
-        : undefined}>
-      <p className="follow-up-instructions"><strong>Takip kapsamı</strong><span>{context.followUpInstructions}</span></p>
-      <RecordDescriptions ariaLabel="Önceki iş özeti" items={[
-        { key: 'type', label: 'İş türü', content: jobTypeLabels[summary.sourceType] },
-        { key: 'planned', label: FOLLOW_UP_DATE_LABELS.planned, content: formatInstant(summary.sourcePlannedAt) },
-        { key: 'occurred', label: FOLLOW_UP_DATE_LABELS.occurred, content: formatInstant(summary.sourceOccurredAt) },
-        { key: 'completed', label: FOLLOW_UP_DATE_LABELS.completed, content: formatInstant(summary.sourceCompletedAt) },
-        { key: 'customer', label: 'Müşteri', content: summary.customer?.name ?? 'Belirtilmedi' },
-        { key: 'contact', label: 'İlgili kişi', content: summary.contact?.name ?? 'Belirtilmedi' },
-        ...(summary.outcome ? [{ key: 'outcome', label: 'Görüşme sonucu', content: FOLLOW_UP_OUTCOME_LABELS[summary.outcome] }] : []),
-      ]} />
-    </OperationalCard>
+    <details className="follow-up-source-disclosure">
+      <summary><span id="follow-up-source-context-title">{FOLLOW_UP_SOURCE_TITLE}</span></summary>
+      <div className="follow-up-source-disclosure__content">
+        {context.sourceAccess === 'FULL' && context.sourceJobPath
+          ? <a className="inline-action" href={context.sourceJobPath}>Önceki işi aç</a>
+          : null}
+        <p className="follow-up-instructions"><strong>Takip kapsamı</strong><span>{context.followUpInstructions}</span></p>
+        <RecordDescriptions ariaLabel="Önceki iş özeti" items={[
+          { key: 'type', label: 'İş türü', content: jobTypeLabels[summary.sourceType] },
+          { key: 'planned', label: FOLLOW_UP_DATE_LABELS.planned, content: formatInstant(summary.sourcePlannedAt) },
+          { key: 'occurred', label: FOLLOW_UP_DATE_LABELS.occurred, content: formatInstant(summary.sourceOccurredAt) },
+          { key: 'completed', label: FOLLOW_UP_DATE_LABELS.completed, content: formatInstant(summary.sourceCompletedAt) },
+          { key: 'customer', label: 'Müşteri', content: summary.customer?.name ?? 'Belirtilmedi' },
+          { key: 'contact', label: 'İlgili kişi', content: summary.contact?.name ?? 'Belirtilmedi' },
+          ...(summary.outcome ? [{ key: 'outcome', label: 'Görüşme sonucu', content: FOLLOW_UP_OUTCOME_LABELS[summary.outcome] }] : []),
+        ]} />
+      </div>
+    </details>
   </section>;
 }
 

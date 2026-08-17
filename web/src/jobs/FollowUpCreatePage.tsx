@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ApiError, type CurrentUser } from '../services/api';
 import { listContacts, type Contact } from '../services/crm-api';
 import { listStaff, type StaffProfile } from '../services/people-api';
-import { LoadingSkeleton, OperationalCard, RecordDescriptions, ResultState } from '../ui/antd';
+import { LoadingSkeleton, RecordDescriptions, ResultState } from '../ui/antd';
 import { counterState } from '../ui/counter-policy';
 import { ProgressiveCounter } from '../ui/ProgressiveCounter';
 import { JOB_CARD_ENGAGEMENT_LABELS, jobTypeLabels } from './job-labels';
@@ -310,14 +310,17 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
 
   return <main className="task-create follow-up-create" data-follow-up-create="true">
     <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Takip işi oluştur</h1></div></div>
-    <OperationalCard title="Kaynak iş" className="follow-up-source-summary">
-      <RecordDescriptions ariaLabel="Kaynak iş özeti" items={[
-        { key: 'type', label: 'İş türü', content: jobTypeLabels[source.type] },
-        { key: 'customer', label: 'Müşteri', content: source.customer?.name ?? 'Müşteri bağlantısı yok' },
-        { key: 'contact', label: 'İlgili kişi', content: source.contact?.name ?? 'Belirtilmedi' },
-        { key: 'completed', label: 'Tamamlanma tarihi', content: formatDate(source.workflowContext.lifecycle.approvedAt) },
-      ]} />
-    </OperationalCard>
+    <details className="follow-up-source-disclosure follow-up-source-summary follow-up-create-source-disclosure">
+      <summary><span id="follow-up-create-source-title">Kaynak iş</span></summary>
+      <div className="follow-up-source-disclosure__content">
+        <RecordDescriptions ariaLabel="Kaynak iş özeti" items={[
+          { key: 'type', label: 'İş türü', content: jobTypeLabels[source.type] },
+          { key: 'customer', label: 'Müşteri', content: source.customer?.name ?? 'Müşteri bağlantısı yok' },
+          { key: 'contact', label: 'İlgili kişi', content: source.contact?.name ?? 'Belirtilmedi' },
+          { key: 'completed', label: 'Tamamlanma tarihi', content: formatDate(source.workflowContext.lifecycle.approvedAt) },
+        ]} />
+      </div>
+    </details>
     {submitError && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{submitError}</div>}
     <form className="task-form follow-up-form" onSubmit={submit} noValidate>
       <fieldset disabled={pending}>
