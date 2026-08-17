@@ -124,6 +124,17 @@ const APPROVE_CONFIRMATION = {
   confirmLabel: 'İşi onayla ve takip işini planla',
 } as const;
 
+const APPROVE_WITHOUT_FOLLOW_UP_CONFIRMATION = {
+  title: 'İşi tamamlamak üzeresiniz',
+  details: [
+    'Yönetici kontrolünü tamamlar',
+    'İşi “Tamamlandı” durumuna geçirir',
+    'Aktif iş listesinden kaldırır',
+    'İş geçmişine onay kaydı ekler',
+  ],
+  confirmLabel: 'İşi onayla',
+} as const;
+
 type CommandCopy = {
   label: string;
   consequence: string;
@@ -133,6 +144,12 @@ type CommandCopy = {
 
 function isManagement(user: CurrentUser): boolean {
   return user.role === 'MANAGER' || user.role === 'ADMIN';
+}
+
+export function requiresMandatoryFollowUpProposal(
+  job: Pick<JobCard, 'type' | 'engagementKind'>,
+): boolean {
+  return job.type === 'SALES_MEETING' && job.engagementKind === 'CUSTOMER_VISIT';
 }
 
 function isRevisionActive(lifecycle: JobLifecycleFacts): boolean {
@@ -183,8 +200,10 @@ function phaseIndex(phase: WorkflowPhase): number {
 
 function commandCopy(
   command: LifecycleCommand,
-  opts: { revisionActive: boolean; user: CurrentUser },
+  opts: { revisionActive: boolean; user: CurrentUser; job: JobCard },
 ): CommandCopy {
+  const mandatoryFollowUp = requiresMandatoryFollowUpProposal(opts.job);
+  const hasFollowUpOnApproval = mandatoryFollowUp || Boolean(opts.job.followUpProposal);
   switch (command) {
     case 'ACCEPT_ASSIGNMENT':
       return {
@@ -201,13 +220,14 @@ function commandCopy(
     case 'SUBMIT_FOR_APPROVAL':
       return {
         label: opts.revisionActive ? 'Yeniden kontrole gönder' : 'Kontrole gönder',
-        consequence: 'İş yönetici kontrolüne geçecek ve kontrol sona erene kadar kayıtlar düzenlenemeyecektir. Takip işi planı zorunludur.',
+        consequence: 'İş yönetici kontrolüne geçecek ve kontrol sona erene kadar kayıtlar düzenlenemeyecektir.'
+          + (mandatoryFollowUp ? ' Takip işi planı zorunludur.' : ''),
         successMessage: 'İş yönetici kontrolüne gönderildi. Kontrol tamamlanana veya iş geri çekilene kadar kayıtlar düzenlenemez.',
         confirmation: {
           title: 'İşi kontrole göndermek üzeresiniz',
           details: [
             'İş “Yönetici kontrolünde” durumuna geçer',
-            'Takip işi planı işle birlikte yöneticiye iletilir',
+            ...(mandatoryFollowUp ? ['Takip işi planı işle birlikte yöneticiye iletilir'] : []),
             'İş geçmişine kayıt ekler',
           ],
           confirmLabel: 'Tamamla ve yönetici onayına gönder',
@@ -216,9 +236,20 @@ function commandCopy(
     case 'APPROVE':
       return {
         label: 'Kontrolü tamamla ve işi kapat',
-        consequence: 'İş “Tamamlandı” durumuna geçecek, onaylanan takip işi planı bağlantılı yeni bir iş olarak oluşturulacaktır.',
-        successMessage: 'İş tamamlandı ve takip işi planlandı.',
-        confirmation: { ...APPROVE_CONFIRMATION, details: [...APPROVE_CONFIRMATION.details] },
+        consequence: hasFollowUpOnApproval
+          ? 'İş “Tamamlandı” durumuna geçecek, onaylanan takip işi planı bağlantılı yeni bir iş olarak oluşturulacaktır.'
+          : 'İş “Tamamlandı” durumuna geçecek ve aktif iş listesinden kaldırılacaktır.',
+        successMessage: hasFollowUpOnApproval
+          ? 'İş tamamlandı ve takip işi planlandı.'
+          : 'İş tamamlandı.',
+        confirmation: {
+          ...(hasFollowUpOnApproval
+            ? APPROVE_CONFIRMATION
+            : APPROVE_WITHOUT_FOLLOW_UP_CONFIRMATION),
+          details: hasFollowUpOnApproval
+            ? [...APPROVE_CONFIRMATION.details]
+            : [...APPROVE_WITHOUT_FOLLOW_UP_CONFIRMATION.details],
+        },
       };
     case 'REQUEST_REVISION':
       return {
@@ -251,7 +282,7 @@ function commandCopy(
 
 function transitionPresentation(
   command: LifecycleCommand,
-  opts: { revisionActive: boolean; user: CurrentUser },
+  opts: { revisionActive: boolean; user: CurrentUser; job: JobCard },
 ): TransitionPresentation {
   const copy = commandCopy(command, opts);
   return {
@@ -538,7 +569,7 @@ function deriveTransitions(
   primaryTransition: TransitionPresentation | null;
   secondaryTransitions: TransitionPresentation[];
 } {
-  const opts = { revisionActive, user };
+  const opts = { revisionActive, user, job };
   const allowed = workflowContext.allowedCommands.filter((command) => {
     if (hideWithdraw && command === 'WITHDRAW_FROM_APPROVAL') return false;
     return true;

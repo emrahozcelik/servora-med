@@ -3074,6 +3074,25 @@ describe('Staff JobCard detail', () => {
     expect(start).toHaveBeenCalledWith('job-1', { clientActionId: 'action-1', expectedVersion: 2 });
     expect(submit).toHaveBeenCalledWith('job-1', {
       clientActionId: 'action-2', expectedVersion: 3, note: 'Teslim tamamlandı',
+    });
+
+    submit.mockClear();
+    await runStaffJobCommand({
+      ...job,
+      type: 'SALES_MEETING',
+      engagementKind: 'CUSTOMER_VISIT',
+      status: 'IN_PROGRESS',
+      version: 3,
+    }, 'submit', {
+      start, submit, refresh, createActionId: () => 'action-3',
+    }, 'Ziyaret tamamlandı', {
+      scheduledAt: '2026-07-24T10:00:00.000Z',
+      type: 'SALES_MEETING',
+      assignedTo: 's1',
+      followUpInstructions: 'Takip: Ziyaret',
+    });
+    expect(submit).toHaveBeenCalledWith('job-1', {
+      clientActionId: 'action-3', expectedVersion: 3, note: 'Ziyaret tamamlandı',
       followUpProposal: expect.objectContaining({
         type: 'SALES_MEETING',
         assignedTo: 's1',
@@ -3149,7 +3168,7 @@ describe('Staff JobCard detail', () => {
     },
     {
       command: 'APPROVE' as const,
-      expected: 'İş tamamlandı ve takip işi planlandı.',
+      expected: 'İş tamamlandı.',
       setup: () => {
         const card = {
           ...job,
@@ -3171,7 +3190,7 @@ describe('Staff JobCard detail', () => {
           card,
           user: managerUser,
           trigger: 'Kontrolü tamamla ve işi kapat',
-          confirm: 'İşi onayla ve takip işini planla',
+          confirm: 'İşi onayla',
           endpoint: '/approve',
           next: {
             ...card,

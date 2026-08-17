@@ -176,6 +176,14 @@ describe('Manager review', () => {
   it('explains completion and requires explicit confirmation', async () => {
     const waitingJob = {
       ...job,
+      followUpProposal: {
+        scheduledAt: '2026-07-24T10:00:00.000Z',
+        type: 'SALES_MEETING' as const,
+        assignedTo: staff.id,
+        followUpInstructions: 'Takip: Klinik teslimi',
+        origin: 'SYSTEM' as const,
+        proposedBy: { id: staff.id, name: staff.name },
+      },
       workflowContext: contextWith(
         ['APPROVE', 'REQUEST_REVISION', 'CANCEL'],
         ['VIEW_NOTES'],

@@ -23,6 +23,7 @@ import {
 } from './jobs/start-location-capture';
 import {
   deriveJobWorkflowPresentation,
+  requiresMandatoryFollowUpProposal,
   type JobWorkflowPresentation,
   type RecordEditPresentation,
   type ScheduleEditPresentation,
@@ -95,12 +96,7 @@ export async function runStaffJobCommand(
   command: StaffCommand,
   dependencies: CommandDependencies = commandDependencies,
   note = '',
-  followUpProposal: FollowUpProposalInput = {
-    scheduledAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString(),
-    type: job.type === 'GENERAL_TASK' ? 'GENERAL_TASK' : 'SALES_MEETING',
-    assignedTo: job.assignedTo,
-    followUpInstructions: `Takip: ${job.title}`,
-  },
+  followUpProposal?: FollowUpProposalInput,
 ) {
   const input = { clientActionId: dependencies.createActionId(), expectedVersion: job.version };
   try {
@@ -109,7 +105,9 @@ export async function runStaffJobCommand(
       : await dependencies.submit(job.id, {
           ...input,
           note: note.trim(),
-          followUpProposal,
+          ...(requiresMandatoryFollowUpProposal(job) && followUpProposal
+            ? { followUpProposal }
+            : {}),
         });
     return { kind: 'success' as const, job: updated };
   } catch (error) {
@@ -829,7 +827,7 @@ async function executeLifecycleCommand(
       return submitJobCardForApproval(jobId, {
         ...input,
         note: reason.trim(),
-        followUpProposal: input.followUpProposal!,
+        ...(input.followUpProposal ? { followUpProposal: input.followUpProposal } : {}),
       });
     case 'APPROVE': {
       const base = { ...input, ...(reason.trim() ? { note: reason.trim() } : {}) };
@@ -1621,6 +1619,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   }
 
   async function prepareSubmitFollowUp(job: JobCard) {
+    if (!requiresMandatoryFollowUpProposal(job)) {
+      setFollowUp(null);
+      return;
+    }
     try {
       const suggestion = await getFollowUpSuggestion(job.id);
       setFollowUp({
@@ -1647,6 +1649,10 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
 
   async function prepareApproveFollowUp(job: JobCard) {
     const persisted = job.followUpProposal;
+    if (!requiresMandatoryFollowUpProposal(job) && !persisted) {
+      setFollowUp(null);
+      return;
+    }
     let evaluation: CustomerScheduleEvaluation | null = null;
     let fallbackDraft: FollowUpDraft | null = null;
     try {
@@ -1717,7 +1723,13 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   function confirmDialog(reason: string) {
     if (!dialog) return;
     if (dialog.kind === 'approve') {
-      if (!followUp?.draft) return;
+      const job = state.kind === 'ready' ? state.detail.job : null;
+      const followUpRequired = job !== null
+        && (requiresMandatoryFollowUpProposal(job) || Boolean(job.followUpProposal));
+      if (!followUp?.draft) {
+        if (!followUpRequired) void execute('APPROVE', reason);
+        return;
+      }
       if (!followUp.draft.scheduledAt) {
         setFollowUp((current) => current ? { ...current, inlineError: 'Takip tarihi ve saati zorunludur.' } : current);
         return;
@@ -1744,7 +1756,12 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
       return;
     }
     if (dialog.kind === 'submit') {
-      if (!followUp?.draft) return;
+      const job = state.kind === 'ready' ? state.detail.job : null;
+      const followUpRequired = job !== null && requiresMandatoryFollowUpProposal(job);
+      if (!followUp?.draft) {
+        if (!followUpRequired) void execute('SUBMIT_FOR_APPROVAL', reason);
+        return;
+      }
       if (!followUp.draft.scheduledAt) {
         setFollowUp((current) => current ? { ...current, inlineError: 'Takip tarihi ve saati zorunludur.' } : current);
         return;

@@ -10,8 +10,13 @@ import {
   defaultFollowUpInstructions,
   defaultFollowUpType,
   deriveProposalOrigin,
+  requiresMandatoryFollowUpProposal,
   suggestedFollowUpInstant,
 } from '../src/modules/job-cards/follow-up-policy.js';
+import type {
+  JobCardEngagementKind,
+  JobCardType,
+} from '../src/modules/job-cards/types.js';
 import {
   localClockParts,
   localDateKey,
@@ -48,6 +53,30 @@ describe('follow-up policy V1 constants', () => {
     expect(defaultFollowUpType('SALES_MEETING')).toBe('SALES_MEETING');
     expect(defaultFollowUpType('PRODUCT_DELIVERY')).toBe('SALES_MEETING');
     expect(defaultFollowUpType('GENERAL_TASK')).toBe('GENERAL_TASK');
+  });
+
+  it('requires a proposal only for explicit CUSTOMER_VISIT sales meetings', () => {
+    const nonMandatoryCases = [
+      { type: 'SALES_MEETING', engagementKind: 'SALES_MEETING' },
+      { type: 'SALES_MEETING', engagementKind: 'PRODUCT_DEMO' },
+      { type: 'SALES_MEETING', engagementKind: 'TRAINING' },
+      { type: 'SALES_MEETING', engagementKind: 'FOLLOW_UP' },
+      { type: 'SALES_MEETING', engagementKind: 'OTHER' },
+      { type: 'GENERAL_TASK', engagementKind: null },
+      { type: 'PRODUCT_DELIVERY', engagementKind: null },
+    ] satisfies Array<{
+      type: JobCardType;
+      engagementKind: JobCardEngagementKind | null;
+    }>;
+
+    expect(requiresMandatoryFollowUpProposal({
+      type: 'SALES_MEETING',
+      engagementKind: 'CUSTOMER_VISIT',
+    })).toBe(true);
+
+    for (const input of nonMandatoryCases) {
+      expect(requiresMandatoryFollowUpProposal(input)).toBe(false);
+    }
   });
 });
 

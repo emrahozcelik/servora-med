@@ -528,6 +528,36 @@ describe('JobCardService realtime event emission', () => {
     expect(published).toEqual(repository.realtimeEvents);
   });
 
+  it('submits a non-visit General Task without creating a follow-up proposal', async () => {
+    const { repository, published, service } = withPublisher();
+    repository.job = {
+      ...repository.job,
+      type: 'GENERAL_TASK',
+      customerId: null,
+    };
+
+    await service.start(staff, 'job-1', input);
+    const submitted = await service.submitForApproval(staff, 'job-1', {
+      expectedVersion: 2,
+      clientActionId: 'submit-general-task',
+      note: 'Görev tamamlandı.',
+    });
+
+    expect(submitted).toMatchObject({
+      status: 'WAITING_APPROVAL',
+      followUpProposal: null,
+    });
+    expect(repository.notificationAppends).toHaveLength(1);
+    expect(published.some((event) => event.type === 'job.submitted_for_approval')).toBe(true);
+  });
+
+  it('does not return a completion follow-up suggestion for a non-visit job', async () => {
+    const { service } = withPublisher();
+
+    await expect(service.getFollowUpSuggestion(staff, 'job-1'))
+      .rejects.toMatchObject({ code: 'FOLLOW_UP_PROPOSAL_INVALID', statusCode: 400 });
+  });
+
   it('does not publish realtime events on idempotent note replay', async () => {
     const { repository, published, service } = withPublisher();
     repository.nextCriticalResult = 'replay';
@@ -553,12 +583,6 @@ describe('JobCardService realtime event emission', () => {
       expectedVersion: 2,
       clientActionId: 'submit-action',
       note: 'Görev tamamlandı.',
-      followUpProposal: {
-        scheduledAt: '2026-07-27T10:00:00.000Z',
-        type: 'GENERAL_TASK',
-        assignedTo: 'staff-1',
-        followUpInstructions: 'Takip: Görev takibi',
-      },
     });
 
     expect(repository.notificationAppends).toEqual([

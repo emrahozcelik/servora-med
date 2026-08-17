@@ -904,7 +904,7 @@ const lifecycle = async (id: string, command: string, input: object) =>
   parseJobCard(await request(`${jobPath(id)}/${command}`, json('POST', input)));
 export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'accept', input);
 export const startJobCard = (id: string, input: StartJobCardInput) => lifecycle(id, 'start', input);
-export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note: string; followUpProposal: FollowUpProposalInput }) =>
+export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note: string; followUpProposal?: FollowUpProposalInput }) =>
   lifecycle(id, 'submit-for-approval', input);
 export const approveJobCard = async (id: string, input: LifecycleInput & { note?: string; followUp?: FollowUpProposalInput & { overrideReason?: string } }) => {
   const raw = await request(`${jobPath(id)}/approve`, json('POST', input));
