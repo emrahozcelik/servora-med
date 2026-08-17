@@ -22,6 +22,11 @@ export function isoInstantToLocalDateTime(value: string): string {
   return formatLocalDateTime(date);
 }
 
+/** Format the current device-local time for a convenience-only execution input default. */
+export function defaultDeliveredAtLocalValue(now = new Date()): string {
+  return formatLocalDateTime(now);
+}
+
 /**
  * Default planned time: now + 1 hour, rounded up to the next 30-minute boundary.
  * Exact 30-minute boundaries (with zero seconds/ms after +1h) are kept.

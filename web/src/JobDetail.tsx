@@ -30,6 +30,7 @@ import {
   type TransitionPresentation,
 } from './jobs/job-workflow-presentation';
 import {
+  defaultDeliveredAtLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './jobs/scheduling';
@@ -209,7 +210,7 @@ function DeliveryItemActualTimeForm({
   onSave: (itemId: string, deliveredAt: string) => Promise<void>;
 }) {
   const [localValue, setLocalValue] = useState(() => (
-    item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : ''
+    item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : defaultDeliveredAtLocalValue()
   ));
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
@@ -219,7 +220,7 @@ function DeliveryItemActualTimeForm({
   useEffect(() => {
     if (lastKey.current === canonicalKey) return;
     lastKey.current = canonicalKey;
-    setLocalValue(item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : '');
+    setLocalValue(item.deliveredAt ? isoInstantToLocalDateTime(item.deliveredAt) : defaultDeliveredAtLocalValue());
     setFieldError('');
     setSubmitError('');
   }, [canonicalKey, item.deliveredAt]);

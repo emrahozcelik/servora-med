@@ -217,6 +217,26 @@ describe('safe JobCard activity presenter', () => {
     expect(JSON.stringify(result)).not.toMatch(/assignee-old|assignee-new|customer-1|customer-2|internal/);
   });
 
+  it('presents D4 schedule mutations with the canonical public field names', () => {
+    const result = presentActivity(baseRecord('JOB_FIELDS_UPDATED', {
+      oldValue: {
+        scheduledAt: '2026-07-20T09:00:00.000Z',
+        scheduledEndsAt: '2026-07-20T09:30:00.000Z',
+        privateValue: 'old',
+      },
+      newValue: {
+        scheduledAt: '2026-07-20T10:00:00.000Z',
+        scheduledEndsAt: '2026-07-20T10:30:00.000Z',
+        privateValue: 'new',
+      },
+    }));
+
+    expect(result.details).toEqual({
+      kind: 'FIELDS_UPDATED', changedFields: ['scheduledAt', 'scheduledEndsAt'],
+    });
+    expect(JSON.stringify(result)).not.toMatch(/T09:00|T09:30|T10:00|T10:30|privateValue|old|new/);
+  });
+
   it.each([
     ['DELIVERY_ITEM_ADDED', 'ADDED', null, { itemId: 'item-1', deliveryPurpose: 'SALE', quantity: 2, productId: 'private-product' }],
     ['DELIVERY_ITEM_UPDATED', 'UPDATED', null, { itemId: 'item-2', deliveryPurpose: 'SAMPLE', quantity: 3, deliveryNote: 'private-note' }],

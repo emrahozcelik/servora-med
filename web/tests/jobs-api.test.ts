@@ -545,6 +545,44 @@ describe('JobCard workspace transport', () => {
     await expect(listActivity('job-1')).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
   });
 
+  it('parses D4 schedule and D5 delivery mutation field activity without dropping strict validation', async () => {
+    const activities = [
+      {
+        id: 'created', jobCardId: 'job-1', eventType: 'JOB_CREATED', actor: null,
+        details: { kind: 'NONE' }, createdAt: '2026-07-20T09:00:00Z',
+      },
+      {
+        id: 'schedule', jobCardId: 'job-1', eventType: 'JOB_FIELDS_UPDATED', actor: null,
+        details: { kind: 'FIELDS_UPDATED', changedFields: ['scheduledAt', 'scheduledEndsAt'] },
+        createdAt: '2026-07-20T09:01:00Z',
+      },
+      {
+        id: 'assigned', jobCardId: 'job-1', eventType: 'JOB_ASSIGNED', actor: null,
+        details: { kind: 'FIELDS_UPDATED', changedFields: ['assignee'] },
+        createdAt: '2026-07-20T09:02:00Z',
+      },
+      {
+        id: 'delivery', jobCardId: 'job-1', eventType: 'DELIVERY_ITEM_UPDATED', actor: null,
+        details: {
+          kind: 'DELIVERY_ITEM', operation: 'UPDATED', itemId: 'item-1', purpose: 'SALE', quantity: 2,
+        },
+        createdAt: '2026-07-20T09:03:00Z',
+      },
+    ];
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      items: activities, total: activities.length, limit: 50, offset: 0,
+    })));
+
+    await expect(listActivity('job-1')).resolves.toMatchObject({
+      items: [
+        { id: 'created', details: { kind: 'NONE' } },
+        { id: 'schedule', details: { kind: 'FIELDS_UPDATED', changedFields: ['scheduledAt', 'scheduledEndsAt'] } },
+        { id: 'assigned', details: { kind: 'FIELDS_UPDATED', changedFields: ['assignee'] } },
+        { id: 'delivery', details: { kind: 'DELIVERY_ITEM', operation: 'UPDATED' } },
+      ],
+    });
+  });
+
   it.each([0, -1])('rejects delivery item quantity %s', async (quantity) => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({ items: [{
       id: 'i1', organizationId: 'org-1', jobCardId: 'job-1', productId: 'p1',
