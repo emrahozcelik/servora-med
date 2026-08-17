@@ -25,32 +25,11 @@ const api = vi.hoisted(() => ({
 }));
 const products = vi.hoisted(() => ({ listProducts: vi.fn() }));
 const scheduling = vi.hoisted(() => {
-  const parseLocal = (value: string) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
-    if (!match) throw new Error(value);
-    return new Date(
-      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
-      Number(match[4]), Number(match[5]), 0, 0,
-    );
-  };
-  const pad = (part: number) => String(part).padStart(2, '0');
-  const formatLocal = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   return {
     defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
     isoInstantToLocalDateTime: (value: string) => {
       const date = new Date(value);
       return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    },
-    addOneHourLocal: (value: string) => {
-      const date = parseLocal(value);
-      date.setHours(date.getHours() + 1);
-      return formatLocal(date);
-    },
-    canonicalPreviewEndLocal: (value: string, type: 'SALES_MEETING' | 'PRODUCT_DELIVERY') => {
-      const date = parseLocal(value);
-      date.setMinutes(date.getMinutes() + (type === 'SALES_MEETING' ? 60 : 30));
-      return formatLocal(date);
     },
     localDateTimeToIso: (value: string) => {
       const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
@@ -59,10 +38,6 @@ const scheduling = vi.hoisted(() => {
         Number(match[1]), Number(match[2]) - 1, Number(match[3]),
         Number(match[4]), Number(match[5]), 0, 0,
       ).toISOString();
-    },
-    shiftInterval: (start: string, end: string, newStart: string): [string, string] => {
-      const delta = parseLocal(newStart).getTime() - parseLocal(start).getTime();
-      return [newStart, formatLocal(new Date(parseLocal(end).getTime() + delta))];
     },
   };
 });

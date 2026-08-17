@@ -13,33 +13,14 @@ const jobs = vi.hoisted(() => ({ createJobCard: vi.fn(), findAvailableSlots: vi.
 const crm = vi.hoisted(() => ({ listCustomers: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const scheduling = vi.hoisted(() => {
-  const parseLocal = (value: string) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
-    if (!match) throw new Error(value);
-    return new Date(
-      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
-      Number(match[4]), Number(match[5]), 0, 0,
-    );
-  };
-  const pad = (part: number) => String(part).padStart(2, '0');
-  const formatLocal = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   return {
     defaultScheduledLocalValue: vi.fn(() => '2026-08-01T12:30'),
     isoInstantToLocalDateTime: vi.fn(() => '2026-08-10T09:30'),
     localDateTimeToIso: vi.fn((value: string) => value === '2026-08-01T12:30'
       ? '2026-08-01T09:30:00.000Z' : value === '2026-08-01T13:30'
         ? '2026-08-01T10:30:00.000Z' : value === '2026-08-10T09:30'
-          ? '2026-08-10T06:30:00.000Z' : value === '2026-08-10T10:30'
-            ? '2026-08-10T07:30:00.000Z' : '2026-08-01T09:30:00.000Z'),
-    addOneHourLocal: vi.fn((value: string) => value === '2026-08-01T12:30'
-      ? '2026-08-01T13:30' : '2026-08-01T13:30'),
-    canonicalPreviewEndLocal: vi.fn((value: string) => value === '2026-08-10T09:30'
-      ? '2026-08-10T10:30' : '2026-08-01T13:30'),
-    shiftInterval: (start: string, end: string, newStart: string): [string, string] => {
-      const delta = parseLocal(newStart).getTime() - parseLocal(start).getTime();
-      return [newStart, formatLocal(new Date(parseLocal(end).getTime() + delta))];
-    },
+        ? '2026-08-10T06:30:00.000Z' : value === '2026-08-10T10:30'
+          ? '2026-08-10T07:30:00.000Z' : '2026-08-01T09:30:00.000Z'),
   };
 });
 const preview = vi.hoisted(() => ({ useCustomerSchedulePreview: vi.fn() }));

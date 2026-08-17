@@ -144,7 +144,6 @@ function EventForm({
     customerId: event?.source === 'JOB' ? event.customer?.id ?? null : null,
     assignedTo: intervalJobType ? draft.assignedUserId : null,
     scheduledStartLocal: draft.startsAt,
-    scheduledEndLocal: draft.endsAt,
     jobCardId: event?.source === 'JOB' ? event.jobCardId : null,
     enabled: user.capabilities?.calendar === true && intervalJobType !== null,
   });

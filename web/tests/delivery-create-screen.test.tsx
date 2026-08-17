@@ -21,43 +21,9 @@ const crm = vi.hoisted(() => ({ getCustomer: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const productsApi = vi.hoisted(() => ({ listProducts: vi.fn() }));
 const scheduling = vi.hoisted(() => {
-  const parseLocal = (value: string) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
-    if (!match) throw new Error(value);
-    return new Date(
-      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
-      Number(match[4]), Number(match[5]), 0, 0,
-    );
-  };
-  const pad = (part: number) => String(part).padStart(2, '0');
-  const formatLocal = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   return {
     defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
     isoInstantToLocalDateTime: vi.fn(() => '2026-08-10T09:30'),
-    addOneHourLocal: (value: string) => {
-      const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
-      if (!match) throw new Error(value);
-      const date = new Date(
-        Number(match[1]), Number(match[2]) - 1, Number(match[3]),
-        Number(match[4]), Number(match[5]), 0, 0,
-      );
-      date.setHours(date.getHours() + 1);
-      const pad = (part: number) => String(part).padStart(2, '0');
-      return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-        + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
-    },
-    canonicalPreviewEndLocal: (value: string) => {
-      const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
-      if (!match) throw new Error(value);
-      const date = new Date(
-        Number(match[1]), Number(match[2]) - 1, Number(match[3]),
-        Number(match[4]), Number(match[5]), 0, 0,
-      );
-      date.setMinutes(date.getMinutes() + 30);
-      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
-        + `T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    },
     localDateTimeToIso: (value: string) => {
       const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
       if (!match) throw new Error(value);
@@ -65,10 +31,6 @@ const scheduling = vi.hoisted(() => {
         Number(match[1]), Number(match[2]) - 1, Number(match[3]),
         Number(match[4]), Number(match[5]), 0, 0,
       ).toISOString();
-    },
-    shiftInterval: (start: string, end: string, newStart: string): [string, string] => {
-      const delta = parseLocal(newStart).getTime() - parseLocal(start).getTime();
-      return [newStart, formatLocal(new Date(parseLocal(end).getTime() + delta))];
     },
   };
 });

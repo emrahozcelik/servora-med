@@ -97,17 +97,6 @@ export function addOneHourLocal(value: string): string {
 }
 
 /**
- * Preview-only end for new interval searches. The server remains authoritative
- * for persisted JobCard durations and final writes.
- */
-export function canonicalPreviewEndLocal(
-  value: string,
-  type: 'SALES_MEETING' | 'PRODUCT_DELIVERY',
-): string {
-  return addMinutesLocal(value, type === 'SALES_MEETING' ? 60 : 30);
-}
-
-/**
  * Shift a device-local interval so that it starts at `newStartLocal`,
  * preserving the original duration exactly. Used by the "use suggested
  * alternative" CTA so the whole interval moves, never just the start.

@@ -2,7 +2,6 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   cardScheduleFact,
-  canonicalPreviewEndLocal,
   defaultScheduledLocalValue,
   localDateTimeToIso,
   shiftInterval,
@@ -69,18 +68,6 @@ describe('localDateTimeToIso', () => {
     expect(again.getDate()).toBe(15);
     expect(again.getHours()).toBe(9);
     expect(again.getMinutes()).toBe(0);
-  });
-});
-
-describe('canonicalPreviewEndLocal', () => {
-  it('previews a 60-minute Sales Meeting interval', () => {
-    expect(canonicalPreviewEndLocal('2026-08-01T23:30', 'SALES_MEETING'))
-      .toBe('2026-08-02T00:30');
-  });
-
-  it('previews a 30-minute Product Delivery interval', () => {
-    expect(canonicalPreviewEndLocal('2026-08-01T23:30', 'PRODUCT_DELIVERY'))
-      .toBe('2026-08-02T00:00');
   });
 });
 

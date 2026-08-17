@@ -304,9 +304,6 @@ function JobScheduleEditForm({
     customerId: job.customerId,
     assignedTo: job.assignedTo,
     scheduledStartLocal: localValue,
-    scheduledEndLocal: job.scheduledEndsAt
-      ? isoInstantToLocalDateTime(job.scheduledEndsAt)
-      : undefined,
     jobCardId: job.id,
     enabled: user.capabilities?.calendar === true && intervalJob,
   });
