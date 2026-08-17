@@ -118,6 +118,8 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
       await expect(service.createProductDelivery(manager, {
         ...input,
         clientActionId: 'postgres-invalid-batch',
+        scheduledAt: '2026-08-18T11:00:00.000Z',
+        scheduledEndsAt: '2026-08-18T11:30:00.000Z',
         items: [{ productId: productIds[0]!, quantity: 1 }, { productId: otherProductId, quantity: 1 }],
       })).rejects.toMatchObject({ code: 'PRODUCT_NOT_FOUND', statusCode: 404 });
       const countsAfterInvalid = await pool.query<{ jobs: string; items: string; activities: string; actions: string }>(
