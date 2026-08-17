@@ -38,7 +38,13 @@ export type CurrentUser = {
   capabilities: AuthenticatedCapabilities;
   support: AuthenticatedSupport;
 };
-export type ReferenceCustomer = { id: string; name: string; customerType: string; status: string };
+export type ReferenceCustomer = {
+  id: string;
+  name: string;
+  customerType: string;
+  status: string;
+  assignedStaffUserId?: string | null;
+};
 
 export class ApiError extends Error {
   constructor(public readonly status: number, public readonly code: string, message: string,
@@ -158,5 +164,16 @@ export async function logout() { await request('/api/auth/logout', { method: 'PO
 export async function changePassword(input: { currentPassword: string; newPassword: string }) { await request('/api/auth/change-password', json('POST', input)); }
 
 export async function listReferenceCustomers() {
-  return items(await request('/api/reference/customers')).map((entry) => { const v = object(entry); return { id: string(v.id, 'id'), name: string(v.name, 'name'), customerType: string(v.customerType, 'customerType'), status: string(v.status, 'status') }; });
+  return items(await request('/api/reference/customers')).map((entry) => {
+    const v = object(entry);
+    return {
+      id: string(v.id, 'id'),
+      name: string(v.name, 'name'),
+      customerType: string(v.customerType, 'customerType'),
+      status: string(v.status, 'status'),
+      assignedStaffUserId: v.assignedStaffUserId === undefined
+        ? null
+        : nullableString(v.assignedStaffUserId, 'assignedStaffUserId'),
+    };
+  });
 }

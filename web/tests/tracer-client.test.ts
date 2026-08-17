@@ -19,7 +19,8 @@ const emptyLifecycle = {
 };
 
 const job = {
-  id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW',
+  id: 'job-1', organizationId: 'org-1', organizationTimezone: 'Europe/Istanbul',
+  type: 'PRODUCT_DELIVERY', status: 'NEW',
   version: 1, title: 'Teslim', description: null, customerId: 'customer-1', assignedTo: 'staff-1',
   contactId: 'contact-1', createdBy: 'staff-1', priority: 'normal', dueDate: null,
   scheduledAt: null,
@@ -62,9 +63,15 @@ function json(body: unknown, status = 200) {
 describe('tracer API client', () => {
   it('loads typed customer references with credentials without a legacy Product request', async () => {
     const fetchMock = vi.fn()
-      .mockResolvedValueOnce(json({ items: [{ id: 'c1', name: 'Klinik', customerType: 'clinic', status: 'active' }] }));
+      .mockResolvedValueOnce(json({ items: [{
+        id: 'c1', name: 'Klinik', customerType: 'clinic', status: 'active',
+        assignedStaffUserId: 'staff-1',
+      }] }));
     vi.stubGlobal('fetch', fetchMock);
-    await expect(listReferenceCustomers()).resolves.toHaveLength(1);
+    await expect(listReferenceCustomers()).resolves.toEqual([{
+      id: 'c1', name: 'Klinik', customerType: 'clinic', status: 'active',
+      assignedStaffUserId: 'staff-1',
+    }]);
     expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/reference/customers', expect.objectContaining({ credentials: 'include' }));
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
@@ -74,7 +81,10 @@ describe('tracer API client', () => {
       .mockResolvedValueOnce(json(job, 201)).mockResolvedValueOnce(json({ items: [jobListItem], total: 1, limit: 25, offset: 0 }))
       .mockResolvedValueOnce(json(job)).mockResolvedValueOnce(json({ ...job, version: 2 }));
     vi.stubGlobal('fetch', fetchMock);
-    const create = { clientActionId: 'a1', type: 'PRODUCT_DELIVERY' as const, title: 'Teslim', customerId: 'c1', contactId: 'contact-1', assignedTo: 's1' };
+    const create = {
+      clientActionId: 'a1', type: 'PRODUCT_DELIVERY' as const, title: 'Teslim',
+      customerId: 'c1', assignedTo: 's1', scheduledAt: '2026-07-20T09:00:00.000Z',
+    };
     await createJobCard(create); await expect(listJobCards()).resolves.toMatchObject({ items: [jobListItem] });
     await expect(getJobCard('job-1')).resolves.toMatchObject({ contactId: 'contact-1' });
     await patchJobCard('job-1', { expectedVersion: 1, title: 'Yeni' });

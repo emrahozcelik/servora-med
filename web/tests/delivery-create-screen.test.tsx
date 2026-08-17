@@ -1,13 +1,13 @@
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
+import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DeliveryCreateView } from '../src/DeliveryCreate';
 import { localDateTimeToIso } from '../src/jobs/scheduling';
 import { ApiError, type CurrentUser, type ReferenceCustomer } from '../src/services/api';
 import type { Product } from '../src/services/products-api';
-import type { CustomerDetail } from '../src/services/crm-api';
 import type { StaffProfile } from '../src/services/people-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -49,9 +49,9 @@ vi.mock('../src/jobs/jobs-api', async (importOriginal) => ({
 const manager: CurrentUser = { id: 'manager-1', organizationId: 'org-1', name: 'Murat', email: 'murat@example.com', role: 'MANAGER', mustChangePassword: false };
 const staffUser: CurrentUser = { ...manager, id: 'staff-1', role: 'STAFF' };
 const customers: ReferenceCustomer[] = [
-  { id: 'customer-a', name: 'A Klinik', customerType: 'clinic', status: 'active' },
-  { id: 'customer-b', name: 'B Klinik', customerType: 'clinic', status: 'active' },
-  { id: 'customer-inactive', name: 'Pasif Klinik', customerType: 'clinic', status: 'inactive' },
+  { id: 'customer-a', name: 'A Klinik', customerType: 'clinic', status: 'active', assignedStaffUserId: 'staff-1' },
+  { id: 'customer-b', name: 'B Klinik', customerType: 'clinic', status: 'active', assignedStaffUserId: 'staff-2' },
+  { id: 'customer-inactive', name: 'Pasif Klinik', customerType: 'clinic', status: 'inactive', assignedStaffUserId: null },
 ];
 const product: Product = { id: 'product-1', organizationId: 'org-1', name: 'İmplant', sku: 'I1', brand: null, category: null,
   model: null, unit: 'adet', referencePrice: null, isActive: true, version: 1, createdAt: '', updatedAt: '' };
@@ -62,22 +62,16 @@ function profile(id: string, name: string): StaffProfile {
     version: 1, counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 } };
 }
 
-function detail(id: string, assignedStaffUserId: string | null, primaryName = 'Dr. Ayşe'): CustomerDetail {
-  return { id, organizationId: 'org-1', name: `${id} Klinik`, customerType: 'clinic', taxNumber: null, phone: null, email: null, city: null, district: null,
-    address: null, assignedStaffUserId, assignedStaffName: null, status: 'active', version: 1, primaryContact: null,
-    contacts: [
-      { id: `${id}-primary`, organizationId: 'org-1', customerId: id, name: primaryName, title: 'Doktor', phone: null, email: null, isPrimary: true, isActive: true, version: 1 },
-      { id: `${id}-inactive`, organizationId: 'org-1', customerId: id, name: 'Pasif Kişi', title: null, phone: null, email: null, isPrimary: false, isActive: false, version: 1 },
-    ], openJobCount: 0, completedJobCount: 0 };
-}
-
-function deferred<T>() { let resolve!: (value: T) => void; const promise = new Promise<T>((next) => { resolve = next; }); return { promise, resolve }; }
 async function settle() { await act(async () => { await Promise.resolve(); }); }
 function change(select: HTMLSelectElement, value: string) { select.value = value; select.dispatchEvent(new Event('change', { bubbles: true })); }
 function changeInput(input: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+function view(user: CurrentUser, initialCustomerId?: string) {
+  return <MemoryRouter><DeliveryCreateView user={user} initialCustomerId={initialCustomerId}
+    onCancel={() => {}} onCreated={() => {}} /></MemoryRouter>;
 }
 
 describe('Delivery create CRM defaults', () => {
@@ -96,25 +90,25 @@ describe('Delivery create CRM defaults', () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
-  it('loads active Contacts, suggests primary and responsible Staff, and submits management overrides', async () => {
-    crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-1'));
-    await act(async () => root.render(<DeliveryCreateView user={manager} onCancel={() => {}} onCreated={() => {}} />)); await settle();
+  it('loads active Customers, suggests responsible Staff, and submits without a Contact', async () => {
+    await act(async () => root.render(view(manager))); await settle();
     expect(api.listReferenceCustomers).toHaveBeenCalled();
     expect(productsApi.listProducts).toHaveBeenCalledWith({ status: 'active', q: '', limit: 25, offset: 0 });
     const customer = container.querySelector('#delivery-customer') as HTMLSelectElement;
     expect(Array.from(customer.options).map((option) => option.text)).not.toContain('Pasif Klinik');
     await act(async () => change(customer, 'customer-a')); await settle();
-    const contact = container.querySelector('#delivery-contact') as HTMLSelectElement;
-    expect(contact.value).toBe('customer-a-primary'); expect(contact.textContent).toContain('Dr. Ayşe'); expect(contact.textContent).not.toContain('Pasif Kişi');
+    expect(container.querySelector('#delivery-contact')).toBeNull();
+    expect(crm.getCustomer).not.toHaveBeenCalled();
     const assignee = container.querySelector('#delivery-assignee') as HTMLSelectElement; expect(assignee.value).toBe('staff-1');
     await act(async () => change(assignee, 'staff-2'));
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
     (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '2';
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
     expect(api.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
-      customerId: 'customer-a', contactId: 'customer-a-primary', assignedTo: 'staff-2',
+      customerId: 'customer-a', assignedTo: 'staff-2',
       scheduledAt: localDateTimeToIso('2026-07-17T14:30'),
     }));
+    expect(api.createJobCard.mock.calls[0]?.[0]).not.toHaveProperty('contactId');
     expect(api.addDeliveryItem).toHaveBeenCalledWith('job-1', expect.objectContaining({
       productId: 'product-1', deliveredAt: null,
     }));
@@ -132,8 +126,7 @@ describe('Delivery create CRM defaults', () => {
     scheduling.isoInstantToLocalDateTime.mockImplementation((value: string) => (
       value.endsWith('06:30:00.000Z') ? '2026-08-10T09:30' : '2026-08-10T10:30'
     ));
-    crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-1'));
-    await act(async () => root.render(<DeliveryCreateView user={calendarManager} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(view(calendarManager)));
     await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
@@ -149,9 +142,7 @@ describe('Delivery create CRM defaults', () => {
   });
 
   it('pre-fills planned delivery time once and preserves a user edit across reference reloads', async () => {
-    const pendingCustomer = deferred<CustomerDetail>();
-    crm.getCustomer.mockReturnValue(pendingCustomer.promise);
-    await act(async () => root.render(<DeliveryCreateView user={manager} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(view(manager)));
     await settle();
     expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
     const scheduled = container.querySelector('#delivery-scheduled-at') as HTMLInputElement;
@@ -159,15 +150,13 @@ describe('Delivery create CRM defaults', () => {
     expect(container.textContent).toContain('Planlanan teslim zamanı');
     await act(async () => changeInput(scheduled, '2026-08-01T09:00'));
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
-    await act(async () => pendingCustomer.resolve(detail('customer-a', 'staff-1')));
     await settle();
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-01T09:00');
     expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
   });
 
   it('sends scheduledAt on the JobCard and null deliveredAt on the planned item', async () => {
-    crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-1'));
-    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(view(staffUser)));
     await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
@@ -183,33 +172,27 @@ describe('Delivery create CRM defaults', () => {
     expect(api.addDeliveryItem).toHaveBeenCalledWith('job-1', expect.objectContaining({ deliveredAt: null }));
   });
 
-  it('clears incompatible Contact immediately and ignores a late Customer response', async () => {
-    const first = deferred<CustomerDetail>(); const second = deferred<CustomerDetail>();
-    crm.getCustomer.mockImplementation((id: string) => id === 'customer-a' ? first.promise : second.promise);
-    await act(async () => root.render(<DeliveryCreateView user={manager} onCancel={() => {}} onCreated={() => {}} />)); await settle();
+  it('switches the responsible Staff from the reference projection without loading Contacts', async () => {
+    await act(async () => root.render(view(manager))); await settle();
     const customer = container.querySelector('#delivery-customer') as HTMLSelectElement;
     await act(async () => change(customer, 'customer-a'));
+    expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-1');
     await act(async () => change(customer, 'customer-b'));
-    expect((container.querySelector('#delivery-contact') as HTMLSelectElement).value).toBe(''); expect(container.textContent).toContain('İlgili kişiler yükleniyor');
-    await act(async () => second.resolve(detail('customer-b', 'staff-2', 'Dr. Bora')));
-    await act(async () => first.resolve(detail('customer-a', 'staff-1', 'Dr. Eski')));
-    const contact = container.querySelector('#delivery-contact') as HTMLSelectElement;
-    expect(contact.value).toBe('customer-b-primary'); expect(contact.textContent).toContain('Dr. Bora'); expect(contact.textContent).not.toContain('Dr. Eski');
+    expect((container.querySelector('#delivery-assignee') as HTMLSelectElement).value).toBe('staff-2');
+    expect(container.querySelector('#delivery-contact')).toBeNull();
+    expect(crm.getCustomer).not.toHaveBeenCalled();
   });
 
-  it('does not overwrite a management assignee changed while Customer defaults are loading', async () => {
-    const pendingCustomer = deferred<CustomerDetail>(); crm.getCustomer.mockReturnValue(pendingCustomer.promise);
-    await act(async () => root.render(<DeliveryCreateView user={manager} onCancel={() => {}} onCreated={() => {}} />)); await settle();
+  it('does not overwrite a management assignee after the Customer default is applied', async () => {
+    await act(async () => root.render(view(manager))); await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     const assignee = container.querySelector('#delivery-assignee') as HTMLSelectElement;
     await act(async () => change(assignee, 'staff-2'));
-    await act(async () => pendingCustomer.resolve(detail('customer-a', 'staff-1')));
     expect(assignee.value).toBe('staff-2');
   });
 
   it('does not expose an assignee selector for Staff and always submits the signed-in user', async () => {
-    crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-2'));
-    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />)); await settle();
+    await act(async () => root.render(view(staffUser))); await settle();
     expect(container.querySelector('#delivery-assignee')).toBeNull();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a')); await settle();
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
@@ -219,9 +202,8 @@ describe('Delivery create CRM defaults', () => {
   });
 
   it('preserves the planned time after a submit error and retry', async () => {
-    crm.getCustomer.mockResolvedValue(detail('customer-a', 'staff-1'));
     api.createJobCard.mockRejectedValueOnce(new Error('Sunucu hatası'));
-    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(view(staffUser)));
     await settle();
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-09-01T16:00'));
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
@@ -241,7 +223,7 @@ describe('Delivery create CRM defaults', () => {
   });
 
   it('uses the shared create-heading and form-actions contract (T4A)', async () => {
-    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(view(staffUser)));
     await settle();
     expect(container.querySelector('.create-heading')).toBeTruthy();
     expect(container.querySelector('.delivery-heading')).toBeNull();
@@ -272,7 +254,7 @@ describe('Delivery create CRM defaults', () => {
       },
       previewing: false,
     });
-    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(view(staffUser)));
     await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
@@ -296,7 +278,7 @@ describe('Delivery create CRM defaults', () => {
       409, 'CUSTOMER_SCHEDULE_CONFLICT', 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
       false, { conflicts: [], suggestedAlternativeAt: '2026-08-10T09:30:00.000Z' },
     ));
-    await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
+    await act(async () => root.render(view(staffUser)));
     await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();

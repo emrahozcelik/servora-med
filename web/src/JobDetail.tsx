@@ -187,6 +187,18 @@ function formatDeliveredAt(value: string | null): string {
     .format(new Date(value));
 }
 
+function formatOrganizationInstant(value: string, timeZone: string): string {
+  return new Intl.DateTimeFormat('tr-TR', {
+    day: 'numeric',
+    month: 'long',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+    hourCycle: 'h23',
+    timeZone,
+  }).format(new Date(value));
+}
+
 function DeliveryItemActualTimeForm({
   item,
   pending,
@@ -472,6 +484,20 @@ export function JobDetailPanel({
         ? <time dateTime={job.scheduledAt}>{formatScheduledAt(job.scheduledAt)}</time>
         : 'Belirtilmedi',
     },
+    ...(job.type === 'PRODUCT_DELIVERY' ? [{
+      key: 'submitted-at',
+      label: 'Kontrole gönderim zamanı',
+      content: job.workflowContext.lifecycle.submittedAt === null
+        ? 'Henüz kontrole gönderilmedi'
+        : job.organizationTimezone
+          ? <time dateTime={job.workflowContext.lifecycle.submittedAt}>
+              {formatOrganizationInstant(
+                job.workflowContext.lifecycle.submittedAt,
+                job.organizationTimezone,
+              )}
+            </time>
+          : 'Organizasyon saat dilimi bilgisi bulunamadı',
+    }] : []),
     ...(job.type === 'SALES_MEETING' ? [] : [{
       key: 'due-date', label: 'Son tarih',
       content: job.dueDate ? <time dateTime={job.dueDate}>{job.dueDate}</time> : 'Belirtilmedi',

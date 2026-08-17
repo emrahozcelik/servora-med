@@ -78,6 +78,12 @@ describe('CustomerCreateScreen redirect', () => {
     expect(navigate).toHaveBeenCalledWith('/jobs/new-task?customerId=new-customer-1');
   });
 
+  it('redirects to new-delivery with customerId when source=delivery', async () => {
+    searchParams.set('source', 'delivery');
+    await renderAndSubmit();
+    expect(navigate).toHaveBeenCalledWith('/jobs/new-delivery?customerId=new-customer-1');
+  });
+
   it('redirects to customer detail when no source param', async () => {
     await renderAndSubmit();
     expect(navigate).toHaveBeenCalledWith('/customers/new-customer-1');
@@ -100,6 +106,14 @@ describe('CustomerCreateScreen redirect', () => {
     await settle();
     await act(async () => Array.from(container.querySelectorAll('button')).find((btn) => btn.textContent === 'Vazgeç')!.click());
     expect(navigate).toHaveBeenCalledWith('/jobs/new-task');
+  });
+
+  it('navigates back to new-delivery on cancel when source=delivery', async () => {
+    searchParams.set('source', 'delivery');
+    await act(async () => root.render(<CustomerCreateScreen user={staff} />));
+    await settle();
+    await act(async () => Array.from(container.querySelectorAll('button')).find((btn) => btn.textContent === 'Vazgeç')!.click());
+    expect(navigate).toHaveBeenCalledWith('/jobs/new-delivery');
   });
 });
 

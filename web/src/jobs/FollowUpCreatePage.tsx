@@ -217,6 +217,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   function changeType(nextType: JobCardType) {
     if (customerless && nextType !== 'GENERAL_TASK') return;
     setType(nextType);
+    if (nextType === 'PRODUCT_DELIVERY') setContactId('');
     setFieldErrors((current) => ({ ...current, type: undefined, scheduledAt: undefined, engagementKind: undefined }));
   }
 
@@ -245,7 +246,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       assignedTo,
       priority,
       dueDate: type === 'SALES_MEETING' ? null : dueDate || null,
-      contactId: customerless ? null : contactId || null,
+      contactId: customerless || type === 'PRODUCT_DELIVERY' ? null : contactId || null,
       ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
       ...(type === 'SALES_MEETING' ? { engagementKind } : {}),
     };
@@ -378,7 +379,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
             </select>
           </div>
         </div>
-        <div className="field-group"><label htmlFor="follow-up-contact">İlgili kişi (isteğe bağlı)</label>
+        {type !== 'PRODUCT_DELIVERY' && <div className="field-group"><label htmlFor="follow-up-contact">İlgili kişi (isteğe bağlı)</label>
           <select id="follow-up-contact" value={contactId} disabled={customerless}
             aria-invalid={fieldErrors.contactId ? true : undefined}
             aria-describedby={fieldErrors.contactId ? 'follow-up-contact-error' : undefined}
@@ -386,7 +387,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
             <option value="">Kişi seçilmedi</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}
           </select>
           {fieldErrors.contactId && <span id="follow-up-contact-error" className="field-error">{fieldErrors.contactId}</span>}
-        </div>
+        </div>}
         {type === 'SALES_MEETING' && <div className="field-group"><label htmlFor="follow-up-engagement-kind">Görüşme / ziyaret türü</label>
           <select id="follow-up-engagement-kind" required value={engagementKind}
             aria-invalid={fieldErrors.engagementKind ? true : undefined}

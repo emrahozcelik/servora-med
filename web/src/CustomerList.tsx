@@ -535,6 +535,7 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
   function redirectAfterCreate(customerId: string) {
     if (source === 'meeting') navigate(paths.newMeeting + `?customerId=${customerId}`);
     else if (source === 'task') navigate(paths.newTask + `?customerId=${customerId}`);
+    else if (source === 'delivery') navigate(paths.newDelivery + `?customerId=${customerId}`);
     else navigate(paths.customer(customerId));
   }
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -584,6 +585,7 @@ export function CustomerCreateScreen({ user }: { user: CurrentUser }) {
     onCancel={() => {
       if (source === 'meeting') navigate(paths.newMeeting);
       else if (source === 'task') navigate(paths.newTask);
+      else if (source === 'delivery') navigate(paths.newDelivery);
       else navigate(paths.customers);
     }} onSubmit={(event) => void submit(event)} onNameChange={nameChanged}
     staffMode={staffMode} currentUserName={user.name} />;

@@ -24,7 +24,8 @@ const listItem = {
   allowedCommands: ['APPROVE', 'CANCEL'],
 };
 const job = {
-  id: 'job-1', organizationId: 'org-1', type: 'PRODUCT_DELIVERY', status: 'NEW', version: 7,
+  id: 'job-1', organizationId: 'org-1', organizationTimezone: 'America/New_York',
+  type: 'PRODUCT_DELIVERY', status: 'NEW', version: 7,
   engagementKind: null,
   title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: 'ct1',
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
@@ -93,7 +94,10 @@ describe('JobCard workspace transport', () => {
         items: [{ ...listItem, allowedCommands: ['APPROVE', 'CANCEL'] }],
         total: 1, limit: 25, offset: 0,
       })));
-    await expect(getJobCard('job-1')).resolves.toMatchObject({ workflowContext });
+    await expect(getJobCard('job-1')).resolves.toMatchObject({
+      workflowContext,
+      organizationTimezone: 'America/New_York',
+    });
     await expect(listJobCards()).resolves.toMatchObject({
       items: [{ allowedCommands: ['APPROVE', 'CANCEL'] }],
     });

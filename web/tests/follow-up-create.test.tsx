@@ -263,6 +263,21 @@ describe('Follow-up create page', () => {
     expect(onCreated).toHaveBeenCalledWith('created-1');
   });
 
+  it('removes Contact from a Product Delivery follow-up and submits null', async () => {
+    await render();
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    expect(host.querySelector('#follow-up-contact')).toBeNull();
+    change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Yeni teslim');
+    change(host.querySelector('#follow-up-instructions') as HTMLTextAreaElement, 'Ürünü teslim et.');
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
+    await flush();
+    expect(jobs.createFollowUp).toHaveBeenCalledWith(source.id, expect.objectContaining({
+      type: 'PRODUCT_DELIVERY',
+      contactId: null,
+    }));
+  });
+
   it('counts Unicode code points and rejects instructions above 4000', async () => {
     await render();
     change(host.querySelector('#follow-up-title') as HTMLInputElement, 'Yeni görüşme');

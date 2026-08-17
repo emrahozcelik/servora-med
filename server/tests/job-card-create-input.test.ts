@@ -40,14 +40,14 @@ describe('JobCard create input', () => {
     })).toMatchObject({ scheduledAt: null });
   });
 
-  it('normalizes the exact Product Delivery body with optional compatible scheduledEndsAt', () => {
+  it('normalizes the exact Product Delivery body without a Contact association', () => {
     expect(parseJobCardCreateInput({
       clientActionId: 'delivery-create-1',
       type: 'PRODUCT_DELIVERY',
       title: ' Klinik teslimi ',
       description: '   ',
       customerId: CUSTOMER_ID,
-      contactId: CONTACT_ID,
+      contactId: null,
       assignedTo: STAFF_ID,
       priority: 'high',
       dueDate: '2026-07-20',
@@ -59,7 +59,7 @@ describe('JobCard create input', () => {
       title: 'Klinik teslimi',
       description: null,
       customerId: CUSTOMER_ID,
-      contactId: CONTACT_ID,
+      contactId: null,
       assignedTo: STAFF_ID,
       priority: 'high',
       dueDate: '2026-07-20',
@@ -67,6 +67,18 @@ describe('JobCard create input', () => {
       scheduledEndsAt: '2026-07-20T11:00:00.000Z',
       overrideReason: null,
     });
+  });
+
+  it('rejects a new Product Delivery with a non-null contactId', () => {
+    expect(() => parseJobCardCreateInput({
+      clientActionId: 'delivery-contact-rejected',
+      type: 'PRODUCT_DELIVERY',
+      title: 'Klinik teslimi',
+      customerId: CUSTOMER_ID,
+      contactId: CONTACT_ID,
+      assignedTo: STAFF_ID,
+      scheduledAt: SCHEDULED_AT,
+    })).toThrowError(validationError);
   });
 
   it('derives the canonical Product Delivery end when omitted', () => {

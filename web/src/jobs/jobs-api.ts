@@ -164,7 +164,8 @@ export type FollowUpSuggestion = {
   evaluation: CustomerScheduleEvaluation;
 };
 export type JobCard = {
-  id: string; organizationId: string; type: JobCardType; status: JobCardStatus;
+  id: string; organizationId: string; organizationTimezone?: string;
+  type: JobCardType; status: JobCardStatus;
   version: number; title: string; description: string | null; customerId: string | null;
   contactId: string | null; assignedTo: string; createdBy: string; priority: JobCardPriority;
   dueDate: string | null; scheduledAt: string | null; scheduledEndsAt?: string | null;
@@ -192,7 +193,7 @@ export type FollowUpCreateInput = FollowUpCreateCommon & (
 export type JobCardCreateInput =
   | { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
     assignedTo: string; scheduledAt: string; scheduledEndsAt?: string;
-    description?: string | null; contactId?: string | null;
+    description?: string | null;
     priority?: JobCardPriority; dueDate?: string | null; overrideReason?: string | null }
   | { clientActionId: string; type: 'GENERAL_TASK'; title: string; assignedTo: string;
     description?: string | null; customerId?: string | null; contactId?: string | null;
@@ -592,6 +593,9 @@ function parseJobCard(value: unknown): JobCard {
   const type = oneOf(v.type, 'type', JOB_CARD_TYPES);
   return {
     id: string(v.id, 'id'), organizationId: string(v.organizationId, 'organizationId'),
+    ...(v.organizationTimezone === undefined ? {} : {
+      organizationTimezone: string(v.organizationTimezone, 'organizationTimezone'),
+    }),
     type,
     status: oneOf(v.status, 'status', JOB_CARD_STATUSES), version: positiveCount(v.version, 'version'),
     title: string(v.title, 'title'), description: nullableString(v.description, 'description'),

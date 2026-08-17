@@ -115,11 +115,15 @@ function parseEngagementKind(value: unknown): JobCardEngagementKind {
 
 export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreateInput {
   const input = exactRecord(value);
+  const contactId = optionalUuid(input.contactId, 'contactId');
+  if (input.type === 'PRODUCT_DELIVERY' && contactId !== null) {
+    throw validation('contactId');
+  }
   const common = {
     clientActionId: requireActionId(input.clientActionId),
     title: boundedTrimmedString(input.title, 'title', 1, 255),
     description: nullableText(input.description, 'description'),
-    contactId: optionalUuid(input.contactId, 'contactId'),
+    contactId,
     assignedTo: uuidString(input.assignedTo, 'assignedTo'),
     priority: priority(input.priority),
     dueDate: dueDate(input.dueDate),
@@ -129,6 +133,7 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
     return {
       ...common,
       type: input.type,
+      contactId: null,
       customerId: uuidString(input.customerId, 'customerId'),
       scheduledAt,
       scheduledEndsAt: canonicalScheduledEndsAt(input.type, input.scheduledEndsAt, scheduledAt),
@@ -202,6 +207,10 @@ function requiredEngagementKind(value: unknown): JobCardEngagementKind {
 
 export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
   const input = exactFollowUpRecord(value);
+  const contactId = optionalUuid(input.contactId, 'contactId');
+  if (input.type === 'PRODUCT_DELIVERY' && contactId !== null) {
+    throw validation('contactId');
+  }
   const common = {
     clientActionId: requireActionId(input.clientActionId),
     type: input.type,
@@ -210,13 +219,14 @@ export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
     assignedTo: uuidString(input.assignedTo, 'assignedTo'),
     priority: priority(input.priority),
     dueDate: dueDate(input.dueDate),
-    contactId: optionalUuid(input.contactId, 'contactId'),
+    contactId,
     overrideReason: optionalOverrideReason(input.overrideReason),
   };
   if (input.type === 'PRODUCT_DELIVERY') {
     return {
       ...common,
       type: input.type,
+      contactId: null,
       scheduledAt: requiredScheduledAt(input.scheduledAt),
       engagementKind: null,
     };

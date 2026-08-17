@@ -106,7 +106,9 @@ describe.skipIf(!databaseUrl)('CRM and JobCard PostgreSQL lock protocol', () => 
       await blocker.query('SELECT id FROM customers WHERE id=$1 FOR UPDATE', [customerId]);
       const contactRace = Promise.allSettled([
         jobs.create(staff, {
-          clientActionId: `contact-race-${randomUUID()}`, type: 'PRODUCT_DELIVERY',
+          // D5 forbids new Product Delivery contact associations. Keep this
+          // CRM lock-protocol race on a JobCard type that still supports them.
+          clientActionId: `contact-race-${randomUUID()}`, type: 'GENERAL_TASK',
           title: 'Contact race', description: null, customerId, contactId,
           assignedTo: staffId, priority: 'normal', dueDate: null,
           scheduledAt: '2026-07-16T11:30:00.000Z',
