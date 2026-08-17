@@ -231,7 +231,7 @@ describe.skipIf(!databaseUrl)('normal customer scheduling PostgreSQL contract', 
         priority: 'normal' as const,
         dueDate: null,
         scheduledAt: '2026-08-21T11:00:00.000Z',
-        scheduledEndsAt: '2026-08-21T12:00:00.000Z',
+        scheduledEndsAt: '2026-08-21T11:30:00.000Z',
       };
 
       const results = await Promise.allSettled([
@@ -407,7 +407,7 @@ describe.skipIf(!databaseUrl)('create-time assignee availability parity PostgreS
       priority: 'normal' as const,
       dueDate: null,
       scheduledAt: '2026-08-21T10:30:00.000Z',
-      scheduledEndsAt: '2026-08-21T11:30:00.000Z',
+      scheduledEndsAt: '2026-08-21T11:00:00.000Z',
     };
   }
 

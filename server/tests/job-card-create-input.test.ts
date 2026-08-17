@@ -40,7 +40,7 @@ describe('JobCard create input', () => {
     })).toMatchObject({ scheduledAt: null });
   });
 
-  it('normalizes the exact Product Delivery body with required scheduledAt and scheduledEndsAt', () => {
+  it('normalizes the exact Product Delivery body with optional compatible scheduledEndsAt', () => {
     expect(parseJobCardCreateInput({
       clientActionId: 'delivery-create-1',
       type: 'PRODUCT_DELIVERY',
@@ -52,7 +52,7 @@ describe('JobCard create input', () => {
       priority: 'high',
       dueDate: '2026-07-20',
       scheduledAt: '2026-07-20T13:30:00+03:00',
-      scheduledEndsAt: '2026-07-20T14:30:00+03:00',
+      scheduledEndsAt: '2026-07-20T14:00:00+03:00',
     })).toEqual({
       clientActionId: 'delivery-create-1',
       type: 'PRODUCT_DELIVERY',
@@ -64,12 +64,26 @@ describe('JobCard create input', () => {
       priority: 'high',
       dueDate: '2026-07-20',
       scheduledAt: '2026-07-20T10:30:00.000Z',
-      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+      scheduledEndsAt: '2026-07-20T11:00:00.000Z',
       overrideReason: null,
     });
   });
 
-  it('normalizes Sales Meeting with required scheduledAt/scheduledEndsAt and ignores dueDate', () => {
+  it('derives the canonical Product Delivery end when omitted', () => {
+    expect(parseJobCardCreateInput({
+      clientActionId: 'delivery-create-default-duration',
+      type: 'PRODUCT_DELIVERY',
+      title: 'Klinik teslimi',
+      customerId: CUSTOMER_ID,
+      assignedTo: STAFF_ID,
+      scheduledAt: '2026-07-20T10:30:00.000Z',
+    })).toMatchObject({
+      scheduledAt: '2026-07-20T10:30:00.000Z',
+      scheduledEndsAt: '2026-07-20T11:00:00.000Z',
+    });
+  });
+
+  it('normalizes Sales Meeting with canonical scheduledAt/scheduledEndsAt and ignores dueDate', () => {
     expect(parseJobCardCreateInput({
       clientActionId: '  meeting-create-1  ',
       type: 'SALES_MEETING',
@@ -207,7 +221,7 @@ describe('JobCard create input', () => {
     })).toThrowError(validationError);
   });
 
-  it('requires Product Delivery customerId, scheduledAt and scheduledEndsAt', () => {
+  it('requires Product Delivery customerId and scheduledAt', () => {
     expect(() => parseJobCardCreateInput({
       clientActionId: 'a1', type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: STAFF_ID,
       scheduledAt: SCHEDULED_AT, scheduledEndsAt: SCHEDULED_ENDS_AT,
@@ -216,13 +230,13 @@ describe('JobCard create input', () => {
       clientActionId: 'a1', type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: STAFF_ID,
       customerId: CUSTOMER_ID, scheduledEndsAt: SCHEDULED_ENDS_AT,
     })).toThrowError(validationError);
-    expect(() => parseJobCardCreateInput({
+    expect(parseJobCardCreateInput({
       clientActionId: 'a1', type: 'PRODUCT_DELIVERY', title: 'Teslim', assignedTo: STAFF_ID,
       customerId: CUSTOMER_ID, scheduledAt: SCHEDULED_AT,
-    })).toThrowError(validationError);
+    })).toMatchObject({ scheduledEndsAt: '2026-07-20T11:00:00.000Z' });
   });
 
-  it.each(['customerId', 'scheduledAt', 'scheduledEndsAt'])('requires Sales Meeting %s', (field) => {
+  it.each(['customerId', 'scheduledAt'])('requires Sales Meeting %s', (field) => {
     const input: Record<string, unknown> = {
       clientActionId: 'a1', type: 'SALES_MEETING', title: 'Görüşme',
       customerId: CUSTOMER_ID, assignedTo: STAFF_ID,
@@ -252,12 +266,38 @@ describe('JobCard create input', () => {
     })).toThrowError(validationError);
   });
 
-  it('rejects scheduledEndsAt not strictly later than scheduledAt', () => {
-    for (const scheduledEndsAt of [SCHEDULED_AT, '2026-07-20T10:00:00.000Z']) {
+  it('rejects scheduledEndsAt that is noncanonical or not later than scheduledAt', () => {
+    for (const scheduledEndsAt of [SCHEDULED_AT, '2026-07-20T10:00:00.000Z', '2026-07-20T11:30:00.000Z']) {
       expect(() => parseJobCardCreateInput({
         clientActionId: 'a1', type: 'PRODUCT_DELIVERY', title: 'Teslim',
         customerId: CUSTOMER_ID, assignedTo: STAFF_ID,
         scheduledAt: SCHEDULED_AT, scheduledEndsAt,
+      })).toThrowError(validationError);
+    }
+  });
+
+  it('rejects an explicit null or noncanonical end for both interval types', () => {
+    for (const [type, scheduledEndsAt] of [
+      ['SALES_MEETING', '2026-07-20T12:30:00.000Z'],
+      ['PRODUCT_DELIVERY', '2026-07-20T11:30:00.000Z'],
+    ] as const) {
+      expect(() => parseJobCardCreateInput({
+        clientActionId: `noncanonical-${type}`,
+        type,
+        title: 'Plan',
+        customerId: CUSTOMER_ID,
+        assignedTo: STAFF_ID,
+        scheduledAt: SCHEDULED_AT,
+        scheduledEndsAt,
+      })).toThrowError(validationError);
+      expect(() => parseJobCardCreateInput({
+        clientActionId: `null-end-${type}`,
+        type,
+        title: 'Plan',
+        customerId: CUSTOMER_ID,
+        assignedTo: STAFF_ID,
+        scheduledAt: SCHEDULED_AT,
+        scheduledEndsAt: null,
       })).toThrowError(validationError);
     }
   });

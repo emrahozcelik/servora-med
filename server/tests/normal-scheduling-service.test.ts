@@ -308,7 +308,7 @@ function deliveryInput(overrides: Partial<NormalizedJobCardCreateInput> = {}): N
     clientActionId: 'delivery-create', type: 'PRODUCT_DELIVERY', title: 'Teslim',
     description: null, customerId: 'customer-1', contactId: null,
     assignedTo: 'staff-1', priority: 'normal', dueDate: null,
-    scheduledAt: '2026-07-20T10:30:00.000Z', scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+    scheduledAt: '2026-07-20T10:30:00.000Z', scheduledEndsAt: '2026-07-20T11:00:00.000Z',
     ...overrides,
   } as NormalizedJobCardCreateInput;
 }
@@ -345,6 +345,29 @@ function calendarServiceOf(repository: SchedulingMemoryRepository) {
 }
 
 describe('normal customer scheduling — create', () => {
+  it('D4-2/D4-3: server derives the type duration when create input omits the end', async () => {
+    const repository = new SchedulingMemoryRepository();
+    const delivery = await serviceOf(repository).create(manager, deliveryInput({
+      scheduledEndsAt: undefined,
+    }));
+    expect(delivery.scheduledEndsAt).toBe('2026-07-20T11:00:00.000Z');
+
+    const meeting = await serviceOf(new SchedulingMemoryRepository()).create(manager, meetingInput({
+      scheduledEndsAt: undefined,
+    }));
+    expect(meeting.scheduledEndsAt).toBe('2026-07-20T11:30:00.000Z');
+  });
+
+  it('D4-26: server rejects a noncanonical explicit create duration', async () => {
+    const repository = new SchedulingMemoryRepository();
+    await expect(serviceOf(repository).create(manager, meetingInput({
+      scheduledEndsAt: '2026-07-20T11:00:00.000Z',
+    }))).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    await expect(serviceOf(new SchedulingMemoryRepository()).create(manager, deliveryInput({
+      scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+    }))).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+  });
+
   it('NJS-1: Sales Meeting create detects same-Customer same-day ON_SITE conflict', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.activeOnSiteJobs = [activeJob()];
@@ -522,6 +545,39 @@ describe('normal customer scheduling — patch / reschedule', () => {
     expect(updated.scheduledAt).toBe('2026-07-26T10:00:00.000Z');
   });
 
+  it('D4-6/D4-7/D4-27: existing interval duration is preserved and immutable', async () => {
+    for (const [input, type] of [
+      [meetingInput({ clientActionId: 'd4-custom-sm' }), 'SALES_MEETING'],
+      [deliveryInput({ clientActionId: 'd4-custom-pd' }), 'PRODUCT_DELIVERY'],
+    ] as const) {
+      const repository = new SchedulingMemoryRepository();
+      const service = serviceOf(repository);
+      const created = await service.create(manager, input);
+      repository.jobs[0] = {
+        ...repository.jobs[0]!,
+        scheduledEndsAt: '2026-07-20T12:30:00.000Z',
+      };
+
+      const moved = await service.patch(manager, created.id, {
+        expectedVersion: 1,
+        scheduledAt: '2026-07-20T13:00:00.000Z',
+      });
+      expect(moved.scheduledEndsAt).toBe('2026-07-20T15:00:00.000Z');
+
+      const explicitlyPreserved = await service.patch(manager, created.id, {
+        expectedVersion: 2,
+        scheduledAt: '2026-07-20T14:00:00.000Z',
+        scheduledEndsAt: '2026-07-20T16:00:00.000Z',
+      });
+      expect(explicitlyPreserved.type).toBe(type);
+      await expect(service.patch(manager, created.id, {
+        expectedVersion: 3,
+        scheduledAt: '2026-07-20T14:00:00.000Z',
+        scheduledEndsAt: '2026-07-20T15:00:00.000Z',
+      })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    }
+  });
+
   it('NJS-18: current Job is excluded from its own evaluation', async () => {
     const repository = new SchedulingMemoryRepository();
     const created = await createDelivery(repository);
@@ -598,7 +654,7 @@ describe('normal customer scheduling — patch / reschedule', () => {
     await expect(service.patch(manager, created.id, {
       expectedVersion: 1,
       scheduledAt: '2026-07-25T10:00:00.000Z',
-      scheduledEndsAt: '2026-07-25T11:00:00.000Z',
+      scheduledEndsAt: '2026-07-25T10:30:00.000Z',
     })).rejects.toMatchObject({ code: 'CUSTOMER_SCHEDULE_CONFLICT', statusCode: 409 });
   });
 
@@ -641,7 +697,7 @@ describe('create-time assignee availability parity (AAP)', () => {
   it('AAP-2: PRODUCT_DELIVERY create overlapping MANUAL event → 409 CALENDAR_CONFLICT', async () => {
     const repository = new SchedulingMemoryRepository();
     repository.calendarEvents = [
-      { assignedUserId: 'staff-1', startsAt: '2026-07-20T11:00:00.000Z', endsAt: '2026-07-20T12:00:00.000Z' },
+      { assignedUserId: 'staff-1', startsAt: '2026-07-20T10:45:00.000Z', endsAt: '2026-07-20T12:00:00.000Z' },
     ];
     await expect(calendarServiceOf(repository).create(manager, deliveryInput()))
       .rejects.toMatchObject({ code: 'CALENDAR_CONFLICT', statusCode: 409 });

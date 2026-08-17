@@ -5,14 +5,14 @@ import {
   type AvailableSlot,
   type AvailableSlotsInput,
 } from './jobs-api';
-import { localDateTimeToIso } from './scheduling';
+import { canonicalPreviewEndLocal, localDateTimeToIso } from './scheduling';
 
 export type AvailableSlotSearchInputs = {
   type: AvailableSlotsInput['type'];
   customerId: string | null;
   assignedTo: string | null;
   scheduledStartLocal: string;
-  scheduledEndLocal: string;
+  scheduledEndLocal?: string;
   jobCardId?: string | null;
   enabled: boolean;
 };
@@ -57,7 +57,7 @@ export function useAvailableSlotSearch(
     setSearched(false);
     setError(null);
     setFeatureDisabled(false);
-    if (!enabled || !customerId || !assignedTo || !scheduledStartLocal || !scheduledEndLocal) {
+    if (!enabled || !customerId || !assignedTo || !scheduledStartLocal) {
       setSearching(false);
       return;
     }
@@ -66,7 +66,9 @@ export function useAvailableSlotSearch(
     let scheduledEndsAt: string;
     try {
       scheduledAt = localDateTimeToIso(scheduledStartLocal);
-      scheduledEndsAt = localDateTimeToIso(scheduledEndLocal);
+      scheduledEndsAt = localDateTimeToIso(
+        scheduledEndLocal ?? canonicalPreviewEndLocal(scheduledStartLocal, type),
+      );
       if (Date.parse(scheduledEndsAt) <= Date.parse(scheduledAt)) {
         setSearching(false);
         return;

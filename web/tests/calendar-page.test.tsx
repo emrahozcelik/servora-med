@@ -362,7 +362,7 @@ describe('CalendarPage', () => {
     expect(jobsApi.patchJobCard.mock.calls[0]?.[1]).not.toHaveProperty('scheduledEndsAt');
   });
 
-  it('keeps start and end editing for Product Delivery jobs', async () => {
+  it('keeps Product Delivery edits start-only so persisted duration remains authoritative', async () => {
     jobsApi.patchJobCard.mockResolvedValue({});
     await render(manager, '/calendar?event=job-event-1');
 
@@ -371,7 +371,7 @@ describe('CalendarPage', () => {
     await act(async () => editButton!.click());
 
     const dialog = document.querySelector('[role="dialog"][aria-modal="true"]')!;
-    expect(dialog.querySelectorAll('input[type="datetime-local"]')).toHaveLength(2);
+    expect(dialog.querySelectorAll('input[type="datetime-local"]')).toHaveLength(1);
     await act(async () => {
       dialog.querySelector('form')?.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
     });
@@ -379,8 +379,8 @@ describe('CalendarPage', () => {
 
     expect(jobsApi.patchJobCard.mock.calls[0]?.[1]).toEqual(expect.objectContaining({
       scheduledAt: expect.any(String),
-      scheduledEndsAt: expect.any(String),
     }));
+    expect(jobsApi.patchJobCard.mock.calls[0]?.[1]).not.toHaveProperty('scheduledEndsAt');
   });
 
   it('offers a joint slot for a customer-bound Product Delivery calendar edit', async () => {
@@ -407,9 +407,6 @@ describe('CalendarPage', () => {
     await act(async () => slotButton.click());
     expect(dialog.querySelectorAll('input[type="datetime-local"]')[0]).toHaveProperty(
       'value', isoInstantToLocalDateTime('2026-07-29T10:00:00.000Z'),
-    );
-    expect(dialog.querySelectorAll('input[type="datetime-local"]')[1]).toHaveProperty(
-      'value', isoInstantToLocalDateTime('2026-07-29T12:00:00.000Z'),
     );
   });
 

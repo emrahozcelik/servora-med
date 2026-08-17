@@ -185,18 +185,11 @@ function EventForm({
           timezone: Intl.DateTimeFormat().resolvedOptions().timeZone,
         });
       } else {
-        const patched = event.jobType === 'GENERAL_TASK'
-          ? await patchJobCard(event.jobCardId, {
-              expectedVersion: event.version,
-              assignedTo: draft.assignedUserId,
-              scheduledAt: instant(draft.startsAt),
-            })
-          : await patchJobCard(event.jobCardId, {
-              expectedVersion: event.version,
-              assignedTo: draft.assignedUserId,
-              scheduledAt: instant(draft.startsAt),
-              scheduledEndsAt: instant(draft.endsAt),
-            });
+        const patched = await patchJobCard(event.jobCardId, {
+          expectedVersion: event.version,
+          assignedTo: draft.assignedUserId,
+          scheduledAt: instant(draft.startsAt),
+        });
         if (
           patched.assignmentTransitionId
           && draft.assignedUserId !== initialAssignee
@@ -257,7 +250,7 @@ function EventForm({
           <input required type="datetime-local" value={draft.startsAt}
             onChange={(e) => setDraft({ ...draft, startsAt: e.target.value })} />
         </label>
-        {!isGeneralTaskJob && (
+        {event?.source !== 'JOB' && (
           <label className="field-group"><span className="field-label">Bitiş</span>
             <input required type="datetime-local" value={draft.endsAt}
               onChange={(e) => setDraft({ ...draft, endsAt: e.target.value })} />

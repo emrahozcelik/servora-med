@@ -41,6 +41,11 @@ const scheduling = vi.hoisted(() => {
       date.setHours(date.getHours() + 1);
       return formatLocal(date);
     },
+    canonicalPreviewEndLocal: (value: string) => {
+      const date = parseLocal(value);
+      date.setMinutes(date.getMinutes() + 60);
+      return formatLocal(date);
+    },
     shiftInterval: (start: string, end: string, newStart: string): [string, string] => {
       const delta = parseLocal(newStart).getTime() - parseLocal(start).getTime();
       return [newStart, formatLocal(new Date(parseLocal(end).getTime() + delta))];
@@ -112,7 +117,7 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
   });
   afterEach(async () => { await act(async () => root.unmount()); container.remove(); });
 
-  it('keeps Staff ownership fixed and submits scheduledAt and scheduledEndsAt without dueDate', async () => {
+  it('keeps Staff ownership fixed and submits start-only scheduling without dueDate', async () => {
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={staff} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     expect(people.listStaff).not.toHaveBeenCalled();
@@ -124,13 +129,12 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
     change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
-    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-07-01T11:00');
+    expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).toHaveBeenCalledWith({
       clientActionId: 'action-1', type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT',
       title: 'İmplant değerlendirme görüşmesi', customerId: 'c1', assignedTo: 'staff-1',
       scheduledAt: localDateTimeToIso('2026-07-01T10:00'),
-      scheduledEndsAt: localDateTimeToIso('2026-07-01T11:00'),
       description: null, contactId: null, priority: 'normal',
     });
     expect(onCreated).toHaveBeenCalledWith('meeting-1');
@@ -142,14 +146,13 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
     const scheduled = container.querySelector('#meeting-scheduled-at') as HTMLInputElement;
     change(scheduled, '2026-08-05T15:00');
-    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-08-05T16:00');
+    expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).not.toHaveBeenCalled();
     expect(scheduled.value).toBe('2026-08-05T15:00');
     await act(async () => (container.querySelector('[data-retry-customers]') as HTMLButtonElement | null)?.click());
     await settle();
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-05T15:00');
-    expect((container.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-05T16:00');
     expect(scheduling.defaultScheduledLocalValue).toHaveBeenCalledTimes(1);
   });
 
@@ -165,15 +168,14 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     expect((container.querySelector('#meeting-assignee') as HTMLSelectElement).textContent).toContain('Bora');
   });
 
-  it('requires title, Customer, scheduled time, end time, and manager assignee with accessible errors', async () => {
+  it('requires title, Customer, scheduled time, and manager assignee with accessible errors', async () => {
     await act(async () => root.render(<MemoryRouter><SalesMeetingCreateScreen user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '');
-    change(container.querySelector('#meeting-scheduled-ends-at')!, '');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).not.toHaveBeenCalled();
     expect(container.querySelector('.form-error')).toBe(document.activeElement);
-    for (const id of ['meeting-title', 'meeting-customer', 'meeting-scheduled-at', 'meeting-scheduled-ends-at', 'meeting-assignee']) {
+    for (const id of ['meeting-title', 'meeting-customer', 'meeting-scheduled-at', 'meeting-assignee']) {
       const control = container.querySelector(`#${id}`);
       expect(control?.getAttribute('aria-invalid')).toBe('true');
       const errorId = control?.getAttribute('aria-describedby');
@@ -195,13 +197,11 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     change(container.querySelector('#meeting-title')!, 'Görüşme');
     change(container.querySelector('#meeting-engagement-kind')!, 'SALES_MEETING');
     change(container.querySelector('#meeting-scheduled-at')!, '2025-01-01T09:00');
-    change(container.querySelector('#meeting-scheduled-ends-at')!, '2025-01-01T10:00');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
       contactId: null,
       engagementKind: 'SALES_MEETING',
       scheduledAt: localDateTimeToIso('2025-01-01T09:00'),
-      scheduledEndsAt: localDateTimeToIso('2025-01-01T10:00'),
     }));
     expect(crm.listContacts).not.toHaveBeenCalled();
   });
@@ -247,7 +247,6 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     change(container.querySelector('#meeting-engagement-kind')!, 'PRODUCT_DEMO');
     await act(async () => change(container.querySelector('#meeting-customer')!, 'c1')); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-15T11:00');
-    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-07-15T12:00');
     const form = container.querySelector('form') as HTMLFormElement;
     await act(async () => form.requestSubmit()); form.requestSubmit();
     expect(jobs.createJobCard).toHaveBeenCalledTimes(1);
@@ -255,7 +254,7 @@ describe('Sales Meeting planning flow (preserved regression contracts)', () => {
     await act(async () => form.requestSubmit());
     expect(jobs.createJobCard.mock.calls[1]![0].clientActionId).toBe('action-1');
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-07-15T11:00');
-    expect((container.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-07-15T12:00');
+    expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
   });
 
   it('uses the shared create-heading and form-actions contract (T4A)', async () => {

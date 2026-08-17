@@ -75,6 +75,110 @@ describe('JobCardService.availableSlots', () => {
     expect(tx.listAssigneeCalendarIntervals).toHaveBeenCalledTimes(1);
   });
 
+  it('derives a 30-minute Product Delivery duration when the end is omitted', async () => {
+    const tx = {
+      getAssignee: vi.fn().mockResolvedValue({
+        id: input.assignedTo,
+        organizationId: actor.organizationId,
+        role: 'STAFF' as const,
+        isActive: true,
+      }),
+      customerExists: vi.fn().mockResolvedValue(true),
+      getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
+      listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
+      listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    const result = await new JobCardService(
+      repository,
+      () => new Date('2026-08-01T00:00:00.000Z'),
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, {
+      ...input,
+      type: 'PRODUCT_DELIVERY',
+      scheduledEndsAt: undefined,
+    });
+
+    expect(result.slots[0]).toEqual({
+      startsAt: '2026-08-17T10:00:00.000Z',
+      endsAt: '2026-08-17T10:30:00.000Z',
+    });
+  });
+
+  it('rejects a noncanonical explicit end for a new Product Delivery search', async () => {
+    const executeTransaction = vi.fn();
+    const repository = { executeTransaction } as unknown as JobCardRepository;
+
+    await expect(new JobCardService(
+      repository,
+      () => new Date('2026-08-01T00:00:00.000Z'),
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, {
+      ...input,
+      type: 'PRODUCT_DELIVERY',
+      scheduledEndsAt: '2026-08-16T11:00:00.000Z',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    expect(executeTransaction).not.toHaveBeenCalled();
+  });
+
+  it('uses a persisted custom duration when searching slots for an existing JobCard', async () => {
+    const currentJobId = 'ffffffff-ffff-4fff-8fff-ffffffffffff';
+    const tx = {
+      getJob: vi.fn().mockResolvedValue({
+        id: currentJobId,
+        organizationId: actor.organizationId,
+        customerId: input.customerId,
+        type: input.type,
+        assignedTo: input.assignedTo,
+        status: 'NEW',
+        scheduledAt: '2026-08-10T10:00:00.000Z',
+        scheduledEndsAt: '2026-08-10T12:00:00.000Z',
+      }),
+      getAssignee: vi.fn().mockResolvedValue({
+        id: input.assignedTo,
+        organizationId: actor.organizationId,
+        role: 'STAFF' as const,
+        isActive: true,
+      }),
+      customerExists: vi.fn().mockResolvedValue(true),
+      getOrganizationTimezone: vi.fn().mockResolvedValue('UTC'),
+      listActiveOnSiteJobs: vi.fn().mockResolvedValue([]),
+      listRecentOnSiteVisits: vi.fn().mockResolvedValue([]),
+      listAssigneeCalendarIntervals: vi.fn().mockResolvedValue([]),
+    };
+    const repository = {
+      executeTransaction: vi.fn(async (work: (value: typeof tx) => Promise<unknown>) => work(tx)),
+    } as unknown as JobCardRepository;
+
+    const result = await new JobCardService(
+      repository,
+      () => new Date('2026-08-01T00:00:00.000Z'),
+      undefined,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    ).availableSlots(actor, {
+      ...input,
+      scheduledEndsAt: undefined,
+      jobCardId: currentJobId,
+    });
+
+    expect(result.slots[0]).toEqual({
+      startsAt: '2026-08-17T10:00:00.000Z',
+      endsAt: '2026-08-17T12:00:00.000Z',
+    });
+  });
+
   it('removes a customer-conflicting local day while retaining later days', async () => {
     const tx = {
       getAssignee: vi.fn().mockResolvedValue({

@@ -30,10 +30,8 @@ import {
   type TransitionPresentation,
 } from './jobs/job-workflow-presentation';
 import {
-  addOneHourLocal,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
-  shiftInterval,
 } from './jobs/scheduling';
 import { ResultState } from './ui/antd/ResultState';
 import { JobApprovalReviewPanel } from './jobs/JobApprovalReviewPanel';
@@ -288,13 +286,6 @@ function JobScheduleEditForm({
   const [localValue, setLocalValue] = useState(() => (
     job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : ''
   ));
-  const [localEndValue, setLocalEndValue] = useState(() => (
-    intervalJob
-      ? job.scheduledEndsAt
-        ? isoInstantToLocalDateTime(job.scheduledEndsAt)
-        : job.scheduledAt ? addOneHourLocal(isoInstantToLocalDateTime(job.scheduledAt)) : ''
-      : ''
-  ));
   const [fieldError, setFieldError] = useState('');
   const [submitError, setSubmitError] = useState('');
   const [overrideReason, setOverrideReason] = useState('');
@@ -313,7 +304,9 @@ function JobScheduleEditForm({
     customerId: job.customerId,
     assignedTo: job.assignedTo,
     scheduledStartLocal: localValue,
-    scheduledEndLocal: localEndValue,
+    scheduledEndLocal: job.scheduledEndsAt
+      ? isoInstantToLocalDateTime(job.scheduledEndsAt)
+      : undefined,
     jobCardId: job.id,
     enabled: user.capabilities?.calendar === true && intervalJob,
   });
@@ -322,22 +315,12 @@ function JobScheduleEditForm({
     if (!evaluation?.suggestedAlternativeAt) return;
     const nextStart = isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt);
     setLocalValue(nextStart);
-    if (intervalJob && localEndValue) {
-      try {
-        const [, nextEnd] = shiftInterval(localValue, localEndValue, nextStart);
-        setLocalEndValue(nextEnd);
-      } catch {
-        // The end field validation below remains authoritative if the local
-        // draft is incomplete or malformed while the alternative is applied.
-      }
-    }
     setFieldError('');
     setSubmitError('');
   }
 
   function useAvailableSlot(slot: AvailableSlot) {
     setLocalValue(isoInstantToLocalDateTime(slot.startsAt));
-    setLocalEndValue(isoInstantToLocalDateTime(slot.endsAt));
     setFieldError('');
     setSubmitError('');
   }
@@ -346,15 +329,10 @@ function JobScheduleEditForm({
     if (lastKey.current === canonicalKey) return;
     lastKey.current = canonicalKey;
     setLocalValue(job.scheduledAt ? isoInstantToLocalDateTime(job.scheduledAt) : '');
-    setLocalEndValue(intervalJob
-      ? job.scheduledEndsAt
-        ? isoInstantToLocalDateTime(job.scheduledEndsAt)
-        : job.scheduledAt ? addOneHourLocal(isoInstantToLocalDateTime(job.scheduledAt)) : ''
-      : '');
     setFieldError('');
     setSubmitError('');
     setOverrideReason('');
-  }, [canonicalKey, job.scheduledAt, job.scheduledEndsAt, intervalJob]);
+  }, [canonicalKey, job.scheduledAt, intervalJob]);
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
@@ -375,14 +353,9 @@ function JobScheduleEditForm({
     }
     setFieldError('');
     try {
-      if (intervalJob && (!localEndValue.trim()
-        || Date.parse(localDateTimeToIso(localEndValue)) <= Date.parse(localDateTimeToIso(localValue)))) {
-        setFieldError('Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.');
-        return;
-      }
       await onSave(
         localDateTimeToIso(localValue),
-        intervalJob ? localDateTimeToIso(localEndValue) : null,
+        undefined,
         overrideReason.trim() || null,
       );
     } catch (caught) {
@@ -415,23 +388,6 @@ function JobScheduleEditForm({
           />
           {fieldError && <span id="job-scheduled-at-error" className="field-error">{fieldError}</span>}
         </div>
-        {intervalJob && <div className="field-group">
-          <label htmlFor="job-scheduled-ends-at">Planlanan bitiş</label>
-          <input
-            id="job-scheduled-ends-at"
-            name="scheduledEndsAt"
-            type="datetime-local"
-            value={localEndValue}
-            required
-            disabled={pending}
-            aria-invalid={fieldError ? true : undefined}
-            onChange={(event) => {
-              setLocalEndValue(event.target.value);
-              setFieldError('');
-              setSubmitError('');
-            }}
-          />
-        </div>}
         <CustomerScheduleNotice
           evaluation={evaluation}
           mode={user.role === 'STAFF' ? 'staff' : 'manager'}

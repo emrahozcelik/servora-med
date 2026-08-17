@@ -111,6 +111,10 @@ import {
   type FollowUpProposalFields,
 } from './follow-up-policy.js';
 import {
+  canonicalScheduledEnd,
+  persistedScheduledDurationMs,
+} from './job-card-duration.js';
+import {
   mapJobCardActivityToRealtime,
 } from '../realtime/event-mapper.js';
 import {
@@ -175,6 +179,10 @@ type LifecycleDefinition = {
   noteContext: JobCardOperationalNoteContext | null;
   followUpProposal?: FollowUpProposalInput;
   approveFollowUp?: ApproveFollowUpInput;
+};
+
+type ValidatedFollowUpProposal = FollowUpProposalFields & {
+  assignee: JobCardAssignee;
 };
 
 function parseDeliveredAt(value: string | null): Date | null {
@@ -428,10 +436,17 @@ export class JobCardService {
       !input.assignedTo || !JOB_CARD_PRIORITIES.includes(priority)) {
       throw new AppError('VALIDATION_ERROR', 400, 'JobCard oluşturma bilgileri geçersiz.');
     }
-    if ((input.type === 'PRODUCT_DELIVERY' || input.type === 'SALES_MEETING')
-      && (!input.scheduledAt || !input.scheduledEndsAt
-        || Date.parse(input.scheduledEndsAt) <= Date.parse(input.scheduledAt))) {
-      throw new AppError('VALIDATION_ERROR', 400, 'JobCard oluşturma bilgileri geçersiz.');
+    const intervalJob = input.type === 'PRODUCT_DELIVERY' || input.type === 'SALES_MEETING';
+    const canonicalEnd = intervalJob && input.scheduledAt
+      ? canonicalScheduledEnd(input.type, input.scheduledAt)
+      : null;
+    if (intervalJob && (!input.scheduledAt || canonicalEnd === null
+      || (input.scheduledEndsAt !== undefined && input.scheduledEndsAt !== canonicalEnd))) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'JobCard oluşturma bilgileri geçersiz.',
+      );
     }
     assertCreateAssignmentRequest(actor, input.assignedTo);
     const requestTime = this.now();
@@ -455,13 +470,13 @@ export class JobCardService {
         });
         if (this.calendar.enabled
           && (input.type === 'SALES_MEETING' || input.type === 'PRODUCT_DELIVERY')
-          && input.scheduledAt && input.scheduledEndsAt) {
+          && input.scheduledAt && canonicalEnd) {
           await transaction.assertCalendarAvailability({
             organizationId: actor.organizationId,
             jobCardId: null,
             assignedUserId: input.assignedTo,
             startsAt: input.scheduledAt,
-            endsAt: input.scheduledEndsAt,
+            endsAt: canonicalEnd,
           });
         }
         const selfAccepted = actor.role === 'STAFF' && actor.id === input.assignedTo;
@@ -475,7 +490,7 @@ export class JobCardService {
           assignedTo: input.assignedTo, createdBy: actor.id, priority,
           dueDate: input.dueDate,
           scheduledAt: input.scheduledAt,
-          scheduledEndsAt: input.scheduledEndsAt ?? null,
+          scheduledEndsAt: canonicalEnd,
           engagementKind,
           acceptedAt: selfAccepted ? requestTime : null,
           acceptedBy: selfAccepted ? actor.id : null,
@@ -686,6 +701,31 @@ export class JobCardService {
     }
     assertCanCreateForAssignee(actor, assignee);
 
+    const scheduledEndsAt = input.scheduledAt === null
+      ? null
+      : canonicalScheduledEnd(input.type, input.scheduledAt);
+    if (input.type !== 'GENERAL_TASK' && (input.scheduledAt === null || scheduledEndsAt === null)) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Planlanan başlangıç zamanı bu iş türü için zorunludur.',
+      );
+    }
+    if (this.calendar.enabled && input.scheduledAt !== null && scheduledEndsAt !== null) {
+      try {
+        await transaction.assertCalendarAvailability({
+          organizationId: actor.organizationId,
+          jobCardId: null,
+          assignedUserId: input.assignedTo,
+          startsAt: input.scheduledAt,
+          endsAt: scheduledEndsAt,
+        });
+      } catch (caught) {
+        if (caught instanceof AppError) throw projectCalendarConflict(actor, caught);
+        throw caught;
+      }
+    }
+
     const job = await transaction.createJobCard({
       organizationId: actor.organizationId,
       type: input.type,
@@ -699,7 +739,7 @@ export class JobCardService {
       priority: input.priority,
       dueDate: input.dueDate,
       scheduledAt: input.scheduledAt,
-      scheduledEndsAt: null,
+      scheduledEndsAt,
       engagementKind: input.engagementKind,
       acceptedAt: input.acceptance?.acceptedAt ?? null,
       acceptedBy: input.acceptance?.acceptedBy ?? null,
@@ -1080,6 +1120,28 @@ export class JobCardService {
         const delta = Date.parse(nextScheduledAt) - Date.parse(job.scheduledAt);
         nextScheduledEndsAt = new Date(Date.parse(job.scheduledEndsAt) + delta).toISOString();
         fields.scheduledEndsAt = nextScheduledEndsAt;
+      }
+      if (isCalendarIntervalJob && scheduleFieldProvided
+        && (nextScheduledAt === null || nextScheduledEndsAt === null)) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          400,
+          'Planlanan zaman bu iş türü için zorunludur.',
+        );
+      }
+      if (isCalendarIntervalJob && fields.scheduledEndsAt !== undefined
+        && fields.scheduledEndsAt !== null
+        && nextScheduledAt !== null
+        && nextScheduledEndsAt !== null) {
+        const existingDurationMs = persistedScheduledDurationMs(job.scheduledAt, job.scheduledEndsAt);
+        const nextDurationMs = Date.parse(nextScheduledEndsAt) - Date.parse(nextScheduledAt);
+        if (existingDurationMs !== null && nextDurationMs !== existingDurationMs) {
+          throw new AppError(
+            'VALIDATION_ERROR',
+            400,
+            'Mevcut planın süresi değiştirilemez.',
+          );
+        }
       }
       if (
         nextScheduledEndsAt !== null
@@ -1517,7 +1579,7 @@ export class JobCardService {
           proposedBy: string | null;
         } | null = null;
         let approval: {
-          proposal: FollowUpProposalFields;
+          proposal: ValidatedFollowUpProposal;
           overrideReason: string | null;
         } | null = null;
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
@@ -1671,6 +1733,7 @@ export class JobCardService {
             engagementKind: approval.proposal.type === 'SALES_MEETING' ? 'FOLLOW_UP' : null,
             clientActionId: input.clientActionId,
             requestTime,
+            assignee: approval.proposal.assignee,
             ...(job.followUpProposedBy !== null
               && job.followUpProposedBy === approval.proposal.assignedTo
               ? {
@@ -1745,7 +1808,7 @@ export class JobCardService {
     job: JobCard,
     input: FollowUpProposalInput | undefined,
     requestTime: Date,
-  ): Promise<FollowUpProposalFields> {
+  ): Promise<ValidatedFollowUpProposal> {
     if (!input || typeof input !== 'object') {
       throw new AppError('FOLLOW_UP_PROPOSAL_REQUIRED', 400, 'Takip işi planı zorunludur.');
     }
@@ -1760,6 +1823,13 @@ export class JobCardService {
     }
     if (!(JOB_CARD_TYPES as readonly string[]).includes(input.type)) {
       throw new AppError('FOLLOW_UP_PROPOSAL_INVALID', 400, 'Takip işi türü geçersizdir.');
+    }
+    if (requiresMandatoryFollowUpProposal(job) && input.type !== 'SALES_MEETING') {
+      throw new AppError(
+        'FOLLOW_UP_PROPOSAL_INVALID',
+        400,
+        'Müşteri ziyareti takip işi Sales Meeting olmalıdır.',
+      );
     }
     if (actor.role === 'STAFF' && input.type !== defaultFollowUpType(job.type)) {
       throw new AppError('FORBIDDEN', 403, 'Personel takip işi türünü değiştiremez.');
@@ -1782,7 +1852,13 @@ export class JobCardService {
       1,
       4_000,
     );
-    return { scheduledAt, type: input.type, assignedTo: input.assignedTo, followUpInstructions };
+    return {
+      scheduledAt,
+      type: input.type,
+      assignedTo: input.assignedTo,
+      followUpInstructions,
+      assignee,
+    };
   }
 
   /** Advisory evaluation at Staff submission; never blocks, informs the suggestion only. */
@@ -1909,7 +1985,7 @@ export class JobCardService {
     job: JobCard,
     input: ApproveFollowUpInput | undefined,
     requestTime: Date,
-  ): Promise<{ proposal: FollowUpProposalFields; overrideReason: string | null } | null> {
+  ): Promise<{ proposal: ValidatedFollowUpProposal; overrideReason: string | null } | null> {
     const persisted = job.followUpProposedAt !== null
       && job.followUpProposedType !== null
       && job.followUpProposedAssignee !== null
@@ -2155,8 +2231,18 @@ export class JobCardService {
     }
     assertCreateAssignmentRequest(actor, input.assignedTo);
     const startsAt = new Date(isoInstant(input.scheduledAt, 'scheduledAt'));
-    const endsAt = new Date(isoInstant(input.scheduledEndsAt, 'scheduledEndsAt'));
-    if (endsAt.valueOf() <= startsAt.valueOf() || !isOnSiteJobType(input.type)) {
+    const canonicalEnd = canonicalScheduledEnd(input.type, input.scheduledAt);
+    if (canonicalEnd === null) throw validation('scheduledAt');
+    const requestedEndsAt = input.scheduledEndsAt === undefined
+      ? null
+      : new Date(isoInstant(input.scheduledEndsAt, 'scheduledEndsAt'));
+    if (input.jobCardId === null || input.jobCardId === undefined) {
+      if (requestedEndsAt !== null && requestedEndsAt.toISOString() !== canonicalEnd) {
+        throw validation('scheduledEndsAt');
+      }
+    }
+    const endsAt = requestedEndsAt ?? new Date(canonicalEnd);
+    if (!isOnSiteJobType(input.type)) {
       throw validation('scheduledEndsAt');
     }
     return this.repository.executeTransaction((tx) => (
@@ -2172,6 +2258,7 @@ export class JobCardService {
     endsAt: Date,
   ): Promise<AvailableSlotsResponse> {
     let excludeJobId: string | undefined;
+    let effectiveEndsAt = endsAt;
     if (input.jobCardId !== null && input.jobCardId !== undefined) {
       const job = await tx.getJob(actor.organizationId, input.jobCardId);
       if (!job
@@ -2187,7 +2274,15 @@ export class JobCardService {
         throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
       }
       excludeJobId = job.id;
+      const persistedDurationMs = persistedScheduledDurationMs(
+        job.scheduledAt,
+        job.scheduledEndsAt,
+      );
+      if (persistedDurationMs !== null && persistedDurationMs > 0) {
+        effectiveEndsAt = new Date(startsAt.valueOf() + persistedDurationMs);
+      }
     }
+    if (effectiveEndsAt.valueOf() <= startsAt.valueOf()) throw validation('scheduledEndsAt');
     const assignee = await tx.getAssignee(actor.organizationId, input.assignedTo);
     if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
     assertCanCreateForAssignee(actor, assignee);
@@ -2198,7 +2293,7 @@ export class JobCardService {
     const timezone = await tx.getOrganizationTimezone(actor.organizationId);
     const candidates = generateAvailableSlotCandidates({
       startsAt,
-      endsAt,
+      endsAt: effectiveEndsAt,
       timezone,
       horizonDays: FOLLOW_UP_SEARCH_HORIZON_DAYS,
     });

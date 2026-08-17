@@ -77,18 +77,34 @@ export function localDateTimeToIso(value: string): string {
   return local.toISOString();
 }
 
-/** Device-local `YYYY-MM-DDTHH:mm` plus one hour (client-side convenience default). */
-export function addOneHourLocal(value: string): string {
+/** Device-local `YYYY-MM-DDTHH:mm` plus a local calendar duration. */
+export function addMinutesLocal(value: string, minutes: number): string {
   const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})$/.exec(value);
   if (!match) return value;
   const date = new Date(
     Number(match[1]), Number(match[2]) - 1, Number(match[3]),
     Number(match[4]), Number(match[5]),
   );
-  date.setHours(date.getHours() + 1);
+  date.setMinutes(date.getMinutes() + minutes);
   const pad = (part: number) => String(part).padStart(2, '0');
   return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
     + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+
+/** One-hour compatibility helper retained for historical UI utility callers. */
+export function addOneHourLocal(value: string): string {
+  return addMinutesLocal(value, 60);
+}
+
+/**
+ * Preview-only end for new interval searches. The server remains authoritative
+ * for persisted JobCard durations and final writes.
+ */
+export function canonicalPreviewEndLocal(
+  value: string,
+  type: 'SALES_MEETING' | 'PRODUCT_DELIVERY',
+): string {
+  return addMinutesLocal(value, type === 'SALES_MEETING' ? 60 : 30);
 }
 
 /**

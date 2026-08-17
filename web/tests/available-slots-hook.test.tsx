@@ -14,12 +14,17 @@ vi.mock('../src/jobs/jobs-api', async (original) => ({
   findAvailableSlots: jobs.findAvailableSlots,
 }));
 
-function Probe({ start = '2026-08-16T10:00', end = '2026-08-16T11:00' }: {
+function Probe({
+  type = 'SALES_MEETING',
+  start = '2026-08-16T10:00',
+  end,
+}: {
+  type?: 'SALES_MEETING' | 'PRODUCT_DELIVERY';
   start?: string;
   end?: string;
 }) {
   const result = useAvailableSlotSearch({
-    type: 'SALES_MEETING',
+    type,
     customerId: 'customer-1',
     assignedTo: 'staff-1',
     scheduledStartLocal: start,
@@ -52,7 +57,7 @@ describe('useAvailableSlotSearch', () => {
   });
 
   it('debounces a complete request and exposes the minimal slots', async () => {
-    await act(async () => root.render(<Probe />));
+    await act(async () => root.render(<Probe end="2026-08-16T11:00" />));
     expect(jobs.findAvailableSlots).not.toHaveBeenCalled();
 
     await act(async () => { vi.advanceTimersByTime(250); });
@@ -69,6 +74,23 @@ describe('useAvailableSlotSearch', () => {
     expect(container.querySelector('output')?.dataset).toMatchObject({ state: 'ready', count: '1' });
   });
 
+  it('uses the 30-minute Product Delivery preview when end is omitted', async () => {
+    await act(async () => root.render(
+      <Probe type="PRODUCT_DELIVERY" end={undefined} />,
+    ));
+    await act(async () => { vi.advanceTimersByTime(250); });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith({
+      type: 'PRODUCT_DELIVERY',
+      customerId: 'customer-1',
+      assignedTo: 'staff-1',
+      scheduledAt: localDateTimeToIso('2026-08-16T10:00'),
+      scheduledEndsAt: localDateTimeToIso('2026-08-16T10:30'),
+      jobCardId: null,
+    });
+  });
+
   it('discards an in-flight response after the form state changes', async () => {
     let resolveFirst: ((value: { slots: [] }) => void) | undefined;
     let resolveSecond: ((value: { slots: [{ startsAt: string; endsAt: string }] }) => void) | undefined;
@@ -78,7 +100,7 @@ describe('useAvailableSlotSearch', () => {
         resolveSecond = resolve;
       }));
 
-    await act(async () => root.render(<Probe />));
+    await act(async () => root.render(<Probe end="2026-08-16T11:00" />));
     await act(async () => { vi.advanceTimersByTime(250); });
     expect(jobs.findAvailableSlots).toHaveBeenCalledTimes(1);
 

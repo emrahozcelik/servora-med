@@ -81,7 +81,7 @@ describe('JobCard routes', () => {
       contactId: '33333333-3333-4333-8333-333333333333',
       assignedTo: '11111111-1111-4111-8111-111111111111',
       scheduledAt: '2026-07-16T14:30:00+03:00',
-      scheduledEndsAt: '2026-07-16T15:30:00+03:00',
+      scheduledEndsAt: '2026-07-16T15:00:00+03:00',
     };
     expect((await app.inject({ method: 'POST', url: '/api/job-cards', payload: body })).statusCode).toBe(201);
     await app.inject({ method: 'GET', url: '/api/job-cards' });
@@ -90,7 +90,7 @@ describe('JobCard routes', () => {
     expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), {
       ...body, description: null, priority: 'normal', dueDate: null,
       scheduledAt: '2026-07-16T11:30:00.000Z',
-      scheduledEndsAt: '2026-07-16T12:30:00.000Z',
+      scheduledEndsAt: '2026-07-16T12:00:00.000Z',
       overrideReason: null,
     });
     expect(service.list).toHaveBeenCalledWith(

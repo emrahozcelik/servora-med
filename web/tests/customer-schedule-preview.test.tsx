@@ -47,6 +47,11 @@ const scheduling = vi.hoisted(() => {
       date.setHours(date.getHours() + 1);
       return formatLocal(date);
     },
+    canonicalPreviewEndLocal: (value: string, type: 'SALES_MEETING' | 'PRODUCT_DELIVERY') => {
+      const date = parseLocal(value);
+      date.setMinutes(date.getMinutes() + (type === 'SALES_MEETING' ? 60 : 30));
+      return formatLocal(date);
+    },
     localDateTimeToIso: (value: string) => {
       const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
       if (!match) throw new Error(value);
@@ -192,7 +197,6 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
     change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
-    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-07-01T11:00');
     await advancePreview();
     expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
     expect(container.textContent).toContain('A Klinik teslim');
@@ -202,8 +206,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await act(async () => alternativeButton!.click());
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value)
       .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
-    expect((container.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value)
-      .toBe(scheduling.addOneHourLocal(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z')));
+    expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
   });
 
   it('keeps the conflict notice visible for Staff without conflict details', async () => {
@@ -302,7 +305,6 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
     change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
-    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-07-01T11:00');
     change(container.querySelector('#meeting-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
@@ -313,8 +315,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await act(async () => alternativeButton!.click());
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value)
       .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
-    expect((container.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value)
-      .toBe(scheduling.addOneHourLocal(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z')));
+    expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     expect(onCreated).not.toHaveBeenCalled();
   });
 });
@@ -416,7 +417,6 @@ describe('Delivery authoritative conflict alternative', () => {
     const productButton = container.querySelector('[data-product-id="p1"]') as HTMLButtonElement;
     await act(async () => productButton.click());
     change(container.querySelector('#delivery-scheduled-at')!, '2026-07-01T10:00');
-    change(container.querySelector('#delivery-scheduled-ends-at')!, '2026-07-01T11:00');
     change(container.querySelector('#delivery-quantity')!, '2');
     change(container.querySelector('#delivery-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
@@ -429,8 +429,7 @@ describe('Delivery authoritative conflict alternative', () => {
     await act(async () => alternativeButton!.click());
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value)
       .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
-    expect((container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement).value)
-      .toBe(scheduling.addOneHourLocal(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z')));
+    expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
     expect(onCreated).not.toHaveBeenCalled();
   });
 });

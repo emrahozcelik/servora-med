@@ -47,6 +47,17 @@ const scheduling = vi.hoisted(() => {
       return `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
         + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
     },
+    canonicalPreviewEndLocal: (value: string) => {
+      const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
+      if (!match) throw new Error(value);
+      const date = new Date(
+        Number(match[1]), Number(match[2]) - 1, Number(match[3]),
+        Number(match[4]), Number(match[5]), 0, 0,
+      );
+      date.setMinutes(date.getMinutes() + 30);
+      return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`
+        + `T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
+    },
     localDateTimeToIso: (value: string) => {
       const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
       if (!match) throw new Error(value);
@@ -172,7 +183,7 @@ describe('Delivery create CRM defaults', () => {
     expect(slotButton).toBeTruthy();
     await act(async () => slotButton.click());
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect((container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
+    expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
   });
 
   it('pre-fills planned delivery time once and preserves a user edit across reference reloads', async () => {
@@ -201,13 +212,11 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
     (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '1';
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-07-20T11:00'));
-    await act(async () => changeInput(container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement, '2026-07-20T12:00'));
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
     expect(api.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
       type: 'PRODUCT_DELIVERY',
       scheduledAt: localDateTimeToIso('2026-07-20T11:00'),
-      scheduledEndsAt: localDateTimeToIso('2026-07-20T12:00'),
     }));
     expect(api.addDeliveryItem).toHaveBeenCalledWith('job-1', expect.objectContaining({ deliveredAt: null }));
   });
@@ -253,7 +262,6 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => root.render(<DeliveryCreateView user={staffUser} onCancel={() => {}} onCreated={() => {}} />));
     await settle();
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-09-01T16:00'));
-    await act(async () => changeInput(container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement, '2026-09-01T17:00'));
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
@@ -266,7 +274,6 @@ describe('Delivery create CRM defaults', () => {
     await settle();
     expect(api.createJobCard).toHaveBeenLastCalledWith(expect.objectContaining({
       scheduledAt: localDateTimeToIso('2026-09-01T16:00'),
-      scheduledEndsAt: localDateTimeToIso('2026-09-01T17:00'),
     }));
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-09-01T16:00');
   });
@@ -310,17 +317,15 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
     (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '2';
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-08-01T12:30'));
-    await act(async () => changeInput(container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement, '2026-08-01T13:30'));
     const cta = container.querySelector('button.compact-button') as HTMLButtonElement;
     expect(cta).toBeTruthy();
     await act(async () => cta.click());
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect((container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
+    expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
     expect(api.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
       scheduledAt: localDateTimeToIso('2026-08-10T09:30'),
-      scheduledEndsAt: localDateTimeToIso('2026-08-10T10:30'),
     }));
   });
 
@@ -336,7 +341,6 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
     (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '2';
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-08-01T12:30'));
-    await act(async () => changeInput(container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement, '2026-08-01T13:30'));
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
     expect(container.querySelector('.form-error')?.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
@@ -344,12 +348,11 @@ describe('Delivery create CRM defaults', () => {
     expect(cta).toBeTruthy();
     await act(async () => cta.click());
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect((container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
+    expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
     expect(api.createJobCard).toHaveBeenLastCalledWith(expect.objectContaining({
       scheduledAt: localDateTimeToIso('2026-08-10T09:30'),
-      scheduledEndsAt: localDateTimeToIso('2026-08-10T10:30'),
     }));
   });
 });

@@ -16,11 +16,9 @@ import { useCustomerSchedulePreview } from './jobs/useCustomerSchedulePreview';
 import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
 import type { AvailableSlot } from './jobs/jobs-api';
 import {
-  addOneHourLocal,
   defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
-  shiftInterval,
 } from './jobs/scheduling';
 import { ApiError, type CurrentUser } from './services/api';
 import { listCustomers, type CustomerSummary } from './services/crm-api';
@@ -31,7 +29,6 @@ type FieldErrors = {
   title?: string;
   customerId?: string;
   scheduledAt?: string;
-  scheduledEndsAt?: string;
   assignedTo?: string;
   engagementKind?: string;
 };
@@ -56,9 +53,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   const [scheduledLocal, setScheduledLocal] = useState(
     () => defaultScheduledLocalValue(new Date()),
   );
-  const [scheduledEndsLocal, setScheduledEndsLocal] = useState(
-    () => addOneHourLocal(scheduledLocal),
-  );
   const [customers, setCustomers] = useState<CustomerSummary[]>([]);
   const [customerState, setCustomerState] = useState<LoadState>('loading'); const [customerId, setCustomerId] = useState(initialCustomerId);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
@@ -77,7 +71,7 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   useEffect(() => {
     setAuthoritativeEvaluation(null);
     setCalendarConflicts([]);
-  }, [assignedTo, customerId, scheduledLocal, scheduledEndsLocal, engagementKind]);
+  }, [assignedTo, customerId, scheduledLocal, engagementKind]);
 
   const { evaluation, previewing } = useCustomerSchedulePreview({
     type: 'SALES_MEETING',
@@ -90,7 +84,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     customerId: customerId || null,
     assignedTo: user.role === 'STAFF' ? user.id : assignedTo || null,
     scheduledStartLocal: scheduledLocal,
-    scheduledEndLocal: scheduledEndsLocal,
     jobCardId: null,
     enabled: user.capabilities?.calendar === true
       && customerState === 'ready'
@@ -100,18 +93,11 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
   function useSuggestedAlternative() {
     const alternativeAt = (authoritativeEvaluation ?? evaluation)?.suggestedAlternativeAt;
     if (!alternativeAt) return;
-    const [nextStart, nextEnd] = shiftInterval(
-      scheduledLocal,
-      scheduledEndsLocal,
-      isoInstantToLocalDateTime(alternativeAt),
-    );
-    setScheduledLocal(nextStart);
-    setScheduledEndsLocal(nextEnd);
+    setScheduledLocal(isoInstantToLocalDateTime(alternativeAt));
   }
 
   function useAvailableSlot(slot: AvailableSlot) {
     setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
-    setScheduledEndsLocal(isoInstantToLocalDateTime(slot.endsAt));
   }
 
   async function loadCustomers() {
@@ -142,12 +128,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
     if (!engagementKind) nextErrors.engagementKind = 'Görüşme veya ziyaret türünü seçin.';
     if (!customerId) nextErrors.customerId = 'Aktif veya aday bir müşteri seçin.';
     if (!scheduledLocal) nextErrors.scheduledAt = 'Planlanan görüşme zamanını seçin.';
-    if (!scheduledEndsLocal) {
-      nextErrors.scheduledEndsAt = 'Planlanan bitiş zamanını seçin.';
-    } else if (scheduledLocal
-      && Date.parse(localDateTimeToIso(scheduledEndsLocal)) <= Date.parse(localDateTimeToIso(scheduledLocal))) {
-      nextErrors.scheduledEndsAt = 'Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.';
-    }
     if (!selectedAssignee) nextErrors.assignedTo = 'Aktif bir sorumlu personel seçin.';
     setFieldErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) {
@@ -163,7 +143,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
         title: trimmedTitle,
         customerId, assignedTo: selectedAssignee,
         scheduledAt: localDateTimeToIso(scheduledLocal),
-        scheduledEndsAt: localDateTimeToIso(scheduledEndsLocal),
         description: description.trim() || null, contactId: null, priority,
         ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
       });
@@ -259,12 +238,6 @@ export function SalesMeetingCreateScreen({ user, onCancel, onCreated, initialCus
             onChange={(event) => setScheduledLocal(event.target.value)} />
           {fieldErrors.scheduledAt && <span id="meeting-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}</div>
       </div>
-      <div className="field-group"><label htmlFor="meeting-scheduled-ends-at">Planlanan bitiş</label>
-        <input id="meeting-scheduled-ends-at" type="datetime-local" required value={scheduledEndsLocal}
-          aria-invalid={fieldErrors.scheduledEndsAt ? true : undefined}
-          aria-describedby={fieldErrors.scheduledEndsAt ? 'meeting-scheduled-ends-at-error' : undefined}
-          onChange={(event) => setScheduledEndsLocal(event.target.value)} />
-        {fieldErrors.scheduledEndsAt && <span id="meeting-scheduled-ends-at-error" className="field-error">{fieldErrors.scheduledEndsAt}</span>}</div>
       <CustomerScheduleNotice
         evaluation={authoritativeEvaluation ?? evaluation}
         mode={user.role === 'STAFF' ? 'staff' : 'manager'}
