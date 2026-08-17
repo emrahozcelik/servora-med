@@ -36,4 +36,18 @@ describe('parseAvailableSlotsInput', () => {
       scheduledEndsAt: '2026-08-16T09:00:00.000Z',
     })).toThrow();
   });
+
+  it('allows the server to derive the duration when the end is omitted', () => {
+    expect(parseAvailableSlotsInput({
+      type: 'PRODUCT_DELIVERY',
+      customerId: 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb',
+      assignedTo: 'cccccccc-cccc-4ccc-8ccc-cccccccccccc',
+      scheduledAt: '2026-08-16T10:00:00.000Z',
+      jobCardId: null,
+    })).toMatchObject({
+      type: 'PRODUCT_DELIVERY',
+      scheduledAt: '2026-08-16T10:00:00.000Z',
+      scheduledEndsAt: undefined,
+    });
+  });
 });

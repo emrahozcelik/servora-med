@@ -20,6 +20,7 @@ import {
   uuidString,
   validation,
 } from './validation.js';
+import { canonicalScheduledEnd } from './job-card-duration.js';
 
 const COMMON_CREATE_FIELDS = [
   'clientActionId', 'type', 'title', 'description', 'customerId', 'contactId',
@@ -78,14 +79,21 @@ function requiredScheduledAt(value: unknown) {
   return isoInstant(value, 'scheduledAt');
 }
 
-function requiredScheduledEndsAt(value: unknown, scheduledAt: string) {
-  if (value === undefined || value === null) throw validation('scheduledEndsAt');
+function canonicalScheduledEndsAt(
+  type: 'PRODUCT_DELIVERY' | 'SALES_MEETING',
+  value: unknown,
+  scheduledAt: string,
+) {
+  const canonicalEnd = canonicalScheduledEnd(type, scheduledAt)!;
+  if (value === undefined) return canonicalEnd;
+  if (value === null) throw validation('scheduledEndsAt');
   const endsAt = isoInstant(value, 'scheduledEndsAt');
-  if (Date.parse(endsAt) <= Date.parse(scheduledAt)) {
+  if (endsAt !== canonicalEnd) {
     throw new AppError(
       'VALIDATION_ERROR',
       400,
-      'Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.',
+      'Planlanan bitiş zamanı bu iş türünün kanonik süresiyle eşleşmelidir.',
+      { fieldErrors: { scheduledEndsAt: 'scheduledEndsAt geçersizdir.' } },
     );
   }
   return endsAt;
@@ -123,7 +131,7 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
       type: input.type,
       customerId: uuidString(input.customerId, 'customerId'),
       scheduledAt,
-      scheduledEndsAt: requiredScheduledEndsAt(input.scheduledEndsAt, scheduledAt),
+      scheduledEndsAt: canonicalScheduledEndsAt(input.type, input.scheduledEndsAt, scheduledAt),
       overrideReason: optionalOverrideReason(input.overrideReason),
     };
   }
@@ -136,7 +144,7 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
       customerId: uuidString(input.customerId, 'customerId'),
       dueDate: null,
       scheduledAt,
-      scheduledEndsAt: requiredScheduledEndsAt(input.scheduledEndsAt, scheduledAt),
+      scheduledEndsAt: canonicalScheduledEndsAt(input.type, input.scheduledEndsAt, scheduledAt),
       engagementKind: parseEngagementKind(input.engagementKind),
       overrideReason: optionalOverrideReason(input.overrideReason),
     };
@@ -267,12 +275,18 @@ export function parseAvailableSlotsInput(value: unknown): AvailableSlotsInput {
     throw validation('type');
   }
   const scheduledAt = requiredScheduledAt(record.scheduledAt);
+  const scheduledEndsAt = record.scheduledEndsAt === undefined
+    ? undefined
+    : isoInstant(record.scheduledEndsAt, 'scheduledEndsAt');
+  if (scheduledEndsAt !== undefined && Date.parse(scheduledEndsAt) <= Date.parse(scheduledAt)) {
+    throw validation('scheduledEndsAt');
+  }
   return {
     type: record.type,
     customerId: uuidString(record.customerId, 'customerId'),
     assignedTo: uuidString(record.assignedTo, 'assignedTo'),
     scheduledAt,
-    scheduledEndsAt: requiredScheduledEndsAt(record.scheduledEndsAt, scheduledAt),
+    scheduledEndsAt,
     jobCardId: record.jobCardId === undefined || record.jobCardId === null
       ? null
       : uuidString(record.jobCardId, 'jobCardId'),

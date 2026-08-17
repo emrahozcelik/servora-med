@@ -95,7 +95,7 @@ export type JobCardCreateInput =
     clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string;
     description?: string | null; customerId: string; contactId?: string | null;
     assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
-    scheduledAt: string; scheduledEndsAt: string;
+    scheduledAt: string; scheduledEndsAt?: string;
   }
   | {
     clientActionId: string; type: 'GENERAL_TASK'; title: string;
@@ -107,7 +107,7 @@ export type JobCardCreateInput =
     clientActionId: string; type: 'SALES_MEETING'; title: string;
     description?: string | null; customerId: string; contactId?: string | null;
     assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
-    scheduledAt: string; scheduledEndsAt: string; engagementKind?: JobCardEngagementKind;
+    scheduledAt: string; scheduledEndsAt?: string; engagementKind?: JobCardEngagementKind;
   };
 
 type NormalizedCommonCreateInput = {
@@ -120,13 +120,11 @@ type NormalizedCommonCreateInput = {
 export type NormalizedJobCardCreateInput =
   | NormalizedCommonCreateInput & {
       type: 'PRODUCT_DELIVERY'; customerId: string; scheduledAt: string;
-      scheduledEndsAt: string;
       overrideReason?: string | null;
     }
   | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null }
   | NormalizedCommonCreateInput & {
       type: 'SALES_MEETING'; customerId: string; scheduledAt: string;
-      scheduledEndsAt: string;
       engagementKind: JobCardEngagementKind;
       overrideReason?: string | null;
     };
@@ -143,7 +141,7 @@ export type AvailableSlotsInput = {
   customerId: string;
   assignedTo: string;
   scheduledAt: string;
-  scheduledEndsAt: string;
+  scheduledEndsAt?: string;
   jobCardId?: string | null;
 };
 

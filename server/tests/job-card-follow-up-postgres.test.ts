@@ -134,6 +134,9 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       new PostgresJobCardRepository(pool),
       () => new Date('2026-08-01T10:00:00.000Z'),
       publisher,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
     );
     const admin = { id: adminId, organizationId, role: 'ADMIN' as const };
     const manager = { id: managerId, organizationId, role: 'MANAGER' as const };
@@ -393,11 +396,13 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         }),
       );
       expect(delivery).toMatchObject({ type: 'PRODUCT_DELIVERY', customerId: fixture.customerId });
+      expect(delivery.scheduledEndsAt).toBe('2026-08-03T09:30:00.000Z');
       expect(meeting).toMatchObject({
         type: 'SALES_MEETING',
         customerId: fixture.customerId,
         engagementKind: 'FOLLOW_UP',
       });
+      expect(meeting.scheduledEndsAt).toBe('2026-08-04T10:00:00.000Z');
       expect((await fixture.pool.query(
         `SELECT 1 FROM job_card_meeting_details WHERE job_card_id = $1`,
         [meeting.id],
@@ -442,6 +447,36 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
         clientActionId: randomUUID(),
         expectedVersion: unscheduled.version,
       })).resolves.toMatchObject({ status: 'ACCEPTED', version: unscheduled.version + 1 });
+    });
+  });
+
+  it('D4-FUP-POSTHOC: enforces assignee availability for an interval follow-up', async () => {
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource();
+      await fixture.pool.query(
+        `INSERT INTO job_cards (
+           organization_id, type, status, title, customer_id, assigned_to, created_by,
+           scheduled_at, scheduled_ends_at, engagement_kind
+         ) VALUES ($1, 'SALES_MEETING', 'NEW', 'Çakışan takip', $2, $3, $4, $5, $6, 'SALES_MEETING')`,
+        [
+          fixture.organizationId,
+          fixture.otherCustomerId,
+          fixture.staffB.id,
+          fixture.manager.id,
+          '2026-08-03T09:00:00.000Z',
+          '2026-08-03T10:00:00.000Z',
+        ],
+      );
+
+      await expect(fixture.service.createFollowUp(
+        fixture.manager,
+        source,
+        input(fixture.staffB.id, {
+          type: 'SALES_MEETING',
+          scheduledAt: '2026-08-03T09:00:00.000Z',
+          engagementKind: 'FOLLOW_UP',
+        }),
+      )).rejects.toMatchObject(appError('CALENDAR_CONFLICT', 409));
     });
   });
 

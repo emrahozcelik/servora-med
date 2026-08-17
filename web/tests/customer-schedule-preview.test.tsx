@@ -25,27 +25,11 @@ const api = vi.hoisted(() => ({
 }));
 const products = vi.hoisted(() => ({ listProducts: vi.fn() }));
 const scheduling = vi.hoisted(() => {
-  const parseLocal = (value: string) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
-    if (!match) throw new Error(value);
-    return new Date(
-      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
-      Number(match[4]), Number(match[5]), 0, 0,
-    );
-  };
-  const pad = (part: number) => String(part).padStart(2, '0');
-  const formatLocal = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   return {
     defaultScheduledLocalValue: vi.fn(() => '2026-07-17T14:30'),
     isoInstantToLocalDateTime: (value: string) => {
       const date = new Date(value);
       return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}T${String(date.getHours()).padStart(2, '0')}:${String(date.getMinutes()).padStart(2, '0')}`;
-    },
-    addOneHourLocal: (value: string) => {
-      const date = parseLocal(value);
-      date.setHours(date.getHours() + 1);
-      return formatLocal(date);
     },
     localDateTimeToIso: (value: string) => {
       const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
@@ -54,10 +38,6 @@ const scheduling = vi.hoisted(() => {
         Number(match[1]), Number(match[2]) - 1, Number(match[3]),
         Number(match[4]), Number(match[5]), 0, 0,
       ).toISOString();
-    },
-    shiftInterval: (start: string, end: string, newStart: string): [string, string] => {
-      const delta = parseLocal(newStart).getTime() - parseLocal(start).getTime();
-      return [newStart, formatLocal(new Date(parseLocal(end).getTime() + delta))];
     },
   };
 });
@@ -192,7 +172,6 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
     change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
-    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-07-01T11:00');
     await advancePreview();
     expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
     expect(container.textContent).toContain('A Klinik teslim');
@@ -202,8 +181,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await act(async () => alternativeButton!.click());
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value)
       .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
-    expect((container.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value)
-      .toBe(scheduling.addOneHourLocal(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z')));
+    expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
   });
 
   it('keeps the conflict notice visible for Staff without conflict details', async () => {
@@ -302,7 +280,6 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     change(container.querySelector('#meeting-engagement-kind')!, 'CUSTOMER_VISIT');
     change(container.querySelector('#meeting-customer')!, 'c1'); await settle();
     change(container.querySelector('#meeting-scheduled-at')!, '2026-07-01T10:00');
-    change(container.querySelector('#meeting-scheduled-ends-at')!, '2026-07-01T11:00');
     change(container.querySelector('#meeting-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(container.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
@@ -313,8 +290,7 @@ describe('Customer Scheduling preview in Sales Meeting planning', () => {
     await act(async () => alternativeButton!.click());
     expect((container.querySelector('#meeting-scheduled-at') as HTMLInputElement).value)
       .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
-    expect((container.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value)
-      .toBe(scheduling.addOneHourLocal(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z')));
+    expect(container.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     expect(onCreated).not.toHaveBeenCalled();
   });
 });
@@ -416,7 +392,6 @@ describe('Delivery authoritative conflict alternative', () => {
     const productButton = container.querySelector('[data-product-id="p1"]') as HTMLButtonElement;
     await act(async () => productButton.click());
     change(container.querySelector('#delivery-scheduled-at')!, '2026-07-01T10:00');
-    change(container.querySelector('#delivery-scheduled-ends-at')!, '2026-07-01T11:00');
     change(container.querySelector('#delivery-quantity')!, '2');
     change(container.querySelector('#delivery-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
@@ -429,8 +404,7 @@ describe('Delivery authoritative conflict alternative', () => {
     await act(async () => alternativeButton!.click());
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value)
       .toBe(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z'));
-    expect((container.querySelector('#delivery-scheduled-ends-at') as HTMLInputElement).value)
-      .toBe(scheduling.addOneHourLocal(scheduling.isoInstantToLocalDateTime('2026-07-03T10:00:00.000Z')));
+    expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
     expect(onCreated).not.toHaveBeenCalled();
   });
 });

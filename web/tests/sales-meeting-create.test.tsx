@@ -13,31 +13,14 @@ const jobs = vi.hoisted(() => ({ createJobCard: vi.fn(), findAvailableSlots: vi.
 const crm = vi.hoisted(() => ({ listCustomers: vi.fn() }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const scheduling = vi.hoisted(() => {
-  const parseLocal = (value: string) => {
-    const match = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/.exec(value);
-    if (!match) throw new Error(value);
-    return new Date(
-      Number(match[1]), Number(match[2]) - 1, Number(match[3]),
-      Number(match[4]), Number(match[5]), 0, 0,
-    );
-  };
-  const pad = (part: number) => String(part).padStart(2, '0');
-  const formatLocal = (date: Date) => `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
-    + `T${pad(date.getHours())}:${pad(date.getMinutes())}`;
   return {
     defaultScheduledLocalValue: vi.fn(() => '2026-08-01T12:30'),
     isoInstantToLocalDateTime: vi.fn(() => '2026-08-10T09:30'),
     localDateTimeToIso: vi.fn((value: string) => value === '2026-08-01T12:30'
       ? '2026-08-01T09:30:00.000Z' : value === '2026-08-01T13:30'
         ? '2026-08-01T10:30:00.000Z' : value === '2026-08-10T09:30'
-          ? '2026-08-10T06:30:00.000Z' : value === '2026-08-10T10:30'
-            ? '2026-08-10T07:30:00.000Z' : '2026-08-01T09:30:00.000Z'),
-    addOneHourLocal: vi.fn((value: string) => value === '2026-08-01T12:30'
-      ? '2026-08-01T13:30' : '2026-08-01T13:30'),
-    shiftInterval: (start: string, end: string, newStart: string): [string, string] => {
-      const delta = parseLocal(newStart).getTime() - parseLocal(start).getTime();
-      return [newStart, formatLocal(new Date(parseLocal(end).getTime() + delta))];
-    },
+        ? '2026-08-10T06:30:00.000Z' : value === '2026-08-10T10:30'
+          ? '2026-08-10T07:30:00.000Z' : '2026-08-01T09:30:00.000Z'),
   };
 });
 const preview = vi.hoisted(() => ({ useCustomerSchedulePreview: vi.fn() }));
@@ -127,22 +110,21 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
   }
 
-  it('AAP-19: submits scheduledAt and scheduledEndsAt exactly for the chosen interval', async () => {
+  it('AAP-19: submits only the chosen start and leaves canonical duration to the server', async () => {
     await render(staffUser);
     change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
-    change(host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement, '2026-08-01T13:30');
+    expect(host.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     await fillAndSubmit();
     expect(jobs.createJobCard).toHaveBeenCalledTimes(1);
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
       clientActionId: 'action-1', type: 'SALES_MEETING', engagementKind: 'SALES_MEETING',
       title: 'Kontrol görüşmesi', customerId: 'customer-1', assignedTo: 'staff-1',
       scheduledAt: '2026-08-01T09:30:00.000Z',
-      scheduledEndsAt: '2026-08-01T10:30:00.000Z',
     }));
     expect(onCreated).toHaveBeenCalledWith('job-1');
   });
 
-  it('offers a joint slot and moves both interval fields when selected', async () => {
+  it('offers a joint slot and moves only the start when selected', async () => {
     jobs.findAvailableSlots.mockResolvedValue({ slots: [{
       startsAt: '2026-08-10T06:30:00.000Z',
       endsAt: '2026-08-10T07:30:00.000Z',
@@ -161,16 +143,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect(slotButton).toBeTruthy();
     await act(async () => slotButton.click());
     expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect((host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
-  });
-
-  it('AAP-21: rejects an end not strictly later than the start without calling the API', async () => {
-    await render(staffUser);
-    change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
-    change(host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement, '2026-08-01T12:30');
-    await fillAndSubmit();
-    expect(host.textContent).toContain('Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.');
-    expect(jobs.createJobCard).not.toHaveBeenCalled();
+    expect(host.querySelector('#meeting-scheduled-ends-at')).toBeNull();
   });
 
   it('AAP-22: STAFF sees only the generic conflict message, never conflict details', async () => {
@@ -211,7 +184,7 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     expect(onCreated).not.toHaveBeenCalled();
   });
 
-  it('AAP-24: advisory suggested alternative CTA moves start and end together', async () => {
+  it('AAP-24: advisory suggested alternative CTA moves only the start', async () => {
     preview.useCustomerSchedulePreview.mockReturnValue({
       evaluation: {
         level: 'CONFLICT',
@@ -223,39 +196,35 @@ describe('Sales Meeting create page (AAP create-time parity)', () => {
     });
     await render(staffUser);
     change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
-    change(host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement, '2026-08-01T13:30');
     const cta = host.querySelector('button.compact-button') as HTMLButtonElement;
     expect(cta).toBeTruthy();
     await act(async () => cta.click());
     expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect((host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
+    expect(host.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     await fillAndSubmit();
     expect(jobs.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
       scheduledAt: '2026-08-10T06:30:00.000Z',
-      scheduledEndsAt: '2026-08-10T07:30:00.000Z',
     }));
   });
 
-  it('AAP-25: authoritative CUSTOMER_SCHEDULE_CONFLICT alternative moves start and end together', async () => {
+  it('AAP-25: authoritative CUSTOMER_SCHEDULE_CONFLICT alternative moves only the start', async () => {
     jobs.createJobCard.mockRejectedValue(new ApiError(
       409, 'CUSTOMER_SCHEDULE_CONFLICT', 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
       false, { conflicts: [], suggestedAlternativeAt: '2026-08-10T09:30:00.000Z' },
     ));
     await render(staffUser);
     change(host.querySelector('#meeting-scheduled-at') as HTMLInputElement, '2026-08-01T12:30');
-    change(host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement, '2026-08-01T13:30');
     await fillAndSubmit();
     expect(host.textContent).toContain('Aynı müşteriye aynı gün başka bir saha işi planlanmış.');
     const cta = host.querySelector('button.compact-button') as HTMLButtonElement;
     expect(cta).toBeTruthy();
     await act(async () => cta.click());
     expect((host.querySelector('#meeting-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect((host.querySelector('#meeting-scheduled-ends-at') as HTMLInputElement).value).toBe('2026-08-10T10:30');
+    expect(host.querySelector('#meeting-scheduled-ends-at')).toBeNull();
     jobs.createJobCard.mockResolvedValue({ id: 'job-2', version: 1 });
     await act(async () => (host.querySelector('form') as HTMLFormElement).requestSubmit());
     expect(jobs.createJobCard).toHaveBeenLastCalledWith(expect.objectContaining({
       scheduledAt: '2026-08-10T06:30:00.000Z',
-      scheduledEndsAt: '2026-08-10T07:30:00.000Z',
     }));
     expect(onCreated).toHaveBeenCalledWith('job-2');
   });

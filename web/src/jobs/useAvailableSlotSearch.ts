@@ -12,7 +12,6 @@ export type AvailableSlotSearchInputs = {
   customerId: string | null;
   assignedTo: string | null;
   scheduledStartLocal: string;
-  scheduledEndLocal: string;
   jobCardId?: string | null;
   enabled: boolean;
 };
@@ -46,7 +45,6 @@ export function useAvailableSlotSearch(
     customerId,
     assignedTo,
     scheduledStartLocal,
-    scheduledEndLocal,
     jobCardId,
     enabled,
   } = inputs;
@@ -57,20 +55,14 @@ export function useAvailableSlotSearch(
     setSearched(false);
     setError(null);
     setFeatureDisabled(false);
-    if (!enabled || !customerId || !assignedTo || !scheduledStartLocal || !scheduledEndLocal) {
+    if (!enabled || !customerId || !assignedTo || !scheduledStartLocal) {
       setSearching(false);
       return;
     }
 
     let scheduledAt: string;
-    let scheduledEndsAt: string;
     try {
       scheduledAt = localDateTimeToIso(scheduledStartLocal);
-      scheduledEndsAt = localDateTimeToIso(scheduledEndLocal);
-      if (Date.parse(scheduledEndsAt) <= Date.parse(scheduledAt)) {
-        setSearching(false);
-        return;
-      }
     } catch {
       setSearching(false);
       return;
@@ -84,7 +76,6 @@ export function useAvailableSlotSearch(
         customerId,
         assignedTo,
         scheduledAt,
-        scheduledEndsAt,
         jobCardId: jobCardId ?? null,
       }).then((result) => {
         if (requestSeq.current !== sequence) return;
@@ -107,7 +98,6 @@ export function useAvailableSlotSearch(
     customerId,
     enabled,
     jobCardId,
-    scheduledEndLocal,
     scheduledStartLocal,
     type,
   ]);

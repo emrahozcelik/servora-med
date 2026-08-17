@@ -267,7 +267,7 @@ const createInput: NormalizedJobCardCreateInput = {
   clientActionId: 'create-1', type: 'PRODUCT_DELIVERY' as const, title: ' ABC Klinik teslimi ',
   description: null, customerId: 'customer-1', contactId: null,
   assignedTo: 'staff-1', priority: 'normal' as const, dueDate: null,
-  scheduledAt: SCHEDULED_AT, scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+  scheduledAt: SCHEDULED_AT, scheduledEndsAt: '2026-07-20T11:00:00.000Z',
 };
 const generalTaskInput: NormalizedJobCardCreateInput = {
   clientActionId: 'task-create-1', type: 'GENERAL_TASK' as const, title: ' Doktoru ara ',
@@ -911,14 +911,14 @@ describe('JobCardService create and reads', () => {
     const updated = await service.patch(manager, created.id, {
       expectedVersion: 1,
       scheduledAt: '2026-07-21T09:00:00.000Z',
-      scheduledEndsAt: '2026-07-21T10:00:00.000Z',
+      scheduledEndsAt: '2026-07-21T09:30:00.000Z',
     });
 
     expect(repository.calendarChecks).toEqual([expect.objectContaining({
       jobCardId: created.id,
       assignedUserId: 'staff-1',
       startsAt: '2026-07-21T09:00:00.000Z',
-      endsAt: '2026-07-21T10:00:00.000Z',
+      endsAt: '2026-07-21T09:30:00.000Z',
     })]);
     expect(repository.calendarSyncs).toEqual([expect.objectContaining({
       jobCardId: created.id,
@@ -941,7 +941,7 @@ describe('JobCardService create and reads', () => {
     ]));
     expect(updated).toMatchObject({
       version: 2,
-      scheduledEndsAt: '2026-07-21T10:00:00.000Z',
+      scheduledEndsAt: '2026-07-21T09:30:00.000Z',
     });
   });
 

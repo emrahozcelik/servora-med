@@ -74,7 +74,7 @@ describe('JobDetail joint slot edit', () => {
     vi.unstubAllGlobals();
   });
 
-  it('shows interval end and moves start/end together for a selected joint slot', async () => {
+  it('keeps the existing interval duration server-owned when a joint slot is selected', async () => {
     const onSave = vi.fn().mockResolvedValue(undefined);
     await act(async () => root.render(<JobDetailPanel
       job={job}
@@ -86,7 +86,7 @@ describe('JobDetail joint slot edit', () => {
       onCommand={() => {}}
       onSaveSchedule={onSave}
     />));
-    expect(container.querySelector('#job-scheduled-ends-at')).not.toBeNull();
+    expect(container.querySelector('#job-scheduled-ends-at')).toBeNull();
     await act(async () => { vi.advanceTimersByTime(300); });
     await act(async () => { await Promise.resolve(); });
     const button = container.querySelector('button[data-available-slot]') as HTMLButtonElement;
@@ -94,17 +94,16 @@ describe('JobDetail joint slot edit', () => {
     await act(async () => button.click());
     expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value)
       .toBe(isoInstantToLocalDateTime('2026-08-17T10:00:00.000Z'));
-    expect((container.querySelector('#job-scheduled-ends-at') as HTMLInputElement).value)
-      .toBe(isoInstantToLocalDateTime('2026-08-17T11:00:00.000Z'));
+    expect(container.querySelector('#job-scheduled-ends-at')).toBeNull();
     await act(async () => (container.querySelector('.job-schedule-edit form') as HTMLFormElement).requestSubmit());
     expect(onSave).toHaveBeenCalledWith(
       '2026-08-17T10:00:00.000Z',
-      '2026-08-17T11:00:00.000Z',
+      undefined,
       null,
     );
   });
 
-  it('moves the interval end with the existing customer alternative CTA', async () => {
+  it('moves only the start with the existing customer alternative CTA', async () => {
     preview.evaluation = {
       level: 'CONFLICT',
       safeMessage: 'Aynı müşteriye aynı gün başka bir iş planlandı.',
@@ -130,7 +129,6 @@ describe('JobDetail joint slot edit', () => {
     await act(async () => (button as HTMLButtonElement).click());
     expect((container.querySelector('#job-scheduled-at') as HTMLInputElement).value)
       .toBe(isoInstantToLocalDateTime('2026-08-17T10:00:00.000Z'));
-    expect((container.querySelector('#job-scheduled-ends-at') as HTMLInputElement).value)
-      .toBe(isoInstantToLocalDateTime('2026-08-17T11:00:00.000Z'));
+    expect(container.querySelector('#job-scheduled-ends-at')).toBeNull();
   });
 });

@@ -10,6 +10,7 @@ import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.j
 import { JobCardService } from '../src/modules/job-cards/service.js';
 import { PostgresCalendarRepository } from '../src/modules/calendar/repository.js';
 import { CalendarService } from '../src/modules/calendar/service.js';
+import { canonicalScheduledEnd } from '../src/modules/job-cards/job-card-duration.js';
 import type {
   JobCard,
   JobCardActor,
@@ -24,6 +25,65 @@ const MIGRATIONS_DIRECTORY = fileURLToPath(new URL('../src/db/migrations', impor
 
 const CLOCK = new Date('2026-08-01T10:00:00.000Z');
 const PROPOSAL_AT = '2026-08-08T10:00:00.000Z';
+
+function withUserLockHold(pool: Pool): {
+  waitForFirstLock: () => Promise<void>;
+  waitForContenderLock: () => Promise<void>;
+  release: () => void;
+} {
+  let firstLockArrived!: () => void;
+  const firstLockReady = new Promise<void>((resolve) => { firstLockArrived = resolve; });
+  let contenderLockArrived!: () => void;
+  const contenderLockReady = new Promise<void>((resolve) => { contenderLockArrived = resolve; });
+  let releaseLock!: () => void;
+  const lockReleased = new Promise<void>((resolve) => { releaseLock = resolve; });
+  let userLockCount = 0;
+
+  const originalConnect = pool.connect.bind(pool);
+  pool.connect = (...args: unknown[]) => {
+    const last = args[args.length - 1];
+    if (typeof last === 'function') {
+      const callback = args.pop() as (
+        error: Error | null,
+        client?: unknown,
+        release?: () => void,
+      ) => void;
+      originalConnect(...args, (error: Error | null, client?: unknown, release?: () => void) => {
+        if (error) return callback(error);
+        callback(null, client ? wrapClient(client) : client, release);
+      });
+      return;
+    }
+    return originalConnect(...args).then((client: unknown) => wrapClient(client));
+  };
+
+  function wrapClient(client: any): any {
+    const originalQuery = client.query.bind(client);
+    client.query = (...queryArgs: unknown[]) => {
+      const text = typeof queryArgs[0] === 'string'
+        ? queryArgs[0]
+        : (queryArgs[0] as { text?: string } | undefined)?.text;
+      if (text?.includes('FROM users') && text.includes('FOR UPDATE')) {
+        userLockCount += 1;
+        if (userLockCount === 1) {
+          return Promise.resolve(originalQuery(...queryArgs)).then((result) => {
+            firstLockArrived();
+            return lockReleased.then(() => result);
+          });
+        }
+        if (userLockCount === 2) contenderLockArrived();
+      }
+      return originalQuery(...queryArgs);
+    };
+    return client;
+  }
+
+  return {
+    waitForFirstLock: () => firstLockReady,
+    waitForContenderLock: () => contenderLockReady,
+    release: () => releaseLock(),
+  };
+}
 
 type Fixture = {
   pool: Pool;
@@ -103,7 +163,14 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
     const published: RealtimeEventRecord[] = [];
     const publisher: RealtimeEventPublisher = { publish: (event) => published.push(event) };
     const repository = new PostgresJobCardRepository(pool);
-    const service = new JobCardService(repository, () => CLOCK, publisher);
+    const service = new JobCardService(
+      repository,
+      () => CLOCK,
+      publisher,
+      undefined,
+      undefined,
+      { enabled: true, reminderLeadMinutes: 30 },
+    );
     const calendar = new CalendarService(
       true,
       new PostgresCalendarRepository(pool),
@@ -128,7 +195,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       const scheduledAt = input.scheduledAt === undefined ? '2026-08-01T10:00:00.000Z' : input.scheduledAt;
       const scheduledEndsAt = scheduledAt === null
         ? null
-        : new Date(Date.parse(scheduledAt) + 60 * 60 * 1_000).toISOString();
+        : canonicalScheduledEnd(type, scheduledAt);
       const job = await service.create(staffA, {
         clientActionId: randomUUID(),
         type,
@@ -493,6 +560,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         type: 'SALES_MEETING',
         customerId,
         scheduledAt: PROPOSAL_AT,
+        scheduledEndsAt: '2026-08-08T11:00:00.000Z',
         engagementKind: 'FOLLOW_UP',
       });
       expect(child.workflowContext.lifecycle).toMatchObject({
@@ -564,6 +632,208 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       expect(childAfterReplay).toMatchObject({ status: 'ACCEPTED' });
       const children = await service.listFollowUps(manager, job.id, { limit: 10, offset: 0 });
       expect(children.total).toBe(1);
+    });
+  });
+
+  it('D4-FUP-AVAILABILITY: approval rejects an assignee overlap and rolls back the child', async () => {
+    await withFixture(async ({
+      service, pool, manager, staffA, organizationId, customerId, createInProgressJob,
+    }) => {
+      const otherCustomerId = (await pool.query<{ id: string }>(
+        `INSERT INTO customers (organization_id, name, customer_type, status)
+         VALUES ($1, 'Başka Klinik', 'clinic', 'active') RETURNING id`,
+        [organizationId],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_cards (
+           organization_id, type, status, title, customer_id, assigned_to, created_by,
+           scheduled_at, scheduled_ends_at, engagement_kind
+         ) VALUES ($1, 'SALES_MEETING', 'NEW', 'Çakışan iş', $2, $3, $4, $5, $6, 'SALES_MEETING')`,
+        [
+          organizationId,
+          otherCustomerId,
+          staffA.id,
+          manager.id,
+          PROPOSAL_AT,
+          '2026-08-08T11:00:00.000Z',
+        ],
+      );
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        title: 'Ziyaret',
+        assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Görüşme tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Çakışma kontrolü.',
+        },
+      });
+
+      await expect(service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+      })).rejects.toMatchObject(appError('CALENDAR_CONFLICT', 409));
+
+      await expect(service.detail(manager, job.id)).resolves.toMatchObject({
+        status: 'WAITING_APPROVAL',
+        version: submitted.version,
+        customerId,
+      });
+      const children = await pool.query<{ count: string }>(
+        `SELECT COUNT(*)::text AS count FROM job_cards WHERE source_job_card_id = $1`,
+        [job.id],
+      );
+      expect(children.rows[0]!.count).toBe('0');
+    });
+  });
+
+  it('D4-C1: approval serializes against a normal interval create for the same assignee', async () => {
+    await withFixture(async ({
+      service, pool, manager, staffA, organizationId, customerId, createInProgressJob,
+    }) => {
+      const otherCustomerId = (await pool.query<{ id: string }>(
+        `INSERT INTO customers (organization_id, name, customer_type, status)
+         VALUES ($1, 'Başka Klinik', 'clinic', 'active') RETURNING id`,
+        [organizationId],
+      )).rows[0]!.id;
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        title: 'Ziyaret',
+        assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Görüşme tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Seri hale getirme.',
+        },
+      });
+      const barrier = withUserLockHold(pool);
+      try {
+        const approval = service.approve(manager, job.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: submitted.version,
+        });
+        await barrier.waitForFirstLock();
+        const create = service.create(manager, {
+          clientActionId: randomUUID(),
+          type: 'SALES_MEETING',
+          title: 'Rakip görüşme',
+          description: null,
+          customerId: otherCustomerId,
+          contactId: null,
+          assignedTo: staffA.id,
+          priority: 'normal',
+          dueDate: null,
+          scheduledAt: PROPOSAL_AT,
+          scheduledEndsAt: '2026-08-08T11:00:00.000Z',
+          engagementKind: 'SALES_MEETING',
+        });
+        await barrier.waitForContenderLock();
+        barrier.release();
+
+        const results = await Promise.allSettled([approval, create]);
+        expect(results[0]).toMatchObject({ status: 'fulfilled' });
+        expect(results[1]).toMatchObject({
+          status: 'rejected',
+          reason: { code: 'CALENDAR_CONFLICT', statusCode: 409 },
+        });
+        const commitments = await pool.query<{ total: string }>(
+          `SELECT COUNT(*)::text AS total FROM job_cards
+           WHERE organization_id = $1 AND assigned_to = $2
+             AND scheduled_at < $3 AND $4 < scheduled_ends_at
+             AND status NOT IN ('COMPLETED', 'CANCELLED')`,
+          [organizationId, staffA.id, '2026-08-08T11:00:00.000Z', PROPOSAL_AT],
+        );
+        expect(commitments.rows[0]!.total).toBe('1');
+        await expect(service.detail(manager, job.id)).resolves.toMatchObject({
+          status: 'COMPLETED',
+          customerId,
+        });
+      } finally {
+        barrier.release();
+      }
+    });
+  });
+
+  it('D4-C2: approval serializes against a MANUAL interval create for the same assignee', async () => {
+    await withFixture(async ({ service, pool, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        title: 'Ziyaret',
+        assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Görüşme tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Manuel seri hale getirme.',
+        },
+      });
+      const calendar = new CalendarService(
+        true,
+        new PostgresCalendarRepository(pool),
+        () => CLOCK,
+      );
+      const barrier = withUserLockHold(pool);
+      try {
+        const approval = service.approve(manager, job.id, {
+          clientActionId: randomUUID(),
+          expectedVersion: submitted.version,
+        });
+        await barrier.waitForFirstLock();
+        const manual = calendar.create(manager, {
+          clientActionId: randomUUID(),
+          assignedUserId: staffA.id,
+          title: 'Rakip manuel plan',
+          description: null,
+          startsAt: PROPOSAL_AT,
+          endsAt: '2026-08-08T11:00:00.000Z',
+          timezone: 'Europe/Istanbul',
+        });
+        await barrier.waitForContenderLock();
+        barrier.release();
+
+        const results = await Promise.allSettled([approval, manual]);
+        expect(results[0]).toMatchObject({ status: 'fulfilled' });
+        expect(results[1]).toMatchObject({
+          status: 'rejected',
+          reason: { code: 'CALENDAR_CONFLICT', statusCode: 409 },
+        });
+        const commitments = await pool.query<{ total: string }>(
+          `SELECT (
+             SELECT COUNT(*) FROM job_cards
+              WHERE organization_id = $1 AND assigned_to = $2
+                AND scheduled_at < $3 AND $4 < scheduled_ends_at
+                AND status NOT IN ('COMPLETED', 'CANCELLED')
+           ) + (
+             SELECT COUNT(*) FROM calendar_events
+              WHERE organization_id = $1 AND assigned_user_id = $2
+                AND starts_at < $3 AND $4 < ends_at AND status = 'ACTIVE'
+           ) AS total`,
+          [manager.organizationId, staffA.id, '2026-08-08T11:00:00.000Z', PROPOSAL_AT],
+        );
+        expect(commitments.rows[0]!.total).toBe('1');
+      } finally {
+        barrier.release();
+      }
     });
   });
 

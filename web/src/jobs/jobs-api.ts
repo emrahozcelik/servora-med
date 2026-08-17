@@ -151,7 +151,7 @@ export type AvailableSlotsInput = {
   customerId: string;
   assignedTo: string;
   scheduledAt: string;
-  scheduledEndsAt: string;
+  scheduledEndsAt?: string;
   jobCardId?: string | null;
 };
 export type AvailableSlot = { startsAt: string; endsAt: string };
@@ -191,14 +191,14 @@ export type FollowUpCreateInput = FollowUpCreateCommon & (
 );
 export type JobCardCreateInput =
   | { clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
-    assignedTo: string; scheduledAt: string; scheduledEndsAt: string;
+    assignedTo: string; scheduledAt: string; scheduledEndsAt?: string;
     description?: string | null; contactId?: string | null;
     priority?: JobCardPriority; dueDate?: string | null; overrideReason?: string | null }
   | { clientActionId: string; type: 'GENERAL_TASK'; title: string; assignedTo: string;
     description?: string | null; customerId?: string | null; contactId?: string | null;
     priority?: JobCardPriority; dueDate?: string | null; scheduledAt?: string | null }
   | { clientActionId: string; type: 'SALES_MEETING'; title: string; customerId: string;
-    assignedTo: string; scheduledAt: string; scheduledEndsAt: string;
+    assignedTo: string; scheduledAt: string; scheduledEndsAt?: string;
     engagementKind: JobCardEngagementKind;
     dueDate?: string | null; description?: string | null;
     contactId?: string | null; priority?: JobCardPriority; overrideReason?: string | null };

@@ -11,25 +11,24 @@ const customers: ReferenceCustomer[] = [{ id: 'c1', name: 'ABC Klinik', customer
 describe('Product Delivery creation', () => {
   it('renders explicit accessible fields and 5 canonical purposes', () => {
     const html = renderToStaticMarkup(<DeliveryCreateView user={user} onCancel={() => {}} onCreated={() => {}} />);
-    for (const label of ['Müşteri', 'İlgili kişi', 'Ürün', 'Teslim amacı', 'Miktar', 'Planlanan teslim zamanı', 'Planlanan bitiş']) expect(html).toContain(`>${label}</label>`);
+    for (const label of ['Müşteri', 'İlgili kişi', 'Ürün', 'Teslim amacı', 'Miktar', 'Planlanan teslim zamanı']) expect(html).toContain(`>${label}</label>`);
     for (const purpose of ['Satış', 'Numune', 'Konsinye', 'İade', 'Diğer']) expect(html).toContain(`>${purpose}</option>`);
     expect(html).toContain('min="0.001"');
     expect(html).toContain('type="datetime-local"');
     expect(html).toContain('id="delivery-scheduled-at"');
-    expect(html).toContain('id="delivery-scheduled-ends-at"');
+    expect(html).not.toContain('id="delivery-scheduled-ends-at"');
   });
 
-  it('creates the JobCard with scheduledAt and scheduledEndsAt before adding a planned item with null deliveredAt', async () => {
+  it('creates the JobCard with only scheduledAt before adding a planned item with null deliveredAt', async () => {
     const createJob = vi.fn().mockResolvedValue({ id: 'job-1', version: 1 });
     const addItem = vi.fn().mockResolvedValue({ item: { id: 'item-1' }, jobCardVersion: 2 });
     await expect(createProductDelivery(user, {
       customerId: 'c1', customerName: 'ABC Klinik', productId: 'p1', deliveryPurpose: 'SAMPLE',
-      contactId: 'contact-1', assignedTo: 'other-staff', quantity: 2, scheduledAt: '2026-07-11T10:30', scheduledEndsAt: '2026-07-11T11:30', deliveryNote: 'Doktora bırakıldı',
+      contactId: 'contact-1', assignedTo: 'other-staff', quantity: 2, scheduledAt: '2026-07-11T10:30', deliveryNote: 'Doktora bırakıldı',
     }, { createJob, addItem, createActionId: () => 'action-id' })).resolves.toEqual({ jobCardId: 'job-1', version: 2 });
     expect(createJob).toHaveBeenCalledWith(expect.objectContaining({
       assignedTo: 'staff-1', contactId: 'contact-1', title: 'ABC Klinik ürün teslimi', clientActionId: 'action-id',
       scheduledAt: localDateTimeToIso('2026-07-11T10:30'),
-      scheduledEndsAt: localDateTimeToIso('2026-07-11T11:30'),
     }));
     expect(addItem).toHaveBeenCalledWith('job-1', expect.objectContaining({
       expectedVersion: 1, productId: 'p1', deliveryPurpose: 'SAMPLE', quantity: 2, deliveredAt: null,
@@ -37,14 +36,14 @@ describe('Product Delivery creation', () => {
     expect(createJob.mock.invocationCallOrder[0]).toBeLessThan(addItem.mock.invocationCallOrder[0]!);
   });
 
-  it('rejects a delivery whose scheduledEndsAt is not strictly later than scheduledAt', async () => {
+  it('accepts a delivery with start-only scheduling and omits the legacy end field', async () => {
     const createJob = vi.fn().mockResolvedValue({ id: 'job-1', version: 1 });
     const addItem = vi.fn().mockResolvedValue({ item: {}, jobCardVersion: 2 });
     await expect(createProductDelivery(user, {
       customerId: 'c1', customerName: 'ABC Klinik', productId: 'p1', deliveryPurpose: 'SALE',
-      contactId: null, assignedTo: 'staff-1', quantity: 1, scheduledAt: '2026-07-11T10:30', scheduledEndsAt: '2026-07-11T10:30',
-    }, { createJob, addItem, createActionId: () => 'action-id' })).rejects.toThrow('Planlanan bitiş zamanı başlangıç zamanından sonra olmalıdır.');
-    expect(createJob).not.toHaveBeenCalled();
+      contactId: null, assignedTo: 'staff-1', quantity: 1, scheduledAt: '2026-07-11T10:30',
+    }, { createJob, addItem, createActionId: () => 'action-id' })).resolves.toEqual({ jobCardId: 'job-1', version: 2 });
+    expect(createJob).toHaveBeenCalledWith(expect.not.objectContaining({ scheduledEndsAt: expect.anything() }));
   });
 
   it('suggests only active primary Contact and active responsible Staff for management', () => {
@@ -67,7 +66,7 @@ describe('Product Delivery creation', () => {
     const createJob = vi.fn().mockResolvedValue({ id: 'job-1', version: 1 });
     const addItem = vi.fn().mockResolvedValue({ item: {}, jobCardVersion: 2 });
     await createProductDelivery(manager, { customerId: 'c1', customerName: 'ABC Klinik', contactId: null, assignedTo: 'staff-2',
-      productId: 'p1', deliveryPurpose: 'SALE', quantity: 1, scheduledAt: '2026-07-11T10:30', scheduledEndsAt: '2026-07-11T11:30' }, { createJob, addItem, createActionId: () => 'action-id' });
+      productId: 'p1', deliveryPurpose: 'SALE', quantity: 1, scheduledAt: '2026-07-11T10:30' }, { createJob, addItem, createActionId: () => 'action-id' });
     expect(createJob).toHaveBeenCalledWith(expect.objectContaining({ assignedTo: 'staff-2', contactId: null }));
   });
 });
