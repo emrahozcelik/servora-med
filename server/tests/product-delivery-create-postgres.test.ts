@@ -50,13 +50,14 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
          VALUES ($1, 'Batch Klinik', 'clinic', 'active') RETURNING id`,
         [organizationId],
       )).rows[0]!.id;
-      const productIds = await Promise.all(['Matrix Sistem', 'Cycles Kit', 'Greft Seti'].map(async (name) => (
-        await pool!.query<{ id: string }>(
+      const productIds = await Promise.all(['Matrix Sistem', 'Cycles Kit', 'Greft Seti'].map(async (name) => {
+        const result = await pool!.query<{ id: string }>(
           `INSERT INTO products (organization_id, name, unit, is_active)
            VALUES ($1, $2, 'adet', TRUE) RETURNING id`,
           [organizationId, name],
-        )
-      ).then((result) => result.rows[0]!.id)));
+        );
+        return result.rows[0]!.id;
+      }));
       const otherProductId = (await pool.query<{ id: string }>(
         `INSERT INTO products (organization_id, name, unit, is_active)
          VALUES ($1, 'Cross Org Product', 'adet', TRUE) RETURNING id`,
