@@ -40,18 +40,28 @@ export function isTerminalJobStatus(status: JobCardStatus): boolean {
 export function getAllowedLifecycleCommands(
   actor: JobCardActor,
   job: JobPermissionSubject,
+  requestTime = new Date(),
 ): LifecycleCommand[] {
   if (!actorCanReachJob(actor, job)
     || isTerminalJobStatus(job.status)) return [];
-  if (job.status === 'NEW') {
-    return actor.role === 'STAFF' ? ['ACCEPT_ASSIGNMENT', 'CANCEL'] : ['CANCEL'];
-  }
-  if (job.status === 'ACCEPTED') return ['START', 'CANCEL'];
-  if (job.status === 'IN_PROGRESS') return ['SUBMIT_FOR_APPROVAL', 'CANCEL'];
-  if (job.status === 'REVISION_REQUESTED') return ['RESUME', 'CANCEL'];
-  return actor.role === 'STAFF'
-    ? ['WITHDRAW_FROM_APPROVAL', 'CANCEL']
-    : ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'];
+  const timeEligible = (command: LifecycleCommand) => {
+    if (!['ACCEPT_ASSIGNMENT', 'START'].includes(command) || job.scheduledAt == null) {
+      return true;
+    }
+    return requestTime.getTime() >= Date.parse(job.scheduledAt);
+  };
+  const commands = (() => {
+    if (job.status === 'NEW') {
+      return actor.role === 'STAFF' ? ['ACCEPT_ASSIGNMENT', 'CANCEL'] : ['CANCEL'];
+    }
+    if (job.status === 'ACCEPTED') return ['START', 'CANCEL'];
+    if (job.status === 'IN_PROGRESS') return ['SUBMIT_FOR_APPROVAL', 'CANCEL'];
+    if (job.status === 'REVISION_REQUESTED') return ['RESUME', 'CANCEL'];
+    return actor.role === 'STAFF'
+      ? ['WITHDRAW_FROM_APPROVAL', 'CANCEL']
+      : ['APPROVE', 'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'CANCEL'];
+  })() as LifecycleCommand[];
+  return commands.filter(timeEligible);
 }
 
 export function getAllowedJobActions(
@@ -182,13 +192,14 @@ export function assertCanTransition(
   job: JobCard,
   command: LifecycleCommand,
   reason?: string,
+  requestTime = new Date(),
 ) {
   assertSameOrganization(actor, job.organizationId);
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
   if (job.status === 'COMPLETED' || job.status === 'CANCELLED') invalidTransition();
   if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION'].includes(command)) forbidden();
   if (command === 'ACCEPT_ASSIGNMENT' && actor.role !== 'STAFF') forbidden();
-  if (!getAllowedLifecycleCommands(actor, job).includes(command)) invalidTransition();
+  if (!getAllowedLifecycleCommands(actor, job, requestTime).includes(command)) invalidTransition();
   if (command === 'REQUEST_REVISION' && !reason?.trim()) {
     throw new AppError('REVISION_REASON_REQUIRED', 400, 'Düzeltme nedeni zorunludur.');
   }

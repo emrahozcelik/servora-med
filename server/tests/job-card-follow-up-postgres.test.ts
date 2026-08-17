@@ -405,6 +405,46 @@ describe.skipIf(!databaseUrl)('linked follow-up F1 PostgreSQL contract', () => {
     });
   });
 
+  it('D2-5/6/8: gates future acceptance at exact scheduledAt and preserves null schedules', async () => {
+    await withFixture(async (fixture) => {
+      const source = await fixture.createSource();
+      const future = await fixture.service.createFollowUp(
+        fixture.admin,
+        source,
+        input(fixture.staffA.id, { scheduledAt: '2026-08-08T10:00:00.000Z' }),
+      );
+
+      await expect(fixture.service.acceptAssignment(fixture.staffA, future.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: future.version,
+      })).rejects.toMatchObject(appError('INVALID_TRANSITION', 409));
+      await expect(fixture.service.detail(fixture.staffA, future.id)).resolves.toMatchObject({
+        status: 'NEW',
+        version: future.version,
+        workflowContext: { allowedCommands: ['CANCEL'] },
+      });
+
+      const atScheduledTime = new JobCardService(
+        new PostgresJobCardRepository(fixture.pool),
+        () => new Date('2026-08-08T10:00:00.000Z'),
+      );
+      await expect(atScheduledTime.acceptAssignment(fixture.staffA, future.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: future.version,
+      })).resolves.toMatchObject({ status: 'ACCEPTED', version: future.version + 1 });
+
+      const unscheduled = await fixture.service.createFollowUp(
+        fixture.admin,
+        source,
+        input(fixture.staffA.id),
+      );
+      await expect(fixture.service.acceptAssignment(fixture.staffA, unscheduled.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: unscheduled.version,
+      })).resolves.toMatchObject({ status: 'ACCEPTED', version: unscheduled.version + 1 });
+    });
+  });
+
   it('re-presents lifecycle replays with current follow-up authorization', async () => {
     await withFixture(async (fixture) => {
       const source = await fixture.createSource({ assignedTo: fixture.staffA.id });

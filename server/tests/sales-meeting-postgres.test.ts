@@ -357,12 +357,12 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
       let editCancelRace = await service.create(staff, {
         clientActionId: 'race-edit-cancel-create', type: 'SALES_MEETING',
         title: 'Düzenleme ve iptal yarışı', description: null, customerId, contactId,
-        assignedTo: staffId, priority: 'normal', dueDate: '2026-08-05',
+        assignedTo: staffId, priority: 'normal', dueDate: '2026-06-15',
         // Outside the 14-day visit-frequency window: the meeting and delivery
         // follow-ups (2026-07-22/23) plus the completed delivery already count
         // toward the frequency rule; this create exists for the edit/cancel
         // concurrency race, not for schedule-frequency coverage.
-        scheduledAt: '2026-08-05T10:30:00.000Z', scheduledEndsAt: '2026-08-05T11:30:00.000Z',
+        scheduledAt: '2026-06-15T10:30:00.000Z', scheduledEndsAt: '2026-06-15T11:30:00.000Z',
         engagementKind: 'SALES_MEETING',
       });
       editCancelRace = await service.start(staff, editCancelRace.id, {

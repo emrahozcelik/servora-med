@@ -29,6 +29,7 @@ type Fixture = {
   pool: Pool;
   service: JobCardService;
   calendar: CalendarService;
+  published: RealtimeEventRecord[];
   organizationId: string;
   otherOrganizationId: string;
   manager: JobCardActor;
@@ -181,6 +182,7 @@ async function withFixture(run: (fixture: Fixture) => Promise<void>) {
       pool,
       service,
       calendar,
+      published,
       organizationId,
       otherOrganizationId,
       manager,
@@ -247,8 +249,8 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       for (const [index, engagementKind] of [
         'TRAINING', 'PRODUCT_DEMO', 'SALES_MEETING', 'FOLLOW_UP', 'OTHER',
       ].entries() as IterableIterator<[number, JobCardEngagementKind]>) {
-        const scheduledAt = new Date('2026-08-01T10:00:00.000Z');
-        scheduledAt.setUTCDate(scheduledAt.getUTCDate() + index * 21);
+        const scheduledAt = new Date('2026-07-31T10:00:00.000Z');
+        scheduledAt.setUTCDate(scheduledAt.getUTCDate() - index);
         const job = await createInProgressJob({
           type: 'SALES_MEETING',
           engagementKind,
@@ -459,7 +461,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
 
   it('FUP-M9/M11/M13 + CSI-17: unified approval creates exactly one linked child and Calendar shows it', async () => {
     await withFixture(async ({
-      service, calendar, manager, staffA, createInProgressJob, customerId,
+      service, calendar, manager, staffA, createInProgressJob, customerId, pool, published,
     }) => {
       const job = await createInProgressJob({
         type: 'SALES_MEETING',
@@ -487,16 +489,30 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
 
       const child = await service.detail(manager, approved.followUpJobCardId);
       expect(child).toMatchObject({
-        status: 'NEW',
+        status: 'ACCEPTED',
         type: 'SALES_MEETING',
         customerId,
         scheduledAt: PROPOSAL_AT,
         engagementKind: 'FOLLOW_UP',
       });
+      expect(child.workflowContext.lifecycle).toMatchObject({
+        acceptedAt: CLOCK.toISOString(),
+        acceptedBy: { id: staffA.id, name: 'Staff A' },
+      });
       expect(child.followUpContext).toMatchObject({
         sourceJobCardId: job.id,
         followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
       });
+      expect(published.find((event) => event.entityId === child.id)).toMatchObject({
+        type: 'job.created',
+        entityType: 'job-card',
+      });
+      expect((await pool.query(
+        `SELECT kind, recipient_user_id FROM in_app_notifications WHERE entity_id = $1`,
+        [child.id],
+      )).rows).toEqual([
+        expect.objectContaining({ kind: 'job.assigned', recipient_user_id: staffA.id }),
+      ]);
 
       const calendarItems = await calendar.list(manager, {
         from: '2026-08-08T00:00:00.000Z',
@@ -507,7 +523,7 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
 
       const activity = await service.listActivity(manager, job.id, { limit: 50, offset: 0 });
       const approveActivity = activity.items.find((item) => item.eventType === 'JOB_APPROVED');
-      expect(approveActivity).toBeDefined();
+      expect(approveActivity).toMatchObject({ actor: { id: manager.id, name: 'Manager' } });
     });
   });
 
@@ -535,13 +551,65 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         clientActionId: approveId,
         expectedVersion: submitted.version,
       }) as JobCard & { followUpJobCardId: string };
+      const childBeforeReplay = await service.detail(manager, first.followUpJobCardId);
       const second = await service.approve(manager, job.id, {
         clientActionId: approveId,
         expectedVersion: submitted.version,
       }) as JobCard & { followUpJobCardId: string };
+      const childAfterReplay = await service.detail(manager, second.followUpJobCardId);
       expect(second).toEqual(first);
+      expect(childAfterReplay.workflowContext.lifecycle).toEqual(
+        childBeforeReplay.workflowContext.lifecycle,
+      );
+      expect(childAfterReplay).toMatchObject({ status: 'ACCEPTED' });
       const children = await service.listFollowUps(manager, job.id, { limit: 10, offset: 0 });
       expect(children.total).toBe(1);
+    });
+  });
+
+  it('D2-9/10: auto-accepted future children cannot start early but start at exact scheduledAt', async () => {
+    await withFixture(async ({ service, pool, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING',
+        engagementKind: 'CUSTOMER_VISIT',
+        title: 'Ziyaret',
+        assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Görüşme tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+        },
+      });
+      const approved = await service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+      }) as JobCard & { followUpJobCardId: string };
+      const child = await service.detail(staffA, approved.followUpJobCardId);
+
+      await expect(service.start(staffA, child.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: child.version,
+      })).rejects.toMatchObject({ code: 'INVALID_TRANSITION', statusCode: 409 });
+      await expect(service.detail(staffA, child.id)).resolves.toMatchObject({
+        status: 'ACCEPTED',
+        version: child.version,
+        workflowContext: { allowedCommands: ['CANCEL'] },
+      });
+
+      const atScheduledTime = new JobCardService(
+        new PostgresJobCardRepository(pool),
+        () => new Date(PROPOSAL_AT),
+      );
+      await expect(atScheduledTime.start(staffA, child.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: child.version,
+      })).resolves.toMatchObject({ status: 'IN_PROGRESS', version: child.version + 1 });
     });
   });
 
@@ -628,7 +696,11 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
         },
       }) as JobCard & { followUpJobCardId: string };
       const child = await service.detail(manager, approved.followUpJobCardId);
-      expect(child.assignedTo).toBe(staffB.id);
+      expect(child).toMatchObject({ assignedTo: staffB.id, status: 'NEW' });
+      expect(child.workflowContext.lifecycle).toMatchObject({
+        acceptedAt: null,
+        acceptedBy: null,
+      });
     });
   });
 

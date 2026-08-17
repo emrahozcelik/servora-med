@@ -401,6 +401,27 @@ describe('JobCard lifecycle commands', () => {
     });
   });
 
+  it('projects ACCEPT and START from the server evaluation instant', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.scheduledAt = '2026-07-13T12:00:00.001Z';
+
+    repo.job.status = 'NEW';
+    expect((await new JobCardService(repo, () => time).detail(staff, 'job-1'))
+      .workflowContext.allowedCommands).not.toContain('ACCEPT_ASSIGNMENT');
+
+    repo.job.status = 'ACCEPTED';
+    expect((await new JobCardService(repo, () => time).detail(staff, 'job-1'))
+      .workflowContext.allowedCommands).not.toContain('START');
+
+    const atScheduledTime = new Date('2026-07-13T12:00:00.001Z');
+    repo.job.status = 'NEW';
+    expect((await new JobCardService(repo, () => atScheduledTime).detail(staff, 'job-1'))
+      .workflowContext.allowedCommands).toContain('ACCEPT_ASSIGNMENT');
+    repo.job.status = 'ACCEPTED';
+    expect((await new JobCardService(repo, () => atScheduledTime).detail(staff, 'job-1'))
+      .workflowContext.allowedCommands).toContain('START');
+  });
+
   it('returns null readiness outside execution, correction, and review', async () => {
     const repo = new LifecycleRepository();
     for (const status of ['NEW', 'ACCEPTED', 'COMPLETED', 'CANCELLED'] as const) {
@@ -648,6 +669,74 @@ describe('JobCard lifecycle commands', () => {
     expect(repo.events[0]).toMatchObject({
       event: 'JOB_APPROVAL_WITHDRAWN', actorId: actor.id,
     });
+  });
+
+  it('rejects ACCEPT_ASSIGNMENT before the server scheduled instant without mutation', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'NEW';
+    repo.job.version = 1;
+    repo.job.scheduledAt = '2026-07-13T12:00:00.001Z';
+
+    await expect(new JobCardService(repo, () => time).acceptAssignment(
+      staff,
+      'job-1',
+      input('accept-too-early', 1),
+    )).rejects.toMatchObject({ code: 'INVALID_TRANSITION', statusCode: 409 });
+    expect(repo.job).toMatchObject({ status: 'NEW', version: 1 });
+    expect(repo.transitions).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
+  });
+
+  it.each([
+    ['at', time.toISOString()],
+    ['after', '2026-07-13T11:59:59.999Z'],
+    ['without a schedule', null],
+  ] as const)('allows ACCEPT_ASSIGNMENT %s its scheduled instant', async (_boundary, scheduledAt) => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'NEW';
+    repo.job.version = 1;
+    repo.job.scheduledAt = scheduledAt;
+
+    await expect(new JobCardService(repo, () => time).acceptAssignment(
+      staff,
+      'job-1',
+      input(`accept-${_boundary}`, 1),
+    )).resolves.toMatchObject({ status: 'ACCEPTED', version: 2 });
+    expect(repo.transitions).toHaveLength(1);
+  });
+
+  it('rejects START before scheduledAt for any otherwise eligible ACCEPTED job', async () => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'ACCEPTED';
+    repo.job.version = 2;
+    repo.job.scheduledAt = '2026-07-13T12:00:00.001Z';
+
+    await expect(new JobCardService(repo, () => time).start(
+      staff,
+      'job-1',
+      input('start-too-early', 2),
+    )).rejects.toMatchObject({ code: 'INVALID_TRANSITION', statusCode: 409 });
+    expect(repo.job).toMatchObject({ status: 'ACCEPTED', version: 2 });
+    expect(repo.transitions).toHaveLength(0);
+    expect(repo.events).toHaveLength(0);
+  });
+
+  it.each([
+    ['at', time.toISOString()],
+    ['after', '2026-07-13T11:59:59.999Z'],
+    ['without a schedule', null],
+  ] as const)('allows START %s its scheduled instant', async (_boundary, scheduledAt) => {
+    const repo = new LifecycleRepository();
+    repo.job.status = 'ACCEPTED';
+    repo.job.version = 2;
+    repo.job.scheduledAt = scheduledAt;
+
+    await expect(new JobCardService(repo, () => time).start(
+      staff,
+      'job-1',
+      input(`start-${_boundary}`, 2),
+    )).resolves.toMatchObject({ status: 'IN_PROGRESS', version: 3 });
+    expect(repo.transitions).toHaveLength(1);
   });
 
   it('rejects stale and non-waiting withdrawals without mutation', async () => {

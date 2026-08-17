@@ -129,6 +129,28 @@ describe('JobCard policy', () => {
     expect(getAllowedLifecycleCommands(staff, accepted)).toEqual(['START', 'CANCEL']);
   });
 
+  it('hides time-gated acceptance and start commands before scheduledAt', () => {
+    const requestTime = new Date('2026-07-20T09:59:59.999Z');
+    const scheduledAt = '2026-07-20T10:00:00.000Z';
+    const futureNew = {
+      ...job,
+      status: 'NEW' as const,
+      scheduledAt,
+    };
+    const futureAccepted = { ...futureNew, status: 'ACCEPTED' as const };
+
+    expect(getAllowedLifecycleCommands(staff, futureNew as never, requestTime as never))
+      .not.toContain('ACCEPT_ASSIGNMENT');
+    expect(getAllowedLifecycleCommands(staff, futureAccepted as never, requestTime as never))
+      .not.toContain('START');
+
+    const atScheduledTime = new Date(scheduledAt);
+    expect(getAllowedLifecycleCommands(staff, futureNew as never, atScheduledTime))
+      .toContain('ACCEPT_ASSIGNMENT');
+    expect(getAllowedLifecycleCommands(staff, futureAccepted as never, atScheduledTime))
+      .toContain('START');
+  });
+
   it('returns neutral actions without treating waiting edits as direct mutation', () => {
     const meeting = { ...job, type: 'SALES_MEETING' as const };
     expect(getAllowedJobActions(staff, { ...meeting, status: 'IN_PROGRESS' })).toEqual([

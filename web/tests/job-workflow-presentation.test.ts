@@ -171,6 +171,50 @@ describe('deriveJobWorkflowPresentation', () => {
     ]);
   });
 
+  it('uses server allowedCommands as the only acceptance/start visibility authority', () => {
+    const scheduledInThePast = '2020-01-01T00:00:00.000Z';
+    const serverHidesAcceptance = derive(jobWith({
+      status: 'NEW',
+      scheduledAt: scheduledInThePast,
+      workflowContext: contextWith({
+        allowedCommands: ['CANCEL'],
+        submissionReadiness: null,
+      }),
+    }));
+    expect(serverHidesAcceptance.primaryTransition).toBeNull();
+    expect(serverHidesAcceptance.secondaryTransitions.map(({ command }) => command))
+      .toEqual(['CANCEL']);
+
+    const serverAllowsAcceptance = derive(jobWith({
+      status: 'NEW',
+      scheduledAt: scheduledInThePast,
+      workflowContext: contextWith({
+        allowedCommands: ['ACCEPT_ASSIGNMENT', 'CANCEL'],
+        submissionReadiness: null,
+      }),
+    }));
+    expect(serverAllowsAcceptance.primaryTransition?.command).toBe('ACCEPT_ASSIGNMENT');
+    expect(serverAllowsAcceptance.secondaryTransitions.map(({ command }) => command))
+      .toEqual(['CANCEL']);
+
+    const serverHidesStart = derive(jobWith({
+      status: 'ACCEPTED',
+      scheduledAt: scheduledInThePast,
+      workflowContext: contextWith({
+        allowedCommands: ['CANCEL'],
+        lifecycle: {
+          acceptedAt: '2020-01-01T00:00:00.000Z',
+          acceptedBy: { id: staff.id, name: staff.name },
+          startedAt: null,
+        },
+        submissionReadiness: null,
+      }),
+    }));
+    expect(serverHidesStart.primaryTransition).toBeNull();
+    expect(serverHidesStart.secondaryTransitions.map(({ command }) => command))
+      .toEqual(['CANCEL']);
+  });
+
   it('shows a revision loop until the work is submitted again', () => {
     const lifecycle = {
       ...workflowContext.lifecycle,
