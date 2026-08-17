@@ -141,7 +141,7 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
       await expect(service.createProductDelivery({
         id: otherOrgStaffId, organizationId: otherOrganizationId, role: 'STAFF',
       }, { ...input, clientActionId: 'other-org-actor', customerId, assignedTo: staffId }))
-        .rejects.toMatchObject({ code: 'ASSIGNEE_NOT_FOUND', statusCode: 404 });
+        .rejects.toMatchObject({ code: 'FORBIDDEN', statusCode: 403 });
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
