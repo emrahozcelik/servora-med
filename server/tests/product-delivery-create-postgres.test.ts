@@ -50,6 +50,11 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
          VALUES ($1, 'Batch Klinik', 'clinic', 'active') RETURNING id`,
         [organizationId],
       )).rows[0]!.id;
+      const invalidBatchCustomerId = (await pool.query<{ id: string }>(
+        `INSERT INTO customers (organization_id, name, customer_type, status)
+         VALUES ($1, 'Invalid Batch Klinik', 'clinic', 'active') RETURNING id`,
+        [organizationId],
+      )).rows[0]!.id;
       const productIds = await Promise.all(['Matrix Sistem', 'Cycles Kit', 'Greft Seti'].map(async (name) => {
         const result = await pool!.query<{ id: string }>(
           `INSERT INTO products (organization_id, name, unit, is_active)
@@ -118,6 +123,7 @@ describe.skipIf(!databaseUrl)('Product Delivery atomic create PostgreSQL contrac
       await expect(service.createProductDelivery(manager, {
         ...input,
         clientActionId: 'postgres-invalid-batch',
+        customerId: invalidBatchCustomerId,
         scheduledAt: '2026-08-18T11:00:00.000Z',
         scheduledEndsAt: '2026-08-18T11:30:00.000Z',
         items: [{ productId: productIds[0]!, quantity: 1 }, { productId: otherProductId, quantity: 1 }],
