@@ -2568,6 +2568,49 @@ describe('Staff JobCard detail', () => {
     expect(html).not.toContain('Henüz kaydedilmedi');
   });
 
+  it('prefills a null deliveredAt with the current local value without changing existing values', () => {
+    vi.useFakeTimers();
+    const now = new Date('2026-08-17T15:06:30.000Z');
+    vi.setSystemTime(now);
+    try {
+      const inProgress: JobCard = {
+        ...job,
+        status: 'IN_PROGRESS',
+        version: 3,
+        workflowContext: staffContext('IN_PROGRESS', {
+          startedAt: '2026-08-17T14:00:00.000Z',
+        }, {
+          allowedActions: ['EDIT_JOB_FIELDS', 'EDIT_DELIVERY_ACTUAL_TIME', 'VIEW_NOTES', 'ADD_NOTE'],
+          submissionReadiness: null,
+        }),
+      };
+      const plannedItem = { ...item, deliveredAt: null };
+      const existingItem = { ...item, deliveredAt: '2026-08-17T11:04:00.000Z' };
+      const localParts = (value: Date) => `${value.getFullYear()}-${String(value.getMonth() + 1).padStart(2, '0')}-${String(value.getDate()).padStart(2, '0')}`
+        + `T${String(value.getHours()).padStart(2, '0')}:${String(value.getMinutes()).padStart(2, '0')}`;
+      const expectedNow = localParts(now);
+      const expectedExisting = localParts(new Date(existingItem.deliveredAt));
+      const html = renderToStaticMarkup(<JobDetailPanel
+        job={inProgress}
+        items={[plannedItem, existingItem]}
+        user={staffUser}
+        pending={false}
+        message=""
+        onBack={() => {}}
+        onCommand={() => {}}
+        onSaveDeliveredAt={async () => {}}
+      />);
+
+      expect(html).toContain(`id="delivery-actual-at-${plannedItem.id}"`);
+      expect(html).toContain(`value="${expectedNow}"`);
+      expect(html).toContain(`id="delivery-actual-at-${existingItem.id}"`);
+      expect(html).toContain(`value="${expectedExisting}"`);
+      expect(html).not.toContain('value=""');
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
   it('hides actual delivery editor without EDIT_DELIVERY_ACTUAL_TIME even with EDIT_JOB_FIELDS', () => {
     const accepted: JobCard = {
       ...job,

@@ -450,6 +450,28 @@ describe('JobCardService create and reads', () => {
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });
 
+  it('creates a staff self-assigned Sales Meeting as ACCEPTED without an acceptance command', async () => {
+    const repository = new CrudMemoryRepository();
+    const result = await serviceOf(repository).create(staff, {
+      clientActionId: 'meeting-self-create', type: 'SALES_MEETING',
+      title: 'Klinik görüşmesi', description: null, customerId: 'customer-1', contactId: 'contact-1',
+      assignedTo: 'staff-1', priority: 'normal', dueDate: null,
+      scheduledAt: SCHEDULED_AT, scheduledEndsAt: '2026-07-20T11:30:00.000Z',
+      engagementKind: 'SALES_MEETING',
+    });
+
+    expect(result).toMatchObject({
+      type: 'SALES_MEETING', assignedTo: 'staff-1', status: 'ACCEPTED',
+      workflowContext: {
+        lifecycle: {
+          acceptedAt: now.toISOString(),
+          acceptedBy: { id: 'staff-1', name: 'Staff One' },
+        },
+      },
+    });
+    expect(repository.activities).toEqual(['JOB_CREATED']);
+  });
+
   it('rejects a direct service Product Delivery create with a non-null Contact', async () => {
     const repository = new CrudMemoryRepository();
     await expect(serviceOf(repository).create(staff, {

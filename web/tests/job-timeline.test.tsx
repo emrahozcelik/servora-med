@@ -121,6 +121,19 @@ describe('safe JobCard timeline', () => {
     expect(host.textContent).not.toContain('meetingSummary');
   });
 
+  it('presents schedule mutation field names without raw audit values', async () => {
+    const activity: JobCardActivity = { id: 'a4', jobCardId: 'job-1',
+      eventType: 'JOB_FIELDS_UPDATED', actor: { id: 'staff-1', name: 'Ayşe' },
+      details: { kind: 'FIELDS_UPDATED', changedFields: ['scheduledAt', 'scheduledEndsAt'] },
+      createdAt: '2026-07-14T08:00:00.000Z' };
+    await act(async () => root.render(<JobTimeline jobId="job-1"
+      load={vi.fn().mockResolvedValue(page([activity]))} />));
+    await act(async () => { await Promise.resolve(); });
+    expect(host.textContent).toContain('İş bilgileri güncellendi');
+    expect(host.textContent).toContain('Planlanan zaman, Planlanan bitiş');
+    expect(host.textContent).not.toMatch(/scheduledAt|scheduledEndsAt|oldValue|metadata/);
+  });
+
   it('keeps timeline failures local and retryable', async () => {
     const load = vi.fn().mockRejectedValueOnce(new ApiError(503, 'TEMPORARY', 'Geçmiş yüklenemedi.', true)).mockResolvedValueOnce(page([]));
     await act(async () => root.render(<JobTimeline jobId="job-1" load={load} />));

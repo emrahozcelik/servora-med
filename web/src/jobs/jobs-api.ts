@@ -269,7 +269,7 @@ export type JobCardActivityDetails =
           }
         | { outcome: 'UNAVAILABLE'; reason: 'PERMISSION_DENIED' | 'POSITION_UNAVAILABLE' | 'TIMEOUT' | 'UNSUPPORTED' | 'UNKNOWN' };
     }
-  | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate' | 'engagementKind'> }
+  | { kind: 'FIELDS_UPDATED'; changedFields: Array<'title' | 'description' | 'customer' | 'contact' | 'assignee' | 'priority' | 'dueDate' | 'scheduledAt' | 'scheduledEndsAt' | 'engagementKind'> }
   | { kind: 'DELIVERY_ITEM'; operation: 'ADDED' | 'UPDATED' | 'REMOVED'; itemId: string; purpose: DeliveryPurpose | null; quantity: number | null }
   | { kind: 'NOTE'; noteId: string }
   | { kind: 'MEETING_DETAILS'; changedFields: MeetingDetailField[] }
@@ -778,7 +778,7 @@ function parseDetails(value: unknown): JobCardActivityDetails {
     };
   }
   if (kind === 'FIELDS_UPDATED') return { kind, changedFields: array(v.changedFields, 'changedFields').map((field) =>
-    oneOf(field, 'changedFields', ['title', 'description', 'customer', 'contact', 'assignee', 'priority', 'dueDate', 'engagementKind'] as const)) };
+    oneOf(field, 'changedFields', ['title', 'description', 'customer', 'contact', 'assignee', 'priority', 'dueDate', 'scheduledAt', 'scheduledEndsAt', 'engagementKind'] as const)) };
   if (kind === 'DELIVERY_ITEM') return { kind,
     operation: oneOf(v.operation, 'operation', ['ADDED', 'UPDATED', 'REMOVED'] as const),
     itemId: string(v.itemId, 'itemId'),

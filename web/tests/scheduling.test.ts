@@ -2,6 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   cardScheduleFact,
+  defaultDeliveredAtLocalValue,
   defaultScheduledLocalValue,
   localDateTimeToIso,
   shiftInterval,
@@ -49,6 +50,13 @@ describe('defaultScheduledLocalValue', () => {
   it('rounds up leftover seconds before the 30-minute ceiling', () => {
     expect(defaultScheduledLocalValue(localDate('2026-07-17T13:00:01')))
       .toBe('2026-07-17T14:30');
+  });
+});
+
+describe('defaultDeliveredAtLocalValue', () => {
+  it('formats the current local minute without rounding or persisting anything', () => {
+    expect(defaultDeliveredAtLocalValue(localDate('2026-08-17T15:06:30')))
+      .toBe('2026-08-17T15:06');
   });
 });
 
