@@ -203,6 +203,14 @@ export type JobCardCreateInput =
     engagementKind: JobCardEngagementKind;
     dueDate?: string | null; description?: string | null;
     contactId?: string | null; priority?: JobCardPriority; overrideReason?: string | null };
+export type ProductDeliveryCreateInput = {
+  clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string; customerId: string;
+  assignedTo: string; scheduledAt: string; scheduledEndsAt?: string;
+  description?: string | null; priority?: JobCardPriority; dueDate?: string | null;
+  overrideReason?: string | null; deliveryPurpose: DeliveryPurpose;
+  deliveryNote?: string | null;
+  items: Array<{ productId: string; quantity: number }>;
+};
 export type PersistedJobCardListItem = {
   id: string; type: JobCardType; status: JobCardStatus; version: number; title: string;
   priority: JobCardPriority; dueDate: string | null; scheduledAt: string | null;
@@ -821,6 +829,10 @@ function parseDeliveryMutation(value: unknown) {
   const v = object(value);
   return { item: parseDelivery(v.item), jobCardVersion: positiveCount(v.jobCardVersion, 'jobCardVersion') };
 }
+function parseProductDeliveryCreate(value: unknown) {
+  const v = exactObject(value, 'productDeliveryCreate', ['jobCardId', 'version']);
+  return { jobCardId: string(v.jobCardId, 'jobCardId'), version: positiveCount(v.version, 'version') };
+}
 export function parseMeetingDetails(value: unknown): MeetingDetails {
   const v = exactObject(value, 'meetingDetails', [
     'jobCardId', 'meetingAt', 'outcome', 'meetingSummary', 'nextFollowUpAt',
@@ -852,6 +864,8 @@ export const listJobCardBoard = getJobCardBoard;
 export const getJobCard = async (id: string) => parseJobCard(await request(jobPath(id)));
 export const createJobCard = async (input: JobCardCreateInput) =>
   parseJobCard(await request('/api/job-cards', json('POST', input)));
+export const createProductDelivery = async (input: ProductDeliveryCreateInput) =>
+  parseProductDeliveryCreate(await request('/api/job-cards/product-deliveries', json('POST', input)));
 export const createFollowUp = async (sourceId: string, input: FollowUpCreateInput) =>
   parseJobCard(await request(`${jobPath(sourceId)}/follow-ups`, json('POST', input)));
 export const listFollowUps = async (

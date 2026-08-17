@@ -10,6 +10,7 @@ export const jobCardRoutes: FastifyPluginAsync<JobCardRoutesOptions> = async (ap
   const secured = { preHandler: options.authenticate };
   app.get('/', secured, h.list);
   app.post('/', secured, h.create);
+  app.post('/product-deliveries', secured, h.createProductDelivery);
   app.post('/customer-schedule/evaluate', secured, h.previewCustomerSchedule);
   app.post('/available-slots', secured, h.availableSlots);
   app.get('/board', secured, h.board);

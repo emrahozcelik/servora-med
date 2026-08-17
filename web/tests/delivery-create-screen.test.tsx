@@ -13,8 +13,7 @@ import type { StaffProfile } from '../src/services/people-api';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const api = vi.hoisted(() => ({
-  createJobCard: vi.fn(),
-  addDeliveryItem: vi.fn(),
+  createProductDelivery: vi.fn(),
   listReferenceCustomers: vi.fn(),
 }));
 const crm = vi.hoisted(() => ({ getCustomer: vi.fn() }));
@@ -55,6 +54,7 @@ const customers: ReferenceCustomer[] = [
 ];
 const product: Product = { id: 'product-1', organizationId: 'org-1', name: 'İmplant', sku: 'I1', brand: null, category: null,
   model: null, unit: 'adet', referencePrice: null, isActive: true, version: 1, createdAt: '', updatedAt: '' };
+const secondProduct: Product = { ...product, id: 'product-2', name: 'Cerrahi Vida', sku: 'V2' };
 
 function profile(id: string, name: string): StaffProfile {
   return { id: `profile-${id}`, user: { id, organizationId: 'org-1', name, email: `${id}@example.com`, role: 'STAFF', mustChangePassword: false,
@@ -68,6 +68,14 @@ function changeInput(input: HTMLInputElement, value: string) {
   Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
   input.dispatchEvent(new Event('input', { bubbles: true }));
   input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+async function selectProduct(container: HTMLElement, productId = 'product-1', query = 'implant') {
+  const search = container.querySelector('#delivery-product-search') as HTMLInputElement;
+  await act(async () => changeInput(search, query));
+  await act(async () => (Array.from(container.querySelectorAll('button'))
+    .find((button) => button.textContent === 'Ürün ara') as HTMLButtonElement).click());
+  await settle();
+  await act(async () => (container.querySelector(`[data-product-id="${productId}"]`) as HTMLButtonElement).click());
 }
 function view(user: CurrentUser, initialCustomerId?: string) {
   return <MemoryRouter><DeliveryCreateView user={user} initialCustomerId={initialCustomerId}
@@ -83,8 +91,8 @@ describe('Delivery create CRM defaults', () => {
     scheduling.defaultScheduledLocalValue.mockReturnValue('2026-07-17T14:30');
     api.listReferenceCustomers.mockResolvedValue(customers);
     people.listStaff.mockResolvedValue([profile('staff-1', 'Ayşe'), profile('staff-2', 'Bora')]);
-    productsApi.listProducts.mockResolvedValue({ items: [product], total: 1, limit: 25, offset: 0 });
-    api.createJobCard.mockResolvedValue({ id: 'job-1', version: 1 }); api.addDeliveryItem.mockResolvedValue({ jobCardVersion: 2 });
+    productsApi.listProducts.mockResolvedValue({ items: [product, secondProduct], total: 2, limit: 8, offset: 0 });
+    api.createProductDelivery.mockResolvedValue({ jobCardId: 'job-1', version: 2 });
     preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
     container = document.createElement('div'); document.body.append(container); root = createRoot(container);
   });
@@ -93,7 +101,7 @@ describe('Delivery create CRM defaults', () => {
   it('loads active Customers, suggests responsible Staff, and submits without a Contact', async () => {
     await act(async () => root.render(view(manager))); await settle();
     expect(api.listReferenceCustomers).toHaveBeenCalled();
-    expect(productsApi.listProducts).toHaveBeenCalledWith({ status: 'active', q: '', limit: 25, offset: 0 });
+    expect(productsApi.listProducts).not.toHaveBeenCalled();
     const customer = container.querySelector('#delivery-customer') as HTMLSelectElement;
     expect(Array.from(customer.options).map((option) => option.text)).not.toContain('Pasif Klinik');
     await act(async () => change(customer, 'customer-a')); await settle();
@@ -101,17 +109,16 @@ describe('Delivery create CRM defaults', () => {
     expect(crm.getCustomer).not.toHaveBeenCalled();
     const assignee = container.querySelector('#delivery-assignee') as HTMLSelectElement; expect(assignee.value).toBe('staff-1');
     await act(async () => change(assignee, 'staff-2'));
-    await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
-    (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '2';
+    await selectProduct(container);
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
-    expect(api.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+    expect(productsApi.listProducts).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 8, offset: 0 });
+    expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({
       customerId: 'customer-a', assignedTo: 'staff-2',
       scheduledAt: localDateTimeToIso('2026-07-17T14:30'),
+      items: [{ productId: 'product-1', quantity: 2 }],
     }));
-    expect(api.createJobCard.mock.calls[0]?.[0]).not.toHaveProperty('contactId');
-    expect(api.addDeliveryItem).toHaveBeenCalledWith('job-1', expect.objectContaining({
-      productId: 'product-1', deliveredAt: null,
-    }));
+    expect(api.createProductDelivery.mock.calls[0]?.[0]).not.toHaveProperty('contactId');
   });
 
   it('offers and applies a joint slot for the delivery interval', async () => {
@@ -160,16 +167,15 @@ describe('Delivery create CRM defaults', () => {
     await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
-    await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
-    (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '1';
+    await selectProduct(container);
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-07-20T11:00'));
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
-    expect(api.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({
       type: 'PRODUCT_DELIVERY',
       scheduledAt: localDateTimeToIso('2026-07-20T11:00'),
+      items: [{ productId: 'product-1', quantity: 1 }],
     }));
-    expect(api.addDeliveryItem).toHaveBeenCalledWith('job-1', expect.objectContaining({ deliveredAt: null }));
   });
 
   it('switches the responsible Staff from the reference projection without loading Contacts', async () => {
@@ -195,28 +201,56 @@ describe('Delivery create CRM defaults', () => {
     await act(async () => root.render(view(staffUser))); await settle();
     expect(container.querySelector('#delivery-assignee')).toBeNull();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a')); await settle();
-    await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
-    (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '1';
+    await selectProduct(container);
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit()); await settle();
-    expect(api.createJobCard).toHaveBeenCalledWith(expect.objectContaining({ assignedTo: 'staff-1' }));
+    expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({ assignedTo: 'staff-1' }));
+  });
+
+  it('keeps quantities independent for multiple selected products and sends one batch', async () => {
+    await act(async () => root.render(view(staffUser)));
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await settle();
+    await selectProduct(container, 'product-1', 'implant');
+    await selectProduct(container, 'product-2', 'vida');
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-2') as HTMLInputElement, '0.5'));
+    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
+    await settle();
+
+    expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({
+      items: [{ productId: 'product-1', quantity: 2 }, { productId: 'product-2', quantity: 0.5 }],
+    }));
+  });
+
+  it('blocks a non-positive selected quantity before the atomic request', async () => {
+    await act(async () => root.render(view(staffUser)));
+    await settle();
+    await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
+    await settle();
+    await selectProduct(container);
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '0'));
+    await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
+    await settle();
+
+    expect(api.createProductDelivery).not.toHaveBeenCalled();
   });
 
   it('preserves the planned time after a submit error and retry', async () => {
-    api.createJobCard.mockRejectedValueOnce(new Error('Sunucu hatası'));
+    api.createProductDelivery.mockRejectedValueOnce(new Error('Sunucu hatası'));
     await act(async () => root.render(view(staffUser)));
     await settle();
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-09-01T16:00'));
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
-    await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
-    (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '1';
+    await selectProduct(container);
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
     expect(container.querySelector('.form-error')?.textContent).toContain('Sunucu hatası');
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-09-01T16:00');
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
-    expect(api.createJobCard).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(api.createProductDelivery).toHaveBeenLastCalledWith(expect.objectContaining({
       scheduledAt: localDateTimeToIso('2026-09-01T16:00'),
     }));
     expect((container.querySelector('#delivery-scheduled-at') as HTMLInputElement).value).toBe('2026-09-01T16:00');
@@ -258,8 +292,8 @@ describe('Delivery create CRM defaults', () => {
     await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
-    await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
-    (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '2';
+    await selectProduct(container);
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-08-01T12:30'));
     const cta = container.querySelector('button.compact-button') as HTMLButtonElement;
     expect(cta).toBeTruthy();
@@ -268,13 +302,13 @@ describe('Delivery create CRM defaults', () => {
     expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
-    expect(api.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({
       scheduledAt: localDateTimeToIso('2026-08-10T09:30'),
     }));
   });
 
   it('authoritative CUSTOMER_SCHEDULE_CONFLICT alternative moves the whole delivery interval', async () => {
-    api.createJobCard.mockRejectedValueOnce(new ApiError(
+    api.createProductDelivery.mockRejectedValueOnce(new ApiError(
       409, 'CUSTOMER_SCHEDULE_CONFLICT', 'Aynı müşteriye aynı gün başka bir saha işi planlanmış.',
       false, { conflicts: [], suggestedAlternativeAt: '2026-08-10T09:30:00.000Z' },
     ));
@@ -282,8 +316,8 @@ describe('Delivery create CRM defaults', () => {
     await settle();
     await act(async () => change(container.querySelector('#delivery-customer') as HTMLSelectElement, 'customer-a'));
     await settle();
-    await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
-    (container.querySelector('#delivery-quantity') as HTMLInputElement).value = '2';
+    await selectProduct(container);
+    await act(async () => changeInput(container.querySelector('#delivery-quantity-product-1') as HTMLInputElement, '2'));
     await act(async () => changeInput(container.querySelector('#delivery-scheduled-at') as HTMLInputElement, '2026-08-01T12:30'));
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
@@ -295,7 +329,7 @@ describe('Delivery create CRM defaults', () => {
     expect(container.querySelector('#delivery-scheduled-ends-at')).toBeNull();
     await act(async () => (container.querySelector('.delivery-form') as HTMLFormElement).requestSubmit());
     await settle();
-    expect(api.createJobCard).toHaveBeenLastCalledWith(expect.objectContaining({
+    expect(api.createProductDelivery).toHaveBeenLastCalledWith(expect.objectContaining({
       scheduledAt: localDateTimeToIso('2026-08-10T09:30'),
     }));
   });

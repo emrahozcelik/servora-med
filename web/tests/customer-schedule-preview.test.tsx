@@ -20,8 +20,7 @@ const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const crm = vi.hoisted(() => ({ listCustomers: vi.fn(), listContacts: vi.fn(), getCustomer: vi.fn() }));
 const api = vi.hoisted(() => ({
   listReferenceCustomers: vi.fn(),
-  createJobCard: vi.fn(),
-  addDeliveryItem: vi.fn(),
+  createProductDelivery: vi.fn(),
 }));
 const products = vi.hoisted(() => ({ listProducts: vi.fn() }));
 const scheduling = vi.hoisted(() => {
@@ -78,6 +77,18 @@ const contact = (customerId: string, id: string, name: string) => ({
   isPrimary: false, isActive: true, version: 1,
 });
 async function settle() { await act(async () => { await Promise.resolve(); }); }
+async function selectProduct(container: HTMLElement) {
+  const search = container.querySelector('#delivery-product-search') as HTMLInputElement;
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(search, 'implant');
+  await act(async () => {
+    search.dispatchEvent(new Event('input', { bubbles: true }));
+    search.dispatchEvent(new Event('change', { bubbles: true }));
+  });
+  await act(async () => (Array.from(container.querySelectorAll('button'))
+    .find((button) => button.textContent === 'Ürün ara') as HTMLButtonElement).click());
+  await settle();
+  await act(async () => (container.querySelector('[data-product-id="p1"]') as HTMLButtonElement).click());
+}
 function change(element: HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement, value: string) {
   const prototype = element instanceof HTMLSelectElement ? HTMLSelectElement.prototype
     : element instanceof HTMLTextAreaElement ? HTMLTextAreaElement.prototype : HTMLInputElement.prototype;
@@ -361,7 +372,7 @@ describe('Delivery authoritative conflict alternative', () => {
         category: null, model: null, unit: 'adet', referencePrice: null, isActive: true,
         version: 1, createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
       }],
-      total: 1, limit: 25, offset: 0,
+      total: 1, limit: 8, offset: 0,
     });
     jobs.previewCustomerSchedule.mockResolvedValue({ level: 'CLEAR', safeMessage: null, conflicts: [], recentVisit: null, suggestedAlternativeAt: null });
     onCreated = vi.fn(); container = document.createElement('div'); document.body.append(container);
@@ -373,7 +384,7 @@ describe('Delivery authoritative conflict alternative', () => {
   });
 
   it('applies the authoritative suggested alternative after a rejected delivery create', async () => {
-    api.createJobCard.mockRejectedValue(new ApiError(
+    api.createProductDelivery.mockRejectedValue(new ApiError(
       409, 'CUSTOMER_SCHEDULE_CONFLICT',
       'Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin.',
       false,
@@ -389,10 +400,9 @@ describe('Delivery authoritative conflict alternative', () => {
     await act(async () => root.render(<MemoryRouter><DeliveryCreateView user={manager} onCancel={() => {}} onCreated={onCreated} /></MemoryRouter>));
     await settle();
     change(container.querySelector('#delivery-customer')!, 'c1'); await settle();
-    const productButton = container.querySelector('[data-product-id="p1"]') as HTMLButtonElement;
-    await act(async () => productButton.click());
+    await selectProduct(container);
     change(container.querySelector('#delivery-scheduled-at')!, '2026-07-01T10:00');
-    change(container.querySelector('#delivery-quantity')!, '2');
+    change(container.querySelector('#delivery-quantity-p1')!, '2');
     change(container.querySelector('#delivery-assignee')!, 'staff-2');
     await act(async () => (container.querySelector('form') as HTMLFormElement).requestSubmit());
     await settle();

@@ -12,8 +12,7 @@ import type { Product } from '../src/services/products-api';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const api = vi.hoisted(() => ({
-  createJobCard: vi.fn(),
-  addDeliveryItem: vi.fn(),
+  createProductDelivery: vi.fn(),
   listReferenceCustomers: vi.fn(),
 }));
 const crm = vi.hoisted(() => ({ getCustomer: vi.fn() }));
@@ -64,6 +63,21 @@ const profile: StaffProfile = {
   counters: { open: 0, waitingApproval: 0, revisionRequested: 0, completedThisMonth: 0, overdue: 0 },
 };
 
+function changeInput(input: HTMLInputElement, value: string) {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
+  input.dispatchEvent(new Event('change', { bubbles: true }));
+}
+
+async function selectProduct(host: HTMLElement) {
+  const search = host.querySelector('#delivery-product-search') as HTMLInputElement;
+  await act(async () => changeInput(search, 'implant'));
+  await act(async () => (Array.from(host.querySelectorAll('button'))
+    .find((button) => button.textContent === 'Ürün ara') as HTMLButtonElement).click());
+  await settle();
+  await act(async () => (host.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
+}
+
 async function settle() {
   await act(async () => { await Promise.resolve(); });
 }
@@ -75,10 +89,9 @@ describe('D5 Product Delivery create parity', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     api.listReferenceCustomers.mockResolvedValue([customer]);
-    api.createJobCard.mockResolvedValue({ id: 'job-1', version: 1 });
-    api.addDeliveryItem.mockResolvedValue({ jobCardVersion: 2 });
+    api.createProductDelivery.mockResolvedValue({ jobCardId: 'job-1', version: 2 });
     people.listStaff.mockResolvedValue([profile]);
-    products.listProducts.mockResolvedValue({ items: [product], total: 1, limit: 25, offset: 0 });
+    products.listProducts.mockResolvedValue({ items: [product], total: 1, limit: 8, offset: 0 });
     preview.useCustomerSchedulePreview.mockReturnValue({ evaluation: null, previewing: false });
     slots.findAvailableSlots.mockResolvedValue({ slots: [] });
     host = document.createElement('div');
@@ -114,19 +127,17 @@ describe('D5 Product Delivery create parity', () => {
     expect(host.textContent).not.toContain('İlgili kişiler yükleniyor');
     expect(crm.getCustomer).not.toHaveBeenCalled();
 
-    await act(async () => {
-      (host.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click();
-    });
-    (host.querySelector('#delivery-quantity') as HTMLInputElement).value = '1';
+    await selectProduct(host);
     await act(async () => {
       (host.querySelector('.delivery-form') as HTMLFormElement).requestSubmit();
     });
     await settle();
 
-    expect(api.createJobCard).toHaveBeenCalledWith(expect.objectContaining({
+    expect(api.createProductDelivery).toHaveBeenCalledWith(expect.objectContaining({
       type: 'PRODUCT_DELIVERY', customerId: 'customer-new', assignedTo: 'staff-1',
+      items: [{ productId: 'product-1', quantity: 1 }],
     }));
-    expect(api.createJobCard.mock.calls[0]?.[0]).not.toHaveProperty('contactId');
-    expect(api.createJobCard.mock.calls[0]?.[0]).not.toHaveProperty('scheduledEndsAt');
+    expect(api.createProductDelivery.mock.calls[0]?.[0]).not.toHaveProperty('contactId');
+    expect(api.createProductDelivery.mock.calls[0]?.[0]).not.toHaveProperty('scheduledEndsAt');
   });
 });

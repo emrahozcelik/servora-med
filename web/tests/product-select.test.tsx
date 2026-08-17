@@ -4,22 +4,27 @@ import { createRoot, type Root } from 'react-dom/client';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ProductSelect } from '../src/ProductSelect';
-import type { Paginated, Product } from '../src/services/products-api';
+import type { Paginated, Product, ProductFilters } from '../src/services/products-api';
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
-const product: Product = {
-  id: 'product-1', organizationId: 'org-1', name: 'Dental İmplant', sku: 'IMP-01',
-  brand: null, category: null, model: 'M1', unit: 'set', referencePrice: null,
-  isActive: true, version: 1, createdAt: '2026-07-13T08:00:00.000Z', updatedAt: '2026-07-13T08:00:00.000Z',
-};
+const product = (id: string, name: string): Product => ({
+  id, organizationId: 'org-1', name, sku: `${id}-sku`, brand: 'Dünya Dental',
+  category: null, model: 'M1', unit: 'set', referencePrice: null, isActive: true,
+  version: 1, createdAt: '2026-07-13T08:00:00.000Z', updatedAt: '2026-07-13T08:00:00.000Z',
+});
 
-function page(items: Product[], offset = 0, total = items.length): Paginated<Product> {
-  return { items, total, limit: 25, offset };
+const productOne = product('product-1', 'Dental İmplant');
+const productTwo = product('product-2', 'Cerrahi Vida');
+const productThree = product('product-3', 'Greft Seti');
+
+function page(items: Product[], offset = 0, total = items.length, limit = 8): Paginated<Product> {
+  return { items, total, limit, offset };
 }
 
 function deferred<T>() {
-  let resolve!: (value: T) => void; let reject!: (reason: unknown) => void;
+  let resolve!: (value: T) => void;
+  let reject!: (reason: unknown) => void;
   const promise = new Promise<T>((done, fail) => { resolve = done; reject = fail; });
   return { promise, resolve, reject };
 }
@@ -30,114 +35,208 @@ function input(element: HTMLInputElement, value: string) {
 }
 
 function searchButton(container: HTMLElement) {
-  return Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Ürün ara') as HTMLButtonElement;
+  return Array.from(container.querySelectorAll('button'))
+    .find((button) => button.textContent === 'Ürün ara') as HTMLButtonElement;
 }
 
 describe('ProductSelect', () => {
-  let container: HTMLDivElement; let root: Root;
-  beforeEach(() => { container = document.createElement('div'); document.body.append(container); root = createRoot(container); });
-  afterEach(async () => { await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); });
+  let container: HTMLDivElement;
+  let root: Root;
 
-  async function render(load: Parameters<typeof ProductSelect>[0]['load'], selected: Product | null = null) {
-    const onChange = vi.fn();
-    await act(async () => root.render(<ProductSelect selected={selected} onChange={onChange} load={load} />));
-    return onChange;
+  beforeEach(() => {
+    container = document.createElement('div');
+    document.body.append(container);
+    root = createRoot(container);
+  });
+
+  afterEach(async () => {
+    await act(async () => root.unmount());
+    container.remove();
+    vi.restoreAllMocks();
+  });
+
+  async function renderPicker(
+    load: (filters: ProductFilters) => Promise<Paginated<Product>>,
+    selectedProducts: Product[] = [],
+    onAdd = vi.fn(),
+    onRemove = vi.fn(),
+  ) {
+    await act(async () => root.render(
+      <ProductSelect selectedProducts={selectedProducts} onAdd={onAdd} onRemove={onRemove} load={load} />,
+    ));
+    return { onAdd, onRemove };
   }
 
-  it('loads only active Products with a bounded query and offset', async () => {
-    const load = vi.fn().mockResolvedValue(page([product]));
-    await render(load); await act(async () => { await Promise.resolve(); });
-    expect(load).toHaveBeenCalledWith({ status: 'active', q: '', limit: 25, offset: 0 });
-    expect(container.textContent).toContain('Dental İmplant');
-  });
-
-  it('submits accessible search and pages beyond the first 25 results', async () => {
-    const load = vi.fn().mockResolvedValueOnce(page([product], 0, 60))
-      .mockResolvedValueOnce(page([{ ...product, id: 'searched', name: 'Cerrahi Vida' }], 0, 1))
-      .mockResolvedValueOnce(page([product], 0, 60))
-      .mockResolvedValueOnce(page([{ ...product, id: 'page-2', name: 'İkinci sayfa' }], 25, 60));
-    await render(load); await act(async () => { await Promise.resolve(); });
-
-    const search = container.querySelector('#delivery-product-search') as HTMLInputElement;
-    await act(async () => input(search, 'vida'));
+  async function search(value: string) {
+    const field = container.querySelector('#delivery-product-search') as HTMLInputElement;
+    await act(async () => input(field, value));
     await act(async () => searchButton(container).click());
-    expect(load).toHaveBeenLastCalledWith({ status: 'active', q: 'vida', limit: 25, offset: 0 });
-    expect(container.textContent).toContain('Cerrahi Vida');
+  }
 
-    await act(async () => input(search, ''));
-    await act(async () => searchButton(container).click());
-    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Sonraki')!.click());
-    expect(load).toHaveBeenLastCalledWith({ status: 'active', q: '', limit: 25, offset: 25 });
-    expect(container.textContent).toContain('26–50 / 60');
+  it('starts search-first without loading the catalogue', async () => {
+    const load = vi.fn().mockResolvedValue(page([productOne]));
+    await renderPicker(load);
+
+    expect(load).not.toHaveBeenCalled();
+    expect(container.textContent).toContain('Arama yaparak ürün seçin.');
+    expect(container.textContent).toContain('Ürünler');
+    expect(container.querySelector('[data-product-id]')).toBeNull();
+    expect(container.querySelector('.product-select-pagination')).toBeNull();
   });
 
-  it('reaches Products after the first 200 results without truncating the catalog', async () => {
-    const load = vi.fn().mockImplementation(async ({ offset }: { offset: number }) => page([
-      { ...product, id: `product-${offset}`, name: `Ürün ${offset + 1}` },
-    ], offset, 225));
-    await render(load); await act(async () => { await Promise.resolve(); });
+  it('searches with limit 8 and renders at most 8 results', async () => {
+    const results = Array.from({ length: 8 }, (_, index) => product(`product-${index}`, `Ürün ${index}`));
+    const load = vi.fn().mockResolvedValue(page(results, 0, 12));
+    await renderPicker(load);
+    await search('implant');
 
-    for (let pageNumber = 0; pageNumber < 8; pageNumber += 1) {
-      const next = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Sonraki') as HTMLButtonElement;
-      await act(async () => next.click());
-    }
-
-    expect(load).toHaveBeenLastCalledWith({ status: 'active', q: '', limit: 25, offset: 200 });
-    expect(container.textContent).toContain('201–225 / 225');
-    expect(container.textContent).toContain('Ürün 201');
+    expect(load).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 8, offset: 0 });
+    expect(container.querySelectorAll('[data-product-id]')).toHaveLength(8);
+    expect(container.textContent).toContain('1–8 / 12');
   });
 
-  it('keeps loading, empty, no-results, error, and retry states operable', async () => {
-    const first = deferred<Paginated<Product>>();
-    const load = vi.fn().mockReturnValueOnce(first.promise).mockRejectedValueOnce(new Error('Bağlantı kurulamadı.')).mockResolvedValueOnce(page([]));
-    await render(load);
-    expect(container.querySelector('[aria-busy="true"]')).toBeTruthy();
-    await act(async () => first.reject(new Error('Bağlantı kurulamadı.')));
-    const retry = Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Tekrar dene') as HTMLButtonElement;
-    expect(retry).toBeTruthy(); expect(retry.disabled).toBe(false);
-    await act(async () => retry.click());
-    await act(async () => Array.from(container.querySelectorAll('button')).find((button) => button.textContent === 'Tekrar dene')!.click());
-    expect(container.textContent).toContain('Henüz aktif ürün kaydı yok');
+  it('pages server results at the bounded page size', async () => {
+    const load = vi.fn()
+      .mockResolvedValueOnce(page(Array.from({ length: 8 }, (_, index) => product(`first-${index}`, `İlk ${index}`)), 0, 17))
+      .mockResolvedValueOnce(page([product('page-2', 'İkinci sayfa')], 8, 17));
+    await renderPicker(load);
+    await search('vida');
+    await act(async () => (Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Sonraki') as HTMLButtonElement).click());
+
+    expect(load).toHaveBeenLastCalledWith({ status: 'active', q: 'vida', limit: 8, offset: 8 });
+    expect(container.textContent).toContain('İkinci sayfa');
+    expect(container.textContent).toContain('9–16 / 17');
   });
 
-  it('distinguishes no search results and omits empty Product punctuation', async () => {
-    const nullable = { ...product, id: 'nullable', name: 'Adsız Set', sku: null, model: null, unit: null };
-    const load = vi.fn().mockResolvedValueOnce(page([nullable])).mockResolvedValueOnce(page([]));
-    await render(load); await act(async () => { await Promise.resolve(); });
-    const row = container.querySelector('[data-product-id="nullable"]') as HTMLElement;
-    expect(row.textContent).toBe('Adsız Set');
-    expect(row.textContent).not.toMatch(/[()·—]/);
+  it('commits selection, clears the query, and closes results', async () => {
+    const load = vi.fn().mockResolvedValue(page([productOne]));
+    const { onAdd } = await renderPicker(load);
+    await search('implant');
+    await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
 
-    const search = container.querySelector('#delivery-product-search') as HTMLInputElement;
-    await act(async () => input(search, 'bulunmaz'));
-    await act(async () => searchButton(container).click());
-    expect(container.textContent).toContain('Aramanıza uygun aktif ürün bulunamadı');
+    expect(onAdd).toHaveBeenCalledWith(productOne);
+    expect((container.querySelector('#delivery-product-search') as HTMLInputElement).value).toBe('');
+    expect(container.querySelector('.product-select-list')).toBeNull();
+
+    await act(async () => root.render(
+      <ProductSelect selectedProducts={[productOne]} onAdd={onAdd} onRemove={vi.fn()} load={load} />,
+    ));
+    expect(container.textContent).toContain('Seçilen ürünler');
+    expect(container.querySelector('[data-selected-product-id="product-1"]')).toBeTruthy();
+    expect(container.querySelector('button[aria-label="Kaldır: Dental İmplant"]')).toBeTruthy();
   });
 
-  it('uses native keyboard-operable buttons and preserves the selected Product across searches', async () => {
-    const load = vi.fn().mockResolvedValueOnce(page([product])).mockResolvedValueOnce(page([]));
-    const onChange = await render(load); await act(async () => { await Promise.resolve(); });
-    const option = container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement;
-    expect(option.tagName).toBe('BUTTON'); expect(option.type).toBe('button');
-    await act(async () => option.click());
-    expect(onChange).toHaveBeenCalledWith(product);
-    await act(async () => root.render(<ProductSelect selected={product} onChange={onChange} load={load} />));
-    const search = container.querySelector('#delivery-product-search') as HTMLInputElement;
-    await act(async () => input(search, 'başka'));
-    await act(async () => searchButton(container).click());
+  it('preserves the legacy single-selection consumer contract', async () => {
+    const load = vi.fn().mockResolvedValue(page([productTwo]));
+    const onChange = vi.fn();
+    await act(async () => root.render(
+      <ProductSelect selected={productOne} onChange={onChange} load={load} />,
+    ));
     expect(container.querySelector('input[name="productId"]')?.getAttribute('value')).toBe('product-1');
-    expect(container.textContent).toContain('Seçili ürün'); expect(container.textContent).toContain('Dental İmplant');
+    expect(container.querySelector('[data-selected-product-id="product-1"]')).toBeTruthy();
+    expect(container.querySelector('button[aria-label="Kaldır: Dental İmplant"]')).toBeNull();
+
+    await search('vida');
+    await act(async () => (container.querySelector('[data-product-id="product-2"]') as HTMLButtonElement).click());
+    expect(onChange).toHaveBeenCalledWith(productTwo);
   });
 
-  it('never lets a stale response replace newer results', async () => {
-    const initial = deferred<Paginated<Product>>(); const latest = deferred<Paginated<Product>>();
-    const load = vi.fn().mockReturnValueOnce(initial.promise).mockReturnValueOnce(latest.promise);
-    await render(load);
-    const search = container.querySelector('#delivery-product-search') as HTMLInputElement;
-    await act(async () => input(search, 'yeni'));
-    await act(async () => searchButton(container).click());
-    await act(async () => latest.resolve(page([{ ...product, id: 'latest', name: 'Yeni sonuç' }])));
-    await act(async () => initial.resolve(page([{ ...product, id: 'stale', name: 'Eski sonuç' }])));
-    expect(container.textContent).toContain('Yeni sonuç'); expect(container.textContent).not.toContain('Eski sonuç');
+  it('supports multiple distinct products and disables a duplicate', async () => {
+    const load = vi.fn().mockImplementation(({ q }: ProductFilters) => {
+      if (q === 'vida') return Promise.resolve(page([productTwo]));
+      if (q === 'greft') return Promise.resolve(page([productThree]));
+      return Promise.resolve(page([productOne]));
+    });
+    const { onAdd } = await renderPicker(load);
+
+    await search('implant');
+    await act(async () => (container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement).click());
+    await act(async () => root.render(
+      <ProductSelect selectedProducts={[productOne]} onAdd={onAdd} onRemove={vi.fn()} load={load} />,
+    ));
+    await search('vida');
+    await act(async () => (container.querySelector('[data-product-id="product-2"]') as HTMLButtonElement).click());
+    await act(async () => root.render(
+      <ProductSelect selectedProducts={[productOne, productTwo]} onAdd={onAdd} onRemove={vi.fn()} load={load} />,
+    ));
+    await search('greft');
+    await act(async () => (container.querySelector('[data-product-id="product-3"]') as HTMLButtonElement).click());
+    expect(onAdd).toHaveBeenCalledTimes(3);
+
+    await act(async () => root.render(
+      <ProductSelect selectedProducts={[productOne, productTwo, productThree]} onAdd={onAdd} onRemove={vi.fn()} load={load} />,
+    ));
+    await search('implant');
+    const duplicate = container.querySelector('[data-product-id="product-1"]') as HTMLButtonElement;
+    expect(duplicate.disabled).toBe(true);
+    expect(duplicate.textContent).toContain('Eklendi');
+    await act(async () => duplicate.click());
+    expect(onAdd).toHaveBeenCalledTimes(3);
+  });
+
+  it('removes only the requested selected product', async () => {
+    const onRemove = vi.fn();
+    await renderPicker(vi.fn().mockResolvedValue(page([])), [productOne, productTwo], vi.fn(), onRemove);
+
+    await act(async () => (container.querySelector('[aria-label="Kaldır: Dental İmplant"]') as HTMLButtonElement).click());
+    expect(onRemove).toHaveBeenCalledWith('product-1');
+    expect(onRemove).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps selected products visible while a new search and page are active', async () => {
+    const load = vi.fn()
+      .mockResolvedValueOnce(page([productThree], 0, 9))
+      .mockResolvedValueOnce(page([productTwo], 8, 9));
+    await renderPicker(load, [productOne]);
+    await search('greft');
+    expect(container.querySelector('[data-selected-product-id="product-1"]')).toBeTruthy();
+    await act(async () => (Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Sonraki') as HTMLButtonElement).click());
+    expect(container.querySelector('[data-selected-product-id="product-1"]')).toBeTruthy();
+    expect(container.textContent).toContain('Cerrahi Vida');
+  });
+
+  it('does not let a stale response replace newer results or reopen after selection', async () => {
+    const first = deferred<Paginated<Product>>();
+    const second = deferred<Paginated<Product>>();
+    const load = vi.fn().mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
+    const { onAdd } = await renderPicker(load);
+
+    await search('matrix');
+    await search('cycles');
+    await act(async () => second.resolve(page([productTwo])));
+    await act(async () => first.resolve(page([productOne])));
+
+    expect(container.textContent).toContain('Cerrahi Vida');
+    expect(container.textContent).not.toContain('Dental İmplant');
+    await act(async () => (container.querySelector('[data-product-id="product-2"]') as HTMLButtonElement).click());
+    expect(onAdd).toHaveBeenCalledWith(productTwo);
+    expect(container.querySelector('.product-select-list')).toBeNull();
+    expect((container.querySelector('#delivery-product-search') as HTMLInputElement).value).toBe('');
+  });
+
+  it('keeps loading, error, retry, and no-results states operable', async () => {
+    const pending = deferred<Paginated<Product>>();
+    const load = vi.fn().mockReturnValueOnce(pending.promise).mockResolvedValueOnce(page([]));
+    await renderPicker(load);
+    await search('bulunmaz');
+    expect(container.querySelector('[aria-busy="true"]')).toBeTruthy();
+    await act(async () => pending.reject(new Error('Bağlantı kurulamadı.')));
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Bağlantı kurulamadı.');
+    await act(async () => (Array.from(container.querySelectorAll('button'))
+      .find((button) => button.textContent === 'Tekrar dene') as HTMLButtonElement).click());
+    expect(container.textContent).toContain('Aramanıza uygun aktif ürün bulunamadı.');
+  });
+
+  it('submits the same search through the native Enter key', async () => {
+    const load = vi.fn().mockResolvedValue(page([productOne]));
+    await renderPicker(load);
+    const field = container.querySelector('#delivery-product-search') as HTMLInputElement;
+    await act(async () => {
+      input(field, 'implant');
+      field.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+    expect(load).toHaveBeenCalledWith({ status: 'active', q: 'implant', limit: 8, offset: 0 });
   });
 });

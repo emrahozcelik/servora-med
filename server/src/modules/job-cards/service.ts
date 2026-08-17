@@ -55,6 +55,7 @@ import {
   type JobPermissionSubject,
   type LifecycleCommand,
   type NormalizedJobCardCreateInput,
+  type ProductDeliveryCreateInput,
   type JobCardPriority,
   type PersistedJobCardDetail,
   type PersistedJobCardListItem,
@@ -208,6 +209,23 @@ function deliveryRecord(organizationId: string, jobCardId: string, input: Delive
     productSkuSnapshot: product.sku, productModelSnapshot: product.model, lotNo: input.lotNo?.trim() || null,
     serialNo: input.serialNo?.trim() || null, expiryDate: input.expiryDate ?? null,
     deliveryNote: input.deliveryNote?.trim() || null };
+}
+
+const MAX_INITIAL_DELIVERY_ITEMS = 25;
+
+function assertInitialProductDeliveryItems(input: ProductDeliveryCreateInput) {
+  if (!Array.isArray(input.items) || input.items.length < 1 || input.items.length > MAX_INITIAL_DELIVERY_ITEMS) {
+    throw new AppError('VALIDATION_ERROR', 400, 'Teslim ürünleri geçersiz.');
+  }
+  const seen = new Set<string>();
+  for (const item of input.items) {
+    if (!item || typeof item !== 'object' || Array.isArray(item)
+      || typeof item.productId !== 'string' || !item.productId.trim()
+      || seen.has(item.productId) || !Number.isFinite(item.quantity) || item.quantity <= 0) {
+      throw new AppError('VALIDATION_ERROR', 400, 'Teslim ürünleri geçersiz.');
+    }
+    seen.add(item.productId);
+  }
 }
 
 function assertKnownFields(input: object, allowed: readonly string[]) {
@@ -569,6 +587,145 @@ export class JobCardService {
       this.publishRealtime(result.realtimeEvents);
     }
     return this.detail(actor, decodeJobCardMutationReceipt(result.response).jobCardId);
+  }
+
+  async createProductDelivery(actor: JobCardActor, input: ProductDeliveryCreateInput) {
+    const title = input.title.trim();
+    if (input.type !== 'PRODUCT_DELIVERY'
+      || !input.clientActionId.trim() || !title || !input.customerId
+      || !input.assignedTo || !JOB_CARD_PRIORITIES.includes(input.priority)) {
+      throw new AppError('VALIDATION_ERROR', 400, 'Ürün teslimi oluşturma bilgileri geçersiz.');
+    }
+    const canonicalEnd = input.scheduledAt
+      ? canonicalScheduledEnd('PRODUCT_DELIVERY', input.scheduledAt)
+      : null;
+    if (!input.scheduledAt || canonicalEnd === null || input.scheduledEndsAt !== canonicalEnd) {
+      throw new AppError('VALIDATION_ERROR', 400, 'Ürün teslimi oluşturma bilgileri geçersiz.');
+    }
+    assertInitialProductDeliveryItems(input);
+    assertCreateAssignmentRequest(actor, input.assignedTo);
+    const requestTime = this.now();
+    let result: CriticalActionResult<{ jobCardId: string; version: number }>;
+    try {
+      result = await this.repository.executeCriticalAction(
+        {
+          organizationId: actor.organizationId, userId: actor.id,
+          clientActionId: input.clientActionId, operationKey: 'PRODUCT_DELIVERY_CREATE',
+        },
+        async (transaction) => {
+          const assignee = await transaction.getAssigneeForUpdate(actor.organizationId, input.assignedTo);
+          if (!assignee) throw new AppError('ASSIGNEE_NOT_FOUND', 404, 'Atanacak personel bulunamadı.');
+          assertCanCreateForAssignee(actor, assignee);
+          await this.validateJobReferences(transaction, actor.organizationId, input.customerId, null);
+          const overrideReason = await this.enforceCustomerSchedule(transaction, actor, {
+            customerId: input.customerId,
+            proposedAt: new Date(input.scheduledAt),
+            jobType: 'PRODUCT_DELIVERY',
+            overrideReason: input.overrideReason ?? null,
+          });
+          if (this.calendar.enabled) {
+            await transaction.assertCalendarAvailability({
+              organizationId: actor.organizationId,
+              jobCardId: null,
+              assignedUserId: input.assignedTo,
+              startsAt: input.scheduledAt,
+              endsAt: canonicalEnd,
+            });
+          }
+
+          const products = [] as Array<{
+            productId: string;
+            quantity: number;
+            product: ProductReference;
+          }>;
+          for (const item of input.items) {
+            const product = await transaction.getProduct(actor.organizationId, item.productId);
+            if (!product?.isActive) throw new AppError('PRODUCT_NOT_FOUND', 404, 'Aktif ürün bulunamadı.');
+            products.push({ ...item, product });
+          }
+
+          const selfAccepted = actor.role === 'STAFF' && actor.id === input.assignedTo;
+          const job = await transaction.createJobCard({
+            organizationId: actor.organizationId, type: 'PRODUCT_DELIVERY',
+            status: selfAccepted ? 'ACCEPTED' : 'NEW', title,
+            description: input.description?.trim() || null, customerId: input.customerId,
+            contactId: null, assignedTo: input.assignedTo, createdBy: actor.id,
+            priority: input.priority, dueDate: input.dueDate, scheduledAt: input.scheduledAt,
+            scheduledEndsAt: canonicalEnd, engagementKind: null,
+            acceptedAt: selfAccepted ? requestTime : null,
+            acceptedBy: selfAccepted ? actor.id : null,
+            sourceJobCardId: null, followUpInstructions: null,
+          });
+          if (this.calendar.enabled) {
+            await transaction.synchronizeCalendarReminder({
+              organizationId: actor.organizationId, jobCardId: job.id,
+              assignedUserId: job.assignedTo, startsAt: job.scheduledAt,
+              endsAt: job.scheduledEndsAt, version: job.version, active: true,
+              now: requestTime, reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+            });
+          }
+          const createdValue: Record<string, unknown> = {
+            status: job.status, assignedTo: job.assignedTo, version: job.version,
+          };
+          if (selfAccepted) {
+            createdValue.acceptedAt = requestTime.toISOString();
+            createdValue.acceptedBy = actor.id;
+          }
+          if (job.scheduledAt !== null) createdValue.scheduledAt = job.scheduledAt;
+          const activity = await transaction.appendActivity({
+            organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
+            event: 'JOB_CREATED', clientActionId: input.clientActionId,
+            newValue: createdValue,
+            metadata: overrideReason !== null ? { customerVisitOverrideReason: overrideReason } : undefined,
+          });
+          const realtimeEvents = await this.appendRealtimeForActivity(transaction, {
+            activity, organizationId: actor.organizationId, jobCardId: job.id,
+            actorUserId: actor.id, event: 'JOB_CREATED', beforeAssigneeId: null,
+            afterAssigneeId: job.assignedTo,
+            calendarAffected: this.calendar.enabled && job.scheduledAt !== null,
+            customerId: job.customerId,
+          });
+
+          let version = job.version;
+          for (const entry of products) {
+            const item = await transaction.createDeliveryItem(deliveryRecord(
+              actor.organizationId,
+              job.id,
+              {
+                expectedVersion: version,
+                productId: entry.productId,
+                deliveryPurpose: input.deliveryPurpose,
+                deliveredAt: null,
+                quantity: entry.quantity,
+                deliveryNote: input.deliveryNote,
+              },
+              entry.product,
+            ));
+            const updated = await transaction.bumpVersion(actor.organizationId, job.id, version);
+            if (!updated) throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+            version = updated.version;
+            await transaction.appendActivity({
+              organizationId: actor.organizationId, jobCardId: job.id, actorId: actor.id,
+              event: 'DELIVERY_ITEM_ADDED', clientActionId: input.clientActionId,
+              newValue: {
+                itemId: item.id, productId: item.productId,
+                deliveryPurpose: item.deliveryPurpose, quantity: item.quantity,
+                deliveredAt: null,
+              },
+            });
+          }
+          return { response: { jobCardId: job.id, version }, realtimeEvents };
+        },
+      );
+    } catch (caught) {
+      if (caught instanceof AppError) throw projectCalendarConflict(actor, caught);
+      throw caught;
+    }
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    return result.response;
   }
 
   async createFollowUp(

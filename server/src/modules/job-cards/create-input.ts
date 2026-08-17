@@ -1,4 +1,5 @@
 import {
+  DELIVERY_PURPOSES,
   JOB_CARD_ENGAGEMENT_KINDS,
   JOB_CARD_PRIORITIES,
   JOB_CARD_TYPES,
@@ -10,6 +11,7 @@ import {
   type JobCardPriority,
   type JobCardType,
   type NormalizedJobCardCreateInput,
+  type ProductDeliveryCreateInput,
 } from './types.js';
 import { AppError } from '../../errors/index.js';
 import {
@@ -32,6 +34,12 @@ const CREATE_FIELDS_BY_TYPE = {
   GENERAL_TASK: COMMON_CREATE_FIELDS,
   SALES_MEETING: [...COMMON_CREATE_FIELDS, 'scheduledEndsAt', 'engagementKind', 'overrideReason'] as const,
 } as const;
+
+const PRODUCT_DELIVERY_CREATE_FIELDS = [
+  ...CREATE_FIELDS_BY_TYPE.PRODUCT_DELIVERY,
+  'deliveryPurpose', 'deliveryNote', 'items',
+] as const;
+const MAX_INITIAL_DELIVERY_ITEMS = 25;
 
 type CreateType = keyof typeof CREATE_FIELDS_BY_TYPE;
 
@@ -159,6 +167,53 @@ export function parseJobCardCreateInput(value: unknown): NormalizedJobCardCreate
     type: input.type,
     customerId: optionalUuid(input.customerId, 'customerId'),
     scheduledAt: optionalScheduledAt(input.scheduledAt),
+  };
+}
+
+function parseInitialDeliveryItems(value: unknown) {
+  if (!Array.isArray(value) || value.length < 1 || value.length > MAX_INITIAL_DELIVERY_ITEMS) {
+    throw validation('items');
+  }
+  const seen = new Set<string>();
+  return value.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) throw validation('items');
+    const record = entry as Record<string, unknown>;
+    if (Object.keys(record).some((key) => !['productId', 'quantity'].includes(key))) {
+      throw validation('items');
+    }
+    const productId = uuidString(record.productId, 'items.productId');
+    if (seen.has(productId)) throw validation('items');
+    seen.add(productId);
+    if (typeof record.quantity !== 'number' || !Number.isFinite(record.quantity) || record.quantity <= 0) {
+      throw validation('items.quantity');
+    }
+    return { productId, quantity: record.quantity };
+  });
+}
+
+export function parseProductDeliveryCreateInput(value: unknown): ProductDeliveryCreateInput {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw validation('body');
+  const record = value as Record<string, unknown>;
+  if (record.type !== 'PRODUCT_DELIVERY'
+    || Object.keys(record).some((key) => !PRODUCT_DELIVERY_CREATE_FIELDS.includes(key as never))) {
+    throw validation('body');
+  }
+  const { deliveryPurpose: rawPurpose, deliveryNote: rawNote, items: rawItems, ...jobCard } = record;
+  if (!DELIVERY_PURPOSES.includes(rawPurpose as typeof DELIVERY_PURPOSES[number])) {
+    throw validation('deliveryPurpose');
+  }
+  let deliveryNote: string | null = null;
+  if (rawNote !== undefined && rawNote !== null) {
+    if (typeof rawNote !== 'string' || rawNote.trim().length > 4_000) throw validation('deliveryNote');
+    deliveryNote = rawNote.trim() || null;
+  }
+  const normalized = parseJobCardCreateInput(jobCard);
+  if (normalized.type !== 'PRODUCT_DELIVERY') throw validation('type');
+  return {
+    ...normalized,
+    deliveryPurpose: rawPurpose as typeof DELIVERY_PURPOSES[number],
+    deliveryNote,
+    items: parseInitialDeliveryItems(rawItems),
   };
 }
 

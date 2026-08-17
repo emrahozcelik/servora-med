@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
 
-import { parseJobCardCreateInput } from '../src/modules/job-cards/create-input.js';
+import {
+  parseJobCardCreateInput,
+  parseProductDeliveryCreateInput,
+} from '../src/modules/job-cards/create-input.js';
 
 const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 const CUSTOMER_ID = '22222222-2222-4222-8222-222222222222';
@@ -8,8 +11,53 @@ const CONTACT_ID = '33333333-3333-4333-8333-333333333333';
 const SCHEDULED_AT = '2026-07-20T10:30:00.000Z';
 const SCHEDULED_ENDS_AT = '2026-07-20T11:30:00.000Z';
 const validationError = expect.objectContaining({ code: 'VALIDATION_ERROR', statusCode: 400 });
+const productId = (index: number) => `44444444-4444-4444-8444-${index.toString(16).padStart(12, '0')}`;
+
+function productDeliveryBody(items: unknown[] = [{ productId: productId(1), quantity: 1 }]) {
+  return {
+    clientActionId: 'delivery-batch-validation', type: 'PRODUCT_DELIVERY', title: 'Klinik teslimi',
+    customerId: CUSTOMER_ID, assignedTo: STAFF_ID, scheduledAt: SCHEDULED_AT,
+    deliveryPurpose: 'SALE', items,
+  };
+}
 
 describe('JobCard create input', () => {
+  it('normalizes an atomic Product Delivery create with bounded initial items', () => {
+    expect(parseProductDeliveryCreateInput({
+      clientActionId: 'delivery-batch-1', type: 'PRODUCT_DELIVERY', title: 'Klinik teslimi',
+      customerId: CUSTOMER_ID, assignedTo: STAFF_ID, scheduledAt: SCHEDULED_AT,
+      deliveryPurpose: 'SALE', deliveryNote: '  Aynı teslimat  ',
+      items: [
+        { productId: '44444444-4444-4444-8444-444444444444', quantity: 2 },
+        { productId: '55555555-5555-4555-8555-555555555555', quantity: 0.001 },
+      ],
+    })).toMatchObject({
+      type: 'PRODUCT_DELIVERY', scheduledAt: SCHEDULED_AT,
+      scheduledEndsAt: '2026-07-20T11:00:00.000Z',
+      deliveryPurpose: 'SALE', deliveryNote: 'Aynı teslimat',
+      items: [
+        { productId: '44444444-4444-4444-8444-444444444444', quantity: 2 },
+        { productId: '55555555-5555-4555-8555-555555555555', quantity: 0.001 },
+      ],
+    });
+  });
+
+  it('rejects an empty, duplicate, malformed, non-positive, or over-bound item collection', () => {
+    expect(() => parseProductDeliveryCreateInput(productDeliveryBody([]))).toThrowError(validationError);
+    expect(() => parseProductDeliveryCreateInput(productDeliveryBody([
+      { productId: productId(1), quantity: 1 }, { productId: productId(1), quantity: 2 },
+    ]))).toThrowError(validationError);
+    expect(() => parseProductDeliveryCreateInput(productDeliveryBody([
+      { productId: 'not-a-uuid', quantity: 1 },
+    ]))).toThrowError(validationError);
+    expect(() => parseProductDeliveryCreateInput(productDeliveryBody([
+      { productId: productId(1), quantity: 0.0 },
+    ]))).toThrowError(validationError);
+    expect(() => parseProductDeliveryCreateInput(productDeliveryBody(
+      Array.from({ length: 26 }, (_, index) => ({ productId: productId(index + 1), quantity: 1 })),
+    ))).toThrowError(validationError);
+  });
+
   it('normalizes the exact General Task body with optional scheduledAt', () => {
     expect(parseJobCardCreateInput({
       clientActionId: '  task-create-1  ',
