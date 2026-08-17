@@ -78,7 +78,6 @@ describe('JobCard routes', () => {
     const body = {
       clientActionId: 'c1', type: 'PRODUCT_DELIVERY', title: 'Teslim',
       customerId: '22222222-2222-4222-8222-222222222222',
-      contactId: '33333333-3333-4333-8333-333333333333',
       assignedTo: '11111111-1111-4111-8111-111111111111',
       scheduledAt: '2026-07-16T14:30:00+03:00',
       scheduledEndsAt: '2026-07-16T15:00:00+03:00',
@@ -86,9 +85,9 @@ describe('JobCard routes', () => {
     expect((await app.inject({ method: 'POST', url: '/api/job-cards', payload: body })).statusCode).toBe(201);
     await app.inject({ method: 'GET', url: '/api/job-cards' });
     await app.inject({ method: 'GET', url: '/api/job-cards/job-1' });
-    await app.inject({ method: 'PATCH', url: '/api/job-cards/job-1', payload: { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' } });
+    await app.inject({ method: 'PATCH', url: '/api/job-cards/job-1', payload: { expectedVersion: 1, title: 'Yeni' } });
     expect(service.create).toHaveBeenCalledWith(expect.objectContaining({ id: 'staff-1' }), {
-      ...body, description: null, priority: 'normal', dueDate: null,
+      ...body, description: null, contactId: null, priority: 'normal', dueDate: null,
       scheduledAt: '2026-07-16T11:30:00.000Z',
       scheduledEndsAt: '2026-07-16T12:00:00.000Z',
       overrideReason: null,
@@ -98,7 +97,7 @@ describe('JobCard routes', () => {
       expect.objectContaining({ status: 'active', limit: 25, offset: 0 }),
     );
     expect(service.detail).toHaveBeenCalledWith(expect.anything(), 'job-1');
-    expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni', contactId: 'contact-1' });
+    expect(service.patch).toHaveBeenCalledWith(expect.anything(), 'job-1', { expectedVersion: 1, title: 'Yeni' });
   });
 
   it('dispatches the joint available-slot request with a strict normalized body', async () => {

@@ -450,6 +450,19 @@ describe('JobCardService create and reads', () => {
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });
 
+  it('rejects a direct service Product Delivery create with a non-null Contact', async () => {
+    const repository = new CrudMemoryRepository();
+    await expect(serviceOf(repository).create(staff, {
+      ...createInput,
+      contactId: 'contact-1',
+    } as unknown as NormalizedJobCardCreateInput)).rejects.toMatchObject({
+      code: 'VALIDATION_ERROR',
+      statusCode: 400,
+    });
+    expect(repository.jobs).toHaveLength(0);
+    expect(repository.activities).toHaveLength(0);
+  });
+
   it.each([manager, admin])('creates management-assigned work as NEW without acceptance facts (%s)', async (actor) => {
     const repository = new CrudMemoryRepository();
     const result = await serviceOf(repository).create(actor, {
@@ -505,13 +518,20 @@ describe('JobCardService create and reads', () => {
       .resolves.toMatchObject({ assignedTo: 'staff-2' });
   });
 
-  it('persists a valid Contact and rejects a Contact from another Customer', async () => {
+  it('preserves supported Contact behavior for General Task', async () => {
     const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
-    const created = await service.create(staff, { ...createInput, contactId: 'contact-1' });
+    const created = await service.create(staff, {
+      ...generalTaskInput,
+      customerId: 'customer-1',
+      contactId: 'contact-1',
+    });
     expect(created.contactId).toBe('contact-1');
 
     await expect(service.create(staff, {
-      ...createInput, clientActionId: 'create-contact-mismatch', contactId: 'contact-2',
+      ...generalTaskInput,
+      clientActionId: 'create-contact-mismatch',
+      customerId: 'customer-1',
+      contactId: 'contact-2',
     })).rejects.toMatchObject({ code: 'CONTACT_NOT_IN_CUSTOMER' });
   });
 
@@ -521,16 +541,25 @@ describe('JobCardService create and reads', () => {
       ...createInput, clientActionId: 'inactive-customer', customerId: 'customer-inactive',
     })).rejects.toMatchObject({ code: 'CUSTOMER_INACTIVE' });
     await expect(service.create(staff, {
-      ...createInput, clientActionId: 'inactive-contact', contactId: 'contact-inactive',
+      ...generalTaskInput,
+      clientActionId: 'inactive-contact',
+      customerId: 'customer-1',
+      contactId: 'contact-inactive',
     })).rejects.toMatchObject({ code: 'CONTACT_INACTIVE' });
     await expect(service.create(staff, {
-      ...createInput, clientActionId: 'cross-contact', contactId: 'contact-cross-org',
+      ...generalTaskInput,
+      clientActionId: 'cross-contact',
+      customerId: 'customer-1',
+      contactId: 'contact-cross-org',
     })).rejects.toMatchObject({ code: 'CONTACT_NOT_FOUND' });
   });
 
   it('patches a compatible Contact and clears it when Customer changes without one', async () => {
     const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
-    const created = await service.create(staff, createInput);
+    const created = await service.create(staff, {
+      ...generalTaskInput,
+      customerId: 'customer-1',
+    });
     const withContact = await service.patch(staff, created.id, {
       expectedVersion: 1, contactId: 'contact-1',
     } as never);
@@ -540,6 +569,30 @@ describe('JobCardService create and reads', () => {
       expectedVersion: 2, customerId: 'customer-2',
     });
     expect(moved).toMatchObject({ customerId: 'customer-2', contactId: null, version: 3 });
+  });
+
+  it('preserves a historical Product Delivery Contact on unrelated edits but rejects new associations', async () => {
+    const repository = new CrudMemoryRepository(); const service = serviceOf(repository);
+    const created = await service.create(staff, createInput);
+    repository.jobs[0]!.contactId = 'contact-1';
+
+    const renamed = await service.patch(staff, created.id, {
+      expectedVersion: 1,
+      title: 'Tarihsel teslim güncellendi',
+    });
+    expect(renamed).toMatchObject({
+      title: 'Tarihsel teslim güncellendi',
+      contactId: 'contact-1',
+      contact: { id: 'contact-1', name: 'Contact contact-1' },
+    });
+    expect(repository.jobs[0]!.contactId).toBe('contact-1');
+
+    repository.jobs[0]!.contactId = null;
+    await expect(service.patch(staff, created.id, {
+      expectedVersion: 2,
+      contactId: 'contact-1',
+    })).rejects.toMatchObject({ code: 'VALIDATION_ERROR', statusCode: 400 });
+    expect(repository.jobs[0]!.contactId).toBeNull();
   });
 
   it('scopes staff list and detail to their own assignments', async () => {

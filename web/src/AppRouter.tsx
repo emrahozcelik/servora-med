@@ -283,6 +283,18 @@ function SalesMeetingCreateRoute({ user, navigate }: { user: CurrentUser; naviga
     onCancel={() => navigate(paths.jobs)} onCreated={(id) => navigate(paths.job(id))} />;
 }
 
+function DeliveryCreateRoute({ user, navigate, onDeliveryCreated }: {
+  user: CurrentUser;
+  navigate: (path: string) => void;
+  onDeliveryCreated: () => void;
+}) {
+  const [sp] = useSearchParams();
+  return <DeliveryCreateView user={user}
+    initialCustomerId={sp.get('customerId') ?? undefined}
+    onCancel={() => navigate(paths.jobs)}
+    onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />;
+}
+
 export function FollowUpCreateRoute({ user, navigate }: {
   user: CurrentUser;
   navigate: (path: string) => void;
@@ -330,8 +342,8 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
           onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}
           onCreateMeeting={() => { onClearNotice(); navigate(paths.newMeeting); }}
           onCommand={(intent) => navigate(paths.job(intent.jobId))} />} />
-        <Route path={paths.newDelivery} element={<DeliveryCreateView user={user} onCancel={() => navigate(paths.jobs)}
-          onCreated={() => { onDeliveryCreated(); navigate(paths.jobs); }} />} />
+        <Route path={paths.newDelivery} element={<DeliveryCreateRoute user={user}
+          navigate={navigate} onDeliveryCreated={onDeliveryCreated} />} />
         <Route path={paths.newTask} element={<GeneralTaskCreateRoute user={user}
           navigate={navigate} />} />
         <Route path={paths.newMeeting} element={<SalesMeetingCreateRoute user={user}

@@ -431,6 +431,14 @@ export class JobCardService {
   async create(actor: JobCardActor, input: NormalizedJobCardCreateInput) {
     const title = input.title.trim();
     const priority = input.priority;
+    if (input.type === 'PRODUCT_DELIVERY'
+      && (input as { contactId: string | null }).contactId !== null) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Ürün teslimi oluştururken ilgili kişi seçilemez.',
+      );
+    }
     if (!input.clientActionId.trim() || !title ||
       (input.type === 'PRODUCT_DELIVERY' && !input.customerId) ||
       !input.assignedTo || !JOB_CARD_PRIORITIES.includes(priority)) {
@@ -568,6 +576,13 @@ export class JobCardService {
     sourceJobCardId: string,
     input: FollowUpCreateInput,
   ) {
+    if (input.type === 'PRODUCT_DELIVERY' && input.contactId !== null) {
+      throw new AppError(
+        'VALIDATION_ERROR',
+        400,
+        'Ürün teslimi oluştururken ilgili kişi seçilemez.',
+      );
+    }
     const requestTime = this.now();
     const result = await this.repository.executeCriticalAction<FollowUpCreateReceipt>(
       {
@@ -1055,6 +1070,16 @@ export class JobCardService {
       }
       assertCanEdit(actor, job);
 
+      if (job.type === 'PRODUCT_DELIVERY'
+        && fields.contactId !== undefined
+        && fields.contactId !== null) {
+        throw new AppError(
+          'VALIDATION_ERROR',
+          400,
+          'Ürün teslimine yeni ilgili kişi eklenemez.',
+        );
+      }
+
       const isCalendarIntervalJob = job.type === 'SALES_MEETING' || job.type === 'PRODUCT_DELIVERY';
       const scheduleChanged = fields.scheduledAt !== undefined
         && fields.scheduledAt !== job.scheduledAt
@@ -1439,7 +1464,14 @@ export class JobCardService {
   }
 
   async listReferenceCustomers(actor: JobCardActor) {
-    return this.repository.listReferenceCustomers(actor.organizationId);
+    const customers = await this.repository.listReferenceCustomers(actor.organizationId);
+    if (actor.role !== 'STAFF') return customers;
+    return customers.map((customer) => ({
+      id: customer.id,
+      name: customer.name,
+      customerType: customer.customerType,
+      status: customer.status,
+    }));
   }
 
   async acceptAssignment(actor: JobCardActor, jobCardId: string, input: LifecycleInput) {

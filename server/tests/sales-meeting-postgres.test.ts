@@ -226,7 +226,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL acceptance', () => {
 
       let delivery = await service.create(staff, {
         clientActionId: 'delivery-create', type: 'PRODUCT_DELIVERY', title: 'Numune teslimi',
-        description: null, customerId, contactId, assignedTo: staffId,
+        description: null, customerId, contactId: null, assignedTo: staffId,
         priority: 'normal', dueDate: null, scheduledAt: SCHEDULED_AT,
         scheduledEndsAt: '2026-07-15T11:00:00.000Z',
       });

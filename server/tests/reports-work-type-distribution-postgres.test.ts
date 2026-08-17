@@ -160,7 +160,9 @@ describe.skipIf(!databaseUrl)('Work-type distribution PostgreSQL RBAC contract',
       await insertJob(organizationOne, 'GENERAL_TASK', otherManagerStaff, inRange);
       await insertJob(organizationOne, 'PRODUCT_DELIVERY', unassignedStaff, inRange);
       await insertJob(organizationTwo, 'PRODUCT_DELIVERY', outsideOrganizationStaff, inRange);
-      await insertJob(organizationOne, 'GENERAL_TASK', directStaff, '2026-06-30T23:59:59.000Z');
+      // Europe/Istanbul July 1 starts at June 30 21:00Z. Keep this row
+      // genuinely outside the organization-local reporting range.
+      await insertJob(organizationOne, 'GENERAL_TASK', directStaff, '2026-06-30T20:59:59.000Z');
 
       const reports = new PostgresReportsRepository(pool);
       const input = {

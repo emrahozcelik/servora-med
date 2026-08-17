@@ -93,7 +93,7 @@ export type FollowUpProposal = {
 export type JobCardCreateInput =
   | {
     clientActionId: string; type: 'PRODUCT_DELIVERY'; title: string;
-    description?: string | null; customerId: string; contactId?: string | null;
+    description?: string | null; customerId: string;
     assignedTo: string; priority?: JobCardPriority; dueDate?: string | null;
     scheduledAt: string; scheduledEndsAt?: string;
   }
@@ -119,7 +119,7 @@ type NormalizedCommonCreateInput = {
 
 export type NormalizedJobCardCreateInput =
   | NormalizedCommonCreateInput & {
-      type: 'PRODUCT_DELIVERY'; customerId: string; scheduledAt: string;
+      type: 'PRODUCT_DELIVERY'; customerId: string; contactId: null; scheduledAt: string;
       overrideReason?: string | null;
     }
   | NormalizedCommonCreateInput & { type: 'GENERAL_TASK'; customerId: string | null }
@@ -189,6 +189,7 @@ export type ReferenceCustomer = {
   name: string;
   customerType: string;
   status: string;
+  assignedStaffUserId?: string | null;
 };
 
 export type ReferenceContact = {
@@ -218,6 +219,7 @@ export type JobLifecycleFacts = {
 };
 
 export type PersistedJobCardDetail = JobCard & {
+  organizationTimezone: string;
   assignee: RelatedIdentity;
   customer: RelatedIdentity | null;
   contact: RelatedIdentity | null;

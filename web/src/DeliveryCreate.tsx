@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
+import { Link } from 'react-router-dom';
 
 import {
   addDeliveryItem,
@@ -17,15 +18,12 @@ import { useAvailableSlotSearch } from './jobs/useAvailableSlotSearch';
 import type { AvailableSlot } from './jobs/jobs-api';
 import type { CustomerScheduleConflictDetail, CustomerScheduleEvaluation } from './jobs/jobs-api';
 import { defaultScheduledLocalValue, isoInstantToLocalDateTime, localDateTimeToIso } from './jobs/scheduling';
-import { getCustomer, type Contact, type CustomerDetail } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import type { Product } from './services/products-api';
-import { createRequestGate } from './services/request-gate';
 
 export type DeliveryFormValues = {
   customerId: string;
   customerName: string;
-  contactId: string | null;
   assignedTo: string;
   productId: string;
   deliveryPurpose: DeliveryPurpose;
@@ -35,15 +33,6 @@ export type DeliveryFormValues = {
   deliveryNote?: string;
   overrideReason?: string | null;
 };
-
-export function deliveryDefaultsForCustomer(customer: CustomerDetail, activeStaffIds: Set<string>) {
-  const contacts = customer.contacts.filter((contact) => contact.isActive);
-  return {
-    contacts,
-    contactId: contacts.find((contact) => contact.isPrimary)?.id ?? '',
-    assignedTo: customer.assignedStaffUserId && activeStaffIds.has(customer.assignedStaffUserId) ? customer.assignedStaffUserId : '',
-  };
-}
 
 type FlowDependencies = {
   createJob: (input: Parameters<typeof createJobCard>[0]) => Promise<{ id: string; version: number }>;
@@ -67,7 +56,6 @@ export async function createProductDelivery(
     type: 'PRODUCT_DELIVERY',
     title: `${values.customerName} ürün teslimi`,
     customerId: values.customerId,
-    contactId: values.contactId,
     assignedTo: user.role === 'STAFF' ? user.id : values.assignedTo,
     priority: 'normal',
     scheduledAt: localDateTimeToIso(values.scheduledAt),
@@ -85,8 +73,9 @@ export async function createProductDelivery(
   return { jobCardId: job.id, version: delivery.jobCardVersion };
 }
 
-export function DeliveryCreateView({ user, onCancel, onCreated }: {
+export function DeliveryCreateView({ user, onCancel, onCreated, initialCustomerId = '' }: {
   user: CurrentUser;
+  initialCustomerId?: string;
   onCancel: () => void;
   onCreated: (result: { jobCardId: string; version: number }) => void;
 }) {
@@ -94,11 +83,7 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   const [error, setError] = useState('');
   const [customers, setCustomers] = useState<ReferenceCustomer[]>([]);
   const [customerState, setCustomerState] = useState<'loading' | 'ready' | 'error'>('loading');
-  const [customerId, setCustomerId] = useState('');
-  const [contacts, setContacts] = useState<Contact[]>([]);
-  const [contactId, setContactId] = useState('');
-  const [contactState, setContactState] = useState<'idle' | 'loading' | 'ready' | 'error'>('idle');
-  const [contactError, setContactError] = useState('');
+  const [customerId, setCustomerId] = useState(initialCustomerId);
   const [staff, setStaff] = useState<StaffProfile[]>([]);
   const [staffState, setStaffState] = useState<'loading' | 'ready' | 'error'>(user.role === 'STAFF' ? 'ready' : 'loading');
   const [assignedTo, setAssignedTo] = useState(user.role === 'STAFF' ? user.id : '');
@@ -110,7 +95,6 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   const [authoritativeEvaluation, setAuthoritativeEvaluation] = useState<CustomerScheduleEvaluation | null>(null);
   const [calendarConflicts, setCalendarConflicts] = useState<Array<Record<string, unknown>>>([]);
   const errorRef = useRef<HTMLDivElement>(null);
-  const customerGate = useRef(createRequestGate());
   const activeStaffIds = useRef(new Set<string>());
   const responsibleStaffId = useRef<string | null>(null);
   const assigneeModified = useRef(false);
@@ -147,13 +131,38 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
   function useAvailableSlot(slot: AvailableSlot) {
     setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
   }
+
+  function applyCustomerSelection(customer: ReferenceCustomer | undefined) {
+    const responsibleId = customer?.assignedStaffUserId ?? null;
+    responsibleStaffId.current = responsibleId;
+    assigneeModified.current = false;
+    if (user.role !== 'STAFF') {
+      setAssignedTo(
+        responsibleId && activeStaffIds.current.has(responsibleId) ? responsibleId : '',
+      );
+    }
+  }
+
   async function loadCustomers() {
     setCustomerState('loading');
     try {
-      setCustomers(await listReferenceCustomers());
+      const next = await listReferenceCustomers();
+      setCustomers(next);
+      const initialCustomer = next.find((customer) => (
+        customer.id === initialCustomerId && customer.status !== 'inactive'
+      ));
+      if (initialCustomer) {
+        setCustomerId(initialCustomer.id);
+        applyCustomerSelection(initialCustomer);
+      } else if (initialCustomerId) {
+        setCustomerId('');
+        applyCustomerSelection(undefined);
+      }
       setCustomerState('ready');
     } catch {
       setCustomers([]);
+      setCustomerId('');
+      applyCustomerSelection(undefined);
       setCustomerState('error');
     }
   }
@@ -170,24 +179,9 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
     }).catch(() => { if (active) setStaffState('error'); });
     return () => { active = false; };
   }, [user.role]);
-  useEffect(() => () => { customerGate.current.next(); }, []);
-
-  async function changeCustomer(nextCustomerId: string) {
-    setCustomerId(nextCustomerId); setContacts([]); setContactId(''); setContactError(''); responsibleStaffId.current = null;
-    assigneeModified.current = false; if (user.role !== 'STAFF') setAssignedTo('');
-    const generation = customerGate.current.next();
-    if (!nextCustomerId) { setContactState('idle'); return; }
-    setContactState('loading');
-    try {
-      const detail = await getCustomer(nextCustomerId);
-      if (!customerGate.current.isCurrent(generation)) return;
-      const defaults = deliveryDefaultsForCustomer(detail, activeStaffIds.current);
-      setContacts(defaults.contacts); setContactId(defaults.contactId); setContactState('ready'); responsibleStaffId.current = detail.assignedStaffUserId;
-      if (user.role !== 'STAFF' && !assigneeModified.current) setAssignedTo(defaults.assignedTo);
-    } catch (caught) {
-      if (!customerGate.current.isCurrent(generation)) return;
-      setContactState('error'); setContactError(caught instanceof Error ? caught.message : 'İlgili kişiler yüklenemedi.');
-    }
+  function changeCustomer(nextCustomerId: string) {
+    setCustomerId(nextCustomerId);
+    applyCustomerSelection(customers.find((customer) => customer.id === nextCustomerId));
   }
 
   async function submit(event: FormEvent<HTMLFormElement>) {
@@ -204,7 +198,6 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
       const result = await createProductDelivery(user, {
         customerId: selectedCustomerId,
         customerName: customer.name,
-        contactId: String(data.get('contactId') ?? '') || null,
         assignedTo: selectedAssignee,
         productId: selectedProduct.id,
         deliveryPurpose: String(data.get('deliveryPurpose') ?? '') as DeliveryPurpose,
@@ -244,11 +237,11 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
 
   const availableCustomers = customers.filter((customer) => customer.status !== 'inactive');
   const unavailable = customerState === 'ready' && availableCustomers.length === 0;
-  const referencesPending = customerState === 'loading' || contactState === 'loading' || staffState === 'loading';
+  const referencesPending = customerState === 'loading' || staffState === 'loading';
   const submitDisabled = pending || unavailable || customerState !== 'ready' || !selectedProduct || referencesPending || (user.role !== 'STAFF' && !assignedTo);
   return <main className="delivery-create">
     <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Ürün teslimi</h1></div></div>
-    <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. İlgili kişi ve teslim notu isteğe bağlıdır.</p>
+    <p className="form-intro">Teslim edilen ürünü ve işlem amacını kaydedin. Teslim notu isteğe bağlıdır.</p>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}
       {calendarConflicts.map((conflict) => (
         <p key={String(conflict.id)}>
@@ -261,17 +254,11 @@ export function DeliveryCreateView({ user, onCancel, onCreated }: {
       <button data-retry-customers className="inline-action" type="button" onClick={() => void loadCustomers()}>Tekrar dene</button></p>}
     {unavailable && <div className="form-error" role="status">Teslim oluşturmak için aktif müşteri kaydı gereklidir.</div>}
     <form className="delivery-form" onSubmit={submit}>
-      <div className="field-group"><label htmlFor="delivery-customer">Müşteri</label>
+      <div className="field-group"><div className="field-label-row"><label htmlFor="delivery-customer">Müşteri</label>
+        <Link className="inline-action" to="/customers/new?source=delivery">Yeni müşteri ekle</Link></div>
         <select id="delivery-customer" name="customerId" required disabled={pending || unavailable || customerState !== 'ready'} value={customerId} onChange={(event) => void changeCustomer(event.target.value)}>
           <option value="" disabled>Seçin</option>{availableCustomers.map((item) => <option key={item.id} value={item.id}>{item.name}</option>)}
         </select></div>
-      <div className="field-group"><label htmlFor="delivery-contact">İlgili kişi</label>
-        <select id="delivery-contact" name="contactId" disabled={pending || !customerId || contactState === 'loading' || contactState === 'error'} value={contactId} onChange={(event) => setContactId(event.target.value)}>
-          <option value="">İlgili kişi seçilmedi</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}{contact.title ? ` — ${contact.title}` : ''}</option>)}
-        </select>
-        {contactState === 'loading' && <span className="field-status" role="status">İlgili kişiler yükleniyor…</span>}
-        {contactState === 'error' && <span className="field-error" role="alert">{contactError}</span>}
-      </div>
       {user.role !== 'STAFF' && <div className="field-group"><label htmlFor="delivery-assignee">Sorumlu personel</label>
         <select id="delivery-assignee" name="assignedTo" required disabled={pending || staffState !== 'ready'} value={assignedTo}
           onChange={(event) => { assigneeModified.current = true; setAssignedTo(event.target.value); }}>

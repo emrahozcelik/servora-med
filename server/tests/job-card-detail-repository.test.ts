@@ -4,6 +4,7 @@ import { PostgresJobCardRepository } from '../src/modules/job-cards/repository.j
 
 const baseRow = {
   id: 'job-1', organization_id: 'org-1', type: 'GENERAL_TASK', status: 'NEW', version: 1,
+  organization_timezone: 'America/New_York',
   title: 'Doktoru ara', description: null, customer_id: 'customer-1', contact_id: null,
   assigned_to: 'staff-1', created_by: 'manager-1', priority: 'normal', due_date: null,
   engagement_kind: null,
@@ -71,6 +72,7 @@ describe('Postgres JobCard detail projection', () => {
     const result = await repository.findJobCardDetail('org-1', 'job-1');
     expect(result).toEqual({
       id: 'job-1', organizationId: 'org-1', type: 'GENERAL_TASK', status: 'NEW', version: 1,
+      organizationTimezone: 'America/New_York',
       title: 'Doktoru ara', description: null, customerId: 'customer-1', contactId: null,
       assignedTo: 'staff-1', createdBy: 'manager-1', priority: 'normal', dueDate: null,
       scheduledAt: '2026-07-17T08:30:00.000Z',
@@ -93,6 +95,8 @@ describe('Postgres JobCard detail projection', () => {
     const projection = calls.at(-1)!;
     expect(projection.values).toEqual(['org-1', 'job-1']);
     expect(projection.text).toContain('JOIN users assignee');
+    expect(projection.text).toContain('JOIN organizations org');
+    expect(projection.text).toContain('org.timezone AS organization_timezone');
     expect(projection.text).toContain('LEFT JOIN customers customer');
     expect(projection.text).toContain('LEFT JOIN contacts contact');
     expect(projection.text).toContain('LEFT JOIN users accepter');

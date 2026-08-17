@@ -41,14 +41,20 @@ describe('linked follow-up create input', () => {
       scheduledAt: SCHEDULED_AT,
       priority: 'high',
       dueDate: '2026-08-03',
-      contactId: CONTACT_ID,
+      contactId: null,
     }))).toMatchObject({
       type: 'PRODUCT_DELIVERY',
       scheduledAt: SCHEDULED_AT,
       priority: 'high',
-      contactId: CONTACT_ID,
+      contactId: null,
       engagementKind: null,
     });
+
+    expect(() => parseFollowUpCreateInput(general({
+      type: 'PRODUCT_DELIVERY',
+      scheduledAt: SCHEDULED_AT,
+      contactId: CONTACT_ID,
+    }))).toThrowError(validationError);
 
     for (const engagementKind of [
       'SALES_MEETING', 'CUSTOMER_VISIT', 'PRODUCT_DEMO',

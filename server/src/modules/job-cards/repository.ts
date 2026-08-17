@@ -426,6 +426,7 @@ type JobCardRow = {
   follow_up_proposed_by: string | null;
 };
 type JobCardDetailRow = JobCardRow & {
+  organization_timezone: string;
   assignee_id: string; assignee_name: string;
   customer_id_join: string | null; customer_name: string | null;
   contact_id_join: string | null; contact_name: string | null;
@@ -703,6 +704,7 @@ function mapCalendarDate(value: string | Date | null) {
 }
 
 const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status, j.version,
+       org.timezone AS organization_timezone,
        j.title, j.description, j.customer_id, j.contact_id, j.assigned_to, j.created_by,
        j.priority, j.due_date, j.scheduled_at, j.scheduled_ends_at, j.engagement_kind,
         j.source_job_card_id, j.follow_up_instructions,
@@ -726,6 +728,8 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        proposer.id AS proposer_id, proposer.name AS proposer_name,
        cancellation.cancelled_from_status
 FROM job_cards j
+JOIN organizations org
+  ON org.id = j.organization_id
 JOIN users assignee
   ON assignee.organization_id = j.organization_id AND assignee.id = j.assigned_to
 LEFT JOIN customers customer
@@ -799,6 +803,7 @@ function mapLifecycleFacts(row: JobCardDetailRow): JobLifecycleFacts {
 function mapJobCardDetail(row: JobCardDetailRow): PersistedJobCardDetail {
   return {
     ...mapJobCard(row),
+    organizationTimezone: row.organization_timezone,
     assignee: { id: row.assignee_id, name: row.assignee_name },
     customer: row.customer_id_join === null
       ? null
@@ -2178,10 +2183,22 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
   }
 
   async listReferenceCustomers(organizationId: string) {
-    const result = await this.pool.query<{ id: string; name: string; customer_type: string; status: string }>(
-      `SELECT id, name, customer_type, status FROM customers
+    const result = await this.pool.query<{
+      id: string;
+      name: string;
+      customer_type: string;
+      status: string;
+      assigned_staff_user_id: string | null;
+    }>(
+      `SELECT id, name, customer_type, status, assigned_staff_user_id FROM customers
        WHERE organization_id=$1 AND status <> 'inactive' ORDER BY name, id`, [organizationId]);
-    return result.rows.map((row) => ({ id: row.id, name: row.name, customerType: row.customer_type, status: row.status }));
+    return result.rows.map((row) => ({
+      id: row.id,
+      name: row.name,
+      customerType: row.customer_type,
+      status: row.status,
+      assignedStaffUserId: row.assigned_staff_user_id,
+    }));
   }
 
 }
