@@ -152,6 +152,80 @@ describe('JobDetail follow-up continuity', () => {
     expect(host.querySelector('a[href="/jobs/source-1"]')?.textContent).toContain('Önceki işi aç');
   });
 
+  it('defaults the previous-job source context to a closed native disclosure', async () => {
+    await renderPanel(fullFollowUp, staff);
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure');
+    expect(disclosure).not.toBeNull();
+    expect(disclosure?.open).toBe(false);
+    expect(disclosure?.querySelector('summary')?.textContent).toContain('Önceki iş');
+  });
+
+  it('reveals the existing source context when the summary is activated', async () => {
+    await renderPanel(fullFollowUp, staff);
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure')!;
+    const summary = disclosure.querySelector('summary')!;
+    await act(async () => { (summary as HTMLElement).click(); });
+    expect(disclosure.open).toBe(true);
+    expect(disclosure.textContent).toContain('Uzun takip kapsamı');
+    expect(summary.querySelector('a')).toBeNull();
+    expect(disclosure.querySelector('a[href="/jobs/source-1"]')).not.toBeNull();
+  });
+
+  it('collapses the source context again when the summary is activated twice', async () => {
+    await renderPanel(fullFollowUp, staff);
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure')!;
+    const summary = disclosure.querySelector('summary') as HTMLElement;
+    await act(async () => { summary.click(); summary.click(); });
+    expect(disclosure.open).toBe(false);
+  });
+
+  it('keeps disclosure keyboard semantics native without redundant ARIA', async () => {
+    await renderPanel(fullFollowUp, staff);
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure')!;
+    const summary = disclosure.querySelector('summary')!;
+    expect(summary.tagName).toBe('SUMMARY');
+    expect(summary.getAttribute('role')).toBeNull();
+    expect(summary.getAttribute('aria-expanded')).toBeNull();
+    expect(summary.getAttribute('tabindex')).toBeNull();
+  });
+
+  it('expands RESTRICTED context without adding a link or private fields', async () => {
+    await renderPanel(restrictedFollowUp, staff);
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure')!;
+    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
+    expect(disclosure.open).toBe(true);
+    expect(disclosure.querySelector('a')).toBeNull();
+    for (const marker of [
+      'SOURCE_OPERATIONAL_NOTE_MARKER', 'PRIVATE_MEETING_SUMMARY_MARKER',
+      'SOURCE_ACTIVITY_MARKER', 'SOURCE_STAFF_MARKER', 'DELIVERY_DETAIL_MARKER',
+    ]) expect(disclosure.textContent).not.toContain(marker);
+  });
+
+  it('does not request another source job when the disclosure expands', async () => {
+    api.getJobCard.mockClear();
+    await renderPanel(fullFollowUp, staff);
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure')!;
+    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
+    expect(api.getJobCard).not.toHaveBeenCalled();
+  });
+
+  it('keeps an expanded disclosure open across an ordinary detail refresh', async () => {
+    await renderPanel(fullFollowUp, staff);
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure')!;
+    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
+    await renderPanel({ ...fullFollowUp, version: fullFollowUp.version + 1 }, staff);
+    expect(host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure')?.open).toBe(true);
+  });
+
+  it('starts closed again after the source panel is remounted', async () => {
+    await renderPanel(fullFollowUp, staff);
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure')!;
+    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
+    await act(async () => root.render(<div />));
+    await renderPanel(fullFollowUp, staff);
+    expect(host.querySelector<HTMLDetailsElement>('details.follow-up-source-disclosure')?.open).toBe(false);
+  });
+
   it('renders RESTRICTED context without a link or forbidden private markers', async () => {
     await renderPanel(restrictedFollowUp, staff);
     expect(host.textContent).toContain('Önceki iş bağlamı');
