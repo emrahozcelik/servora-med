@@ -188,13 +188,13 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
         title: 'Kontrol görüşmesi', description: null,
         customerId, contactId: null, assignedTo: staffId,
         priority: 'normal', dueDate: '2026-07-14',
-        scheduledAt: '2026-07-14T10:00:00.000Z',
-        scheduledEndsAt: '2026-07-14T11:00:00.000Z',
+        scheduledAt: '2026-07-14T08:00:00.000Z',
+        scheduledEndsAt: '2026-07-14T09:00:00.000Z',
         engagementKind: 'SALES_MEETING',
       });
       expect(salesMeeting).toMatchObject({
         type: 'SALES_MEETING', status: 'ACCEPTED', version: 1,
-        scheduledAt: '2026-07-14T10:00:00.000Z',
+        scheduledAt: '2026-07-14T08:00:00.000Z',
         customer: { id: customerId, name: 'ABC Klinik' },
         assignee: { id: staffId, name: 'Ayşe Personel' },
       });
@@ -203,7 +203,7 @@ describe.skipIf(!databaseUrl)('JobCard workspace PostgreSQL contract', () => {
       })).items).toEqual([
         expect.objectContaining({
           id: salesMeeting.id, type: 'SALES_MEETING', deliveryItemCount: 0,
-          scheduledAt: '2026-07-14T10:00:00.000Z',
+          scheduledAt: '2026-07-14T08:00:00.000Z',
         }),
       ]);
       expect((await service.board(staff, {

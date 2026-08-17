@@ -298,7 +298,7 @@ export type JobCardActivityStatus = JobCardStatus | 'PLANNED';
 export type JobPermissionSubject = Pick<
   JobCard,
   'organizationId' | 'type' | 'status' | 'assignedTo'
->;
+> & Partial<Pick<JobCard, 'scheduledAt'>>;
 
 export const JOB_WORKFLOW_ACTIONS = [
   'EDIT_JOB_FIELDS', 'WITHDRAW_AND_EDIT_JOB_FIELDS', 'VIEW_MEETING_RESULT',

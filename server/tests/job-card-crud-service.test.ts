@@ -450,10 +450,10 @@ describe('JobCardService create and reads', () => {
     expect(repository.activities).toEqual(['JOB_CREATED']);
   });
 
-  it('creates management-assigned work as NEW without acceptance facts', async () => {
+  it.each([manager, admin])('creates management-assigned work as NEW without acceptance facts (%s)', async (actor) => {
     const repository = new CrudMemoryRepository();
-    const result = await serviceOf(repository).create(manager, {
-      ...createInput, clientActionId: 'manager-create-1', assignedTo: 'staff-1',
+    const result = await serviceOf(repository).create(actor, {
+      ...createInput, clientActionId: `${actor.role.toLowerCase()}-create-1`, assignedTo: 'staff-1',
     });
     expect(result).toMatchObject({
       status: 'NEW', version: 1, assignedTo: 'staff-1', scheduledAt: SCHEDULED_AT,

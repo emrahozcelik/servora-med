@@ -671,6 +671,10 @@ export class JobCardService {
       engagementKind: JobCardEngagementKind | null;
       clientActionId: string;
       requestTime: Date;
+      acceptance?: {
+        acceptedAt: Date;
+        acceptedBy: string;
+      };
       activityMetadata?: unknown;
     },
   ): Promise<{ job: JobCard; realtimeEvents: RealtimeEventRecord[] }> {
@@ -685,7 +689,7 @@ export class JobCardService {
     const job = await transaction.createJobCard({
       organizationId: actor.organizationId,
       type: input.type,
-      status: 'NEW',
+      status: input.acceptance ? 'ACCEPTED' : 'NEW',
       title: input.title,
       description: null,
       customerId: input.customerId,
@@ -697,8 +701,8 @@ export class JobCardService {
       scheduledAt: input.scheduledAt,
       scheduledEndsAt: null,
       engagementKind: input.engagementKind,
-      acceptedAt: null,
-      acceptedBy: null,
+      acceptedAt: input.acceptance?.acceptedAt ?? null,
+      acceptedBy: input.acceptance?.acceptedBy ?? null,
       sourceJobCardId: input.sourceJobCardId,
       followUpInstructions: input.followUpInstructions,
     });
@@ -726,6 +730,10 @@ export class JobCardService {
       assignedTo: job.assignedTo,
       version: job.version,
     };
+    if (input.acceptance) {
+      createdValue.acceptedAt = input.acceptance.acceptedAt.toISOString();
+      createdValue.acceptedBy = input.acceptance.acceptedBy;
+    }
     if (job.scheduledAt !== null) createdValue.scheduledAt = job.scheduledAt;
     if (job.engagementKind !== null) createdValue.engagementKind = job.engagementKind;
     const activity = await transaction.appendActivity({
@@ -762,6 +770,7 @@ export class JobCardService {
     assertCanListFollowUps(actor);
     const source = await this.repository.findJobCard(actor.organizationId, sourceJobCardId);
     if (!source) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+    const evaluatedAt = this.now();
     const result = await this.repository.listFollowUps(
       actor.organizationId,
       sourceJobCardId,
@@ -769,7 +778,7 @@ export class JobCardService {
     );
     return {
       ...result,
-      items: result.items.map((item) => this.presentFollowUpListItem(actor, item)),
+      items: result.items.map((item) => this.presentFollowUpListItem(actor, item, evaluatedAt)),
     };
   }
 
@@ -777,17 +786,18 @@ export class JobCardService {
     if (actor.role === 'STAFF' && query.assignedTo !== null && query.assignedTo !== actor.id) {
       return { items: [], total: 0, limit: query.limit, offset: query.offset };
     }
+    const evaluatedAt = this.now();
     const page = await this.repository.listJobCards(
       {
         organizationId: actor.organizationId,
         assignedTo: actor.role === 'STAFF' ? actor.id : null,
       },
       query,
-      this.now(),
+      evaluatedAt,
     );
     return {
       ...page,
-      items: page.items.map((item) => this.presentListItem(actor, item)),
+      items: page.items.map((item) => this.presentListItem(actor, item, evaluatedAt)),
     };
   }
 
@@ -804,6 +814,7 @@ export class JobCardService {
         closedCounts: { COMPLETED: 0, CANCELLED: 0 },
       };
     }
+    const evaluatedAt = this.now();
     const board = await this.repository.listBoard(
       {
         organizationId: actor.organizationId,
@@ -813,7 +824,7 @@ export class JobCardService {
     );
     const presentColumn = (column: { items: PersistedJobCardListItem[]; count: number }) => ({
       count: column.count,
-      items: column.items.map((item) => this.presentListItem(actor, item)),
+      items: column.items.map((item) => this.presentListItem(actor, item, evaluatedAt)),
     });
     return {
       columns: {
@@ -1380,13 +1391,14 @@ export class JobCardService {
 
   async start(actor: JobCardActor, jobCardId: string, input: StartInput) {
     const lifecycleInput = this.lifecycleInput(input);
+    const requestTime = this.now();
     const definition: LifecycleDefinition = {
       command: 'START', operationKey: 'JOB_START', target: 'IN_PROGRESS', event: 'JOB_STARTED',
       note: null, revisionReason: null, cancelReason: null,
       noteContext: null,
     };
     if (!this.geolocation.enabled) {
-      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition);
+      return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, undefined, requestTime);
     }
 
     const capture = parseStartLocationCapture(input.locationCapture);
@@ -1394,7 +1406,7 @@ export class JobCardService {
     const completed = await this.repository.findCompletedCriticalAction<unknown>(claim);
     if (completed) {
       const receipt = decodeJobCardMutationReceipt(completed);
-      return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? this.now());
+      return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? requestTime);
     }
 
     const job = await this.repository.findJobCard(actor.organizationId, jobCardId);
@@ -1403,14 +1415,14 @@ export class JobCardService {
       throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
     }
     assertStaffStartActor(actor);
-    assertCanTransition(actor, job, 'START');
+    assertCanTransition(actor, job, 'START', undefined, requestTime);
     const resolvedCapture = await this.resolveStartLocation({
       organizationId: actor.organizationId,
       actorUserId: actor.id,
       capture,
       correlationId: lifecycleInput.clientActionId,
     });
-    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, resolvedCapture);
+    return this.runLifecycle(actor, jobCardId, lifecycleInput, definition, resolvedCapture, requestTime);
   }
 
   async submitForApproval(actor: JobCardActor, jobCardId: string, input: SubmitInput) {
@@ -1481,8 +1493,9 @@ export class JobCardService {
     input: { clientActionId: string; expectedVersion: number },
     definition: LifecycleDefinition,
     startLocation?: JobActionLocationCapture,
+    requestTimeOverride?: Date,
   ) {
-    const requestTime = this.now();
+    const requestTime = requestTimeOverride ?? this.now();
     const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
       this.lifecycleClaim(actor, jobCardId, input.clientActionId, definition),
       async (tx) => {
@@ -1493,6 +1506,7 @@ export class JobCardService {
         assertCanTransition(
           actor, job, definition.command,
           definition.revisionReason ?? definition.cancelReason ?? undefined,
+          requestTime,
         );
         let persistedProposal: {
           scheduledAt: Date;
@@ -1657,6 +1671,15 @@ export class JobCardService {
             engagementKind: approval.proposal.type === 'SALES_MEETING' ? 'FOLLOW_UP' : null,
             clientActionId: input.clientActionId,
             requestTime,
+            ...(job.followUpProposedBy !== null
+              && job.followUpProposedBy === approval.proposal.assignedTo
+              ? {
+                acceptance: {
+                  acceptedAt: requestTime,
+                  acceptedBy: job.followUpProposedBy,
+                },
+              }
+              : {}),
             activityMetadata: {
               sourceJobCardId: jobCardId,
               ...(approval.overrideReason
@@ -2368,7 +2391,7 @@ export class JobCardService {
     const evaluation = readinessStatuses.includes(job.status)
       ? precomputed ?? await evaluateSubmission(reader, actor, persistedJob, evaluatedAt)
       : null;
-    const allowedCommands = getAllowedLifecycleCommands(actor, persistedJob);
+    const allowedCommands = getAllowedLifecycleCommands(actor, persistedJob, evaluatedAt);
     let followUpContext: JobCardDetail['followUpContext'] = null;
     if (sourceJobCardId != null) {
       if (followUpInstructions == null) followUpInvariantViolation();
@@ -2430,22 +2453,28 @@ export class JobCardService {
   private presentFollowUpListItem(
     actor: JobCardActor,
     item: PersistedFollowUpListItem,
+    evaluatedAt = this.now(),
   ) {
     const { sourceJobCardId, ...job } = item;
     return {
-      ...this.presentListItem(actor, job),
+      ...this.presentListItem(actor, job, evaluatedAt),
       followUp: { sourceJobCardId },
     };
   }
 
-  private presentListItem(actor: JobCardActor, item: PersistedJobCardListItem): JobCardListItem {
+  private presentListItem(
+    actor: JobCardActor,
+    item: PersistedJobCardListItem,
+    evaluatedAt = this.now(),
+  ): JobCardListItem {
     const subject: JobPermissionSubject = {
       organizationId: actor.organizationId,
       type: item.type,
       status: item.status,
       assignedTo: item.assignee.id,
+      scheduledAt: item.scheduledAt,
     };
-    return { ...item, allowedCommands: getAllowedLifecycleCommands(actor, subject) };
+    return { ...item, allowedCommands: getAllowedLifecycleCommands(actor, subject, evaluatedAt) };
   }
 
 }
