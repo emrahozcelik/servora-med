@@ -30,6 +30,8 @@ export interface NotificationRepository {
   unreadCount(viewer: NotificationViewer): Promise<number>;
   list(viewer: NotificationViewer, query: NotificationListQuery): Promise<NotificationPage>;
   markRead(viewer: NotificationViewer, notificationId: string): Promise<NotificationRecord | null>;
+  dismiss(viewer: NotificationViewer, notificationId: string): Promise<boolean>;
+  clearRead(viewer: NotificationViewer): Promise<number>;
 }
 
 function mapNotification(row: NotificationRow): NotificationRecord {
@@ -120,9 +122,10 @@ export class PostgresNotificationRepository implements NotificationRepository {
     const result = await this.pool.query<NotificationRow>(
       `SELECT id, organization_id, recipient_user_id, source_realtime_event_id,
               kind, entity_type, entity_id, created_at, read_at
-         FROM in_app_notifications
+        FROM in_app_notifications
         WHERE organization_id = $1
           AND recipient_user_id = $2
+          AND dismissed_at IS NULL
           ${cursorClause}
         ORDER BY created_at DESC, id DESC
         LIMIT ${limitParameter}`,
@@ -172,5 +175,36 @@ export class PostgresNotificationRepository implements NotificationRepository {
     );
     const row = result.rows[0];
     return row ? mapNotification(row) : null;
+  }
+
+  async dismiss(
+    viewer: NotificationViewer,
+    notificationId: string,
+  ): Promise<boolean> {
+    const result = await this.pool.query<{ id: string }>(
+      `UPDATE in_app_notifications
+          SET dismissed_at = COALESCE(dismissed_at, NOW())
+        WHERE organization_id = $1
+          AND recipient_user_id = $2
+          AND id = $3
+          AND read_at IS NOT NULL
+       RETURNING id`,
+      [viewer.organizationId, viewer.userId, notificationId],
+    );
+    return result.rows.length > 0;
+  }
+
+  async clearRead(viewer: NotificationViewer): Promise<number> {
+    const result = await this.pool.query<{ id: string }>(
+      `UPDATE in_app_notifications
+          SET dismissed_at = COALESCE(dismissed_at, NOW())
+        WHERE organization_id = $1
+          AND recipient_user_id = $2
+          AND read_at IS NOT NULL
+          AND dismissed_at IS NULL
+       RETURNING id`,
+      [viewer.organizationId, viewer.userId],
+    );
+    return result.rows.length;
   }
 }

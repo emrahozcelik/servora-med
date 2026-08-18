@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  clearReadNotifications,
+  dismissNotification,
   getUnreadNotificationCount,
   listNotifications,
   markNotificationRead,
@@ -61,6 +63,24 @@ describe('Notification API transport', () => {
     await expect(markNotificationRead(item.id)).resolves.toEqual(item);
     expect(fetchMock).toHaveBeenCalledWith(
       `/api/notifications/${item.id}/read`, expect.objectContaining({ method: 'PATCH', credentials: 'include' }),
+    );
+  });
+
+  it('dismisses one item or all read items through 204 action endpoints', async () => {
+    const fetchMock = vi.fn().mockResolvedValue(new Response(null, { status: 204 }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(dismissNotification('notification-1')).resolves.toBeUndefined();
+    await expect(clearReadNotifications()).resolves.toBeUndefined();
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      '/api/notifications/notification-1/dismiss',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      '/api/notifications/clear-read',
+      expect.objectContaining({ method: 'POST', credentials: 'include' }),
     );
   });
 

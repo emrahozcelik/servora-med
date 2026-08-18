@@ -62,6 +62,7 @@ describe('Postgres notification repository', () => {
     const [sql, values] = query.mock.calls[0]!;
     expect(sql).toContain('organization_id = $1');
     expect(sql).toContain('recipient_user_id = $2');
+    expect(sql).toContain('dismissed_at IS NULL');
     expect(sql).toContain('(created_at, id) < ($3, $4)');
     expect(sql).toContain('ORDER BY created_at DESC, id DESC');
     expect(values).toEqual([
@@ -104,6 +105,47 @@ describe('Postgres notification repository', () => {
     expect(sql).toContain('recipient_user_id = $2');
     expect(sql).toContain('id = $3');
     expect(values).toEqual(['organization-1', 'recipient-1', 'notification-1']);
+  });
+
+  it('dismisses only a read notification in the authenticated recipient scope', async () => {
+    const query = vi.fn().mockResolvedValue({ rows: [{ id: 'notification-1' }] });
+    const repository = new PostgresNotificationRepository({ query } as never);
+
+    await expect(repository.dismiss({
+      organizationId: 'organization-1',
+      userId: 'recipient-1',
+    }, 'notification-1')).resolves.toBe(true);
+
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toContain('UPDATE in_app_notifications');
+    expect(sql).toContain('dismissed_at = COALESCE(dismissed_at, NOW())');
+    expect(sql).toContain('read_at IS NOT NULL');
+    expect(sql).toContain('organization_id = $1');
+    expect(sql).toContain('recipient_user_id = $2');
+    expect(sql).toContain('id = $3');
+    expect(values).toEqual(['organization-1', 'recipient-1', 'notification-1']);
+  });
+
+  it('clears every visible read notification for the authenticated recipient', async () => {
+    const query = vi.fn().mockResolvedValue({
+      rows: [{ id: 'notification-1' }, { id: 'notification-2' }, { id: 'notification-3' }],
+    });
+    const repository = new PostgresNotificationRepository({ query } as never);
+
+    await expect(repository.clearRead({
+      organizationId: 'organization-1',
+      userId: 'recipient-1',
+    })).resolves.toBe(3);
+
+    const [sql, values] = query.mock.calls[0]!;
+    expect(sql).toContain('UPDATE in_app_notifications');
+    expect(sql).toContain('dismissed_at = COALESCE(dismissed_at, NOW())');
+    expect(sql).toContain('read_at IS NOT NULL');
+    expect(sql).toContain('dismissed_at IS NULL');
+    expect(sql).toContain('organization_id = $1');
+    expect(sql).toContain('recipient_user_id = $2');
+    expect(sql).not.toContain('id = $3');
+    expect(values).toEqual(['organization-1', 'recipient-1']);
   });
 });
 

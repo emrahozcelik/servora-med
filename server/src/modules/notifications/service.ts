@@ -25,4 +25,15 @@ export class NotificationService {
     }
     return presentNotification(notification);
   }
+
+  async dismiss(viewer: NotificationViewer, notificationId: string) {
+    const dismissed = await this.repository.dismiss(viewer, notificationId);
+    if (!dismissed) {
+      throw new AppError('NOTIFICATION_NOT_FOUND', 404, 'Bildirim bulunamadı.');
+    }
+  }
+
+  async clearRead(viewer: NotificationViewer) {
+    await this.repository.clearRead(viewer);
+  }
 }

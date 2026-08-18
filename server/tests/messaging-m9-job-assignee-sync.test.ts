@@ -33,6 +33,7 @@ const MIGRATIONS = [
   '027_follow_up_proposals.sql',
   '025_messaging_context_ready.sql',
   '026_messaging_participant_lifecycle.sql',
+  '028_notification_center_dismissal.sql',
 ] as const;
 
 type Fixture = {

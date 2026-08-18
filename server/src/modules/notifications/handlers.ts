@@ -1,4 +1,4 @@
-import type { FastifyRequest } from 'fastify';
+import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
 import type { NotificationService } from './service.js';
@@ -85,5 +85,13 @@ export function createNotificationHandlers(service: NotificationService) {
       return { ...response, nextCursor: encodeCursor(response.nextCursor) };
     },
     markRead: (request: FastifyRequest) => service.markRead(viewer(request), notificationId(request)),
+    dismiss: async (request: FastifyRequest, reply: FastifyReply) => {
+      await service.dismiss(viewer(request), notificationId(request));
+      return reply.code(204).send();
+    },
+    clearRead: async (request: FastifyRequest, reply: FastifyReply) => {
+      await service.clearRead(viewer(request));
+      return reply.code(204).send();
+    },
   };
 }

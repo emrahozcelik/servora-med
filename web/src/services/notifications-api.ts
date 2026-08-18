@@ -103,3 +103,15 @@ export async function markNotificationRead(notificationId: string) {
     method: 'PATCH',
   }));
 }
+
+export async function dismissNotification(notificationId: string) {
+  await request(`/api/notifications/${encodeURIComponent(notificationId)}/dismiss`, {
+    method: 'POST',
+  });
+}
+
+export async function clearReadNotifications() {
+  await request('/api/notifications/clear-read', {
+    method: 'POST',
+  });
+}

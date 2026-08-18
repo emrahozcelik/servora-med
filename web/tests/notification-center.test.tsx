@@ -17,6 +17,8 @@ const api = vi.hoisted(() => ({
   getUnreadNotificationCount: vi.fn(),
   listNotifications: vi.fn(),
   markNotificationRead: vi.fn(),
+  dismissNotification: vi.fn(),
+  clearReadNotifications: vi.fn(),
 }));
 vi.mock('../src/services/notifications-api', () => api);
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -407,6 +409,198 @@ describe('NotificationCenter', () => {
     expect(api.markNotificationRead).toHaveBeenCalledWith(notification.id);
     await act(async () => resolveMark!({ ...notification, readAt: '2026-07-21T11:00:00.000Z' }));
     expect(api.getUnreadNotificationCount).toHaveBeenCalledTimes(2);
+  });
+
+  it('offers dismissal only for read notifications and refreshes after a successful dismiss', async () => {
+    const readNotification = {
+      ...notification,
+      id: '33333333-3333-4333-8333-333333333333',
+      title: 'İş tamamlandı',
+      readAt: '2026-07-21T11:00:00.000Z',
+    };
+    let listCall = 0;
+    api.listNotifications.mockImplementation(() => {
+      listCall += 1;
+      return Promise.resolve(listCall === 1
+        ? { items: [notification, readNotification], nextCursor: null }
+        : { items: [notification], nextCursor: null });
+    });
+    api.dismissNotification.mockResolvedValue(undefined);
+
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      `[data-dismiss-notification-id="${readNotification.id}"]`,
+    )!;
+
+    expect(dismiss).not.toBeNull();
+    expect(container.querySelector(`[data-dismiss-notification-id="${notification.id}"]`)).toBeNull();
+    await act(async () => dismiss.click());
+
+    expect(api.dismissNotification).toHaveBeenCalledTimes(1);
+    expect(api.dismissNotification).toHaveBeenCalledWith(readNotification.id);
+    expect(api.listNotifications).toHaveBeenCalledTimes(2);
+    expect(container.querySelector(`[data-notification-id="${readNotification.id}"]`)).toBeNull();
+    expect(container.querySelector(`[data-notification-id="${notification.id}"]`)).not.toBeNull();
+  });
+
+  it('clears all visible read notifications through the server-authoritative bulk action', async () => {
+    const readNotification = {
+      ...notification,
+      id: '33333333-3333-4333-8333-333333333333',
+      title: 'İş tamamlandı',
+      readAt: '2026-07-21T11:00:00.000Z',
+    };
+    let listCall = 0;
+    api.listNotifications.mockImplementation(() => {
+      listCall += 1;
+      return Promise.resolve(listCall === 1
+        ? { items: [notification, readNotification], nextCursor: null }
+        : { items: [notification], nextCursor: null });
+    });
+    api.clearReadNotifications.mockResolvedValue(undefined);
+
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const clear = container.querySelector<HTMLButtonElement>('[data-clear-read]')!;
+
+    expect(clear.textContent).toBe('Okunanları temizle');
+    expect(clear.disabled).toBe(false);
+    await act(async () => clear.click());
+
+    expect(api.clearReadNotifications).toHaveBeenCalledTimes(1);
+    expect(api.clearReadNotifications).toHaveBeenCalledWith();
+    expect(container.querySelector(`[data-notification-id="${readNotification.id}"]`)).toBeNull();
+    expect(container.querySelector(`[data-notification-id="${notification.id}"]`)).not.toBeNull();
+    expect(container.querySelector('[data-clear-read]')?.textContent).toBe('Okunanları temizle');
+  });
+
+  it('keeps bulk clear available when older pages may contain read notifications', async () => {
+    let listCall = 0;
+    api.listNotifications.mockImplementation(() => {
+      listCall += 1;
+      return Promise.resolve(listCall === 1
+        ? { items: [notification], nextCursor: 'older-read' }
+        : { items: [notification], nextCursor: null });
+    });
+    api.clearReadNotifications.mockResolvedValue(undefined);
+
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const clear = container.querySelector<HTMLButtonElement>('[data-clear-read]')!;
+
+    expect(clear.disabled).toBe(false);
+    await act(async () => clear.click());
+
+    expect(api.clearReadNotifications).toHaveBeenCalledTimes(1);
+    expect(api.clearReadNotifications).toHaveBeenCalledWith();
+  });
+
+  it('disables the bulk action when no read notification is visible or known', async () => {
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const clear = container.querySelector<HTMLButtonElement>('[data-clear-read]')!;
+
+    expect(clear.disabled).toBe(true);
+    await act(async () => clear.click());
+    expect(api.clearReadNotifications).not.toHaveBeenCalled();
+  });
+
+  it('keeps a read notification visible and reports the error when dismissal fails', async () => {
+    const readNotification = {
+      ...notification,
+      id: '33333333-3333-4333-8333-333333333333',
+      title: 'İş tamamlandı',
+      readAt: '2026-07-21T11:00:00.000Z',
+    };
+    api.listNotifications.mockResolvedValue({ items: [readNotification], nextCursor: null });
+    api.dismissNotification.mockRejectedValueOnce(new Error('Temizleme başarısız'));
+
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      `[data-dismiss-notification-id="${readNotification.id}"]`,
+    )!;
+    await act(async () => dismiss.click());
+
+    expect(container.querySelector(`[data-notification-id="${readNotification.id}"]`)).not.toBeNull();
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Temizleme başarısız');
+  });
+
+  it('locks a pending dismissal against duplicate requests and restores focus to a remaining item', async () => {
+    const firstRead = {
+      ...notification,
+      id: '33333333-3333-4333-8333-333333333333',
+      title: 'İlk okunan bildirim',
+      readAt: '2026-07-21T11:00:00.000Z',
+    };
+    const secondRead = {
+      ...notification,
+      id: '44444444-4444-4444-8444-444444444444',
+      title: 'İkinci okunan bildirim',
+      readAt: '2026-07-21T12:00:00.000Z',
+    };
+    let resolveDismiss: (() => void) | undefined;
+    let listCall = 0;
+    api.listNotifications.mockImplementation(() => {
+      listCall += 1;
+      return Promise.resolve(listCall === 1
+        ? { items: [firstRead, secondRead], nextCursor: null }
+        : { items: [secondRead], nextCursor: null });
+    });
+    api.dismissNotification.mockImplementationOnce(() => new Promise<void>((resolve) => {
+      resolveDismiss = resolve;
+    }));
+
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      `[data-dismiss-notification-id="${firstRead.id}"]`,
+    )!;
+    await act(async () => dismiss.click());
+    await act(async () => dismiss.click());
+
+    expect(api.dismissNotification).toHaveBeenCalledTimes(1);
+    expect(dismiss.disabled).toBe(true);
+    await act(async () => resolveDismiss!());
+
+    expect(document.activeElement?.getAttribute('data-notification-id')).toBe(secondRead.id);
+  });
+
+  it('restores focus to the close control after dismissing the last notification', async () => {
+    const readNotification = {
+      ...notification,
+      id: '33333333-3333-4333-8333-333333333333',
+      title: 'Son okunan bildirim',
+      readAt: '2026-07-21T11:00:00.000Z',
+    };
+    let listCall = 0;
+    api.listNotifications.mockImplementation(() => {
+      listCall += 1;
+      return Promise.resolve(listCall === 1
+        ? { items: [readNotification], nextCursor: null }
+        : { items: [], nextCursor: null });
+    });
+    api.dismissNotification.mockResolvedValue(undefined);
+
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      `[data-dismiss-notification-id="${readNotification.id}"]`,
+    )!;
+    const close = container.querySelector<HTMLButtonElement>('.drawer-close')!;
+    dismiss.focus();
+    await act(async () => dismiss.click());
+
+    expect(container.querySelector(`[data-notification-id="${readNotification.id}"]`)).toBeNull();
+    expect(document.activeElement).toBe(close);
   });
 
   it('deduplicates later pages and keeps the panel open when mark-read fails', async () => {
