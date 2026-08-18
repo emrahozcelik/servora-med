@@ -477,6 +477,28 @@ describe('NotificationCenter', () => {
     expect(container.querySelector('[data-clear-read]')?.textContent).toBe('Okunanları temizle');
   });
 
+  it('keeps bulk clear available when older pages may contain read notifications', async () => {
+    let listCall = 0;
+    api.listNotifications.mockImplementation(() => {
+      listCall += 1;
+      return Promise.resolve(listCall === 1
+        ? { items: [notification], nextCursor: 'older-read' }
+        : { items: [notification], nextCursor: null });
+    });
+    api.clearReadNotifications.mockResolvedValue(undefined);
+
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const clear = container.querySelector<HTMLButtonElement>('[data-clear-read]')!;
+
+    expect(clear.disabled).toBe(false);
+    await act(async () => clear.click());
+
+    expect(api.clearReadNotifications).toHaveBeenCalledTimes(1);
+    expect(api.clearReadNotifications).toHaveBeenCalledWith();
+  });
+
   it('disables the bulk action when no read notification is visible or known', async () => {
     await render();
     const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
@@ -549,6 +571,36 @@ describe('NotificationCenter', () => {
     await act(async () => resolveDismiss!());
 
     expect(document.activeElement?.getAttribute('data-notification-id')).toBe(secondRead.id);
+  });
+
+  it('restores focus to the close control after dismissing the last notification', async () => {
+    const readNotification = {
+      ...notification,
+      id: '33333333-3333-4333-8333-333333333333',
+      title: 'Son okunan bildirim',
+      readAt: '2026-07-21T11:00:00.000Z',
+    };
+    let listCall = 0;
+    api.listNotifications.mockImplementation(() => {
+      listCall += 1;
+      return Promise.resolve(listCall === 1
+        ? { items: [readNotification], nextCursor: null }
+        : { items: [], nextCursor: null });
+    });
+    api.dismissNotification.mockResolvedValue(undefined);
+
+    await render();
+    const trigger = container.querySelector<HTMLButtonElement>('[aria-label="Bildirimler"]')!;
+    await act(async () => trigger.click());
+    const dismiss = container.querySelector<HTMLButtonElement>(
+      `[data-dismiss-notification-id="${readNotification.id}"]`,
+    )!;
+    const close = container.querySelector<HTMLButtonElement>('.drawer-close')!;
+    dismiss.focus();
+    await act(async () => dismiss.click());
+
+    expect(container.querySelector(`[data-notification-id="${readNotification.id}"]`)).toBeNull();
+    expect(document.activeElement).toBe(close);
   });
 
   it('deduplicates later pages and keeps the panel open when mark-read fails', async () => {

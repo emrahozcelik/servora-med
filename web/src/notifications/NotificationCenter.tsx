@@ -51,6 +51,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const dismissPendingIdRef = useRef<string | null>(null);
   const clearReadPendingRef = useRef(false);
   const focusNotificationIdRef = useRef<string | null>(null);
+  const restoreNotificationFocusRef = useRef(false);
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [items, setItems] = useState<readonly InAppNotification[]>([]);
@@ -66,6 +67,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const [installError, setInstallError] = useState('');
   const install = useInstallOpportunity();
   const webPush = useWebPush();
+  const canClearRead = items.some((notification) => notification.readAt !== null) || nextCursor !== null;
 
   async function loadUnread() {
     const request = ++unreadRequest.current;
@@ -109,6 +111,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     setClearReadPending(false);
     clearReadPendingRef.current = false;
     focusNotificationIdRef.current = null;
+    restoreNotificationFocusRef.current = false;
     setActionError('');
     setView('notifications');
     setInstallPending(false);
@@ -159,13 +162,14 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   }, [open]);
 
   useEffect(() => {
+    if (!restoreNotificationFocusRef.current || dismissPendingId !== null || clearReadPending) return;
     const targetId = focusNotificationIdRef.current;
-    if (!targetId) return;
     const target = Array.from(
       panelRef.current?.querySelectorAll<HTMLButtonElement>('[data-notification-id]') ?? [],
     ).find((button) => button.dataset.notificationId === targetId);
     if (target?.disabled) return;
     focusNotificationIdRef.current = null;
+    restoreNotificationFocusRef.current = false;
     (target ?? closeRef.current)?.focus();
   }, [items, dismissPendingId, clearReadPending]);
 
@@ -227,6 +231,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     ) return;
     const index = items.findIndex((item) => item.id === notification.id);
     focusNotificationIdRef.current = items[index + 1]?.id ?? items[index - 1]?.id ?? null;
+    restoreNotificationFocusRef.current = true;
     dismissPendingIdRef.current = notification.id;
     setDismissPendingId(notification.id);
     setActionError('');
@@ -235,6 +240,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
       await Promise.all([loadUnread(), loadPage(null, false)]);
     } catch (caught) {
       focusNotificationIdRef.current = null;
+      restoreNotificationFocusRef.current = false;
       setActionError(message(caught, 'Bildirim temizlenemedi. Lütfen tekrar deneyin.'));
     } finally {
       dismissPendingIdRef.current = null;
@@ -247,7 +253,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
       clearReadPendingRef.current
       || pendingIdRef.current
       || dismissPendingIdRef.current
-      || !items.some((notification) => notification.readAt !== null)
+      || !canClearRead
     ) return;
     clearReadPendingRef.current = true;
     setClearReadPending(true);
@@ -293,7 +299,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
                   clearReadPending
                   || pendingId !== null
                   || dismissPendingId !== null
-                  || !items.some((notification) => notification.readAt !== null)
+                  || !canClearRead
                 }
                 aria-busy={clearReadPending}
                 onClick={() => void clearRead()}
