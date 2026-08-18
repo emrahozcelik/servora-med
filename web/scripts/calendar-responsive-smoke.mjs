@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { createServer as createViteServer } from 'vite';
 
+import { calendarScreenshotPath } from './calendar-responsive-screenshot-path.mjs';
+
 const root = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const css = readFileSync(resolve(root, 'src/styles.css'), 'utf8');
 const fixture = `<!doctype html>
@@ -231,7 +233,7 @@ async function runViewport(browser, baseUrl, viewport, failures) {
     const viewportFailures = contractFailures(measurement, viewport);
     failures.push(...viewportFailures.map((failure) => `${viewport.name}: ${failure}`));
 
-    await page.screenshot({ path: `/private/tmp/servora-calendar-${viewport.name}.png`, fullPage: true });
+    await page.screenshot({ path: calendarScreenshotPath(viewport.name), fullPage: true });
 
     if (viewport.compact) {
       await exerciseSelection(page, measurement.targetKey);
