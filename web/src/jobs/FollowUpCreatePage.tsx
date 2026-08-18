@@ -1,7 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 
 import { ApiError, type CurrentUser } from '../services/api';
-import { listContacts, type Contact } from '../services/crm-api';
 import { listStaff, type StaffProfile } from '../services/people-api';
 import { LoadingSkeleton, RecordDescriptions, ResultState } from '../ui/antd';
 import { counterState } from '../ui/counter-policy';
@@ -12,6 +11,7 @@ import {
   getJobCard,
   getMeetingDetails,
   JOB_CARD_ENGAGEMENT_KINDS,
+  type AvailableSlot,
   type FollowUpCreateInput,
   type JobCard,
   type JobCardEngagementKind,
@@ -22,21 +22,23 @@ import {
   CUSTOMERLESS_FOLLOW_UP_EXPLANATION,
   FOLLOW_UP_ERROR_MESSAGES,
 } from './follow-up-presentation';
+import { AvailableSlotsNotice } from './AvailableSlotsNotice';
 import {
   defaultScheduledLocalValue,
   isoInstantToLocalDateTime,
   localDateTimeToIso,
 } from './scheduling';
 import { CustomerScheduleNotice } from './CustomerScheduleNotice';
+import { useAvailableSlotSearch } from './useAvailableSlotSearch';
 import { useCustomerSchedulePreview } from './useCustomerSchedulePreview';
 
 type LoadState =
   | { kind: 'loading' }
-  | { kind: 'ready'; source: JobCard; contacts: Contact[]; staff: StaffProfile[] }
+  | { kind: 'ready'; source: JobCard; staff: StaffProfile[] }
   | { kind: 'error'; status: '403' | '404' | 'error'; message: string };
 
 type FieldErrors = Partial<Record<
-  'title' | 'followUpInstructions' | 'assignedTo' | 'scheduledAt' | 'contactId' | 'type' | 'engagementKind',
+  'title' | 'followUpInstructions' | 'assignedTo' | 'scheduledAt' | 'type' | 'engagementKind',
   string
 >>;
 
@@ -90,7 +92,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const [scheduledLocal, setScheduledLocal] = useState('');
   const [dueDate, setDueDate] = useState('');
   const [assignedTo, setAssignedTo] = useState('');
-  const [contactId, setContactId] = useState('');
   const [priority, setPriority] = useState<JobCardPriority>('normal');
   const [engagementKind, setEngagementKind] = useState<JobCardEngagementKind>('FOLLOW_UP');
   const [pending, setPending] = useState(false);
@@ -111,7 +112,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     setScheduledLocal('');
     setDueDate('');
     setAssignedTo('');
-    setContactId('');
     setPriority('normal');
     setEngagementKind('FOLLOW_UP');
     setPending(false);
@@ -130,12 +130,8 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     (async () => {
       try {
         const source = await getJobCard(sourceId);
-        const [staff, contacts, meeting] = await Promise.all([
+        const [staff, meeting] = await Promise.all([
           listStaff('active'),
-          source.customerId
-            ? listContacts(source.customerId, { status: 'active', limit: 200, offset: 0 })
-              .then((page) => page.items)
-            : Promise.resolve([]),
           source.type === 'SALES_MEETING'
             ? getMeetingDetails(sourceId).catch(() => null)
             : Promise.resolve(null),
@@ -144,15 +140,13 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         const customerless = source.customer === null;
         const initialType = customerless ? 'GENERAL_TASK' : source.type;
         setType(initialType);
-        setContactId(source.contact && contacts.some((contact) => contact.id === source.contact!.id)
-          ? source.contact.id : '');
         setEngagementKind(source.type === 'SALES_MEETING'
           ? source.engagementKind ?? 'FOLLOW_UP' : 'FOLLOW_UP');
         setScheduledLocal(meeting?.nextFollowUpAt
           ? isoInstantToLocalDateTime(meeting.nextFollowUpAt)
           : defaultScheduledLocalValue(new Date()));
         setState({
-          kind: 'ready', source, contacts,
+          kind: 'ready', source,
           staff: staff.filter((profile) => profile.user.isActive),
         });
       } catch (error) {
@@ -171,10 +165,24 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     scheduledLocal,
     enabled: state.kind === 'ready' && type !== 'GENERAL_TASK' && readySource?.customerId != null,
   });
+  const availableSlotType = type === 'SALES_MEETING' || type === 'PRODUCT_DELIVERY' ? type : null;
+  const availableSlotSearch = useAvailableSlotSearch({
+    type: availableSlotType ?? 'SALES_MEETING',
+    customerId: readySource?.customerId ?? null,
+    assignedTo: assignedTo || null,
+    scheduledStartLocal: scheduledLocal,
+    jobCardId: null,
+    enabled: user.capabilities?.calendar === true
+      && state.kind === 'ready' && availableSlotType !== null && readySource?.customerId != null,
+  });
 
   function useSuggestedAlternative() {
     if (!evaluation?.suggestedAlternativeAt) return;
     setScheduledLocal(isoInstantToLocalDateTime(evaluation.suggestedAlternativeAt));
+  }
+
+  function useAvailableSlot(slot: AvailableSlot) {
+    setScheduledLocal(isoInstantToLocalDateTime(slot.startsAt));
   }
 
   if (user.role === 'STAFF') {
@@ -202,7 +210,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     </main>;
   }
 
-  const { source, contacts, staff } = state;
+  const { source, staff } = state;
   if (source.status !== 'COMPLETED') {
     return <main className="task-create"><ResultState status="error"
       title="Takip işi oluşturulamaz"
@@ -217,7 +225,6 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   function changeType(nextType: JobCardType) {
     if (customerless && nextType !== 'GENERAL_TASK') return;
     setType(nextType);
-    if (nextType === 'PRODUCT_DELIVERY') setContactId('');
     setFieldErrors((current) => ({ ...current, type: undefined, scheduledAt: undefined, engagementKind: undefined }));
   }
 
@@ -246,7 +253,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
       assignedTo,
       priority,
       dueDate: type === 'SALES_MEETING' ? null : dueDate || null,
-      contactId: customerless || type === 'PRODUCT_DELIVERY' ? null : contactId || null,
+      contactId: null,
       ...(overrideReason.trim() ? { overrideReason: overrideReason.trim() } : {}),
       ...(type === 'SALES_MEETING' ? { engagementKind } : {}),
     };
@@ -288,18 +295,11 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         setSubmitError('Takip kapsamını kontrol edin.');
       } else if (apiError?.code === 'FOLLOW_UP_SOURCE_CUSTOMER_REQUIRED') {
         setType('GENERAL_TASK');
-        setContactId('');
         setFieldErrors({ type: CUSTOMERLESS_FOLLOW_UP_EXPLANATION });
         setSubmitError(CUSTOMERLESS_FOLLOW_UP_EXPLANATION);
       } else if (apiError?.code === 'ASSIGNEE_NOT_FOUND') {
         setFieldErrors({ assignedTo: 'Seçilen personel artık kullanılamıyor.' });
         setSubmitError('Sorumlu personeli kontrol edin.');
-      } else if (apiError?.code === 'CONTACT_NOT_FOUND'
-        || apiError?.code === 'CONTACT_INACTIVE'
-        || apiError?.code === 'CONTACT_NOT_IN_CUSTOMER'
-        || apiError?.code === 'FOLLOW_UP_CONTACT_REQUIRES_CUSTOMER') {
-        setFieldErrors({ contactId: apiError ? errorMessage(apiError) : 'İlgili kişiyi kontrol edin.' });
-        setSubmitError('İlgili kişiyi kontrol edin.');
       } else {
         setSubmitError(apiError ? errorMessage(apiError) : 'Takip işi oluşturulamadı. Tekrar deneyin.');
       }
@@ -317,7 +317,7 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         <RecordDescriptions ariaLabel="Kaynak iş özeti" items={[
           { key: 'type', label: 'İş türü', content: jobTypeLabels[source.type] },
           { key: 'customer', label: 'Müşteri', content: source.customer?.name ?? 'Müşteri bağlantısı yok' },
-          { key: 'contact', label: 'İlgili kişi', content: source.contact?.name ?? 'Belirtilmedi' },
+          { key: 'assignee', label: 'Sorumlu personel', content: source.assignee?.name ?? 'Belirtilmedi' },
           { key: 'completed', label: 'Tamamlanma tarihi', content: formatDate(source.workflowContext.lifecycle.approvedAt) },
         ]} />
       </div>
@@ -325,97 +325,111 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
     {submitError && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{submitError}</div>}
     <form className="task-form follow-up-form" onSubmit={submit} noValidate>
       <fieldset disabled={pending}>
-        <div className="field-group"><label htmlFor="follow-up-type">İş türü</label>
-          <select id="follow-up-type" value={type} aria-invalid={fieldErrors.type ? true : undefined}
-            aria-describedby={customerless ? 'follow-up-type-help' : fieldErrors.type ? 'follow-up-type-error' : undefined}
-            onChange={(event) => changeType(event.target.value as JobCardType)}>
-            <option value="GENERAL_TASK">Genel görev</option>
-            <option value="PRODUCT_DELIVERY" disabled={customerless}>Ürün teslimi</option>
-            <option value="SALES_MEETING" disabled={customerless}>Satış görüşmesi</option>
-          </select>
-          {customerless && <p id="follow-up-type-help" className="form-help">{CUSTOMERLESS_FOLLOW_UP_EXPLANATION}</p>}
-          {fieldErrors.type && !customerless && <span id="follow-up-type-error" className="field-error">{fieldErrors.type}</span>}
-        </div>
-        <div className="field-group"><label htmlFor="follow-up-title">Başlık</label>
-          <input id="follow-up-title" required maxLength={255} value={title}
-            aria-invalid={fieldErrors.title ? true : undefined}
-            aria-describedby={fieldErrors.title ? 'follow-up-title-error' : undefined}
-            onChange={(event) => setTitle(event.target.value)} />
-          {fieldErrors.title && <span id="follow-up-title-error" className="field-error">{fieldErrors.title}</span>}
-        </div>
-        <div className="field-group"><label htmlFor="follow-up-instructions">Yeni takip işinin kapsamı / talimatları <span aria-hidden="true">*</span></label>
-          <textarea id="follow-up-instructions" required rows={6} value={instructions}
-            aria-invalid={fieldErrors.followUpInstructions ? true : undefined}
-            aria-describedby={[
-              'follow-up-instructions-help',
-              counterState(4000 - instructionCount) !== 'hidden' ? 'follow-up-instructions-count' : null,
-              fieldErrors.followUpInstructions ? 'follow-up-instructions-error' : null,
-            ].filter(Boolean).join(' ')}
-            onChange={(event) => setInstructions(event.target.value)} />
-          <p id="follow-up-instructions-help" className="form-help">Bu alan yeni görevin kapsamıdır. Önceki işin operasyon notları otomatik olarak kopyalanmaz.</p>
-          <ProgressiveCounter
-            remaining={4000 - instructionCount}
-            dataCounter="follow-up-instructions"
-          >{instructionCount}/4000 karakter</ProgressiveCounter>
-          {fieldErrors.followUpInstructions && <span id="follow-up-instructions-error" className="field-error">{fieldErrors.followUpInstructions}</span>}
-        </div>
-        <div className="field-group"><span className="field-label">Müşteri</span>
-          <p className="fixed-field-value">{source.customer?.name ?? 'Müşteri bağlantısı yok'}</p>
-          <p className="form-help">Müşteri kaynak işten alınır.</p>
-        </div>
-        <div className="task-field-pair">
-          <div className="field-group"><label htmlFor="follow-up-assignee">Sorumlu personel</label>
-            <select id="follow-up-assignee" required value={assignedTo}
-              aria-invalid={fieldErrors.assignedTo ? true : undefined}
-              aria-describedby={fieldErrors.assignedTo ? 'follow-up-assignee-error' : undefined}
-              onChange={(event) => setAssignedTo(event.target.value)}>
-              <option value="">Seçin</option>{staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
+        <section className="follow-up-form-section" data-follow-up-section="task" aria-labelledby="follow-up-task-heading">
+          <div className="follow-up-form-section-heading">
+            <h2 id="follow-up-task-heading">Takip işi</h2>
+            <p>Yeni işin amacını, başlığını ve kapsamını tanımlayın.</p>
+          </div>
+          <div className="field-group"><label htmlFor="follow-up-type">İş türü</label>
+            <select id="follow-up-type" value={type} aria-invalid={fieldErrors.type ? true : undefined}
+              aria-describedby={customerless ? 'follow-up-type-help' : fieldErrors.type ? 'follow-up-type-error' : undefined}
+              onChange={(event) => changeType(event.target.value as JobCardType)}>
+              <option value="GENERAL_TASK">Genel görev</option>
+              <option value="PRODUCT_DELIVERY" disabled={customerless}>Ürün teslimi</option>
+              <option value="SALES_MEETING" disabled={customerless}>Satış görüşmesi</option>
             </select>
-            {fieldErrors.assignedTo && <span id="follow-up-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}
+            {customerless && <p id="follow-up-type-help" className="form-help">{CUSTOMERLESS_FOLLOW_UP_EXPLANATION}</p>}
+            {fieldErrors.type && !customerless && <span id="follow-up-type-error" className="field-error">{fieldErrors.type}</span>}
           </div>
-          <div className="field-group"><label htmlFor="follow-up-priority">Öncelik</label>
-            <select id="follow-up-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
-              <option value="low">Düşük</option><option value="normal">Normal</option><option value="high">Yüksek</option><option value="urgent">Acil</option>
+          <div className="field-group"><label htmlFor="follow-up-title">Başlık</label>
+            <input id="follow-up-title" required maxLength={255} value={title}
+              aria-invalid={fieldErrors.title ? true : undefined}
+              aria-describedby={fieldErrors.title ? 'follow-up-title-error' : undefined}
+              onChange={(event) => setTitle(event.target.value)} />
+            {fieldErrors.title && <span id="follow-up-title-error" className="field-error">{fieldErrors.title}</span>}
+          </div>
+          <div className="field-group"><label htmlFor="follow-up-instructions">Yeni takip işinin kapsamı / talimatları <span aria-hidden="true">*</span></label>
+            <textarea id="follow-up-instructions" required rows={6} value={instructions}
+              aria-invalid={fieldErrors.followUpInstructions ? true : undefined}
+              aria-describedby={[
+                'follow-up-instructions-help',
+                counterState(4000 - instructionCount) !== 'hidden' ? 'follow-up-instructions-count' : null,
+                fieldErrors.followUpInstructions ? 'follow-up-instructions-error' : null,
+              ].filter(Boolean).join(' ')}
+              onChange={(event) => setInstructions(event.target.value)} />
+            <p id="follow-up-instructions-help" className="form-help">Bu alan yeni görevin kapsamıdır. Önceki işin operasyon notları otomatik olarak kopyalanmaz.</p>
+            <ProgressiveCounter
+              remaining={4000 - instructionCount}
+              dataCounter="follow-up-instructions"
+            >{instructionCount}/4000 karakter</ProgressiveCounter>
+            {fieldErrors.followUpInstructions && <span id="follow-up-instructions-error" className="field-error">{fieldErrors.followUpInstructions}</span>}
+          </div>
+        </section>
+        <section className="follow-up-form-section" data-follow-up-section="assignment" aria-labelledby="follow-up-assignment-heading">
+          <div className="follow-up-form-section-heading">
+            <h2 id="follow-up-assignment-heading">Atama</h2>
+            <p>Kaynak işten gelen müşteri bağlamını koruyup sorumlu kişiyi belirleyin.</p>
+          </div>
+          <div className="follow-up-customer-context" data-follow-up-customer-readonly>
+            <span className="field-label">Müşteri</span>
+            <p className="fixed-field-value">{source.customer?.name ?? 'Müşteri bağlantısı yok'}</p>
+            <p className="form-help">Müşteri kaynak işten alınır ve bu sayfada değiştirilemez.</p>
+          </div>
+          <div className="task-field-pair">
+            <div className="field-group"><label htmlFor="follow-up-assignee">Sorumlu personel</label>
+              <select id="follow-up-assignee" required value={assignedTo}
+                aria-invalid={fieldErrors.assignedTo ? true : undefined}
+                aria-describedby={fieldErrors.assignedTo ? 'follow-up-assignee-error' : undefined}
+                onChange={(event) => setAssignedTo(event.target.value)}>
+                <option value="">Seçin</option>{staff.map((profile) => <option key={profile.user.id} value={profile.user.id}>{profile.user.name}</option>)}
+              </select>
+              {fieldErrors.assignedTo && <span id="follow-up-assignee-error" className="field-error">{fieldErrors.assignedTo}</span>}
+            </div>
+            <div className="field-group"><label htmlFor="follow-up-priority">Öncelik</label>
+              <select id="follow-up-priority" value={priority} onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
+                <option value="low">Düşük</option><option value="normal">Normal</option><option value="high">Yüksek</option><option value="urgent">Acil</option>
+              </select>
+            </div>
+          </div>
+          {type === 'SALES_MEETING' && <div className="field-group"><label htmlFor="follow-up-engagement-kind">Görüşme / ziyaret türü</label>
+            <select id="follow-up-engagement-kind" required value={engagementKind}
+              aria-invalid={fieldErrors.engagementKind ? true : undefined}
+              onChange={(event) => setEngagementKind(event.target.value as JobCardEngagementKind)}>
+              {JOB_CARD_ENGAGEMENT_KINDS.map((kind) => <option key={kind} value={kind}>{JOB_CARD_ENGAGEMENT_LABELS[kind]}</option>)}
             </select>
-          </div>
-        </div>
-        {type !== 'PRODUCT_DELIVERY' && <div className="field-group"><label htmlFor="follow-up-contact">İlgili kişi (isteğe bağlı)</label>
-          <select id="follow-up-contact" value={contactId} disabled={customerless}
-            aria-invalid={fieldErrors.contactId ? true : undefined}
-            aria-describedby={fieldErrors.contactId ? 'follow-up-contact-error' : undefined}
-            onChange={(event) => setContactId(event.target.value)}>
-            <option value="">Kişi seçilmedi</option>{contacts.map((contact) => <option key={contact.id} value={contact.id}>{contact.name}</option>)}
-          </select>
-          {fieldErrors.contactId && <span id="follow-up-contact-error" className="field-error">{fieldErrors.contactId}</span>}
-        </div>}
-        {type === 'SALES_MEETING' && <div className="field-group"><label htmlFor="follow-up-engagement-kind">Görüşme / ziyaret türü</label>
-          <select id="follow-up-engagement-kind" required value={engagementKind}
-            aria-invalid={fieldErrors.engagementKind ? true : undefined}
-            onChange={(event) => setEngagementKind(event.target.value as JobCardEngagementKind)}>
-            {JOB_CARD_ENGAGEMENT_KINDS.map((kind) => <option key={kind} value={kind}>{JOB_CARD_ENGAGEMENT_LABELS[kind]}</option>)}
-          </select>
-          {fieldErrors.engagementKind && <span className="field-error">{fieldErrors.engagementKind}</span>}
-        </div>}
-        <div className="task-field-pair">
-          <div className="field-group"><label htmlFor="follow-up-scheduled-at">Planlanan zaman{type === 'GENERAL_TASK' ? ' (isteğe bağlı)' : ''}</label>
-            <input id="follow-up-scheduled-at" type="datetime-local" required={type !== 'GENERAL_TASK'} value={scheduledLocal}
-              aria-invalid={fieldErrors.scheduledAt ? true : undefined}
-              aria-describedby={fieldErrors.scheduledAt ? 'follow-up-scheduled-at-error' : undefined}
-              onChange={(event) => setScheduledLocal(event.target.value)} />
-            {fieldErrors.scheduledAt && <span id="follow-up-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}
-          </div>
-          {type !== 'SALES_MEETING' && <div className="field-group"><label htmlFor="follow-up-due-date">Son tarih (isteğe bağlı)</label>
-            <input id="follow-up-due-date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+            {fieldErrors.engagementKind && <span className="field-error">{fieldErrors.engagementKind}</span>}
           </div>}
-        </div>
-        <CustomerScheduleNotice
-          evaluation={evaluation}
-          mode="manager"
-          overrideReason={overrideReason}
-          onOverrideReasonChange={setOverrideReason}
-          onUseSuggestedAlternative={useSuggestedAlternative}
-        />
-        {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
+        </section>
+        <section className="follow-up-form-section" data-follow-up-section="planning" aria-labelledby="follow-up-planning-heading">
+          <div className="follow-up-form-section-heading">
+            <h2 id="follow-up-planning-heading">Planlama</h2>
+            <p>Zamanı belirleyin ve müşteri-personel ortak uygunluğunu gözden geçirin.</p>
+          </div>
+          <div className="task-field-pair">
+            <div className="field-group"><label htmlFor="follow-up-scheduled-at">Planlanan zaman{type === 'GENERAL_TASK' ? ' (isteğe bağlı)' : ''}</label>
+              <input id="follow-up-scheduled-at" type="datetime-local" required={type !== 'GENERAL_TASK'} value={scheduledLocal}
+                aria-invalid={fieldErrors.scheduledAt ? true : undefined}
+                aria-describedby={fieldErrors.scheduledAt ? 'follow-up-scheduled-at-error' : undefined}
+                onChange={(event) => setScheduledLocal(event.target.value)} />
+              {fieldErrors.scheduledAt && <span id="follow-up-scheduled-at-error" className="field-error">{fieldErrors.scheduledAt}</span>}
+            </div>
+            {type !== 'SALES_MEETING' && <div className="field-group"><label htmlFor="follow-up-due-date">Son tarih (isteğe bağlı)</label>
+              <input id="follow-up-due-date" type="date" value={dueDate} onChange={(event) => setDueDate(event.target.value)} />
+            </div>}
+          </div>
+          <CustomerScheduleNotice
+            evaluation={evaluation}
+            mode="manager"
+            overrideReason={overrideReason}
+            onOverrideReasonChange={setOverrideReason}
+            onUseSuggestedAlternative={useSuggestedAlternative}
+          />
+          {previewing && <p className="field-status" role="status">Müşteri planı kontrol ediliyor…</p>}
+          <AvailableSlotsNotice
+            {...availableSlotSearch}
+            onSelect={useAvailableSlot}
+          />
+        </section>
       </fieldset>
       <div className="form-actions">
         <button className="secondary-button" type="button" onClick={onCancel} disabled={pending}>Vazgeç</button>

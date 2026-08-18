@@ -12,7 +12,7 @@ import { workflowContext } from './fixtures/job-workflow';
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
 
 const jobs = vi.hoisted(() => ({
-  getJobCard: vi.fn(), getMeetingDetails: vi.fn(), createFollowUp: vi.fn(),
+  getJobCard: vi.fn(), getMeetingDetails: vi.fn(), createFollowUp: vi.fn(), findAvailableSlots: vi.fn(),
 }));
 const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const crm = vi.hoisted(() => ({ listContacts: vi.fn() }));
@@ -87,6 +87,10 @@ async function flush() {
   await act(async () => { await Promise.resolve(); await new Promise((resolve) => setTimeout(resolve, 0)); });
 }
 
+async function waitForAvailableSlotSearch() {
+  await act(async () => { await new Promise((resolve) => setTimeout(resolve, 300)); await Promise.resolve(); });
+}
+
 describe('Follow-up create page', () => {
   let root: Root;
   let host: HTMLDivElement;
@@ -118,6 +122,9 @@ describe('Follow-up create page', () => {
         contact: source.contact, outcome: 'FOLLOW_UP_REQUIRED',
       },
     } });
+    jobs.findAvailableSlots.mockResolvedValue({
+      slots: [{ startsAt: '2026-08-17T10:00:00.000Z', endsAt: '2026-08-17T11:00:00.000Z' }],
+    });
     people.listStaff.mockResolvedValue([profile]);
     crm.listContacts.mockResolvedValue({ items: [contact], total: 1, limit: 200, offset: 0 });
     onCreated = vi.fn();
@@ -156,17 +163,18 @@ describe('Follow-up create page', () => {
     expect(host.querySelector('form')).toBeNull();
   });
 
-  it('uses Sales Meeting proposal/contact/engagement defaults without copying free text', async () => {
+  it('uses Sales Meeting proposal/engagement defaults without loading Contact or copying free text', async () => {
     await render();
     expect((host.querySelector('#follow-up-type') as HTMLSelectElement).value).toBe('SALES_MEETING');
     expect((host.querySelector('#follow-up-scheduled-at') as HTMLInputElement).value).toBe('2026-08-10T09:30');
-    expect((host.querySelector('#follow-up-contact') as HTMLSelectElement).value).toBe('contact-1');
+    expect(host.querySelector('#follow-up-contact')).toBeNull();
+    expect(crm.listContacts).not.toHaveBeenCalled();
     expect((host.querySelector('#follow-up-engagement-kind') as HTMLSelectElement).value).toBe('CUSTOMER_VISIT');
     expect((host.querySelector('#follow-up-instructions') as HTMLTextAreaElement).value).toBe('');
     expect((host.querySelector('#follow-up-title') as HTMLInputElement).value).toBe('');
     expect(host.textContent).not.toContain('SOURCE_OPERATIONAL_NOTE_MARKER');
     expect(host.textContent).not.toContain('MEETING_SUMMARY_MARKER');
-    expect(host.textContent).not.toContain('Source Staff Marker');
+    expect(host.querySelector('form')?.textContent).not.toContain('Source Staff Marker');
   });
 
   it('defaults the existing source-job summary to a closed native disclosure', async () => {
@@ -184,7 +192,18 @@ describe('Follow-up create page', () => {
     await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
     expect(disclosure.open).toBe(true);
     expect(disclosure.textContent).toContain('Çok Uzun İsimli Klinik');
+    expect(disclosure.textContent).toContain('Sorumlu personel');
+    expect(disclosure.textContent).toContain('Source Staff Marker');
+    expect(disclosure.textContent).not.toContain('İlgili kişi');
     expect(host.querySelector('form')).not.toBeNull();
+  });
+
+  it('uses a safe fallback when the source assignee is unavailable', async () => {
+    await render(manager, { ...source, assignee: null as unknown as JobCard['assignee'] });
+    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-create-source-disclosure')!;
+    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
+    expect(disclosure.textContent).toContain('Sorumlu personel');
+    expect(disclosure.textContent).toContain('Belirtilmedi');
   });
 
   it('does not fetch the source again when the create summary expands', async () => {
@@ -215,8 +234,7 @@ describe('Follow-up create page', () => {
     expect((host.querySelector('#follow-up-instructions') as HTMLTextAreaElement).value).toBe('');
     expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('');
     expect((host.querySelector('#follow-up-priority') as HTMLSelectElement).value).toBe('normal');
-    expect((host.querySelector('#follow-up-contact') as HTMLSelectElement).value).toBe('');
-    expect((host.querySelector('#follow-up-contact') as HTMLSelectElement).disabled).toBe(true);
+    expect(host.querySelector('#follow-up-contact')).toBeNull();
     expect(host.textContent).toContain(CUSTOMERLESS_FOLLOW_UP_EXPLANATION);
   });
 
@@ -230,7 +248,46 @@ describe('Follow-up create page', () => {
     expect((options[1] as HTMLOptionElement).disabled).toBe(true);
     expect((options[2] as HTMLOptionElement).disabled).toBe(true);
     expect(host.textContent).toContain(CUSTOMERLESS_FOLLOW_UP_EXPLANATION);
-    expect((host.querySelector('#follow-up-contact') as HTMLSelectElement).disabled).toBe(true);
+    expect(host.querySelector('#follow-up-contact')).toBeNull();
+  });
+
+  it('organizes the create form into purpose-layered sections with read-only customer context', async () => {
+    await render();
+    expect(Array.from(host.querySelectorAll('[data-follow-up-section] h2')).map((heading) => heading.textContent))
+      .toEqual(['Takip işi', 'Atama', 'Planlama']);
+    const customerContext = host.querySelector('[data-follow-up-customer-readonly]');
+    expect(customerContext).not.toBeNull();
+    expect(customerContext?.querySelector('input, select, textarea')).toBeNull();
+    expect(customerContext?.textContent).toContain('Çok Uzun İsimli Klinik');
+    expect(customerContext?.textContent).toContain('değiştirilemez');
+  });
+
+  it('uses shared available slots for Sales Meeting and Product Delivery follow-ups', async () => {
+    await render();
+    change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
+    await waitForAvailableSlotSearch();
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'SALES_MEETING', customerId: 'customer-1', assignedTo: 'staff-2',
+    }));
+    expect(host.querySelector('.available-slots-notice')).not.toBeNull();
+
+    jobs.findAvailableSlots.mockClear();
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    await waitForAvailableSlotSearch();
+    expect(jobs.findAvailableSlots).toHaveBeenCalledWith(expect.objectContaining({
+      type: 'PRODUCT_DELIVERY', customerId: 'customer-1', assignedTo: 'staff-2',
+    }));
+    expect(host.querySelector('.available-slots-notice')).not.toBeNull();
+  });
+
+  it('does not search for or render available slots for a General Task follow-up', async () => {
+    await render(manager, {
+      ...source, type: 'GENERAL_TASK', customerId: null, contactId: null,
+      customer: null, contact: null, engagementKind: null,
+    });
+    await waitForAvailableSlotSearch();
+    expect(jobs.findAvailableSlots).not.toHaveBeenCalled();
+    expect(host.querySelector('.available-slots-notice')).toBeNull();
   });
 
   it('validates instructions and submits exactly once on a double submit', async () => {
@@ -254,7 +311,7 @@ describe('Follow-up create page', () => {
       clientActionId: 'action-1', type: 'SALES_MEETING', title: 'Yeni görüşme',
       followUpInstructions: 'Yeni talimat', scheduledAt: '2026-08-10T06:30:00.000Z',
       assignedTo: 'staff-2', priority: 'normal', dueDate: null,
-      contactId: 'contact-1', engagementKind: 'CUSTOMER_VISIT',
+      contactId: null, engagementKind: 'CUSTOMER_VISIT',
     });
     expect(jobs.createFollowUp.mock.calls[0]?.[1]).not.toHaveProperty('customerId');
     expect(jobs.createFollowUp.mock.calls[0]?.[1]).not.toHaveProperty('scheduledEndsAt');
