@@ -1721,6 +1721,31 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .follow-up-breadcrumb li:not(:last-child)::after { margin-left: 0.4rem; color: var(--muted); content: '/'; }
 .task-form { margin-top: 1.5rem; }
 .task-form fieldset { min-width: 0; margin: 0; padding: 0; border: 0; }
+.follow-up-form-section {
+  min-width: 0;
+  margin-top: 1.75rem;
+  padding-top: 1.5rem;
+  border-top: 1px solid var(--rule);
+}
+.follow-up-form-section:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
+.follow-up-form-section-heading { margin-bottom: 1rem; }
+.follow-up-form-section-heading h2 { margin: 0; font-size: 1.1rem; }
+.follow-up-form-section-heading p { margin: 0.35rem 0 0; color: var(--muted); line-height: 1.5; }
+.follow-up-form-section-heading + .field-group { margin-top: 0; }
+.follow-up-customer-context {
+  min-width: 0;
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--canvas);
+}
+.follow-up-customer-context .field-label { margin-bottom: 0.25rem; }
+.follow-up-customer-context .form-help { margin-top: 0.35rem; }
+.follow-up-form-section > .customer-schedule-notice,
+.follow-up-form-section > .available-slots-notice,
+.follow-up-form-section > .field-status { margin-top: 1rem; }
+.follow-up-form .available-slots-notice h2 { margin: 0; font-size: 1rem; }
+.follow-up-form .available-slots-notice > p { margin: 0.5rem 0 0; }
 .task-optional { margin: 1.5rem 0; border-top: 1px solid var(--rule); border-bottom: 1px solid var(--rule); }
 .task-optional summary { min-height: var(--control-height); display: flex; align-items: center; cursor: pointer; color: var(--ink); font-weight: 650; }
 .task-optional-fields { padding: 0.25rem 0 1rem; }
