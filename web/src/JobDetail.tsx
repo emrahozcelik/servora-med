@@ -266,7 +266,7 @@ function DeliveryItemActualTimeForm({
         {fieldError && <span id={`${fieldId}-error`} className="field-error">{fieldError}</span>}
       </div>
       {submitError && <p className="field-error" role="alert">{submitError}</p>}
-      <div className="review-buttons">
+      <div className="review-buttons inline-form-actions">
         <button className="secondary-button" type="submit" disabled={pending}>
           {pending ? 'Kaydediliyor…' : 'Gerçekleşen teslim zamanını kaydet'}
         </button>

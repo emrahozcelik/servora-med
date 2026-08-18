@@ -143,7 +143,7 @@ export function SalesMeetingEditForm({ job, user, pending, onCancel, onSave }: {
           onChange={(event) => setPriority(event.target.value as JobCardPriority)}>
           <option value="low">Düşük</option><option value="normal">Normal</option>
           <option value="high">Yüksek</option><option value="urgent">Acil</option></select></div>
-    </fieldset><div className="review-buttons">
+    </fieldset><div className="review-buttons inline-form-actions">
       <button data-cancel-meeting-edit className="secondary-button" type="button" disabled={pending} onClick={onCancel}>Vazgeç</button>
       <button className="primary-button compact-button" type="submit" disabled={pending || referencesLoading}>
         {pending ? 'Kaydediliyor…' : 'Değişiklikleri kaydet'}</button>

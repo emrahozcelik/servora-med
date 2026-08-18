@@ -90,7 +90,7 @@ export function GeneralTaskEditForm({ job, user, pending, onCancel, onSave }: {
           && <span className="field-error">{fieldError}</span>}
         <p className="form-help">Sorumlu personel değişikliği işi atandığı aşamaya geri alır ve mesajlaşma üyeliği ayrıca sorulur.</p>
       </div>}
-    </fieldset><div className="review-buttons">
+    </fieldset><div className="review-buttons inline-form-actions">
       <button data-cancel-general-task-edit className="secondary-button" type="button" disabled={pending} onClick={onCancel}>Vazgeç</button>
       <button className="primary-button compact-button" type="submit" disabled={pending || staffState !== 'ready'}>
         {pending ? 'Kaydediliyor…' : 'Değişiklikleri kaydet'}</button>
