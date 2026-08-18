@@ -87,9 +87,10 @@ describe('runMigrations', () => {
       '025_messaging_context_ready.sql',
       '026_messaging_participant_lifecycle.sql',
       '027_follow_up_proposals.sql',
+      '028_notification_center_dismissal.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('027_follow_up_proposals.sql');
-    expect(expectedSchemaVersion).toBe(27);
+    expect(migrations.at(-1)?.name).toBe('028_notification_center_dismissal.sql');
+    expect(expectedSchemaVersion).toBe(28);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

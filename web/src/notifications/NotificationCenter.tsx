@@ -9,6 +9,8 @@ import { useNavigate } from 'react-router-dom';
 
 import { useInstallOpportunity } from '../install/InstallOpportunity';
 import {
+  clearReadNotifications,
+  dismissNotification,
   getUnreadNotificationCount,
   listNotifications,
   markNotificationRead,
@@ -46,6 +48,9 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const listRequest = useRef(0);
   const openRef = useRef(false);
   const pendingIdRef = useRef<string | null>(null);
+  const dismissPendingIdRef = useRef<string | null>(null);
+  const clearReadPendingRef = useRef(false);
+  const focusNotificationIdRef = useRef<string | null>(null);
   const [open, setOpen] = useState(false);
   const [unreadCount, setUnreadCount] = useState<number | null>(null);
   const [items, setItems] = useState<readonly InAppNotification[]>([]);
@@ -53,6 +58,8 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   const [loading, setLoading] = useState(false);
   const [loadError, setLoadError] = useState('');
   const [pendingId, setPendingId] = useState<string | null>(null);
+  const [dismissPendingId, setDismissPendingId] = useState<string | null>(null);
+  const [clearReadPending, setClearReadPending] = useState(false);
   const [actionError, setActionError] = useState('');
   const [view, setView] = useState<'notifications' | 'settings'>('notifications');
   const [installPending, setInstallPending] = useState(false);
@@ -97,6 +104,11 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     setLoadError('');
     setPendingId(null);
     pendingIdRef.current = null;
+    setDismissPendingId(null);
+    dismissPendingIdRef.current = null;
+    setClearReadPending(false);
+    clearReadPendingRef.current = false;
+    focusNotificationIdRef.current = null;
     setActionError('');
     setView('notifications');
     setInstallPending(false);
@@ -146,6 +158,17 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     };
   }, [open]);
 
+  useEffect(() => {
+    const targetId = focusNotificationIdRef.current;
+    if (!targetId) return;
+    const target = Array.from(
+      panelRef.current?.querySelectorAll<HTMLButtonElement>('[data-notification-id]') ?? [],
+    ).find((button) => button.dataset.notificationId === targetId);
+    if (target?.disabled) return;
+    focusNotificationIdRef.current = null;
+    (target ?? closeRef.current)?.focus();
+  }, [items, dismissPendingId, clearReadPending]);
+
   function close() {
     setView('notifications');
     setOpen(false);
@@ -174,7 +197,7 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
   }
 
   async function activate(notification: InAppNotification) {
-    if (pendingIdRef.current) return;
+    if (pendingIdRef.current || dismissPendingIdRef.current || clearReadPendingRef.current) return;
     pendingIdRef.current = notification.id;
     setPendingId(notification.id);
     setActionError('');
@@ -192,6 +215,51 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
     } finally {
       pendingIdRef.current = null;
       setPendingId(null);
+    }
+  }
+
+  async function dismiss(notification: InAppNotification) {
+    if (
+      !notification.readAt
+      || pendingIdRef.current
+      || dismissPendingIdRef.current
+      || clearReadPendingRef.current
+    ) return;
+    const index = items.findIndex((item) => item.id === notification.id);
+    focusNotificationIdRef.current = items[index + 1]?.id ?? items[index - 1]?.id ?? null;
+    dismissPendingIdRef.current = notification.id;
+    setDismissPendingId(notification.id);
+    setActionError('');
+    try {
+      await dismissNotification(notification.id);
+      await Promise.all([loadUnread(), loadPage(null, false)]);
+    } catch (caught) {
+      focusNotificationIdRef.current = null;
+      setActionError(message(caught, 'Bildirim temizlenemedi. Lütfen tekrar deneyin.'));
+    } finally {
+      dismissPendingIdRef.current = null;
+      setDismissPendingId(null);
+    }
+  }
+
+  async function clearRead() {
+    if (
+      clearReadPendingRef.current
+      || pendingIdRef.current
+      || dismissPendingIdRef.current
+      || !items.some((notification) => notification.readAt !== null)
+    ) return;
+    clearReadPendingRef.current = true;
+    setClearReadPending(true);
+    setActionError('');
+    try {
+      await clearReadNotifications();
+      await Promise.all([loadUnread(), loadPage(null, false)]);
+    } catch (caught) {
+      setActionError(message(caught, 'Okunan bildirimler temizlenemedi. Lütfen tekrar deneyin.'));
+    } finally {
+      clearReadPendingRef.current = false;
+      setClearReadPending(false);
     }
   }
 
@@ -214,7 +282,26 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
       >
         <div className="notification-center-heading">
           <h2 id={titleId}>{view === 'settings' ? 'Kurulum ve cihaz bildirimleri' : 'Bildirimler'}</h2>
-          <button ref={closeRef} type="button" className="drawer-close" onClick={close}>Kapat</button>
+          <div className="notification-center-heading-actions">
+            <button ref={closeRef} type="button" className="drawer-close" onClick={close}>Kapat</button>
+            {view === 'notifications' && (
+              <button
+                type="button"
+                data-clear-read
+                className="notification-center-clear-read"
+                disabled={
+                  clearReadPending
+                  || pendingId !== null
+                  || dismissPendingId !== null
+                  || !items.some((notification) => notification.readAt !== null)
+                }
+                aria-busy={clearReadPending}
+                onClick={() => void clearRead()}
+              >
+                {clearReadPending ? 'Temizleniyor…' : 'Okunanları temizle'}
+              </button>
+            )}
+          </div>
         </div>
         {view === 'settings' ? (
           <div className="notification-settings notification-center-body">
@@ -358,12 +445,14 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
             {items.length > 0 && (
               <ol className="notification-center-list">
                 {items.map((notification) => {
-                  const pending = pendingId === notification.id;
+                  const pending = pendingId === notification.id
+                    || dismissPendingId !== null
+                    || clearReadPending;
                   const readState = notification.readAt
                     ? 'notification-center-item--read'
                     : 'notification-center-item--unread';
                   return (
-                    <li key={notification.id}>
+                    <li key={notification.id} className="notification-center-item-shell">
                       <button
                         type="button"
                         data-notification-id={notification.id}
@@ -380,6 +469,28 @@ export function NotificationCenter({ identityKey, mobile }: NotificationCenterPr
                           <span>{notification.readAt ? 'Okundu' : 'Okunmadı'}</span>
                         </span>
                       </button>
+                      {notification.readAt && (
+                        <button
+                          type="button"
+                          data-dismiss-notification-id={notification.id}
+                          className="notification-center-dismiss"
+                          aria-label="Bildirimi temizle"
+                          aria-busy={dismissPendingId === notification.id}
+                          disabled={
+                            dismissPendingId !== null
+                            || pendingId !== null
+                            || clearReadPending
+                          }
+                          onClick={(event) => {
+                            event.stopPropagation();
+                            void dismiss(notification);
+                          }}
+                        >
+                          <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                            <path d="M6 6l12 12M18 6L6 18" />
+                          </svg>
+                        </button>
+                      )}
                     </li>
                   );
                 })}

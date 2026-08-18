@@ -13,6 +13,8 @@ const api = vi.hoisted(() => ({
   getUnreadNotificationCount: vi.fn(),
   listNotifications: vi.fn(),
   markNotificationRead: vi.fn(),
+  dismissNotification: vi.fn(),
+  clearReadNotifications: vi.fn(),
 }));
 vi.mock('../src/services/notifications-api', () => api);
 vi.mock('../src/realtime/RealtimeProvider', () => ({
@@ -165,6 +167,14 @@ describe('NotificationCenter visual contracts (T2C)', () => {
     expect(readItem).toMatch(/border-inline-start-color:\s*var\(--rule\)/);
     const item = exactRuleBody(stylesCss, '.notification-center-item');
     expect(item).toMatch(/border-inline-start-width:\s*0\.25rem/);
+
+    const itemShell = exactRuleBody(stylesCss, '.notification-center-item-shell');
+    expect(itemShell).toMatch(/grid-template-columns:\s*minmax\(0,\s*1fr\)\s+auto/);
+    const dismiss = exactRuleBody(stylesCss, '.notification-center-dismiss');
+    expect(dismiss).toMatch(/min-width:\s*var\(--control-height\)/);
+    expect(dismiss).toMatch(/min-height:\s*var\(--control-height\)/);
+    const clearRead = exactRuleBody(stylesCss, '.notification-center-clear-read');
+    expect(clearRead).toMatch(/min-height:\s*var\(--control-height\)/);
 
     expect(stylesCss).not.toMatch(/0 1rem 2\.5rem oklch\(26% 0\.016 246deg \/ 22%\)/);
   });

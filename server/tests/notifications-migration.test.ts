@@ -13,6 +13,10 @@ const migrationUrl = new URL(
   '../src/db/migrations/012_create_in_app_notifications.sql',
   import.meta.url,
 );
+const dismissalMigrationUrl = new URL(
+  '../src/db/migrations/028_notification_center_dismissal.sql',
+  import.meta.url,
+);
 
 describe('012 in-app notifications migration', () => {
   it('creates a tenant-safe recipient notification read model', async () => {
@@ -37,6 +41,17 @@ describe('012 in-app notifications migration', () => {
   });
 });
 
+describe('028 notification center dismissal migration', () => {
+  it('adds a visibility marker and a partial recipient index without deleting records', async () => {
+    const sql = await readFile(fileURLToPath(dismissalMigrationUrl), 'utf8');
+
+    expect(sql).toContain('ADD COLUMN dismissed_at TIMESTAMPTZ');
+    expect(sql).toContain('CREATE INDEX in_app_notifications_visible_recipient_idx');
+    expect(sql).toMatch(/WHERE dismissed_at IS NULL/i);
+    expect(sql).not.toMatch(/DELETE\s+FROM\s+in_app_notifications/i);
+  });
+});
+
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrations = [
   '001_auth_foundation.sql',
@@ -56,6 +71,7 @@ const migrations = [
   '015_job_card_engagement_kind.sql',
   '016_google_reverse_geocoding.sql',
   '024_job_card_notes_invoice_number.sql',
+  '028_notification_center_dismissal.sql',
 
 ] as const;
 
@@ -286,6 +302,7 @@ describe.skipIf(!databaseUrl)('012 in-app notifications PostgreSQL migration', (
         'in_app_notifications_recipient_unread_idx',
         'in_app_notifications_recipient_created_idx',
         'in_app_notifications_source_event_idx',
+        'in_app_notifications_visible_recipient_idx',
       ]));
     } finally {
       if (pool) await pool.end();

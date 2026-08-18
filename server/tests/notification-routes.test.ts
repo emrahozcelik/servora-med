@@ -42,6 +42,7 @@ class MemoryNotificationRepository implements NotificationRepository {
   viewer: { organizationId: string; userId: string } | null = null;
   listQuery: { limit: number; cursor: NotificationCursor | null } | null = null;
   marked: string[] = [];
+  dismissed: string[] = [];
   records: NotificationRecord[] = [
     notification({ id: '11111111-1111-4111-8111-111111111111' }),
     notification({
@@ -63,7 +64,14 @@ class MemoryNotificationRepository implements NotificationRepository {
   ) {
     this.viewer = viewer;
     this.listQuery = query;
-    return { items: this.records.slice(0, query.limit), nextCursor: this.nextCursor };
+    return {
+      items: this.records
+        .filter((item) => item.organizationId === viewer.organizationId
+          && item.recipientUserId === viewer.userId
+          && !this.dismissed.includes(item.id))
+        .slice(0, query.limit),
+      nextCursor: this.nextCursor,
+    };
   }
   async markRead(viewer: { organizationId: string; userId: string }, notificationId: string) {
     this.viewer = viewer;
@@ -75,6 +83,23 @@ class MemoryNotificationRepository implements NotificationRepository {
     const read = { ...record, readAt: new Date('2026-07-21T11:00:00.000Z') };
     this.records = this.records.map((item) => item.id === notificationId ? read : item);
     return read;
+  }
+
+  async dismiss(viewer: { organizationId: string; userId: string }, notificationId: string) {
+    const record = this.records.find((item) => item.id === notificationId);
+    if (!record || record.organizationId !== viewer.organizationId
+      || record.recipientUserId !== viewer.userId || !record.readAt) return false;
+    if (!this.dismissed.includes(notificationId)) this.dismissed.push(notificationId);
+    return true;
+  }
+
+  async clearRead(viewer: { organizationId: string; userId: string }) {
+    const ids = this.records
+      .filter((item) => item.organizationId === viewer.organizationId
+        && item.recipientUserId === viewer.userId && item.readAt)
+      .map((item) => item.id);
+    for (const id of ids) if (!this.dismissed.includes(id)) this.dismissed.push(id);
+    return ids.length;
   }
 }
 
@@ -236,5 +261,63 @@ describe('Notification HTTP routes', () => {
     expect(missing.json()).toMatchObject({ code: 'NOTIFICATION_NOT_FOUND' });
     expect(recipientDenied.statusCode).toBe(404);
     expect(organizationDenied.statusCode).toBe(404);
+  });
+
+  it('dismisses only an owned read notification and rejects unread or out-of-scope records', async () => {
+    const { app, cookie } = await createApp();
+    const readId = '22222222-2222-4222-8222-222222222222';
+    const unreadId = '11111111-1111-4111-8111-111111111111';
+
+    const dismissed = await app.inject({
+      method: 'POST', url: `/api/notifications/${readId}/dismiss`, headers: { cookie },
+    });
+    const unread = await app.inject({
+      method: 'POST', url: `/api/notifications/${unreadId}/dismiss`, headers: { cookie },
+    });
+    const otherRecipient = await createApp({ userId: 'manager-1' });
+    const denied = await otherRecipient.app.inject({
+      method: 'POST', url: `/api/notifications/${readId}/dismiss`, headers: { cookie: otherRecipient.cookie },
+    });
+
+    expect(dismissed.statusCode).toBe(204);
+    expect(unread.statusCode).toBe(404);
+    expect(unread.json()).toMatchObject({ code: 'NOTIFICATION_NOT_FOUND' });
+    expect(denied.statusCode).toBe(404);
+  });
+
+  it('clears every current-user read notification without accepting a client id list', async () => {
+    const { app, cookie, notificationRepository } = await createApp();
+    const olderReadId = '33333333-3333-4333-8333-333333333333';
+    notificationRepository.records.push(notification({
+      id: olderReadId,
+      createdAt: new Date('2026-07-20T10:00:00.000Z'),
+      readAt: new Date('2026-07-20T11:00:00.000Z'),
+    }));
+    notificationRepository.records.push(notification({
+      id: '44444444-4444-4444-8444-444444444444',
+      organizationId: 'org-2',
+      recipientUserId: 'staff-2',
+      readAt: new Date('2026-07-20T12:00:00.000Z'),
+    }));
+
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/notifications/clear-read',
+      headers: { cookie },
+      payload: { notificationIds: ['11111111-1111-4111-8111-111111111111'] },
+    });
+
+    expect(response.statusCode).toBe(204);
+    expect(notificationRepository.dismissed).toEqual([
+      '22222222-2222-4222-8222-222222222222',
+      olderReadId,
+    ]);
+    const visible = await app.inject({
+      method: 'GET', url: '/api/notifications', headers: { cookie },
+    });
+    expect(visible.statusCode).toBe(200);
+    expect(visible.json().items.map((item: { id: string }) => item.id)).toEqual([
+      '11111111-1111-4111-8111-111111111111',
+    ]);
   });
 });
