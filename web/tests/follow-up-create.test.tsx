@@ -18,7 +18,8 @@ const people = vi.hoisted(() => ({ listStaff: vi.fn() }));
 const crm = vi.hoisted(() => ({ listContacts: vi.fn() }));
 const scheduling = vi.hoisted(() => ({
   defaultScheduledLocalValue: vi.fn(() => '2026-08-01T12:30'),
-  isoInstantToLocalDateTime: vi.fn(() => '2026-08-10T09:30'),
+  isoInstantToLocalDateTime: vi.fn((value: string) => value === '2026-08-17T10:00:00.000Z'
+    ? '2026-08-17T13:00' : '2026-08-10T09:30'),
   localDateTimeToIso: vi.fn((value: string) => value === '2026-08-10T09:30'
     ? '2026-08-10T06:30:00.000Z' : '2026-08-01T09:30:00.000Z'),
 }));
@@ -262,7 +263,7 @@ describe('Follow-up create page', () => {
     expect(customerContext?.textContent).toContain('değiştirilemez');
   });
 
-  it('uses shared available slots for Sales Meeting and Product Delivery follow-ups', async () => {
+  it('uses shared available slots and applies a selected slot to the planned start', async () => {
     await render();
     change(host.querySelector('#follow-up-assignee') as HTMLSelectElement, 'staff-2');
     await waitForAvailableSlotSearch();
@@ -270,6 +271,10 @@ describe('Follow-up create page', () => {
       type: 'SALES_MEETING', customerId: 'customer-1', assignedTo: 'staff-2',
     }));
     expect(host.querySelector('.available-slots-notice')).not.toBeNull();
+    const salesSlot = host.querySelector<HTMLButtonElement>('[data-available-slot]')!;
+    await act(async () => { salesSlot.click(); });
+    expect((host.querySelector('#follow-up-scheduled-at') as HTMLInputElement).value)
+      .toBe('2026-08-17T13:00');
 
     jobs.findAvailableSlots.mockClear();
     change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
