@@ -107,7 +107,7 @@ export function ServoraCalendar({
           >
             {current.date()}
           </button>
-          {!compact && dayEvents.length > 0 && (
+          {dayEvents.length > 0 && (
             <div className="servora-calendar-events">
               {dayEvents.slice(0, maxVisibleEventsPerDay).map((event) => (
                 <button
@@ -136,15 +136,26 @@ export function ServoraCalendar({
               )}
             </div>
           )}
-          {compact && dayEvents.length > 0 && (
-            <span className="servora-calendar-count" aria-label={`${dayEvents.length} plan`}>
-              {dayEvents.length}
-            </span>
-          )}
         </div>
       );
     },
-    [eventsByDate, monthDayjs, selectedDayjs, today, compact, maxVisibleEventsPerDay, onDateSelect, onEventSelect],
+    [eventsByDate, monthDayjs, selectedDayjs, today, maxVisibleEventsPerDay, onDateSelect, onEventSelect],
+  );
+
+  const compactCellRender = useCallback(
+    (current: Dayjs, info: { type: string }) => {
+      if (info.type !== 'date') return null;
+
+      const dayEvents = eventsByDate.get(current.format('YYYY-MM-DD')) ?? [];
+      if (dayEvents.length === 0) return null;
+
+      return (
+        <span className="servora-calendar-count" aria-label={`${dayEvents.length} plan`}>
+          {dayEvents.length}
+        </span>
+      );
+    },
+    [eventsByDate],
   );
 
   // Custom header: prev / today / next with accessible labels
@@ -195,7 +206,9 @@ export function ServoraCalendar({
         value={selectedDayjs}
         onSelect={handleSelect}
         onPanelChange={handlePanelChange}
-        fullCellRender={fullCellRender}
+        classNames={{ root: 'servora-calendar-root', item: 'servora-calendar-item' }}
+        fullCellRender={compact ? undefined : fullCellRender}
+        cellRender={compact ? compactCellRender : undefined}
         fullscreen={!compact}
         headerRender={headerRender}
       />

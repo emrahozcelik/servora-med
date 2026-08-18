@@ -314,6 +314,71 @@ describe('CalendarPage', () => {
       expect(container.querySelector('.servora-calendar-event-summary')).toBeNull();
     });
 
+    it('keeps AntD native compact cell geometry while adding count decoration', async () => {
+      resizeTo(390);
+      await render();
+
+      const calendar = container.querySelector('.servora-calendar--compact')!;
+      expect(calendar.querySelector('.servora-calendar-root')).toBeTruthy();
+      expect(calendar.querySelector('.servora-calendar-item')).toBeTruthy();
+      expect(calendar.querySelector('.ant-picker-calendar-date')).toBeTruthy();
+      expect(calendar.querySelector('.servora-calendar-cell')).toBeNull();
+      expect(calendar.querySelector('.servora-calendar-count')).toBeTruthy();
+    });
+
+    it('leaves selected and today styling to AntD in compact mode', async () => {
+      resizeTo(390);
+      await render();
+
+      const calendar = container.querySelector('.servora-calendar--compact')!;
+      expect(calendar.querySelector('.ant-picker-cell-selected')).toBeTruthy();
+      expect(calendar.querySelector('.ant-picker-calendar-date-today')).toBeTruthy();
+      expect(calendar.querySelector('.servora-calendar-cell--selected')).toBeNull();
+      expect(calendar.querySelector('.servora-calendar-cell--today')).toBeNull();
+      expect(calendar.querySelector('.servora-calendar-date--selected')).toBeNull();
+    });
+
+    it('native compact date-cell selection updates the agenda', async () => {
+      resizeTo(390);
+      await render();
+
+      const dateCell = Array.from(
+        container.querySelectorAll<HTMLTableCellElement>('.ant-picker-cell-in-view'),
+      ).find((cell) => cell.querySelector('.ant-picker-calendar-date-value')?.textContent?.trim() === '28');
+      expect(dateCell).toBeTruthy();
+
+      const agendaBefore = container.querySelector('.calendar-agenda-section')?.textContent ?? '';
+      await act(async () => dateCell!.click());
+      await act(async () => {});
+      const agenda = container.querySelector('.calendar-agenda-section')?.textContent ?? '';
+      expect(agenda).not.toBe(agendaBefore);
+      expect(agenda).toContain('28 Temmuz');
+      expect(agenda).toContain('Ürün teslimi');
+    });
+
+    it('renders a two-digit event count without replacing native compact content', async () => {
+      calendarApi.listCalendar.mockResolvedValue(
+        Array.from({ length: 12 }, (_, index) => ({ ...manualEvent, id: `manual-${index}` })),
+      );
+      resizeTo(390);
+      await render();
+
+      const count = container.querySelector('.servora-calendar-count');
+      expect(count?.textContent).toBe('12');
+      expect(count?.closest('.ant-picker-calendar-date-content')).toBeTruthy();
+      expect(count?.closest('.ant-picker-calendar-date')?.querySelector('.ant-picker-calendar-date-value')).toBeTruthy();
+    });
+
+    it('does not render a count badge for an empty compact day set', async () => {
+      calendarApi.listCalendar.mockResolvedValue([]);
+      resizeTo(390);
+      await render();
+
+      const calendar = container.querySelector('.servora-calendar--compact')!;
+      expect(calendar.querySelector('.ant-picker-calendar-date')).toBeTruthy();
+      expect(calendar.querySelector('.servora-calendar-count')).toBeNull();
+    });
+
     it('resize back to 1024 restores desktop mode', async () => {
       resizeTo(390);
       await render();
@@ -550,11 +615,12 @@ describe('CalendarPage', () => {
       expect(selected).toBeTruthy();
     });
 
-    it('keeps date and event controls available in compact/mobile mode', async () => {
+    it('keeps native date cells and event counts available in compact/mobile mode', async () => {
       resizeTo(390);
       await render();
       expect(container.querySelector('.servora-calendar--compact')).toBeTruthy();
-      expect(container.querySelector('button[aria-label="2026-07-29"]')).toBeTruthy();
+      expect(container.querySelector('.ant-picker-calendar-date')).toBeTruthy();
+      expect(container.querySelector('.ant-picker-cell-selected')).toBeTruthy();
       expect(container.querySelector('.servora-calendar-count')).toBeTruthy();
     });
   });
