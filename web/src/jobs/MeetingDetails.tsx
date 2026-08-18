@@ -135,7 +135,10 @@ export function MeetingDetailsSection({ job, details, user, canEdit: canEditOver
           onChange={(event) => setSummary(event.target.value)} />
         {fieldErrors.meetingSummary && <span id="meeting-summary-error" className="field-error">{fieldErrors.meetingSummary}</span>}</div>
       <p className="form-help">{followUpHint}</p>
-    </fieldset><button className="primary-button compact-button" type="submit" disabled={mutationPending}>
-      {mutationPending ? 'Kaydediliyor…' : 'Görüşme sonucunu kaydet'}</button></form>
+    </fieldset><div className="review-buttons inline-form-actions">
+      <button className="primary-button compact-button" type="submit" disabled={mutationPending}>
+        {mutationPending ? 'Kaydediliyor…' : 'Görüşme sonucunu kaydet'}
+      </button>
+    </div></form>
   </section>;
 }
