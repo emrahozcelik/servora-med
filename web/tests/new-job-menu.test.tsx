@@ -31,6 +31,7 @@ describe('NewJobMenu', () => {
     );
     expect(html).toContain('Yeni iş');
     expect(html).toContain('aria-expanded="false"');
+    expect(html).toContain('aria-controls=');
     expect(html).not.toContain('aria-haspopup');
     expect(html).not.toContain('Yeni görüşme');
     expect(html).not.toContain('Yeni görev');
@@ -88,6 +89,92 @@ describe('NewJobMenu', () => {
       document.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
     expect(host.querySelector('.new-job-menu-panel')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
+  });
+
+  it('closes on outside pointerdown without restoring focus to the trigger', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(
+        <NewJobMenu presentation="popover" onCreateMeeting={() => {}} />,
+      );
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    expect(host.querySelector('.new-job-menu-panel')).toBeTruthy();
+
+    const outside = document.createElement('button');
+    outside.type = 'button';
+    outside.textContent = 'Dış kontrol';
+    document.body.appendChild(outside);
+    outside.focus();
+
+    act(() => {
+      outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    });
+
+    expect(host.querySelector('.new-job-menu-panel')).toBeNull();
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+  });
+
+  it('keeps the menu open for pointerdown inside the panel', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(
+        <NewJobMenu presentation="popover" onCreateMeeting={() => {}} />,
+      );
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    const panel = host.querySelector('.new-job-menu-panel') as HTMLElement;
+
+    act(() => {
+      panel.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    });
+
+    expect(host.querySelector('.new-job-menu-panel')).toBe(panel);
+  });
+
+  it('closes when the same trigger is activated again', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(
+        <NewJobMenu presentation="popover" onCreateMeeting={() => {}} />,
+      );
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+    act(() => { trigger.click(); });
+    expect(host.querySelector('.new-job-menu-panel')).toBeTruthy();
+
+    act(() => { trigger.click(); });
+
+    expect(host.querySelector('.new-job-menu-panel')).toBeNull();
+    expect(trigger.getAttribute('aria-expanded')).toBe('false');
+  });
+
+  it('opens from keyboard activation', () => {
+    host = document.createElement('div');
+    document.body.appendChild(host);
+    root = createRoot(host);
+    act(() => {
+      root!.render(
+        <NewJobMenu presentation="popover" onCreateMeeting={() => {}} />,
+      );
+    });
+    const trigger = host.querySelector('button.new-job-menu-trigger') as HTMLButtonElement;
+
+    act(() => {
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', bubbles: true }));
+    });
+
+    expect(host.querySelector('.new-job-menu-panel')).toBeTruthy();
   });
 
   it('uses sheet presentation with dialog role and body scroll lock for sticky create', () => {

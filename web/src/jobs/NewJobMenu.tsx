@@ -1,4 +1,11 @@
-import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
+import {
+  useEffect,
+  useId,
+  useRef,
+  useState,
+  type KeyboardEvent as ReactKeyboardEvent,
+  type MouseEvent as ReactMouseEvent,
+} from 'react';
 
 export type NewJobMenuProps = {
   onCreateMeeting?: () => void;
@@ -29,11 +36,11 @@ export function NewJobMenu({
 
   useEffect(() => {
     if (!open) return;
-    function onDocPointer(event: MouseEvent) {
-      const target = event.target as Node;
+    function onDocPointer(event: PointerEvent) {
+      const target = event.target;
+      if (!(target instanceof Node)) return;
       if (panelRef.current?.contains(target) || triggerRef.current?.contains(target)) return;
       setOpen(false);
-      triggerRef.current?.focus();
     }
     function onKey(event: KeyboardEvent) {
       if (event.key === 'Escape') {
@@ -42,10 +49,10 @@ export function NewJobMenu({
         triggerRef.current?.focus();
       }
     }
-    document.addEventListener('mousedown', onDocPointer);
+    document.addEventListener('pointerdown', onDocPointer);
     document.addEventListener('keydown', onKey);
     return () => {
-      document.removeEventListener('mousedown', onDocPointer);
+      document.removeEventListener('pointerdown', onDocPointer);
       document.removeEventListener('keydown', onKey);
     };
   }, [open]);
@@ -96,6 +103,18 @@ export function NewJobMenu({
     triggerRef.current?.focus();
   }
 
+  function dismissWithoutFocus() {
+    setOpen(false);
+  }
+
+  function closeFromBackdrop(event: ReactMouseEvent<HTMLButtonElement>) {
+    if (event.detail === 0) {
+      close();
+      return;
+    }
+    dismissWithoutFocus();
+  }
+
   function onTriggerKey(event: ReactKeyboardEvent<HTMLButtonElement>) {
     if (event.key === 'Enter' || event.key === ' ') {
       event.preventDefault();
@@ -122,7 +141,7 @@ export function NewJobMenu({
           type="button"
           className="new-job-menu-backdrop"
           aria-label="Menüyü kapat"
-          onClick={close}
+          onClick={closeFromBackdrop}
         />
       )}
       {open && (
