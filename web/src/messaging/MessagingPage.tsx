@@ -469,7 +469,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     setConversationView(view);
   }, [conversationView, invalidateThread]);
 
-  const handleConversationArchive = useCallback(async (conversation: Conversation) => {
+  const handleConversationArchive = useCallback(async (conversation: Conversation, restoreFocus?: HTMLElement | null) => {
     if (conversation.unreadCount > 0 || archivePendingId) return;
     setArchivePendingId(conversation.id);
     setArchiveError(null);
@@ -483,12 +483,13 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       focusConversationView();
     } catch (error) {
       setArchiveError(error instanceof Error ? error.message : 'Konuşma arşivlenemedi.');
+      restoreFocus?.focus();
     } finally {
       setArchivePendingId(null);
     }
   }, [archivePendingId, focusConversationView, invalidateThread, loadConversations, selectedId]);
 
-  const handleConversationUnarchive = useCallback(async (conversation: Conversation) => {
+  const handleConversationUnarchive = useCallback(async (conversation: Conversation, restoreFocus?: HTMLElement | null) => {
     if (archivePendingId) return;
     setArchivePendingId(conversation.id);
     setArchiveError(null);
@@ -502,6 +503,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       focusConversationView();
     } catch (error) {
       setArchiveError(error instanceof Error ? error.message : 'Konuşma arşivden çıkarılamadı.');
+      restoreFocus?.focus();
     } finally {
       setArchivePendingId(null);
     }
@@ -756,13 +758,11 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         <aside className="messaging-sidebar">
           <header className="messaging-sidebar-header" hidden={createOpen}>
             <h2>Mesajlar</h2>
-            <div className="conversation-view-tabs" role="tablist" aria-label="Konuşma görünümleri">
+            <div className="conversation-view-tabs" aria-label="Konuşma görünümleri">
               <button
                 ref={activeViewButtonRef}
                 type="button"
-                role="tab"
-                aria-selected={conversationView === 'active'}
-                tabIndex={conversationView === 'active' ? 0 : -1}
+                aria-pressed={conversationView === 'active'}
                 className={`conversation-view-tab ${conversationView === 'active' ? 'selected' : ''}`}
                 onClick={() => switchConversationView('active')}
               >
@@ -771,9 +771,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               <button
                 ref={archivedViewButtonRef}
                 type="button"
-                role="tab"
-                aria-selected={conversationView === 'archived'}
-                tabIndex={conversationView === 'archived' ? 0 : -1}
+                aria-pressed={conversationView === 'archived'}
                 className={`conversation-view-tab ${conversationView === 'archived' ? 'selected' : ''}`}
                 onClick={() => switchConversationView('archived')}
               >
@@ -992,11 +990,11 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
             </div>
           )}
           {archiveError && <div className="archive-error" role="alert">{archiveError}</div>}
-          {!createOpen && <ul className="conversation-list" role="listbox" aria-label="Konuşmalar">
+          {!createOpen && <ul className="conversation-list" aria-label="Konuşmalar">
             {conversations.map((conv) => (
-              <li key={conv.id} role="option" aria-selected={conv.id === selectedId}>
+              <li key={conv.id}>
                 <div className="conversation-row">
-                  <button type="button" className={`conversation-item ${conv.id === selectedId ? 'selected' : ''} ${conv.unreadCount > 0 ? 'unread' : ''}`} onClick={() => selectConversation(conv)}>
+                  <button type="button" className={`conversation-item ${conv.id === selectedId ? 'selected' : ''} ${conv.unreadCount > 0 ? 'unread' : ''}`} aria-current={conv.id === selectedId ? 'page' : undefined} onClick={() => selectConversation(conv)}>
                     <UserAvatar name={firstOtherParticipant(conv, user.id)} size="default" />
                     {conv.contextType === 'JOB' && conv.jobTitle ? (
                       <span className="conversation-meta">
@@ -1039,8 +1037,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
                           disabled={conv.unreadCount > 0 || archivePendingId !== null}
                           title={conv.unreadCount > 0 ? 'Okunmamış konuşmalar arşivlenemez.' : undefined}
                           onClick={(event) => {
-                            event.currentTarget.closest('details')?.removeAttribute('open');
-                            void handleConversationArchive(conv);
+                            const details = event.currentTarget.closest('details');
+                            details?.removeAttribute('open');
+                            void handleConversationArchive(conv, details?.querySelector<HTMLElement>('summary'));
                           }}
                         >
                           {archivePendingId === conv.id ? 'Arşivleniyor...' : 'Sohbeti arşivle'}
@@ -1051,8 +1050,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
                           role="menuitem"
                           disabled={archivePendingId !== null}
                           onClick={(event) => {
-                            event.currentTarget.closest('details')?.removeAttribute('open');
-                            void handleConversationUnarchive(conv);
+                            const details = event.currentTarget.closest('details');
+                            details?.removeAttribute('open');
+                            void handleConversationUnarchive(conv, details?.querySelector<HTMLElement>('summary'));
                           }}
                         >
                           {archivePendingId === conv.id ? 'Arşivden çıkarılıyor...' : 'Sohbeti arşivden çıkar'}

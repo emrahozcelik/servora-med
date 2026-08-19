@@ -121,21 +121,47 @@ describe('MessagingPage per-user archive behavior', () => {
     const { container, unmount } = render();
     await tick();
 
-    const activeTab = container.querySelector('[role="tab"][aria-selected="true"]');
-    expect(activeTab?.textContent).toBe('Aktif');
+    const viewButtons = Array.from(container.querySelectorAll('.conversation-view-tab')) as HTMLButtonElement[];
+    const activeTab = viewButtons.find((button) => button.textContent === 'Aktif');
+    expect(activeTab?.getAttribute('aria-pressed')).toBe('true');
+    expect(viewButtons).toHaveLength(2);
+    expect(viewButtons.every((button) => button.tabIndex === 0)).toBe(true);
     expect(container.textContent).toContain('Konu active');
 
-    const archiveTab = Array.from(container.querySelectorAll('[role="tab"]'))
-      .find((element) => element.textContent === 'Arşiv') as HTMLButtonElement;
+    const archiveTab = viewButtons.find((button) => button.textContent === 'Arşiv') as HTMLButtonElement;
+    expect(archiveTab.getAttribute('aria-pressed')).toBe('false');
     await act(async () => {
       archiveTab.click();
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
 
     expect(mockListConversations).toHaveBeenCalledWith('archived');
-    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Arşiv');
+    expect(container.querySelector('.conversation-view-tab[aria-pressed="true"]')?.textContent).toBe('Arşiv');
     expect(container.textContent).toContain('Konu archived');
     expect(container.textContent).not.toContain('Konu active');
+    unmount();
+  });
+
+  it('uses plain list semantics when each conversation row contains multiple controls', async () => {
+    mockListConversations.mockResolvedValue({ items: [conversation('semantic')], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+
+    const list = container.querySelector('.conversation-list');
+    const row = container.querySelector('.conversation-row');
+    const rowItem = row?.parentElement;
+    const conversationButton = row?.querySelector('.conversation-item') as HTMLButtonElement;
+    expect(list?.getAttribute('role')).toBeNull();
+    expect(rowItem?.tagName).toBe('LI');
+    expect(rowItem?.getAttribute('role')).toBeNull();
+
+    await act(async () => {
+      conversationButton.click();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    });
+
+    expect(conversationButton.getAttribute('aria-current')).toBe('page');
     unmount();
   });
 
@@ -169,9 +195,32 @@ describe('MessagingPage per-user archive behavior', () => {
 
     expect(mockArchive).toHaveBeenCalledWith('read');
     expect(container.querySelectorAll('.conversation-row')).toHaveLength(1);
-    const activeTab = container.querySelector('[role="tab"][aria-selected="true"]');
+    const activeTab = container.querySelector('.conversation-view-tab[aria-pressed="true"]');
     expect(activeTab?.textContent).toBe('Aktif');
     expect(document.activeElement).toBe(activeTab);
+    unmount();
+  });
+
+  it('restores focus to the menu trigger after an archive failure', async () => {
+    mockListConversations.mockResolvedValue({ items: [conversation('failure')], nextCursor: null });
+    mockArchive.mockRejectedValueOnce(new Error('Arşivlenemedi.'));
+
+    const { container, unmount } = render();
+    await tick();
+    const summary = container.querySelector('.conversation-row summary') as HTMLElement;
+    await act(async () => { summary.click(); });
+    const details = container.querySelector('.conversation-actions') as HTMLDetailsElement;
+    const action = details.querySelector('[role="menuitem"]') as HTMLButtonElement;
+
+    await act(async () => {
+      action.focus();
+      action.click();
+      await new Promise((resolve) => setTimeout(resolve, 80));
+    });
+
+    expect(details.open).toBe(false);
+    expect(document.activeElement).toBe(summary);
+    expect(container.querySelector('[role="alert"]')?.textContent).toContain('Arşivlenemedi.');
     unmount();
   });
 
@@ -184,7 +233,7 @@ describe('MessagingPage per-user archive behavior', () => {
 
     const { container, unmount } = render();
     await tick();
-    const archiveTab = Array.from(container.querySelectorAll('[role="tab"]'))
+    const archiveTab = Array.from(container.querySelectorAll('.conversation-view-tab'))
       .find((element) => element.textContent === 'Arşiv') as HTMLButtonElement;
     await act(async () => {
       archiveTab.click();
@@ -200,7 +249,7 @@ describe('MessagingPage per-user archive behavior', () => {
 
     expect(mockUnarchive).toHaveBeenCalledWith('archived');
     expect(container.querySelectorAll('.conversation-row')).toHaveLength(0);
-    expect(container.querySelector('[role="tab"][aria-selected="true"]')?.textContent).toBe('Arşiv');
+    expect(container.querySelector('.conversation-view-tab[aria-pressed="true"]')?.textContent).toBe('Arşiv');
     unmount();
   });
 
