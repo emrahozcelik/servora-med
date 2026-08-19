@@ -149,12 +149,83 @@ describe('MessagingPage per-user archive behavior', () => {
       expect(row.querySelector('.conversation-meta')).not.toBeNull();
       expect(row.querySelector('.conversation-activity')).not.toBeNull();
       expect(row.querySelector('.conversation-action-rail')).not.toBeNull();
-      expect(row.querySelector('.conversation-action-rail summary')).not.toBeNull();
+      const trigger = row.querySelector('.conversation-action-trigger');
+      expect(trigger).not.toBeNull();
+      expect(trigger?.getAttribute('aria-expanded')).toBe('false');
+      expect(trigger?.getAttribute('aria-controls')).toMatch(/^conversation-action-menu-/);
+      expect(row.querySelector('.conversation-action-rail summary')).toBeNull();
     });
 
-    const unreadAction = rows[2]?.querySelector('[role="menuitem"]') as HTMLButtonElement;
+    const unreadTrigger = rows[2]?.querySelector('.conversation-action-trigger') as HTMLButtonElement;
+    await act(async () => { unreadTrigger.click(); });
+    const unreadAction = rows[2]?.querySelector('.conversation-action-menu button') as HTMLButtonElement;
     expect(unreadAction).not.toBeNull();
     expect(unreadAction.disabled).toBe(true);
+    expect(rows[2]?.querySelector('[role="menu"], [role="menuitem"]')).toBeNull();
+    unmount();
+  });
+
+  it('closes an open row menu on outside pointerdown without restoring trigger focus', async () => {
+    mockListConversations.mockResolvedValue({ items: [conversation('outside')], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+    const trigger = container.querySelector('.conversation-action-trigger') as HTMLButtonElement;
+    await act(async () => { trigger.click(); });
+    expect(container.querySelector('.conversation-action-menu')).not.toBeNull();
+
+    const outside = document.createElement('button');
+    outside.type = 'button';
+    outside.textContent = 'Dışarı';
+    document.body.appendChild(outside);
+    outside.focus();
+
+    await act(async () => {
+      outside.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    });
+
+    expect(container.querySelector('.conversation-action-menu')).toBeNull();
+    expect(document.activeElement).toBe(outside);
+    outside.remove();
+    unmount();
+  });
+
+  it('keeps the row menu open when a pointerdown happens inside the popup', async () => {
+    mockListConversations.mockResolvedValue({ items: [conversation('inside')], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+    const trigger = container.querySelector('.conversation-action-trigger') as HTMLButtonElement;
+    await act(async () => { trigger.click(); });
+    const menu = container.querySelector('.conversation-action-menu') as HTMLElement;
+
+    await act(async () => {
+      menu.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+    });
+
+    expect(container.querySelector('.conversation-action-menu')).toBe(menu);
+    unmount();
+  });
+
+  it('keeps only one row menu open when another row trigger is activated', async () => {
+    mockListConversations.mockResolvedValue({
+      items: [conversation('first'), conversation('second')],
+      nextCursor: null,
+    });
+
+    const { container, unmount } = render();
+    await tick();
+    const triggers = Array.from(container.querySelectorAll('.conversation-action-trigger')) as HTMLButtonElement[];
+    await act(async () => { triggers[0]?.click(); });
+    expect(container.querySelector('[aria-controls="conversation-action-menu-first"]')).not.toBeNull();
+
+    await act(async () => {
+      triggers[1]?.dispatchEvent(new Event('pointerdown', { bubbles: true }));
+      triggers[1]?.click();
+    });
+
+    expect(container.querySelector('[aria-controls="conversation-action-menu-first"] + .conversation-action-menu')).toBeNull();
+    expect(container.querySelector('[aria-controls="conversation-action-menu-second"] + .conversation-action-menu')).not.toBeNull();
     unmount();
   });
 
@@ -225,10 +296,10 @@ describe('MessagingPage per-user archive behavior', () => {
     await tick();
 
     const rows = Array.from(container.querySelectorAll('.conversation-row'));
-    const readMenu = rows[0]?.querySelector('summary') as HTMLElement;
-    const unreadMenu = rows[1]?.querySelector('summary') as HTMLElement;
+    const readMenu = rows[0]?.querySelector('.conversation-action-trigger') as HTMLElement;
+    const unreadMenu = rows[1]?.querySelector('.conversation-action-trigger') as HTMLElement;
     await act(async () => { unreadMenu.click(); });
-    const unreadAction = rows[1]?.querySelector('[role="menuitem"]') as HTMLButtonElement;
+    const unreadAction = rows[1]?.querySelector('.conversation-action-menu button') as HTMLButtonElement;
     expect(unreadAction.disabled).toBe(true);
     expect(mockArchive).not.toHaveBeenCalled();
 
@@ -236,11 +307,10 @@ describe('MessagingPage per-user archive behavior', () => {
       readMenu.click();
       await new Promise((resolve) => setTimeout(resolve, 0));
     });
-    const readAction = rows[0]?.querySelector('[role="menuitem"]') as HTMLButtonElement;
-    await act(async () => {
-      readAction.click();
-      await new Promise((resolve) => setTimeout(resolve, 80));
-    });
+    const readAction = rows[0]?.querySelector('.conversation-action-menu button') as HTMLButtonElement;
+    await act(async () => { readAction.click(); });
+    expect(rows[0]?.querySelector('.conversation-action-menu')).toBeNull();
+    await tick(80);
 
     expect(mockArchive).toHaveBeenCalledWith('read');
     expect(container.querySelectorAll('.conversation-row')).toHaveLength(1);
@@ -256,10 +326,9 @@ describe('MessagingPage per-user archive behavior', () => {
 
     const { container, unmount } = render();
     await tick();
-    const summary = container.querySelector('.conversation-row summary') as HTMLElement;
-    await act(async () => { summary.click(); });
-    const details = container.querySelector('.conversation-actions') as HTMLDetailsElement;
-    const action = details.querySelector('[role="menuitem"]') as HTMLButtonElement;
+    const trigger = container.querySelector('.conversation-action-trigger') as HTMLButtonElement;
+    await act(async () => { trigger.click(); });
+    const action = container.querySelector('.conversation-action-menu button') as HTMLButtonElement;
 
     await act(async () => {
       action.focus();
@@ -267,8 +336,8 @@ describe('MessagingPage per-user archive behavior', () => {
       await new Promise((resolve) => setTimeout(resolve, 80));
     });
 
-    expect(details.open).toBe(false);
-    expect(document.activeElement).toBe(summary);
+    expect(container.querySelector('.conversation-action-menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('Arşivlenemedi.');
     unmount();
   });
@@ -288,9 +357,9 @@ describe('MessagingPage per-user archive behavior', () => {
       archiveTab.click();
       await new Promise((resolve) => setTimeout(resolve, 50));
     });
-    const summary = container.querySelector('.conversation-row summary') as HTMLElement;
-    await act(async () => { summary.click(); });
-    const action = container.querySelector('[role="menuitem"]') as HTMLButtonElement;
+    const trigger = container.querySelector('.conversation-action-trigger') as HTMLButtonElement;
+    await act(async () => { trigger.click(); });
+    const action = container.querySelector('.conversation-action-menu button') as HTMLButtonElement;
     await act(async () => {
       action.click();
       await new Promise((resolve) => setTimeout(resolve, 80));
@@ -307,17 +376,16 @@ describe('MessagingPage per-user archive behavior', () => {
 
     const { container, unmount } = render();
     await tick();
-    const summary = container.querySelector('.conversation-row summary') as HTMLElement;
-    await act(async () => { summary.click(); });
-    const details = container.querySelector('.conversation-actions') as HTMLDetailsElement;
-    expect(details.open).toBe(true);
+    const trigger = container.querySelector('.conversation-action-trigger') as HTMLButtonElement;
+    await act(async () => { trigger.click(); });
+    expect(container.querySelector('.conversation-action-menu')).not.toBeNull();
 
     await act(async () => {
-      details.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
+      trigger.dispatchEvent(new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }));
     });
 
-    expect(details.open).toBe(false);
-    expect(document.activeElement).toBe(summary);
+    expect(container.querySelector('.conversation-action-menu')).toBeNull();
+    expect(document.activeElement).toBe(trigger);
     unmount();
   });
 });

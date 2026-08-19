@@ -177,25 +177,25 @@
   background: transparent;
 }
 
-.conversation-actions summary {
+.conversation-action-trigger {
   display: flex;
   align-items: center;
   justify-content: center;
   width: 100%;
   min-height: 44px;
   height: 100%;
+  padding: 0;
   box-sizing: border-box;
-  list-style: none;
+  border: 0;
+  background: transparent;
+  font: inherit;
   cursor: pointer;
   color: var(--muted);
 }
 
-.conversation-actions summary::-webkit-details-marker {
-  display: none;
-}
-
-.conversation-actions summary:hover,
-.conversation-actions[open] summary {
+.conversation-action-trigger:hover,
+.conversation-action-trigger:focus-visible,
+.conversation-action-trigger[aria-expanded="true"] {
   color: var(--ink);
   background: var(--accent-soft);
 }

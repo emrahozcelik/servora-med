@@ -124,6 +124,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const [listState, setListState] = useState<ListState>({ kind: 'loading' });
   const [conversations, setConversations] = useState<Conversation[]>([]);
   const [conversationView, setConversationView] = useState<ConversationListView>('active');
+  const [openConversationActionId, setOpenConversationActionId] = useState<string | null>(null);
   const [archivePendingId, setArchivePendingId] = useState<string | null>(null);
   const [archiveError, setArchiveError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
@@ -185,6 +186,8 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const archivedViewButtonRef = useRef<HTMLButtonElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const threadMessagesRef = useRef<HTMLDivElement>(null);
+  const conversationActionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+  const conversationActionTriggerRefs = useRef<Record<string, HTMLButtonElement | null>>({});
 
   // Centralized conversation transition — invalidates all pending requests
   const invalidateThread = useCallback(() => {
@@ -246,6 +249,19 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     ro.observe(container);
     return () => ro.disconnect();
   }, [listState.kind]);
+
+  useEffect(() => {
+    if (openConversationActionId === null) return;
+
+    const handleDocumentPointerDown = (event: PointerEvent) => {
+      const actionRoot = conversationActionRefs.current[openConversationActionId];
+      if (actionRoot && event.target instanceof Node && actionRoot.contains(event.target)) return;
+      setOpenConversationActionId(null);
+    };
+
+    document.addEventListener('pointerdown', handleDocumentPointerDown);
+    return () => document.removeEventListener('pointerdown', handleDocumentPointerDown);
+  }, [openConversationActionId]);
 
   // --- Realtime ---
 
@@ -466,6 +482,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
     invalidateThread();
     setSelectedId(null);
     setArchiveError(null);
+    setOpenConversationActionId(null);
     setConversationView(view);
   }, [conversationView, invalidateThread]);
 
@@ -1021,47 +1038,60 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
                     )}
                     <span className="conversation-activity"><span className="activity-time">{formatActivityTime(conv.lastActivityAt)}</span>{conv.unreadCount > 0 && <span className="unread-count">{conv.unreadCount}</span>}</span>
                   </button>
-                  <details
+                  <div
                     className="conversation-actions conversation-action-rail"
+                    ref={(element) => {
+                      conversationActionRefs.current[conv.id] = element;
+                    }}
                     onKeyDown={(event) => {
                       if (event.key !== 'Escape') return;
                       event.preventDefault();
-                      event.currentTarget.open = false;
-                      event.currentTarget.querySelector('summary')?.focus();
+                      setOpenConversationActionId(null);
+                      conversationActionTriggerRefs.current[conv.id]?.focus();
                     }}
                   >
-                    <summary aria-label="Sohbet seçenekleri"><span aria-hidden="true" className="conversation-action-mark">...</span></summary>
-                    <div className="conversation-action-menu" role="menu">
-                      {conversationView === 'active' ? (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          disabled={conv.unreadCount > 0 || archivePendingId !== null}
-                          title={conv.unreadCount > 0 ? 'Okunmamış konuşmalar arşivlenemez.' : undefined}
-                          onClick={(event) => {
-                            const details = event.currentTarget.closest('details');
-                            details?.removeAttribute('open');
-                            void handleConversationArchive(conv, details?.querySelector<HTMLElement>('summary'));
-                          }}
-                        >
-                          {archivePendingId === conv.id ? 'Arşivleniyor...' : 'Sohbeti arşivle'}
-                        </button>
-                      ) : (
-                        <button
-                          type="button"
-                          role="menuitem"
-                          disabled={archivePendingId !== null}
-                          onClick={(event) => {
-                            const details = event.currentTarget.closest('details');
-                            details?.removeAttribute('open');
-                            void handleConversationUnarchive(conv, details?.querySelector<HTMLElement>('summary'));
-                          }}
-                        >
-                          {archivePendingId === conv.id ? 'Arşivden çıkarılıyor...' : 'Sohbeti arşivden çıkar'}
-                        </button>
-                      )}
-                    </div>
-                  </details>
+                    <button
+                      ref={(element) => {
+                        conversationActionTriggerRefs.current[conv.id] = element;
+                      }}
+                      type="button"
+                      className="conversation-action-trigger"
+                      aria-label="Sohbet seçenekleri"
+                      aria-expanded={openConversationActionId === conv.id}
+                      aria-controls={`conversation-action-menu-${conv.id}`}
+                      onClick={() => setOpenConversationActionId((current) => current === conv.id ? null : conv.id)}
+                    >
+                      <span aria-hidden="true" className="conversation-action-mark">...</span>
+                    </button>
+                    {openConversationActionId === conv.id && (
+                      <div id={`conversation-action-menu-${conv.id}`} className="conversation-action-menu">
+                        {conversationView === 'active' ? (
+                          <button
+                            type="button"
+                            disabled={conv.unreadCount > 0 || archivePendingId !== null}
+                            title={conv.unreadCount > 0 ? 'Okunmamış konuşmalar arşivlenemez.' : undefined}
+                            onClick={() => {
+                              setOpenConversationActionId(null);
+                              void handleConversationArchive(conv, conversationActionTriggerRefs.current[conv.id]);
+                            }}
+                          >
+                            {archivePendingId === conv.id ? 'Arşivleniyor...' : 'Sohbeti arşivle'}
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            disabled={archivePendingId !== null}
+                            onClick={() => {
+                              setOpenConversationActionId(null);
+                              void handleConversationUnarchive(conv, conversationActionTriggerRefs.current[conv.id]);
+                            }}
+                          >
+                            {archivePendingId === conv.id ? 'Arşivden çıkarılıyor...' : 'Sohbeti arşivden çıkar'}
+                          </button>
+                        )}
+                      </div>
+                    )}
+                  </div>
                 </div>
               </li>
             ))}
