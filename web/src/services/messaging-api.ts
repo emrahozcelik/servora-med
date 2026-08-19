@@ -53,6 +53,8 @@ export type ConversationListPage = {
   nextCursor: string | null;
 };
 
+export type ConversationListView = 'active' | 'archived';
+
 function parseConversation(value: unknown): Conversation {
   const v = object(value);
   return {
@@ -108,8 +110,12 @@ function parseMessage(value: unknown): Message {
   };
 }
 
-export async function listConversations(cursor?: string | null): Promise<ConversationListPage> {
+export async function listConversations(
+  view: ConversationListView = 'active',
+  cursor?: string | null,
+): Promise<ConversationListPage> {
   const params = new URLSearchParams({ limit: '20' });
+  params.set('view', view);
   if (cursor) params.set('cursor', cursor);
   const data = object(await request(`/api/messaging/conversations?${params}`));
   const list = data.items;
@@ -118,6 +124,20 @@ export async function listConversations(cursor?: string | null): Promise<Convers
     items: list.map(parseConversation),
     nextCursor: typeof data.nextCursor === 'string' ? data.nextCursor : null,
   };
+}
+
+export async function archiveConversation(conversationId: string): Promise<void> {
+  await request(
+    `/api/messaging/conversations/${encodeURIComponent(conversationId)}/archive`,
+    { method: 'POST' },
+  );
+}
+
+export async function unarchiveConversation(conversationId: string): Promise<void> {
+  await request(
+    `/api/messaging/conversations/${encodeURIComponent(conversationId)}/unarchive`,
+    { method: 'POST' },
+  );
 }
 
 export async function listRecipients(contextType: 'GENERAL' | 'CUSTOMER'): Promise<Recipient[]> {

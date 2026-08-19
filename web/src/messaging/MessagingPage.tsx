@@ -2,6 +2,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react
 import { useSearchParams } from 'react-router-dom';
 import { ApiError, type CurrentUser } from '../services/api';
 import {
+  archiveConversation,
   createOrGetConversation,
   getUnreadCount,
   listConversations,
@@ -9,7 +10,9 @@ import {
   listRecipients,
   markRead,
   sendMessage,
+  unarchiveConversation,
   type Conversation,
+  type ConversationListView,
   type Message,
   type Recipient,
 } from '../services/messaging-api';
@@ -120,6 +123,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const [searchParams] = useSearchParams();
   const [listState, setListState] = useState<ListState>({ kind: 'loading' });
   const [conversations, setConversations] = useState<Conversation[]>([]);
+  const [conversationView, setConversationView] = useState<ConversationListView>('active');
+  const [archivePendingId, setArchivePendingId] = useState<string | null>(null);
+  const [archiveError, setArchiveError] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
   const [messageLoading, setMessageLoading] = useState(false);
@@ -174,6 +180,9 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const pendingOlderRef = useRef<OlderRequest | null>(null);
   const pendingLoadRef = useRef<{ gen: number; convId: string } | null>(null);
   const pendingMarkReadRef = useRef<{ gen: number; convId: string } | null>(null);
+  const listLoadGenRef = useRef(0);
+  const activeViewButtonRef = useRef<HTMLButtonElement>(null);
+  const archivedViewButtonRef = useRef<HTMLButtonElement>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const threadMessagesRef = useRef<HTMLDivElement>(null);
 
@@ -198,18 +207,21 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
 
   // --- Data loading ---
 
-  const loadConversations = useCallback(async () => {
+  const loadConversations = useCallback(async (view: ConversationListView = conversationView) => {
+    const gen = ++listLoadGenRef.current;
     try {
-      const page = await listConversations();
+      const page = await listConversations(view);
+      if (listLoadGenRef.current !== gen) return;
       setConversations(page.items);
       setListState({ kind: 'loaded' });
     } catch (error) {
+      if (listLoadGenRef.current !== gen) return;
       setListState({
         kind: 'error',
         message: error instanceof Error ? error.message : 'Konuşmalar yüklenemedi.',
       });
     }
-  }, []);
+  }, [conversationView]);
 
   const loadUnreadCount = useCallback(async () => {
     try { setUnreadTotal(await getUnreadCount()); } catch { /* non-critical */ }
@@ -439,6 +451,63 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       pendingMarkReadRef.current = null;
     }
   }, [selectedId, loadConversations, loadUnreadCount, user.id]);
+
+  const focusConversationView = useCallback(() => {
+    window.setTimeout(() => {
+      const button = conversationView === 'active'
+        ? activeViewButtonRef.current
+        : archivedViewButtonRef.current;
+      button?.focus();
+    }, 0);
+  }, [conversationView]);
+
+  const switchConversationView = useCallback((view: ConversationListView) => {
+    if (view === conversationView) return;
+    invalidateThread();
+    setSelectedId(null);
+    setArchiveError(null);
+    setConversationView(view);
+  }, [conversationView, invalidateThread]);
+
+  const handleConversationArchive = useCallback(async (conversation: Conversation, restoreFocus?: HTMLElement | null) => {
+    if (conversation.unreadCount > 0 || archivePendingId) return;
+    setArchivePendingId(conversation.id);
+    setArchiveError(null);
+    try {
+      await archiveConversation(conversation.id);
+      if (selectedId === conversation.id) {
+        invalidateThread();
+        setSelectedId(null);
+      }
+      await loadConversations();
+      focusConversationView();
+    } catch (error) {
+      setArchiveError(error instanceof Error ? error.message : 'Konuşma arşivlenemedi.');
+      restoreFocus?.focus();
+    } finally {
+      setArchivePendingId(null);
+    }
+  }, [archivePendingId, focusConversationView, invalidateThread, loadConversations, selectedId]);
+
+  const handleConversationUnarchive = useCallback(async (conversation: Conversation, restoreFocus?: HTMLElement | null) => {
+    if (archivePendingId) return;
+    setArchivePendingId(conversation.id);
+    setArchiveError(null);
+    try {
+      await unarchiveConversation(conversation.id);
+      if (selectedId === conversation.id) {
+        invalidateThread();
+        setSelectedId(null);
+      }
+      await loadConversations();
+      focusConversationView();
+    } catch (error) {
+      setArchiveError(error instanceof Error ? error.message : 'Konuşma arşivden çıkarılamadı.');
+      restoreFocus?.focus();
+    } finally {
+      setArchivePendingId(null);
+    }
+  }, [archivePendingId, focusConversationView, invalidateThread, loadConversations, selectedId]);
 
   // Deep-link from notification center
   useEffect(() => {
@@ -675,8 +744,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
   const selected = conversations.find((c) => c.id === selectedId);
   const isSending = draft?.status === 'sending';
   const emptyDescription = canCreate
-    ? 'Yeni konuşma butonu ile başlatabilirsiniz.'
-    : 'Eklendiğiniz konuşmalar burada görünür.';
+    ? conversationView === 'active'
+      ? 'Yeni konuşma butonu ile başlatabilirsiniz.'
+      : 'Arşivlenen konuşmalar burada görünür.'
+    : conversationView === 'active'
+      ? 'Eklendiğiniz konuşmalar burada görünür.'
+      : 'Arşivlediğiniz konuşmalar burada görünür.';
 
   return (
     <main className="workspace messaging-workspace">
@@ -685,8 +758,28 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
         <aside className="messaging-sidebar">
           <header className="messaging-sidebar-header" hidden={createOpen}>
             <h2>Mesajlar</h2>
+            <div className="conversation-view-tabs" aria-label="Konuşma görünümleri">
+              <button
+                ref={activeViewButtonRef}
+                type="button"
+                aria-pressed={conversationView === 'active'}
+                className={`conversation-view-tab ${conversationView === 'active' ? 'selected' : ''}`}
+                onClick={() => switchConversationView('active')}
+              >
+                Aktif
+              </button>
+              <button
+                ref={archivedViewButtonRef}
+                type="button"
+                aria-pressed={conversationView === 'archived'}
+                className={`conversation-view-tab ${conversationView === 'archived' ? 'selected' : ''}`}
+                onClick={() => switchConversationView('archived')}
+              >
+                Arşiv
+              </button>
+            </div>
             {canCreate && (
-              <button ref={createTriggerRef} className="secondary-button" onClick={openCreateFlow} aria-label="Yeni konuşma">Yeni konuşma</button>
+              <button type="button" ref={createTriggerRef} className="secondary-button" onClick={openCreateFlow} aria-label="Yeni konuşma">Yeni konuşma</button>
             )}
           </header>
           {createOpen && (
@@ -896,34 +989,78 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
               </div>
             </div>
           )}
-          {!createOpen && <ul className="conversation-list" role="listbox" aria-label="Konuşmalar">
+          {archiveError && <div className="archive-error" role="alert">{archiveError}</div>}
+          {!createOpen && <ul className="conversation-list" aria-label="Konuşmalar">
             {conversations.map((conv) => (
-              <li key={conv.id} role="option" aria-selected={conv.id === selectedId}>
-                <button className={`conversation-item ${conv.id === selectedId ? 'selected' : ''} ${conv.unreadCount > 0 ? 'unread' : ''}`} onClick={() => selectConversation(conv)}>
-                  <UserAvatar name={firstOtherParticipant(conv, user.id)} size="default" />
-                  {conv.contextType === 'JOB' && conv.jobTitle ? (
-                    <span className="conversation-meta">
-                      <span className="conversation-name">{conv.jobTitle}</span>
-                      <span className="conversation-context"><span className="context-chip">İş</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
-                    </span>
-                  ) : conv.contextType === 'CUSTOMER' && conv.title ? (
-                    <span className="conversation-meta">
-                      <span className="conversation-name">{conv.title}</span>
-                      <span className="conversation-context"><span className="context-chip">Müşteri</span><span className="conversation-participants">{conv.customerName ?? ''}</span></span>
-                    </span>
-                  ) : conv.title ? (
-                    <span className="conversation-meta">
-                      <span className="conversation-name">{conv.title}</span>
-                      <span className="conversation-context"><span className="context-chip">Genel</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
-                    </span>
-                  ) : (
-                    <span className="conversation-meta">
-                      <span className="conversation-name">{conv.participantName}{!conv.participantIsActive && <span className="disabled-badge">Pasif</span>}</span>
-                      <span className="conversation-context"><span className="context-chip">Genel</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
-                    </span>
-                  )}
-                  <span className="conversation-activity"><span className="activity-time">{formatActivityTime(conv.lastActivityAt)}</span>{conv.unreadCount > 0 && <span className="unread-count">{conv.unreadCount}</span>}</span>
-                </button>
+              <li key={conv.id}>
+                <div className="conversation-row">
+                  <button type="button" className={`conversation-item ${conv.id === selectedId ? 'selected' : ''} ${conv.unreadCount > 0 ? 'unread' : ''}`} aria-current={conv.id === selectedId ? 'page' : undefined} onClick={() => selectConversation(conv)}>
+                    <UserAvatar name={firstOtherParticipant(conv, user.id)} size="default" />
+                    {conv.contextType === 'JOB' && conv.jobTitle ? (
+                      <span className="conversation-meta">
+                        <span className="conversation-name">{conv.jobTitle}</span>
+                        <span className="conversation-context"><span className="context-chip">İş</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
+                      </span>
+                    ) : conv.contextType === 'CUSTOMER' && conv.title ? (
+                      <span className="conversation-meta">
+                        <span className="conversation-name">{conv.title}</span>
+                        <span className="conversation-context"><span className="context-chip">Müşteri</span><span className="conversation-participants">{conv.customerName ?? ''}</span></span>
+                      </span>
+                    ) : conv.title ? (
+                      <span className="conversation-meta">
+                        <span className="conversation-name">{conv.title}</span>
+                        <span className="conversation-context"><span className="context-chip">Genel</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
+                      </span>
+                    ) : (
+                      <span className="conversation-meta">
+                        <span className="conversation-name">{conv.participantName}{!conv.participantIsActive && <span className="disabled-badge">Pasif</span>}</span>
+                        <span className="conversation-context"><span className="context-chip">Genel</span><span className="conversation-participants">{participantSummary(conv, user.id)}</span></span>
+                      </span>
+                    )}
+                    <span className="conversation-activity"><span className="activity-time">{formatActivityTime(conv.lastActivityAt)}</span>{conv.unreadCount > 0 && <span className="unread-count">{conv.unreadCount}</span>}</span>
+                  </button>
+                  <details
+                    className="conversation-actions"
+                    onKeyDown={(event) => {
+                      if (event.key !== 'Escape') return;
+                      event.preventDefault();
+                      event.currentTarget.open = false;
+                      event.currentTarget.querySelector('summary')?.focus();
+                    }}
+                  >
+                    <summary aria-label="Sohbet seçenekleri"><span aria-hidden="true" className="conversation-action-mark">...</span></summary>
+                    <div className="conversation-action-menu" role="menu">
+                      {conversationView === 'active' ? (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={conv.unreadCount > 0 || archivePendingId !== null}
+                          title={conv.unreadCount > 0 ? 'Okunmamış konuşmalar arşivlenemez.' : undefined}
+                          onClick={(event) => {
+                            const details = event.currentTarget.closest('details');
+                            details?.removeAttribute('open');
+                            void handleConversationArchive(conv, details?.querySelector<HTMLElement>('summary'));
+                          }}
+                        >
+                          {archivePendingId === conv.id ? 'Arşivleniyor...' : 'Sohbeti arşivle'}
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          role="menuitem"
+                          disabled={archivePendingId !== null}
+                          onClick={(event) => {
+                            const details = event.currentTarget.closest('details');
+                            details?.removeAttribute('open');
+                            void handleConversationUnarchive(conv, details?.querySelector<HTMLElement>('summary'));
+                          }}
+                        >
+                          {archivePendingId === conv.id ? 'Arşivden çıkarılıyor...' : 'Sohbeti arşivden çıkar'}
+                        </button>
+                      )}
+                    </div>
+                  </details>
+                </div>
               </li>
             ))}
             {conversations.length === 0 && <li className="empty-conversations"><EmptyState title="Konuşma bulunmuyor" description={emptyDescription} /></li>}

@@ -34,6 +34,7 @@ const MIGRATIONS = [
   '025_messaging_context_ready.sql',
   '026_messaging_participant_lifecycle.sql',
   '028_notification_center_dismissal.sql',
+  '029_messaging_conversation_archive.sql',
 ] as const;
 
 type Fixture = {

@@ -56,6 +56,12 @@ export type ConversationListCursor = Readonly<{
   id: string;
 }>;
 
+export type ConversationListView = 'active' | 'archived';
+
+export function isValidConversationListView(value: string): value is ConversationListView {
+  return value === 'active' || value === 'archived';
+}
+
 export type ConversationListItem = Readonly<{
   id: string;
   directKey: string;

@@ -34,6 +34,8 @@ function mockService(): MessagingService {
     getJobConversation: vi.fn(dbError),
     getMessages: vi.fn(dbError),
     sendMessage: vi.fn(dbError),
+    archiveConversation: vi.fn(dbError),
+    unarchiveConversation: vi.fn(dbError),
     markRead: vi.fn(dbError),
     getUnreadCount: vi.fn(dbError),
   } as unknown as MessagingService;
@@ -88,6 +90,48 @@ describe('M8: Messaging UUID input validation boundary', () => {
     expect(res.statusCode).toBe(400);
     expect(JSON.parse(res.body)).toMatchObject({ code: 'VALIDATION_ERROR' });
     expect(service.getRecipients).not.toHaveBeenCalled();
+  });
+
+  it('forwards the selected conversation list view to the service', async () => {
+    service.getConversations.mockResolvedValue({ items: [], nextCursor: null });
+
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/messaging/conversations?view=archived',
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(service.getConversations).toHaveBeenCalledWith(ACTOR, null, 20, 'archived');
+  });
+
+  it('rejects an unknown conversation list view before the service call', async () => {
+    const res = await app.inject({
+      method: 'GET',
+      url: '/api/messaging/conversations?view=all',
+    });
+
+    expect(res.statusCode).toBe(400);
+    expect(JSON.parse(res.body)).toMatchObject({ code: 'VALIDATION_ERROR' });
+    expect(service.getConversations).not.toHaveBeenCalled();
+  });
+
+  it('routes archive and unarchive commands through the authenticated actor', async () => {
+    service.archiveConversation.mockResolvedValue(undefined);
+    service.unarchiveConversation.mockResolvedValue(undefined);
+
+    const archive = await app.inject({
+      method: 'POST',
+      url: `/api/messaging/conversations/${VALID_UUID_OTHER}/archive`,
+    });
+    const unarchive = await app.inject({
+      method: 'POST',
+      url: `/api/messaging/conversations/${VALID_UUID_OTHER}/unarchive`,
+    });
+
+    expect(archive.statusCode).toBe(204);
+    expect(unarchive.statusCode).toBe(204);
+    expect(service.archiveConversation).toHaveBeenCalledWith(ACTOR, VALID_UUID_OTHER);
+    expect(service.unarchiveConversation).toHaveBeenCalledWith(ACTOR, VALID_UUID_OTHER);
   });
 
   it('malformed jobId route param returns 400 without service call', async () => {

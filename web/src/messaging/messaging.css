@@ -67,12 +67,60 @@
   min-width: 0;
 }
 
+.conversation-view-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+  padding: 0.15rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper);
+}
+
+.conversation-view-tab {
+  min-height: 36px;
+  padding: 0.35rem 0.65rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--muted);
+  font: inherit;
+  font-size: 0.8rem;
+  cursor: pointer;
+}
+
+.conversation-view-tab:hover,
+.conversation-view-tab:focus-visible {
+  color: var(--ink);
+}
+
+.conversation-view-tab.selected {
+  background: var(--accent-soft);
+  color: var(--ink);
+  font-weight: 600;
+}
+
+.archive-error {
+  margin: 0.65rem 1rem 0;
+  padding: 0.55rem 0.7rem;
+  border-left: 3px solid var(--danger, oklch(55% 0.2 25deg));
+  background: var(--paper);
+  color: var(--danger, oklch(45% 0.18 25deg));
+  font-size: 0.8rem;
+}
+
 .conversation-list {
   list-style: none;
   margin: 0;
   padding: 0;
   overflow-y: auto;
   flex: 1;
+}
+
+.conversation-row {
+  display: flex;
+  align-items: stretch;
+  border-bottom: 1px solid var(--rule);
 }
 
 .conversation-item {
@@ -85,7 +133,7 @@
   background: none;
   cursor: pointer;
   text-align: left;
-  border-bottom: 1px solid var(--rule);
+  border-bottom: 0;
   transition: background 0.15s;
 }
 
@@ -101,6 +149,78 @@
 
 .conversation-item.unread {
   font-weight: 600;
+}
+
+.conversation-actions {
+  position: relative;
+  flex: 0 0 2.75rem;
+  background: transparent;
+}
+
+.conversation-actions summary {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 100%;
+  list-style: none;
+  cursor: pointer;
+  color: var(--muted);
+}
+
+.conversation-actions summary::-webkit-details-marker {
+  display: none;
+}
+
+.conversation-actions summary:hover,
+.conversation-actions[open] summary {
+  color: var(--ink);
+  background: var(--accent-soft);
+}
+
+.conversation-action-mark {
+  font-size: 1rem;
+  line-height: 1;
+  letter-spacing: 0.08em;
+}
+
+.conversation-action-menu {
+  position: absolute;
+  top: calc(100% - 0.25rem);
+  right: 0.5rem;
+  z-index: 5;
+  min-width: 12rem;
+  padding: 0.25rem;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  background: var(--paper);
+  box-shadow: 0 0.5rem 1.5rem oklch(20% 0.03 245deg / 16%);
+}
+
+.conversation-action-menu button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  padding: 0.55rem 0.65rem;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--ink);
+  font: inherit;
+  font-size: 0.82rem;
+  text-align: left;
+  cursor: pointer;
+}
+
+.conversation-action-menu button:hover:not(:disabled),
+.conversation-action-menu button:focus-visible {
+  background: var(--accent-soft);
+}
+
+.conversation-action-menu button:disabled {
+  color: var(--muted);
+  cursor: not-allowed;
+  opacity: 0.65;
 }
 
 .conversation-meta {

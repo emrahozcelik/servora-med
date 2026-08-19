@@ -40,6 +40,7 @@ const MIGRATIONS = [
   '024_job_card_notes_invoice_number.sql',
   '027_follow_up_proposals.sql',
   '028_notification_center_dismissal.sql',
+  '029_messaging_conversation_archive.sql',
 
 ] as const;
 

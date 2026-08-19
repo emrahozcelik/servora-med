@@ -8,6 +8,7 @@ import type { RealtimeEventInput } from '../realtime/types.js';
 import type {
   ConversationContextType,
   ConversationListCursor,
+  ConversationListView,
   ConversationListPage,
   ConversationListItem,
   ConversationRecord,
@@ -124,10 +125,12 @@ export class MessagingService {
     actor: SafeUser,
     cursor: ConversationListCursor | null,
     limit: number,
+    view: ConversationListView = 'active',
   ): Promise<ConversationListPage> {
     this.requireEnabled();
     return this.repository.listConversations(
       actor.organizationId, actor.id, actor.role, cursor, limit,
+      view,
     );
   }
 
@@ -540,7 +543,7 @@ export class MessagingService {
     }
 
     const result = await this.poolTransactionWithPublish<MessageRecord & { isDuplicate: boolean }>(async (tx) => {
-      const conversation = await tx.findConversationById(actor.organizationId, conversationId);
+      const conversation = await tx.findConversationByIdForUpdate(actor.organizationId, conversationId);
       if (!conversation) throw notFound();
 
       const participants = await tx.findAllParticipants(actor.organizationId, conversation.id);
@@ -577,6 +580,17 @@ export class MessagingService {
         throw forbidden();
       }
 
+      // New messages restore the active projection for every currently
+      // authorized recipient, including an ADMIN/MANAGER sender without a
+      // participant row. JOB audiences exclude stale Staff assignments.
+      let audienceUserIds: readonly string[] = [...participantIds];
+      if (conversation.contextType === 'JOB') {
+        audienceUserIds = await tx.findJobAuthorizedAudience(
+          actor.organizationId, conversation.id, jobAccess?.assignedTo ?? '',
+        );
+      }
+      const archiveUserIds = Array.from(new Set([...audienceUserIds, actor.id]));
+
       const message = await tx.insertMessage(
         actor.organizationId, conversation.id, actor.id, clientActionId, trimmedBody,
       );
@@ -588,6 +602,10 @@ export class MessagingService {
         );
         return { result: { ...existing!, isDuplicate: true }, events: [] as Array<{ id: bigint; event: RealtimeEventInput }> };
       }
+
+      await tx.clearConversationArchiveState(
+        actor.organizationId, conversation.id, archiveUserIds,
+      );
 
       await tx.updateConversationTimestamp(conversation.id);
 
@@ -610,14 +628,7 @@ export class MessagingService {
       // invalidation must not depend on a persisted participant row. STAFF
       // stays participant/resource scoped.
       let realtimeEventId: bigint | null = null;
-      let audienceUserIds: readonly string[] = [...participantIds];
       if (activity) {
-        if (conversation.contextType === 'JOB') {
-          const authorized = await tx.findJobAuthorizedAudience(
-            actor.organizationId, conversation.id, jobAccess?.assignedTo ?? '',
-          );
-          audienceUserIds = authorized;
-        }
         realtimeEventId = await tx.appendRealtimeEvent({
           organizationId: actor.organizationId,
           messagingActivityId: activity.id,
@@ -684,6 +695,16 @@ export class MessagingService {
       return { result: { ...message, isDuplicate: false }, events };
     });
     return result;
+  }
+
+  async archiveConversation(actor: SafeUser, conversationId: string): Promise<void> {
+    this.requireEnabled();
+    await this.setConversationArchiveState(actor, conversationId, new Date());
+  }
+
+  async unarchiveConversation(actor: SafeUser, conversationId: string): Promise<void> {
+    this.requireEnabled();
+    await this.setConversationArchiveState(actor, conversationId, null);
   }
 
   async getMessages(
@@ -1033,6 +1054,44 @@ export class MessagingService {
 
   private requireEnabled(): void {
     if (!this.enabled) throw notFound();
+  }
+
+  private async setConversationArchiveState(
+    actor: SafeUser,
+    conversationId: string,
+    archivedAt: Date | null,
+  ): Promise<void> {
+    await this.poolTransaction(async (tx) => {
+      const conversation = await tx.findConversationByIdForUpdate(
+        actor.organizationId, conversationId,
+      );
+      if (!conversation) throw notFound();
+
+      const participants = await tx.findAllParticipants(
+        actor.organizationId, conversationId,
+      );
+      const isParticipant = participants.some((participant) => participant.userId === actor.id);
+      const jobAccess = conversation.contextType === 'JOB' && conversation.jobId
+        ? await this.fetchJobAccess(actor.organizationId, conversation.jobId)
+        : null;
+      if (!canReadConversation({ actor, conversation, job: jobAccess, isParticipant })) {
+        throw forbidden();
+      }
+
+      if (archivedAt && await tx.getUnreadCountByConversation(
+        actor.organizationId, actor.id, conversationId,
+      ) > 0) {
+        throw new AppError(
+          'CONVERSATION_UNREAD',
+          409,
+          'Okunmamış konuşmalar arşivlenemez.',
+        );
+      }
+
+      await tx.setConversationArchiveState(
+        actor.organizationId, conversationId, actor.id, archivedAt,
+      );
+    });
   }
 
   private async poolTransaction<T>(

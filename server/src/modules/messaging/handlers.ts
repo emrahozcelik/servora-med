@@ -3,7 +3,7 @@ import type { SafeUser } from '../auth/types.js';
 import { AppError } from '../../errors/index.js';
 import type { MessagingService } from './service.js';
 import type { ConversationListCursor, MessageCursor } from './types.js';
-import { isValidContextType } from './types.js';
+import { isValidContextType, isValidConversationListView } from './types.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -66,9 +66,14 @@ function actor(req: FastifyRequest): SafeUser {
 export function createMessagingHandlers(service: MessagingService) {
   return {
     listConversations: async (req: FastifyRequest, reply: FastifyReply) => {
-      const { limit } = parsePagination(req.query as Record<string, string>);
-      const cursor = parseCursor(req.query as Record<string, string>);
-      const page = await service.getConversations(actor(req), cursor, limit);
+      const query = req.query as Record<string, string>;
+      const { limit } = parsePagination(query);
+      const cursor = parseCursor(query);
+      const view = query.view ?? 'active';
+      if (!isValidConversationListView(view)) {
+        throw new AppError('VALIDATION_ERROR', 400, 'Geçersiz konuşma görünümü.');
+      }
+      const page = await service.getConversations(actor(req), cursor, limit, view);
       return reply.send({
         items: page.items,
         nextCursor: page.nextCursor ? encodeCursor(page.nextCursor) : null,
@@ -153,6 +158,22 @@ export function createMessagingHandlers(service: MessagingService) {
       );
       const code = message.isDuplicate ? 200 : 201;
       return reply.code(code).send(message);
+    },
+
+    archiveConversation: async (req: FastifyRequest, reply: FastifyReply) => {
+      const params = req.params as { conversationId: string };
+      await service.archiveConversation(
+        actor(req), parseUuid(params.conversationId, 'conversationId'),
+      );
+      return reply.code(204).send();
+    },
+
+    unarchiveConversation: async (req: FastifyRequest, reply: FastifyReply) => {
+      const params = req.params as { conversationId: string };
+      await service.unarchiveConversation(
+        actor(req), parseUuid(params.conversationId, 'conversationId'),
+      );
+      return reply.code(204).send();
     },
 
     listMessages: async (req: FastifyRequest, reply: FastifyReply) => {

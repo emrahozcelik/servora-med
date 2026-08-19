@@ -557,6 +557,7 @@ describe.skipIf(!process.env.TEST_DATABASE_URL)('Postgres JobCard note atomicity
         '024_job_card_notes_invoice_number.sql',
         '027_follow_up_proposals.sql',
         '028_notification_center_dismissal.sql',
+        '029_messaging_conversation_archive.sql',
       ]) {
         const path = fileURLToPath(new URL(`../src/db/migrations/${migration}`, import.meta.url));
         await scopedPool.query(await readFile(path, 'utf8'));
