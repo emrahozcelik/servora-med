@@ -260,8 +260,6 @@ export function ReportsDashboard() {
   }
 
   function chooseCustomRange() {
-    setSelectedPreset(null);
-    setCustomPresetActive(true);
     requestAnimationFrame(() => {
       document.querySelector<HTMLInputElement>('input[name="from"]')?.focus();
     });

@@ -153,7 +153,7 @@ export function ReportDateRangeForm({
                 type="button"
                 className="report-preset-button"
                 disabled={presetsDisabled}
-                aria-pressed={selectedPreset === preset.id}
+                aria-pressed={selectedPreset === undefined ? undefined : selectedPreset === preset.id}
                 onClick={() => onPreset(preset.id)}
               >
                 {preset.label}

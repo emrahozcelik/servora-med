@@ -15,6 +15,7 @@ import type {
   DeliveryReportResponse,
 } from '../src/reports/report-types';
 import { resolveDatePreset } from '../src/reports/report-range';
+import { ReportDateRangeForm } from '../src/reports/report-shell';
 import { listStaff } from '../src/services/people-api';
 
 vi.mock('../src/reports/reports-api', async (importOriginal) => ({
@@ -176,7 +177,7 @@ describe('report latest-request-wins', () => {
     }
   });
 
-  it('exposes the executive preset set and marks custom range selection', async () => {
+  it('keeps the applied preset selected while entering custom range editing', async () => {
     vi.mocked(getDashboardReport).mockResolvedValue(
       dashboardFor('2026-07-01', '2026-07-31', 'America/New_York'),
     );
@@ -219,8 +220,27 @@ describe('report latest-request-wins', () => {
       custom!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
       await Promise.resolve();
     });
-    expect(custom?.getAttribute('aria-pressed')).toBe('true');
-    expect(last90?.getAttribute('aria-pressed')).toBe('false');
+    expect(custom?.getAttribute('aria-pressed')).toBe('false');
+    expect(last90?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('does not add pressed semantics to shared presets without selected-state management', async () => {
+    await act(async () => {
+      root.render(
+        <ReportDateRangeForm
+          formKey="shared"
+          from="2026-07-01"
+          to="2026-07-31"
+          filterError=""
+          errorRef={{ current: null }}
+          onSubmit={vi.fn()}
+          onPreset={vi.fn()}
+        />,
+      );
+    });
+
+    expect([...container.querySelectorAll<HTMLButtonElement>('.report-preset-button')]
+      .every((button) => !button.hasAttribute('aria-pressed'))).toBe(true);
   });
 
   it('keeps later delivery range when an earlier request finishes last', async () => {
