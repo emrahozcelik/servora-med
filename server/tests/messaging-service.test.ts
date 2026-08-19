@@ -139,6 +139,8 @@ describe('MessagingService', () => {
       );
       // insertMessage
       client.query.mockResolvedValueOnce({ rows: [{ id: messageId, conversation_id: conversationId, organization_id: organizationId, sender_user_id: actor.id, client_action_id: 'action-html', body: '<b>bold</b>', created_at: new Date() }], rowCount: 1 });
+      // clear archive state for authorized recipients
+      client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
       // updateConversationTimestamp
       client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
       // insertActivity
@@ -189,6 +191,8 @@ describe('MessagingService', () => {
       );
       // insertMessage
       client.query.mockResolvedValueOnce({ rows: [{ id: messageId, conversation_id: conversationId, organization_id: organizationId, sender_user_id: actor.id, client_action_id: 'action-1', body: 'Hello', created_at: new Date() }], rowCount: 1 });
+      // clear archive state for authorized recipients
+      client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
       // updateConversationTimestamp
       client.query.mockResolvedValueOnce({ rows: [], rowCount: 0 });
       // insertActivity

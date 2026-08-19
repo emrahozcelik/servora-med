@@ -32,6 +32,7 @@ const MIGRATIONS = [
   '024_job_card_notes_invoice_number.sql',
   '025_messaging_context_ready.sql',
   '026_messaging_participant_lifecycle.sql',
+  '029_messaging_conversation_archive.sql',
 ] as const;
 
 type Fixture = {

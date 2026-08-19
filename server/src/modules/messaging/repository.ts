@@ -3,6 +3,7 @@ import type { Pool, PoolClient } from 'pg';
 import type {
   ConversationContextType,
   ConversationListCursor,
+  ConversationListView,
   ConversationListItem,
   ConversationListPage,
   ConversationParticipantRecord,
@@ -185,6 +186,7 @@ export interface MessagingRepository {
     role: string,
     cursor: ConversationListCursor | null,
     limit: number,
+    view?: ConversationListView,
   ): Promise<ConversationListPage>;
 
   listMessages(
@@ -379,6 +381,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
     role: string,
     cursor: ConversationListCursor | null,
     limit: number,
+    view: ConversationListView = 'active',
   ): Promise<ConversationListPage> {
     const cursorClause = cursor
       ? `AND (c.updated_at, c.id) < ($${cursor ? 4 : 0}, $${cursor ? 5 : 0})`
@@ -408,6 +411,9 @@ export class PostgresMessagingRepository implements MessagingRepository {
            ON cp.conversation_id = c.id AND cp.user_id = $2 AND cp.organization_id = c.organization_id`
       : `LEFT JOIN conversation_participants cp
            ON cp.conversation_id = c.id AND cp.user_id = $2 AND cp.organization_id = c.organization_id`;
+    const archiveFilter = view === 'archived'
+      ? 'AND cus.archived_at IS NOT NULL'
+      : 'AND cus.archived_at IS NULL';
 
     const result = await this.pool.query<ConversationListItemRow>(
       `SELECT c.id, c.direct_key, c.context_type, c.job_id,
@@ -431,6 +437,10 @@ export class PostgresMessagingRepository implements MessagingRepository {
               c.updated_at
          FROM conversations c
          ${participantJoin}
+         LEFT JOIN conversation_user_states cus
+           ON cus.organization_id = c.organization_id
+          AND cus.conversation_id = c.id
+          AND cus.user_id = $2
          LEFT JOIN LATERAL (
            SELECT u.id, u.name, u.is_active
              FROM conversation_participants other_cp
@@ -464,6 +474,7 @@ export class PostgresMessagingRepository implements MessagingRepository {
         WHERE c.organization_id = $1
           AND ($3::text = 'STAFF' OR cp.user_id = $2 OR cp.user_id IS NULL)
           ${staffJobFilter}
+          ${archiveFilter}
           ${cursorClause}
         GROUP BY c.id, c.direct_key, c.context_type, c.job_id,
                  c.customer_id, c.title, j.title, cu.name,
@@ -1060,6 +1071,58 @@ export class PostgresMessagingTransaction {
     }));
   }
 
+  async getUnreadCountByConversation(
+    organizationId: string,
+    userId: string,
+    conversationId: string,
+  ): Promise<number> {
+    const result = await this.client.query<{ unread_count: string }>(
+      `SELECT COUNT(*) AS unread_count
+         FROM messages m
+         JOIN conversation_participants cp
+           ON cp.conversation_id = m.conversation_id
+          AND cp.user_id = $2
+          AND cp.organization_id = m.organization_id
+         LEFT JOIN messages rm
+           ON rm.conversation_id = m.conversation_id AND rm.id = cp.last_read_message_id
+        WHERE m.organization_id = $1
+          AND m.conversation_id = $3
+          AND m.sender_user_id <> $2
+          AND (cp.last_read_message_id IS NULL
+               OR (m.created_at, m.id) > (rm.created_at, rm.id))`,
+      [organizationId, userId, conversationId],
+    );
+    return parseInt(result.rows[0]?.unread_count ?? '0', 10);
+  }
+
+  async setConversationArchiveState(
+    organizationId: string,
+    conversationId: string,
+    userId: string,
+    archivedAt: Date | null,
+  ): Promise<void> {
+    if (archivedAt) {
+      await this.client.query(
+        `INSERT INTO conversation_user_states
+           (organization_id, conversation_id, user_id, archived_at)
+         VALUES ($1, $2, $3, $4)
+         ON CONFLICT (organization_id, conversation_id, user_id)
+         DO UPDATE SET archived_at = EXCLUDED.archived_at`,
+        [organizationId, conversationId, userId, archivedAt],
+      );
+      return;
+    }
+
+    await this.client.query(
+      `UPDATE conversation_user_states
+          SET archived_at = NULL
+        WHERE organization_id = $1
+          AND conversation_id = $2
+          AND user_id = $3`,
+      [organizationId, conversationId, userId],
+    );
+  }
+
   async insertMessage(
     organizationId: string,
     conversationId: string,
@@ -1083,6 +1146,31 @@ export class PostgresMessagingTransaction {
     const row = result.rows[0];
     if (!row) return null as unknown as MessageRecord;
     return mapMessage(row);
+  }
+
+  async clearConversationArchiveState(
+    organizationId: string,
+    conversationId: string,
+    userIds: readonly string[],
+  ): Promise<void> {
+    if (userIds.length === 0) return;
+    await this.client.query(
+      `UPDATE conversation_user_states
+          SET archived_at = NULL
+        WHERE organization_id = $1
+          AND conversation_id = $2
+          AND (
+            user_id = ANY($3::uuid[])
+            OR EXISTS (
+              SELECT 1
+                FROM users u
+               WHERE u.organization_id = $1
+                 AND u.id = conversation_user_states.user_id
+                 AND u.role IN ('ADMIN', 'MANAGER')
+            )
+          )`,
+      [organizationId, conversationId, userIds],
+    );
   }
 
   async insertActivity(

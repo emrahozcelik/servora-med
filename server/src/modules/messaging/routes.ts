@@ -20,6 +20,8 @@ export const messagingRoutes: FastifyPluginAsync<MessagingRoutesOptions> = async
   app.get('/conversations/job/:jobId', { preHandler: options.authenticate }, handlers.getJobConversationByJobId);
   app.get('/conversations/:conversationId/messages', { preHandler: options.authenticate }, handlers.listMessages);
   app.post('/conversations/:conversationId/messages', { preHandler: options.authenticate }, handlers.sendMessage);
+  app.post('/conversations/:conversationId/archive', { preHandler: options.authenticate }, handlers.archiveConversation);
+  app.post('/conversations/:conversationId/unarchive', { preHandler: options.authenticate }, handlers.unarchiveConversation);
   app.patch('/conversations/:conversationId/read', { preHandler: options.authenticate }, handlers.markRead);
   app.get('/unread-count', { preHandler: options.authenticate }, handlers.unreadCount);
   app.post('/conversations/:conversationId/job-assignee-sync', { preHandler: options.authenticate }, handlers.syncJobAssignee);
