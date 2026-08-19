@@ -8,6 +8,7 @@ import {
   string,
 } from '../services/api';
 import {
+  ACTIVE_JOB_CARD_STATUSES,
   DELIVERY_PURPOSES,
   JOB_CARD_TYPES,
   MEETING_OUTCOMES,
@@ -16,6 +17,8 @@ import {
 import type {
   ApprovalItem,
   ApprovalReportResponse,
+  ActiveStatusDistributionItem,
+  CreatedWorkTypeDistributionItem,
   DashboardReportResponse,
   DeliveryDayItem,
   DeliveryProductItem,
@@ -257,12 +260,49 @@ function parseCompletionWorkType(value: unknown): CompletionWorkType {
   };
 }
 
-function parseCompletedTrend(value: unknown) {
-  return array(value, 'completedTrend').map((entry) => {
-    const point = exactObject(entry, 'completedTrend', ['date', 'count']);
+function parseReportTrend(value: unknown, field: string) {
+  return array(value, field).map((entry) => {
+    const point = exactObject(entry, field, ['date', 'count']);
     return {
-      date: string(point.date, 'completedTrend.date'),
-      count: nonNegativeInteger(point.count, 'completedTrend.count'),
+      date: string(point.date, `${field}.date`),
+      count: nonNegativeInteger(point.count, `${field}.count`),
+    };
+  });
+}
+
+function parseCompletedTrend(value: unknown) {
+  return parseReportTrend(value, 'completedTrend');
+}
+
+function parseDailyCreatedTrend(value: unknown) {
+  return parseReportTrend(value, 'dailyCreatedTrend');
+}
+
+function parseActiveStatusDistribution(value: unknown): ActiveStatusDistributionItem[] {
+  const values = array(value, 'activeStatusDistribution');
+  if (values.length !== ACTIVE_JOB_CARD_STATUSES.length) invalid('activeStatusDistribution');
+  return values.map((entry, index) => {
+    const row = exactObject(entry, 'activeStatusDistribution', ['status', 'count']);
+    const status = oneOf(row.status, 'activeStatusDistribution.status',
+      ACTIVE_JOB_CARD_STATUSES);
+    if (status !== ACTIVE_JOB_CARD_STATUSES[index]) invalid('activeStatusDistribution');
+    return {
+      status,
+      count: nonNegativeInteger(row.count, 'activeStatusDistribution.count'),
+    };
+  });
+}
+
+function parseCreatedWorkTypeDistribution(value: unknown): CreatedWorkTypeDistributionItem[] {
+  const values = array(value, 'createdWorkTypeDistribution');
+  if (values.length !== JOB_CARD_TYPES.length) invalid('createdWorkTypeDistribution');
+  return values.map((entry, index) => {
+    const row = exactObject(entry, 'createdWorkTypeDistribution', ['type', 'count']);
+    const type = oneOf(row.type, 'createdWorkTypeDistribution.type', JOB_CARD_TYPES);
+    if (type !== JOB_CARD_TYPES[index]) invalid('createdWorkTypeDistribution');
+    return {
+      type,
+      count: nonNegativeInteger(row.count, 'createdWorkTypeDistribution.count'),
     };
   });
 }
@@ -348,7 +388,10 @@ export function parseDeliveryReport(value: unknown): DeliveryReportResponse {
 }
 
 export function parseDashboardReport(value: unknown): DashboardReportResponse {
-  const row = exactObject(value, 'dashboardReport', ['range', 'counters', 'completedTrend']);
+  const row = exactObject(value, 'dashboardReport', [
+    'range', 'counters', 'completedTrend', 'dailyCreatedTrend',
+    'activeStatusDistribution', 'createdWorkTypeDistribution',
+  ]);
   const counters = exactObject(row.counters, 'counters', [
     'activeJobCards', 'overdueJobCards', 'waitingApproval', 'revisionRequested',
     'completedInPeriod', 'cancelledInPeriod',
@@ -364,6 +407,11 @@ export function parseDashboardReport(value: unknown): DashboardReportResponse {
       cancelledInPeriod: nonNegativeInteger(counters.cancelledInPeriod, 'counters.cancelledInPeriod'),
     },
     completedTrend: parseCompletedTrend(row.completedTrend),
+    dailyCreatedTrend: parseDailyCreatedTrend(row.dailyCreatedTrend),
+    activeStatusDistribution: parseActiveStatusDistribution(row.activeStatusDistribution),
+    createdWorkTypeDistribution: parseCreatedWorkTypeDistribution(
+      row.createdWorkTypeDistribution,
+    ),
   };
 }
 

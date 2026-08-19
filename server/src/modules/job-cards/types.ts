@@ -5,6 +5,9 @@ export const JOB_CARD_STATUSES = [
   'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
+export const ACTIVE_JOB_CARD_STATUSES = [
+  'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+] as const satisfies readonly JobCardStatus[];
 export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
 export type JobCardType = (typeof JOB_CARD_TYPES)[number];
 

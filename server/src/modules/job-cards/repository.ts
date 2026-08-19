@@ -1,4 +1,5 @@
 import {
+  ACTIVE_JOB_CARD_STATUSES,
   JOB_CARD_STATUSES,
   type DeliveryItem,
   type JobCard,
@@ -843,10 +844,6 @@ function mapJobCardListItem(row: JobCardListRow): PersistedJobCardListItem {
 }
 
 type SqlFilter = { clause: string; values: unknown[] };
-
-const ACTIVE_JOB_CARD_STATUSES = [
-  'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
-] as const;
 
 const WORKSPACE_JOINS = `FROM job_cards j
   LEFT JOIN customers c

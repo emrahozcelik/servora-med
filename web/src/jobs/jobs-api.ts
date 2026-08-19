@@ -7,6 +7,9 @@ export const JOB_CARD_STATUSES = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
   'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
 ] as const;
+export const ACTIVE_JOB_CARD_STATUSES = JOB_CARD_STATUSES.filter(
+  (status) => status !== 'COMPLETED' && status !== 'CANCELLED',
+);
 /** Active statuses plus legacy PLANNED retained only for historical activity presentation. */
 export const JOB_CARD_ACTIVITY_STATUSES = [...JOB_CARD_STATUSES, 'PLANNED'] as const;
 export const JOB_CARD_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;

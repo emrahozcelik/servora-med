@@ -16,6 +16,9 @@ type DashboardRow = {
   completed_in_period: string | number;
   cancelled_in_period: string | number;
   completed_trend: Array<{ date: string; count: string | number }>;
+  daily_created_trend: Array<{ date: string; count: string | number }>;
+  active_status_distribution: Array<{ status: string; count: string | number }>;
+  created_work_type_distribution: Array<{ type: string; count: string | number }>;
 };
 
 function row(overrides: Partial<DashboardRow> = {}): DashboardRow {
@@ -35,6 +38,23 @@ function row(overrides: Partial<DashboardRow> = {}): DashboardRow {
       { date: '2026-07-01', count: 2 },
       { date: '2026-07-02', count: 1 },
       { date: '2026-07-03', count: 1 },
+    ],
+    daily_created_trend: [
+      { date: '2026-07-01', count: 4 },
+      { date: '2026-07-02', count: 0 },
+      { date: '2026-07-03', count: 2 },
+    ],
+    active_status_distribution: [
+      { status: 'NEW', count: 4 },
+      { status: 'ACCEPTED', count: 3 },
+      { status: 'IN_PROGRESS', count: 5 },
+      { status: 'WAITING_APPROVAL', count: 5 },
+      { status: 'REVISION_REQUESTED', count: 2 },
+    ],
+    created_work_type_distribution: [
+      { type: 'PRODUCT_DELIVERY', count: 3 },
+      { type: 'GENERAL_TASK', count: 4 },
+      { type: 'SALES_MEETING', count: 1 },
     ],
     ...overrides,
   };
@@ -82,6 +102,54 @@ describe('PostgresReportsRepository dashboard', () => {
         { date: '2026-07-01', count: 2 },
         { date: '2026-07-02', count: 1 },
         { date: '2026-07-03', count: 1 },
+      ],
+      dailyCreatedTrend: [
+        { date: '2026-07-01', count: 4 },
+        { date: '2026-07-02', count: 0 },
+        { date: '2026-07-03', count: 2 },
+      ],
+      activeStatusDistribution: [
+        { status: 'NEW', count: 4 },
+        { status: 'ACCEPTED', count: 3 },
+        { status: 'IN_PROGRESS', count: 5 },
+        { status: 'WAITING_APPROVAL', count: 5 },
+        { status: 'REVISION_REQUESTED', count: 2 },
+      ],
+      createdWorkTypeDistribution: [
+        { type: 'PRODUCT_DELIVERY', count: 3 },
+        { type: 'GENERAL_TASK', count: 4 },
+        { type: 'SALES_MEETING', count: 1 },
+      ],
+    });
+  });
+
+  it('maps the additive R2A-1 aggregation fields', async () => {
+    const { pool } = recordingPool();
+    const repository = new PostgresReportsRepository(pool);
+
+    const result = await repository.getDashboard({
+      organizationId: ORG_ID,
+      requestedRange: { from: '2026-07-01', to: '2026-07-03' },
+      requestTime,
+    });
+
+    expect(result).toMatchObject({
+      dailyCreatedTrend: [
+        { date: '2026-07-01', count: 4 },
+        { date: '2026-07-02', count: 0 },
+        { date: '2026-07-03', count: 2 },
+      ],
+      activeStatusDistribution: [
+        { status: 'NEW', count: 4 },
+        { status: 'ACCEPTED', count: 3 },
+        { status: 'IN_PROGRESS', count: 5 },
+        { status: 'WAITING_APPROVAL', count: 5 },
+        { status: 'REVISION_REQUESTED', count: 2 },
+      ],
+      createdWorkTypeDistribution: [
+        { type: 'PRODUCT_DELIVERY', count: 3 },
+        { type: 'GENERAL_TASK', count: 4 },
+        { type: 'SALES_MEETING', count: 1 },
       ],
     });
   });
@@ -149,8 +217,34 @@ describe('PostgresReportsRepository dashboard', () => {
     expect(sql).toContain('AT TIME ZONE organization_range.timezone');
     expect(sql).toContain("to_char(trend.day, 'YYYY-MM-DD')");
     expect(sql.match(/\$4::timestamptz/g)?.length).toBeGreaterThanOrEqual(2);
-    expect(sql).not.toMatch(/(?:jc\.)?type\s*=/i);
+    expect(sql).toContain('jc.type = work_types.type');
     expect(sql).not.toMatch(/delivered_at|job_card_delivery_items/i);
+  });
+
+  it('builds R2A-1 aggregations from created events and stable snapshot buckets', async () => {
+    const { pool, query } = recordingPool();
+    const repository = new PostgresReportsRepository(pool);
+
+    await repository.getDashboard({
+      organizationId: ORG_ID,
+      requestedRange: { from: '2026-07-01', to: '2026-07-03' },
+      requestTime,
+    });
+
+    const sql = query.mock.calls[0]?.[0] ?? '';
+    expect(sql).toContain('created_at');
+    expect(sql).toContain('daily_created_trend');
+    expect(sql).toContain('active_status_distribution');
+    expect(sql).toContain('created_work_type_distribution');
+    expect(sql).toContain("'NEW'");
+    expect(sql).toContain("'REVISION_REQUESTED'");
+    expect(sql).toContain("'PRODUCT_DELIVERY'");
+    expect(sql).toContain("'GENERAL_TASK'");
+    expect(sql).toContain("'SALES_MEETING'");
+    expect(sql).toContain('days.day::timestamp AT TIME ZONE organization_range.timezone');
+    expect(sql).toContain(
+      '(organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)',
+    );
   });
 
   it('counts overdue with the canonical due_date predicate only', async () => {

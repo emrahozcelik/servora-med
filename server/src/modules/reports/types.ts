@@ -1,5 +1,6 @@
 import type {
   DeliveryPurpose,
+  JobCardStatus,
   PersistedJobCardListItem,
   MeetingOutcome,
 } from '../job-cards/types.js';
@@ -147,6 +148,9 @@ export type DashboardReportResponse = {
     cancelledInPeriod: number;
   };
   completedTrend: Array<{ date: string; count: number }>;
+  dailyCreatedTrend: Array<{ date: string; count: number }>;
+  activeStatusDistribution: Array<{ status: JobCardStatus; count: number }>;
+  createdWorkTypeDistribution: WorkTypeDistributionItem[];
 };
 
 export type ReportStaffIdentity = {

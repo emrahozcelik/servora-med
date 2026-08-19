@@ -58,6 +58,19 @@ function dashboardFor(from: string, to: string, timezone = 'UTC'): DashboardRepo
       cancelledInPeriod: 0,
     },
     completedTrend: [{ date: from, count: from === '2026-07-01' ? 7 : 30 }],
+    dailyCreatedTrend: [{ date: from, count: from === '2026-07-01' ? 7 : 30 }],
+    activeStatusDistribution: [
+      { status: 'NEW', count: 1 },
+      { status: 'ACCEPTED', count: 0 },
+      { status: 'IN_PROGRESS', count: 0 },
+      { status: 'WAITING_APPROVAL', count: 0 },
+      { status: 'REVISION_REQUESTED', count: 0 },
+    ],
+    createdWorkTypeDistribution: [
+      { type: 'PRODUCT_DELIVERY', count: 1 },
+      { type: 'GENERAL_TASK', count: 0 },
+      { type: 'SALES_MEETING', count: 0 },
+    ],
   };
 }
 

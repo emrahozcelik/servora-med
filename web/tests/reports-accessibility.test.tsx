@@ -33,6 +33,19 @@ const dashboard: DashboardReportResponse = {
   counters: { activeJobCards: 8, overdueJobCards: 2, waitingApproval: 3,
     revisionRequested: 1, completedInPeriod: 5, cancelledInPeriod: 1 },
   completedTrend: [{ date: '2026-07-01', count: 2 }, { date: '2026-07-02', count: 0 }],
+  dailyCreatedTrend: [{ date: '2026-07-01', count: 2 }, { date: '2026-07-02', count: 1 }],
+  activeStatusDistribution: [
+    { status: 'NEW', count: 1 },
+    { status: 'ACCEPTED', count: 1 },
+    { status: 'IN_PROGRESS', count: 1 },
+    { status: 'WAITING_APPROVAL', count: 0 },
+    { status: 'REVISION_REQUESTED', count: 0 },
+  ],
+  createdWorkTypeDistribution: [
+    { type: 'PRODUCT_DELIVERY', count: 1 },
+    { type: 'GENERAL_TASK', count: 1 },
+    { type: 'SALES_MEETING', count: 0 },
+  ],
 };
 
 function markup(element: ReactNode) {
