@@ -109,6 +109,55 @@ async function tick(ms = 50) {
 }
 
 describe('MessagingPage per-user archive behavior', () => {
+  it('keeps the heading, view selector, and new-conversation action in deliberate header regions', async () => {
+    mockListConversations.mockResolvedValue({ items: [conversation('header')], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+
+    const header = container.querySelector('.messaging-sidebar-header');
+    const headingRow = header?.querySelector('.messaging-sidebar-heading-row');
+    const heading = headingRow?.querySelector('.messaging-sidebar-heading');
+    const viewTabs = header?.querySelector('.conversation-view-tabs');
+    const newConversation = headingRow?.querySelector('button[aria-label="Yeni konuşma"]');
+
+    expect(heading?.textContent).toBe('Mesajlar');
+    expect(headingRow).not.toBeNull();
+    expect(viewTabs).not.toBeNull();
+    expect(newConversation).not.toBeNull();
+    expect(viewTabs?.parentElement).toBe(header);
+    expect(newConversation?.parentElement).toBe(headingRow);
+    unmount();
+  });
+
+  it('keeps a stable action-rail structure for varied and unread conversation rows', async () => {
+    const long = {
+      ...conversation('long'),
+      title: 'Uzun müşteri görüşmesi ve ürün teslim planlaması için takip konuşması',
+      participantName: 'Ayşe Demirhan ve diğer katılımcılar',
+      lastActivityAt: '2026-08-09T10:00:00.000Z',
+    };
+    const unread = conversation('unread', 3);
+    mockListConversations.mockResolvedValue({ items: [conversation('short'), long, unread], nextCursor: null });
+
+    const { container, unmount } = render();
+    await tick();
+
+    const rows = Array.from(container.querySelectorAll('.conversation-row'));
+    expect(rows).toHaveLength(3);
+    rows.forEach((row) => {
+      expect(row.querySelector('.conversation-meta')).not.toBeNull();
+      expect(row.querySelector('.conversation-activity')).not.toBeNull();
+      expect(row.querySelector('.conversation-action-rail')).not.toBeNull();
+      expect(row.querySelector('.conversation-action-rail summary')).not.toBeNull();
+    });
+
+    const unreadAction = rows[2]?.querySelector('[role="menuitem"]') as HTMLButtonElement;
+    expect(unreadAction).not.toBeNull();
+    expect(unreadAction.disabled).toBe(true);
+    unmount();
+  });
+
   it('starts in Aktif and switches to a server-filtered Arşiv view', async () => {
     const active = conversation('active');
     const archived = conversation('archived');
