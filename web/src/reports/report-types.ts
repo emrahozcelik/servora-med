@@ -1,5 +1,6 @@
 import type {
   DeliveryPurpose,
+  JobCardStatus,
   JobCardType,
   MeetingOutcome,
   PersistedJobCardListItem,
@@ -44,6 +45,16 @@ export type StaffOnTimeMetrics = {
 };
 
 export type CompletionWorkType = {
+  type: JobCardType;
+  count: number;
+};
+
+export type ActiveStatusDistributionItem = {
+  status: JobCardStatus;
+  count: number;
+};
+
+export type CreatedWorkTypeDistributionItem = {
   type: JobCardType;
   count: number;
 };
@@ -101,6 +112,9 @@ export type DashboardReportResponse = {
     cancelledInPeriod: number;
   };
   completedTrend: Array<{ date: string; count: number }>;
+  dailyCreatedTrend: Array<{ date: string; count: number }>;
+  activeStatusDistribution: ActiveStatusDistributionItem[];
+  createdWorkTypeDistribution: CreatedWorkTypeDistributionItem[];
 };
 
 export type StaffReportResponse = {

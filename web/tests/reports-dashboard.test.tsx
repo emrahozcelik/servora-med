@@ -23,6 +23,22 @@ const report: DashboardReportResponse = {
     { date: '2026-07-01', count: 2 },
     { date: '2026-07-02', count: 0 },
   ],
+  dailyCreatedTrend: [
+    { date: '2026-07-01', count: 3 },
+    { date: '2026-07-02', count: 1 },
+  ],
+  activeStatusDistribution: [
+    { status: 'NEW', count: 2 },
+    { status: 'ACCEPTED', count: 1 },
+    { status: 'IN_PROGRESS', count: 3 },
+    { status: 'WAITING_APPROVAL', count: 1 },
+    { status: 'REVISION_REQUESTED', count: 1 },
+  ],
+  createdWorkTypeDistribution: [
+    { type: 'PRODUCT_DELIVERY', count: 2 },
+    { type: 'GENERAL_TASK', count: 1 },
+    { type: 'SALES_MEETING', count: 2 },
+  ],
 };
 
 const approval: ApprovalReportResponse = {

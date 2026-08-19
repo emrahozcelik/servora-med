@@ -41,6 +41,20 @@ const currentWorkload = { openJobCards: 3, waitingApproval: 2, revisionRequested
 const completionWorkTypes = [{ type: 'GENERAL_TASK', count: 4 }] as const;
 const completedTrend = [{ date: '2026-07-01', count: 0 },
   { date: '2026-07-02', count: 4 }];
+const dailyCreatedTrend = [{ date: '2026-07-01', count: 2 },
+  { date: '2026-07-02', count: 0 }];
+const activeStatusDistribution = [
+  { status: 'NEW', count: 1 },
+  { status: 'ACCEPTED', count: 0 },
+  { status: 'IN_PROGRESS', count: 2 },
+  { status: 'WAITING_APPROVAL', count: 1 },
+  { status: 'REVISION_REQUESTED', count: 0 },
+] as const;
+const createdWorkTypeDistribution = [
+  { type: 'PRODUCT_DELIVERY', count: 2 },
+  { type: 'GENERAL_TASK', count: 0 },
+  { type: 'SALES_MEETING', count: 1 },
+] as const;
 const listItem = {
   id: 'job-1', type: 'GENERAL_TASK', status: 'WAITING_APPROVAL', version: 7,
   title: 'Klinik ziyareti', priority: 'urgent', dueDate: '2026-07-20',
@@ -66,6 +80,9 @@ describe('Reports runtime contract', () => {
       counters: { activeJobCards: 8, overdueJobCards: 2, waitingApproval: 3,
         revisionRequested: 1, completedInPeriod: 5, cancelledInPeriod: 1 },
       completedTrend: [{ date: '2026-07-14', count: 2 }],
+      dailyCreatedTrend,
+      activeStatusDistribution,
+      createdWorkTypeDistribution,
     };
     expect(parseDashboardReport(dashboard)).toEqual(dashboard);
     expect(() => parseDashboardReport({ ...dashboard, unexpected: true }))
@@ -219,7 +236,15 @@ describe('Reports runtime contract', () => {
     const fetchMock = vi.fn()
       .mockResolvedValueOnce(response({ range, counters: { activeJobCards: 0,
         overdueJobCards: 0, waitingApproval: 0, revisionRequested: 0,
-        completedInPeriod: 0, cancelledInPeriod: 0 }, completedTrend: [] }))
+        completedInPeriod: 0, cancelledInPeriod: 0 }, completedTrend: [],
+        dailyCreatedTrend: [], activeStatusDistribution: [
+          { status: 'NEW', count: 0 }, { status: 'ACCEPTED', count: 0 },
+          { status: 'IN_PROGRESS', count: 0 }, { status: 'WAITING_APPROVAL', count: 0 },
+          { status: 'REVISION_REQUESTED', count: 0 },
+        ], createdWorkTypeDistribution: [
+          { type: 'PRODUCT_DELIVERY', count: 0 }, { type: 'GENERAL_TASK', count: 0 },
+          { type: 'SALES_MEETING', count: 0 },
+        ] }))
       .mockResolvedValueOnce(response({ range, items: [{
         staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
         performance, priorPerformance, staffExecution, onTime,

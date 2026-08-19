@@ -1,5 +1,10 @@
 import type { Pool } from 'pg';
 
+import {
+  ACTIVE_JOB_CARD_STATUSES,
+  JOB_CARD_TYPES,
+  type JobCardStatus,
+} from '../job-cards/types.js';
 import type { ReportsReadModel } from './ports.js';
 import type {
   ApprovalSummary,
@@ -49,6 +54,9 @@ type DashboardRow = {
   completed_in_period: string | number;
   cancelled_in_period: string | number;
   completed_trend: Array<{ date: string; count: string | number }>;
+  daily_created_trend: Array<{ date: string; count: string | number }>;
+  active_status_distribution: Array<{ status: JobCardStatus; count: string | number }>;
+  created_work_type_distribution: Array<{ type: string; count: string | number }>;
 };
 
 type StaffIdentityRow = {
@@ -173,6 +181,14 @@ const ORGANIZATION_RANGE_CTE = `organization_range AS (
 const OVERDUE_JOB_CARD_CLAUSE = `jc.due_date IS NOT NULL
   AND jc.due_date < ($4::timestamptz AT TIME ZONE organization_range.timezone)::date`;
 
+const ACTIVE_STATUS_LIST_SQL = ACTIVE_JOB_CARD_STATUSES.map((status) => `'${status}'`).join(', ');
+const ACTIVE_STATUS_BUCKETS_SQL = ACTIVE_JOB_CARD_STATUSES
+  .map((status, index) => `('${status}', ${index + 1})`)
+  .join(',\n    ');
+const WORK_TYPE_BUCKETS_SQL = JOB_CARD_TYPES
+  .map((type, index) => `('${type}', ${index + 1})`)
+  .join(',\n    ');
+
 const STAFF_SUMMARY_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
 )
@@ -191,7 +207,7 @@ SELECT requested.staff_user_id,
   )::int AS revision_requested,
   COUNT(jc.id) FILTER (
     WHERE jc.status IN (
-        'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
+        ${ACTIVE_STATUS_LIST_SQL}
       )
       AND (
         ${OVERDUE_JOB_CARD_CLAUSE}
@@ -221,14 +237,10 @@ ORDER BY requested.staff_user_id`;
 const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
   SELECT
     COUNT(jc.id) FILTER (
-      WHERE jc.status IN (
-        'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
-      )
+      WHERE jc.status IN (${ACTIVE_STATUS_LIST_SQL})
     )::int AS active_job_cards,
     COUNT(jc.id) FILTER (
-      WHERE jc.status IN (
-          'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED'
-        )
+      WHERE jc.status IN (${ACTIVE_STATUS_LIST_SQL})
         AND (
           ${OVERDUE_JOB_CARD_CLAUSE}
         )
@@ -278,6 +290,42 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
       ((days.day + 1)::timestamp AT TIME ZONE organization_range.timezone)
   GROUP BY days.day
   ORDER BY days.day
+), created_trend AS (
+  SELECT days.day,
+    COUNT(jc.id)::int AS count
+  FROM days
+  CROSS JOIN organization_range
+  LEFT JOIN job_cards jc ON jc.organization_id = $1
+    AND jc.created_at >=
+      (days.day::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.created_at <
+      ((days.day + 1)::timestamp AT TIME ZONE organization_range.timezone)
+  GROUP BY days.day
+  ORDER BY days.day
+), active_statuses(status, sort_order) AS (
+  VALUES ${ACTIVE_STATUS_BUCKETS_SQL}
+), active_status_distribution AS (
+  SELECT active_statuses.status, active_statuses.sort_order,
+    COUNT(jc.id)::int AS count
+  FROM active_statuses
+  CROSS JOIN organization_range
+  LEFT JOIN job_cards jc ON jc.organization_id = $1
+    AND jc.status = active_statuses.status
+  GROUP BY active_statuses.status, active_statuses.sort_order
+), work_types(type, sort_order) AS (
+  VALUES ${WORK_TYPE_BUCKETS_SQL}
+), created_work_type_distribution AS (
+  SELECT work_types.type, work_types.sort_order,
+    COUNT(jc.id)::int AS count
+  FROM work_types
+  CROSS JOIN organization_range
+  LEFT JOIN job_cards jc ON jc.organization_id = $1
+    AND jc.type = work_types.type
+    AND jc.created_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.created_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+  GROUP BY work_types.type, work_types.sort_order
 )
 SELECT to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
   to_char(organization_range.to_date, 'YYYY-MM-DD') AS to_date,
@@ -291,7 +339,30 @@ SELECT to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
       'count', trend.count
     ) ORDER BY trend.day),
     '[]'::json
-  ) AS completed_trend
+  ) AS completed_trend,
+  COALESCE(
+    (SELECT json_agg(json_build_object(
+      'date', to_char(created_trend.day, 'YYYY-MM-DD'),
+      'count', created_trend.count
+    ) ORDER BY created_trend.day) FROM created_trend),
+    '[]'::json
+  ) AS daily_created_trend,
+  COALESCE(
+    (SELECT json_agg(json_build_object(
+      'status', active_status_distribution.status,
+      'count', active_status_distribution.count
+    ) ORDER BY active_status_distribution.sort_order)
+     FROM active_status_distribution),
+    '[]'::json
+  ) AS active_status_distribution,
+  COALESCE(
+    (SELECT json_agg(json_build_object(
+      'type', created_work_type_distribution.type,
+      'count', created_work_type_distribution.count
+    ) ORDER BY created_work_type_distribution.sort_order)
+     FROM created_work_type_distribution),
+    '[]'::json
+  ) AS created_work_type_distribution
 FROM organization_range
 CROSS JOIN counters
 CROSS JOIN trend
@@ -800,6 +871,18 @@ function mapDashboard(row: DashboardRow): DashboardReportResponse {
     },
     completedTrend: row.completed_trend.map((point) => ({
       date: point.date,
+      count: Number(point.count),
+    })),
+    dailyCreatedTrend: row.daily_created_trend.map((point) => ({
+      date: point.date,
+      count: Number(point.count),
+    })),
+    activeStatusDistribution: row.active_status_distribution.map((point) => ({
+      status: point.status,
+      count: Number(point.count),
+    })),
+    createdWorkTypeDistribution: row.created_work_type_distribution.map((point) => ({
+      type: point.type,
       count: Number(point.count),
     })),
   };
