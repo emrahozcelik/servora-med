@@ -29,6 +29,22 @@ describe('messaging desktop workspace layout contract (M1)', () => {
     expect(messagingCss).toMatch(/\.messaging-sidebar\s*\{[^}]*width:\s*clamp\(320px,[^}]*360px\)/s);
   });
 
+  it('gives the sidebar header explicit heading and control regions', () => {
+    expect(messagingCss).toMatch(/\.messaging-sidebar-header\s*\{[^}]*display:\s*flex/s);
+    expect(messagingCss).toMatch(/\.messaging-sidebar-heading-row\s*\{[^}]*display:\s*flex/s);
+    expect(messagingCss).toMatch(/\.messaging-sidebar-heading\s*\{[^}]*min-width:\s*0/s);
+    expect(messagingCss).toMatch(/\.messaging-sidebar-heading\s*\{[^}]*text-overflow:\s*clip/s);
+  });
+
+  it('reserves a fixed action rail and bounded activity column for every conversation row', () => {
+    expect(messagingCss).toContain('--conversation-action-width');
+    expect(messagingCss).toMatch(/\.conversation-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)\s+var\(--conversation-action-width\)/s);
+    expect(messagingCss).toMatch(/\.conversation-item\s*\{[^}]*min-width:\s*0/s);
+    expect(messagingCss).toMatch(/\.conversation-item\s*\{[^}]*grid-template-columns:\s*40px\s+minmax\(0,\s*1fr\)\s+4\.5rem/s);
+    expect(messagingCss).toMatch(/\.conversation-activity\s*\{[^}]*width:\s*4\.5rem/s);
+    expect(messagingCss).toMatch(/\.conversation-actions\s*\{[^}]*flex:\s*0\s+0\s+var\(--conversation-action-width\)/s);
+  });
+
   it('keeps the thread as the flexible application surface with min-width zero', () => {
     expect(messagingCss).toMatch(/\.messaging-thread\s*\{[^}]*flex:\s*1/s);
     expect(messagingCss).toMatch(/\.messaging-thread\s*\{[^}]*min-width:\s*0/s);

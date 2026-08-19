@@ -757,7 +757,12 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
       <div className={`messaging-container${createOpen ? ' composing' : ''}`} ref={containerRef}>
         <aside className="messaging-sidebar">
           <header className="messaging-sidebar-header" hidden={createOpen}>
-            <h2>Mesajlar</h2>
+            <div className="messaging-sidebar-heading-row">
+              <h2 className="messaging-sidebar-heading">Mesajlar</h2>
+              {canCreate && (
+                <button type="button" ref={createTriggerRef} className="secondary-button messaging-new-button" onClick={openCreateFlow} aria-label="Yeni konuşma">Yeni konuşma</button>
+              )}
+            </div>
             <div className="conversation-view-tabs" aria-label="Konuşma görünümleri">
               <button
                 ref={activeViewButtonRef}
@@ -778,9 +783,6 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
                 Arşiv
               </button>
             </div>
-            {canCreate && (
-              <button type="button" ref={createTriggerRef} className="secondary-button" onClick={openCreateFlow} aria-label="Yeni konuşma">Yeni konuşma</button>
-            )}
           </header>
           {createOpen && (
             <div className="create-panel" ref={createFlowRef}>
@@ -1020,7 +1022,7 @@ export function MessagingPage({ user }: { user: CurrentUser }) {
                     <span className="conversation-activity"><span className="activity-time">{formatActivityTime(conv.lastActivityAt)}</span>{conv.unreadCount > 0 && <span className="unread-count">{conv.unreadCount}</span>}</span>
                   </button>
                   <details
-                    className="conversation-actions"
+                    className="conversation-actions conversation-action-rail"
                     onKeyDown={(event) => {
                       if (event.key !== 'Escape') return;
                       event.preventDefault();
