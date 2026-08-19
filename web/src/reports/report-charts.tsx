@@ -205,6 +205,96 @@ export function TrendBars({
   );
 }
 
+type WorkflowTrendProps = {
+  created: readonly TrendPoint[];
+  completed: readonly TrendPoint[];
+};
+
+/**
+ * Daily created/completed cohorts. The plot is decorative; the table and
+ * visible totals keep both event series understandable without hover.
+ */
+export function WorkflowTrend({ created, completed }: WorkflowTrendProps) {
+  const createdByDate = new Map(created.map((point) => [point.date, point.count]));
+  const completedByDate = new Map(completed.map((point) => [point.date, point.count]));
+  const dates = [...new Set([...created, ...completed].map((point) => point.date))].sort();
+  const createdTotal = created.reduce((sum, point) => sum + point.count, 0);
+  const completedTotal = completed.reduce((sum, point) => sum + point.count, 0);
+  const max = Math.max(
+    0,
+    ...dates.map((date) => Math.max(createdByDate.get(date) ?? 0, completedByDate.get(date) ?? 0)),
+  );
+  const density = trendDensityClass(dates.length);
+
+  return (
+    <figure className="report-workflow-trend" data-report-workflow-trend="true">
+      <div className="report-trend-legend" aria-label="İş akışı serileri">
+        <span className="report-trend-key report-trend-key--created">
+          <span className="report-trend-key-mark" aria-hidden="true" />
+          Oluşturulan <strong>{createdTotal}</strong>
+        </span>
+        <span className="report-trend-key report-trend-key--completed">
+          <span className="report-trend-key-mark" aria-hidden="true" />
+          Tamamlanan <strong>{completedTotal}</strong>
+        </span>
+      </div>
+      {dates.length === 0 ? (
+        <p className="report-chart-summary">Seçilen dönemde günlük hareket bulunmuyor.</p>
+      ) : (
+        <>
+          <div
+            className={`report-workflow-plot report-workflow-plot--${density}`}
+            data-density={density}
+            data-point-count={dates.length}
+            aria-hidden="true"
+          >
+            {dates.map((date) => {
+              const createdCount = createdByDate.get(date) ?? 0;
+              const completedCount = completedByDate.get(date) ?? 0;
+              return (
+                <span key={date} className="report-workflow-day" title={`${formatDate(date)}: ${createdCount} oluşturulan, ${completedCount} tamamlanan`}>
+                  <span
+                    className="report-workflow-bar report-workflow-bar--created"
+                    style={{ '--ratio': String(max === 0 ? 0 : createdCount / max) } as CSSProperties}
+                    data-zero={createdCount === 0 ? 'true' : undefined}
+                  />
+                  <span
+                    className="report-workflow-bar report-workflow-bar--completed"
+                    style={{ '--ratio': String(max === 0 ? 0 : completedCount / max) } as CSSProperties}
+                    data-zero={completedCount === 0 ? 'true' : undefined}
+                  />
+                </span>
+              );
+            })}
+          </div>
+          <details className="report-data-disclosure">
+            <summary>Günlük iş akışı verileri</summary>
+            <table className="report-workflow-table">
+              <caption>Günlük iş akışı verileri</caption>
+              <thead>
+                <tr>
+                  <th scope="col">Gün</th>
+                  <th scope="col">Oluşturulan</th>
+                  <th scope="col">Tamamlanan</th>
+                </tr>
+              </thead>
+              <tbody>
+                {dates.map((date) => (
+                  <tr key={date}>
+                    <th scope="row" data-date={date}>{formatDate(date)}</th>
+                    <td>{createdByDate.get(date) ?? 0}</td>
+                    <td>{completedByDate.get(date) ?? 0}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </details>
+        </>
+      )}
+    </figure>
+  );
+}
+
 /**
  * Mutually exclusive bucket distribution (e.g. approval SLA).
  * Callers must pass non-overlapping segment counts; values are not a free-form pie of unrelated metrics.
@@ -262,9 +352,13 @@ export function SegmentedDistributionBar({
 export function IndependentMeterBars({
   items,
   className = 'report-meter-list',
+  dataDistribution,
+  ariaLabel,
 }: {
   items: readonly { key: string; label: string; value: number; tone?: 'primary' | 'warning' | 'danger' | 'muted' }[];
   className?: string;
+  dataDistribution?: 'active-status' | 'created-work-type';
+  ariaLabel?: string;
 }) {
   if (items.length === 0) {
     return (
@@ -279,7 +373,12 @@ export function IndependentMeterBars({
 
   const max = items.reduce((peak, item) => Math.max(peak, item.value), 0);
   return (
-    <ul className={className} data-report-meters="true">
+    <ul
+      className={className}
+      data-report-meters="true"
+      data-report-distribution={dataDistribution}
+      aria-label={ariaLabel}
+    >
       {items.map((item) => {
         const ratio = max === 0 ? 0 : item.value / max;
         return (

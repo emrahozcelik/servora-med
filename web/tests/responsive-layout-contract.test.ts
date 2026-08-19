@@ -69,6 +69,14 @@ describe('responsive layout CSS contracts (PR B)', () => {
     expect(css).not.toMatch(/\.job-expand\s*\{/);
   });
 
+  it('keeps executive report metrics and workflow trend bounded across widths', () => {
+    expect(css).toMatch(/\.report-executive-metrics\s*\{[^}]*grid-template-columns:\s*repeat\(5,/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*56rem\)[\s\S]*\.report-executive-metrics\s*\{[^}]*repeat\(3,/s);
+    expect(css).toMatch(/@media\s*\(max-width:\s*720px\)[\s\S]*\.report-executive-metrics\s*\{[^}]*repeat\(2,/s);
+    expect(css).toMatch(/\.report-workflow-plot\s*\{[^}]*min-width:\s*0/);
+    expect(css).toMatch(/\.report-workflow-table\s*\{[^}]*width:\s*100%/);
+  });
+
   it('disables workflow transition and scroll animations under reduced motion', () => {
     expect(css).toContain('@media (prefers-reduced-motion: reduce)');
     expect(css).toMatch(/@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)[\s\S]*\.servora-workflow-steps/);

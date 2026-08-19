@@ -27,6 +27,9 @@ describe('report-range timezone presets', () => {
     expect(resolveDatePreset('last30', 'Europe/Istanbul', now)).toEqual({
       from: '2026-06-16', to: '2026-07-15',
     });
+    expect(resolveDatePreset('last90', 'Europe/Istanbul', now)).toEqual({
+      from: '2026-04-17', to: '2026-07-15',
+    });
     expect(resolveDatePreset('thisMonth', 'Europe/Istanbul', now)).toEqual({
       from: '2026-07-01', to: '2026-07-15',
     });

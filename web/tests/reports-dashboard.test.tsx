@@ -4,10 +4,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { describe, expect, it } from 'vitest';
 
 import { ReportsDashboardView } from '../src/reports/ReportsDashboard';
-import type {
-  ApprovalReportResponse,
-  DashboardReportResponse,
-} from '../src/reports/report-types';
+import type { DashboardReportResponse } from '../src/reports/report-types';
 
 const report: DashboardReportResponse = {
   range: { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' },
@@ -41,84 +38,126 @@ const report: DashboardReportResponse = {
   ],
 };
 
-const approval: ApprovalReportResponse = {
-  summary: {
-    pendingCount: 3,
-    oldestWaitingMinutes: 1500,
-    averageWaitingMinutes: 400,
-    under2Hours: 1,
-    between2And8Hours: 1,
-    between8And24Hours: 0,
-    over24Hours: 1,
-  },
-  items: [],
-  total: 3,
-  limit: 1,
-  offset: 0,
-};
-
 function render(view: ReactElement) {
   return renderToStaticMarkup(<MemoryRouter>{view}</MemoryRouter>);
 }
 
 describe('Reports dashboard presentation', () => {
-  it('shows overview KPIs before attention KPIs without design-meta copy', () => {
-    const html = render(<ReportsDashboardView report={report} approval={approval} />);
-    const overview = html.indexOf('Genel durum');
-    const attention = html.indexOf('Öncelikli göstergeler');
-    expect(overview).toBeGreaterThan(-1);
-    expect(attention).toBeGreaterThan(overview);
-    for (const label of ['Onay bekleyen', 'Geciken', 'Düzeltme bekleyen']) {
-      expect(html).toContain(label);
-    }
-    expect(html).toContain('Aktif işler');
-    expect(html).toContain('Bu dönemde tamamlanan');
-    expect(html).toContain('Bu dönemde iptal edilen');
-    expect(html).not.toContain('birbirini dışlayan dilimler');
-    expect(html).not.toContain('pasta diyagramı');
+  it('presents five executive KPIs with explicit snapshot and period scope', () => {
+    const html = render(<ReportsDashboardView report={report} />);
+    const kpis = html.match(/data-report-kpi="true"/g) ?? [];
+
+    expect(kpis).toHaveLength(5);
+    expect(html).toContain('Aktif İşler');
+    expect(html).toContain('Dönemde Tamamlanan');
+    expect(html).toContain('Geciken İşler');
+    expect(html).toContain('Onay Bekleyen');
+    expect(html).toContain('Düzeltme Bekleyen');
+    expect(html).toContain('Mevcut durum');
+    expect(html).toContain('Seçilen dönem');
   });
 
-  it('pairs decorative TrendBars with visible summary and accessible calendar disclosure', () => {
-    const html = render(<ReportsDashboardView report={report} approval={approval} />);
-    expect(html).toContain('data-report-trend-section="true"');
-    expect(html).toContain('data-report-trend-summary="true"');
-    expect(html).toContain('Toplam 2 tamamlanma');
-    expect(html).toContain('data-report-trend-bars="true"');
-    expect(html).toContain('aria-hidden="true"');
-    expect(html).toContain('Tamamlanan işler');
-    expect(html).toContain('report-calendar-table');
-    expect(html).toContain('Temmuz 2026');
-    expect(html).toContain('Pzt');
-    expect(html).toContain('1 Tem 2026: 2 tamamlanan iş');
-    expect(html).toContain('2 Tem 2026: 0 tamamlanan iş');
-    // Independent meters remain label+value, not a 100% partition visual alone.
-    expect(html).toContain('data-report-meters="true"');
-    expect(html).toContain('Onay bekleyen');
+  it('renders the executive sections in semantic order without the retired SLA panel', () => {
+    const html = render(<ReportsDashboardView report={report} />);
+    const headings = [
+      'Genel Durum',
+      'İş Akışı Eğilimi',
+      'Mevcut İş Akışı',
+      'İş Türleri',
+      'Dikkat Gerektirenler',
+    ];
+    const positions = headings.map((heading) => html.indexOf(heading));
+
+    expect(positions.every((position) => position >= 0)).toBe(true);
+    expect(positions).toEqual([...positions].sort((a, b) => a - b));
+    expect(html).not.toContain('Onay bekleme dağılımı');
+    expect(html).not.toContain('Tamamlanma oranı');
+    expect(html).not.toContain('completion rate');
   });
 
-  it('states empty completion trend without relying on decorative bars', () => {
-    const emptyTrend: DashboardReportResponse = {
+  it('renders current lifecycle and created work-type distributions in canonical order', () => {
+    const zeroBuckets: DashboardReportResponse = {
       ...report,
-      completedTrend: [],
-      counters: { ...report.counters, completedInPeriod: 0 },
+      activeStatusDistribution: report.activeStatusDistribution.map((item) => (
+        item.status === 'REVISION_REQUESTED' ? { ...item, count: 0 } : item
+      )),
+      createdWorkTypeDistribution: report.createdWorkTypeDistribution.map((item) => (
+        item.type === 'SALES_MEETING' ? { ...item, count: 0 } : item
+      )),
     };
-    const html = render(<ReportsDashboardView report={emptyTrend} approval={approval} />);
-    expect(html).toContain('Seçilen dönemde tamamlanma yok.');
-    expect(html).not.toContain('data-report-trend-bars="true"');
-    expect(html).toContain('Takvimde gösterilecek gün yok.');
-  });
+    const html = render(<ReportsDashboardView report={zeroBuckets} />);
 
-  it('shows mutually exclusive approval SLA buckets and attention actions', () => {
-    const html = render(<ReportsDashboardView report={report} approval={approval} />);
-    for (const label of ['2 saatten kısa', '2–8 saat', '8–24 saat', '24 saatten uzun']) {
+    expect(html).toContain('data-report-distribution="active-status"');
+    expect(html).toContain('data-report-distribution="created-work-type"');
+    for (const label of ['Hazırlanıyor', 'Atandı', 'Uygulanıyor', 'Yönetici kontrolünde', 'Düzeltme istendi']) {
       expect(html).toContain(label);
     }
-    expect(html).toContain('Onay kuyruğunu aç');
+    for (const label of ['Ürün teslimi', 'Genel görev', 'Satış görüşmesi']) {
+      expect(html).toContain(label);
+    }
+    expect(html).toContain('<strong>0</strong>');
+    expect(html.indexOf('Hazırlanıyor')).toBeLessThan(html.indexOf('Atandı'));
+    expect(html.indexOf('Atandı')).toBeLessThan(html.indexOf('Uygulanıyor'));
+    expect(html.indexOf('Uygulanıyor')).toBeLessThan(html.indexOf('Yönetici kontrolünde'));
+    expect(html.indexOf('Yönetici kontrolünde')).toBeLessThan(html.indexOf('Düzeltme istendi'));
+  });
+
+  it('renders independent created and completed workflow cohorts with accessible daily data', () => {
+    const html = render(<ReportsDashboardView report={report} />);
+
+    expect(html).toContain('data-report-workflow-trend="true"');
+    expect(html).toContain('Oluşturulan <strong>4</strong>');
+    expect(html).toContain('Tamamlanan <strong>2</strong>');
+    expect(html).toContain('Seçilen dönemde oluşturulan ve tamamlanan işlerin günlük sayısı.');
+    expect(html).toContain('report-workflow-table');
+    expect(html).toContain('Günlük iş akışı verileri');
+    expect(html).toContain('data-date="2026-07-01"');
+    expect(html).toContain('<th scope="col">Oluşturulan</th>');
+    expect(html).toContain('<th scope="col">Tamamlanan</th>');
+    expect(html).toContain('aria-hidden="true"');
+  });
+
+  it('states an empty workflow truthfully without hiding zero KPI values', () => {
+    const emptyReport: DashboardReportResponse = {
+      ...report,
+      counters: { ...report.counters, completedInPeriod: 0 },
+      completedTrend: [],
+      dailyCreatedTrend: [],
+    };
+    const html = render(<ReportsDashboardView report={emptyReport} />);
+
+    expect(html).toContain('Dönemde Tamamlanan');
+    expect(html).toContain('data-report-workflow-trend="true"');
+    expect(html).toContain('Oluşturulan <strong>0</strong>');
+    expect(html).toContain('Tamamlanan <strong>0</strong>');
+    expect(html).toContain('Seçilen dönemde günlük hareket bulunmuyor.');
+    expect(html).not.toContain('data-report-trend-bars="true"');
+  });
+
+  it('keeps all attention cards actionable and truthful at zero', () => {
+    const html = render(<ReportsDashboardView report={report} />);
+
+    expect((html.match(/data-attention-key=/g) ?? [])).toHaveLength(3);
     expect(html).toContain('Geciken işleri aç');
+    expect(html).toContain('Onay kuyruğunu aç');
     expect(html).toContain('Düzeltme bekleyenleri aç');
-    expect(html).toContain('süredir bekliyor');
     expect(html).toContain('/reports/approvals');
     expect(html).toContain('status=REVISION_REQUESTED');
     expect(html).toContain('overdue=true');
+
+    const zeroReport: DashboardReportResponse = {
+      ...report,
+      counters: {
+        ...report.counters,
+        overdueJobCards: 0,
+        waitingApproval: 0,
+        revisionRequested: 0,
+      },
+    };
+    const zeroHtml = render(<ReportsDashboardView report={zeroReport} />);
+    expect(zeroHtml).toContain('0 iş gecikmiş');
+    expect(zeroHtml).toContain('0 iş onay bekliyor');
+    expect(zeroHtml).toContain('0 iş düzeltme bekliyor');
+    expect((zeroHtml.match(/data-attention-key=/g) ?? [])).toHaveLength(3);
   });
 });

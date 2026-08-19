@@ -1,13 +1,17 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
+import { JOB_CARD_TYPES } from '../jobs/jobs-api';
+import { jobTypeLabels } from '../jobs/job-labels';
+import {
+  activeWorkflowPresentation,
+  activeWorkflowStatuses,
+} from '../jobs/job-status-presentation';
 import { paths } from '../paths';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import {
-  CompletedTrendCalendar,
   IndependentMeterBars,
-  SegmentedDistributionBar,
-  TrendBars,
+  WorkflowTrend,
 } from './report-charts';
 import {
   approvalQueueHref,
@@ -15,7 +19,6 @@ import {
 } from './report-action-links';
 import {
   formatRefreshTime,
-  formatWaitingDuration,
   resolveDatePreset,
   type ReportDatePreset,
 } from './report-range';
@@ -25,10 +28,9 @@ import {
   validateRequestedRange,
 } from './report-search';
 import type {
-  ApprovalReportResponse,
   DashboardReportResponse,
 } from './report-types';
-import { getApprovalReport, getDashboardReport } from './reports-api';
+import { getDashboardReport } from './reports-api';
 import {
   ReportDateRangeForm,
   ReportErrorState,
@@ -44,177 +46,132 @@ type AttentionCard = {
   href: string;
 };
 
-function buildAttentionCards(
-  dashboard: DashboardReportResponse,
-  approval: ApprovalReportResponse | null,
-): AttentionCard[] {
-  const cards: AttentionCard[] = [];
-  const { counters, range } = dashboard;
+const EXECUTIVE_PRESET_OPTIONS = [
+  { id: 'last7', label: 'Son 7 gün' },
+  { id: 'last30', label: 'Son 30 gün' },
+  { id: 'last90', label: 'Son 90 gün' },
+  { id: 'thisMonth', label: 'Bu ay' },
+] as const;
 
-  if (counters.waitingApproval > 0) {
-    const oldest = approval?.summary.oldestWaitingMinutes;
-    cards.push({
-      key: 'waiting',
-      title: `${counters.waitingApproval} iş onay bekliyor`,
-      detail: oldest != null
-        ? `En eskisi ${formatWaitingDuration(oldest)} süredir bekliyor.`
-        : 'Yönetici onayı olmadan tamamlanamaz.',
-      actionLabel: 'Onay kuyruğunu aç',
-      href: approvalQueueHref(),
-    });
-  }
-
-  if (counters.overdueJobCards > 0) {
-    cards.push({
+function buildAttentionCards(dashboard: DashboardReportResponse): AttentionCard[] {
+  const { counters } = dashboard;
+  return [
+    {
       key: 'overdue',
       title: `${counters.overdueJobCards} iş gecikmiş`,
-      detail: 'Termin tarihi geçmiş açık işler.',
+      detail: counters.overdueJobCards > 0
+        ? 'Termin tarihi geçmiş açık işler.'
+        : 'Termin tarihi geçmiş açık iş bulunmuyor.',
       actionLabel: 'Geciken işleri aç',
       href: `${paths.jobs}?overdue=true`,
-    });
-  }
-
-  if (counters.revisionRequested > 0) {
-    cards.push({
+    },
+    {
+      key: 'waiting',
+      title: `${counters.waitingApproval} iş onay bekliyor`,
+      detail: counters.waitingApproval > 0
+        ? 'Yönetici onayı olmadan tamamlanamaz.'
+        : 'Yönetici onayı bekleyen iş bulunmuyor.',
+      actionLabel: 'Onay kuyruğunu aç',
+      href: approvalQueueHref(),
+    },
+    {
       key: 'revision',
       title: `${counters.revisionRequested} iş düzeltme bekliyor`,
-      detail: 'Personelin revizyon tamamlaması gerekiyor.',
+      detail: counters.revisionRequested > 0
+        ? 'Personelin revizyon tamamlaması gerekiyor.'
+        : 'Düzeltme bekleyen iş bulunmuyor.',
       actionLabel: 'Düzeltme bekleyenleri aç',
       href: jobsStatusHref('REVISION_REQUESTED'),
-    });
-  }
-
-  // Max three action cards; queue signals take priority over pure SLA aging.
-  return cards.slice(0, 3);
+    },
+  ];
 }
 
 export function ReportsDashboardView({
   report,
-  approval,
 }: {
   report: DashboardReportResponse;
-  approval: ApprovalReportResponse | null;
 }) {
-  const primary = [
-    { key: 'waiting', label: 'Onay bekleyen', value: report.counters.waitingApproval, tone: 'warning' as const },
-    { key: 'overdue', label: 'Geciken', value: report.counters.overdueJobCards, tone: 'danger' as const },
-    { key: 'revision', label: 'Düzeltme bekleyen', value: report.counters.revisionRequested, tone: 'warning' as const },
+  const executiveMetrics = [
+    { key: 'active', label: 'Aktif İşler', value: report.counters.activeJobCards, scope: 'Mevcut durum' },
+    { key: 'completed', label: 'Dönemde Tamamlanan', value: report.counters.completedInPeriod, scope: 'Seçilen dönem' },
+    { key: 'overdue', label: 'Geciken İşler', value: report.counters.overdueJobCards, scope: 'Mevcut durum' },
+    { key: 'waiting', label: 'Onay Bekleyen', value: report.counters.waitingApproval, scope: 'Mevcut durum' },
+    { key: 'revision', label: 'Düzeltme Bekleyen', value: report.counters.revisionRequested, scope: 'Mevcut durum' },
   ];
-  const secondary = [
-    ['Aktif işler', report.counters.activeJobCards, 'Şu an'],
-    ['Bu dönemde tamamlanan', report.counters.completedInPeriod, 'Seçilen dönem'],
-    ['Bu dönemde iptal edilen', report.counters.cancelledInPeriod, 'Seçilen dönem'],
-  ] as const;
 
-  const attention = buildAttentionCards(report, approval);
-  const slaSegments = approval
-    ? [
-      { key: 'under2', label: '2 saatten kısa', value: approval.summary.under2Hours },
-      { key: 'between2And8', label: '2–8 saat', value: approval.summary.between2And8Hours },
-      { key: 'between8And24', label: '8–24 saat', value: approval.summary.between8And24Hours },
-      { key: 'over24', label: '24 saatten uzun', value: approval.summary.over24Hours },
-    ]
-    : null;
-
-  const trendTotal = report.completedTrend.reduce((sum, point) => sum + point.count, 0);
+  const attention = buildAttentionCards(report);
+  const activeStatusItems = activeWorkflowStatuses.map((status) => ({
+    key: status,
+    label: activeWorkflowPresentation[status].label,
+    value: report.activeStatusDistribution.find((item) => item.status === status)?.count ?? 0,
+    tone: status === 'WAITING_APPROVAL'
+      ? 'warning' as const
+      : status === 'REVISION_REQUESTED' ? 'danger' as const : 'primary' as const,
+  }));
+  const createdWorkTypeItems = JOB_CARD_TYPES.map((type) => ({
+    key: type,
+    label: jobTypeLabels[type],
+    value: report.createdWorkTypeDistribution.find((item) => item.type === type)?.count ?? 0,
+  }));
 
   return (
     <>
       <section className="report-section" aria-labelledby="overview-kpi-title">
-        <h2 id="overview-kpi-title">Genel durum</h2>
-        <dl className="report-metrics report-metrics-secondary">
-          {secondary.map(([label, value, scope]) => (
-            <div key={label}>
-              <dt>
-                {label}
-                <span>{scope}</span>
-              </dt>
-              <dd>{value}</dd>
-            </div>
-          ))}
-        </dl>
-      </section>
-
-      <section className="report-section" aria-labelledby="attention-kpi-title">
-        <h2 id="attention-kpi-title">Öncelikli göstergeler</h2>
-        <dl className="report-metrics report-metrics-primary">
-          {primary.map((item) => (
-            <div key={item.key} className={`report-metric-card report-metric-card--${item.tone}`}>
+        <h2 id="overview-kpi-title">Genel Durum</h2>
+        <dl className="report-metrics report-executive-metrics">
+          {executiveMetrics.map((item) => (
+            <div key={item.key} data-report-kpi="true">
               <dt>
                 {item.label}
-                <span>Şu an</span>
+                <span>{item.scope}</span>
               </dt>
               <dd>{item.value}</dd>
             </div>
           ))}
         </dl>
-        <IndependentMeterBars items={primary} />
+        <p className="report-section-hint">Aktif işler, geciken işler ve kuyruk sayaçları mevcut durumu; tamamlanan işler seçilen dönemi gösterir.</p>
       </section>
-
-      {attention.length > 0 ? (
-        <section className="report-section" aria-labelledby="attention-title">
-          <h2 id="attention-title">Dikkat</h2>
-          <ul className="report-attention-list">
-            {attention.map((card) => (
-              <li key={card.key} className="report-attention-card">
-                <div>
-                  <h3>{card.title}</h3>
-                  <p>{card.detail}</p>
-                </div>
-                <Link className="secondary-button" to={card.href}>{card.actionLabel}</Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
 
       <section className="report-section" aria-labelledby="trend-title" data-report-trend-section="true">
-        <h2 id="trend-title">Tamamlanma eğilimi</h2>
-        <p className="report-chart-summary" data-report-trend-summary="true">
-          {report.completedTrend.length === 0
-            ? 'Seçilen dönemde tamamlanma yok.'
-            : `Seçilen dönemde günlük tamamlanan işler. Toplam ${trendTotal} tamamlanma.`}
-        </p>
-        {report.completedTrend.length > 0 ? (
-          <TrendBars points={report.completedTrend} />
-        ) : null}
-        <details className="report-data-disclosure">
-          <summary>Tamamlanan işler</summary>
-          <CompletedTrendCalendar points={report.completedTrend} />
-        </details>
+        <h2 id="trend-title">İş Akışı Eğilimi</h2>
+        <p className="report-section-hint">Seçilen dönemde oluşturulan ve tamamlanan işlerin günlük sayısı.</p>
+        <WorkflowTrend created={report.dailyCreatedTrend} completed={report.completedTrend} />
       </section>
 
-      <section className="report-section" aria-labelledby="sla-title">
-        <h2 id="sla-title">Onay bekleme dağılımı</h2>
-        {slaSegments ? (
-          <>
-            <SegmentedDistributionBar segments={slaSegments} />
-            <dl className="approval-summary report-sla-summary">
+      <section className="report-section" aria-labelledby="active-workflow-title">
+        <h2 id="active-workflow-title">Mevcut İş Akışı</h2>
+        <p className="report-section-hint">Mevcut aktif işlerin iş akışı durumlarına göre dağılımı.</p>
+        <IndependentMeterBars
+          items={activeStatusItems}
+          dataDistribution="active-status"
+          ariaLabel="Mevcut iş akışı durumları"
+        />
+      </section>
+
+      <section className="report-section" aria-labelledby="work-type-title">
+        <h2 id="work-type-title">İş Türleri</h2>
+        <p className="report-section-hint">Seçilen dönemde oluşturulan işlerin tür dağılımı.</p>
+        <IndependentMeterBars
+          items={createdWorkTypeItems}
+          dataDistribution="created-work-type"
+          ariaLabel="Oluşturulan iş türleri"
+        />
+      </section>
+
+      <section className="report-section" aria-labelledby="attention-title">
+        <h2 id="attention-title">Dikkat Gerektirenler</h2>
+        <p className="report-section-hint">Şu anda işlem gerektiren iş kuyrukları.</p>
+        <ul className="report-attention-list">
+          {attention.map((card) => (
+            <li key={card.key} className="report-attention-card" data-attention-key={card.key}>
               <div>
-                <dt>Toplam bekleyen</dt>
-                <dd>{approval!.summary.pendingCount}</dd>
+                <h3>{card.title}</h3>
+                <p>{card.detail}</p>
               </div>
-              <div>
-                <dt>En uzun bekleme</dt>
-                <dd>
-                  {approval!.summary.oldestWaitingMinutes === null
-                    ? 'Yok'
-                    : formatWaitingDuration(approval!.summary.oldestWaitingMinutes)}
-                </dd>
-              </div>
-              <div>
-                <dt>Ortalama bekleme</dt>
-                <dd>
-                  {approval!.summary.averageWaitingMinutes === null
-                    ? 'Yok'
-                    : formatWaitingDuration(approval!.summary.averageWaitingMinutes)}
-                </dd>
-              </div>
-            </dl>
-          </>
-        ) : (
-          <p className="report-section-hint">Onay bekleme özeti yüklenemedi; özet sayaçlar yine de geçerlidir.</p>
-        )}
+              <Link className="secondary-button" to={card.href}>{card.actionLabel}</Link>
+            </li>
+          ))}
+        </ul>
       </section>
     </>
   );
@@ -224,12 +181,13 @@ export function ReportsDashboard() {
   const [search, setSearch] = useSearchParams();
   const state = readDashboardSearch(search);
   const [report, setReport] = useState<DashboardReportResponse | null>(null);
-  const [approval, setApproval] = useState<ApprovalReportResponse | null>(null);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
   const [filterError, setFilterError] = useState('');
   const [refreshedAt, setRefreshedAt] = useState<Date | null>(null);
   const [resolvedTimezone, setResolvedTimezone] = useState<string | null>(null);
+  const [selectedPreset, setSelectedPreset] = useState<ReportDatePreset | null>(null);
+  const [customPresetActive, setCustomPresetActive] = useState(false);
   const errorRef = useRef<HTMLDivElement>(null);
   const requestSequence = useRef(0);
 
@@ -239,13 +197,9 @@ export function ReportsDashboard() {
     setError('');
     try {
       const range = state.from && state.to ? { from: state.from, to: state.to } : null;
-      const [nextDashboard, nextApproval] = await Promise.all([
-        getDashboardReport(range),
-        getApprovalReport({ limit: 1, offset: 0 }).catch(() => null),
-      ]);
+      const nextDashboard = await getDashboardReport(range);
       if (requestId !== requestSequence.current) return;
       setReport(nextDashboard);
-      setApproval(nextApproval);
       setResolvedTimezone(nextDashboard.range.timezone);
       setRefreshedAt(new Date());
       if (!state.from || !state.to) {
@@ -262,6 +216,16 @@ export function ReportsDashboard() {
   useEffect(() => {
     if (!state.canonical) setSearch(dashboardSearch(state), { replace: true });
   }, [state, setSearch]);
+
+  useEffect(() => {
+    if (!resolvedTimezone || !state.from || !state.to) return;
+    const matchingPreset = EXECUTIVE_PRESET_OPTIONS.find((preset) => {
+      const range = resolveDatePreset(preset.id, resolvedTimezone);
+      return range.from === state.from && range.to === state.to;
+    });
+    setSelectedPreset(matchingPreset?.id ?? null);
+    setCustomPresetActive(matchingPreset === undefined);
+  }, [resolvedTimezone, state.from, state.to]);
 
   useEffect(() => {
     void load();
@@ -281,6 +245,8 @@ export function ReportsDashboard() {
       return;
     }
     setFilterError('');
+    setSelectedPreset(null);
+    setCustomPresetActive(true);
     setSearch(dashboardSearch({ ...result.value, canonical: true }));
   }
 
@@ -288,7 +254,17 @@ export function ReportsDashboard() {
     if (!resolvedTimezone) return;
     const range = resolveDatePreset(preset, resolvedTimezone);
     setFilterError('');
+    setSelectedPreset(preset);
+    setCustomPresetActive(false);
     setSearch(dashboardSearch({ ...range, canonical: true }));
+  }
+
+  function chooseCustomRange() {
+    setSelectedPreset(null);
+    setCustomPresetActive(true);
+    requestAnimationFrame(() => {
+      document.querySelector<HTMLInputElement>('input[name="from"]')?.focus();
+    });
   }
 
   const refreshLabel = refreshedAt && resolvedTimezone
@@ -298,7 +274,8 @@ export function ReportsDashboard() {
 
   return (
     <ReportShell
-      title="Operasyon özeti"
+      title="Raporlar"
+      description="Operasyonunuzun genel durumunu ve seçilen dönemdeki hareketini izleyin."
       current="summary"
       refreshLabel={refreshLabel}
       range={rangeContext}
@@ -312,6 +289,10 @@ export function ReportsDashboard() {
         onSubmit={submit}
         onPreset={applyPreset}
         presetsDisabled={!resolvedTimezone}
+        presetOptions={EXECUTIVE_PRESET_OPTIONS}
+        onCustomPreset={chooseCustomRange}
+        customPresetActive={customPresetActive}
+        selectedPreset={selectedPreset}
       />
       {loading && <ReportLoadingState title="Rapor özeti yükleniyor" />}
       {!loading && error && (
@@ -322,7 +303,7 @@ export function ReportsDashboard() {
         />
       )}
       {!loading && !error && report && (
-        <ReportsDashboardView report={report} approval={approval} />
+        <ReportsDashboardView report={report} />
       )}
     </ReportShell>
   );

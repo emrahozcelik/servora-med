@@ -14,7 +14,9 @@ const NAV: Array<{ id: ReportNavSection; label: string }> = [
   { id: 'approvals', label: 'Onaylar' },
 ];
 
-const PRESETS: Array<{ id: ReportDatePreset; label: string }> = [
+export type ReportPresetOption = { id: ReportDatePreset; label: string };
+
+const PRESETS: readonly ReportPresetOption[] = [
   { id: 'today', label: 'Bugün' },
   { id: 'last7', label: 'Son 7 gün' },
   { id: 'last30', label: 'Son 30 gün' },
@@ -102,6 +104,10 @@ export function ReportDateRangeForm({
   presetsDisabled,
   presetControl = 'buttons',
   selectedPreset,
+  presetOptions,
+  onCustomPreset,
+  customPresetActive = false,
+  customPresetLabel = 'Özel aralık',
   wide,
   children,
 }: {
@@ -116,16 +122,22 @@ export function ReportDateRangeForm({
   presetsDisabled?: boolean;
   presetControl?: 'buttons' | 'segmented';
   selectedPreset?: ReportDatePreset | null;
+  presetOptions?: readonly ReportPresetOption[];
+  onCustomPreset?: () => void;
+  customPresetActive?: boolean;
+  customPresetLabel?: string;
   wide?: boolean;
   children?: ReactNode;
 }) {
+  const availablePresets = presetOptions ?? PRESETS;
+
   return (
     <>
       {onPreset ? (
         <div className="report-presets" role="group" aria-label="Hızlı tarih aralığı">
           {presetControl === 'segmented' ? (
             <IconSegmented
-              options={PRESETS.map((preset) => ({
+              options={availablePresets.map((preset) => ({
                 value: preset.id,
                 label: preset.label,
               }))}
@@ -135,17 +147,29 @@ export function ReportDateRangeForm({
               disabled={presetsDisabled}
               responsiveVertical
             />
-          ) : PRESETS.map((preset) => (
+          ) : availablePresets.map((preset) => (
               <button
                 key={preset.id}
                 type="button"
                 className="report-preset-button"
                 disabled={presetsDisabled}
+                aria-pressed={selectedPreset === preset.id}
                 onClick={() => onPreset(preset.id)}
               >
                 {preset.label}
               </button>
             ))}
+          {onCustomPreset ? (
+            <button
+              type="button"
+              className="report-preset-button report-preset-button--custom"
+              disabled={presetsDisabled}
+              aria-pressed={customPresetActive}
+              onClick={onCustomPreset}
+            >
+              {customPresetLabel}
+            </button>
+          ) : null}
         </div>
       ) : null}
       <div className="filter-region">
@@ -197,12 +221,14 @@ export function ReportDateRangeForm({
 
 export function ReportShell({
   title,
+  description,
   current,
   refreshLabel,
   range,
   children,
 }: {
   title: string;
+  description?: ReactNode;
   current: ReportNavSection;
   refreshLabel?: string | null;
   range?: ReportRangeContext | null;
@@ -213,6 +239,7 @@ export function ReportShell({
       <header className="workspace-heading">
         <div>
           <h1>{title}</h1>
+          {description ? <p className="report-intro">{description}</p> : null}
           {refreshLabel ? <ReportRefreshStatus label={refreshLabel} /> : null}
         </div>
         <ReportNavigation current={current} range={range} />
