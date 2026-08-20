@@ -73,7 +73,7 @@ describe('application routes', () => {
     ['/users/staff-1', 'Kullanıcı yükleniyor', admin],
     ['/staff', 'Personel', manager],
     ['/staff/staff-1', 'Personel profili', manager],
-    ['/staff/staff-1/reports', 'Operasyon raporu yükleniyor', manager],
+    ['/staff/staff-1/reports', 'Personel operasyon raporu yükleniyor', manager],
     ['/customers?status=active', 'Müşteriler', manager],
     ['/customers/new', 'Yeni müşteri', staff],
     ['/customers/new', 'Yeni müşteri', manager],
