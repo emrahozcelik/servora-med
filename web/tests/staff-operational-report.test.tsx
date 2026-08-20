@@ -82,6 +82,9 @@ describe('Staff operational report', () => {
     expect(html).toContain('1 Temmuz 2026 – 31 Temmuz 2026');
     expect(html).toContain('Europe/Istanbul');
     expect(html).toContain('Pasif personel');
+    expect(html).toContain('Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.');
+    expect(html).not.toContain('Onaya gönderme kaydı, mevcut atama üzerinde');
+    expect(html).toContain('hâlen bu personele atanmış');
     for (const label of [
       'Şu an — mevcut operasyon yükü', 'Seçilen dönem — yönetici onaylı sonuçlar',
       'Aksiyon alınabilir', 'Gecikmiş', 'Onay bekliyor', 'Düzeltme bekliyor',

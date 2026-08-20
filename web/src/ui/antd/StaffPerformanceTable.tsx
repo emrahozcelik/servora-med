@@ -148,8 +148,8 @@ function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
         </dl>
         <p className="staff-performance-context-note">
           Tamamlananlar seçilen dönemde hâlen bu personele atanmış ve yönetici tarafından onaylanmış
-          işleri gösterir. Onaya gönderme kaydı, mevcut atama üzerindeki zaman damgalı kaydı bildirir;
-          olay geçmişi değildir.
+          işleri gösterir. Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.
+          Tekrar gönderimlerin olay geçmişini saymaz.
         </p>
       </section>
       <section aria-label={`${record.name} tamamlanan işlerin türleri`}>
@@ -166,7 +166,8 @@ function StaffContext({ record }: { record: StaffPerformanceTableRecord }) {
 const definitions: Partial<Record<SortKey, string>> = {
   openJobCards: 'NEW, ACCEPTED ve IN_PROGRESS aşamalarındaki mevcut işler.',
   completedJobs: 'Seçilen dönemde yönetici tarafından onaylanan ve hâlen bu personele atanmış işler.',
-  recordedSubmissionCount: 'Mevcut atama üzerinde zaman damgalı onaya gönderme kaydı bulunan işler.',
+  recordedSubmissionCount:
+    'Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir; tekrar gönderimlerin olay geçmişini saymaz.',
 };
 
 const labels: Record<SortKey, string> = {
@@ -211,7 +212,7 @@ function sortableColumn(
       render: (_value: unknown, record: StaffPerformanceTableRecord) => (
         <span className="staff-performance-person">
           <strong>{record.name}</strong>
-          {!record.isActive && <Tag>Pasif</Tag>}
+          <Tag>{record.isActive ? 'Aktif' : 'Pasif'}</Tag>
         </span>
       ),
     } : key === 'completedJobs' ? {
@@ -244,7 +245,7 @@ function MobileRecord({ record }: { record: StaffPerformanceTableRecord }) {
     <li className="staff-performance-mobile-record">
       <div className="staff-performance-mobile-heading">
         <h2>{record.name}</h2>
-        {!record.isActive && <Tag>Pasif</Tag>}
+        <Tag>{record.isActive ? 'Aktif' : 'Pasif'}</Tag>
       </div>
       <section aria-label={`${record.name} şu an`}>
         <h3>Şu an</h3>

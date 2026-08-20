@@ -204,8 +204,8 @@ export function StaffOperationalReport({ report }: { report: StaffReportResponse
       </dl>
       <p className="report-section-hint">
         Tamamlananlar seçilen dönemde hâlen bu personele atanmış ve yönetici tarafından onaylanmış
-        işleri kapsar. Onaya gönderme kaydı, mevcut atama üzerindeki zaman damgalı kaydı bildirir;
-        olay geçmişi değildir. Kaydı bulunan işler{' '}
+        işleri kapsar. Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.
+        Tekrar gönderimlerin olay geçmişini saymaz. Kaydı bulunan işler{' '}
         {submission.recordedSubmissionDays} organizasyon-yerel gün içindedir.
       </p>
       <WorkTypeDistribution

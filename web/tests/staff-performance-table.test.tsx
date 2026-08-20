@@ -83,6 +83,9 @@ describe('StaffPerformanceTable adapter', () => {
     expect(sortButton.getAttribute('aria-label')).toContain('Yönetici onaylı tamamlananlar sütununu sırala');
     expect(container.textContent).toContain('ŞU AN');
     expect(container.textContent).toContain('SEÇİLEN DÖNEM');
+    const desktop = container.querySelector('[data-staff-performance-desktop="true"]')!;
+    expect(desktop.textContent).toContain('Ayşe YılmazAktif');
+    expect(desktop.textContent).toContain('Mehmet KayaPasif');
     await act(async () => sortButton.click());
     expect(completedHeader.getAttribute('aria-sort')).toBe('ascending');
     expect(container.querySelector('tbody tr[data-row-key]')?.textContent).toContain('Mehmet Kaya');
@@ -96,11 +99,19 @@ describe('StaffPerformanceTable adapter', () => {
     expect(container.textContent).toContain('Aksiyon alınabilir');
     expect(container.textContent).toContain('Mevcut iş yükünün tür dağılımı');
     expect(container.textContent).toContain('Onaya gönderme kaydı');
+    const contextNote = container.querySelector('.staff-performance-context-note')!;
+    expect(contextNote.textContent).toContain(
+      'Seçilen dönemde onaya gönderme atfı bu personele kayıtlı işleri gösterir.',
+    );
+    expect(contextNote.textContent).not.toContain('Onaya gönderme kaydı, mevcut atama üzerinde');
+    expect(contextNote.textContent).toContain('hâlen bu personele atanmış');
     expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]'))
       .not.toBeNull();
 
     const mobile = container.querySelector('[data-staff-performance-mobile="true"]')!;
     expect(mobile.querySelectorAll('li.staff-performance-mobile-record')).toHaveLength(2);
+    expect(mobile.textContent).toContain('Ayşe YılmazAktif');
+    expect(mobile.textContent).toContain('Mehmet KayaPasif');
     expect(mobile.querySelector('details summary')?.textContent).toContain('Ayrıntıları göster');
     expect(mobile.querySelector('a')?.getAttribute('href')).toContain('from=2026-07-01');
     expect(Array.from(container.querySelectorAll('thead th')).map((header) => header.textContent))
