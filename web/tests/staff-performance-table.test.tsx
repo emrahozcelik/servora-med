@@ -24,34 +24,41 @@ vi.stubGlobal('ResizeObserver', class {
 const records: StaffPerformanceTableRecord[] = [
   {
     key: 'ayse', name: 'Ayşe Yılmaz', isActive: true,
-    completedJobs: 42, completionDays: 18, jobsPerCompletionDay: 2.333,
-    correctionRequestEvents: 1, authoredOperationalNotes: 17,
+    completedJobs: 42, authoredOperationalNotes: 17,
+    staffSubmissionAttribution: { recordedSubmissionCount: 6, recordedSubmissionDays: 4 },
     priorRangeLabel: '31 Mayıs 2026 – 30 Haziran 2026',
     priorPerformance: { available: true, performance: { completedJobs: 34,
-      completionDays: 17, jobsPerCompletionDay: 3, correctionRequestEvents: 2,
       authoredOperationalNotes: 12 } },
-    staffExecution: { staffCompletedJobs: 40,
-      staffCompletionDays: 16, jobsPerStaffCompletionDay: 2.5,
-      missingStaffCompletionTimestamp: 2 },
-    onTime: { eligibleScheduledCompletedJobs: 10, onTimeCompletedJobs: 8,
-      lateCompletedJobs: 2, ineligibleOrNoDeadlineCompletedJobs: 32, onTimeRate: 0.8 },
-    workTypes: [{ label: 'Satış görüşmesi', count: 14 }],
+    completionWorkTypes: [
+      { label: 'Satış görüşmesi', count: 14 },
+      { label: 'Ürün teslimi', count: 9 },
+      { label: 'Genel görev', count: 0 },
+    ],
+    currentWorkloadByType: [
+      { label: 'Ürün teslimi', count: 2 },
+      { label: 'Genel görev', count: 2 },
+      { label: 'Satış görüşmesi', count: 1 },
+    ],
     currentWorkload: { openJobCards: 5, overdueJobCards: 1, waitingApproval: 2,
       revisionRequested: 0 },
     reportHref: '/staff/ayse/reports?from=2026-07-01&to=2026-07-31',
   },
   {
     key: 'mehmet', name: 'Mehmet Kaya', isActive: false,
-    completedJobs: 0, completionDays: 0, jobsPerCompletionDay: 0,
-    correctionRequestEvents: 3, authoredOperationalNotes: 12,
+    completedJobs: 0, authoredOperationalNotes: 12,
+    staffSubmissionAttribution: { recordedSubmissionCount: 0, recordedSubmissionDays: 0 },
     priorRangeLabel: '31 Mayıs 2026 – 30 Haziran 2026',
     priorPerformance: { available: false, performance: null },
-    staffExecution: { staffCompletedJobs: 0,
-      staffCompletionDays: 0, jobsPerStaffCompletionDay: 0,
-      missingStaffCompletionTimestamp: 0 },
-    onTime: { eligibleScheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
-      lateCompletedJobs: 0, ineligibleOrNoDeadlineCompletedJobs: 0, onTimeRate: null },
-    workTypes: [],
+    completionWorkTypes: [
+      { label: 'Satış görüşmesi', count: 0 },
+      { label: 'Ürün teslimi', count: 0 },
+      { label: 'Genel görev', count: 0 },
+    ],
+    currentWorkloadByType: [
+      { label: 'Ürün teslimi', count: 0 },
+      { label: 'Genel görev', count: 0 },
+      { label: 'Satış görüşmesi', count: 0 },
+    ],
     currentWorkload: { openJobCards: 0, overdueJobCards: 0, waitingApproval: 0,
       revisionRequested: 0 },
     reportHref: '/staff/mehmet/reports?from=2026-07-01&to=2026-07-31',
@@ -59,7 +66,7 @@ const records: StaffPerformanceTableRecord[] = [
 ];
 
 describe('StaffPerformanceTable adapter', () => {
-  it('provides keyboard-sortable headers, keyboard-native expansion, and mobile records', async () => {
+  it('provides grouped operational headers, keyboard-native expansion, and mobile records', async () => {
     const container = document.createElement('div');
     document.body.append(container);
     const root = createRoot(container);
@@ -70,12 +77,12 @@ describe('StaffPerformanceTable adapter', () => {
     ));
 
     const completedHeader = Array.from(container.querySelectorAll('thead th'))
-      .find((header) => header.textContent?.includes('Tamamlanan'))!;
+      .find((header) => header.textContent?.includes('Yönetici onaylı tamamlananlar'))!;
     const sortButton = completedHeader.querySelector<HTMLButtonElement>('button')!;
     expect(sortButton.tabIndex).toBe(0);
-    expect(sortButton.getAttribute('aria-label')).toContain('Tamamlanan sütununu sırala');
-    expect(container.textContent).toContain('Önceki 34 · değişim +8');
-    expect(container.textContent).toContain('Önceki 3 · değişim -0,7');
+    expect(sortButton.getAttribute('aria-label')).toContain('Yönetici onaylı tamamlananlar sütununu sırala');
+    expect(container.textContent).toContain('ŞU AN');
+    expect(container.textContent).toContain('SEÇİLEN DÖNEM');
     await act(async () => sortButton.click());
     expect(completedHeader.getAttribute('aria-sort')).toBe('ascending');
     expect(container.querySelector('tbody tr[data-row-key]')?.textContent).toContain('Mehmet Kaya');
@@ -86,11 +93,9 @@ describe('StaffPerformanceTable adapter', () => {
     expect(expand.getAttribute('aria-expanded')).toBe('false');
     await act(async () => expand.click());
     expect(container.textContent).toContain('Satış görüşmesi');
-    expect(container.textContent).toContain('5 açık');
-    expect(container.textContent).toContain('Personelin bitirme zamanı');
-    expect(container.textContent).toContain('2 onaylı işte bu zaman eksik');
-    expect(container.textContent).toContain('8 / 10 zaman hedefli iş');
-    expect(container.textContent).toContain('32 tamamlanan işte hesaplanabilir zaman hedefi yok');
+    expect(container.textContent).toContain('Aksiyon alınabilir');
+    expect(container.textContent).toContain('Mevcut iş yükünün tür dağılımı');
+    expect(container.textContent).toContain('Onaya gönderme kaydı');
     expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]'))
       .not.toBeNull();
 
@@ -99,7 +104,7 @@ describe('StaffPerformanceTable adapter', () => {
     expect(mobile.querySelector('details summary')?.textContent).toContain('Ayrıntıları göster');
     expect(mobile.querySelector('a')?.getAttribute('href')).toContain('from=2026-07-01');
     expect(Array.from(container.querySelectorAll('thead th')).map((header) => header.textContent))
-      .not.toContain('Zamanında');
+      .not.toContain('İş / gün');
 
     await act(async () => root.unmount());
     container.remove();

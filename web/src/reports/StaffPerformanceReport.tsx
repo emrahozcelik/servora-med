@@ -61,15 +61,15 @@ function tableRecord(
     name: item.staff.name,
     isActive: item.staff.isActive,
     completedJobs: item.performance.completedJobs,
-    completionDays: item.performance.completionDays,
-    jobsPerCompletionDay: item.performance.jobsPerCompletionDay,
-    correctionRequestEvents: item.performance.correctionRequestEvents,
     authoredOperationalNotes: item.performance.authoredOperationalNotes,
+    staffSubmissionAttribution: item.staffSubmissionAttribution,
     priorRangeLabel: priorRangeLabel(report),
     priorPerformance: item.priorPerformance,
-    staffExecution: item.staffExecution,
-    onTime: item.onTime,
-    workTypes: item.completionWorkTypes.map((workType) => ({
+    completionWorkTypes: item.completionWorkTypes.map((workType) => ({
+      label: jobTypeLabels[workType.type],
+      count: workType.count,
+    })),
+    currentWorkloadByType: item.currentWorkloadByType.map((workType) => ({
       label: jobTypeLabels[workType.type],
       count: workType.count,
     })),
@@ -112,7 +112,7 @@ export function StaffPerformanceReport() {
       }
     } catch (reason) {
       if (requestId !== requestSequence.current) return;
-      setError(reason instanceof Error ? reason.message : 'Personel performansı yüklenemedi.');
+      setError(reason instanceof Error ? reason.message : 'Personel operasyon analizi yüklenemedi.');
     } finally {
       if (requestId === requestSequence.current) setLoading(false);
     }
@@ -168,7 +168,7 @@ export function StaffPerformanceReport() {
 
   return (
     <ReportShell
-      title="Personel performansı"
+      title="Personel Operasyon Analizi"
       current="staff"
       refreshLabel={refreshLabel}
       range={rangeContext}
@@ -200,10 +200,10 @@ export function StaffPerformanceReport() {
         </div>
       )}
 
-      {loading && <ReportLoadingState title="Personel performansı yükleniyor" />}
+      {loading && <ReportLoadingState title="Personel operasyon analizi yükleniyor" />}
       {!loading && error && (
         <ReportErrorState
-          title="Personel performansı yüklenemedi"
+          title="Personel operasyon analizi yüklenemedi"
           message={error}
           onRetry={() => void load()}
         />
@@ -219,11 +219,11 @@ export function StaffPerformanceReport() {
           <div className="staff-performance-results-heading">
             <div>
               <h2 id="staff-performance-period">
-                Performans — {performanceRangeLabel(report)}
+                Personel operasyon analizi — {performanceRangeLabel(report)}
               </h2>
               <p>
-                Tamamlama günü, en az bir iş tamamlanan günleri gösterir. İş / gün bu günler
-                üzerinden hesaplanır; düzeltme isteği aynı iş için tekrarlanabilir.
+                Şu an bölümü mevcut aksiyon kuyruklarını ve iş türü dağılımını; seçilen dönem
+                bölümü ise yönetici onaylı tamamlanmaları ve kayıtlı operasyon kanıtlarını gösterir.
               </p>
               <p className="staff-performance-prior-range">
                 Önceki dönem: {priorRangeLabel(report)}

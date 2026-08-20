@@ -36,7 +36,14 @@ const report: StaffReportResponse = {
   completionWorkTypes: [
     { type: 'GENERAL_TASK', count: 3 },
     { type: 'PRODUCT_DELIVERY', count: 1 },
+    { type: 'SALES_MEETING', count: 0 },
   ],
+  currentWorkloadByType: [
+    { type: 'PRODUCT_DELIVERY', count: 1 },
+    { type: 'GENERAL_TASK', count: 1 },
+    { type: 'SALES_MEETING', count: 1 },
+  ],
+  staffSubmissionAttribution: { recordedSubmissionCount: 2, recordedSubmissionDays: 2 },
   completedTrend: [
     { date: '2026-07-01', count: 0 },
     { date: '2026-07-02', count: 4 },
@@ -70,28 +77,24 @@ describe('Staff operational report', () => {
     container.remove();
   });
 
-  it('renders historical performance and keeps the current snapshot last', () => {
+  it('renders purpose-layered snapshot and selected-period operational detail', () => {
     const html = renderToStaticMarkup(<StaffOperationalReport report={report} />);
     expect(html).toContain('1 Temmuz 2026 – 31 Temmuz 2026');
-    expect(html).toContain('31 Mayıs 2026 – 30 Haziran 2026');
     expect(html).toContain('Europe/Istanbul');
     expect(html).toContain('Pasif personel');
     for (const label of [
-      'Tamamlanan iş', 'Tamamlama günü', 'İş / gün', 'Düzeltme isteği', 'Eklediği not',
+      'Şu an — mevcut operasyon yükü', 'Seçilen dönem — yönetici onaylı sonuçlar',
+      'Aksiyon alınabilir', 'Gecikmiş', 'Onay bekliyor', 'Düzeltme bekliyor',
+      'Yönetici onaylı tamamlananlar', 'Onaya gönderme kaydı',
+      'Eklenen operasyon notları', 'Mevcut iş yükünün tür dağılımı',
+      'Tamamlanan işlerin türleri',
     ]) {
       expect(html).toContain(label);
     }
-    expect(html).toContain('Günlük tamamlamalar');
-    expect(html).toContain('Şimdi 4 · önceki 0');
-    expect(html).not.toContain('Önceki dönem verisi yok');
-    expect(html).toContain('Personelin bitirme zamanı');
-    expect(html).toContain('Bitirme zamanı eksik onaylı iş');
-    expect(html).toContain('Mevcut plana göre zamanında');
-    expect(html).toContain('2 / 3 hesaplanabilir zaman hedefli iş');
-    expect(html).toContain('Zaman hedefi olmayan / hesaplanamayan tamamlanan');
+    expect(html).toContain('Dönem içindeki yönetici onaylı tamamlanmalar');
     expect(html).toContain('data-report-trend-bars="true"');
-    expect(html).toContain('Günlük tamamlanan işler');
-    expect(html).toContain('İş türleri');
+    expect(html).toContain('Günlük yönetici onaylı tamamlanmalar');
+    expect(html).toContain('Mevcut iş yükünün tür dağılımı');
     expect(html).toContain('Genel görev');
     expect(html).toContain('Onaylı teslimler');
     expect(html).toContain('12.500');
@@ -106,28 +109,22 @@ describe('Staff operational report', () => {
     for (const heading of ['Amaç', 'Birim', 'Miktar', 'Sonuç', 'Görüşme sayısı']) {
       expect(html).toContain(`<dt>${heading}</dt>`);
     }
-    expect(html.lastIndexOf('Şu an')).toBeGreaterThan(html.lastIndexOf('Görüşme sonuçları'));
-    for (const label of ['Açık işler', 'Gecikmiş', 'Onay bekliyor', 'Düzeltme bekliyor']) {
-      expect(html).toContain(label);
-    }
     // Every first-row value is emitted by both the desktop table and mobile card.
     for (const value of ['Satış', 'Kutu', '12.500', 'Olumlu']) {
       expect((html.match(new RegExp(value, 'g')) ?? []).length).toBeGreaterThanOrEqual(2);
     }
-    expect(html).not.toMatch(/puan|sıralama|ciro|stok|komisyon|type="date"|select/i);
+    expect(html).not.toMatch(/performans|puan|sıralama|ciro|stok|komisyon|Personelin bitirme zamanı|Mevcut plana göre zamanında|type="date"|select/i);
   });
 
-  it('distinguishes an unavailable prior period from valid zero metrics', () => {
-    const validZero = renderToStaticMarkup(<StaffOperationalReport report={report} />);
-    expect(validZero).toContain('Şimdi 4 · önceki 0');
-    expect(validZero).not.toContain('Önceki dönem verisi yok');
-
-    const unavailable = renderToStaticMarkup(<StaffOperationalReport report={{
+  it('does not promote legacy comparison fields into the operational presentation', () => {
+    const html = renderToStaticMarkup(<StaffOperationalReport report={{
       ...report,
       priorPerformance: { available: false, performance: null },
     }} />);
-    expect(unavailable).toContain('Önceki dönem verisi yok');
-    expect(unavailable).not.toContain('Şimdi 4 · önceki 0');
+    expect(html).toContain('Seçilen dönem — yönetici onaylı sonuçlar');
+    expect(html).not.toContain('Önceki dönem verisi yok');
+    expect(html).not.toContain('İş / gün');
+    expect(html).not.toContain('Personelin bitirme zamanı');
   });
 
   it('renders an explanatory no-delivery state', () => {
@@ -148,10 +145,10 @@ describe('Staff operational report', () => {
       resolveReport = resolve;
     }));
     await act(async () => root.render(<StaffOperationalReportScreen onBack={() => {}} />));
-    expect(container.textContent).toContain('Operasyon raporu yükleniyor');
+    expect(container.textContent).toContain('Personel operasyon raporu yükleniyor');
     expect(container.querySelector('[data-servora-loading-skeleton="true"]')).not.toBeNull();
     const loadingTitle = container.querySelector('.servora-loading-skeleton__title');
-    expect(loadingTitle?.textContent).toBe('Operasyon raporu yükleniyor');
+    expect(loadingTitle?.textContent).toBe('Personel operasyon raporu yükleniyor');
     expect(loadingTitle?.classList.contains('sr-only')).toBe(false);
     expect(loadingTitle?.querySelector('[role="status"]')?.closest('[aria-busy="true"]')).toBeNull();
     expect(container.querySelector('.servora-loading-skeleton__geometry[aria-busy="true"]'))
@@ -198,5 +195,65 @@ describe('Staff operational report', () => {
 
     expect(getStaffReport).toHaveBeenCalledWith(STAFF_ID, requestedRange);
     expect(container.textContent).toContain('Personel performansına dön');
+  });
+
+  it('ignores stale detail success after a newer range request', async () => {
+    let resolveFirst!: (value: StaffReportResponse) => void;
+    let rejectSecond!: (reason: Error) => void;
+    vi.mocked(getStaffReport)
+      .mockReturnValueOnce(new Promise((resolve) => { resolveFirst = resolve; }))
+      .mockReturnValueOnce(new Promise((_resolve, reject) => { rejectSecond = reject; }));
+
+    await act(async () => root.render(
+      <StaffOperationalReportScreen
+        staffUserId={STAFF_ID}
+        requestedRange={{ from: '2026-07-01', to: '2026-07-31' }}
+        onBack={() => {}}
+      />,
+    ));
+    await act(async () => root.render(
+      <StaffOperationalReportScreen
+        staffUserId={STAFF_ID}
+        requestedRange={{ from: '2026-08-01', to: '2026-08-31' }}
+        onBack={() => {}}
+      />,
+    ));
+
+    await act(async () => rejectSecond(new Error('Yeni dönem alınamadı.')));
+    await act(async () => resolveFirst(report));
+
+    expect(container.querySelector('[role="alert"]')?.textContent)
+      .toContain('Yeni dönem alınamadı.');
+    expect(container.textContent).not.toContain('12.500');
+  });
+
+  it('ignores stale detail error after a newer range succeeds', async () => {
+    let rejectFirst!: (reason: Error) => void;
+    let resolveSecond!: (value: StaffReportResponse) => void;
+    const newerReport = { ...report, staff: { ...report.staff, name: 'Yeni Dönem Personeli' } };
+    vi.mocked(getStaffReport)
+      .mockReturnValueOnce(new Promise((_resolve, reject) => { rejectFirst = reject; }))
+      .mockReturnValueOnce(new Promise((resolve) => { resolveSecond = resolve; }));
+
+    await act(async () => root.render(
+      <StaffOperationalReportScreen
+        staffUserId={STAFF_ID}
+        requestedRange={{ from: '2026-07-01', to: '2026-07-31' }}
+        onBack={() => {}}
+      />,
+    ));
+    await act(async () => root.render(
+      <StaffOperationalReportScreen
+        staffUserId={STAFF_ID}
+        requestedRange={{ from: '2026-08-01', to: '2026-08-31' }}
+        onBack={() => {}}
+      />,
+    ));
+
+    await act(async () => resolveSecond(newerReport));
+    await act(async () => rejectFirst(new Error('Eski dönem hatası.')));
+
+    expect(container.textContent).toContain('Yeni Dönem Personeli');
+    expect(container.querySelector('[role="alert"]')).toBeNull();
   });
 });

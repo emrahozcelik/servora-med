@@ -233,7 +233,7 @@ function StaffReportRoute({ user }: Pick<AppRouterProps, 'user'>) {
     : null;
   return <StaffOperationalReportScreen staffUserId={staffUserId}
     requestedRange={requestedRange}
-    backLabel={requestedRange ? 'Personel performansına dön' : 'Personel profiline dön'}
+    backLabel={requestedRange ? 'Personel operasyon analizine dön' : 'Personel profiline dön'}
     onBack={() => navigate(requestedRange
       ? reportSectionHref('staff', rangeState)
       : paths.staffProfile(staffUserId))} />;

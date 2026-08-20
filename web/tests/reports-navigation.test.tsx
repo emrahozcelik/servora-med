@@ -65,7 +65,7 @@ async function render(path: string, user: CurrentUser) {
 describe('Management report navigation', () => {
   it.each([
     ['/reports', 'Rapor özeti yükleniyor'],
-    ['/reports/staff', 'Personel performansı yükleniyor'],
+    ['/reports/staff', 'Personel operasyon analizi yükleniyor'],
     ['/reports/deliveries', 'Teslim raporu yükleniyor'],
     ['/reports/approvals', 'Onay raporu yükleniyor'],
   ])('registers stable management route %s', async (path, expected) => {

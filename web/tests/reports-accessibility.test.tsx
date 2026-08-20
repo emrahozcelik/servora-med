@@ -128,7 +128,17 @@ describe('Report accessibility contract', () => {
         missingStaffCompletionTimestamp: 1 },
       onTime: { eligibleScheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
         lateCompletedJobs: 1, ineligibleOrNoDeadlineCompletedJobs: 2, onTimeRate: 2 / 3 },
-      completionWorkTypes: [{ type: 'GENERAL_TASK', count: 5 }],
+      staffSubmissionAttribution: { recordedSubmissionCount: 2, recordedSubmissionDays: 2 },
+      completionWorkTypes: [
+        { type: 'PRODUCT_DELIVERY', count: 0 },
+        { type: 'GENERAL_TASK', count: 5 },
+        { type: 'SALES_MEETING', count: 0 },
+      ],
+      currentWorkloadByType: [
+        { type: 'PRODUCT_DELIVERY', count: 0 },
+        { type: 'GENERAL_TASK', count: 1 },
+        { type: 'SALES_MEETING', count: 0 },
+      ],
       completedTrend: [{ date: '2026-07-01', count: 5 }],
       deliveriesByPurpose: delivery.items,
       meetingsByOutcome: [
@@ -159,10 +169,9 @@ describe('Report accessibility contract', () => {
     expect(staffView.querySelectorAll('.servora-operational-table__field dt').length)
       .toBeGreaterThan(0);
     expect(staffView.textContent).toContain('Pasif personel');
-    expect(staffView.textContent).toContain('2 / 3 hesaplanabilir zaman hedefli iş');
-    const missingTimestampLabel = Array.from(staffView.querySelectorAll('dt'))
-      .find((item) => item.textContent === 'Bitirme zamanı eksik onaylı iş');
-    expect(missingTimestampLabel?.nextElementSibling?.textContent).toBe('1');
+    expect(staffView.textContent).toContain('Aksiyon alınabilir');
+    expect(staffView.textContent).toContain('Mevcut iş yükünün tür dağılımı');
+    expect(staffView.textContent).not.toContain('Personelin bitirme zamanı');
   });
 
   it('keeps approval age buckets textual instead of relying on color', () => {

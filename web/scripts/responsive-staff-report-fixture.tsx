@@ -46,6 +46,10 @@ if (root) {
         jobsPerStaffCompletionDay: 12 / 7,
         missingStaffCompletionTimestamp: 2,
       },
+      staffSubmissionAttribution: {
+        recordedSubmissionCount: 5,
+        recordedSubmissionDays: 4,
+      },
       onTime: {
         eligibleScheduledCompletedJobs: 9,
         onTimeCompletedJobs: 6,
@@ -56,6 +60,11 @@ if (root) {
       completionWorkTypes: [
         { type: 'SALES_MEETING', count: 8 },
         { type: 'PRODUCT_DELIVERY', count: 4 },
+        { type: 'GENERAL_TASK', count: 2 },
+      ],
+      currentWorkloadByType: [
+        { type: 'SALES_MEETING', count: 3 },
+        { type: 'PRODUCT_DELIVERY', count: 3 },
         { type: 'GENERAL_TASK', count: 2 },
       ],
       completedTrend: Array.from({ length: 31 }, (_, index) => ({
@@ -93,37 +102,27 @@ if (performanceRoot) {
           name: 'Ayşe Çok Uzun Personel Soyadı',
           isActive: true,
           completedJobs: 14,
-          completionDays: 8,
-          jobsPerCompletionDay: 1.75,
-          correctionRequestEvents: 2,
           authoredOperationalNotes: 11,
+          staffSubmissionAttribution: {
+            recordedSubmissionCount: 5,
+            recordedSubmissionDays: 4,
+          },
           priorRangeLabel: '31 Mayıs 2026 – 30 Haziran 2026',
           priorPerformance: {
             available: true,
             performance: {
               completedJobs: 10,
-              completionDays: 7,
-              jobsPerCompletionDay: 10 / 7,
-              correctionRequestEvents: 3,
               authoredOperationalNotes: 8,
             },
           },
-          staffExecution: {
-            staffCompletedJobs: 12,
-            staffCompletionDays: 7,
-            jobsPerStaffCompletionDay: 12 / 7,
-            missingStaffCompletionTimestamp: 2,
-          },
-          onTime: {
-            eligibleScheduledCompletedJobs: 9,
-            onTimeCompletedJobs: 6,
-            lateCompletedJobs: 3,
-            ineligibleOrNoDeadlineCompletedJobs: 5,
-            onTimeRate: 6 / 9,
-          },
-          workTypes: [
+          completionWorkTypes: [
             { label: 'Satış görüşmesi', count: 8 },
             { label: 'Ürün teslimi', count: 4 },
+            { label: 'Genel görev', count: 2 },
+          ],
+          currentWorkloadByType: [
+            { label: 'Satış görüşmesi', count: 3 },
+            { label: 'Ürün teslimi', count: 3 },
             { label: 'Genel görev', count: 2 },
           ],
           currentWorkload: {

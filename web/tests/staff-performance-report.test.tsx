@@ -49,6 +49,12 @@ const report: StaffPerformanceResponse = {
         { type: 'SALES_MEETING', count: 14 },
         { type: 'PRODUCT_DELIVERY', count: 9 },
       ],
+      currentWorkloadByType: [
+        { type: 'PRODUCT_DELIVERY', count: 2 },
+        { type: 'GENERAL_TASK', count: 2 },
+        { type: 'SALES_MEETING', count: 1 },
+      ],
+      staffSubmissionAttribution: { recordedSubmissionCount: 6, recordedSubmissionDays: 4 },
       currentWorkload: { openJobCards: 5, overdueJobCards: 1, waitingApproval: 2,
         revisionRequested: 0 },
     },
@@ -63,6 +69,12 @@ const report: StaffPerformanceResponse = {
       onTime: { eligibleScheduledCompletedJobs: 0, onTimeCompletedJobs: 0,
         lateCompletedJobs: 0, ineligibleOrNoDeadlineCompletedJobs: 0, onTimeRate: null },
       completionWorkTypes: [],
+      currentWorkloadByType: [
+        { type: 'PRODUCT_DELIVERY', count: 0 },
+        { type: 'GENERAL_TASK', count: 0 },
+        { type: 'SALES_MEETING', count: 0 },
+      ],
+      staffSubmissionAttribution: { recordedSubmissionCount: 0, recordedSubmissionDays: 0 },
       currentWorkload: { openJobCards: 0, overdueJobCards: 0, waitingApproval: 0,
         revisionRequested: 0 },
     },
@@ -94,7 +106,7 @@ describe('StaffPerformanceReport', () => {
     await act(async () => { await Promise.resolve(); await Promise.resolve(); });
   }
 
-  it('renders historical comparison, expandable context, mobile records, and range-aware links', async () => {
+  it('renders snapshot/period operational groups, mobile records, and range-aware links', async () => {
     vi.mocked(getStaffPerformance).mockResolvedValue(report);
     await render();
 
@@ -102,14 +114,13 @@ describe('StaffPerformanceReport', () => {
       from: '2026-07-01',
       to: '2026-07-31',
     });
-    expect(container.querySelector('h1')?.textContent).toBe('Personel performansı');
-    expect(container.textContent).toContain('Performans — 1 Temmuz 2026 – 31 Temmuz 2026');
-    expect(container.textContent).toContain('Önceki dönem: 31 Mayıs 2026 – 30 Haziran 2026');
-    expect(container.textContent).toContain('Önceki 34 · değişim +8');
-    expect(container.textContent).toContain('Önceki dönem verisi yok');
+    expect(container.querySelector('h1')?.textContent).toBe('Personel Operasyon Analizi');
+    expect(container.textContent).toContain('Personel operasyon analizi — 1 Temmuz 2026 – 31 Temmuz 2026');
     for (const label of [
-      'Personel', 'Tamamlanan', 'Tamamlama günü', 'İş / gün',
-      'Düzeltme isteği', 'Eklediği not',
+      'Personel', 'ŞU AN', 'SEÇİLEN DÖNEM', 'Aksiyon alınabilir',
+      'Onay bekliyor', 'Düzeltme bekliyor', 'Gecikmiş',
+      'Yönetici onaylı tamamlananlar', 'Onaya gönderme kaydı',
+      'Mevcut iş yükünün tür dağılımı', 'Tamamlanan işlerin türleri',
     ]) expect(container.textContent).toContain(label);
     expect(container.querySelector('[data-staff-performance-desktop="true"]')).not.toBeNull();
     expect(container.querySelector('[data-staff-performance-mobile="true"]')).not.toBeNull();
@@ -118,22 +129,20 @@ describe('StaffPerformanceReport', () => {
     expect(container.textContent).toContain('Şu an');
     expect(container.textContent).toContain('Satış görüşmesi');
     expect(container.textContent).toContain('Ürün teslimi');
-    expect(container.textContent).toContain('Personelin bitirme zamanı');
-    expect(container.textContent).toContain('Mevcut plana göre zamanında');
-    expect(container.textContent).toContain('8 / 10 zaman hedefli iş');
-    expect(container.textContent).toContain('Hesaplanabilir zaman hedefli tamamlanan iş yok; oran hesaplanmadı.');
+    expect(container.textContent).toContain('Genel görev');
+    expect(container.textContent).toContain('Onaya gönderme kaydı');
     const reportLinks = Array.from(container.querySelectorAll('a'))
       .filter((link) => link.textContent?.includes('Raporu aç'));
     expect(reportLinks[0]?.getAttribute('href')).toBe(
       '/staff/11111111-1111-4111-8111-111111111111/reports?from=2026-07-01&to=2026-07-31',
     );
-    expect(container.textContent).not.toMatch(/puan|sıralama|liderlik|en iyi personel/i);
+    expect(container.textContent).not.toMatch(/performans|puan|sıralama|liderlik|en iyi personel|zamanında/i);
 
     const headers = Array.from(container.querySelectorAll('thead th'))
       .map((header) => header.textContent);
-    expect(headers).not.toContain('Açık');
-    expect(headers).not.toContain('Geciken');
-    expect(headers).not.toContain('Zamanında');
+    expect(headers).not.toContain('İş / gün');
+    expect(headers).not.toContain('Tamamlama günü');
+    expect(headers).not.toContain('Düzeltme isteği');
   });
 
   it('filters staff without recomputing server metrics', async () => {
@@ -158,7 +167,7 @@ describe('StaffPerformanceReport', () => {
       reject = rejectPromise;
     }));
     await render();
-    expect(container.textContent).toContain('Personel performansı yükleniyor');
+    expect(container.textContent).toContain('Personel operasyon analizi yükleniyor');
 
     await act(async () => reject(new Error('Rapor alınamadı.')));
     expect(container.querySelector('[role="alert"]')?.textContent).toContain('Rapor alınamadı.');

@@ -1,5 +1,15 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
+import type { DeliveryPurpose, JobCardType, MeetingOutcome } from '../jobs/jobs-api';
+import { jobTypeLabels } from '../jobs/job-labels';
+import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
+import {
+  OperationalTable,
+  type OperationalTableColumn,
+  type OperationalTableRow,
+} from '../ui/OperationalTable';
+import { EmptyState, LoadingSkeleton, ResultState } from '../ui/antd';
+import { SegmentedDistributionBar, TrendBars } from './report-charts';
 import { getOwnStaffReport, getStaffReport } from './reports-api';
 import type {
   DeliveryPurposeItem,
@@ -7,16 +17,6 @@ import type {
   ResolvedReportRange,
   StaffReportResponse,
 } from './report-types';
-import type { DeliveryPurpose, MeetingOutcome } from '../jobs/jobs-api';
-import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
-import {
-  OperationalTable,
-  type OperationalTableColumn,
-  type OperationalTableRow,
-} from '../ui/OperationalTable';
-import { EmptyState, LoadingSkeleton, MetricStatistic, ResultState } from '../ui/antd';
-import { jobTypeLabels } from '../jobs/job-labels';
-import { TrendBars } from './report-charts';
 
 const purposeLabels: Record<DeliveryPurpose, string> = {
   SALE: 'Satış',
@@ -29,6 +29,10 @@ const outcomeLabels: Record<MeetingOutcome, string> = {
   POSITIVE: 'Olumlu', FOLLOW_UP_REQUIRED: 'Takip gerekli',
   NO_DECISION: 'Karar verilmedi', NOT_INTERESTED: 'İlgilenmiyor',
 };
+
+const REPORT_WORK_TYPE_ORDER = [
+  'PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING',
+] as const satisfies readonly JobCardType[];
 
 const DELIVERY_PURPOSE_COLUMNS: readonly OperationalTableColumn[] = [
   { key: 'purpose', title: 'Amaç' },
@@ -43,7 +47,7 @@ const MEETING_OUTCOME_COLUMNS: readonly OperationalTableColumn[] = [
 
 const COMPLETION_TREND_COLUMNS: readonly OperationalTableColumn[] = [
   { key: 'date', title: 'Tarih' },
-  { key: 'count', title: 'Tamamlanan iş' },
+  { key: 'count', title: 'Yönetici onaylı tamamlanma' },
 ];
 
 function deliveryPurposeRows(items: readonly DeliveryPurposeItem[]): OperationalTableRow[] {
@@ -89,6 +93,43 @@ function dailyCompletionRows(report: StaffReportResponse): OperationalTableRow[]
   }));
 }
 
+function stableWorkTypes(
+  items: readonly { type: JobCardType; count: number }[],
+) {
+  return REPORT_WORK_TYPE_ORDER.map((type) => ({
+    type,
+    count: items.find((item) => item.type === type)?.count ?? 0,
+  }));
+}
+
+function WorkTypeDistribution({
+  headingId,
+  title,
+  description,
+  items,
+}: {
+  headingId: string;
+  title: string;
+  description: string;
+  items: readonly { type: JobCardType; count: number }[];
+}) {
+  const segments = stableWorkTypes(items).map((item) => ({
+    key: item.type.toLocaleLowerCase('en-US'),
+    label: jobTypeLabels[item.type],
+    value: item.count,
+  }));
+  return (
+    <section className="staff-work-type-distribution" aria-labelledby={headingId}>
+      <h4 id={headingId}>{title}</h4>
+      <p className="report-section-hint">{description}</p>
+      <SegmentedDistributionBar
+        segments={segments}
+        className="report-segmented-bar staff-work-type-distribution-bar"
+      />
+    </section>
+  );
+}
+
 function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
   if (items.length === 0) {
     return <EmptyState
@@ -110,7 +151,7 @@ function DeliveryPurposeTable({ items }: { items: DeliveryPurposeItem[] }) {
 function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsByOutcome'] }) {
   const total = items.reduce((sum, item) => sum + item.count, 0);
   return <section className="meeting-outcome-report" aria-labelledby="meeting-outcome-title">
-    <h3 id="meeting-outcome-title">Görüşme sonuçları</h3>
+    <h4 id="meeting-outcome-title">Görüşme sonuçları</h4>
     {total === 0 && <p className="report-empty-copy">Bu dönemde onaylı satış görüşmesi bulunmuyor.</p>}
     <OperationalTable
       caption="Görüşme sonuçları"
@@ -122,156 +163,85 @@ function MeetingOutcomeTable({ items }: { items: StaffReportResponse['meetingsBy
 }
 
 export function StaffOperationalReport({ report }: { report: StaffReportResponse }) {
-  const performance = report.performance;
-  const priorPerformance = report.priorPerformance.performance;
   const trendTotal = report.completedTrend.reduce((sum, point) => sum + point.count, 0);
-  const jobsPerDay = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
-    .format(performance.jobsPerCompletionDay);
-  const jobsPerStaffCompletionDay = new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
-    .format(report.staffExecution.jobsPerStaffCompletionDay);
-  const onTimeRate = report.onTime.onTimeRate === null
-    ? null
-    : new Intl.NumberFormat('tr-TR', { style: 'percent', maximumFractionDigits: 0 })
-      .format(report.onTime.onTimeRate);
+  const submission = report.staffSubmissionAttribution;
   return <section className="staff-operational-report" aria-labelledby="staff-report-title">
     <div className="report-section-heading">
       <div>
-        <p className="eyebrow">Seçilen dönem</p>
-        <h2 id="staff-report-title">Performans</h2>
+        <h2 id="staff-report-title">Personel Operasyon Analizi</h2>
       </div>
-      {!report.staff.isActive && <span className="status-label">Pasif personel</span>}
+      <span className="status-label">{report.staff.isActive ? 'Aktif personel' : 'Pasif personel'}</span>
     </div>
     <p className="report-range">{formatReportRange(report.range)}</p>
 
-    <div className="staff-performance-statistics" aria-label="Seçilen dönem performans göstergeleri">
-      <MetricStatistic title="Tamamlanan iş" value={performance.completedJobs} />
-      <MetricStatistic title="Tamamlama günü" value={performance.completionDays} />
-      <MetricStatistic title="İş / gün" value={jobsPerDay} />
-      <MetricStatistic title="Düzeltme isteği" value={performance.correctionRequestEvents} />
-      <MetricStatistic title="Eklediği not" value={performance.authoredOperationalNotes} />
-    </div>
-    <p className="report-section-hint">
-      Tamamlama günü, en az bir iş tamamlanan organizasyon-yerel günü ifade eder. İş / gün
-      yalnız bu günler üzerinden hesaplanır. Düzeltme isteği olay sayısıdır; aynı iş tekrar
-      sayılabilir. Not sayısı yalnız insan tarafından eklenen operasyon notlarını içerir.
-    </p>
-
-    <section className="staff-detail-section staff-r2-section" aria-labelledby="prior-period-title">
-      <p className="eyebrow">Karşılaştırma</p>
-      <h3 id="prior-period-title">Önceki dönem</h3>
-      <p className="report-range">{formatReportRange(report.priorRange)}</p>
-      {!report.priorPerformance.available || !priorPerformance ? (
-        <p className="report-empty-copy">Önceki dönem verisi yok.</p>
-      ) : (
-        <dl className="staff-r2-metric-list">
-          <div><dt>Tamamlanan iş</dt><dd>Şimdi {performance.completedJobs} · önceki{' '}
-            {priorPerformance.completedJobs}</dd></div>
-          <div><dt>İş / tamamlama günü</dt><dd>Şimdi {jobsPerDay} · önceki{' '}
-            {new Intl.NumberFormat('tr-TR', { maximumFractionDigits: 1 })
-              .format(priorPerformance.jobsPerCompletionDay)}</dd></div>
-          <div><dt>Düzeltme isteği</dt><dd>Şimdi {performance.correctionRequestEvents} · önceki{' '}
-            {priorPerformance.correctionRequestEvents}</dd></div>
-          <div><dt>Eklediği not</dt><dd>Şimdi {performance.authoredOperationalNotes} · önceki{' '}
-            {priorPerformance.authoredOperationalNotes}</dd></div>
-        </dl>
-      )}
-    </section>
-
-    <section className="staff-detail-section staff-r2-section" aria-labelledby="staff-execution-title">
-      <p className="eyebrow">Personel zamanı</p>
-      <h3 id="staff-execution-title">Personelin bitirme zamanı</h3>
-      <dl className="staff-r2-metric-list">
-        <div><dt>Personelin bitirme günü</dt><dd>{report.staffExecution.staffCompletionDays}</dd></div>
-        <div><dt>İş / bitirme günü</dt><dd>{jobsPerStaffCompletionDay}</dd></div>
-        <div><dt>Bitirme zamanı bulunan onaylı iş</dt><dd>
-          {report.staffExecution.staffCompletedJobs}</dd></div>
-        <div><dt>Bitirme zamanı eksik onaylı iş</dt><dd>
-          {report.staffExecution.missingStaffCompletionTimestamp}</dd></div>
-      </dl>
+    <section className="staff-analysis-group staff-analysis-snapshot" aria-labelledby="staff-current-title">
+      <h3 id="staff-current-title">Şu an — mevcut operasyon yükü</h3>
       <p className="report-section-hint">
-        İşin personel tarafından tamamlanıp onaya gönderildiği günler üzerinden hesaplanır.
-        R1 tamamlama günü ise yönetici onayına göre hesaplanmaya devam eder.
+        Aksiyon alınabilir işler mevcut atamaya göre NEW, ACCEPTED ve IN_PROGRESS aşamalarını;
+        diğer sayaçlar bekleyen operasyon kuyruklarını gösterir.
       </p>
-    </section>
-
-    <section className="staff-detail-section staff-r2-section" aria-labelledby="on-time-title">
-      <p className="eyebrow">Zaman hedefi</p>
-      <h3 id="on-time-title">Mevcut plana göre zamanında</h3>
-      {onTimeRate === null ? (
-        <p className="report-empty-copy">
-          Bu dönemde hesaplanabilir zaman hedefli tamamlanan iş yok; oran hesaplanmadı.
-        </p>
-      ) : (
-        <p className="staff-on-time-summary">
-          <strong>{onTimeRate}</strong> · {report.onTime.onTimeCompletedJobs} /{' '}
-          {report.onTime.eligibleScheduledCompletedJobs} hesaplanabilir zaman hedefli iş
-        </p>
-      )}
-      <dl className="staff-r2-metric-list">
-        <div><dt>Hesaplanabilir zaman hedefli tamamlanan</dt><dd>
-          {report.onTime.eligibleScheduledCompletedJobs}</dd></div>
-        <div><dt>Zamanında</dt><dd>{report.onTime.onTimeCompletedJobs}</dd></div>
-        <div><dt>Geç</dt><dd>{report.onTime.lateCompletedJobs}</dd></div>
-        <div><dt>Zaman hedefi olmayan / hesaplanamayan tamamlanan</dt><dd>
-          {report.onTime.ineligibleOrNoDeadlineCompletedJobs}</dd></div>
-      </dl>
-      <p className="report-section-hint">
-        Yalnız kayıttaki güncel plan zamanı kullanılır; orijinal plan iddiası taşımaz.
-        Bitiş zamanı kayıtlı işlerde bitiş hedef alınır; toplantıda yalnız başlangıç zamanı
-        kayıtlıysa hesaplanabilir hedef yoktur.
-      </p>
-    </section>
-
-    <section className="staff-detail-section" aria-labelledby="daily-completion-title">
-      <h3 id="daily-completion-title">Günlük tamamlamalar</h3>
-      <p className="report-chart-summary">
-        Seçilen dönemde toplam {trendTotal} tamamlanan iş. Sıfır tamamlamalı günler de seride yer alır.
-      </p>
-      <TrendBars points={report.completedTrend} />
-      <details className="report-data-disclosure">
-        <summary>Günlük veriyi tablo olarak göster</summary>
-        <OperationalTable
-          caption="Günlük tamamlanan işler"
-          columns={COMPLETION_TREND_COLUMNS}
-          rows={dailyCompletionRows(report)}
-          rowHeaderKey="date"
-        />
-      </details>
-    </section>
-
-    <section className="staff-detail-section" aria-labelledby="completion-types-title">
-      <h3 id="completion-types-title">İş türleri</h3>
-      {report.completionWorkTypes.length === 0 ? (
-        <p className="report-empty-copy">Bu dönemde tamamlanan iş bulunmuyor.</p>
-      ) : (
-        <ul className="staff-work-type-list">
-          {report.completionWorkTypes.map((item) => (
-            <li key={item.type}>
-              <span>{jobTypeLabels[item.type]}</span>
-              <strong>{item.count}</strong>
-            </li>
-          ))}
-        </ul>
-      )}
-    </section>
-
-    <section className="staff-detail-section" aria-labelledby="delivery-purpose-title">
-      <h3 id="delivery-purpose-title">Teslimler</h3>
-      <DeliveryPurposeTable items={report.deliveriesByPurpose} />
-    </section>
-    <section className="staff-detail-section">
-      <MeetingOutcomeTable items={report.meetingsByOutcome} />
-    </section>
-
-    <section className="staff-detail-section staff-current-workload" aria-labelledby="current-workload-title">
-      <p className="eyebrow">Anlık iş yükü</p>
-      <h3 id="current-workload-title">Şu an</h3>
-      <dl className="counter-grid staff-current-workload-grid">
-        <div><dt>Açık işler</dt><dd>{report.currentWorkload.openJobCards}</dd></div>
+      <dl className="staff-analysis-metrics staff-current-workload-grid">
+        <div><dt>Aksiyon alınabilir</dt><dd>{report.currentWorkload.openJobCards}</dd></div>
         <div><dt>Gecikmiş</dt><dd>{report.currentWorkload.overdueJobCards}</dd></div>
         <div><dt>Onay bekliyor</dt><dd>{report.currentWorkload.waitingApproval}</dd></div>
         <div><dt>Düzeltme bekliyor</dt><dd>{report.currentWorkload.revisionRequested}</dd></div>
       </dl>
+      <WorkTypeDistribution
+        headingId="current-workload-types-title"
+        title="Mevcut iş yükünün tür dağılımı"
+        description="Bu dağılım tarih aralığından bağımsız mevcut atamayı gösterir."
+        items={report.currentWorkloadByType}
+      />
+    </section>
+
+    <section className="staff-analysis-group staff-analysis-period" aria-labelledby="staff-period-title">
+      <h3 id="staff-period-title">Seçilen dönem — yönetici onaylı sonuçlar</h3>
+      <p className="report-range">{formatReportRange(report.range)}</p>
+      <dl className="staff-analysis-metrics staff-period-metrics">
+        <div><dt>Yönetici onaylı tamamlananlar</dt><dd>{report.performance.completedJobs}</dd></div>
+        <div><dt>Onaya gönderme kaydı</dt><dd>{submission.recordedSubmissionCount}</dd></div>
+        <div><dt>Eklenen operasyon notları</dt><dd>{report.performance.authoredOperationalNotes}</dd></div>
+      </dl>
+      <p className="report-section-hint">
+        Tamamlananlar seçilen dönemde hâlen bu personele atanmış ve yönetici tarafından onaylanmış
+        işleri kapsar. Onaya gönderme kaydı, mevcut atama üzerindeki zaman damgalı kaydı bildirir;
+        olay geçmişi değildir. Kaydı bulunan işler{' '}
+        {submission.recordedSubmissionDays} organizasyon-yerel gün içindedir.
+      </p>
+      <WorkTypeDistribution
+        headingId="completion-work-types-title"
+        title="Tamamlanan işlerin türleri"
+        description="Seçilen dönemdeki yönetici onaylı tamamlanmalar, mevcut atama ve iş türüne göre ayrılır."
+        items={report.completionWorkTypes}
+      />
+      <section className="staff-detail-section staff-completion-trend" aria-labelledby="daily-completion-title">
+        <h4 id="daily-completion-title">Dönem içindeki yönetici onaylı tamamlanmalar</h4>
+        <p className="report-chart-summary">
+          Seçilen dönemde toplam {trendTotal} yönetici onaylı tamamlanma. Sıfır tamamlamalı günler de seride yer alır.
+        </p>
+        <TrendBars points={report.completedTrend} />
+        <details className="report-data-disclosure">
+          <summary>Günlük veriyi tablo olarak göster</summary>
+          <OperationalTable
+            caption="Günlük yönetici onaylı tamamlanmalar"
+            columns={COMPLETION_TREND_COLUMNS}
+            rows={dailyCompletionRows(report)}
+            rowHeaderKey="date"
+          />
+        </details>
+      </section>
+    </section>
+
+    <section className="staff-analysis-group staff-analysis-context" aria-labelledby="staff-context-title">
+      <h3 id="staff-context-title">Operasyon bağlamı</h3>
+      <p className="report-section-hint">
+        Teslim ve satış görüşmesi sonuçları seçilen dönemin operasyon kayıtlarıdır.
+      </p>
+      <section className="staff-detail-section" aria-labelledby="delivery-purpose-title">
+        <h4 id="delivery-purpose-title">Onaylı teslimler</h4>
+        <DeliveryPurposeTable items={report.deliveriesByPurpose} />
+      </section>
+      <MeetingOutcomeTable items={report.meetingsByOutcome} />
     </section>
   </section>;
 }
@@ -292,19 +262,23 @@ export function StaffOperationalReportScreen({
   const [report, setReport] = useState<StaffReportResponse | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const requestSequence = useRef(0);
 
   const load = useCallback(async () => {
+    const requestId = ++requestSequence.current;
     setLoading(true);
     setError('');
     try {
       const next = staffUserId
         ? await getStaffReport(staffUserId, requestedRange)
         : await getOwnStaffReport(requestedRange);
+      if (requestId !== requestSequence.current) return;
       setReport(next);
     } catch (reason) {
-      setError(reason instanceof Error ? reason.message : 'Operasyon raporu yüklenemedi.');
+      if (requestId !== requestSequence.current) return;
+      setError(reason instanceof Error ? reason.message : 'Personel operasyon raporu yüklenemedi.');
     } finally {
-      setLoading(false);
+      if (requestId === requestSequence.current) setLoading(false);
     }
   }, [staffUserId, requestedRange?.from, requestedRange?.to]);
 
@@ -314,13 +288,13 @@ export function StaffOperationalReportScreen({
   const content = <>
     {!embedded && <button className="back-link" type="button" onClick={onBack}>{backLabel}</button>}
     {loading && <LoadingSkeleton
-      title="Operasyon raporu yükleniyor"
+      title="Personel operasyon raporu yükleniyor"
       headingLevel={embedded ? 2 : 1}
       rows={2}
     />}
     {!loading && error && <ResultState
       status="error"
-      title="Operasyon raporu yüklenemedi"
+      title="Personel operasyon raporu yüklenemedi"
       description={error}
       headingLevel={embedded ? 2 : 1}
       action={<button className="secondary-button" type="button" onClick={() => void load()}>
@@ -329,8 +303,8 @@ export function StaffOperationalReportScreen({
     />}
     {!loading && !error && report && <>
       {!embedded && <header className="staff-report-identity">
-        <p className="eyebrow">Personel raporu</p>
         <h1>{report.staff.name}</h1>
+        <span className="status-label">{report.staff.isActive ? 'Aktif personel' : 'Pasif personel'}</span>
       </header>}
       <StaffOperationalReport report={report} />
     </>}
