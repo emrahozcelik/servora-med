@@ -32,4 +32,5 @@ async (app, options) => {
   );
   app.get('/deliveries', secured, handlers.getDeliveries);
   app.get('/approvals', secured, handlers.getApprovals);
+  app.get('/customers', secured, handlers.getCustomers);
 };

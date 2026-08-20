@@ -151,6 +151,32 @@ function dependencies() {
       between8And24Hours: 0,
       over24Hours: 0,
     })),
+    getCustomerReport: vi.fn(async (input) => ({
+      range: resolvedRange,
+      total: 0,
+      limit: input.limit,
+      offset: input.offset,
+      items: [],
+      unassigned: {
+        snapshot: {
+          active: 0,
+          actionable: 0,
+          waitingApproval: 0,
+          revisionRequested: 0,
+          overdue: 0,
+        },
+        period: {
+          created: 0,
+          createdWorkTypes: {
+            PRODUCT_DELIVERY: 0,
+            GENERAL_TASK: 0,
+            SALES_MEETING: 0,
+          },
+          managerApproved: 0,
+          followUpChildren: 0,
+        },
+      },
+    })),
   };
   const approvalItems = { getApprovalItems: vi.fn(async () => []) };
   return { reports, approvalItems };
@@ -188,7 +214,7 @@ afterEach(async () => {
 });
 
 describe('Reports HTTP routes', () => {
-  it('registers exactly the six authenticated GET report routes', async () => {
+  it('registers exactly the seven authenticated GET report routes', async () => {
     const { app, reports, approvalItems } = await createApp(actor('MANAGER'));
 
     const responses = await Promise.all([
@@ -197,8 +223,9 @@ describe('Reports HTTP routes', () => {
       app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}` }),
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
+      app.inject({ method: 'GET', url: '/api/reports/customers' }),
     ]);
-    expect(responses.map((response) => response.statusCode)).toEqual([200, 200, 200, 200, 200]);
+    expect(responses.map((response) => response.statusCode)).toEqual([200, 200, 200, 200, 200, 200]);
     expect((await app.inject({
       method: 'GET',
       url: '/api/reports/staff/me',
@@ -207,13 +234,14 @@ describe('Reports HTTP routes', () => {
     expect(reports.getStaffPerformanceScope).toHaveBeenCalledOnce();
     expect(reports.getDeliveryReport).toHaveBeenCalledOnce();
     expect(reports.getApprovalSummary).toHaveBeenCalledOnce();
+    expect(reports.getCustomerReport).toHaveBeenCalledOnce();
     expect(approvalItems.getApprovalItems).toHaveBeenCalledOnce();
 
     expect((await app.inject({ method: 'POST', url: '/api/reports/dashboard' })).statusCode)
       .toBe(404);
   });
 
-  it('allows Staff only its own report and denies five management reports', async () => {
+  it('allows Staff only its own report and denies six management reports', async () => {
     const { app } = await createApp(actor('STAFF'));
 
     expect((await app.inject({ method: 'GET', url: '/api/reports/staff/me' })).statusCode)
@@ -224,8 +252,9 @@ describe('Reports HTTP routes', () => {
       app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}` }),
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
+      app.inject({ method: 'GET', url: '/api/reports/customers' }),
     ]);
-    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403, 403]);
+    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403, 403, 403]);
   });
 
   it.each(['ADMIN', 'MANAGER'] as const)(
@@ -242,6 +271,8 @@ describe('Reports HTTP routes', () => {
       })).statusCode).toBe(200);
       expect((await app.inject({ method: 'GET', url: '/api/reports/staff/me' })).statusCode)
         .toBe(403);
+      expect((await app.inject({ method: 'GET', url: '/api/reports/customers' })).statusCode)
+        .toBe(200);
     },
   );
 
@@ -318,16 +349,17 @@ describe('Reports HTTP routes', () => {
       app.inject({ method: 'GET', url: `/api/reports/staff/${STAFF_ONE}` }),
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
+      app.inject({ method: 'GET', url: '/api/reports/customers' }),
     ]);
     expect(responses.map((response) => response.statusCode))
-      .toEqual([401, 401, 401, 401, 401, 401]);
+      .toEqual([401, 401, 401, 401, 401, 401, 401]);
 
     const source = readFileSync(
       new URL('../src/modules/reports/routes.ts', import.meta.url),
       'utf8',
     );
     expect(source).toContain('const secured = { preHandler: options.authenticate }');
-    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(6);
+    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(7);
     expect(source).not.toMatch(/app\.get\([^\n]+options\.authenticate/);
   });
 });

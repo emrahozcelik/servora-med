@@ -1,6 +1,8 @@
 import { AppError } from '../../errors/index.js';
+import type { CustomerType, CustomerStatus } from '../crm/types.js';
 import type {
   ApprovalReportQuery,
+  CustomerReportQuery,
   DeliveryReportQuery,
   ReportRangeQuery,
   RequestedReportRange,
@@ -11,7 +13,10 @@ const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const RANGE_KEYS = ['from', 'to'] as const;
 const DELIVERY_KEYS = ['from', 'to', 'groupBy', 'staffUserId', 'limit', 'offset'] as const;
 const APPROVAL_KEYS = ['limit', 'offset'] as const;
+const CUSTOMER_KEYS = ['from', 'to', 'search', 'status', 'type', 'limit', 'offset'] as const;
 const DELIVERY_GROUPS = ['day', 'purpose', 'product', 'staff'] as const;
+const CUSTOMER_STATUSES = ['prospect', 'active', 'inactive'] as const;
+const CUSTOMER_TYPES = ['clinic', 'hospital', 'dealer', 'company', 'other'] as const;
 
 function validation(field: string) {
   return new AppError(
@@ -95,6 +100,33 @@ function optionalStaffUserId(value: unknown) {
   return value;
 }
 
+function optionalSearch(value: unknown) {
+  if (value === undefined) return null;
+  if (typeof value !== 'string') throw validation('search');
+  const trimmed = value.trim();
+  if (trimmed.length === 0) throw validation('search');
+  if (trimmed.length > 200) throw validation('search');
+  return trimmed;
+}
+
+function optionalCustomerStatus(value: unknown): CustomerStatus | null {
+  if (value === undefined) return null;
+  if (typeof value !== 'string'
+    || !(CUSTOMER_STATUSES as readonly string[]).includes(value)) {
+    throw validation('status');
+  }
+  return value as CustomerStatus;
+}
+
+function optionalCustomerType(value: unknown): CustomerType | null {
+  if (value === undefined) return null;
+  if (typeof value !== 'string'
+    || !(CUSTOMER_TYPES as readonly string[]).includes(value)) {
+    throw validation('type');
+  }
+  return value as CustomerType;
+}
+
 export function parseDashboardReportQuery(raw: unknown): ReportRangeQuery {
   const value = exactScalarQuery(raw, RANGE_KEYS);
   return { requestedRange: requestedRange(value) };
@@ -119,6 +151,18 @@ export function parseDeliveryReportQuery(raw: unknown): DeliveryReportQuery {
 export function parseApprovalReportQuery(raw: unknown): ApprovalReportQuery {
   const value = exactScalarQuery(raw, APPROVAL_KEYS);
   return {
+    limit: integerQuery(value.limit, 'limit', 50, 1, 200),
+    offset: integerQuery(value.offset, 'offset', 0, 0),
+  };
+}
+
+export function parseCustomerReportQuery(raw: unknown): CustomerReportQuery {
+  const value = exactScalarQuery(raw, CUSTOMER_KEYS);
+  return {
+    requestedRange: requestedRange(value),
+    search: optionalSearch(value.search),
+    status: optionalCustomerStatus(value.status),
+    customerType: optionalCustomerType(value.type),
     limit: integerQuery(value.limit, 'limit', 50, 1, 200),
     offset: integerQuery(value.offset, 'offset', 0, 0),
   };

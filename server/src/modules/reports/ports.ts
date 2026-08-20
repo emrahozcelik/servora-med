@@ -1,6 +1,8 @@
 import type {
   ApprovalItem,
   ApprovalSummary,
+  CustomerReportReadInput,
+  CustomerReportResponse,
   DashboardReportResponse,
   DeliveryPurposeItem,
   DeliveryReportReadInput,
@@ -52,6 +54,7 @@ export interface ReportsReadModel extends StaffOperationalSummaryPort {
     Promise<ApprovalSummary>;
   getWorkTypeDistribution(input: WorkTypeDistributionInput):
     Promise<WorkTypeDistributionItem[]>;
+  getCustomerReport(input: CustomerReportReadInput): Promise<CustomerReportResponse>;
 }
 
 export interface ApprovalQueueItemPort {
