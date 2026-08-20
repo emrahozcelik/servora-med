@@ -34,11 +34,21 @@ const priorPerformance = {
 const staffExecution = { staffCompletedJobs: 3,
   staffCompletionDays: 2, jobsPerStaffCompletionDay: 1.5,
   missingStaffCompletionTimestamp: 1 };
+const staffSubmissionAttribution = { recordedSubmissionCount: 2, recordedSubmissionDays: 2 };
 const onTime = { eligibleScheduledCompletedJobs: 3, onTimeCompletedJobs: 2,
   lateCompletedJobs: 1, ineligibleOrNoDeadlineCompletedJobs: 1, onTimeRate: 2 / 3 };
 const currentWorkload = { openJobCards: 3, waitingApproval: 2, revisionRequested: 1,
   overdueJobCards: 1 };
-const completionWorkTypes = [{ type: 'GENERAL_TASK', count: 4 }] as const;
+const completionWorkTypes = [
+  { type: 'PRODUCT_DELIVERY', count: 2 },
+  { type: 'GENERAL_TASK', count: 2 },
+  { type: 'SALES_MEETING', count: 0 },
+] as const;
+const currentWorkloadByType = [
+  { type: 'PRODUCT_DELIVERY', count: 2 },
+  { type: 'GENERAL_TASK', count: 2 },
+  { type: 'SALES_MEETING', count: 2 },
+] as const;
 const completedTrend = [{ date: '2026-07-01', count: 0 },
   { date: '2026-07-02', count: 4 }];
 const dailyCreatedTrend = [{ date: '2026-07-01', count: 2 },
@@ -95,8 +105,10 @@ describe('Reports runtime contract', () => {
       performance,
       priorPerformance,
       staffExecution,
+      staffSubmissionAttribution,
       onTime,
       completionWorkTypes,
+      currentWorkloadByType,
       completedTrend,
       deliveriesByPurpose: [{ purpose: 'SALE', unit: null, quantity: '12.500' }],
       meetingsByOutcome: [
@@ -131,8 +143,10 @@ describe('Reports runtime contract', () => {
         performance,
         priorPerformance,
         staffExecution,
+        staffSubmissionAttribution,
         onTime,
         completionWorkTypes,
+        currentWorkloadByType,
         currentWorkload,
       }],
     };
@@ -247,19 +261,21 @@ describe('Reports runtime contract', () => {
         ] }))
       .mockResolvedValueOnce(response({ range, items: [{
         staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        performance, priorPerformance, staffExecution, onTime,
-        completionWorkTypes, currentWorkload,
+        performance, priorPerformance, staffExecution, staffSubmissionAttribution, onTime,
+        completionWorkTypes, currentWorkloadByType, currentWorkload,
       }], priorRange }))
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        range, priorRange, performance, priorPerformance, staffExecution, onTime,
-        completionWorkTypes, completedTrend, currentWorkload,
+        range, priorRange, performance, priorPerformance, staffExecution,
+        staffSubmissionAttribution, onTime, completionWorkTypes, currentWorkloadByType,
+        completedTrend, currentWorkload,
         deliveriesByPurpose: [], meetingsByOutcome: [
           { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
           { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },
         ] }))
       .mockResolvedValueOnce(response({ staff: { userId: STAFF_ID, name: 'Emrah', isActive: true },
-        range, priorRange, performance, priorPerformance, staffExecution, onTime,
-        completionWorkTypes, completedTrend, currentWorkload,
+        range, priorRange, performance, priorPerformance, staffExecution,
+        staffSubmissionAttribution, onTime, completionWorkTypes, currentWorkloadByType,
+        completedTrend, currentWorkload,
         deliveriesByPurpose: [], meetingsByOutcome: [
           { outcome: 'POSITIVE', count: 0 }, { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
           { outcome: 'NO_DECISION', count: 0 }, { outcome: 'NOT_INTERESTED', count: 0 },

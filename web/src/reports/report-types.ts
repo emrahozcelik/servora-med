@@ -17,6 +17,7 @@ export type StaffCurrentWorkload = {
 };
 
 export type StaffHistoricalPerformance = {
+  /** Manager-approved completions currently associated with the Staff member. */
   completedJobs: number;
   completionDays: number;
   jobsPerCompletionDay: number;
@@ -30,10 +31,17 @@ export type StaffPriorPerformance = {
 };
 
 export type StaffExecutionMetrics = {
+  /** Legacy current-assignee Staff execution cohort, not actor attribution. */
   staffCompletedJobs: number;
   staffCompletionDays: number;
   jobsPerStaffCompletionDay: number;
   missingStaffCompletionTimestamp: number;
+};
+
+/** Current recorded staff_completed_by/staff_completed_at attribution. */
+export type StaffSubmissionAttributionMetrics = {
+  recordedSubmissionCount: number;
+  recordedSubmissionDays: number;
 };
 
 export type StaffOnTimeMetrics = {
@@ -124,8 +132,12 @@ export type StaffReportResponse = {
   performance: StaffHistoricalPerformance;
   priorPerformance: StaffPriorPerformance;
   staffExecution: StaffExecutionMetrics;
+  staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
+  /** Selected-period manager-approved completions by current assignee. */
   completionWorkTypes: CompletionWorkType[];
+  /** Current active snapshot by current assignee; independent of selected range. */
+  currentWorkloadByType: CompletionWorkType[];
   completedTrend: Array<{ date: string; count: number }>;
   deliveriesByPurpose: DeliveryPurposeItem[];
   meetingsByOutcome: Array<{ outcome: MeetingOutcome; count: number }>;
@@ -137,8 +149,12 @@ export type StaffPerformanceItem = {
   performance: StaffHistoricalPerformance;
   priorPerformance: StaffPriorPerformance;
   staffExecution: StaffExecutionMetrics;
+  staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
+  /** Selected-period manager-approved completions by current assignee. */
   completionWorkTypes: CompletionWorkType[];
+  /** Current active snapshot by current assignee; independent of selected range. */
+  currentWorkloadByType: CompletionWorkType[];
   currentWorkload: StaffCurrentWorkload;
 };
 
