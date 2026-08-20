@@ -177,6 +177,66 @@ function dependencies() {
         },
       },
     })),
+    getSalesFollowUpReport: vi.fn(async (input) => ({
+      range: resolvedRange,
+      current: {
+        salesMeetings: {
+          total: 0,
+          statusDistribution: [
+            { status: 'NEW', count: 0 },
+            { status: 'ACCEPTED', count: 0 },
+            { status: 'IN_PROGRESS', count: 0 },
+            { status: 'WAITING_APPROVAL', count: 0 },
+            { status: 'REVISION_REQUESTED', count: 0 },
+          ],
+          items: [],
+          limit: input.limit,
+          offset: input.offset,
+        },
+        proposalQueue: {
+          total: 0,
+          limit: input.proposalLimit,
+          offset: input.proposalOffset,
+          items: [],
+        },
+        followUpChildren: {
+          total: 0,
+          statusDistribution: [
+            { status: 'NEW', count: 0 },
+            { status: 'ACCEPTED', count: 0 },
+            { status: 'IN_PROGRESS', count: 0 },
+            { status: 'WAITING_APPROVAL', count: 0 },
+            { status: 'REVISION_REQUESTED', count: 0 },
+          ],
+          typeDistribution: [
+            { type: 'PRODUCT_DELIVERY', count: 0 },
+            { type: 'GENERAL_TASK', count: 0 },
+            { type: 'SALES_MEETING', count: 0 },
+          ],
+          overdueDueDatedFollowUpChildren: 0,
+        },
+      },
+      period: {
+        salesMeetingsCreated: 0,
+        salesMeetingsManagerApproved: 0,
+        meetingOutcomeDistribution: [
+          { outcome: 'POSITIVE', count: 0 },
+          { outcome: 'FOLLOW_UP_REQUIRED', count: 0 },
+          { outcome: 'NO_DECISION', count: 0 },
+          { outcome: 'NOT_INTERESTED', count: 0 },
+        ],
+        followUpChildrenCreated: 0,
+        followUpChildrenCreatedByType: [
+          { type: 'PRODUCT_DELIVERY', count: 0 },
+          { type: 'GENERAL_TASK', count: 0 },
+          { type: 'SALES_MEETING', count: 0 },
+        ],
+      },
+      relationships: {
+        directFollowUpLinks: 0,
+        currentCustomerDivergence: 0,
+      },
+    })),
   };
   const approvalItems = { getApprovalItems: vi.fn(async () => []) };
   return { reports, approvalItems };
@@ -214,7 +274,7 @@ afterEach(async () => {
 });
 
 describe('Reports HTTP routes', () => {
-  it('registers exactly the seven authenticated GET report routes', async () => {
+  it('registers exactly the eight authenticated GET report routes', async () => {
     const { app, reports, approvalItems } = await createApp(actor('MANAGER'));
 
     const responses = await Promise.all([
@@ -224,8 +284,10 @@ describe('Reports HTTP routes', () => {
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
       app.inject({ method: 'GET', url: '/api/reports/customers' }),
+      app.inject({ method: 'GET', url: '/api/reports/sales-follow-up' }),
     ]);
-    expect(responses.map((response) => response.statusCode)).toEqual([200, 200, 200, 200, 200, 200]);
+    expect(responses.map((response) => response.statusCode))
+      .toEqual([200, 200, 200, 200, 200, 200, 200]);
     expect((await app.inject({
       method: 'GET',
       url: '/api/reports/staff/me',
@@ -235,13 +297,14 @@ describe('Reports HTTP routes', () => {
     expect(reports.getDeliveryReport).toHaveBeenCalledOnce();
     expect(reports.getApprovalSummary).toHaveBeenCalledOnce();
     expect(reports.getCustomerReport).toHaveBeenCalledOnce();
+    expect(reports.getSalesFollowUpReport).toHaveBeenCalledOnce();
     expect(approvalItems.getApprovalItems).toHaveBeenCalledOnce();
 
     expect((await app.inject({ method: 'POST', url: '/api/reports/dashboard' })).statusCode)
       .toBe(404);
   });
 
-  it('allows Staff only its own report and denies six management reports', async () => {
+  it('allows Staff only its own report and denies seven management reports', async () => {
     const { app } = await createApp(actor('STAFF'));
 
     expect((await app.inject({ method: 'GET', url: '/api/reports/staff/me' })).statusCode)
@@ -253,8 +316,10 @@ describe('Reports HTTP routes', () => {
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
       app.inject({ method: 'GET', url: '/api/reports/customers' }),
+      app.inject({ method: 'GET', url: '/api/reports/sales-follow-up' }),
     ]);
-    expect(responses.map((response) => response.statusCode)).toEqual([403, 403, 403, 403, 403, 403]);
+    expect(responses.map((response) => response.statusCode))
+      .toEqual([403, 403, 403, 403, 403, 403, 403]);
   });
 
   it.each(['ADMIN', 'MANAGER'] as const)(
@@ -273,6 +338,10 @@ describe('Reports HTTP routes', () => {
         .toBe(403);
       expect((await app.inject({ method: 'GET', url: '/api/reports/customers' })).statusCode)
         .toBe(200);
+      expect((await app.inject({
+        method: 'GET',
+        url: '/api/reports/sales-follow-up',
+      })).statusCode).toBe(200);
     },
   );
 
@@ -326,6 +395,9 @@ describe('Reports HTTP routes', () => {
     '/api/reports/deliveries?groupBy=day&limit=10&limit=20',
     '/api/reports/approvals?offset=0&offset=1',
     '/api/reports/approvals?unknown=value',
+    '/api/reports/sales-follow-up?limit=10&limit=20',
+    '/api/reports/sales-follow-up?proposalLimit=10&proposalLimit=20',
+    '/api/reports/sales-follow-up?unknown=value',
   ])('rejects unknown or repeated scalar query before dispatch: %s', async (url) => {
     const { app, reports, approvalItems } = await createApp(actor('MANAGER'));
 
@@ -336,7 +408,38 @@ describe('Reports HTTP routes', () => {
     expect(reports.getDashboard).not.toHaveBeenCalled();
     expect(reports.getDeliveryReport).not.toHaveBeenCalled();
     expect(reports.getApprovalSummary).not.toHaveBeenCalled();
+    expect(reports.getSalesFollowUpReport).not.toHaveBeenCalled();
     expect(approvalItems.getApprovalItems).not.toHaveBeenCalled();
+  });
+
+  it('passes the parsed sales-follow-up range, limits and offsets to the service', async () => {
+    const { app, reports } = await createApp(actor('ADMIN'));
+
+    const response = await app.inject({
+      method: 'GET',
+      url: '/api/reports/sales-follow-up'
+        + '?from=2026-07-01&to=2026-07-31&limit=7&offset=14&proposalLimit=3&proposalOffset=6',
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(reports.getSalesFollowUpReport).toHaveBeenCalledWith({
+      organizationId: ORG_ONE,
+      requestedRange: { from: '2026-07-01', to: '2026-07-31' },
+      requestTime,
+      limit: 7,
+      offset: 14,
+      proposalLimit: 3,
+      proposalOffset: 6,
+    });
+    expect(response.json()).toMatchObject({
+      range: resolvedRange,
+      current: {
+        salesMeetings: { limit: 7, offset: 14, total: 0, items: [] },
+        proposalQueue: { limit: 3, offset: 6, total: 0, items: [] },
+      },
+      period: { salesMeetingsCreated: 0 },
+      relationships: { directFollowUpLinks: 0, currentCustomerDivergence: 0 },
+    });
   });
 
   it('uses the authenticate function through every route options object', async () => {
@@ -350,16 +453,17 @@ describe('Reports HTTP routes', () => {
       app.inject({ method: 'GET', url: '/api/reports/deliveries?groupBy=day' }),
       app.inject({ method: 'GET', url: '/api/reports/approvals' }),
       app.inject({ method: 'GET', url: '/api/reports/customers' }),
+      app.inject({ method: 'GET', url: '/api/reports/sales-follow-up' }),
     ]);
     expect(responses.map((response) => response.statusCode))
-      .toEqual([401, 401, 401, 401, 401, 401, 401]);
+      .toEqual([401, 401, 401, 401, 401, 401, 401, 401]);
 
     const source = readFileSync(
       new URL('../src/modules/reports/routes.ts', import.meta.url),
       'utf8',
     );
     expect(source).toContain('const secured = { preHandler: options.authenticate }');
-    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(7);
+    expect(source.replace(/\s+/g, ' ').match(/secured, handlers\./g)).toHaveLength(8);
     expect(source).not.toMatch(/app\.get\([^\n]+options\.authenticate/);
   });
 });

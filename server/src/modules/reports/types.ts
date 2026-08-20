@@ -1,7 +1,9 @@
 import type { Customer } from '../crm/types.js';
 import type {
   DeliveryPurpose,
+  FollowUpProposalOrigin,
   JobCardStatus,
+  JobCardType,
   PersistedJobCardListItem,
   MeetingOutcome,
 } from '../job-cards/types.js';
@@ -374,3 +376,110 @@ export type CustomerReportQuery = ReportRangeQuery & {
   limit: number;
   offset: number;
 };
+
+export type SalesFollowUpStatusDistributionItem = Readonly<{
+  status: JobCardStatus;
+  count: number;
+}>;
+
+export type SalesFollowUpTypeDistributionItem = Readonly<{
+  type: JobCardType;
+  count: number;
+}>;
+
+export type ReportAssigneeIdentity = Readonly<{
+  userId: string;
+  name: string;
+}>;
+
+export type ReportCustomerIdentity = Readonly<{
+  id: string;
+  name: string;
+}>;
+
+/**
+ * A current operational Sales Meeting queue row. `scheduledAt` is the current
+ * mutable planned schedule; `assignee` is the current operational assignee,
+ * never a historical meeting actor attribution.
+ */
+export type CurrentSalesMeetingQueueItem = Readonly<{
+  id: string;
+  status: JobCardStatus;
+  scheduledAt: string | null;
+  customer: ReportCustomerIdentity | null;
+  assignee: ReportAssigneeIdentity;
+}>;
+
+/**
+ * A proposal-bearing approval/revision queue row. `proposedFollowUpAt` is the
+ * PROPOSED follow-up date/time, never the timestamp the proposal was written.
+ */
+export type ProposalQueueItem = Readonly<{
+  id: string;
+  status: JobCardStatus;
+  customer: ReportCustomerIdentity | null;
+  assignee: ReportAssigneeIdentity;
+  followUpProposedType: JobCardType | null;
+  followUpProposedAssignee: ReportAssigneeIdentity | null;
+  followUpProposalInstructions: string | null;
+  proposedFollowUpAt: string | null;
+  followUpProposalOrigin: FollowUpProposalOrigin | null;
+}>;
+
+export type SalesFollowUpCurrent = Readonly<{
+  salesMeetings: Readonly<{
+    /** Organization-wide active Sales Meeting total, independent of pagination. */
+    total: number;
+    statusDistribution: SalesFollowUpStatusDistributionItem[];
+    items: CurrentSalesMeetingQueueItem[];
+    limit: number;
+    offset: number;
+  }>;
+  proposalQueue: Readonly<{
+    /** Organization-wide matching proposal total, independent of pagination. */
+    total: number;
+    limit: number;
+    offset: number;
+    items: ProposalQueueItem[];
+  }>;
+  followUpChildren: Readonly<{
+    total: number;
+    statusDistribution: SalesFollowUpStatusDistributionItem[];
+    typeDistribution: SalesFollowUpTypeDistributionItem[];
+    /** Active children with due_date strictly before organization-local today. */
+    overdueDueDatedFollowUpChildren: number;
+  }>;
+}>;
+
+export type SalesFollowUpPeriod = Readonly<{
+  salesMeetingsCreated: number;
+  salesMeetingsManagerApproved: number;
+  /** Current outcomes of completed Sales Meetings whose meeting_at falls in range. */
+  meetingOutcomeDistribution: MeetingOutcomeItem[];
+  followUpChildrenCreated: number;
+  followUpChildrenCreatedByType: SalesFollowUpTypeDistributionItem[];
+}>;
+
+export type SalesFollowUpRelationships = Readonly<{
+  /** All direct source_job_card_id links; links are immutable current snapshot. */
+  directFollowUpLinks: number;
+  /** Children whose current parent customer differs from the immutable child customer. */
+  currentCustomerDivergence: number;
+}>;
+
+export type SalesFollowUpReportResponse = Readonly<{
+  range: ResolvedReportRange;
+  current: SalesFollowUpCurrent;
+  period: SalesFollowUpPeriod;
+  relationships: SalesFollowUpRelationships;
+}>;
+
+export type SalesFollowUpReportQuery = ReportRangeQuery & {
+  limit: number;
+  offset: number;
+  proposalLimit: number;
+  proposalOffset: number;
+};
+
+export type SalesFollowUpReportReadInput = StaffOperationalSummaryScope
+  & Omit<SalesFollowUpReportQuery, 'requestedRange'>;
