@@ -3,7 +3,9 @@ import type { Pool } from 'pg';
 import {
   ACTIVE_JOB_CARD_STATUSES,
   JOB_CARD_TYPES,
+  type FollowUpProposalOrigin,
   type JobCardStatus,
+  type JobCardType,
 } from '../job-cards/types.js';
 import type { ReportsReadModel } from './ports.js';
 import type {
@@ -21,8 +23,13 @@ import type {
   DeliveryReportResponse,
   DeliveryStaffItem,
   MeetingOutcomeItem,
+  ProposalQueueItem,
   ReportStaffLifecycleIdentity,
   ResolvedReportRange,
+  SalesFollowUpReportReadInput,
+  SalesFollowUpReportResponse,
+  SalesFollowUpStatusDistributionItem,
+  SalesFollowUpTypeDistributionItem,
   StaffCompletionPerformance,
   StaffExecutionAggregate,
   StaffOnTimeAggregate,
@@ -184,6 +191,51 @@ type CustomerReportRow = {
 };
 
 type CustomerReportUnassignedRow = Omit<CustomerReportRow, 'id' | 'name' | 'customer_type' | 'status'>;
+
+type SalesFollowUpAggregateRow = {
+  from_date: string;
+  to_date: string;
+  timezone: string;
+  current_sales_meetings_total: string | number;
+  proposal_queue_total: string | number;
+  active_children_total: string | number;
+  overdue_due_dated_follow_up_children: string | number;
+  sales_meetings_created: string | number;
+  sales_meetings_manager_approved: string | number;
+  follow_up_children_created: string | number;
+  direct_follow_up_links: string | number;
+  current_customer_divergence: string | number;
+  sales_meeting_status_distribution: Array<{ status: JobCardStatus; count: string | number }>;
+  child_status_distribution: Array<{ status: JobCardStatus; count: string | number }>;
+  child_type_distribution: Array<{ type: JobCardType; count: string | number }>;
+  children_created_by_type: Array<{ type: JobCardType; count: string | number }>;
+  outcome_distribution: Array<{ outcome: MeetingOutcomeItem['outcome']; count: string | number }>;
+};
+
+type SalesMeetingQueueRow = {
+  id: string;
+  status: JobCardStatus;
+  scheduled_at: Date | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  assignee_id: string;
+  assignee_name: string;
+};
+
+type ProposalQueueRow = {
+  id: string;
+  status: JobCardStatus;
+  follow_up_proposed_at: Date | null;
+  follow_up_proposed_type: JobCardType | null;
+  follow_up_proposal_instructions: string | null;
+  follow_up_proposal_origin: FollowUpProposalOrigin | null;
+  customer_id: string | null;
+  customer_name: string | null;
+  assignee_id: string;
+  assignee_name: string;
+  proposed_assignee_id: string | null;
+  proposed_assignee_name: string | null;
+};
 
 type DeliveryGroupDefinition = {
   select: string;
@@ -938,6 +990,238 @@ CROSS JOIN organization_range
 WHERE jc.organization_id = $1
   AND jc.customer_id IS NULL`;
 
+/**
+ * R2D-1 frozen semantics:
+ * - outcome cohort = COMPLETED Sales Meetings whose current meeting_at falls in the
+ *   selected range, grouped by the CURRENT mutable meeting_details.outcome;
+ *   a later outcome change intentionally moves the historical cohort result.
+ * - outcomes with NULL current value are excluded, exactly like the canonical
+ *   R2B staff outcome distribution; the distribution never claims to cover
+ *   every completed meeting.
+ * - proposal queue = Sales Meeting parents with proposal fields present AND
+ *   status IN (WAITING_APPROVAL, REVISION_REQUESTED). No generic "pending"
+ *   proposal status exists.
+ * - overdue = active children with due_date strictly before organization-local
+ *   today; automatic approve-created children have due_date NULL and never
+ *   count here.
+ * - divergence = child.source_job_card_id IS NOT NULL AND current parent
+ *   customer_id IS DISTINCT FROM child.customer_id.
+ */
+const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_statuses(status, sort_order) AS (
+  VALUES ${ACTIVE_STATUS_BUCKETS_SQL}
+), work_types(type, sort_order) AS (
+  VALUES ${WORK_TYPE_BUCKETS_SQL}
+), outcomes(outcome, sort_order) AS (
+  VALUES
+    ('POSITIVE', 1),
+    ('FOLLOW_UP_REQUIRED', 2),
+    ('NO_DECISION', 3),
+    ('NOT_INTERESTED', 4)
+), current_sales_meetings AS (
+  SELECT jc.id
+  FROM job_cards jc
+  WHERE jc.organization_id = $1
+    AND jc.type = 'SALES_MEETING'
+    AND jc.status IN (${ACTIVE_STATUS_LIST_SQL})
+), proposal_queue AS (
+  SELECT jc.id
+  FROM job_cards jc
+  WHERE jc.organization_id = $1
+    AND jc.type = 'SALES_MEETING'
+    AND jc.follow_up_proposed_at IS NOT NULL
+    AND jc.status IN ('WAITING_APPROVAL', 'REVISION_REQUESTED')
+), follow_up_children AS (
+  SELECT jc.id, jc.status, jc.type, jc.due_date, jc.customer_id,
+    jc.created_at, parent.customer_id AS parent_customer_id
+  FROM job_cards jc
+  JOIN job_cards parent ON parent.organization_id = jc.organization_id
+    AND parent.id = jc.source_job_card_id
+  WHERE jc.organization_id = $1
+    AND jc.source_job_card_id IS NOT NULL
+), active_children AS (
+  SELECT * FROM follow_up_children
+  WHERE status IN (${ACTIVE_STATUS_LIST_SQL})
+), sales_meeting_status_distribution AS (
+  SELECT active_statuses.status, active_statuses.sort_order,
+    COUNT(jc.id)::int AS count
+  FROM active_statuses
+  LEFT JOIN job_cards jc ON jc.organization_id = $1
+    AND jc.type = 'SALES_MEETING'
+    AND jc.status = active_statuses.status
+  GROUP BY active_statuses.status, active_statuses.sort_order
+), child_status_distribution AS (
+  SELECT active_statuses.status, active_statuses.sort_order,
+    COUNT(children.id)::int AS count
+  FROM active_statuses
+  LEFT JOIN active_children children ON children.status = active_statuses.status
+  GROUP BY active_statuses.status, active_statuses.sort_order
+), child_type_distribution AS (
+  SELECT work_types.type, work_types.sort_order,
+    COUNT(children.id)::int AS count
+  FROM work_types
+  LEFT JOIN active_children children ON children.type = work_types.type
+  GROUP BY work_types.type, work_types.sort_order
+), children_created_by_type AS (
+  SELECT work_types.type, work_types.sort_order,
+    COUNT(children.id)::int AS count
+  FROM work_types
+  CROSS JOIN organization_range
+  LEFT JOIN follow_up_children children ON children.type = work_types.type
+    AND children.created_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND children.created_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+  GROUP BY work_types.type, work_types.sort_order
+), outcome_counts AS (
+  SELECT md.outcome, COUNT(*)::int AS count
+  FROM job_card_meeting_details md
+  JOIN job_cards jc ON jc.organization_id = md.organization_id
+    AND jc.id = md.job_card_id
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.type = 'SALES_MEETING'
+    AND jc.status = 'COMPLETED'
+    AND md.meeting_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND md.meeting_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+  GROUP BY md.outcome
+), outcome_distribution AS (
+  SELECT outcomes.outcome, outcomes.sort_order,
+    COALESCE(outcome_counts.count, 0)::int AS count
+  FROM outcomes
+  LEFT JOIN outcome_counts ON outcome_counts.outcome = outcomes.outcome
+), period_created AS (
+  SELECT COUNT(jc.id)::int AS count
+  FROM job_cards jc
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.type = 'SALES_MEETING'
+    AND jc.created_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.created_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+), period_manager_approved AS (
+  SELECT COUNT(jc.id)::int AS count
+  FROM job_cards jc
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.type = 'SALES_MEETING'
+    AND jc.status = 'COMPLETED'
+    AND jc.manager_approved_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.manager_approved_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+), children_created AS (
+  SELECT COUNT(children.id)::int AS count
+  FROM follow_up_children children
+  CROSS JOIN organization_range
+  WHERE children.created_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND children.created_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+), overdue_children AS (
+  SELECT COUNT(children.id)::int AS count
+  FROM active_children children
+  CROSS JOIN organization_range
+  WHERE children.due_date IS NOT NULL
+    AND children.due_date <
+      ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
+), divergence AS (
+  SELECT COUNT(children.id)::int AS count
+  FROM follow_up_children children
+  WHERE children.parent_customer_id IS DISTINCT FROM children.customer_id
+)
+SELECT to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
+  to_char(organization_range.to_date, 'YYYY-MM-DD') AS to_date,
+  organization_range.timezone,
+  (SELECT COUNT(*) FROM current_sales_meetings)::int AS current_sales_meetings_total,
+  (SELECT COUNT(*) FROM proposal_queue)::int AS proposal_queue_total,
+  (SELECT COUNT(*) FROM active_children)::int AS active_children_total,
+  (SELECT count FROM overdue_children)::int AS overdue_due_dated_follow_up_children,
+  (SELECT count FROM period_created)::int AS sales_meetings_created,
+  (SELECT count FROM period_manager_approved)::int AS sales_meetings_manager_approved,
+  (SELECT count FROM children_created)::int AS follow_up_children_created,
+  (SELECT COUNT(*) FROM follow_up_children)::int AS direct_follow_up_links,
+  (SELECT count FROM divergence)::int AS current_customer_divergence,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'status', distribution.status,
+      'count', distribution.count
+    ) ORDER BY distribution.sort_order)
+    FROM sales_meeting_status_distribution distribution
+  ), '[]'::json) AS sales_meeting_status_distribution,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'status', distribution.status,
+      'count', distribution.count
+    ) ORDER BY distribution.sort_order)
+    FROM child_status_distribution distribution
+  ), '[]'::json) AS child_status_distribution,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'type', distribution.type,
+      'count', distribution.count
+    ) ORDER BY distribution.sort_order)
+    FROM child_type_distribution distribution
+  ), '[]'::json) AS child_type_distribution,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'type', distribution.type,
+      'count', distribution.count
+    ) ORDER BY distribution.sort_order)
+    FROM children_created_by_type distribution
+  ), '[]'::json) AS children_created_by_type,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'outcome', distribution.outcome,
+      'count', distribution.count
+    ) ORDER BY distribution.sort_order)
+    FROM outcome_distribution distribution
+  ), '[]'::json) AS outcome_distribution
+FROM organization_range`;
+
+const SALES_MEETING_QUEUE_SQL = `SELECT jc.id, jc.status, jc.scheduled_at,
+  c.id AS customer_id, c.name AS customer_name,
+  u.id AS assignee_id, u.name AS assignee_name
+FROM job_cards jc
+JOIN users u ON u.organization_id = jc.organization_id
+  AND u.id = jc.assigned_to
+LEFT JOIN customers c ON c.organization_id = jc.organization_id
+  AND c.id = jc.customer_id
+WHERE jc.organization_id = $1
+  AND jc.type = 'SALES_MEETING'
+  AND jc.status IN (${ACTIVE_STATUS_LIST_SQL})
+ORDER BY jc.scheduled_at ASC NULLS LAST, jc.id ASC
+LIMIT $2
+OFFSET $3`;
+
+const SALES_MEETING_QUEUE_COUNT_SQL = `SELECT COUNT(*)::int AS total
+FROM job_cards jc
+WHERE jc.organization_id = $1
+  AND jc.type = 'SALES_MEETING'
+  AND jc.status IN (${ACTIVE_STATUS_LIST_SQL})`;
+
+const PROPOSAL_QUEUE_SQL = `SELECT jc.id, jc.status, jc.follow_up_proposed_at,
+  jc.follow_up_proposed_type, jc.follow_up_proposal_instructions,
+  jc.follow_up_proposal_origin,
+  c.id AS customer_id, c.name AS customer_name,
+  u.id AS assignee_id, u.name AS assignee_name,
+  pu.id AS proposed_assignee_id, pu.name AS proposed_assignee_name
+FROM job_cards jc
+JOIN users u ON u.organization_id = jc.organization_id
+  AND u.id = jc.assigned_to
+LEFT JOIN customers c ON c.organization_id = jc.organization_id
+  AND c.id = jc.customer_id
+LEFT JOIN users pu ON pu.organization_id = jc.organization_id
+  AND pu.id = jc.follow_up_proposed_assignee
+WHERE jc.organization_id = $1
+  AND jc.type = 'SALES_MEETING'
+  AND jc.follow_up_proposed_at IS NOT NULL
+  AND jc.status IN ('WAITING_APPROVAL', 'REVISION_REQUESTED')
+ORDER BY jc.follow_up_proposed_at ASC NULLS LAST, jc.id ASC
+LIMIT 50`;
+
 function deliveryGroupedSql(
   input: DeliveryReportReadInput,
   definition: DeliveryGroupDefinition,
@@ -1084,6 +1368,95 @@ function mapCustomerReportItem(row: CustomerReportRow): CustomerReportItem {
 
 function mapCustomerReportUnassigned(row: CustomerReportUnassignedRow): CustomerReportUnassigned {
   return { ...mapCustomerReportActivity(row) };
+}
+
+function mapSalesFollowUpDistribution(
+  rows: Array<{ status: JobCardStatus; count: string | number }>,
+): SalesFollowUpStatusDistributionItem[] {
+  return rows.map((row) => ({ status: row.status, count: Number(row.count) }));
+}
+
+function mapSalesFollowUpTypeDistribution(
+  rows: Array<{ type: JobCardType; count: string | number }>,
+): SalesFollowUpTypeDistributionItem[] {
+  return rows.map((row) => ({ type: row.type, count: Number(row.count) }));
+}
+
+function mapSalesFollowUpAggregate(row: SalesFollowUpAggregateRow) {
+  return {
+    range: {
+      from: row.from_date,
+      to: row.to_date,
+      timezone: row.timezone,
+    },
+    current: {
+      salesMeetings: {
+        total: Number(row.current_sales_meetings_total),
+        statusDistribution: mapSalesFollowUpDistribution(row.sales_meeting_status_distribution),
+        items: [],
+        limit: 0,
+        offset: 0,
+      },
+      proposalQueue: {
+        total: Number(row.proposal_queue_total),
+        items: [],
+      },
+      followUpChildren: {
+        total: Number(row.active_children_total),
+        statusDistribution: mapSalesFollowUpDistribution(row.child_status_distribution),
+        typeDistribution: mapSalesFollowUpTypeDistribution(row.child_type_distribution),
+        overdueDueDatedFollowUpChildren: Number(row.overdue_due_dated_follow_up_children),
+      },
+    },
+    period: {
+      salesMeetingsCreated: Number(row.sales_meetings_created),
+      salesMeetingsManagerApproved: Number(row.sales_meetings_manager_approved),
+      meetingOutcomeDistribution: row.outcome_distribution.map((item) => ({
+        outcome: item.outcome,
+        count: Number(item.count),
+      })),
+      followUpChildrenCreated: Number(row.follow_up_children_created),
+      followUpChildrenCreatedByType: mapSalesFollowUpTypeDistribution(
+        row.children_created_by_type,
+      ),
+    },
+    relationships: {
+      directFollowUpLinks: Number(row.direct_follow_up_links),
+      currentCustomerDivergence: Number(row.current_customer_divergence),
+    },
+  };
+}
+
+function mapSalesMeetingQueueRow(row: SalesMeetingQueueRow) {
+  return {
+    id: row.id,
+    status: row.status,
+    scheduledAt: row.scheduled_at === null ? null : row.scheduled_at.toISOString(),
+    customer: row.customer_id === null
+      ? null
+      : { id: row.customer_id, name: row.customer_name! },
+    assignee: { userId: row.assignee_id, name: row.assignee_name },
+  };
+}
+
+function mapProposalQueueRow(row: ProposalQueueRow): ProposalQueueItem {
+  return {
+    id: row.id,
+    status: row.status,
+    customer: row.customer_id === null
+      ? null
+      : { id: row.customer_id, name: row.customer_name! },
+    assignee: { userId: row.assignee_id, name: row.assignee_name },
+    followUpProposedType: row.follow_up_proposed_type,
+    followUpProposedAssignee: row.proposed_assignee_id === null
+      ? null
+      : { userId: row.proposed_assignee_id, name: row.proposed_assignee_name! },
+    followUpProposalInstructions: row.follow_up_proposal_instructions,
+    proposedFollowUpAt: row.follow_up_proposed_at === null
+      ? null
+      : row.follow_up_proposed_at.toISOString(),
+    followUpProposalOrigin: row.follow_up_proposal_origin,
+  };
 }
 
 function mapStaffSummary(row: StaffSummaryRow): StaffOperationalSummary {
@@ -1527,6 +1900,71 @@ OFFSET $${offsetParameter}`;
       offset: input.offset,
       items: pageResult.rows.map(mapCustomerReportItem),
       unassigned: mapCustomerReportUnassigned(unassignedRow),
+    };
+  }
+
+  async getSalesFollowUpReport(
+    input: SalesFollowUpReportReadInput,
+  ): Promise<SalesFollowUpReportResponse> {
+    const rangeValues = [
+      input.organizationId,
+      input.requestedRange?.from ?? null,
+      input.requestedRange?.to ?? null,
+      input.requestTime,
+    ];
+    const rangeResult = await this.pool.query<ResolvedReportRangeRow>(
+      RESOLVED_REPORT_RANGE_SQL,
+      rangeValues,
+    );
+    const resolvedRange = rangeResult.rows[0];
+    if (!resolvedRange) {
+      throw new Error('Sales follow-up report organization range could not be resolved.');
+    }
+    const [aggregateResult, queueCountResult, queuePageResult, proposalQueueResult]
+      = await Promise.all([
+        this.pool.query<SalesFollowUpAggregateRow>(
+          SALES_FOLLOW_UP_AGGREGATE_SQL,
+          rangeValues,
+        ),
+        this.pool.query<{ total: string | number }>(SALES_MEETING_QUEUE_COUNT_SQL, [
+          input.organizationId,
+        ]),
+        this.pool.query<SalesMeetingQueueRow>(SALES_MEETING_QUEUE_SQL, [
+          input.organizationId,
+          input.limit,
+          input.offset,
+        ]),
+        this.pool.query<ProposalQueueRow>(PROPOSAL_QUEUE_SQL, [
+          input.organizationId,
+        ]),
+      ]);
+    const aggregateRow = aggregateResult.rows[0];
+    if (!aggregateRow) {
+      throw new Error('Sales follow-up report aggregate could not be resolved.');
+    }
+    const queueCountRow = queueCountResult.rows[0];
+    if (!queueCountRow) {
+      throw new Error('Sales follow-up queue count could not be resolved.');
+    }
+    const aggregate = mapSalesFollowUpAggregate(aggregateRow);
+    return {
+      range: resolvedRange,
+      current: {
+        ...aggregate.current,
+        salesMeetings: {
+          total: Number(queueCountRow.total),
+          statusDistribution: aggregate.current.salesMeetings.statusDistribution,
+          items: queuePageResult.rows.map(mapSalesMeetingQueueRow),
+          limit: input.limit,
+          offset: input.offset,
+        },
+        proposalQueue: {
+          total: aggregate.current.proposalQueue.total,
+          items: proposalQueueResult.rows.map(mapProposalQueueRow),
+        },
+      },
+      period: aggregate.period,
+      relationships: aggregate.relationships,
     };
   }
 

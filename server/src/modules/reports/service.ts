@@ -7,6 +7,7 @@ import type {
   CustomerReportQuery,
   DeliveryReportQuery,
   ReportRangeQuery,
+  SalesFollowUpReportQuery,
   StaffCompletionPerformance,
   StaffCurrentWorkload,
   StaffExecutionAggregate,
@@ -319,6 +320,17 @@ export class ReportsService {
       search: query.search,
       status: query.status,
       customerType: query.customerType,
+      limit: query.limit,
+      offset: query.offset,
+    });
+  }
+
+  async getSalesFollowUp(actor: SafeUser, query: SalesFollowUpReportQuery) {
+    requireManagement(actor);
+    return this.reports.getSalesFollowUpReport({
+      organizationId: actor.organizationId,
+      requestedRange: query.requestedRange,
+      requestTime: this.now(),
       limit: query.limit,
       offset: query.offset,
     });

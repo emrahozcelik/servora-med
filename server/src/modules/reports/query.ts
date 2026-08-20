@@ -6,6 +6,7 @@ import type {
   DeliveryReportQuery,
   ReportRangeQuery,
   RequestedReportRange,
+  SalesFollowUpReportQuery,
 } from './types.js';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -14,6 +15,7 @@ const RANGE_KEYS = ['from', 'to'] as const;
 const DELIVERY_KEYS = ['from', 'to', 'groupBy', 'staffUserId', 'limit', 'offset'] as const;
 const APPROVAL_KEYS = ['limit', 'offset'] as const;
 const CUSTOMER_KEYS = ['from', 'to', 'search', 'status', 'type', 'limit', 'offset'] as const;
+const SALES_FOLLOW_UP_KEYS = ['from', 'to', 'limit', 'offset'] as const;
 const DELIVERY_GROUPS = ['day', 'purpose', 'product', 'staff'] as const;
 const CUSTOMER_STATUSES = ['prospect', 'active', 'inactive'] as const;
 const CUSTOMER_TYPES = ['clinic', 'hospital', 'dealer', 'company', 'other'] as const;
@@ -163,6 +165,15 @@ export function parseCustomerReportQuery(raw: unknown): CustomerReportQuery {
     search: optionalSearch(value.search),
     status: optionalCustomerStatus(value.status),
     customerType: optionalCustomerType(value.type),
+    limit: integerQuery(value.limit, 'limit', 50, 1, 200),
+    offset: integerQuery(value.offset, 'offset', 0, 0),
+  };
+}
+
+export function parseSalesFollowUpReportQuery(raw: unknown): SalesFollowUpReportQuery {
+  const value = exactScalarQuery(raw, SALES_FOLLOW_UP_KEYS);
+  return {
+    requestedRange: requestedRange(value),
     limit: integerQuery(value.limit, 'limit', 50, 1, 200),
     offset: integerQuery(value.offset, 'offset', 0, 0),
   };

@@ -18,6 +18,8 @@ import type {
   StaffOperationalSummaryScope,
   StaffPerformanceScope,
   StaffPerformanceScopeInput,
+  SalesFollowUpReportReadInput,
+  SalesFollowUpReportResponse,
   WorkTypeDistributionInput,
   WorkTypeDistributionItem,
 } from './types.js';
@@ -55,6 +57,8 @@ export interface ReportsReadModel extends StaffOperationalSummaryPort {
   getWorkTypeDistribution(input: WorkTypeDistributionInput):
     Promise<WorkTypeDistributionItem[]>;
   getCustomerReport(input: CustomerReportReadInput): Promise<CustomerReportResponse>;
+  getSalesFollowUpReport(input: SalesFollowUpReportReadInput):
+    Promise<SalesFollowUpReportResponse>;
 }
 
 export interface ApprovalQueueItemPort {

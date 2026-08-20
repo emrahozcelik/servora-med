@@ -5,6 +5,7 @@ import {
   parseCustomerReportQuery,
   parseDashboardReportQuery,
   parseDeliveryReportQuery,
+  parseSalesFollowUpReportQuery,
   parseStaffReportPathId,
   parseStaffReportQuery,
 } from './query.js';
@@ -46,6 +47,10 @@ export function createReportsHandlers(service: ReportsService) {
     getCustomers: (request: FastifyRequest) => service.getCustomers(
       request.currentUser!,
       parseCustomerReportQuery(request.query),
+    ),
+    getSalesFollowUp: (request: FastifyRequest) => service.getSalesFollowUp(
+      request.currentUser!,
+      parseSalesFollowUpReportQuery(request.query),
     ),
   };
 }
