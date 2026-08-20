@@ -23,6 +23,7 @@ export const paths = {
   staff: '/staff',
   reports: '/reports',
   staffPerformanceReports: '/reports/staff',
+  customerReports: '/reports/customers',
   deliveryReports: '/reports/deliveries',
   approvalReports: '/reports/approvals',
   customers: '/customers',

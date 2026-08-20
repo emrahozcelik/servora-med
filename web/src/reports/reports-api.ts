@@ -13,12 +13,23 @@ import {
   JOB_CARD_TYPES,
   MEETING_OUTCOMES,
   parsePersistedJobCardListItem,
+  type JobCardType,
 } from '../jobs/jobs-api';
+import {
+  CUSTOMER_STATUSES,
+  CUSTOMER_TYPES,
+} from '../services/crm-api';
 import type {
   ApprovalItem,
   ApprovalReportResponse,
   ActiveStatusDistributionItem,
   CreatedWorkTypeDistributionItem,
+  CustomerReportItem,
+  CustomerReportRequest,
+  CustomerReportResponse,
+  CustomerReportSnapshot,
+  CustomerReportPeriod,
+  CustomerReportUnassigned,
   DashboardReportResponse,
   DeliveryDayItem,
   DeliveryProductItem,
@@ -48,6 +59,15 @@ const LIST_ITEM_KEYS = [
   'engagementKind',
   'createdAt', 'updatedAt', 'staffCompletedAt', 'customer', 'contact', 'assignee',
   'deliveryItemCount', 'waitingMinutes',
+] as const;
+const CUSTOMER_PAGE_KEYS = ['range', 'total', 'limit', 'offset', 'items', 'unassigned'] as const;
+const CUSTOMER_ITEM_KEYS = ['customer', 'activity'] as const;
+const CUSTOMER_IDENTITY_KEYS = ['id', 'name', 'customerType', 'status'] as const;
+const CUSTOMER_SNAPSHOT_KEYS = [
+  'active', 'actionable', 'waitingApproval', 'revisionRequested', 'overdue',
+] as const;
+const CUSTOMER_PERIOD_KEYS = [
+  'created', 'createdWorkTypes', 'managerApproved', 'followUpChildren',
 ] as const;
 
 function invalid(field: string): never {
@@ -519,6 +539,63 @@ export function parseApprovalReport(value: unknown): ApprovalReportResponse {
   };
 }
 
+function parseCustomerSnapshot(value: unknown): CustomerReportSnapshot {
+  const row = exactObject(value, 'snapshot', CUSTOMER_SNAPSHOT_KEYS);
+  return {
+    active: nonNegativeInteger(row.active, 'snapshot.active'),
+    actionable: nonNegativeInteger(row.actionable, 'snapshot.actionable'),
+    waitingApproval: nonNegativeInteger(row.waitingApproval, 'snapshot.waitingApproval'),
+    revisionRequested: nonNegativeInteger(row.revisionRequested, 'snapshot.revisionRequested'),
+    overdue: nonNegativeInteger(row.overdue, 'snapshot.overdue'),
+  };
+}
+
+function parseCustomerPeriod(value: unknown): CustomerReportPeriod {
+  const row = exactObject(value, 'period', CUSTOMER_PERIOD_KEYS);
+  const workTypes = exactObject(row.createdWorkTypes, 'createdWorkTypes', JOB_CARD_TYPES);
+  return {
+    created: nonNegativeInteger(row.created, 'period.created'),
+    createdWorkTypes: Object.fromEntries(JOB_CARD_TYPES.map((type) => [
+      type,
+      nonNegativeInteger(workTypes[type], `createdWorkTypes.${type}`),
+    ])) as Record<JobCardType, number>,
+    managerApproved: nonNegativeInteger(row.managerApproved, 'period.managerApproved'),
+    followUpChildren: nonNegativeInteger(row.followUpChildren, 'period.followUpChildren'),
+  };
+}
+
+function parseCustomerReportItem(value: unknown): CustomerReportItem {
+  const row = exactObject(value, 'customerReportItem', CUSTOMER_ITEM_KEYS);
+  const customer = exactObject(row.customer, 'customer', CUSTOMER_IDENTITY_KEYS);
+  const activity = exactObject(row.activity, 'activity', ['snapshot', 'period']);
+  return {
+    customer: {
+      id: string(customer.id, 'customer.id'),
+      name: string(customer.name, 'customer.name'),
+      customerType: oneOf(customer.customerType, 'customer.customerType', CUSTOMER_TYPES),
+      status: oneOf(customer.status, 'customer.status', CUSTOMER_STATUSES),
+    },
+    activity: {
+      snapshot: parseCustomerSnapshot(activity.snapshot),
+      period: parseCustomerPeriod(activity.period),
+    },
+  };
+}
+
+export function parseCustomerReport(value: unknown): CustomerReportResponse {
+  const row = exactObject(value, 'customerReport', CUSTOMER_PAGE_KEYS);
+  const base = parsePageAndRange(row);
+  const unassigned = exactObject(row.unassigned, 'unassigned', ['snapshot', 'period']);
+  return {
+    ...base,
+    items: array(row.items, 'items').map(parseCustomerReportItem),
+    unassigned: {
+      snapshot: parseCustomerSnapshot(unassigned.snapshot),
+      period: parseCustomerPeriod(unassigned.period),
+    },
+  };
+}
+
 function query(entries: Record<string, string | number | null | undefined>) {
   const search = new URLSearchParams();
   Object.entries(entries).forEach(([key, value]) => {
@@ -548,3 +625,10 @@ export const getDeliveryReport = async (input: DeliveryReportRequest) => parseDe
 );
 export const getApprovalReport = async (page: { limit?: number; offset?: number } = {}) =>
   parseApprovalReport(await request(`/api/reports/approvals${query(page)}`));
+export const getCustomerReport = async (input: CustomerReportRequest) => parseCustomerReport(
+  await request(`/api/reports/customers${query({
+    ...rangeQuery(input.requestedRange), search: input.search,
+    status: input.status, customerType: input.customerType,
+    limit: input.limit, offset: input.offset,
+  })}`),
+);

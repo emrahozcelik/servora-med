@@ -1,3 +1,5 @@
+import { CUSTOMER_STATUSES, CUSTOMER_TYPES } from '../services/crm-api';
+
 const DATE_PATTERN = /^\d{4}-\d{2}-\d{2}$/;
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const DELIVERY_GROUPS = ['day', 'purpose', 'product', 'staff'] as const;
@@ -17,6 +19,15 @@ export type DeliveryUrlState = {
   canonical: boolean;
 };
 export type ApprovalUrlState = { offset: number; canonical: boolean };
+export type CustomerReportUrlState = {
+  from: string | null;
+  to: string | null;
+  search: string;
+  status: string | null;
+  customerType: string | null;
+  offset: number;
+  canonical: boolean;
+};
 
 function strictDate(value: string) {
   if (!DATE_PATTERN.test(value)) return false;
@@ -122,4 +133,31 @@ export function readDeliverySearch(search: URLSearchParams): DeliveryUrlState {
 export function readApprovalSearch(search: URLSearchParams): ApprovalUrlState {
   const state = { offset: nonNegativeOffset(search), canonical: true };
   return { ...state, canonical: same(search, approvalSearch(state)) };
+}
+
+function readOneOf(search: URLSearchParams, key: string, allowed: readonly string[]) {
+  const raw = search.has(key) ? once(search, key) : null;
+  return raw !== null && (allowed as readonly string[]).includes(raw) ? raw : null;
+}
+
+export function customerSearch(state: CustomerReportUrlState) {
+  const search = dashboardSearch(state);
+  if (state.search !== '') search.set('search', state.search);
+  if (state.status !== null) search.set('status', state.status);
+  if (state.customerType !== null) search.set('customerType', state.customerType);
+  search.set('offset', String(state.offset));
+  return search;
+}
+
+export function readCustomerSearch(search: URLSearchParams): CustomerReportUrlState {
+  const range = readRange(search);
+  const state = {
+    ...range,
+    search: search.has('search') ? (once(search, 'search') ?? '') : '',
+    status: readOneOf(search, 'status', CUSTOMER_STATUSES),
+    customerType: readOneOf(search, 'customerType', CUSTOMER_TYPES),
+    offset: nonNegativeOffset(search),
+    canonical: true,
+  };
+  return { ...state, canonical: same(search, customerSearch(state)) };
 }

@@ -6,6 +6,7 @@ import { jobCardStatusLabel, jobTypeLabels } from './jobs/job-labels';
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
+  customerStatusLabels, customerTypeLabels,
   getCustomer, listCustomerJobs, updateCustomer,
   type Customer, type CustomerDetail, type JobHistoryItem, type CustomerType, type Paginated,
 } from './services/crm-api';
@@ -14,8 +15,6 @@ import { createRequestGate } from './services/request-gate';
 import { useRealtimeInvalidation } from './realtime/RealtimeProvider';
 import { ResultState } from './ui/antd/ResultState';
 
-const typeLabels: Record<CustomerType, string> = { clinic: 'Klinik', hospital: 'Hastane', dealer: 'Bayi', company: 'Firma', other: 'Diğer' };
-const statusLabels = { prospect: 'Aday', active: 'Aktif', inactive: 'Pasif' } as const;
 function nullable(data: FormData, name: string) { return String(data.get(name) ?? '').trim() || null; }
 
 export function customerFieldsFromFormData(data: FormData, expectedVersion: number) {
@@ -38,7 +37,7 @@ export function mergeCustomerDetailUpdate(current: CustomerDetail, updated: Cust
 }
 
 function CustomerFacts({ customer }: { customer: CustomerDetail }) {
-  return <dl className="record-facts"><div><dt>Müşteri türü</dt><dd>{typeLabels[customer.customerType]}</dd></div><div><dt>Vergi numarası</dt><dd>{customer.taxNumber ?? 'Belirtilmedi'}</dd></div>
+  return <dl className="record-facts"><div><dt>Müşteri türü</dt><dd>{customerTypeLabels[customer.customerType]}</dd></div><div><dt>Vergi numarası</dt><dd>{customer.taxNumber ?? 'Belirtilmedi'}</dd></div>
     <div><dt>Telefon</dt><dd>{customer.phone ?? 'Belirtilmedi'}</dd></div><div><dt>E-posta</dt><dd>{customer.email ?? 'Belirtilmedi'}</dd></div>
     <div><dt>Konum</dt><dd>{[customer.city, customer.district].filter(Boolean).join(', ') || 'Belirtilmedi'}</dd></div><div><dt>Sorumlu personel</dt><dd>{customer.assignedStaffName ?? 'Atanmadı'}</dd></div>
     <div className="record-fact-wide"><dt>Adres</dt><dd>{customer.address ?? 'Belirtilmedi'}</dd></div></dl>;
@@ -94,7 +93,7 @@ function CustomerHistory({
 
 function CustomerEditForm({ customer, staff, pending, blocked, onSave, onCancel }: { customer: CustomerDetail; staff: StaffProfile[]; pending: boolean; blocked: boolean; onSave: (event: FormEvent<HTMLFormElement>) => void; onCancel: () => void }) {
   return <form className="record-form" onSubmit={onSave}><label className="field-group" htmlFor="detail-customer-name">Müşteri adı<input id="detail-customer-name" name="name" defaultValue={customer.name} required disabled={pending} /></label>
-    <label className="field-group" htmlFor="detail-customer-type">Müşteri türü<select id="detail-customer-type" name="customerType" defaultValue={customer.customerType} disabled={pending}>{Object.entries(typeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
+    <label className="field-group" htmlFor="detail-customer-type">Müşteri türü<select id="detail-customer-type" name="customerType" defaultValue={customer.customerType} disabled={pending}>{Object.entries(customerTypeLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label>
     <div className="customer-form-pair"><label className="field-group" htmlFor="detail-customer-tax">Vergi numarası<input id="detail-customer-tax" name="taxNumber" defaultValue={customer.taxNumber ?? ''} disabled={pending} /></label>
       <label className="field-group" htmlFor="detail-customer-phone">Telefon<input id="detail-customer-phone" name="phone" type="tel" defaultValue={customer.phone ?? ''} disabled={pending} /></label></div>
     <label className="field-group" htmlFor="detail-customer-email">E-posta<input id="detail-customer-email" name="email" type="email" defaultValue={customer.email ?? ''} disabled={pending} /></label>
@@ -121,7 +120,7 @@ export function CustomerDetailView({ customer, user, staff, pending, error, noti
 }) {
   const canManage = user.role !== 'STAFF';
   return <main className="customer-detail"><button className="back-link" type="button" onClick={onBack}>Müşterilere dön</button>
-    <div className="detail-heading"><div><p className="eyebrow">Müşteri</p><h1>{customer.name}</h1></div><div className="record-status"><span>{statusLabels[customer.status]}</span><span>{typeLabels[customer.customerType]}</span></div></div>
+    <div className="detail-heading"><div><p className="eyebrow">Müşteri</p><h1>{customer.name}</h1></div><div className="record-status"><span>{customerStatusLabels[customer.status]}</span><span>{customerTypeLabels[customer.customerType]}</span></div></div>
     {error && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{error}</div>}{notice && <div className="success-message" role="status">{notice}</div>}
     {conflict && <div className="conflict-actions"><p>Sunucudaki güncel kaydı yüklediğinizde bu formdaki değişiklikler sıfırlanır.</p>
       <button className="secondary-button" type="button" disabled={pending} onClick={onReloadCurrent}>Güncel değerleri yükle</button></div>}

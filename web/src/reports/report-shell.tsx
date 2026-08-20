@@ -5,11 +5,12 @@ import { EmptyState, IconSegmented, LoadingSkeleton, ResultState } from '../ui/a
 import type { ReportDatePreset } from './report-range';
 import { reportSectionHref, type ReportRangeContext } from './report-navigation';
 
-export type ReportNavSection = 'summary' | 'staff' | 'deliveries' | 'approvals';
+export type ReportNavSection = 'summary' | 'staff' | 'customers' | 'deliveries' | 'approvals';
 
 const NAV: Array<{ id: ReportNavSection; label: string }> = [
   { id: 'summary', label: 'Özet' },
   { id: 'staff', label: 'Personel' },
+  { id: 'customers', label: 'Müşteriler' },
   { id: 'deliveries', label: 'Teslimler' },
   { id: 'approvals', label: 'Onaylar' },
 ];
@@ -109,6 +110,7 @@ export function ReportDateRangeForm({
   customPresetActive = false,
   customPresetLabel = 'Özel aralık',
   wide,
+  formClass,
   children,
 }: {
   formKey: string;
@@ -127,9 +129,16 @@ export function ReportDateRangeForm({
   customPresetActive?: boolean;
   customPresetLabel?: string;
   wide?: boolean;
+  formClass?: string;
   children?: ReactNode;
 }) {
   const availablePresets = presetOptions ?? PRESETS;
+
+  const formClassNames = [
+    'report-filters',
+    wide ? 'report-filters-wide' : null,
+    formClass ?? null,
+  ].filter(Boolean).join(' ');
 
   return (
     <>
@@ -175,7 +184,7 @@ export function ReportDateRangeForm({
       <div className="filter-region">
         <form
           key={formKey}
-          className={wide ? 'report-filters report-filters-wide' : 'report-filters'}
+          className={formClassNames}
           onSubmit={onSubmit}
           noValidate
         >

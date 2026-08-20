@@ -83,4 +83,30 @@ describe('responsive layout CSS contracts (PR B)', () => {
     expect(css).toMatch(/@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)[\s\S]*scroll-behavior:\s*auto/);
     expect(css).toMatch(/@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)[\s\S]*transition-duration:\s*0\.01ms/);
   });
+
+  it('keeps the customer report list reflowable with a bounded structured row', () => {
+    expect(css).toMatch(/\.report-customer-list\s*\{[^}]*list-style:\s*none/s);
+    expect(css).toMatch(/\.report-customer-list\s*\{[^}]*min-width:\s*0/s);
+    expect(css).toMatch(/\.report-customer-card\s*\{[^}]*min-width:\s*0/);
+    expect(css).toMatch(/\.report-customer-row\s*\{[^}]*grid-template-columns:\s*minmax\(0,\s*1fr\)/s);
+    expect(css).toMatch(/\.report-customer-metrics\s*\{[^}]*grid-template-columns:\s*repeat\(2,\s*minmax\(0,\s*1fr\)\)/);
+    expect(css).toMatch(/\.report-customer-work-types\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
+
+  it('stacks customer report rows below the mid band and compresses at 390px', () => {
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*720px\s*\)[\s\S]*\.report-customer-row\s*\{[^}]*grid-template-columns:\s*1fr/s);
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*720px\s*\)[\s\S]*\.report-customer-metrics\s*\{[^}]*grid-template-columns:\s*1fr/s);
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*390px\s*\)[\s\S]*\.report-customer-work-types\s*\{[^}]*width:\s*100%/);
+  });
+
+  it('wraps report pagination controls through the customer-specific modifier', () => {
+    expect(css).toMatch(/\.report-pagination--wrap\s*\{[^}]*flex-wrap:\s*wrap/);
+  });
+
+  it('stacks the customer filter form in two rows and collapses it under shared breakpoints', () => {
+    expect(css).toMatch(/\.report-filters-wide--customer\s*\{[^}]*grid-template-columns:\s*repeat\(4,\s*minmax\(8rem,\s*1fr\)\)/);
+    expect(css).toMatch(/\.report-filters-wide--customer\s*>\s*label:nth-child\(n\s*\+\s*3\)\s*\{[^}]*grid-row:\s*2/);
+    expect(css).toMatch(/@container\s+filter-region\s*\(\s*max-width:\s*52rem\s*\)[\s\S]*\.report-filters-wide--customer[\s\S]*grid-row:\s*auto/);
+    expect(css).toMatch(/@media\s*\(\s*max-width:\s*56rem\s*\)[\s\S]*\.report-filters-wide--customer[\s\S]*grid-row:\s*auto/);
+  });
 });
