@@ -170,7 +170,6 @@ type CustomerReportRow = {
   name: string;
   customer_type: string;
   status: string;
-  total: string | number;
   active: string | number;
   actionable: string | number;
   waiting_approval: string | number;
@@ -184,7 +183,7 @@ type CustomerReportRow = {
   follow_up_children: string | number;
 };
 
-type CustomerReportUnassignedRow = Omit<CustomerReportRow, 'id' | 'name' | 'customer_type' | 'status' | 'total'>;
+type CustomerReportUnassignedRow = Omit<CustomerReportRow, 'id' | 'name' | 'customer_type' | 'status'>;
 
 type DeliveryGroupDefinition = {
   select: string;
@@ -888,6 +887,13 @@ const CUSTOMER_REPORT_ACTIVITY_COLUMNS = `
         ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
     )::int AS follow_up_children`;
 
+const CUSTOMER_REPORT_COUNT_SQL = `SELECT COUNT(*)::int AS total
+FROM customers c
+WHERE c.organization_id = $1
+  AND ($2::text IS NULL OR c.name ILIKE $2 ESCAPE '\\')
+  AND ($3::text IS NULL OR c.status = $3)
+  AND ($4::text IS NULL OR c.customer_type = $4)`;
+
 const CUSTOMER_REPORT_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, customer_scope AS (
   SELECT c.id, c.name, c.customer_type, c.status
   FROM customers c
@@ -895,12 +901,9 @@ const CUSTOMER_REPORT_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, customer_scope AS (
     AND ($5::text IS NULL OR c.name ILIKE $5 ESCAPE '\\')
     AND ($6::text IS NULL OR c.status = $6)
     AND ($7::text IS NULL OR c.customer_type = $7)
-), customer_total AS (
-  SELECT COUNT(*)::int AS total FROM customer_scope
 ), customer_page AS (
-  SELECT customer_scope.*, customer_total.total
+  SELECT customer_scope.*
   FROM customer_scope
-  CROSS JOIN customer_total
   ORDER BY customer_scope.name COLLATE "C" ASC, customer_scope.id ASC
   LIMIT $8
   OFFSET $9
@@ -912,7 +915,7 @@ const CUSTOMER_REPORT_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, customer_scope AS (
   GROUP BY jc.customer_id
 )
 SELECT customer_page.id, customer_page.name, customer_page.customer_type,
-  customer_page.status, customer_page.total,
+  customer_page.status,
   COALESCE(activity.active, 0)::int AS active,
   COALESCE(activity.actionable, 0)::int AS actionable,
   COALESCE(activity.waiting_approval, 0)::int AS waiting_approval,
@@ -1490,13 +1493,17 @@ OFFSET $${offsetParameter}`;
     }
 
     const search = input.search?.replace(/[\\%_]/g, '\\$&') ?? null;
-    const [pageResult, unassignedResult] = await Promise.all([
-      this.pool.query<CustomerReportRow>(CUSTOMER_REPORT_SQL, [
+    const searchPattern = search === null ? null : `%${search}%`;
+    const [countResult, pageResult, unassignedResult] = await Promise.all([
+      this.pool.query<{ total: string | number }>(CUSTOMER_REPORT_COUNT_SQL, [
         input.organizationId,
-        input.requestedRange?.from ?? null,
-        input.requestedRange?.to ?? null,
-        input.requestTime,
-        search === null ? null : `%${search}%`,
+        searchPattern,
+        input.status,
+        input.customerType,
+      ]),
+      this.pool.query<CustomerReportRow>(CUSTOMER_REPORT_SQL, [
+        ...rangeValues,
+        searchPattern,
         input.status,
         input.customerType,
         input.limit,
@@ -1505,14 +1512,17 @@ OFFSET $${offsetParameter}`;
       this.pool.query<CustomerReportUnassignedRow>(CUSTOMER_REPORT_UNASSIGNED_SQL, rangeValues),
     ]);
 
-    const firstRow = pageResult.rows[0];
+    const countRow = countResult.rows[0];
     const unassignedRow = unassignedResult.rows[0];
+    if (!countRow) {
+      throw new Error('Customer report total count could not be resolved.');
+    }
     if (!unassignedRow) {
       throw new Error('Customer report unassigned reconciliation could not be resolved.');
     }
     return {
       range: resolvedRange,
-      total: firstRow ? Number(firstRow.total) : 0,
+      total: Number(countRow.total),
       limit: input.limit,
       offset: input.offset,
       items: pageResult.rows.map(mapCustomerReportItem),

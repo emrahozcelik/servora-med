@@ -696,6 +696,22 @@ describe.skipIf(!databaseUrl)('Reports R2C-1 customer operational aggregation co
       expect(secondPage.total).toBe(2);
       expect(secondPage.items).toHaveLength(1);
       expect(secondPage.items[0]!.customer.name).toBe('Filter Hospital');
+
+      // Offset beyond the last matching row: the page is empty but total must
+      // still report the count of all matching customers.
+      const beyondPage = await repository.getCustomerReport({
+        organizationId,
+        requestedRange: range,
+        requestTime,
+        search: null,
+        status: null,
+        customerType: null,
+        limit: 1,
+        offset: 2,
+      });
+      expect(beyondPage.total).toBe(2);
+      expect(beyondPage.items).toEqual([]);
+      expect(beyondPage.unassigned.snapshot.active).toBe(1);
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
