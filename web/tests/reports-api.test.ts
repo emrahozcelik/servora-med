@@ -4,12 +4,14 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   getApprovalReport,
+  getCustomerReport,
   getDashboardReport,
   getDeliveryReport,
   getOwnStaffReport,
   getStaffPerformance,
   getStaffReport,
   parseApprovalReport,
+  parseCustomerReport,
   parseDashboardReport,
   parseDeliveryReport,
   parseStaffPerformance,
@@ -318,5 +320,79 @@ describe('Reports runtime contract', () => {
       'utf8',
     );
     expect(source).not.toMatch(/(?:Number|parseFloat)\s*\([^)]*quantity/i);
+  });
+});
+
+describe('Customer report runtime contract', () => {
+  const customerSnapshot = { active: 4, actionable: 2, waitingApproval: 1,
+    revisionRequested: 0, overdue: 1 };
+  const customerPeriod = { created: 3,
+    createdWorkTypes: { PRODUCT_DELIVERY: 2, GENERAL_TASK: 1, SALES_MEETING: 0 },
+    managerApproved: 2, followUpChildren: 1 };
+  const customerItem = { customer: { id: 'customer-1', name: 'Klinik A',
+    customerType: 'clinic', status: 'active' },
+  activity: { snapshot: customerSnapshot, period: customerPeriod } };
+  const base = () => ({ range, total: 2, limit: 50, offset: 0,
+    items: [customerItem], unassigned: { snapshot: customerSnapshot,
+      period: customerPeriod } });
+
+  it('strictly parses a canonical customer report with reconciliation', () => {
+    expect(parseCustomerReport(base())).toEqual(base());
+  });
+
+  it('accepts an empty customer page with valid totals', () => {
+    const value = { range, total: 2, limit: 1, offset: 2, items: [],
+      unassigned: { snapshot: customerSnapshot, period: customerPeriod } };
+    expect(parseCustomerReport(value)).toEqual(value);
+  });
+
+  it('rejects malformed customer rows, snapshots, and page fields', () => {
+    const cases: Array<[string, unknown]> = [
+      ['unknown top-level key', { ...base(), surprise: 1 }],
+      ['unknown item key', { ...base(), items: [{ ...customerItem, extra: 1 }] }],
+      ['invalid status', { ...base(), items: [{ ...customerItem,
+        customer: { ...customerItem.customer, status: 'archived' } }] }],
+      ['invalid customerType', { ...base(), items: [{ ...customerItem,
+        customer: { ...customerItem.customer, customerType: 'lab' } }] }],
+      ['unknown snapshot key', { ...base(), items: [{ ...customerItem,
+        activity: { ...customerItem.activity, snapshot: { ...customerSnapshot,
+          surprise: 0 } } }] }],
+      ['fractional snapshot count', { ...base(), items: [{ ...customerItem,
+        activity: { ...customerItem.activity, snapshot: { ...customerSnapshot,
+          active: 1.5 } } }] }],
+      ['negative snapshot count', { ...base(), items: [{ ...customerItem,
+        activity: { ...customerItem.activity, snapshot: { ...customerSnapshot,
+          overdue: -1 } } }] }],
+      ['unknown work type key', { ...base(), items: [{ ...customerItem,
+        activity: { ...customerItem.activity, period: { ...customerPeriod,
+          createdWorkTypes: { ...customerPeriod.createdWorkTypes, LAB: 0 } } } }] }],
+      ['missing work type key', { ...base(), items: [{ ...customerItem,
+        activity: { ...customerItem.activity, period: { ...customerPeriod,
+          createdWorkTypes: { PRODUCT_DELIVERY: 0, GENERAL_TASK: 0 } } } }] }],
+      ['negative period count', { ...base(), items: [{ ...customerItem,
+        activity: { ...customerItem.activity, period: { ...customerPeriod,
+          managerApproved: -1 } } }] }],
+      ['missing unassigned', { ...base(), unassigned: undefined }],
+      ['unknown unassigned key', { ...base(), unassigned: { snapshot: customerSnapshot,
+        period: customerPeriod, surprise: 0 } }],
+      ['negative unassigned count', { ...base(), unassigned: { snapshot: {
+        ...customerSnapshot, active: -1 }, period: customerPeriod } }],
+      ['limit over 200', { ...base(), limit: 201 }],
+      ['fractional offset', { ...base(), offset: 0.5 }],
+    ];
+    for (const [name, value] of cases) {
+      expect(() => parseCustomerReport(value))
+        .toThrowError(expect.objectContaining({ code: 'INVALID_RESPONSE' }));
+    }
+  });
+
+  it('builds one encoded customer request with every meaningful filter', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(base()));
+    vi.stubGlobal('fetch', fetchMock);
+    await getCustomerReport({ search: 'Klinik', status: 'active', customerType: 'clinic',
+      requestedRange: null, limit: 25, offset: 10 });
+    expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
+      '/api/reports/customers?search=Klinik&status=active&customerType=clinic&limit=25&offset=10',
+    ]);
   });
 });

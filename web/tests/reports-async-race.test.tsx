@@ -4,13 +4,16 @@ import { createRoot, type Root } from 'react-dom/client';
 import { MemoryRouter, useSearchParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
+import { CustomerReport } from '../src/reports/CustomerReport';
 import { DeliveryReport } from '../src/reports/DeliveryReport';
 import { ReportsDashboard } from '../src/reports/ReportsDashboard';
 import {
+  getCustomerReport,
   getDashboardReport,
   getDeliveryReport,
 } from '../src/reports/reports-api';
 import type {
+  CustomerReportResponse,
   DashboardReportResponse,
   DeliveryReportResponse,
 } from '../src/reports/report-types';
@@ -20,6 +23,7 @@ import { listStaff } from '../src/services/people-api';
 
 vi.mock('../src/reports/reports-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/reports/reports-api')>(),
+  getCustomerReport: vi.fn(),
   getDashboardReport: vi.fn(),
   getDeliveryReport: vi.fn(),
 }));
@@ -81,6 +85,23 @@ function deliveryFor(from: string, to: string, timezone = 'UTC'): DeliveryReport
   };
 }
 
+function customerFor(name: string): CustomerReportResponse {
+  return {
+    range: { from: '2026-07-01', to: '2026-07-31', timezone: 'UTC' },
+    total: 1, limit: 50, offset: 0,
+    items: [{ customer: { id: name === 'Klinik A' ? 'c1' : 'c2', name,
+      customerType: 'clinic', status: 'active' },
+    activity: { snapshot: { active: 1, actionable: 0, waitingApproval: 0,
+      revisionRequested: 0, overdue: 0 },
+    period: { created: 1, createdWorkTypes: { PRODUCT_DELIVERY: 1, GENERAL_TASK: 0,
+      SALES_MEETING: 0 }, managerApproved: 0, followUpChildren: 0 } } }],
+    unassigned: { snapshot: { active: 0, actionable: 0, waitingApproval: 0,
+      revisionRequested: 0, overdue: 0 },
+    period: { created: 0, createdWorkTypes: { PRODUCT_DELIVERY: 0, GENERAL_TASK: 0,
+      SALES_MEETING: 0 }, managerApproved: 0, followUpChildren: 0 } },
+  };
+}
+
 describe('report latest-request-wins', () => {
   let container: HTMLDivElement;
   let root: Root;
@@ -89,6 +110,7 @@ describe('report latest-request-wins', () => {
     container = document.createElement('div');
     document.body.append(container);
     root = createRoot(container);
+    vi.mocked(getCustomerReport).mockReset();
     vi.mocked(getDashboardReport).mockReset();
     vi.mocked(getDeliveryReport).mockReset();
     vi.mocked(listStaff).mockReset();
@@ -283,5 +305,43 @@ describe('report latest-request-wins', () => {
     });
     expect(container.textContent).toContain('30.000');
     expect(container.textContent).not.toContain('7.000');
+  });
+
+  it('keeps the later customer filter when an earlier request finishes last', async () => {
+    const first = deferred<CustomerReportResponse>();
+    const second = deferred<CustomerReportResponse>();
+    vi.mocked(getCustomerReport)
+      .mockImplementationOnce(() => first.promise)
+      .mockImplementationOnce(() => second.promise);
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/reports/customers?from=2026-07-01&to=2026-07-31&search=Klinik&status=active&customerType=clinic&offset=0']}>
+          <CustomerReport />
+        </MemoryRouter>,
+      );
+    });
+
+    const searchInput = container.querySelector<HTMLInputElement>('input[name="search"]')!;
+    searchInput.value = 'Hastane';
+    await act(async () => {
+      searchInput.form!.dispatchEvent(new Event('submit', { bubbles: true, cancelable: true }));
+    });
+
+    await act(async () => {
+      second.resolve(customerFor('Hastane B'));
+      await second.promise;
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain('Hastane B');
+    expect(container.textContent).not.toContain('Klinik A');
+
+    await act(async () => {
+      first.resolve(customerFor('Klinik A'));
+      await first.promise;
+      await Promise.resolve();
+    });
+    expect(container.textContent).toContain('Hastane B');
+    expect(container.textContent).not.toContain('Klinik A');
   });
 });

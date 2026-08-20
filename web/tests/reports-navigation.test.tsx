@@ -6,13 +6,16 @@ import { MemoryRouter, useLocation } from 'react-router-dom';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { App } from '../src/App';
+import { CustomerReport } from '../src/reports/CustomerReport';
 import { DeliveryReport } from '../src/reports/DeliveryReport';
-import { getDeliveryReport } from '../src/reports/reports-api';
+import { getCustomerReport, getDeliveryReport } from '../src/reports/reports-api';
 import { listStaff } from '../src/services/people-api';
 import type { CurrentUser } from '../src/services/api';
+import type { CustomerReportResponse } from '../src/reports/report-types';
 
 vi.mock('../src/reports/reports-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/reports/reports-api')>(),
+  getCustomerReport: vi.fn(),
   getDeliveryReport: vi.fn(),
 }));
 vi.mock('../src/services/people-api', async (importOriginal) => ({
@@ -36,9 +39,21 @@ const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 beforeEach(() => {
   const pending = new Promise<never>(() => {});
   vi.stubGlobal('fetch', vi.fn(() => pending));
+  vi.mocked(getCustomerReport).mockReset().mockReturnValue(pending);
   vi.mocked(getDeliveryReport).mockReset().mockReturnValue(pending);
   vi.mocked(listStaff).mockReset().mockReturnValue(pending);
 });
+
+function customerReport(): CustomerReportResponse {
+  return {
+    range: { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' },
+    total: 0, limit: 50, offset: 0, items: [],
+    unassigned: { snapshot: { active: 0, actionable: 0, waitingApproval: 0,
+      revisionRequested: 0, overdue: 0 },
+    period: { created: 0, createdWorkTypes: { PRODUCT_DELIVERY: 0, GENERAL_TASK: 0,
+      SALES_MEETING: 0 }, managerApproved: 0, followUpChildren: 0 } },
+  };
+}
 
 async function render(path: string, user: CurrentUser) {
   const container = document.createElement('div');
@@ -67,12 +82,14 @@ describe('Management report navigation', () => {
     ['/reports', 'Rapor özeti yükleniyor'],
     ['/reports/staff', 'Personel operasyon analizi yükleniyor'],
     ['/reports/deliveries', 'Teslim raporu yükleniyor'],
+    ['/reports/customers', 'Müşteri operasyon aktivitesi yükleniyor'],
     ['/reports/approvals', 'Onay raporu yükleniyor'],
   ])('registers stable management route %s', async (path, expected) => {
     expect(await render(path, manager)).toContain(expected);
   });
 
-  it.each(['/reports', '/reports/staff', '/reports/deliveries', '/reports/approvals'])
+  it.each(['/reports', '/reports/staff', '/reports/deliveries', '/reports/customers',
+    '/reports/approvals'])
     ('labels report section navigation on %s', async (path) => {
       expect(await render(path, manager)).toContain('aria-label="Rapor bölümleri"');
     });
@@ -84,10 +101,35 @@ describe('Management report navigation', () => {
     expect(await render('/jobs', staff)).not.toContain('href="/reports"');
   });
 
-  it.each(['/reports', '/reports/staff', '/reports/deliveries', '/reports/approvals'])
+  it.each(['/reports', '/reports/staff', '/reports/deliveries', '/reports/customers',
+    '/reports/approvals'])
     ('denies Staff direct report route %s', async (path) => {
       expect(await render(path, staff)).toContain('Erişim yetkiniz yok');
     });
+
+  it('labels the customer report section in the reports navigation', async () => {
+    const html = await render('/reports', manager);
+    expect(html).toContain('href="/reports/customers"');
+    expect(html).toMatch(/href="\/reports\/customers"[^>]*>Müşteriler</);
+  });
+
+  it('replaces invalid customer URL state and writes the echoed default range', async () => {
+    vi.mocked(getCustomerReport).mockResolvedValue(customerReport());
+    const container = document.createElement('div'); document.body.append(container);
+    const root = createRoot(container);
+    function Location() { return <output data-location>{useLocation().search}</output>; }
+    await act(async () => root.render(<MemoryRouter initialEntries={[
+      '/reports/customers?from=bad&search=a&search=b&status=archived&customerType=lab&offset=-1',
+    ]}><CustomerReport /><Location /></MemoryRouter>));
+    await act(async () => { await Promise.resolve(); await Promise.resolve(); });
+    expect(container.querySelector('[data-location]')?.textContent).toBe(
+      '?from=2026-07-01&to=2026-07-31&offset=0',
+    );
+    expect(getCustomerReport).toHaveBeenCalledWith(expect.objectContaining({
+      search: '', status: null, customerType: null, offset: 0, limit: 50,
+    }));
+    await act(async () => root.unmount()); container.remove();
+  });
 
   it('replaces invalid delivery URL state and writes the echoed default range', async () => {
     vi.mocked(listStaff).mockResolvedValue([]);

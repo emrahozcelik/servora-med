@@ -2,9 +2,11 @@ import { describe, expect, it } from 'vitest';
 
 import {
   approvalSearch,
+  customerSearch,
   dashboardSearch,
   deliverySearch,
   readApprovalSearch,
+  readCustomerSearch,
   readDashboardSearch,
   readDeliverySearch,
   validateRequestedRange,
@@ -13,7 +15,7 @@ import {
 const STAFF_ID = '11111111-1111-4111-8111-111111111111';
 
 describe('Report URL state', () => {
-  it('round-trips canonical dashboard, delivery, and approval state', () => {
+  it('round-trips canonical dashboard, delivery, approval, and customer state', () => {
     const dashboard = { from: '2026-07-01', to: '2026-07-31', canonical: true } as const;
     expect(readDashboardSearch(dashboardSearch(dashboard))).toEqual(dashboard);
     const delivery = { from: null, to: null, groupBy: 'staff' as const,
@@ -21,6 +23,18 @@ describe('Report URL state', () => {
     expect(readDeliverySearch(deliverySearch(delivery))).toEqual(delivery);
     expect(readApprovalSearch(approvalSearch({ offset: 25, canonical: true })))
       .toEqual({ offset: 25, canonical: true });
+    const customer = { from: '2026-07-01', to: '2026-07-31', search: 'Klinik',
+      status: 'active' as const, customerType: 'clinic' as const, offset: 50, canonical: true };
+    expect(readCustomerSearch(customerSearch(customer))).toEqual(customer);
+  });
+
+  it('round-trips a customer state with only the meaningful filters present', () => {
+    const bare = { from: null, to: null, search: '', status: null, customerType: null,
+      offset: 0, canonical: true };
+    expect(readCustomerSearch(customerSearch(bare))).toEqual(bare);
+    const typeOnly = { from: '2026-07-01', to: '2026-07-31', search: '',
+      status: null, customerType: 'company' as const, offset: 0, canonical: true };
+    expect(readCustomerSearch(customerSearch(typeOnly))).toEqual(typeOnly);
   });
 
   it.each([
@@ -44,6 +58,23 @@ describe('Report URL state', () => {
   ])('canonicalizes invalid delivery search %s', (raw) => {
     const result = readDeliverySearch(new URLSearchParams(raw));
     expect(result.canonical).toBe(false);
+  });
+
+  it.each([
+    'status=active&status=inactive',
+    'customerType=clinic&customerType=hospital',
+    'status=archived',
+    'customerType=lab',
+    'offset=-1',
+    'offset=1&offset=2',
+  ])('canonicalizes invalid customer search %s', (raw) => {
+    const result = readCustomerSearch(new URLSearchParams(raw));
+    expect(result.canonical).toBe(false);
+  });
+
+  it('keeps a free-text customer search without validating availability', () => {
+    const result = readCustomerSearch(new URLSearchParams('search=Klinik&offset=0'));
+    expect(result).toMatchObject({ search: 'Klinik', canonical: true });
   });
 
   it('preserves a syntactically valid Staff UUID without checking availability', () => {

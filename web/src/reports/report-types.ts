@@ -190,3 +190,51 @@ export type DeliveryReportRequest = {
   limit?: number;
   offset?: number;
 };
+
+export type CustomerReportSnapshot = {
+  active: number;
+  actionable: number;
+  waitingApproval: number;
+  revisionRequested: number;
+  overdue: number;
+};
+
+export type CustomerReportPeriod = {
+  created: number;
+  createdWorkTypes: Record<JobCardType, number>;
+  managerApproved: number;
+  followUpChildren: number;
+};
+
+export type CustomerReportItem = {
+  customer: {
+    id: string;
+    name: string;
+    customerType: 'clinic' | 'hospital' | 'dealer' | 'company' | 'other';
+    status: 'prospect' | 'active' | 'inactive';
+  };
+  activity: { snapshot: CustomerReportSnapshot; period: CustomerReportPeriod };
+};
+
+export type CustomerReportUnassigned = {
+  snapshot: CustomerReportSnapshot;
+  period: CustomerReportPeriod;
+};
+
+export type CustomerReportResponse = {
+  range: ResolvedReportRange;
+  total: number;
+  limit: number;
+  offset: number;
+  items: CustomerReportItem[];
+  unassigned: CustomerReportUnassigned;
+};
+
+export type CustomerReportRequest = {
+  search?: string;
+  status?: string | null;
+  customerType?: string | null;
+  requestedRange: RequestedReportRange;
+  limit?: number;
+  offset?: number;
+};

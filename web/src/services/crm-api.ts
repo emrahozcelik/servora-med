@@ -9,6 +9,13 @@ export const CUSTOMER_STATUSES = ['prospect', 'active', 'inactive'] as const;
 export type CustomerStatus = (typeof CUSTOMER_STATUSES)[number];
 export type ContactStatusFilter = 'active' | 'inactive' | 'all';
 
+export const customerTypeLabels: Record<CustomerType, string> = {
+  clinic: 'Klinik', hospital: 'Hastane', dealer: 'Bayi', company: 'Firma', other: 'Diğer',
+};
+export const customerStatusLabels: Record<CustomerStatus, string> = {
+  prospect: 'Aday', active: 'Aktif', inactive: 'Pasif',
+};
+
 export type Customer = {
   id: string; organizationId: string; name: string; customerType: CustomerType;
   taxNumber: string | null; phone: string | null; email: string | null;

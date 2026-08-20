@@ -6,6 +6,7 @@ import { MemoryRouter } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { ApprovalReportView } from '../src/reports/ApprovalReport';
+import { CustomerReportView } from '../src/reports/CustomerReport';
 import { DeliveryReportView } from '../src/reports/DeliveryReport';
 import {
   ReportsDashboard,
@@ -15,6 +16,7 @@ import { StaffOperationalReport } from '../src/reports/StaffOperationalReport';
 import { getDashboardReport } from '../src/reports/reports-api';
 import type {
   ApprovalReportResponse,
+  CustomerReportResponse,
   DashboardReportResponse,
   DeliveryReportResponse,
   StaffReportResponse,
@@ -212,5 +214,48 @@ describe('Report accessibility contract', () => {
       expect(input.getAttribute('aria-invalid')).toBe('true');
       expect(input.getAttribute('aria-describedby')).toBe('report-filter-error');
     }
+  });
+
+  it('exposes the customer report as a labelled list with an ordered heading hierarchy', () => {
+    const customer: CustomerReportResponse = {
+      range: dashboard.range, total: 2, limit: 50, offset: 0,
+      items: [
+        { customer: { id: 'c1', name: 'Klinik A', customerType: 'clinic', status: 'active' },
+          activity: { snapshot: { active: 1, actionable: 0, waitingApproval: 0,
+            revisionRequested: 0, overdue: 0 },
+          period: { created: 1, createdWorkTypes: { PRODUCT_DELIVERY: 1, GENERAL_TASK: 0,
+            SALES_MEETING: 0 }, managerApproved: 0, followUpChildren: 0 } } },
+        { customer: { id: 'c2', name: 'Firma B', customerType: 'company', status: 'prospect' },
+          activity: { snapshot: { active: 0, actionable: 0, waitingApproval: 0,
+            revisionRequested: 0, overdue: 0 },
+          period: { created: 0, createdWorkTypes: { PRODUCT_DELIVERY: 0, GENERAL_TASK: 0,
+            SALES_MEETING: 0 }, managerApproved: 0, followUpChildren: 0 } } },
+      ],
+      unassigned: { snapshot: { active: 1, actionable: 0, waitingApproval: 0,
+        revisionRequested: 0, overdue: 0 },
+      period: { created: 0, createdWorkTypes: { PRODUCT_DELIVERY: 0, GENERAL_TASK: 0,
+        SALES_MEETING: 0 }, managerApproved: 0, followUpChildren: 0 } },
+    };
+    const view = markup(
+      <MemoryRouter>
+        <CustomerReportView report={customer} filtersActive={false} />
+      </MemoryRouter>,
+    );
+
+    const list = view.querySelector('ul.report-customer-list');
+    expect(list?.getAttribute('aria-labelledby')).toBe('customer-collection-title');
+    expect(view.querySelectorAll('ul.report-customer-list li')).toHaveLength(2);
+    expect(view.querySelector('li.report-customer-card h3 a')?.getAttribute('href'))
+      .toBe('/customers/c1');
+    const levels = [...view.querySelectorAll('article.report-customer-row h3, article.report-customer-row h4')]
+      .map((heading) => heading.tagName);
+    expect(levels).toEqual(['H3', 'H4', 'H4', 'H3', 'H4', 'H4']);
+    const groupHeadings = [...view.querySelectorAll('article.report-customer-row h4')]
+      .map((heading) => heading.textContent);
+    expect(groupHeadings).toEqual(['Şu an', 'Seçilen dönem', 'Şu an', 'Seçilen dönem']);
+    expect(view.querySelector('li.report-customer-card h3 a')?.textContent).toBe('Klinik A');
+    expect(view.textContent).toContain('Aday');
+    expect(view.querySelector('.report-customer-work-types')?.getAttribute('aria-label'))
+      .toBe('Seçilen dönemde oluşturulan iş türleri');
   });
 });

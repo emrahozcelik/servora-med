@@ -26,6 +26,8 @@ export function reportSectionHref(
     ? paths.reports
     : section === 'staff'
       ? paths.staffPerformanceReports
-      : paths.deliveryReports;
+      : section === 'customers'
+        ? paths.customerReports
+        : paths.deliveryReports;
   return query ? `${base}?${query}` : base;
 }

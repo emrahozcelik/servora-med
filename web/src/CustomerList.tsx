@@ -6,9 +6,10 @@ import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { paths } from './paths';
 import { ApiError, type CurrentUser } from './services/api';
 import {
-  createContact, createCustomer, deleteCustomer, listCustomers, type ContactFields,
+  createContact, createCustomer, customerStatusLabels, customerTypeLabels,
+  deleteCustomer, listCustomers, type ContactFields,
   type CreateCustomerInput, type CustomerFilters,
-  type CustomerStatus, type CustomerSummary, type CustomerType,
+  type CustomerSummary, type CustomerType,
 } from './services/crm-api';
 import { listStaff, type StaffProfile } from './services/people-api';
 import { createRequestGate } from './services/request-gate';
@@ -19,13 +20,6 @@ import { isInteractiveTarget } from './ui/clickable-card';
 import { FilterSheet, countTruthy } from './ui/FilterSheet';
 
 export { createRequestGate } from './services/request-gate';
-
-const customerTypeLabels: Record<CustomerType, string> = {
-  clinic: 'Klinik', hospital: 'Hastane', dealer: 'Bayi', company: 'Firma', other: 'Diğer',
-};
-const customerStatusLabels: Record<CustomerStatus, string> = {
-  prospect: 'Aday', active: 'Aktif', inactive: 'Pasif',
-};
 
 export type CustomerFilterValues = Partial<CustomerFilters>;
 export type CustomerListState =

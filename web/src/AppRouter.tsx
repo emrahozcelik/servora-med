@@ -137,6 +137,12 @@ const ApprovalReport = lazy(() =>
   })),
 );
 
+const CustomerReport = lazy(() =>
+  import('./reports/CustomerReport').then((module) => ({
+    default: module.CustomerReport,
+  })),
+);
+
 const OverviewPage = lazy(() =>
   import('./overview/OverviewPage').then((module) => ({ default: module.OverviewPage })),
 );
@@ -362,6 +368,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
           ? <ForbiddenView />
           : <StaffPerformanceReport />} />
         <Route path={paths.deliveryReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <DeliveryReport user={user} />} />
+        <Route path={paths.customerReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <CustomerReport />} />
         <Route path={paths.approvalReports} element={user.role === 'STAFF' ? <ForbiddenView /> : <ApprovalReport />} />
         <Route path={paths.customers} element={<CustomerListScreen user={user} />} />
         <Route path={paths.newCustomer} element={<CustomerCreateScreen user={user} />} />
