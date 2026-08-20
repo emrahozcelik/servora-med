@@ -6,6 +6,7 @@ import {
   IndependentMeterBars,
   SegmentedDistributionBar,
   TrendBars,
+  WorkflowTrend,
   trendDensityClass,
 } from '../src/reports/report-charts';
 
@@ -38,6 +39,27 @@ describe('TrendBars contract', () => {
     const long = renderToStaticMarkup(<TrendBars points={dayPoints(366)} />);
     expect(long).toContain('data-density="density-dense"');
     expect(long).toContain('data-point-count="366"');
+  });
+});
+
+describe('WorkflowTrend contract', () => {
+  it('renders independent created and completed series with an accessible daily table', () => {
+    const html = renderToStaticMarkup(
+      <WorkflowTrend
+        created={[{ date: '2026-07-01', count: 3 }, { date: '2026-07-02', count: 0 }]}
+        completed={[{ date: '2026-07-01', count: 1 }, { date: '2026-07-02', count: 2 }]}
+      />,
+    );
+
+    expect(html).toContain('data-report-workflow-trend="true"');
+    expect(html).toContain('Oluşturulan');
+    expect(html).toContain('Tamamlanan');
+    expect(html).toContain('Oluşturulan <strong>3</strong>');
+    expect(html).toContain('Tamamlanan <strong>3</strong>');
+    expect(html).toContain('Günlük iş akışı verileri');
+    expect(html).toContain('2026-07-01');
+    expect(html).toContain('<th scope="col">Oluşturulan</th>');
+    expect(html).toContain('<th scope="col">Tamamlanan</th>');
   });
 });
 

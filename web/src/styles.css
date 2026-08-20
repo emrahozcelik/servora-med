@@ -363,16 +363,22 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .report-metrics div { padding: 1.15rem 0.75rem; border-bottom: 1px solid var(--rule); }
 .report-metrics dt { display: grid; gap: 0.25rem; color: var(--muted); font-size: 0.8125rem; }.report-metrics dt span { font-size: 0.72rem; }
 .report-metrics dd { margin: 0.4rem 0 0; font-size: 1.5rem; font-weight: 740; font-variant-numeric: tabular-nums; }
+.report-executive-metrics { grid-template-columns: repeat(5, minmax(0, 1fr)); }
+.report-executive-metrics div { min-width: 0; padding-inline: 0.85rem; }
+.report-executive-metrics dt { min-width: 0; overflow-wrap: anywhere; }
+.report-executive-metrics dd { font-size: clamp(1.5rem, 2.5vw, 2rem); }
 .report-metrics-primary { margin-bottom: 1rem; }
 .report-metrics-secondary { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .report-metric-card--warning dd { color: oklch(45% 0.12 55deg); }
 .report-metric-card--danger dd { color: var(--error); }
 .report-section { margin-top: 2.5rem; }.report-section h2 { font-size: 1.25rem; margin: 0 0 0.5rem; }
 .report-section-hint { margin: 0 0 1rem; color: var(--muted); font-size: 0.9rem; line-height: 1.45; max-width: 48rem; }
+.report-intro { max-width: 48rem; margin: 0.45rem 0 0; color: var(--muted); font-size: 0.95rem; line-height: 1.5; }
 .report-refresh-status { margin: 0.35rem 0 0; color: var(--muted); font-size: 0.875rem; }
 .report-presets { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-bottom: 0.75rem; }
-.report-preset-button { min-height: 2.5rem; padding: 0.4rem 0.75rem; border: 1px solid var(--rule); border-radius: var(--radius-chip); background: var(--paper); color: var(--ink); font-weight: 650; font-size: 0.875rem; cursor: pointer; }
+.report-preset-button { min-height: var(--control-height); padding: 0.4rem 0.75rem; border: 1px solid var(--rule); border-radius: var(--radius-chip); background: var(--paper); color: var(--ink); font-weight: 650; font-size: 0.875rem; cursor: pointer; }
 .report-preset-button:hover { background: var(--accent-soft); border-color: transparent; }
+.report-preset-button[aria-pressed="true"] { border-color: var(--accent); color: var(--accent-hover); background: var(--accent-soft); }
 .report-trend-bars, .completed-trend { display: flex; align-items: end; gap: 2px; height: 6.5rem; width: 100%; max-width: 100%; padding-top: 0.75rem; border-bottom: 1px solid var(--rule); box-sizing: border-box; overflow: hidden; }
 .report-trend-bars span, .completed-trend span { flex: 1 1 0; min-width: 2px; max-width: 1.25rem; height: max(3px, calc(var(--ratio, 0) * 100%)); max-height: 100%; background: var(--accent); border-radius: 2px 2px 0 0; }
 .report-trend-bars--density-normal { gap: 2px; }
@@ -386,7 +392,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .approval-list h2 a:hover { color: var(--accent-hover); text-decoration: underline; }
 .report-chart-summary { margin: 0.75rem 0; color: var(--muted); font-size: 0.9rem; line-height: 1.45; }
 .report-data-disclosure { margin-top: 1rem; }
-.report-data-disclosure summary { cursor: pointer; font-weight: 700; color: var(--accent-hover); min-height: 2.5rem; display: inline-flex; align-items: center; }
+.report-data-disclosure summary { cursor: pointer; font-weight: 700; color: var(--accent-hover); min-height: var(--control-height); display: inline-flex; align-items: center; }
 .report-trend-calendar { display: grid; gap: 1.5rem; margin-top: 1rem; }
 .report-calendar-table { width: 100%; max-width: 36rem; border-collapse: separate; border-spacing: 0.35rem; table-layout: fixed; }
 .report-calendar-table caption { caption-side: top; padding-bottom: 0.65rem; text-align: left; font-weight: 720; font-size: 1rem; }
@@ -400,6 +406,27 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .report-calendar-date { display: block; font-size: 0.75rem; font-weight: 700; color: var(--muted); line-height: 1.2; }
 .report-calendar-count { display: block; margin-top: 0.2rem; font-size: 1.05rem; font-weight: 760; font-variant-numeric: tabular-nums; line-height: 1.1; }
 .visually-hidden { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0; }
+.report-workflow-trend { min-width: 0; margin: 0; }
+.report-trend-legend { display: flex; flex-wrap: wrap; gap: 0.75rem 1.5rem; margin: 0 0 0.9rem; }
+.report-trend-key { display: inline-flex; align-items: center; gap: 0.45rem; color: var(--ink); font-size: 0.875rem; }
+.report-trend-key strong { font-variant-numeric: tabular-nums; }
+.report-trend-key-mark { width: 0.75rem; height: 0.75rem; border-radius: 2px; background: var(--accent); }
+.report-trend-key--completed .report-trend-key-mark { background: var(--ink); }
+.report-workflow-plot { display: flex; align-items: stretch; gap: 2px; width: 100%; max-width: 100%; min-width: 0; height: 12rem; padding: 0.75rem 0.35rem 0.25rem; border-block: 1px solid var(--rule); box-sizing: border-box; overflow: hidden; }
+.report-workflow-day { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); align-items: end; gap: 2px; flex: 1 1 0; min-width: 0; height: 100%; }
+.report-workflow-bar { display: block; min-width: 0; height: max(0.2rem, calc(var(--ratio, 0) * 100%)); max-height: 100%; border-radius: 2px 2px 0 0; background: var(--accent); }
+.report-workflow-bar--completed { background: var(--ink); }
+.report-workflow-bar[data-zero="true"] { opacity: 0.3; }
+.report-workflow-plot--density-compact { gap: 1px; }
+.report-workflow-plot--density-compact .report-workflow-day { gap: 1px; }
+.report-workflow-plot--density-dense { gap: 0; }
+.report-workflow-plot--density-dense .report-workflow-day { gap: 0; }
+.report-workflow-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+.report-workflow-table caption { padding: 0.75rem 0; text-align: left; font-weight: 720; }
+.report-workflow-table th, .report-workflow-table td { padding: 0.55rem 0.65rem; border-bottom: 1px solid var(--rule); text-align: right; }
+.report-workflow-table th:first-child, .report-workflow-table td:first-child { text-align: left; }
+.report-workflow-table thead th { color: var(--muted); font-size: 0.8rem; }
+.report-workflow-table tbody th { font-weight: 600; }
 .report-meter-list { list-style: none; margin: 0 0 0.5rem; padding: 0; display: grid; gap: 0.75rem; }
 .report-meter-label { display: flex; justify-content: space-between; gap: 1rem; font-size: 0.875rem; margin-bottom: 0.3rem; min-width: 0; }
 .report-meter-label span { min-width: 0; overflow-wrap: anywhere; }
@@ -2781,6 +2808,7 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .product-filters {
     grid-template-columns: 1fr;
   }
+  .report-executive-metrics { grid-template-columns: repeat(3, minmax(0, 1fr)); }
   .job-search-submit,
   .report-filters button {
     width: 100%;
@@ -2885,12 +2913,15 @@ button:disabled { cursor: wait; opacity: 0.65; }
   .report-filters, .report-filters-wide { grid-template-columns: 1fr; }
   .report-filters button { width: 100%; }
   .report-metrics, .report-metrics-secondary, .report-sla-summary { grid-template-columns: 1fr 1fr; }
+  .report-executive-metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .report-segmented-legend { grid-template-columns: 1fr; }
   .report-attention-card { align-items: flex-start; }
   .report-attention-card .secondary-button { width: 100%; }
   .report-calendar-table { border-spacing: 0.2rem; max-width: none; }
   .report-calendar-day, .report-calendar-empty { height: 3.1rem; }
   .report-calendar-count { font-size: 0.95rem; }
+  .report-workflow-plot { height: 10rem; }
+  .report-workflow-table th, .report-workflow-table td { padding-inline: 0.35rem; }
   .approval-summary { grid-template-columns: 1fr 1fr; }
   .approval-list li { align-items: flex-start; flex-direction: column; }
   .responsive-report-table thead { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); }

@@ -1,27 +1,26 @@
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, useSearchParams } from 'react-router-dom';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { DeliveryReport } from '../src/reports/DeliveryReport';
 import { ReportsDashboard } from '../src/reports/ReportsDashboard';
 import {
-  getApprovalReport,
   getDashboardReport,
   getDeliveryReport,
 } from '../src/reports/reports-api';
 import type {
-  ApprovalReportResponse,
   DashboardReportResponse,
   DeliveryReportResponse,
 } from '../src/reports/report-types';
+import { resolveDatePreset } from '../src/reports/report-range';
+import { ReportDateRangeForm } from '../src/reports/report-shell';
 import { listStaff } from '../src/services/people-api';
 
 vi.mock('../src/reports/reports-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/reports/reports-api')>(),
   getDashboardReport: vi.fn(),
-  getApprovalReport: vi.fn(),
   getDeliveryReport: vi.fn(),
 }));
 
@@ -30,6 +29,11 @@ vi.mock('../src/services/people-api', () => ({
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+function SearchProbe() {
+  const [search] = useSearchParams();
+  return <output data-report-search>{search.toString()}</output>;
+}
 
 function deferred<T>() {
   let resolve!: (value: T) => void;
@@ -40,14 +44,6 @@ function deferred<T>() {
   });
   return { promise, resolve, reject };
 }
-
-const emptyApproval: ApprovalReportResponse = {
-  summary: {
-    pendingCount: 0, oldestWaitingMinutes: null, averageWaitingMinutes: null,
-    under2Hours: 0, between2And8Hours: 0, between8And24Hours: 0, over24Hours: 0,
-  },
-  items: [], total: 0, limit: 1, offset: 0,
-};
 
 function dashboardFor(from: string, to: string, timezone = 'UTC'): DashboardReportResponse {
   return {
@@ -94,10 +90,8 @@ describe('report latest-request-wins', () => {
     document.body.append(container);
     root = createRoot(container);
     vi.mocked(getDashboardReport).mockReset();
-    vi.mocked(getApprovalReport).mockReset();
     vi.mocked(getDeliveryReport).mockReset();
     vi.mocked(listStaff).mockReset();
-    vi.mocked(getApprovalReport).mockResolvedValue(emptyApproval);
     vi.mocked(listStaff).mockResolvedValue([]);
   });
 
@@ -147,10 +141,10 @@ describe('report latest-request-wins', () => {
     });
 
     // Stale first response must not overwrite later range content.
-    expect(container.textContent).toContain('Bu dönemde tamamlanan');
+    expect(container.textContent).toContain('Seçilen dönemde oluşturulan ve tamamlanan işlerin günlük sayısı.');
     expect(container.textContent).toMatch(/30/);
     expect(container.textContent).not.toMatch(/>\s*7\s*</);
-    const completed = [...container.querySelectorAll('.report-metrics-secondary dd')]
+    const completed = [...container.querySelectorAll('.report-executive-metrics dd')]
       .map((node) => node.textContent);
     expect(completed).toContain('30');
     expect(completed).not.toContain('7');
@@ -181,6 +175,72 @@ describe('report latest-request-wins', () => {
     for (const button of container.querySelectorAll<HTMLButtonElement>('.report-preset-button')) {
       expect(button.disabled).toBe(false);
     }
+  });
+
+  it('keeps the applied preset selected while entering custom range editing', async () => {
+    vi.mocked(getDashboardReport).mockResolvedValue(
+      dashboardFor('2026-07-01', '2026-07-31', 'America/New_York'),
+    );
+
+    await act(async () => {
+      root.render(
+        <MemoryRouter initialEntries={['/reports?from=2026-07-01&to=2026-07-31']}>
+          <ReportsDashboard />
+          <SearchProbe />
+        </MemoryRouter>,
+      );
+      await Promise.resolve();
+    });
+
+    const labels = [...container.querySelectorAll<HTMLButtonElement>('.report-preset-button')]
+      .map((button) => button.textContent);
+    expect(labels).toEqual(['Son 7 gün', 'Son 30 gün', 'Son 90 gün', 'Bu ay', 'Özel aralık']);
+
+    const last90 = [...container.querySelectorAll<HTMLButtonElement>('.report-preset-button')]
+      .find((button) => button.textContent === 'Son 90 gün');
+    expect(last90).toBeDefined();
+    const expectedRange = resolveDatePreset('last90', 'America/New_York');
+    vi.mocked(getDashboardReport).mockClear();
+    await act(async () => {
+      last90!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(last90?.getAttribute('aria-pressed')).toBe('true');
+    expect(getDashboardReport).toHaveBeenLastCalledWith(expectedRange);
+    const selectedSearch = new URLSearchParams(
+      container.querySelector<HTMLOutputElement>('[data-report-search]')?.textContent ?? '',
+    );
+    expect(selectedSearch.get('from')).toBe(expectedRange.from);
+    expect(selectedSearch.get('to')).toBe(expectedRange.to);
+
+    const custom = [...container.querySelectorAll<HTMLButtonElement>('.report-preset-button')]
+      .find((button) => button.textContent === 'Özel aralık');
+    await act(async () => {
+      custom!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+      await Promise.resolve();
+    });
+    expect(custom?.getAttribute('aria-pressed')).toBe('false');
+    expect(last90?.getAttribute('aria-pressed')).toBe('true');
+  });
+
+  it('does not add pressed semantics to shared presets without selected-state management', async () => {
+    await act(async () => {
+      root.render(
+        <ReportDateRangeForm
+          formKey="shared"
+          from="2026-07-01"
+          to="2026-07-31"
+          filterError=""
+          errorRef={{ current: null }}
+          onSubmit={vi.fn()}
+          onPreset={vi.fn()}
+        />,
+      );
+    });
+
+    expect([...container.querySelectorAll<HTMLButtonElement>('.report-preset-button')]
+      .every((button) => !button.hasAttribute('aria-pressed'))).toBe(true);
   });
 
   it('keeps later delivery range when an earlier request finishes last', async () => {

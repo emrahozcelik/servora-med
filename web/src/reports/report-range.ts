@@ -36,7 +36,7 @@ export function addCalendarDays(day: CalendarDay, deltaDays: number): CalendarDa
   };
 }
 
-export type ReportDatePreset = 'today' | 'last7' | 'last30' | 'thisMonth';
+export type ReportDatePreset = 'today' | 'last7' | 'last30' | 'last90' | 'thisMonth';
 
 export function resolveDatePreset(
   preset: ReportDatePreset,
@@ -53,6 +53,9 @@ export function resolveDatePreset(
   }
   if (preset === 'last30') {
     return { from: formatYmd(addCalendarDays(today, -29)), to: formatYmd(today) };
+  }
+  if (preset === 'last90') {
+    return { from: formatYmd(addCalendarDays(today, -89)), to: formatYmd(today) };
   }
   // thisMonth: from 1st of current month in zone through today
   return {

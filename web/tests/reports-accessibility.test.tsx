@@ -12,7 +12,7 @@ import {
   ReportsDashboardView,
 } from '../src/reports/ReportsDashboard';
 import { StaffOperationalReport } from '../src/reports/StaffOperationalReport';
-import { getApprovalReport, getDashboardReport } from '../src/reports/reports-api';
+import { getDashboardReport } from '../src/reports/reports-api';
 import type {
   ApprovalReportResponse,
   DashboardReportResponse,
@@ -23,7 +23,6 @@ import type {
 vi.mock('../src/reports/reports-api', async (importOriginal) => ({
   ...await importOriginal<typeof import('../src/reports/reports-api')>(),
   getDashboardReport: vi.fn(),
-  getApprovalReport: vi.fn(),
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
@@ -70,26 +69,39 @@ describe('Report accessibility contract', () => {
     container.remove();
   });
 
-  it('keeps the visual trend decorative and exposes every day in a calendar table', () => {
-    const approval: ApprovalReportResponse = {
-      summary: {
-        pendingCount: 3, oldestWaitingMinutes: 90, averageWaitingMinutes: 40,
-        under2Hours: 2, between2And8Hours: 1, between8And24Hours: 0, over24Hours: 0,
-      },
-      items: [], total: 3, limit: 1, offset: 0,
-    };
+  it('exposes executive sections, visible values, and semantic workflow data', () => {
     const view = markup(
       <MemoryRouter>
-        <ReportsDashboardView report={dashboard} approval={approval} />
+        <ReportsDashboardView report={dashboard} />
       </MemoryRouter>,
     );
-    expect(view.querySelector('.report-trend-bars')?.getAttribute('aria-hidden')).toBe('true');
-    const calendar = view.querySelector('.report-calendar-table');
-    expect(calendar?.querySelector('caption')?.textContent).toContain('Temmuz 2026');
-    expect(calendar?.querySelectorAll('thead th[scope="col"]')).toHaveLength(7);
-    expect(calendar?.textContent).toContain('1 Tem 2026: 2 tamamlanan iş');
-    expect(calendar?.textContent).toContain('2 Tem 2026: 0 tamamlanan iş');
-    expect(view.textContent).toContain('Tamamlanan işler');
+
+    expect(view.querySelectorAll('[data-report-kpi="true"]')).toHaveLength(5);
+    expect(view.textContent).toContain('Aktif İşler');
+    expect(view.textContent).toContain('Dönemde Tamamlanan');
+    expect(view.textContent).toContain('Mevcut durum');
+    expect(view.textContent).toContain('Seçilen dönem');
+
+    const headings = [...view.querySelectorAll('.report-section h2')].map((heading) => heading.textContent);
+    expect(headings).toEqual([
+      'Genel Durum', 'İş Akışı Eğilimi', 'Mevcut İş Akışı', 'İş Türleri', 'Dikkat Gerektirenler',
+    ]);
+
+    const workflow = view.querySelector('[data-report-workflow-trend="true"]');
+    expect(workflow?.querySelector('.report-workflow-plot')?.getAttribute('aria-hidden')).toBe('true');
+    expect(workflow?.querySelectorAll('.report-workflow-table thead th[scope="col"]')).toHaveLength(3);
+    expect(workflow?.querySelector('[data-date="2026-07-01"]')?.textContent).toContain('1 Tem 2026');
+    expect(workflow?.textContent).toContain('Oluşturulan');
+    expect(workflow?.textContent).toContain('Tamamlanan');
+
+    expect(view.querySelector('[data-report-distribution="active-status"]')?.getAttribute('aria-label'))
+      .toBe('Mevcut iş akışı durumları');
+    expect(view.querySelector('[data-report-distribution="created-work-type"]')?.getAttribute('aria-label'))
+      .toBe('Oluşturulan iş türleri');
+    expect(view.textContent).toContain('Yönetici kontrolünde');
+    expect(view.textContent).toContain('Ürün teslimi');
+    expect(view.querySelectorAll('[data-attention-key]')).toHaveLength(3);
+    expect(view.querySelector('a[href="/reports/approvals"]')?.textContent).toBe('Onay kuyruğunu aç');
   });
 
   it('gives delivery OperationalTable and Staff tables accessible dual/mobile contracts', () => {
@@ -167,13 +179,6 @@ describe('Report accessibility contract', () => {
 
   it('focuses a linked error summary and marks both invalid date controls', async () => {
     vi.mocked(getDashboardReport).mockResolvedValue(dashboard);
-    vi.mocked(getApprovalReport).mockResolvedValue({
-      summary: {
-        pendingCount: 0, oldestWaitingMinutes: null, averageWaitingMinutes: null,
-        under2Hours: 0, between2And8Hours: 0, between8And24Hours: 0, over24Hours: 0,
-      },
-      items: [], total: 0, limit: 1, offset: 0,
-    });
     await act(async () => root.render(
       <MemoryRouter initialEntries={['/reports?from=2026-07-01&to=2026-07-31']}>
         <ReportsDashboard />
