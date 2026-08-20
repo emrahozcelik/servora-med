@@ -41,6 +41,7 @@ type StaffSummaryRow = {
   revision_requested: string | number;
   overdue_job_cards: string | number;
   completed_in_period: string | number;
+  current_workload_by_type?: Array<{ type: string; count: string | number }>;
 };
 
 type DashboardRow = {
@@ -84,6 +85,8 @@ type StaffExecutionRow = {
   staff_completed_jobs: string | number;
   staff_completion_days: string | number;
   missing_staff_completion_timestamp: string | number;
+  recorded_submission_count: string | number;
+  recorded_submission_days: string | number;
 };
 
 type StaffOnTimeRow = {
@@ -191,6 +194,8 @@ const WORK_TYPE_BUCKETS_SQL = JOB_CARD_TYPES
 
 const STAFF_SUMMARY_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   SELECT unnest($5::uuid[]) AS staff_user_id
+), work_types(type, sort_order) AS (
+  VALUES ${WORK_TYPE_BUCKETS_SQL}
 )
 SELECT requested.staff_user_id,
   to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
@@ -220,7 +225,24 @@ SELECT requested.staff_user_id,
       AND jc.manager_approved_at <
         ((organization_range.to_date + 1)::timestamp
           AT TIME ZONE organization_range.timezone)
-  )::int AS completed_in_period
+  )::int AS completed_in_period,
+  COALESCE((
+    SELECT json_agg(json_build_object(
+      'type', workload.type,
+      'count', workload.count
+    ) ORDER BY workload.sort_order)
+    FROM (
+      SELECT work_types.type, work_types.sort_order,
+        COUNT(typed_job.id) FILTER (
+          WHERE typed_job.status IN (${ACTIVE_STATUS_LIST_SQL})
+        )::int AS count
+      FROM work_types
+      LEFT JOIN job_cards typed_job ON typed_job.organization_id = $1
+        AND typed_job.assigned_to = requested.staff_user_id
+        AND typed_job.type = work_types.type
+      GROUP BY work_types.type, work_types.sort_order
+    ) workload
+  ), '[]'::json) AS current_workload_by_type
 FROM requested
 JOIN users u ON u.id = requested.staff_user_id
   AND u.organization_id = $1
@@ -427,17 +449,23 @@ const STAFF_COMPLETION_PERFORMANCE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, reques
   SELECT staff_user_id, COUNT(DISTINCT completion_date)::int AS completion_days
   FROM completed
   GROUP BY staff_user_id
-), work_types AS (
-  SELECT staff_user_id, type, COUNT(*)::int AS count
-  FROM completed
-  GROUP BY staff_user_id, type
+), work_types(type, sort_order) AS (
+  VALUES ${WORK_TYPE_BUCKETS_SQL}
+), work_type_counts AS (
+  SELECT requested.staff_user_id, work_types.type, work_types.sort_order,
+    COUNT(completed.staff_user_id)::int AS count
+  FROM requested
+  CROSS JOIN work_types
+  LEFT JOIN completed ON completed.staff_user_id = requested.staff_user_id
+    AND completed.type = work_types.type
+  GROUP BY requested.staff_user_id, work_types.type, work_types.sort_order
 ), work_type_lists AS (
   SELECT staff_user_id,
     json_agg(
       json_build_object('type', type, 'count', count)
-      ORDER BY count DESC, type ASC
+      ORDER BY sort_order
     ) AS completion_work_types
-  FROM work_types
+  FROM work_type_counts
   GROUP BY staff_user_id
 )
 SELECT requested.staff_user_id,
@@ -478,15 +506,51 @@ const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.manager_approved_at <
       ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+), recorded_submissions AS (
+  SELECT jc.staff_completed_by AS staff_user_id,
+    (jc.staff_completed_at AT TIME ZONE organization_range.timezone)::date
+      AS recorded_submission_date
+  FROM job_cards jc
+  JOIN requested ON requested.staff_user_id = jc.staff_completed_by
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+    AND jc.staff_completed_at IS NOT NULL
+    AND jc.staff_completed_by IS NOT NULL
+    AND jc.staff_completed_at >=
+      (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+    AND jc.staff_completed_at <
+      ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+), executed_counts AS (
+  SELECT staff_user_id,
+    COUNT(*)::int AS staff_completed_jobs,
+    COUNT(DISTINCT staff_completion_date)::int AS staff_completion_days
+  FROM executed
+  GROUP BY staff_user_id
+), approved_missing_counts AS (
+  SELECT staff_user_id,
+    COUNT(*)::int AS missing_staff_completion_timestamp
+  FROM approved_missing
+  GROUP BY staff_user_id
+), recorded_submission_counts AS (
+  SELECT staff_user_id,
+    COUNT(*)::int AS recorded_submission_count,
+    COUNT(DISTINCT recorded_submission_date)::int AS recorded_submission_days
+  FROM recorded_submissions
+  GROUP BY staff_user_id
 )
 SELECT requested.staff_user_id,
-  COUNT(executed.staff_user_id)::int AS staff_completed_jobs,
-  COUNT(DISTINCT executed.staff_completion_date)::int AS staff_completion_days,
-  COUNT(approved_missing.staff_user_id)::int AS missing_staff_completion_timestamp
+  COALESCE(executed_counts.staff_completed_jobs, 0)::int AS staff_completed_jobs,
+  COALESCE(executed_counts.staff_completion_days, 0)::int AS staff_completion_days,
+  COALESCE(approved_missing_counts.missing_staff_completion_timestamp, 0)::int
+    AS missing_staff_completion_timestamp,
+  COALESCE(recorded_submission_counts.recorded_submission_count, 0)::int
+    AS recorded_submission_count,
+  COALESCE(recorded_submission_counts.recorded_submission_days, 0)::int
+    AS recorded_submission_days
 FROM requested
-LEFT JOIN executed USING (staff_user_id)
-LEFT JOIN approved_missing USING (staff_user_id)
-GROUP BY requested.staff_user_id
+LEFT JOIN executed_counts USING (staff_user_id)
+LEFT JOIN approved_missing_counts USING (staff_user_id)
+LEFT JOIN recorded_submission_counts USING (staff_user_id)
 ORDER BY requested.staff_user_id`;
 
 const STAFF_ON_TIME_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
@@ -851,6 +915,10 @@ function mapStaffSummary(row: StaffSummaryRow): StaffOperationalSummary {
       overdueJobCards: Number(row.overdue_job_cards),
       completedInPeriod: Number(row.completed_in_period),
     },
+    currentWorkloadByType: (row.current_workload_by_type ?? []).map((item) => ({
+      type: item.type,
+      count: Number(item.count),
+    })),
   };
 }
 
@@ -998,6 +1066,8 @@ export class PostgresReportsRepository implements ReportsReadModel {
       staffCompletedJobs: Number(row.staff_completed_jobs),
       staffCompletionDays: Number(row.staff_completion_days),
       missingStaffCompletionTimestamp: Number(row.missing_staff_completion_timestamp),
+      recordedSubmissionCount: Number(row.recorded_submission_count),
+      recordedSubmissionDays: Number(row.recorded_submission_days),
     }]));
   }
 

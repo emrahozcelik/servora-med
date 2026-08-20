@@ -72,18 +72,56 @@ function ports() {
     })),
     getOne: vi.fn(async (input) => input.staffUserId === MISSING_STAFF
       ? null
-      : { staffUserId: input.staffUserId, range, counters }),
+      : { staffUserId: input.staffUserId, range,
+          counters: input.staffUserId === INACTIVE_STAFF
+            ? { openJobCards: 0, waitingApproval: 0, revisionRequested: 0,
+                overdueJobCards: 0, completedInPeriod: 0 }
+            : counters,
+          currentWorkloadByType: input.staffUserId === INACTIVE_STAFF
+            ? [
+                { type: 'PRODUCT_DELIVERY', count: 0 },
+                { type: 'GENERAL_TASK', count: 0 },
+                { type: 'SALES_MEETING', count: 0 },
+              ]
+            : [
+                { type: 'PRODUCT_DELIVERY', count: 2 },
+                { type: 'GENERAL_TASK', count: 2 },
+                { type: 'SALES_MEETING', count: 2 },
+              ] }),
     getMany: vi.fn(async ({ staffUserIds }) => new Map(staffUserIds.map((staffUserId: string) => [
       staffUserId,
-      { staffUserId, range, counters },
+      { staffUserId, range,
+        counters: staffUserId === INACTIVE_STAFF
+          ? { openJobCards: 0, waitingApproval: 0, revisionRequested: 0,
+              overdueJobCards: 0, completedInPeriod: 0 }
+          : counters,
+        currentWorkloadByType: staffUserId === INACTIVE_STAFF
+          ? [
+              { type: 'PRODUCT_DELIVERY', count: 0 },
+              { type: 'GENERAL_TASK', count: 0 },
+              { type: 'SALES_MEETING', count: 0 },
+            ]
+          : [
+              { type: 'PRODUCT_DELIVERY', count: 2 },
+              { type: 'GENERAL_TASK', count: 2 },
+              { type: 'SALES_MEETING', count: 2 },
+            ] },
     ]))),
     getStaffCompletionPerformanceMany: vi.fn(async ({ staffUserIds }) => new Map(
       staffUserIds.map((staffUserId: string) => [staffUserId, {
         staffUserId,
         completionDays: staffUserId === INACTIVE_STAFF ? 0 : 2,
         completionWorkTypes: staffUserId === INACTIVE_STAFF
-          ? []
-          : [{ type: 'GENERAL_TASK', count: 4 }],
+          ? [
+              { type: 'PRODUCT_DELIVERY', count: 0 },
+              { type: 'GENERAL_TASK', count: 0 },
+              { type: 'SALES_MEETING', count: 0 },
+            ]
+          : [
+              { type: 'PRODUCT_DELIVERY', count: 0 },
+              { type: 'GENERAL_TASK', count: 4 },
+              { type: 'SALES_MEETING', count: 0 },
+            ],
       }]),
     )),
     getStaffCorrectionRequestEventsMany: vi.fn(async () => new Map([[STAFF_ONE, 1]])),
@@ -94,6 +132,8 @@ function ports() {
         staffCompletedJobs: staffUserId === INACTIVE_STAFF ? 0 : 4,
         staffCompletionDays: staffUserId === INACTIVE_STAFF ? 0 : 2,
         missingStaffCompletionTimestamp: 0,
+        recordedSubmissionCount: staffUserId === INACTIVE_STAFF ? 0 : 2,
+        recordedSubmissionDays: staffUserId === INACTIVE_STAFF ? 0 : 1,
       }]),
     )),
     getStaffOnTimeMany: vi.fn(async ({ staffUserIds }) => new Map(
@@ -243,6 +283,10 @@ describe('ReportsService authorization and composition', () => {
         jobsPerStaffCompletionDay: 2,
         missingStaffCompletionTimestamp: 0,
       },
+      staffSubmissionAttribution: {
+        recordedSubmissionCount: 2,
+        recordedSubmissionDays: 1,
+      },
       onTime: {
         eligibleScheduledCompletedJobs: 2,
         onTimeCompletedJobs: 1,
@@ -250,7 +294,16 @@ describe('ReportsService authorization and composition', () => {
         ineligibleOrNoDeadlineCompletedJobs: 2,
         onTimeRate: 0.5,
       },
-      completionWorkTypes: [{ type: 'GENERAL_TASK', count: 4 }],
+      completionWorkTypes: [
+        { type: 'PRODUCT_DELIVERY', count: 0 },
+        { type: 'GENERAL_TASK', count: 4 },
+        { type: 'SALES_MEETING', count: 0 },
+      ],
+      currentWorkloadByType: [
+        { type: 'PRODUCT_DELIVERY', count: 2 },
+        { type: 'GENERAL_TASK', count: 2 },
+        { type: 'SALES_MEETING', count: 2 },
+      ],
       completedTrend: [
         { date: '2026-07-01', count: 0 },
         { date: '2026-07-02', count: 4 },

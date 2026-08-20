@@ -13,6 +13,7 @@ import type {
   StaffHistoricalPerformance,
   StaffOnTimeAggregate,
   StaffOnTimeMetrics,
+  StaffSubmissionAttributionMetrics,
   StaffOperationalSummary,
   ReportStaffLifecycleIdentity,
   ReportStaffIdentity,
@@ -43,6 +44,28 @@ function currentWorkload(summary: StaffOperationalSummary): StaffCurrentWorkload
     waitingApproval: summary.counters.waitingApproval,
     revisionRequested: summary.counters.revisionRequested,
   };
+}
+
+function currentWorkloadByType(summary: StaffOperationalSummary) {
+  const total = summary.currentWorkloadByType.reduce((sum, item) => sum + item.count, 0);
+  const expected = summary.counters.openJobCards
+    + summary.counters.waitingApproval
+    + summary.counters.revisionRequested;
+  if (total !== expected) {
+    throw new Error('Staff current workload type aggregate invariant could not be resolved.');
+  }
+  return summary.currentWorkloadByType;
+}
+
+function completedWorkTypes(
+  summary: StaffOperationalSummary,
+  completion: StaffCompletionPerformance,
+) {
+  const total = completion.completionWorkTypes.reduce((sum, item) => sum + item.count, 0);
+  if (total !== summary.counters.completedInPeriod) {
+    throw new Error('Staff completion work type aggregate invariant could not be resolved.');
+  }
+  return completion.completionWorkTypes;
 }
 
 function historicalPerformance(
@@ -81,6 +104,17 @@ function staffExecution(aggregate: StaffExecutionAggregate): StaffExecutionMetri
       : completed / days,
     missingStaffCompletionTimestamp: aggregate.missingStaffCompletionTimestamp,
   };
+}
+
+function staffSubmissionAttribution(
+  aggregate: StaffExecutionAggregate,
+): StaffSubmissionAttributionMetrics {
+  const count = aggregate.recordedSubmissionCount;
+  const days = aggregate.recordedSubmissionDays;
+  if ((count === 0) !== (days === 0) || days > count) {
+    throw new Error('Staff submission attribution aggregate invariant could not be resolved.');
+  }
+  return { recordedSubmissionCount: count, recordedSubmissionDays: days };
 }
 
 function onTime(aggregate: StaffOnTimeAggregate): StaffOnTimeMetrics {
@@ -139,7 +173,7 @@ export class ReportsService {
       organizationId: actor.organizationId,
       requestedRange: query.requestedRange,
       requestTime,
-      includeInactive: actor.role === 'ADMIN',
+      includeInactive: true,
     };
     const scope = await this.reports.getStaffPerformanceScope(scopeInput);
     const priorRange = precedingEqualLengthRange(scope.range);
@@ -195,6 +229,11 @@ export class ReportsService {
           throw new Error('Staff performance aggregate could not be resolved.');
         }
         const priorAvailable = staffExistedDuringPriorRange(staff.createdAt, priorRange);
+        const selectedCompletionWorkTypes = completedWorkTypes(summary, completion);
+        const selectedCurrentWorkloadByType = currentWorkloadByType(summary);
+        if (priorAvailable) {
+          completedWorkTypes(priorSummary, priorCompletion);
+        }
         return {
           staff: publicStaffIdentity(staff),
           performance: historicalPerformance(
@@ -215,8 +254,10 @@ export class ReportsService {
               : null,
           },
           staffExecution: staffExecution(executionAggregate),
+          staffSubmissionAttribution: staffSubmissionAttribution(executionAggregate),
           onTime: onTime(onTimeAggregate),
-          completionWorkTypes: completion.completionWorkTypes,
+          completionWorkTypes: selectedCompletionWorkTypes,
+          currentWorkloadByType: selectedCurrentWorkloadByType,
           currentWorkload: currentWorkload(summary),
         };
       }),
@@ -333,6 +374,11 @@ export class ReportsService {
       throw new Error('Staff performance aggregate could not be resolved.');
     }
     const priorAvailable = staffExistedDuringPriorRange(identity.createdAt, priorRange);
+    const selectedCompletionWorkTypes = completedWorkTypes(summary, completion);
+    const selectedCurrentWorkloadByType = currentWorkloadByType(summary);
+    if (priorAvailable) {
+      completedWorkTypes(priorSummary, priorCompletion);
+    }
     return {
       staff: publicStaffIdentity(identity),
       range: summary.range,
@@ -355,8 +401,10 @@ export class ReportsService {
           : null,
       },
       staffExecution: staffExecution(executionAggregate),
+      staffSubmissionAttribution: staffSubmissionAttribution(executionAggregate),
       onTime: onTime(onTimeAggregate),
-      completionWorkTypes: completion.completionWorkTypes,
+      completionWorkTypes: selectedCompletionWorkTypes,
+      currentWorkloadByType: selectedCurrentWorkloadByType,
       completedTrend,
       deliveriesByPurpose,
       meetingsByOutcome,

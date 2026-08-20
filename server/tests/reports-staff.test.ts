@@ -126,6 +126,39 @@ describe('PostgresReportsRepository Staff report reads', () => {
     expect(sql).not.toMatch(/scheduled_at/i);
   });
 
+  it('returns canonical current workload type buckets as a range-independent snapshot', async () => {
+    const { pool } = queuedPool([{ rows: [{
+      staff_user_id: STAFF_ONE,
+      from_date: '2026-07-01',
+      to_date: '2026-07-31',
+      timezone: 'Europe/Istanbul',
+      open_job_cards: '3',
+      waiting_approval: '1',
+      revision_requested: '1',
+      overdue_job_cards: '0',
+      completed_in_period: '4',
+      current_workload_by_type: [
+        { type: 'PRODUCT_DELIVERY', count: 2 },
+        { type: 'GENERAL_TASK', count: 1 },
+        { type: 'SALES_MEETING', count: 2 },
+      ],
+    }] }]);
+    const repository = new PostgresReportsRepository(pool);
+
+    const result = await repository.getOne({
+      organizationId: ORG_ONE,
+      staffUserId: STAFF_ONE,
+      requestedRange: { from: '2024-01-01', to: '2024-01-01' },
+      requestTime,
+    });
+
+    expect(result?.currentWorkloadByType).toEqual([
+      { type: 'PRODUCT_DELIVERY', count: 2 },
+      { type: 'GENERAL_TASK', count: 1 },
+      { type: 'SALES_MEETING', count: 2 },
+    ]);
+  });
+
   it('returns approved Product Delivery purpose totals as exact decimal strings', async () => {
     const rows = [
       { delivery_purpose: 'SALE', unit: 'Kutu', quantity: '3.000' },

@@ -48,6 +48,17 @@ function servicePorts() {
           revisionRequested: 0,
           completedInPeriod: 0,
         },
+    currentWorkloadByType: staffUserId === ACTIVE_STAFF_ID
+      ? [
+          { type: 'PRODUCT_DELIVERY', count: 3 },
+          { type: 'GENERAL_TASK', count: 2 },
+          { type: 'SALES_MEETING', count: 2 },
+        ]
+      : [
+          { type: 'PRODUCT_DELIVERY', count: 0 },
+          { type: 'GENERAL_TASK', count: 0 },
+          { type: 'SALES_MEETING', count: 0 },
+        ],
   });
   const reports = {
     getStaffPerformanceScope: vi.fn(async ({ includeInactive }) => ({
@@ -71,15 +82,24 @@ function servicePorts() {
       [ACTIVE_STAFF_ID, {
         staffUserId: ACTIVE_STAFF_ID,
         completionDays: requestedRange?.from === priorRange.from ? 2 : 3,
-        completionWorkTypes: requestedRange?.from === priorRange.from ? [] : [
+        completionWorkTypes: requestedRange?.from === priorRange.from ? [
+          { type: 'PRODUCT_DELIVERY', count: 2 },
+          { type: 'GENERAL_TASK', count: 2 },
+          { type: 'SALES_MEETING', count: 0 },
+        ] : [
           { type: 'PRODUCT_DELIVERY', count: 4 },
           { type: 'GENERAL_TASK', count: 2 },
+          { type: 'SALES_MEETING', count: 0 },
         ],
       }],
       [INACTIVE_STAFF_ID, {
         staffUserId: INACTIVE_STAFF_ID,
         completionDays: 0,
-        completionWorkTypes: [],
+        completionWorkTypes: [
+          { type: 'PRODUCT_DELIVERY', count: 0 },
+          { type: 'GENERAL_TASK', count: 0 },
+          { type: 'SALES_MEETING', count: 0 },
+        ],
       }],
     ])),
     getStaffCorrectionRequestEventsMany: vi.fn(async ({ requestedRange }) => new Map([
@@ -94,12 +114,16 @@ function servicePorts() {
         staffCompletedJobs: 5,
         staffCompletionDays: 3,
         missingStaffCompletionTimestamp: 1,
+        recordedSubmissionCount: 4,
+        recordedSubmissionDays: 2,
       }],
       [INACTIVE_STAFF_ID, {
         staffUserId: INACTIVE_STAFF_ID,
         staffCompletedJobs: 0,
         staffCompletionDays: 0,
         missingStaffCompletionTimestamp: 0,
+        recordedSubmissionCount: 0,
+        recordedSubmissionDays: 0,
       }],
     ])),
     getStaffOnTimeMany: vi.fn(async () => new Map([
@@ -135,6 +159,11 @@ function servicePorts() {
 describe('ReportsService manager-wide Staff performance', () => {
   it('adds a bounded prior, execution and on-time comparison in eleven reads', async () => {
     const ports = servicePorts();
+    ports.reports.getStaffPerformanceScope.mockResolvedValue({
+      range,
+      staff: [{ userId: ACTIVE_STAFF_ID, name: 'Aktif Personel', isActive: true,
+        createdAt: CREATED_BEFORE_PRIOR }],
+    });
     const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
       () => requestTime);
 
@@ -168,6 +197,10 @@ describe('ReportsService manager-wide Staff performance', () => {
           jobsPerStaffCompletionDay: 5 / 3,
           missingStaffCompletionTimestamp: 1,
         },
+        staffSubmissionAttribution: {
+          recordedSubmissionCount: 4,
+          recordedSubmissionDays: 2,
+        },
         onTime: {
           eligibleScheduledCompletedJobs: 3,
           onTimeCompletedJobs: 2,
@@ -178,6 +211,12 @@ describe('ReportsService manager-wide Staff performance', () => {
         completionWorkTypes: [
           { type: 'PRODUCT_DELIVERY', count: 4 },
           { type: 'GENERAL_TASK', count: 2 },
+          { type: 'SALES_MEETING', count: 0 },
+        ],
+        currentWorkloadByType: [
+          { type: 'PRODUCT_DELIVERY', count: 3 },
+          { type: 'GENERAL_TASK', count: 2 },
+          { type: 'SALES_MEETING', count: 2 },
         ],
         currentWorkload: {
           openJobCards: 4,
@@ -192,7 +231,7 @@ describe('ReportsService manager-wide Staff performance', () => {
       organizationId: ORGANIZATION_ID,
       requestedRange: { from: '2026-07-01', to: '2026-07-31' },
       requestTime,
-      includeInactive: false,
+      includeInactive: true,
     });
     expect(ports.reports.getMany).toHaveBeenCalledTimes(2);
     expect(ports.reports.getStaffCompletionPerformanceMany).toHaveBeenCalledTimes(2);
@@ -281,10 +320,19 @@ describe('ReportsService manager-wide Staff performance', () => {
           revisionRequested: 0,
           completedInPeriod: 0,
         },
+        currentWorkloadByType: [
+          { type: 'PRODUCT_DELIVERY', count: 0 },
+          { type: 'GENERAL_TASK', count: 0 },
+          { type: 'SALES_MEETING', count: 0 },
+        ],
       }])));
     ports.reports.getStaffCompletionPerformanceMany.mockImplementation(async ({ staffUserIds }) =>
       new Map(staffUserIds.map((staffUserId: string) => [staffUserId, {
-        staffUserId, completionDays: 0, completionWorkTypes: [],
+        staffUserId, completionDays: 0, completionWorkTypes: [
+          { type: 'PRODUCT_DELIVERY', count: 0 },
+          { type: 'GENERAL_TASK', count: 0 },
+          { type: 'SALES_MEETING', count: 0 },
+        ],
       }])));
     const service = new ReportsService(ports.reports as never, ports.approvalItems as never,
       () => requestTime);
@@ -419,8 +467,14 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
     const { pool, query } = queuedPool([[
       { staff_user_id: ACTIVE_STAFF_ID, completion_days: '2', completion_work_types: [
         { type: 'PRODUCT_DELIVERY', count: 3 },
+        { type: 'GENERAL_TASK', count: 0 },
+        { type: 'SALES_MEETING', count: 0 },
       ] },
-      { staff_user_id: INACTIVE_STAFF_ID, completion_days: '0', completion_work_types: [] },
+      { staff_user_id: INACTIVE_STAFF_ID, completion_days: '0', completion_work_types: [
+        { type: 'PRODUCT_DELIVERY', count: 0 },
+        { type: 'GENERAL_TASK', count: 0 },
+        { type: 'SALES_MEETING', count: 0 },
+      ] },
     ]]);
     const repository = new PostgresReportsRepository(pool);
 
@@ -439,12 +493,16 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
     expect(result.get(ACTIVE_STAFF_ID)).toEqual({
       staffUserId: ACTIVE_STAFF_ID,
       completionDays: 2,
-      completionWorkTypes: [{ type: 'PRODUCT_DELIVERY', count: 3 }],
+      completionWorkTypes: [
+        { type: 'PRODUCT_DELIVERY', count: 3 },
+        { type: 'GENERAL_TASK', count: 0 },
+        { type: 'SALES_MEETING', count: 0 },
+      ],
     });
     const sql = query.mock.calls[0]?.[0] ?? '';
     expect(sql).toContain('jc.manager_approved_at');
     expect(sql).toContain('COUNT(DISTINCT completion_date)');
-    expect(sql).toContain('GROUP BY staff_user_id, type');
+    expect(sql).toContain('GROUP BY requested.staff_user_id, work_types.type');
     expect(sql).not.toMatch(/jc\.created_at\s*(?:>=|<)/i);
   });
 
@@ -482,7 +540,8 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
     const { pool, query } = queuedPool([[
       { staff_user_id: ACTIVE_STAFF_ID,
         staff_completed_jobs: '5',
-        staff_completion_days: '3', missing_staff_completion_timestamp: '1' },
+        staff_completion_days: '3', missing_staff_completion_timestamp: '1',
+        recorded_submission_count: '4', recorded_submission_days: '2' },
     ]]);
     const repository = new PostgresReportsRepository(pool);
     const input = {
@@ -499,16 +558,53 @@ describe('PostgresReportsRepository bulk Staff performance reads', () => {
         staffCompletedJobs: 5,
         staffCompletionDays: 3,
         missingStaffCompletionTimestamp: 1,
+        recordedSubmissionCount: 4,
+        recordedSubmissionDays: 2,
       },
     ]]));
     const sql = query.mock.calls[0]?.[0] ?? '';
     expect(sql).toContain("jc.status = 'COMPLETED'");
     expect(sql).toContain('jc.staff_completed_at IS NOT NULL');
-    expect(sql).toContain('COUNT(DISTINCT executed.staff_completion_date)');
+    expect(sql).toContain('jc.staff_completed_by');
+    expect(sql).toContain('recorded_submission_counts AS');
+    expect(sql).toContain('COUNT(DISTINCT staff_completion_date)');
     expect(sql).toMatch(/executed AS/);
     expect(sql).not.toContain("'WAITING_APPROVAL'");
     const executedWindow = sql.match(/AND jc\.staff_completed_at <\s*\n\s*\(\(organization_range\.to_date/);
     expect(executedWindow).not.toBeNull();
+  });
+
+  it('pre-aggregates execution and approved-missing cohorts before combining them', async () => {
+    const { pool, query } = queuedPool([[
+      { staff_user_id: ACTIVE_STAFF_ID,
+        staff_completed_jobs: '2',
+        staff_completion_days: '2', missing_staff_completion_timestamp: '3',
+        recorded_submission_count: '2', recorded_submission_days: '1' },
+    ]]);
+    const repository = new PostgresReportsRepository(pool);
+
+    await expect(repository.getStaffExecutionMany({
+      organizationId: ORGANIZATION_ID,
+      requestedRange: { from: '2026-07-01', to: '2026-07-31' },
+      requestTime,
+      staffUserIds: [ACTIVE_STAFF_ID],
+    })).resolves.toEqual(new Map([[
+      ACTIVE_STAFF_ID,
+      {
+        staffUserId: ACTIVE_STAFF_ID,
+        staffCompletedJobs: 2,
+        staffCompletionDays: 2,
+        missingStaffCompletionTimestamp: 3,
+        recordedSubmissionCount: 2,
+        recordedSubmissionDays: 1,
+      },
+    ]]));
+
+    const sql = query.mock.calls[0]?.[0] ?? '';
+    expect(sql).toContain('executed_counts AS');
+    expect(sql).toContain('approved_missing_counts AS');
+    expect(sql).not.toContain('LEFT JOIN executed USING (staff_user_id)');
+    expect(sql).not.toContain('LEFT JOIN approved_missing USING (staff_user_id)');
   });
 
   it('judges on-time against the interval end and excludes work types without a deadline', async () => {

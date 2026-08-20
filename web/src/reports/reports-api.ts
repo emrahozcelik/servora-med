@@ -37,6 +37,7 @@ import type {
   StaffPerformanceItem,
   StaffPerformanceResponse,
   StaffReportResponse,
+  StaffSubmissionAttributionMetrics,
 } from './report-types';
 
 const DELIVERY_GROUPS = ['day', 'purpose', 'product', 'staff'] as const;
@@ -216,6 +217,25 @@ function parseStaffExecution(value: unknown): StaffExecutionMetrics {
   return result;
 }
 
+function parseStaffSubmissionAttribution(value: unknown): StaffSubmissionAttributionMetrics {
+  const row = exactObject(value, 'staffSubmissionAttribution', [
+    'recordedSubmissionCount', 'recordedSubmissionDays',
+  ]);
+  const recordedSubmissionCount = nonNegativeInteger(
+    row.recordedSubmissionCount,
+    'staffSubmissionAttribution.recordedSubmissionCount',
+  );
+  const recordedSubmissionDays = nonNegativeInteger(
+    row.recordedSubmissionDays,
+    'staffSubmissionAttribution.recordedSubmissionDays',
+  );
+  if ((recordedSubmissionCount === 0) !== (recordedSubmissionDays === 0)
+    || recordedSubmissionDays > recordedSubmissionCount) {
+    invalid('staffSubmissionAttribution');
+  }
+  return { recordedSubmissionCount, recordedSubmissionDays };
+}
+
 function parseStaffOnTime(value: unknown): StaffOnTimeMetrics {
   const row = exactObject(value, 'onTime', [
     'eligibleScheduledCompletedJobs', 'onTimeCompletedJobs', 'lateCompletedJobs',
@@ -252,12 +272,15 @@ function parseStaffOnTime(value: unknown): StaffOnTimeMetrics {
   return result;
 }
 
-function parseCompletionWorkType(value: unknown): CompletionWorkType {
-  const row = exactObject(value, 'completionWorkType', ['type', 'count']);
-  return {
-    type: oneOf(row.type, 'completionWorkType.type', JOB_CARD_TYPES),
-    count: positiveInteger(row.count, 'completionWorkType.count'),
-  };
+function parseCanonicalWorkTypeBuckets(value: unknown, field: string): CompletionWorkType[] {
+  const values = array(value, field);
+  if (values.length !== JOB_CARD_TYPES.length) invalid(field);
+  return values.map((entry, index) => {
+    const row = exactObject(entry, field, ['type', 'count']);
+    const type = oneOf(row.type, `${field}.type`, JOB_CARD_TYPES);
+    if (type !== JOB_CARD_TYPES[index]) invalid(field);
+    return { type, count: nonNegativeInteger(row.count, `${field}.count`) };
+  });
 }
 
 function parseReportTrend(value: unknown, field: string) {
@@ -309,17 +332,25 @@ function parseCreatedWorkTypeDistribution(value: unknown): CreatedWorkTypeDistri
 
 function parseStaffPerformanceItem(value: unknown): StaffPerformanceItem {
   const row = exactObject(value, 'staffPerformanceItem', [
-    'staff', 'performance', 'priorPerformance', 'staffExecution', 'onTime',
-    'completionWorkTypes', 'currentWorkload',
+    'staff', 'performance', 'priorPerformance', 'staffExecution',
+    'staffSubmissionAttribution', 'onTime', 'completionWorkTypes',
+    'currentWorkloadByType', 'currentWorkload',
   ]);
   return {
     staff: parseStaffIdentity(row.staff),
     performance: parseStaffHistoricalPerformance(row.performance),
     priorPerformance: parseStaffPriorPerformance(row.priorPerformance),
     staffExecution: parseStaffExecution(row.staffExecution),
+    staffSubmissionAttribution: parseStaffSubmissionAttribution(row.staffSubmissionAttribution),
     onTime: parseStaffOnTime(row.onTime),
-    completionWorkTypes: array(row.completionWorkTypes, 'completionWorkTypes')
-      .map(parseCompletionWorkType),
+    completionWorkTypes: parseCanonicalWorkTypeBuckets(
+      row.completionWorkTypes,
+      'completionWorkTypes',
+    ),
+    currentWorkloadByType: parseCanonicalWorkTypeBuckets(
+      row.currentWorkloadByType,
+      'currentWorkloadByType',
+    ),
     currentWorkload: parseStaffCurrentWorkload(row.currentWorkload),
   };
 }
@@ -427,7 +458,8 @@ export function parseStaffPerformance(value: unknown): StaffPerformanceResponse 
 export function parseStaffReport(value: unknown): StaffReportResponse {
   const row = exactObject(value, 'staffReport', [
     'staff', 'range', 'priorRange', 'performance', 'priorPerformance',
-    'staffExecution', 'onTime', 'completionWorkTypes', 'completedTrend',
+    'staffExecution', 'staffSubmissionAttribution', 'onTime', 'completionWorkTypes',
+    'currentWorkloadByType', 'completedTrend',
     'deliveriesByPurpose', 'meetingsByOutcome', 'currentWorkload',
   ]);
   return {
@@ -437,9 +469,16 @@ export function parseStaffReport(value: unknown): StaffReportResponse {
     performance: parseStaffHistoricalPerformance(row.performance),
     priorPerformance: parseStaffPriorPerformance(row.priorPerformance),
     staffExecution: parseStaffExecution(row.staffExecution),
+    staffSubmissionAttribution: parseStaffSubmissionAttribution(row.staffSubmissionAttribution),
     onTime: parseStaffOnTime(row.onTime),
-    completionWorkTypes: array(row.completionWorkTypes, 'completionWorkTypes')
-      .map(parseCompletionWorkType),
+    completionWorkTypes: parseCanonicalWorkTypeBuckets(
+      row.completionWorkTypes,
+      'completionWorkTypes',
+    ),
+    currentWorkloadByType: parseCanonicalWorkTypeBuckets(
+      row.currentWorkloadByType,
+      'currentWorkloadByType',
+    ),
     completedTrend: parseCompletedTrend(row.completedTrend),
     deliveriesByPurpose: array(row.deliveriesByPurpose, 'deliveriesByPurpose')
       .map(parseDeliveryPurposeItem),

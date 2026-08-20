@@ -79,17 +79,30 @@ function dependencies() {
         overdueJobCards: 0,
         completedInPeriod: 0,
       },
+      currentWorkloadByType: [
+        { type: 'PRODUCT_DELIVERY', count: 1 },
+        { type: 'GENERAL_TASK', count: 1 },
+        { type: 'SALES_MEETING', count: 0 },
+      ],
     })),
     getMany: vi.fn(async ({ staffUserIds }) => new Map(staffUserIds.map((staffUserId: string) => [
       staffUserId,
       { staffUserId, range: resolvedRange, counters: {
         openJobCards: 1, waitingApproval: 1, revisionRequested: 0,
         overdueJobCards: 0, completedInPeriod: 0,
-      } },
+      }, currentWorkloadByType: [
+        { type: 'PRODUCT_DELIVERY', count: 1 },
+        { type: 'GENERAL_TASK', count: 1 },
+        { type: 'SALES_MEETING', count: 0 },
+      ] },
     ]))),
     getStaffCompletionPerformanceMany: vi.fn(async ({ staffUserIds }) => new Map(
       staffUserIds.map((staffUserId: string) => [staffUserId, {
-        staffUserId, completionDays: 0, completionWorkTypes: [],
+        staffUserId, completionDays: 0, completionWorkTypes: [
+          { type: 'PRODUCT_DELIVERY', count: 0 },
+          { type: 'GENERAL_TASK', count: 0 },
+          { type: 'SALES_MEETING', count: 0 },
+        ],
       }]),
     )),
     getStaffCorrectionRequestEventsMany: vi.fn(async () => new Map()),
@@ -100,6 +113,8 @@ function dependencies() {
         staffCompletedJobs: 0,
         staffCompletionDays: 0,
         missingStaffCompletionTimestamp: 0,
+        recordedSubmissionCount: 0,
+        recordedSubmissionDays: 0,
       }]),
     )),
     getStaffOnTimeMany: vi.fn(async ({ staffUserIds }) => new Map(

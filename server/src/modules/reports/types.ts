@@ -24,6 +24,8 @@ export type StaffOperationalSummary = Readonly<{
   staffUserId: string;
   range: ResolvedReportRange;
   counters: StaffOperationalCounters;
+  /** Current snapshot buckets; selected range never changes these counts. */
+  currentWorkloadByType: WorkTypeDistributionItem[];
 }>;
 
 export type StaffOperationalSummaryScope = Readonly<{
@@ -45,6 +47,7 @@ export type StaffCurrentWorkload = Readonly<{
 }>;
 
 export type StaffHistoricalPerformance = Readonly<{
+  /** Manager-approved completions currently associated with the Staff member. */
   completedJobs: number;
   completionDays: number;
   jobsPerCompletionDay: number;
@@ -183,13 +186,26 @@ export type StaffExecutionAggregate = Readonly<{
   staffCompletedJobs: number;
   staffCompletionDays: number;
   missingStaffCompletionTimestamp: number;
+  /** Current recorded staff_completed_by/staff_completed_at attribution. */
+  recordedSubmissionCount: number;
+  recordedSubmissionDays: number;
 }>;
 
 export type StaffExecutionMetrics = Readonly<{
+  /** Legacy current-assignee Staff execution cohort, not actor attribution. */
   staffCompletedJobs: number;
   staffCompletionDays: number;
   jobsPerStaffCompletionDay: number;
   missingStaffCompletionTimestamp: number;
+}>;
+
+/**
+ * A current recorded submission attribution, not an immutable event history.
+ * JobCard lifecycle fields may be overwritten on a later submission.
+ */
+export type StaffSubmissionAttributionMetrics = Readonly<{
+  recordedSubmissionCount: number;
+  recordedSubmissionDays: number;
 }>;
 
 export type StaffOnTimeAggregate = Readonly<{
@@ -226,8 +242,12 @@ export type StaffPerformanceItem = Readonly<{
   performance: StaffHistoricalPerformance;
   priorPerformance: StaffPriorPerformance;
   staffExecution: StaffExecutionMetrics;
+  staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
+  /** Selected-period manager-approved completions by current assignee. */
   completionWorkTypes: WorkTypeDistributionItem[];
+  /** Current active snapshot by current assignee; independent of selected range. */
+  currentWorkloadByType: WorkTypeDistributionItem[];
   currentWorkload: StaffCurrentWorkload;
 }>;
 
@@ -249,8 +269,12 @@ export type StaffReportResponse = {
   performance: StaffHistoricalPerformance;
   priorPerformance: StaffPriorPerformance;
   staffExecution: StaffExecutionMetrics;
+  staffSubmissionAttribution: StaffSubmissionAttributionMetrics;
   onTime: StaffOnTimeMetrics;
+  /** Selected-period manager-approved completions by current assignee. */
   completionWorkTypes: WorkTypeDistributionItem[];
+  /** Current active snapshot by current assignee; independent of selected range. */
+  currentWorkloadByType: WorkTypeDistributionItem[];
   completedTrend: Array<{ date: string; count: number }>;
   deliveriesByPurpose: DeliveryPurposeItem[];
   meetingsByOutcome: MeetingOutcomeItem[];

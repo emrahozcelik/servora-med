@@ -156,6 +156,7 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
     organizationTwo,
     'Tokyo Staff',
     'STAFF',
+    false,
   );
 
   const productId = (await pool.query<{ id: string }>(
@@ -1000,6 +1001,10 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     jobsPerStaffCompletionDay: 1.25,
     missingStaffCompletionTimestamp: 0,
   });
+  expect(staffReport.staffSubmissionAttribution).toEqual({
+    recordedSubmissionCount: 15,
+    recordedSubmissionDays: 7,
+  });
   expect(staffReport.onTime).toEqual({
     eligibleScheduledCompletedJobs: 3,
     onTimeCompletedJobs: 2,
@@ -1010,7 +1015,10 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(staffReport.completionWorkTypes).toEqual([
     { type: 'PRODUCT_DELIVERY', count: 3 },
     { type: 'GENERAL_TASK', count: 2 },
+    { type: 'SALES_MEETING', count: 0 },
   ]);
+  expect(staffReport.completionWorkTypes.reduce((total, item) => total + item.count, 0))
+    .toBe(staffReport.performance.completedJobs);
   expect(staffReport.completedTrend).toHaveLength(31);
   expect(staffReport.completedTrend.find(({ date }) => date === '2026-07-01')?.count)
     .toBe(1);
@@ -1023,6 +1031,15 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     waitingApproval: 9,
     revisionRequested: 2,
   });
+  expect(staffReport.currentWorkloadByType).toEqual([
+    { type: 'PRODUCT_DELIVERY', count: 9 },
+    { type: 'GENERAL_TASK', count: 9 },
+    { type: 'SALES_MEETING', count: 0 },
+  ]);
+  expect(staffReport.currentWorkloadByType.reduce((total, item) => total + item.count, 0))
+    .toBe(staffReport.currentWorkload.openJobCards
+      + staffReport.currentWorkload.waitingApproval
+      + staffReport.currentWorkload.revisionRequested);
 
   const inactiveReport = await service.getStaffReport(
     fixture.manager,
@@ -1035,6 +1052,10 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(inactiveReport.performance.completedJobs).toBe(0);
   expect(inactiveReport.performance.jobsPerCompletionDay).toBe(0);
   expect(inactiveReport.deliveriesByPurpose).toEqual([]);
+  expect(inactiveReport.staffSubmissionAttribution).toEqual({
+    recordedSubmissionCount: 1,
+    recordedSubmissionDays: 1,
+  });
 
   await expect(service.getStaffReport(
     fixture.manager,
@@ -1061,7 +1082,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(managerPerformance.priorRange).toEqual({
     from: '2026-05-31', to: '2026-06-30', timezone: 'Europe/Berlin',
   });
-  expect(managerPerformance.items).toHaveLength(1);
+  expect(managerPerformance.items).toHaveLength(2);
   expect(managerPerformance.items[0]).toEqual({
     staff: {
       userId: fixture.activeStaff.id,
@@ -1091,6 +1112,10 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       jobsPerStaffCompletionDay: 1.25,
       missingStaffCompletionTimestamp: 0,
     },
+    staffSubmissionAttribution: {
+      recordedSubmissionCount: 15,
+      recordedSubmissionDays: 7,
+    },
     onTime: {
       eligibleScheduledCompletedJobs: 3,
       onTimeCompletedJobs: 2,
@@ -1101,12 +1126,75 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     completionWorkTypes: [
       { type: 'PRODUCT_DELIVERY', count: 3 },
       { type: 'GENERAL_TASK', count: 2 },
+      { type: 'SALES_MEETING', count: 0 },
+    ],
+    currentWorkloadByType: [
+      { type: 'PRODUCT_DELIVERY', count: 9 },
+      { type: 'GENERAL_TASK', count: 9 },
+      { type: 'SALES_MEETING', count: 0 },
     ],
     currentWorkload: {
       openJobCards: 7,
       overdueJobCards: fixture.expected.overdueJobCards,
       waitingApproval: 9,
       revisionRequested: 2,
+    },
+  });
+  expect(managerPerformance.items[1]).toMatchObject({
+    staff: {
+      userId: fixture.inactiveStaff.id,
+      name: fixture.inactiveStaff.name,
+      isActive: false,
+    },
+    performance: {
+      completedJobs: 0,
+      completionDays: 0,
+      jobsPerCompletionDay: 0,
+      correctionRequestEvents: 0,
+      authoredOperationalNotes: 0,
+    },
+    priorPerformance: {
+      available: true,
+      performance: {
+        completedJobs: 0,
+        completionDays: 0,
+        jobsPerCompletionDay: 0,
+        correctionRequestEvents: 0,
+        authoredOperationalNotes: 0,
+      },
+    },
+    staffExecution: {
+      staffCompletedJobs: 0,
+      staffCompletionDays: 0,
+      jobsPerStaffCompletionDay: 0,
+      missingStaffCompletionTimestamp: 0,
+    },
+    staffSubmissionAttribution: {
+      recordedSubmissionCount: 1,
+      recordedSubmissionDays: 1,
+    },
+    onTime: {
+      eligibleScheduledCompletedJobs: 0,
+      onTimeCompletedJobs: 0,
+      lateCompletedJobs: 0,
+      ineligibleOrNoDeadlineCompletedJobs: 0,
+      onTimeRate: null,
+    },
+    completionWorkTypes: [
+      { type: 'PRODUCT_DELIVERY', count: 0 },
+      { type: 'GENERAL_TASK', count: 0 },
+      { type: 'SALES_MEETING', count: 0 },
+    ],
+    currentWorkloadByType: [
+      { type: 'PRODUCT_DELIVERY', count: 0 },
+      { type: 'GENERAL_TASK', count: 0 },
+      { type: 'SALES_MEETING', count: 0 },
+    ],
+    currentWorkload: {
+      openJobCards: 0,
+      overdueJobCards: 0,
+      waitingApproval: 0,
+      revisionRequested: 0,
     },
   });
 
@@ -1132,6 +1220,8 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(leapPerformance.items[0]?.performance.completedJobs).toBe(1);
   expect(leapPerformance.items[0]?.currentWorkload)
     .toEqual(managerPerformance.items[0]?.currentWorkload);
+  expect(leapPerformance.items[0]?.currentWorkloadByType)
+    .toEqual(managerPerformance.items[0]?.currentWorkloadByType);
 
   const deliveries = await reports.getDeliveryReport({
     organizationId: fixture.organizationOne,
@@ -1376,6 +1466,182 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
       await applyCurrentMigrations(pool);
       const fixture = await seedReportFixture(pool);
       await verifyReports(pool, fixture);
+    } finally {
+      await pool?.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
+
+  it('pre-aggregates execution cohorts and preserves actor attribution in PostgreSQL', async () => {
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `staff_execution_${randomUUID().replaceAll('-', '')}`;
+    let pool: Pool | null = null;
+    try {
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      await applyCurrentMigrations(pool);
+
+      const organizationId = (await pool.query<{ id: string }>(
+        `INSERT INTO organizations (name, timezone)
+         VALUES ('Staff Execution Contract', 'Europe/Istanbul')
+         RETURNING id`,
+      )).rows[0]!.id;
+
+      async function insertUser(
+        name: string,
+        role: SafeUser['role'],
+        isActive = true,
+      ) {
+        const user = toSafeUser((await pool!.query<{
+          id: string;
+          organization_id: string;
+          name: string;
+          email: string;
+          role: SafeUser['role'];
+          is_active: boolean;
+          version: number;
+        }>(
+          `INSERT INTO users (
+             organization_id, name, email, password_hash, role, is_active
+           ) VALUES ($1, $2, $3, 'test-hash', $4, $5)
+           RETURNING id, organization_id, name, email, role, is_active, version`,
+          [organizationId, name, `${randomUUID()}@test.local`, role, isActive],
+        )).rows[0]!);
+        if (role === 'STAFF') {
+          await pool!.query(
+            `INSERT INTO staff_profiles (organization_id, user_id, title)
+             VALUES ($1, $2, 'Field Staff')`,
+            [organizationId, user.id],
+          );
+        }
+        return user;
+      }
+
+      const manager = await insertUser('Execution Manager', 'MANAGER');
+      const staffA = await insertUser('Staff A', 'STAFF');
+      const staffB = await insertUser('Staff B', 'STAFF');
+      const inactiveStaff = await insertUser('Inactive Staff', 'STAFF', false);
+
+      // The current schema rejects COMPLETED rows without a Staff submission.
+      // This isolated fixture temporarily models legacy rows that predate that
+      // check so the SQL fan-out defense is exercised against the old shape.
+      await pool.query('ALTER TABLE job_cards DROP CONSTRAINT job_cards_check1');
+
+      async function insertCompletedJob(input: {
+        title: string;
+        assignedTo: string;
+        staffCompletedAt?: string | null;
+        staffCompletedBy?: string | null;
+        managerApprovedAt: string;
+      }) {
+        await pool!.query(
+          `INSERT INTO job_cards (
+             organization_id, type, status, title,
+             assigned_to, created_by,
+             started_at,
+             staff_completed_at, staff_completed_by,
+             manager_approved_at, manager_approved_by
+           ) VALUES (
+             $1, 'GENERAL_TASK', 'COMPLETED', $2,
+             $3, $4,
+             $7,
+             $5, $6,
+             $8, $4
+           )`,
+          [
+            organizationId,
+            input.title,
+            input.assignedTo,
+            manager.id,
+            input.staffCompletedAt ?? null,
+            input.staffCompletedBy ?? null,
+            input.managerApprovedAt,
+            input.managerApprovedAt,
+          ],
+        );
+      }
+
+      await insertCompletedJob({
+        title: 'A execution one',
+        assignedTo: staffA.id,
+        staffCompletedAt: '2026-07-10T08:00:00.000Z',
+        staffCompletedBy: staffA.id,
+        managerApprovedAt: '2026-07-10T12:00:00.000Z',
+      });
+      await insertCompletedJob({
+        title: 'A execution two',
+        assignedTo: staffA.id,
+        staffCompletedAt: '2026-07-11T08:00:00.000Z',
+        staffCompletedBy: staffA.id,
+        managerApprovedAt: '2026-07-11T12:00:00.000Z',
+      });
+      for (const [index, approvedAt] of [
+        '2026-07-12T12:00:00.000Z',
+        '2026-07-13T12:00:00.000Z',
+        '2026-07-14T12:00:00.000Z',
+      ].entries()) {
+        await insertCompletedJob({
+          title: `A approved without submission ${index + 1}`,
+          assignedTo: staffA.id,
+          managerApprovedAt: approvedAt,
+        });
+      }
+      await insertCompletedJob({
+        title: 'A submission reassigned to B',
+        assignedTo: staffB.id,
+        staffCompletedAt: '2026-07-15T08:00:00.000Z',
+        staffCompletedBy: staffA.id,
+        managerApprovedAt: '2026-07-15T12:00:00.000Z',
+      });
+
+      const reports = new PostgresReportsRepository(pool);
+      const service = new ReportsService(
+        reports,
+        reports,
+        () => new Date('2026-07-20T12:00:00.000Z'),
+      );
+      const performance = await service.getStaffPerformance(manager, {
+        requestedRange: { from: '2026-07-01', to: '2026-07-31' },
+      });
+      expect(performance.items).toHaveLength(3);
+
+      const staffAReport = performance.items.find(({ staff }) => staff.userId === staffA.id)!;
+      expect(staffAReport.performance.completedJobs).toBe(5);
+      expect(staffAReport.staffExecution).toEqual({
+        staffCompletedJobs: 2,
+        staffCompletionDays: 2,
+        jobsPerStaffCompletionDay: 1,
+        missingStaffCompletionTimestamp: 3,
+      });
+      expect(staffAReport.staffSubmissionAttribution).toEqual({
+        recordedSubmissionCount: 3,
+        recordedSubmissionDays: 3,
+      });
+      expect(staffAReport.completionWorkTypes).toEqual([
+        { type: 'PRODUCT_DELIVERY', count: 0 },
+        { type: 'GENERAL_TASK', count: 5 },
+        { type: 'SALES_MEETING', count: 0 },
+      ]);
+      expect(staffAReport.currentWorkloadByType).toEqual([
+        { type: 'PRODUCT_DELIVERY', count: 0 },
+        { type: 'GENERAL_TASK', count: 0 },
+        { type: 'SALES_MEETING', count: 0 },
+      ]);
+
+      const staffBReport = performance.items.find(({ staff }) => staff.userId === staffB.id)!;
+      expect(staffBReport.performance.completedJobs).toBe(1);
+      expect(staffBReport.staffSubmissionAttribution).toEqual({
+        recordedSubmissionCount: 0,
+        recordedSubmissionDays: 0,
+      });
+      const inactiveReport = performance.items.find(
+        ({ staff }) => staff.userId === inactiveStaff.id,
+      );
+      expect(inactiveReport?.staff.isActive).toBe(false);
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

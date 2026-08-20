@@ -18,6 +18,7 @@ type StaffSummaryRow = {
   revision_requested: string | number;
   overdue_job_cards: string | number;
   completed_in_period: string | number;
+  current_workload_by_type: Array<{ type: string; count: string | number }>;
 };
 
 function row(
@@ -34,6 +35,11 @@ function row(
     revision_requested: '0',
     overdue_job_cards: '0',
     completed_in_period: '0',
+    current_workload_by_type: [
+      { type: 'PRODUCT_DELIVERY', count: 0 },
+      { type: 'GENERAL_TASK', count: 0 },
+      { type: 'SALES_MEETING', count: 0 },
+    ],
     ...counters,
   };
 }
@@ -102,6 +108,11 @@ describe('PostgresReportsRepository Staff operational summaries', () => {
         overdueJobCards: 2,
         completedInPeriod: 5,
       },
+      currentWorkloadByType: [
+        { type: 'PRODUCT_DELIVERY', count: 0 },
+        { type: 'GENERAL_TASK', count: 0 },
+        { type: 'SALES_MEETING', count: 0 },
+      ],
     });
     expect(summaries.get(STAFF_TWO)?.counters).toEqual({
       openJobCards: 0,
@@ -110,6 +121,11 @@ describe('PostgresReportsRepository Staff operational summaries', () => {
       overdueJobCards: 0,
       completedInPeriod: 0,
     });
+    expect(summaries.get(STAFF_TWO)?.currentWorkloadByType).toEqual([
+      { type: 'PRODUCT_DELIVERY', count: 0 },
+      { type: 'GENERAL_TASK', count: 0 },
+      { type: 'SALES_MEETING', count: 0 },
+    ]);
     expect(summaries.has(UNKNOWN_STAFF)).toBe(false);
   });
 
