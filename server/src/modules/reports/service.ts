@@ -4,6 +4,7 @@ import type { ApprovalQueueItemPort, ReportsReadModel } from './ports.js';
 import { precedingEqualLengthRange, staffExistedDuringPriorRange } from './range.js';
 import type {
   ApprovalReportQuery,
+  CustomerReportQuery,
   DeliveryReportQuery,
   ReportRangeQuery,
   StaffCompletionPerformance,
@@ -307,6 +308,20 @@ export class ReportsService {
       limit: query.limit,
       offset: query.offset,
     };
+  }
+
+  async getCustomers(actor: SafeUser, query: CustomerReportQuery) {
+    requireManagement(actor);
+    return this.reports.getCustomerReport({
+      organizationId: actor.organizationId,
+      requestedRange: query.requestedRange,
+      requestTime: this.now(),
+      search: query.search,
+      status: query.status,
+      customerType: query.customerType,
+      limit: query.limit,
+      offset: query.offset,
+    });
   }
 
   private async staffReport(

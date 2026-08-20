@@ -2,6 +2,7 @@ import type { FastifyRequest } from 'fastify';
 
 import {
   parseApprovalReportQuery,
+  parseCustomerReportQuery,
   parseDashboardReportQuery,
   parseDeliveryReportQuery,
   parseStaffReportPathId,
@@ -41,6 +42,10 @@ export function createReportsHandlers(service: ReportsService) {
     getApprovals: (request: FastifyRequest) => service.getApprovals(
       request.currentUser!,
       parseApprovalReportQuery(request.query),
+    ),
+    getCustomers: (request: FastifyRequest) => service.getCustomers(
+      request.currentUser!,
+      parseCustomerReportQuery(request.query),
     ),
   };
 }

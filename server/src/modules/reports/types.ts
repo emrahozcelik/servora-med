@@ -1,3 +1,4 @@
+import type { Customer } from '../crm/types.js';
 import type {
   DeliveryPurpose,
   JobCardStatus,
@@ -303,3 +304,73 @@ export type WorkTypeDistributionInput = Readonly<{
   to: string;
   staffUserId: string | null;
 }>;
+
+/**
+ * Current customer association attribution: every metric is attributed to the
+ * JobCard's current customer_id at read time, never reconstructed from the
+ * activity log. A JobCard reassigned after creation keeps counting for its
+ * current customer only.
+ */
+export type CustomerReportReadInput = StaffOperationalSummaryScope & Readonly<{
+  search: string | null;
+  status: Customer['status'] | null;
+  customerType: Customer['customerType'] | null;
+  limit: number;
+  offset: number;
+}>;
+
+export type CustomerReportSnapshot = Readonly<{
+  active: number;
+  actionable: number;
+  waitingApproval: number;
+  revisionRequested: number;
+  overdue: number;
+}>;
+
+export type CustomerReportPeriod = Readonly<{
+  created: number;
+  createdWorkTypes: Readonly<{
+    PRODUCT_DELIVERY: number;
+    GENERAL_TASK: number;
+    SALES_MEETING: number;
+  }>;
+  managerApproved: number;
+  followUpChildren: number;
+}>;
+
+export type CustomerReportActivity = Readonly<{
+  snapshot: CustomerReportSnapshot;
+  period: CustomerReportPeriod;
+}>;
+
+export type CustomerReportItem = Readonly<{
+  customer: Pick<Customer, 'id' | 'name' | 'customerType' | 'status'>;
+  activity: CustomerReportActivity;
+}>;
+
+/**
+ * Reconciliation for JobCards whose current customer_id is NULL. Kept separate
+ * from paginated customer rows: never a customer row, never filtered by
+ * customer search/status/type, never paginated.
+ */
+export type CustomerReportUnassigned = Readonly<{
+  snapshot: CustomerReportSnapshot;
+  period: CustomerReportPeriod;
+}>;
+
+export type CustomerReportResponse = Readonly<{
+  range: ResolvedReportRange;
+  total: number;
+  limit: number;
+  offset: number;
+  items: CustomerReportItem[];
+  unassigned: CustomerReportUnassigned;
+}>;
+
+export type CustomerReportQuery = ReportRangeQuery & {
+  search: string | null;
+  status: Customer['status'] | null;
+  customerType: Customer['customerType'] | null;
+  limit: number;
+  offset: number;
+};

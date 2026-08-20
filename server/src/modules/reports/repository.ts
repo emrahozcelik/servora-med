@@ -8,6 +8,11 @@ import {
 import type { ReportsReadModel } from './ports.js';
 import type {
   ApprovalSummary,
+  CustomerReportActivity,
+  CustomerReportItem,
+  CustomerReportReadInput,
+  CustomerReportResponse,
+  CustomerReportUnassigned,
   DashboardReportResponse,
   DeliveryDayItem,
   DeliveryProductItem,
@@ -159,6 +164,26 @@ type ApprovalSummaryRow = {
   between_8_and_24_hours: string | number;
   over_24_hours: string | number;
 };
+
+type CustomerReportRow = {
+  id: string;
+  name: string;
+  customer_type: string;
+  status: string;
+  active: string | number;
+  actionable: string | number;
+  waiting_approval: string | number;
+  revision_requested: string | number;
+  overdue: string | number;
+  created: string | number;
+  created_product_delivery: string | number;
+  created_general_task: string | number;
+  created_sales_meeting: string | number;
+  manager_approved: string | number;
+  follow_up_children: string | number;
+};
+
+type CustomerReportUnassignedRow = Omit<CustomerReportRow, 'id' | 'name' | 'customer_type' | 'status'>;
 
 type DeliveryGroupDefinition = {
   select: string;
@@ -802,6 +827,117 @@ SELECT COUNT(*)::int AS pending_count,
   COUNT(*) FILTER (WHERE elapsed >= interval '24 hours')::int AS over_24_hours
 FROM waiting`;
 
+const CUSTOMER_REPORT_ACTIVITY_COLUMNS = `
+    COUNT(jc.id) FILTER (
+      WHERE jc.status IN (${ACTIVE_STATUS_LIST_SQL})
+    )::int AS active,
+    COUNT(jc.id) FILTER (
+      WHERE jc.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS')
+    )::int AS actionable,
+    COUNT(jc.id) FILTER (
+      WHERE jc.status = 'WAITING_APPROVAL'
+    )::int AS waiting_approval,
+    COUNT(jc.id) FILTER (
+      WHERE jc.status = 'REVISION_REQUESTED'
+    )::int AS revision_requested,
+    COUNT(jc.id) FILTER (
+      WHERE jc.status IN (${ACTIVE_STATUS_LIST_SQL})
+        AND jc.due_date IS NOT NULL
+        AND jc.due_date < ($4::timestamptz AT TIME ZONE organization_range.timezone)::date
+    )::int AS overdue,
+    COUNT(jc.id) FILTER (
+      WHERE jc.created_at >=
+        (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+        AND jc.created_at <
+        ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+    )::int AS created,
+    COUNT(jc.id) FILTER (
+      WHERE jc.created_at >=
+        (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+        AND jc.created_at <
+        ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+        AND jc.type = 'PRODUCT_DELIVERY'
+    )::int AS created_product_delivery,
+    COUNT(jc.id) FILTER (
+      WHERE jc.created_at >=
+        (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+        AND jc.created_at <
+        ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+        AND jc.type = 'GENERAL_TASK'
+    )::int AS created_general_task,
+    COUNT(jc.id) FILTER (
+      WHERE jc.created_at >=
+        (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+        AND jc.created_at <
+        ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+        AND jc.type = 'SALES_MEETING'
+    )::int AS created_sales_meeting,
+    COUNT(jc.id) FILTER (
+      WHERE jc.status = 'COMPLETED'
+        AND jc.manager_approved_at >=
+        (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+        AND jc.manager_approved_at <
+        ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+    )::int AS manager_approved,
+    COUNT(jc.id) FILTER (
+      WHERE jc.source_job_card_id IS NOT NULL
+        AND jc.created_at >=
+        (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
+        AND jc.created_at <
+        ((organization_range.to_date + 1)::timestamp AT TIME ZONE organization_range.timezone)
+    )::int AS follow_up_children`;
+
+const CUSTOMER_REPORT_COUNT_SQL = `SELECT COUNT(*)::int AS total
+FROM customers c
+WHERE c.organization_id = $1
+  AND ($2::text IS NULL OR c.name ILIKE $2 ESCAPE '\\')
+  AND ($3::text IS NULL OR c.status = $3)
+  AND ($4::text IS NULL OR c.customer_type = $4)`;
+
+const CUSTOMER_REPORT_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, customer_scope AS (
+  SELECT c.id, c.name, c.customer_type, c.status
+  FROM customers c
+  WHERE c.organization_id = $1
+    AND ($5::text IS NULL OR c.name ILIKE $5 ESCAPE '\\')
+    AND ($6::text IS NULL OR c.status = $6)
+    AND ($7::text IS NULL OR c.customer_type = $7)
+), customer_page AS (
+  SELECT customer_scope.*
+  FROM customer_scope
+  ORDER BY customer_scope.name COLLATE "C" ASC, customer_scope.id ASC
+  LIMIT $8
+  OFFSET $9
+), activity AS (
+  SELECT jc.customer_id,${CUSTOMER_REPORT_ACTIVITY_COLUMNS}
+  FROM job_cards jc
+  CROSS JOIN organization_range
+  WHERE jc.organization_id = $1
+  GROUP BY jc.customer_id
+)
+SELECT customer_page.id, customer_page.name, customer_page.customer_type,
+  customer_page.status,
+  COALESCE(activity.active, 0)::int AS active,
+  COALESCE(activity.actionable, 0)::int AS actionable,
+  COALESCE(activity.waiting_approval, 0)::int AS waiting_approval,
+  COALESCE(activity.revision_requested, 0)::int AS revision_requested,
+  COALESCE(activity.overdue, 0)::int AS overdue,
+  COALESCE(activity.created, 0)::int AS created,
+  COALESCE(activity.created_product_delivery, 0)::int AS created_product_delivery,
+  COALESCE(activity.created_general_task, 0)::int AS created_general_task,
+  COALESCE(activity.created_sales_meeting, 0)::int AS created_sales_meeting,
+  COALESCE(activity.manager_approved, 0)::int AS manager_approved,
+  COALESCE(activity.follow_up_children, 0)::int AS follow_up_children
+FROM customer_page
+LEFT JOIN activity ON activity.customer_id = customer_page.id
+ORDER BY customer_page.name COLLATE "C" ASC, customer_page.id ASC`;
+
+const CUSTOMER_REPORT_UNASSIGNED_SQL = `WITH ${ORGANIZATION_RANGE_CTE}
+SELECT${CUSTOMER_REPORT_ACTIVITY_COLUMNS}
+FROM job_cards jc
+CROSS JOIN organization_range
+WHERE jc.organization_id = $1
+  AND jc.customer_id IS NULL`;
+
 function deliveryGroupedSql(
   input: DeliveryReportReadInput,
   definition: DeliveryGroupDefinition,
@@ -898,6 +1034,56 @@ function mapApprovalSummary(row: ApprovalSummaryRow): ApprovalSummary {
     between8And24Hours: Number(row.between_8_and_24_hours),
     over24Hours: Number(row.over_24_hours),
   };
+}
+
+function mapCustomerReportActivity(row: {
+  active: string | number;
+  actionable: string | number;
+  waiting_approval: string | number;
+  revision_requested: string | number;
+  overdue: string | number;
+  created: string | number;
+  created_product_delivery: string | number;
+  created_general_task: string | number;
+  created_sales_meeting: string | number;
+  manager_approved: string | number;
+  follow_up_children: string | number;
+}): CustomerReportActivity {
+  return {
+    snapshot: {
+      active: Number(row.active),
+      actionable: Number(row.actionable),
+      waitingApproval: Number(row.waiting_approval),
+      revisionRequested: Number(row.revision_requested),
+      overdue: Number(row.overdue),
+    },
+    period: {
+      created: Number(row.created),
+      createdWorkTypes: {
+        PRODUCT_DELIVERY: Number(row.created_product_delivery),
+        GENERAL_TASK: Number(row.created_general_task),
+        SALES_MEETING: Number(row.created_sales_meeting),
+      },
+      managerApproved: Number(row.manager_approved),
+      followUpChildren: Number(row.follow_up_children),
+    },
+  };
+}
+
+function mapCustomerReportItem(row: CustomerReportRow): CustomerReportItem {
+  return {
+    customer: {
+      id: row.id,
+      name: row.name,
+      customerType: row.customer_type as CustomerReportItem['customer']['customerType'],
+      status: row.status as CustomerReportItem['customer']['status'],
+    },
+    activity: mapCustomerReportActivity(row),
+  };
+}
+
+function mapCustomerReportUnassigned(row: CustomerReportUnassignedRow): CustomerReportUnassigned {
+  return { ...mapCustomerReportActivity(row) };
 }
 
 function mapStaffSummary(row: StaffSummaryRow): StaffOperationalSummary {
@@ -1288,6 +1474,60 @@ OFFSET $${offsetParameter}`;
       type: row.type,
       count: parseInt(row.count, 10),
     }));
+  }
+
+  async getCustomerReport(input: CustomerReportReadInput): Promise<CustomerReportResponse> {
+    const rangeValues = [
+      input.organizationId,
+      input.requestedRange?.from ?? null,
+      input.requestedRange?.to ?? null,
+      input.requestTime,
+    ];
+    const rangeResult = await this.pool.query<ResolvedReportRangeRow>(
+      RESOLVED_REPORT_RANGE_SQL,
+      rangeValues,
+    );
+    const resolvedRange = rangeResult.rows[0];
+    if (!resolvedRange) {
+      throw new Error('Customer report organization range could not be resolved.');
+    }
+
+    const search = input.search?.replace(/[\\%_]/g, '\\$&') ?? null;
+    const searchPattern = search === null ? null : `%${search}%`;
+    const [countResult, pageResult, unassignedResult] = await Promise.all([
+      this.pool.query<{ total: string | number }>(CUSTOMER_REPORT_COUNT_SQL, [
+        input.organizationId,
+        searchPattern,
+        input.status,
+        input.customerType,
+      ]),
+      this.pool.query<CustomerReportRow>(CUSTOMER_REPORT_SQL, [
+        ...rangeValues,
+        searchPattern,
+        input.status,
+        input.customerType,
+        input.limit,
+        input.offset,
+      ]),
+      this.pool.query<CustomerReportUnassignedRow>(CUSTOMER_REPORT_UNASSIGNED_SQL, rangeValues),
+    ]);
+
+    const countRow = countResult.rows[0];
+    const unassignedRow = unassignedResult.rows[0];
+    if (!countRow) {
+      throw new Error('Customer report total count could not be resolved.');
+    }
+    if (!unassignedRow) {
+      throw new Error('Customer report unassigned reconciliation could not be resolved.');
+    }
+    return {
+      range: resolvedRange,
+      total: Number(countRow.total),
+      limit: input.limit,
+      offset: input.offset,
+      items: pageResult.rows.map(mapCustomerReportItem),
+      unassigned: mapCustomerReportUnassigned(unassignedRow),
+    };
   }
 
   private async getStaffGroupedCounts(
