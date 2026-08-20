@@ -333,6 +333,8 @@ export class ReportsService {
       requestTime: this.now(),
       limit: query.limit,
       offset: query.offset,
+      proposalLimit: query.proposalLimit,
+      proposalOffset: query.proposalOffset,
     });
   }
 

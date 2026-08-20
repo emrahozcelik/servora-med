@@ -193,7 +193,12 @@ function dependencies() {
           limit: input.limit,
           offset: input.offset,
         },
-        proposalQueue: { total: 0, items: [] },
+        proposalQueue: {
+          total: 0,
+          limit: input.proposalLimit,
+          offset: input.proposalOffset,
+          items: [],
+        },
         followUpChildren: {
           total: 0,
           statusDistribution: [
@@ -391,6 +396,7 @@ describe('Reports HTTP routes', () => {
     '/api/reports/approvals?offset=0&offset=1',
     '/api/reports/approvals?unknown=value',
     '/api/reports/sales-follow-up?limit=10&limit=20',
+    '/api/reports/sales-follow-up?proposalLimit=10&proposalLimit=20',
     '/api/reports/sales-follow-up?unknown=value',
   ])('rejects unknown or repeated scalar query before dispatch: %s', async (url) => {
     const { app, reports, approvalItems } = await createApp(actor('MANAGER'));
@@ -406,12 +412,13 @@ describe('Reports HTTP routes', () => {
     expect(approvalItems.getApprovalItems).not.toHaveBeenCalled();
   });
 
-  it('passes the parsed sales-follow-up range, limit and offset to the service', async () => {
+  it('passes the parsed sales-follow-up range, limits and offsets to the service', async () => {
     const { app, reports } = await createApp(actor('ADMIN'));
 
     const response = await app.inject({
       method: 'GET',
-      url: '/api/reports/sales-follow-up?from=2026-07-01&to=2026-07-31&limit=7&offset=14',
+      url: '/api/reports/sales-follow-up'
+        + '?from=2026-07-01&to=2026-07-31&limit=7&offset=14&proposalLimit=3&proposalOffset=6',
     });
 
     expect(response.statusCode).toBe(200);
@@ -421,10 +428,15 @@ describe('Reports HTTP routes', () => {
       requestTime,
       limit: 7,
       offset: 14,
+      proposalLimit: 3,
+      proposalOffset: 6,
     });
     expect(response.json()).toMatchObject({
       range: resolvedRange,
-      current: { salesMeetings: { limit: 7, offset: 14, total: 0, items: [] } },
+      current: {
+        salesMeetings: { limit: 7, offset: 14, total: 0, items: [] },
+        proposalQueue: { limit: 3, offset: 6, total: 0, items: [] },
+      },
       period: { salesMeetingsCreated: 0 },
       relationships: { directFollowUpLinks: 0, currentCustomerDivergence: 0 },
     });

@@ -15,7 +15,9 @@ const RANGE_KEYS = ['from', 'to'] as const;
 const DELIVERY_KEYS = ['from', 'to', 'groupBy', 'staffUserId', 'limit', 'offset'] as const;
 const APPROVAL_KEYS = ['limit', 'offset'] as const;
 const CUSTOMER_KEYS = ['from', 'to', 'search', 'status', 'type', 'limit', 'offset'] as const;
-const SALES_FOLLOW_UP_KEYS = ['from', 'to', 'limit', 'offset'] as const;
+const SALES_FOLLOW_UP_KEYS = [
+  'from', 'to', 'limit', 'offset', 'proposalLimit', 'proposalOffset',
+] as const;
 const DELIVERY_GROUPS = ['day', 'purpose', 'product', 'staff'] as const;
 const CUSTOMER_STATUSES = ['prospect', 'active', 'inactive'] as const;
 const CUSTOMER_TYPES = ['clinic', 'hospital', 'dealer', 'company', 'other'] as const;
@@ -176,6 +178,8 @@ export function parseSalesFollowUpReportQuery(raw: unknown): SalesFollowUpReport
     requestedRange: requestedRange(value),
     limit: integerQuery(value.limit, 'limit', 50, 1, 200),
     offset: integerQuery(value.offset, 'offset', 0, 0),
+    proposalLimit: integerQuery(value.proposalLimit, 'proposalLimit', 50, 1, 200),
+    proposalOffset: integerQuery(value.proposalOffset, 'proposalOffset', 0, 0),
   };
 }
 

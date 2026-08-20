@@ -235,6 +235,8 @@ async function readSalesFollowUp(
   organizationId: string,
   limit = 50,
   offset = 0,
+  proposalLimit = 50,
+  proposalOffset = 0,
 ) {
   const repository = new PostgresReportsRepository(pool);
   return repository.getSalesFollowUpReport({
@@ -243,6 +245,8 @@ async function readSalesFollowUp(
     requestTime,
     limit,
     offset,
+    proposalLimit,
+    proposalOffset,
   });
 }
 
@@ -631,6 +635,94 @@ describe.skipIf(!databaseUrl)('Reports R2D-1 sales and follow-up operational agg
           followUpProposalOrigin: 'STAFF_ADJUSTED',
         },
       ]);
+      expect(report.current.proposalQueue.limit).toBe(50);
+      expect(report.current.proposalQueue.offset).toBe(0);
+    } finally {
+      await pool?.end();
+      await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);
+      await adminPool.end();
+    }
+  });
+
+  it('paginates the proposal queue independently while count and page share the exact frozen predicate', async () => {
+    const adminPool = new Pool({ connectionString: databaseUrl });
+    const schema = `reports_r2d_${randomUUID().replaceAll('-', '')}`;
+    let pool: Pool | null = null;
+
+    try {
+      await adminPool.query(`CREATE SCHEMA ${schema}`);
+      pool = new Pool({
+        connectionString: databaseUrl,
+        options: `-c search_path=${schema},public`,
+      });
+      await applyMigrations(pool);
+
+      const organizationId = await insertOrganization(pool, 'R2D Berlin', 'Europe/Berlin');
+      const managerId = await insertUser(pool, organizationId, 'R2D Manager', 'MANAGER');
+      const staffOne = await insertUser(pool, organizationId, 'Staff One', 'STAFF');
+      const customerA = await insertCustomer(pool, organizationId, 'Clinic Alpha');
+
+      for (let i = 0; i < 55; i += 1) {
+        await insertJob({
+          pool, organizationId, type: 'SALES_MEETING', status: 'WAITING_APPROVAL',
+          title: `Proposal parent ${i}`, createdAt: '2026-07-01T08:00:00.000Z',
+          assignedTo: staffOne, createdBy: managerId, customerId: customerA,
+          proposal: {
+            at: new Date(Date.parse('2026-08-01T09:00:00.000Z') + i * 60_000).toISOString(),
+            type: 'SALES_MEETING',
+            assignee: staffOne,
+            instructions: 'Yeni takip görüşmesi planla',
+            origin: 'SYSTEM',
+            by: staffOne,
+          },
+        });
+      }
+      await insertJob({
+        pool, organizationId, type: 'SALES_MEETING', status: 'COMPLETED',
+        title: 'Completed with proposal never queued', createdAt: '2026-07-01T08:00:00.000Z',
+        assignedTo: staffOne, createdBy: managerId, customerId: customerA,
+        managerApprovedAt: '2026-07-02T09:00:00.000Z',
+        proposal: {
+          at: '2026-08-20T09:00:00.000Z',
+          type: 'SALES_MEETING',
+          assignee: staffOne,
+          instructions: 'Yeni takip görüşmesi planla',
+          origin: 'SYSTEM',
+          by: staffOne,
+        },
+      });
+      await insertJob({
+        pool, organizationId, type: 'SALES_MEETING', status: 'WAITING_APPROVAL',
+        title: 'Waiting without proposal never queued', createdAt: '2026-07-01T08:00:00.000Z',
+        assignedTo: staffOne, createdBy: managerId, customerId: customerA,
+      });
+
+      const middle = await readSalesFollowUp(pool, organizationId, 50, 0, 20, 40);
+
+      expect(middle.current.proposalQueue.total).toBe(55);
+      expect(middle.current.proposalQueue.limit).toBe(20);
+      expect(middle.current.proposalQueue.offset).toBe(40);
+      expect(middle.current.proposalQueue.items).toHaveLength(15);
+      expect(middle.current.proposalQueue.items[0]!.proposedFollowUpAt)
+        .toBe('2026-08-01T09:40:00.000Z');
+      expect(middle.current.proposalQueue.items.at(-1)!.proposedFollowUpAt)
+        .toBe('2026-08-01T09:54:00.000Z');
+
+      const beyond = await readSalesFollowUp(pool, organizationId, 50, 0, 20, 200);
+
+      expect(beyond.current.proposalQueue.total).toBe(55);
+      expect(beyond.current.proposalQueue.limit).toBe(20);
+      expect(beyond.current.proposalQueue.offset).toBe(200);
+      expect(beyond.current.proposalQueue.items).toEqual([]);
+
+      const defaults = await readSalesFollowUp(pool, organizationId);
+
+      expect(defaults.current.proposalQueue.total).toBe(55);
+      expect(defaults.current.proposalQueue.limit).toBe(50);
+      expect(defaults.current.proposalQueue.offset).toBe(0);
+      expect(defaults.current.proposalQueue.items).toHaveLength(50);
+      expect(defaults.current.proposalQueue.items[0]!.proposedFollowUpAt)
+        .toBe('2026-08-01T09:00:00.000Z');
     } finally {
       await pool?.end();
       await adminPool.query(`DROP SCHEMA IF EXISTS ${schema} CASCADE`);

@@ -197,7 +197,6 @@ type SalesFollowUpAggregateRow = {
   to_date: string;
   timezone: string;
   current_sales_meetings_total: string | number;
-  proposal_queue_total: string | number;
   active_children_total: string | number;
   overdue_due_dated_follow_up_children: string | number;
   sales_meetings_created: string | number;
@@ -1023,13 +1022,6 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
   WHERE jc.organization_id = $1
     AND jc.type = 'SALES_MEETING'
     AND jc.status IN (${ACTIVE_STATUS_LIST_SQL})
-), proposal_queue AS (
-  SELECT jc.id
-  FROM job_cards jc
-  WHERE jc.organization_id = $1
-    AND jc.type = 'SALES_MEETING'
-    AND jc.follow_up_proposed_at IS NOT NULL
-    AND jc.status IN ('WAITING_APPROVAL', 'REVISION_REQUESTED')
 ), follow_up_children AS (
   SELECT jc.id, jc.status, jc.type, jc.due_date, jc.customer_id,
     jc.created_at, parent.customer_id AS parent_customer_id
@@ -1136,7 +1128,6 @@ SELECT to_char(organization_range.from_date, 'YYYY-MM-DD') AS from_date,
   to_char(organization_range.to_date, 'YYYY-MM-DD') AS to_date,
   organization_range.timezone,
   (SELECT COUNT(*) FROM current_sales_meetings)::int AS current_sales_meetings_total,
-  (SELECT COUNT(*) FROM proposal_queue)::int AS proposal_queue_total,
   (SELECT COUNT(*) FROM active_children)::int AS active_children_total,
   (SELECT count FROM overdue_children)::int AS overdue_due_dated_follow_up_children,
   (SELECT count FROM period_created)::int AS sales_meetings_created,
@@ -1202,6 +1193,11 @@ WHERE jc.organization_id = $1
   AND jc.type = 'SALES_MEETING'
   AND jc.status IN (${ACTIVE_STATUS_LIST_SQL})`;
 
+const PROPOSAL_QUEUE_PREDICATE = `jc.organization_id = $1
+  AND jc.type = 'SALES_MEETING'
+  AND jc.follow_up_proposed_at IS NOT NULL
+  AND jc.status IN ('WAITING_APPROVAL', 'REVISION_REQUESTED')`;
+
 const PROPOSAL_QUEUE_SQL = `SELECT jc.id, jc.status, jc.follow_up_proposed_at,
   jc.follow_up_proposed_type, jc.follow_up_proposal_instructions,
   jc.follow_up_proposal_origin,
@@ -1215,12 +1211,14 @@ LEFT JOIN customers c ON c.organization_id = jc.organization_id
   AND c.id = jc.customer_id
 LEFT JOIN users pu ON pu.organization_id = jc.organization_id
   AND pu.id = jc.follow_up_proposed_assignee
-WHERE jc.organization_id = $1
-  AND jc.type = 'SALES_MEETING'
-  AND jc.follow_up_proposed_at IS NOT NULL
-  AND jc.status IN ('WAITING_APPROVAL', 'REVISION_REQUESTED')
+WHERE ${PROPOSAL_QUEUE_PREDICATE}
 ORDER BY jc.follow_up_proposed_at ASC NULLS LAST, jc.id ASC
-LIMIT 50`;
+LIMIT $2
+OFFSET $3`;
+
+const PROPOSAL_QUEUE_COUNT_SQL = `SELECT COUNT(*)::int AS total
+FROM job_cards jc
+WHERE ${PROPOSAL_QUEUE_PREDICATE}`;
 
 function deliveryGroupedSql(
   input: DeliveryReportReadInput,
@@ -1396,10 +1394,6 @@ function mapSalesFollowUpAggregate(row: SalesFollowUpAggregateRow) {
         items: [],
         limit: 0,
         offset: 0,
-      },
-      proposalQueue: {
-        total: Number(row.proposal_queue_total),
-        items: [],
       },
       followUpChildren: {
         total: Number(row.active_children_total),
@@ -1920,7 +1914,8 @@ OFFSET $${offsetParameter}`;
     if (!resolvedRange) {
       throw new Error('Sales follow-up report organization range could not be resolved.');
     }
-    const [aggregateResult, queueCountResult, queuePageResult, proposalQueueResult]
+    const [aggregateResult, queueCountResult, queuePageResult, proposalCountResult,
+      proposalQueueResult]
       = await Promise.all([
         this.pool.query<SalesFollowUpAggregateRow>(
           SALES_FOLLOW_UP_AGGREGATE_SQL,
@@ -1934,8 +1929,13 @@ OFFSET $${offsetParameter}`;
           input.limit,
           input.offset,
         ]),
+        this.pool.query<{ total: string | number }>(PROPOSAL_QUEUE_COUNT_SQL, [
+          input.organizationId,
+        ]),
         this.pool.query<ProposalQueueRow>(PROPOSAL_QUEUE_SQL, [
           input.organizationId,
+          input.proposalLimit,
+          input.proposalOffset,
         ]),
       ]);
     const aggregateRow = aggregateResult.rows[0];
@@ -1945,6 +1945,10 @@ OFFSET $${offsetParameter}`;
     const queueCountRow = queueCountResult.rows[0];
     if (!queueCountRow) {
       throw new Error('Sales follow-up queue count could not be resolved.');
+    }
+    const proposalCountRow = proposalCountResult.rows[0];
+    if (!proposalCountRow) {
+      throw new Error('Sales follow-up proposal queue count could not be resolved.');
     }
     const aggregate = mapSalesFollowUpAggregate(aggregateRow);
     return {
@@ -1959,7 +1963,9 @@ OFFSET $${offsetParameter}`;
           offset: input.offset,
         },
         proposalQueue: {
-          total: aggregate.current.proposalQueue.total,
+          total: Number(proposalCountRow.total),
+          limit: input.proposalLimit,
+          offset: input.proposalOffset,
           items: proposalQueueResult.rows.map(mapProposalQueueRow),
         },
       },

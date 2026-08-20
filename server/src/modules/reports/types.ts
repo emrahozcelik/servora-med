@@ -436,7 +436,10 @@ export type SalesFollowUpCurrent = Readonly<{
     offset: number;
   }>;
   proposalQueue: Readonly<{
+    /** Organization-wide matching proposal total, independent of pagination. */
     total: number;
+    limit: number;
+    offset: number;
     items: ProposalQueueItem[];
   }>;
   followUpChildren: Readonly<{
@@ -474,6 +477,8 @@ export type SalesFollowUpReportResponse = Readonly<{
 export type SalesFollowUpReportQuery = ReportRangeQuery & {
   limit: number;
   offset: number;
+  proposalLimit: number;
+  proposalOffset: number;
 };
 
 export type SalesFollowUpReportReadInput = StaffOperationalSummaryScope
