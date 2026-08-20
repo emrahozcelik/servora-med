@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { CustomerReport, CustomerReportView } from '../src/reports/CustomerReport';
 import { getCustomerReport } from '../src/reports/reports-api';
+import { resolveDatePreset } from '../src/reports/report-range';
 import type { CustomerReportResponse } from '../src/reports/report-types';
 
 vi.mock('../src/reports/reports-api', async (importOriginal) => ({
@@ -272,5 +273,61 @@ describe('Customer report screen', () => {
     const [previous, next] = pagination.querySelectorAll('button');
     expect((previous as HTMLButtonElement).disabled).toBe(true);
     expect((next as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  it('renders the shared date presets disabled until the organization timezone resolves', async () => {
+    vi.mocked(getCustomerReport).mockReturnValue(new Promise<never>(() => {}));
+    await render('/reports/customers?from=2026-07-01&to=2026-07-31&offset=0');
+    const presets = [...container.querySelectorAll<HTMLButtonElement>('.report-preset-button')]
+      .map((button) => button.textContent);
+    expect(presets).toEqual(['Bugün', 'Son 7 gün', 'Son 30 gün', 'Bu ay']);
+    for (const button of container.querySelectorAll<HTMLButtonElement>('.report-preset-button')) {
+      expect(button.disabled).toBe(true);
+    }
+  });
+
+  it('applies a preset with the resolved timezone, preserving filters and resetting the offset', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-07-15T10:00:00.000Z'));
+    try {
+      vi.mocked(getCustomerReport).mockResolvedValue(baseReport());
+      function Location() { return <output data-location>{useLocation().search}</output>; }
+      await act(async () => {
+        root.render(
+          <MemoryRouter initialEntries={['/reports/customers?from=2026-07-01&to=2026-07-31&search=Klinik&status=active&customerType=clinic&offset=50']}>
+            <CustomerReport />
+            <Location />
+          </MemoryRouter>,
+        );
+      });
+      await act(async () => { await Promise.resolve(); });
+
+      const presets = [...container.querySelectorAll<HTMLButtonElement>('.report-preset-button')]
+        .map((button) => button.textContent);
+      expect(presets).toEqual(['Bugün', 'Son 7 gün', 'Son 30 gün', 'Bu ay']);
+      for (const button of container.querySelectorAll<HTMLButtonElement>('.report-preset-button')) {
+        expect(button.disabled).toBe(false);
+      }
+
+      const last7 = [...container.querySelectorAll<HTMLButtonElement>('.report-preset-button')]
+        .find((button) => button.textContent === 'Son 7 gün')!;
+      const expected = resolveDatePreset('last7', 'Europe/Istanbul',
+        new Date('2026-07-15T10:00:00.000Z'));
+      vi.mocked(getCustomerReport).mockClear();
+      await act(async () => {
+        last7.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(container.querySelector('[data-location]')?.textContent).toBe(
+        `?from=${expected.from}&to=${expected.to}&search=Klinik&status=active&customerType=clinic&offset=0`,
+      );
+      expect(getCustomerReport).toHaveBeenLastCalledWith(expect.objectContaining({
+        search: 'Klinik', status: 'active', customerType: 'clinic',
+        requestedRange: { from: expected.from, to: expected.to }, offset: 0,
+      }));
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

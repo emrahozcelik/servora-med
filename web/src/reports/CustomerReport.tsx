@@ -11,7 +11,7 @@ import {
   CUSTOMER_TYPES,
 } from '../services/crm-api';
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
-import { formatRefreshTime } from './report-range';
+import { formatRefreshTime, resolveDatePreset, type ReportDatePreset } from './report-range';
 import { getCustomerReport } from './reports-api';
 import { customerSearch, readCustomerSearch, validateRequestedRange } from './report-search';
 import type { CustomerReportResponse, CustomerReportSnapshot } from './report-types';
@@ -243,6 +243,20 @@ export function CustomerReport() {
     }));
   }
 
+  function applyPreset(preset: ReportDatePreset) {
+    if (!resolvedTimezone) return;
+    const range = resolveDatePreset(preset, resolvedTimezone);
+    setFormError('');
+    setSearch(customerSearch({
+      ...range,
+      search: state.search,
+      status: state.status,
+      customerType: state.customerType,
+      offset: 0,
+      canonical: true,
+    }));
+  }
+
   function resetFilters() {
     setFormError('');
     setSearch(customerSearch({
@@ -282,6 +296,8 @@ export function CustomerReport() {
         filterError={formError}
         errorRef={errorRef}
         onSubmit={submit}
+        onPreset={applyPreset}
+        presetsDisabled={!resolvedTimezone}
         wide
         formClass="report-filters-wide--customer"
       >
@@ -327,7 +343,7 @@ export function CustomerReport() {
         recovery ? (
           <section className="report-customer-recovery" role="status">
             <h2>Bu sayfada gösterilecek kayıt kalmadı.</h2>
-            <p>Daha yeni kayıtlar olduğu için sayfa boş görünüyor.</p>
+            <p>Bu sayfada artık gösterilecek kayıt bulunmuyor.</p>
             <button
               type="button"
               className="secondary-button"
