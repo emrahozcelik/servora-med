@@ -28,6 +28,8 @@ export function reportSectionHref(
       ? paths.staffPerformanceReports
       : section === 'customers'
         ? paths.customerReports
-        : paths.deliveryReports;
+        : section === 'salesFollowUp'
+          ? paths.salesFollowUpReports
+          : paths.deliveryReports;
   return query ? `${base}?${query}` : base;
 }

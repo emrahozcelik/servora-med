@@ -28,6 +28,13 @@ export type CustomerReportUrlState = {
   offset: number;
   canonical: boolean;
 };
+export type SalesFollowUpUrlState = {
+  from: string | null;
+  to: string | null;
+  offset: number;
+  proposalOffset: number;
+  canonical: boolean;
+};
 
 function strictDate(value: string) {
   if (!DATE_PATTERN.test(value)) return false;
@@ -160,4 +167,30 @@ export function readCustomerSearch(search: URLSearchParams): CustomerReportUrlSt
     canonical: true,
   };
   return { ...state, canonical: same(search, customerSearch(state)) };
+}
+
+function salesFollowUpOffset(search: URLSearchParams, key: string) {
+  if (!search.has(key)) return 0;
+  const value = once(search, key);
+  if (value === null || !/^\d+$/.test(value)) return 0;
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) ? parsed : 0;
+}
+
+export function salesFollowUpSearch(state: SalesFollowUpUrlState) {
+  const search = dashboardSearch(state);
+  if (state.offset !== 0) search.set('offset', String(state.offset));
+  if (state.proposalOffset !== 0) search.set('proposalOffset', String(state.proposalOffset));
+  return search;
+}
+
+export function readSalesFollowUpSearch(search: URLSearchParams): SalesFollowUpUrlState {
+  const range = readRange(search);
+  const state = {
+    ...range,
+    offset: salesFollowUpOffset(search, 'offset'),
+    proposalOffset: salesFollowUpOffset(search, 'proposalOffset'),
+    canonical: true,
+  };
+  return { ...state, canonical: same(search, salesFollowUpSearch(state)) };
 }

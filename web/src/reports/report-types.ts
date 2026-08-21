@@ -238,3 +238,87 @@ export type CustomerReportRequest = {
   limit?: number;
   offset?: number;
 };
+
+export type SalesFollowUpStatusDistributionItem = {
+  status: JobCardStatus;
+  count: number;
+};
+
+export type SalesFollowUpTypeDistributionItem = {
+  type: JobCardType;
+  count: number;
+};
+
+export type SalesFollowUpReportAssignee = {
+  userId: string;
+  name: string;
+};
+
+export type SalesFollowUpReportCustomer = {
+  id: string;
+  name: string;
+};
+
+export type SalesFollowUpQueueItem = {
+  id: string;
+  status: JobCardStatus;
+  scheduledAt: string | null;
+  customer: SalesFollowUpReportCustomer | null;
+  assignee: SalesFollowUpReportAssignee;
+};
+
+export type SalesFollowUpProposalQueueItem = {
+  id: string;
+  status: JobCardStatus;
+  customer: SalesFollowUpReportCustomer | null;
+  assignee: SalesFollowUpReportAssignee;
+  followUpProposedType: JobCardType | null;
+  followUpProposedAssignee: SalesFollowUpReportAssignee | null;
+  followUpProposalInstructions: string | null;
+  proposedFollowUpAt: string | null;
+  followUpProposalOrigin: 'SYSTEM' | 'STAFF_ADJUSTED' | null;
+};
+
+export type SalesFollowUpReportResponse = {
+  range: ResolvedReportRange;
+  current: {
+    salesMeetings: {
+      total: number;
+      statusDistribution: SalesFollowUpStatusDistributionItem[];
+      items: SalesFollowUpQueueItem[];
+      limit: number;
+      offset: number;
+    };
+    proposalQueue: {
+      total: number;
+      limit: number;
+      offset: number;
+      items: SalesFollowUpProposalQueueItem[];
+    };
+    followUpChildren: {
+      total: number;
+      statusDistribution: SalesFollowUpStatusDistributionItem[];
+      typeDistribution: SalesFollowUpTypeDistributionItem[];
+      overdueDueDatedFollowUpChildren: number;
+    };
+  };
+  period: {
+    salesMeetingsCreated: number;
+    salesMeetingsManagerApproved: number;
+    meetingOutcomeDistribution: Array<{ outcome: MeetingOutcome; count: number }>;
+    followUpChildrenCreated: number;
+    followUpChildrenCreatedByType: SalesFollowUpTypeDistributionItem[];
+  };
+  relationships: {
+    directFollowUpLinks: number;
+    currentCustomerDivergence: number;
+  };
+};
+
+export type SalesFollowUpReportRequest = {
+  requestedRange: RequestedReportRange;
+  limit: number;
+  offset: number;
+  proposalLimit: number;
+  proposalOffset: number;
+};
