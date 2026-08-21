@@ -757,13 +757,16 @@ export const getDeliveryReport = async (input: DeliveryReportRequest) => parseDe
 );
 export const getApprovalReport = async (page: { limit?: number; offset?: number } = {}) =>
   parseApprovalReport(await request(`/api/reports/approvals${query(page)}`));
-export const getCustomerReport = async (input: CustomerReportRequest) => parseCustomerReport(
-  await request(`/api/reports/customers${query({
-    ...rangeQuery(input.requestedRange), search: input.search,
-    status: input.status, type: input.customerType,
-    limit: input.limit, offset: input.offset,
-  })}`),
-);
+export const getCustomerReport = async (input: CustomerReportRequest) => {
+  const normalizedSearch = input.search?.trim();
+  return parseCustomerReport(
+    await request(`/api/reports/customers${query({
+      ...rangeQuery(input.requestedRange), search: normalizedSearch || undefined,
+      status: input.status, type: input.customerType,
+      limit: input.limit, offset: input.offset,
+    })}`),
+  );
+};
 export const getSalesFollowUpReport = async (input: SalesFollowUpReportRequest) => parseSalesFollowUpReport(
   await request(`/api/reports/sales-follow-up${query({
     ...rangeQuery(input.requestedRange),

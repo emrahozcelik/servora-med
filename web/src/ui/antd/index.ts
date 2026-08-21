@@ -57,3 +57,5 @@ export { StaffPerformanceTable } from './StaffPerformanceTable';
 export type { StaffPerformanceTableRecord } from './StaffPerformanceTable';
 export { ServoraPagination } from './ServoraPagination';
 export type { ServoraPaginationProps } from './ServoraPagination';
+export { ServoraTable } from './ServoraTable';
+export type { ServoraTableProps, ServoraTableColumnsType } from './ServoraTable';

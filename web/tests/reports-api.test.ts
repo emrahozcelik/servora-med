@@ -395,4 +395,34 @@ describe('Customer report runtime contract', () => {
       '/api/reports/customers?search=Klinik&status=active&type=clinic&limit=25&offset=10',
     ]);
   });
+
+  it('omits empty and whitespace-only search, trims real search', async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(response(base()))
+      .mockResolvedValueOnce(response(base()))
+      .mockResolvedValueOnce(response(base()))
+      .mockResolvedValueOnce(response(base()));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await getCustomerReport({ search: '', status: null, customerType: null, requestedRange: null, limit: 50, offset: 0 });
+    await getCustomerReport({ search: '   ', status: null, customerType: null, requestedRange: null, limit: 50, offset: 0 });
+    await getCustomerReport({ search: ' RT3 ', status: null, customerType: null, requestedRange: null, limit: 50, offset: 0 });
+    await getCustomerReport({ search: 'RT3', status: null, customerType: null, requestedRange: null, limit: 50, offset: 0 });
+
+    const urls = fetchMock.mock.calls.map(([url]) => url as string);
+    expect(urls[0]).not.toContain('search=');
+    expect(urls[1]).not.toContain('search=');
+    expect(urls[2]).toContain('search=RT3');
+    expect(urls[2]).not.toContain('search=%20');
+    expect(urls[3]).toContain('search=RT3');
+  });
+
+  it('maps customerType to type and never sends customerType', async () => {
+    const fetchMock = vi.fn().mockResolvedValueOnce(response(base()));
+    vi.stubGlobal('fetch', fetchMock);
+    await getCustomerReport({ search: null as unknown as string, status: null, customerType: 'hospital', requestedRange: null, limit: 50, offset: 0 });
+    const url = fetchMock.mock.calls[0][0] as string;
+    expect(url).toContain('type=hospital');
+    expect(url).not.toContain('customerType=');
+  });
 });
