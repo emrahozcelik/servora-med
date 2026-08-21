@@ -14,6 +14,8 @@ import {
   validateRequestedRange,
 } from './report-search';
 import type { SalesFollowUpReportResponse } from './report-types';
+import { ServoraPagination } from '../ui/antd';
+
 import { SegmentedDistributionBar, IndependentMeterBars } from './report-charts';
 import {
   ReportDateRangeForm,
@@ -255,22 +257,15 @@ export function SalesFollowUpReportView({
                 </li>
               ))}
             </ul>
-            <div className="report-pagination report-pagination--wrap" data-pager="sales-meeting">
-              <button
-                type="button"
-                disabled={offset === 0}
-                onClick={() => onSalesMeetingPage(Math.max(0, offset - report.current.salesMeetings.limit))}
-              >
-                Önceki
-              </button>
-              <span>{report.current.salesMeetings.total} kayıt</span>
-              <button
-                type="button"
-                disabled={offset + report.current.salesMeetings.limit >= report.current.salesMeetings.total}
-                onClick={() => onSalesMeetingPage(offset + report.current.salesMeetings.limit)}
-              >
-                Sonraki
-              </button>
+            <div data-pager="sales-meeting">
+              <ServoraPagination
+                current={Math.floor(offset / 10) + 1}
+                pageSize={10}
+                total={report.current.salesMeetings.total}
+                onChange={(page) => onSalesMeetingPage((page - 1) * 10)}
+                showSizeChanger={false}
+                aria-label="Satış görüşmesi kuyruğu sayfalama"
+              />
             </div>
           </>
         )}
@@ -335,22 +330,15 @@ export function SalesFollowUpReportView({
                 </li>
               ))}
             </ul>
-            <div className="report-pagination report-pagination--wrap" data-pager="proposal">
-              <button
-                type="button"
-                disabled={proposalOffset === 0}
-                onClick={() => onProposalPage(Math.max(0, proposalOffset - report.current.proposalQueue.limit))}
-              >
-                Önceki
-              </button>
-              <span>{report.current.proposalQueue.total} kayıt</span>
-              <button
-                type="button"
-                disabled={proposalOffset + report.current.proposalQueue.limit >= report.current.proposalQueue.total}
-                onClick={() => onProposalPage(proposalOffset + report.current.proposalQueue.limit)}
-              >
-                Sonraki
-              </button>
+            <div data-pager="proposal">
+              <ServoraPagination
+                current={Math.floor(proposalOffset / 10) + 1}
+                pageSize={10}
+                total={report.current.proposalQueue.total}
+                onChange={(page) => onProposalPage((page - 1) * 10)}
+                showSizeChanger={false}
+                aria-label="Öneri kuyruğu sayfalama"
+              />
             </div>
           </>
         )}
@@ -386,9 +374,9 @@ export function SalesFollowUpReport() {
     try {
       const next = await getSalesFollowUpReport({
         requestedRange: from && to ? { from, to } : null,
-        limit: 50,
+        limit: 10,
         offset,
-        proposalLimit: 50,
+        proposalLimit: 10,
         proposalOffset,
       });
       if (requestId !== requestSequence.current) return;

@@ -760,7 +760,7 @@ export const getApprovalReport = async (page: { limit?: number; offset?: number 
 export const getCustomerReport = async (input: CustomerReportRequest) => parseCustomerReport(
   await request(`/api/reports/customers${query({
     ...rangeQuery(input.requestedRange), search: input.search,
-    status: input.status, customerType: input.customerType,
+    status: input.status, type: input.customerType,
     limit: input.limit, offset: input.offset,
   })}`),
 );

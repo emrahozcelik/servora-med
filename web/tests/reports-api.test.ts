@@ -392,7 +392,7 @@ describe('Customer report runtime contract', () => {
     await getCustomerReport({ search: 'Klinik', status: 'active', customerType: 'clinic',
       requestedRange: null, limit: 25, offset: 10 });
     expect(fetchMock.mock.calls.map(([url]) => url)).toEqual([
-      '/api/reports/customers?search=Klinik&status=active&customerType=clinic&limit=25&offset=10',
+      '/api/reports/customers?search=Klinik&status=active&type=clinic&limit=25&offset=10',
     ]);
   });
 });
