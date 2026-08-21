@@ -415,3 +415,101 @@ describe('Sales follow-up route authorization', () => {
     expect(html).toContain('Erişim yetkiniz yok');
   });
 });
+
+describe('Sales follow-up timezone presentation', () => {
+  it('renders scheduledAt in organization timezone, crossing day boundary', () => {
+    const reportWithIstanbul: SalesFollowUpReportResponse = {
+      ...baseReport,
+      range: { from: '2026-08-01', to: '2026-08-31', timezone: 'Europe/Istanbul' },
+      current: {
+        ...baseReport.current,
+        salesMeetings: {
+          ...baseReport.current.salesMeetings,
+          items: [
+            {
+              id: 'job-tz',
+              status: 'IN_PROGRESS',
+              scheduledAt: '2026-08-10T22:30:00.000Z',
+              customer: { id: 'c1', name: 'DentArt Klinik' },
+              assignee: { userId: 'u1', name: 'Ayşe Demir' },
+            },
+          ],
+          total: 1,
+        },
+        proposalQueue: {
+          ...baseReport.current.proposalQueue,
+          total: 0,
+          limit: 50,
+          offset: 0,
+          items: [],
+        },
+      },
+    };
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <SalesFollowUpReportView report={reportWithIstanbul} offset={0} proposalOffset={0} onSalesMeetingPage={() => {}} onProposalPage={() => {}} />
+      </MemoryRouter>,
+    );
+    // 2026-08-10T22:30:00Z = 2026-08-11 01:30 in Europe/Istanbul (UTC+3)
+    // UTC would be 10 Ağu; org timezone must show 11 Ağu
+    expect(html).toContain('11 Ağu');
+    const salesQueueSection = html.split('Satış görüşmesi kuyruğu')[1]?.split('Onay / revizyon')[0] ?? '';
+    expect(salesQueueSection).toContain('11 Ağu');
+    expect(salesQueueSection).not.toContain('10 Ağu');
+  });
+
+  it('renders proposedFollowUpAt in organization timezone, crossing midnight', () => {
+    const reportWithIstanbul: SalesFollowUpReportResponse = {
+      ...baseReport,
+      range: { from: '2026-08-01', to: '2026-08-31', timezone: 'Europe/Istanbul' },
+      current: {
+        ...baseReport.current,
+        salesMeetings: {
+          ...baseReport.current.salesMeetings,
+          total: 0,
+          statusDistribution: baseReport.current.salesMeetings.statusDistribution,
+          items: [],
+          limit: 50,
+          offset: 0,
+        },
+        proposalQueue: {
+          ...baseReport.current.proposalQueue,
+          total: 1,
+          items: [
+            {
+              id: 'job-tz-prop',
+              status: 'WAITING_APPROVAL',
+              customer: { id: 'c1', name: 'DentArt Klinik' },
+              assignee: { userId: 'u1', name: 'Ayşe Demir' },
+              followUpProposedType: 'SALES_MEETING',
+              followUpProposedAssignee: null,
+              followUpProposalInstructions: null,
+              proposedFollowUpAt: '2026-08-10T21:30:00.000Z',
+              followUpProposalOrigin: 'SYSTEM',
+            },
+          ],
+        },
+      },
+    };
+    const html = renderToStaticMarkup(
+      <MemoryRouter>
+        <SalesFollowUpReportView report={reportWithIstanbul} offset={0} proposalOffset={0} onSalesMeetingPage={() => {}} onProposalPage={() => {}} />
+      </MemoryRouter>,
+    );
+    // 2026-08-10T21:30:00Z = 2026-08-11 00:30 in Europe/Istanbul
+    expect(html).toContain('11 Ağu');
+    expect(html).toContain('00:30');
+    const proposalSection = html.split('Onay / revizyon')[1] ?? '';
+    expect(proposalSection).toContain('11 Ağu');
+    expect(proposalSection).toContain('00:30');
+  });
+
+  it('formatters use organization timezone, not UTC', async () => {
+    const { formatScheduledAt, formatProposedAt } = await import('../src/reports/SalesFollowUpReport');
+    // UTC would be 10 Aug, Istanbul is 11 Aug
+    expect(formatScheduledAt('2026-08-10T22:30:00.000Z', 'Europe/Istanbul')).toContain('11');
+    expect(formatScheduledAt('2026-08-10T22:30:00.000Z', 'UTC')).toContain('10');
+    expect(formatProposedAt('2026-08-10T21:30:00.000Z', 'Europe/Istanbul')).toContain('11');
+    expect(formatProposedAt('2026-08-10T21:30:00.000Z', 'Europe/Istanbul')).toContain('00:30');
+  });
+});

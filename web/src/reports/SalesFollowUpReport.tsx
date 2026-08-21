@@ -51,17 +51,17 @@ function formatDate(value: string) {
   }).format(new Date(`${value}T00:00:00Z`));
 }
 
-function formatScheduledAt(value: string | null) {
+export function formatScheduledAt(value: string | null, timeZone: string) {
   if (value === null) return 'Planlanmadı';
   return new Intl.DateTimeFormat('tr-TR', {
     day: 'numeric',
     month: 'short',
     year: 'numeric',
-    timeZone: 'UTC',
+    timeZone,
   }).format(new Date(value));
 }
 
-function formatProposedAt(value: string | null) {
+export function formatProposedAt(value: string | null, timeZone: string) {
   if (value === null) return 'Önerilen tarih belirtilmedi';
   return new Intl.DateTimeFormat('tr-TR', {
     day: 'numeric',
@@ -69,7 +69,7 @@ function formatProposedAt(value: string | null) {
     year: 'numeric',
     hour: '2-digit',
     minute: '2-digit',
-    timeZone: 'UTC',
+    timeZone,
   }).format(new Date(value));
 }
 
@@ -238,7 +238,7 @@ export function SalesFollowUpReportView({
                   <dl className="report-sales-queue-facts">
                     <div>
                       <dt>Planlanan tarih</dt>
-                      <dd>{formatScheduledAt(item.scheduledAt)}</dd>
+                      <dd>{formatScheduledAt(item.scheduledAt, report.range.timezone)}</dd>
                     </div>
                     <div>
                       <dt>Atanan personel</dt>
@@ -315,7 +315,7 @@ export function SalesFollowUpReportView({
                     </div>
                     <div>
                       <dt>Önerilen takip tarihi</dt>
-                      <dd>{formatProposedAt(item.proposedFollowUpAt)}</dd>
+                      <dd>{formatProposedAt(item.proposedFollowUpAt, report.range.timezone)}</dd>
                     </div>
                     <div>
                       <dt>Önerilen tür</dt>
