@@ -277,11 +277,13 @@ describe('Sales follow-up presentation', () => {
     expect(viewMarkup(nullDate)).toContain('Önerilen tarih belirtilmedi');
   });
 
-  it('exposes proposal instructions via accessible disclosure', () => {
+  it('exposes proposal instructions via expandable row', () => {
     const html = viewMarkup(baseReport);
-    expect(html).toContain('<details');
-    expect(html).toContain('<summary>Öneri notu</summary>');
-    expect(html).toContain('Hastayı arayın');
+    expect(html).toContain('ant-table-row-expand-icon');
+    expect(html).toContain('ant-table-expand-icon-col');
+    // Instructions are in expandable row, not as a permanent wide table column or details
+    expect(html).not.toContain('<details');
+    expect(html).not.toContain('Öneri notu');
   });
 
   it('keeps two pagers independent', () => {

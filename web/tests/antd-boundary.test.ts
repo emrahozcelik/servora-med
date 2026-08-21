@@ -61,7 +61,7 @@ describe('Ant Design ownership boundary', () => {
 
   it('keeps detail primitives inside their matching owned adapters', async () => {
     const boundaryFiles = await listSourceFiles(ownedBoundaryRoot);
-    const owners = {
+    const owners: Record<string, string | string[]> = {
       Steps: 'WorkflowSteps.tsx',
       Descriptions: 'RecordDescriptions.tsx',
       Timeline: 'ActivityTimeline.tsx',
@@ -76,10 +76,10 @@ describe('Ant Design ownership boundary', () => {
       Collapse: 'ContentCollapse.tsx',
       Anchor: 'ContentAnchor.tsx',
       Tabs: 'SettingsTabs.tsx',
-      Table: 'StaffPerformanceTable.tsx',
+      Table: ['StaffPerformanceTable.tsx', 'ServoraTable.tsx'],
       Tag: 'StaffPerformanceTable.tsx',
       Tooltip: 'StaffPerformanceTable.tsx',
-    } as const;
+    };
     const violations: string[] = [];
     const imports = new Map<string, string[]>();
 
@@ -90,7 +90,8 @@ describe('Ant Design ownership boundary', () => {
         if (directImport.test(source)) {
           const filename = path.split(sep).at(-1) ?? '';
           imports.set(primitive, [...(imports.get(primitive) ?? []), filename]);
-          if (filename !== owner) {
+          const allowed = Array.isArray(owner) ? owner : [owner];
+          if (!allowed.includes(filename)) {
             violations.push(`${relative(ownedBoundaryRoot, path)} imports ${primitive}`);
           }
         }
@@ -99,7 +100,8 @@ describe('Ant Design ownership boundary', () => {
 
     expect(violations).toEqual([]);
     for (const [primitive, owner] of Object.entries(owners)) {
-      expect(imports.get(primitive), `${primitive} owner`).toEqual([owner]);
+      const expected = Array.isArray(owner) ? owner : [owner];
+      expect(imports.get(primitive)?.sort(), `${primitive} owner`).toEqual(expected.sort());
     }
   });
 

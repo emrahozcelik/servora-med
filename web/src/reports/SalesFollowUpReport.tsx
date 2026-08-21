@@ -14,7 +14,8 @@ import {
   validateRequestedRange,
 } from './report-search';
 import type { SalesFollowUpReportResponse } from './report-types';
-import { ServoraPagination } from '../ui/antd';
+import { ServoraTable } from '../ui/antd/ServoraTable';
+import type { ServoraTableColumnsType } from '../ui/antd/ServoraTable';
 
 import { SegmentedDistributionBar, IndependentMeterBars } from './report-charts';
 import {
@@ -218,56 +219,92 @@ export function SalesFollowUpReportView({
             <button
               type="button"
               className="secondary-button"
-              onClick={() => onSalesMeetingPage(Math.max(0, offset - report.current.salesMeetings.limit))}
+              onClick={() => onSalesMeetingPage(Math.max(0, offset - 10))}
             >
               Önceki sayfaya dön
             </button>
           </div>
         ) : (
-          <>
-            <ul className="report-sales-queue-list" aria-labelledby="sales-queue-title">
-              {report.current.salesMeetings.items.map((item) => (
-                <li key={item.id} className="report-sales-queue-row">
-                  <div className="report-sales-queue-identity">
-                    {item.customer ? (
-                      <Link to={paths.customer(item.customer.id)} aria-label={`${item.customer.name} müşterisini aç`}>
-                        {item.customer.name}
-                      </Link>
-                    ) : (
-                      <span>Müşteri belirtilmedi</span>
-                    )}
-                  </div>
-                  <dl className="report-sales-queue-facts">
-                    <div>
-                      <dt>Planlanan tarih</dt>
-                      <dd>{formatScheduledAt(item.scheduledAt, report.range.timezone)}</dd>
-                    </div>
-                    <div>
-                      <dt>Atanan personel</dt>
-                      <dd>{item.assignee.name}</dd>
-                    </div>
-                    <div>
-                      <dt>Durum</dt>
-                      <dd>{activeWorkflowPresentation[item.status as keyof typeof activeWorkflowPresentation]?.label ?? item.status}</dd>
-                    </div>
-                  </dl>
-                  <Link to={paths.job(item.id)} aria-label={`${item.id} işini aç`} className="report-sales-queue-link">
+          <ServoraTable
+            data-pager="sales-meeting"
+            rowKey="id"
+            dataSource={report.current.salesMeetings.items}
+            size="middle"
+            pagination={{
+              current: Math.floor(offset / 10) + 1,
+              pageSize: 10,
+              total: report.current.salesMeetings.total,
+              showSizeChanger: false,
+              onChange: (page) => onSalesMeetingPage((page - 1) * 10),
+            }}
+            columns={[
+              {
+                title: 'Müşteri',
+                key: 'customer',
+                render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) =>
+                  record.customer ? (
+                    <Link to={paths.customer(record.customer.id)} aria-label={`${record.customer.name} müşterisini aç`}>
+                      {record.customer.name}
+                    </Link>
+                  ) : (
+                    <span>Müşteri belirtilmedi</span>
+                  ),
+                
+              },
+              {
+                title: 'Planlanan tarih',
+                key: 'scheduledAt',
+                render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) =>
+                  formatScheduledAt(record.scheduledAt, report.range.timezone),
+                
+              },
+              {
+                title: 'Atanan personel',
+                key: 'assignee',
+                render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) => record.assignee.name,
+                
+              },
+              {
+                title: 'Durum',
+                key: 'status',
+                render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) =>
+                  activeWorkflowPresentation[record.status as keyof typeof activeWorkflowPresentation]?.label ?? record.status,
+                
+              },
+              {
+                title: 'İşlem',
+                key: 'action',
+                render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) => (
+                  <Link to={paths.job(record.id)} aria-label={`${record.id} işini aç`}>
                     İşi aç
                   </Link>
-                </li>
-              ))}
-            </ul>
-            <div data-pager="sales-meeting">
-              <ServoraPagination
-                current={Math.floor(offset / 10) + 1}
-                pageSize={10}
-                total={report.current.salesMeetings.total}
-                onChange={(page) => onSalesMeetingPage((page - 1) * 10)}
-                showSizeChanger={false}
-                aria-label="Satış görüşmesi kuyruğu sayfalama"
-              />
-            </div>
-          </>
+                ),
+                
+              },
+              {
+                title: 'Satış görüşmesi',
+                key: 'mobile',
+                
+                render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) => (
+                  <div className="report-sales-mobile-cell">
+                    <div>
+                      {record.customer ? (
+                        <Link to={paths.customer(record.customer.id)}>{record.customer.name}</Link>
+                      ) : (
+                        <span>Müşteri belirtilmedi</span>
+                      )}
+                    </div>
+                    <div>{formatScheduledAt(record.scheduledAt, report.range.timezone)}</div>
+                    <div>
+                      {record.assignee.name} ·{' '}
+                      {activeWorkflowPresentation[record.status as keyof typeof activeWorkflowPresentation]?.label ?? record.status}
+                    </div>
+                    <Link to={paths.job(record.id)}>İşi aç</Link>
+                  </div>
+                ),
+              },
+            ] as ServoraTableColumnsType<(typeof report.current.salesMeetings.items)[number]>}
+          />
         )}
       </section>
 
@@ -281,66 +318,104 @@ export function SalesFollowUpReportView({
             <button
               type="button"
               className="secondary-button"
-              onClick={() => onProposalPage(Math.max(0, proposalOffset - report.current.proposalQueue.limit))}
+              onClick={() => onProposalPage(Math.max(0, proposalOffset - 10))}
             >
               Önceki sayfaya dön
             </button>
           </div>
         ) : (
-          <>
-            <ul className="report-proposal-queue-list" aria-labelledby="proposal-queue-title">
-              {report.current.proposalQueue.items.map((item) => (
-                <li key={item.id} className="report-proposal-queue-row">
-                  <div className="report-proposal-identity">
-                    {item.customer ? (
-                      <Link to={paths.customer(item.customer.id)} aria-label={`${item.customer.name} müşterisini aç`}>
-                        {item.customer.name}
-                      </Link>
-                    ) : (
-                      <span>Müşteri belirtilmedi</span>
-                    )}
-                    <span className="report-proposal-status">
-                      {activeWorkflowPresentation[item.status as keyof typeof activeWorkflowPresentation]?.label ?? item.status}
-                    </span>
+          <ServoraTable
+            data-pager="proposal"
+            rowKey="id"
+            dataSource={report.current.proposalQueue.items}
+            size="middle"
+            pagination={{
+              current: Math.floor(proposalOffset / 10) + 1,
+              pageSize: 10,
+              total: report.current.proposalQueue.total,
+              showSizeChanger: false,
+              onChange: (page) => onProposalPage((page - 1) * 10),
+            }}
+            expandable={
+              {
+                columnTitle: <span className="visually-hidden">Talimat</span>,
+                expandedRowRender: (record: (typeof report.current.proposalQueue.items)[number]) =>
+                  record.followUpProposalInstructions ? (
+                    <div className="report-proposal-expanded">
+                      <h4>Takip talimatı</h4>
+                      <p>{record.followUpProposalInstructions}</p>
+                    </div>
+                  ) : null,
+                rowExpandable: (record: (typeof report.current.proposalQueue.items)[number]) =>
+                  Boolean(record.followUpProposalInstructions),
+              } as never
+            }
+            columns={[
+              {
+                title: 'Müşteri',
+                key: 'customer',
+                render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
+                  record.customer ? (
+                    <Link to={paths.customer(record.customer.id)} aria-label={`${record.customer.name} müşterisini aç`}>
+                      {record.customer.name}
+                    </Link>
+                  ) : (
+                    <span>Müşteri belirtilmedi</span>
+                  ),
+                
+              },
+              {
+                title: 'Durum',
+                key: 'status',
+                render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
+                  activeWorkflowPresentation[record.status as keyof typeof activeWorkflowPresentation]?.label ?? record.status,
+                
+              },
+              {
+                title: 'Önerilen takip tarihi',
+                key: 'proposedAt',
+                render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
+                  formatProposedAt(record.proposedFollowUpAt, report.range.timezone),
+                
+              },
+              {
+                title: 'Önerilen tür',
+                key: 'type',
+                render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
+                  record.followUpProposedType ? (jobTypeLabels[record.followUpProposedType as keyof typeof jobTypeLabels] ?? record.followUpProposedType) : 'Belirtilmedi',
+                
+              },
+              {
+                title: 'Önerilen sorumlu',
+                key: 'assignee',
+                render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
+                  record.followUpProposedAssignee ? record.followUpProposedAssignee.name : 'Belirtilmedi',
+                
+              },
+              {
+                title: 'Öneri',
+                key: 'mobile',
+                
+                render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) => (
+                  <div className="report-proposal-mobile-cell">
+                    <div>
+                      {record.customer ? (
+                        <Link to={paths.customer(record.customer.id)}>{record.customer.name}</Link>
+                      ) : (
+                        <span>Müşteri belirtilmedi</span>
+                      )}{' '}
+                      · {activeWorkflowPresentation[record.status as keyof typeof activeWorkflowPresentation]?.label ?? record.status}
+                    </div>
+                    <div>{formatProposedAt(record.proposedFollowUpAt, report.range.timezone)}</div>
+                    <div>
+                      {record.followUpProposedType ? (jobTypeLabels[record.followUpProposedType as keyof typeof jobTypeLabels] ?? record.followUpProposedType) : 'Belirtilmedi'}
+                      {record.followUpProposedAssignee ? ` · ${record.followUpProposedAssignee.name}` : ''}
+                    </div>
                   </div>
-                  <dl className="report-proposal-facts">
-                    <div>
-                      <dt>Atanan personel</dt>
-                      <dd>{item.assignee.name}</dd>
-                    </div>
-                    <div>
-                      <dt>Önerilen takip tarihi</dt>
-                      <dd>{formatProposedAt(item.proposedFollowUpAt, report.range.timezone)}</dd>
-                    </div>
-                    <div>
-                      <dt>Önerilen tür</dt>
-                      <dd>{item.followUpProposedType ? (jobTypeLabels[item.followUpProposedType as keyof typeof jobTypeLabels] ?? item.followUpProposedType) : 'Belirtilmedi'}</dd>
-                    </div>
-                    <div>
-                      <dt>Önerilen sorumlu</dt>
-                      <dd>{item.followUpProposedAssignee ? item.followUpProposedAssignee.name : 'Belirtilmedi'}</dd>
-                    </div>
-                  </dl>
-                  {item.followUpProposalInstructions ? (
-                    <details className="report-proposal-disclosure">
-                      <summary>Öneri notu</summary>
-                      <p>{item.followUpProposalInstructions}</p>
-                    </details>
-                  ) : null}
-                </li>
-              ))}
-            </ul>
-            <div data-pager="proposal">
-              <ServoraPagination
-                current={Math.floor(proposalOffset / 10) + 1}
-                pageSize={10}
-                total={report.current.proposalQueue.total}
-                onChange={(page) => onProposalPage((page - 1) * 10)}
-                showSizeChanger={false}
-                aria-label="Öneri kuyruğu sayfalama"
-              />
-            </div>
-          </>
+                ),
+              },
+            ] as ServoraTableColumnsType<(typeof report.current.proposalQueue.items)[number]>}
+          />
         )}
       </section>
     </>
