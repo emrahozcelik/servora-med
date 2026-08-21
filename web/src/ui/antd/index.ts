@@ -55,3 +55,5 @@ export { SettingsTabs } from './SettingsTabs';
 export type { SettingsTab, SettingsTabsProps } from './SettingsTabs';
 export { StaffPerformanceTable } from './StaffPerformanceTable';
 export type { StaffPerformanceTableRecord } from './StaffPerformanceTable';
+export { ServoraPagination } from './ServoraPagination';
+export type { ServoraPaginationProps } from './ServoraPagination';

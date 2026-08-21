@@ -120,4 +120,55 @@ describe('StaffPerformanceTable adapter', () => {
     await act(async () => root.unmount());
     container.remove();
   });
+
+  it('expands via row click and keeps button single-toggle with correct aria-expanded', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(
+      <MemoryRouter>
+        <ServoraAntProvider><StaffPerformanceTable records={records} /></ServoraAntProvider>
+      </MemoryRouter>,
+    ));
+
+    const firstRow = container.querySelector<HTMLTableRowElement>('tbody tr[data-row-key="ayse"]')!;
+    const expandButton = container.querySelector<HTMLButtonElement>('button[aria-label="Ayşe Yılmaz ayrıntılarını göster"]')!;
+    expect(expandButton.getAttribute('aria-expanded')).toBe('false');
+
+    await act(async () => firstRow.click());
+    expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]')?.getAttribute('aria-expanded')).toBe('true');
+    expect(container.textContent).toContain('Mevcut iş yükünün tür dağılımı');
+
+    await act(async () => firstRow.click());
+    expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını göster"]')?.getAttribute('aria-expanded')).toBe('false');
+
+    await act(async () => expandButton.click());
+    expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]')?.getAttribute('aria-expanded')).toBe('true');
+
+    const collapseButton = container.querySelector<HTMLButtonElement>('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]')!;
+    await act(async () => collapseButton.click());
+    expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını göster"]')?.getAttribute('aria-expanded')).toBe('false');
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
+
+  it('does not double-toggle when expand button is clicked', async () => {
+    const container = document.createElement('div');
+    document.body.append(container);
+    const root = createRoot(container);
+    await act(async () => root.render(
+      <MemoryRouter>
+        <ServoraAntProvider><StaffPerformanceTable records={records} /></ServoraAntProvider>
+      </MemoryRouter>,
+    ));
+
+    const expandButton = container.querySelector<HTMLButtonElement>('button[aria-label="Ayşe Yılmaz ayrıntılarını göster"]')!;
+    await act(async () => expandButton.click());
+    expect(container.querySelector('button[aria-label="Ayşe Yılmaz ayrıntılarını gizle"]')).not.toBeNull();
+    expect(container.textContent).toContain('Mevcut iş yükünün tür dağılımı');
+
+    await act(async () => root.unmount());
+    container.remove();
+  });
 });

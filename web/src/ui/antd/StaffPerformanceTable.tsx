@@ -335,13 +335,17 @@ export function StaffPerformanceTable({
           expandable={{
             columnTitle: <span className="visually-hidden">Ayrıntı</span>,
             expandedRowRender: (record) => <StaffContext record={record} />,
+            expandRowByClick: true,
             expandIcon: ({ expanded, onExpand, record }) => (
               <button
                 type="button"
                 className="staff-performance-expand"
                 aria-label={`${record.name} ayrıntılarını ${expanded ? 'gizle' : 'göster'}`}
                 aria-expanded={expanded}
-                onClick={(event: MouseEvent<HTMLButtonElement>) => onExpand(record, event)}
+                onClick={(event: MouseEvent<HTMLButtonElement>) => {
+                  event.stopPropagation();
+                  onExpand(record, event);
+                }}
               >
                 <span aria-hidden="true">{expanded ? '−' : '+'}</span>
               </button>

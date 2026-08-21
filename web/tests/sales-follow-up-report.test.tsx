@@ -512,4 +512,19 @@ describe('Sales follow-up timezone presentation', () => {
     expect(formatProposedAt('2026-08-10T21:30:00.000Z', 'Europe/Istanbul')).toContain('11');
     expect(formatProposedAt('2026-08-10T21:30:00.000Z', 'Europe/Istanbul')).toContain('00:30');
   });
+
+  it('renders Ant Design pagination with pageSize 10 for both queues', () => {
+    const reportWithLargeTotal: SalesFollowUpReportResponse = {
+      ...baseReport,
+      current: {
+        salesMeetings: { ...baseReport.current.salesMeetings, total: 55, limit: 10, offset: 0, items: baseReport.current.salesMeetings.items.slice(0, 1) },
+        proposalQueue: { ...baseReport.current.proposalQueue, total: 55, limit: 10, offset: 0, items: baseReport.current.proposalQueue.items.slice(0, 1) },
+        followUpChildren: baseReport.current.followUpChildren,
+      },
+    };
+    const html = viewMarkup(reportWithLargeTotal, 0, 0);
+    expect(html).toContain('ant-pagination');
+    expect(html).toContain('data-pager="sales-meeting"');
+    expect(html).toContain('data-pager="proposal"');
+  });
 });
