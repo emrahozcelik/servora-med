@@ -387,6 +387,9 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .report-customer-list { list-style: none; margin: 0; padding: 0; display: grid; gap: 1rem; min-width: 0; }
 .report-customer-card { min-width: 0; }
 .report-customer-row { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 1.25rem; padding: 1.1rem 1.15rem; border: 1px solid var(--rule); border-radius: 0.85rem; background: var(--paper); }
+/* R3: customer identity header spans the full card width so the two analytical
+   sections (Şu an | Seçilen dönem) sit side-by-side with no empty lower-right quadrant. */
+.report-customer-identity { grid-column: 1 / -1; }
 .report-customer-row h3, .report-customer-row h4 { margin: 0 0 0.5rem; }
 .report-customer-row h3 { font-size: 1.05rem; }
 .report-customer-row h3 a { color: var(--accent-hover); text-decoration: none; }
@@ -400,6 +403,37 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .report-customer-metrics dd { margin: 0.2rem 0 0; font-size: 1.2rem; font-weight: 720; font-variant-numeric: tabular-nums; }
 .report-customer-work-types { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0.75rem; }
 .report-customer-chip { padding: 0.25rem 0.6rem; border: 1px solid var(--rule); border-radius: var(--radius-chip); background: var(--surface); color: var(--muted); font-size: 0.8125rem; white-space: nowrap; }
+
+/* R3: proposal expand control — compact square chevron, scoped (not a global
+   button restyle). Overrides the global `button { min-height }` within this
+   component only, keeping a stable touch target without the tall pill shape. */
+.report-proposal-expand {
+  width: 2rem;
+  height: 2rem;
+  min-height: 2rem;
+  min-width: 2rem;
+  padding: 0;
+  margin: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-control);
+  background: var(--paper);
+  color: var(--muted);
+  line-height: 1;
+}
+.report-proposal-expand:hover { color: var(--accent-hover); border-color: var(--accent); }
+.report-proposal-expand-chevron { display: block; width: 1rem; height: 1rem; }
+.report-proposal-expand-spacer { display: inline-block; width: 2rem; height: 2rem; min-height: 2rem; }
+
+/* R3: wide desktop — denser analytical metrics. Current section (5 metrics) sits in
+   a 3-column grid; period section (3 metrics) in a single 3-column row. Medium
+   widths keep the 2-column base; narrow (<720px) stacks to one column. */
+@media (min-width: 64rem) {
+  .report-customer-metrics--current { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .report-customer-metrics--period { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+}
 .report-active-filters { display: flex; justify-content: flex-end; margin-bottom: 0.75rem; }
 .report-customer-recovery { padding: 1.5rem; border: 1px solid var(--rule); border-radius: 0.85rem; background: var(--paper); }
 .report-customer-recovery h2 { margin: 0 0 0.5rem; font-size: 1.25rem; }

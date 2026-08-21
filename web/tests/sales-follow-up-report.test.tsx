@@ -367,26 +367,74 @@ describe('Sales follow-up presentation', () => {
     expect(viewMarkup(nullDate)).toContain('Önerilen tarih belirtilmedi');
   });
 
-  it('exposes proposal instructions via expandable row', () => {
+  it('exposes proposal instructions via a scoped chevron expand control', () => {
     const html = viewMarkup(baseReport);
-    expect(html).toContain('ant-table-row-expand-icon');
-    expect(html).toContain('ant-table-expand-icon-col');
+    expect(html).toContain('report-proposal-expand');
+    expect(html).toContain('Takip talimatını aç');
     // Instructions are in expandable row, not as a permanent wide table column or details
     expect(html).not.toContain('<details');
     expect(html).not.toContain('Öneri notu');
   });
 
-  it('expands proposal row and reveals full instruction', () => {
+  it('expands proposal row with a labelled chevron and reveals full instruction', () => {
     const { container, root } = renderSalesViewDom(baseReport);
     act(() => {});
     act(() => {});
-    const expandButton = container.querySelector<HTMLButtonElement>('button.ant-table-row-expand-icon');
-    expect(expandButton, 'expand icon is rendered').toBeTruthy();
+
+    const openButton = container.querySelector<HTMLButtonElement>(
+      'button.report-proposal-expand[aria-label="Takip talimatını aç"]',
+    );
+    expect(openButton, 'collapsed expand control exists').toBeTruthy();
+    expect(openButton!.getAttribute('aria-expanded')).toBe('false');
+
     act(() => {
-      expandButton!.click();
+      openButton!.click();
     });
     expect(container.innerHTML).toContain('Takip talimatı');
     expect(container.innerHTML).toContain('Hastayı arayın ve yeni randevu planlayın, detaylı not buraya gelecek.');
+
+    const closeButton = container.querySelector<HTMLButtonElement>(
+      'button.report-proposal-expand[aria-label="Takip talimatını kapat"]',
+    );
+    expect(closeButton, 'expanded control with close label exists').toBeTruthy();
+    expect(closeButton!.getAttribute('aria-expanded')).toBe('true');
+
+    // One more activation collapses the instruction again (one click = one toggle).
+    act(() => {
+      closeButton!.click();
+    });
+    // AntD keeps the expanded row in the DOM but hides it; assert the control
+    // state, which is the observable contract for a single activation.
+    const collapsedButton = container.querySelector<HTMLButtonElement>(
+      'button.report-proposal-expand[aria-label="Takip talimatını aç"]',
+    );
+    expect(collapsedButton, 'control returns to the collapsed label').toBeTruthy();
+    expect(collapsedButton!.getAttribute('aria-expanded')).toBe('false');
+
+    act(() => { root.unmount(); });
+    container.remove();
+  });
+
+  it('toggles proposal expansion exactly once per activation', () => {
+    const { container, root } = renderSalesViewDom(baseReport);
+    act(() => {});
+    act(() => {});
+
+    const button = container.querySelector<HTMLButtonElement>('button.report-proposal-expand');
+    expect(button, 'expand control exists').toBeTruthy();
+    expect(button!.getAttribute('aria-expanded')).toBe('false');
+
+    act(() => {
+      button!.click();
+    });
+    // A single activation must land on expanded (not double-toggle back to false).
+    expect(button!.getAttribute('aria-expanded')).toBe('true');
+
+    act(() => {
+      button!.click();
+    });
+    expect(button!.getAttribute('aria-expanded')).toBe('false');
+
     act(() => { root.unmount(); });
     container.remove();
   });
