@@ -76,6 +76,13 @@ export function formatProposedAt(value: string | null, timeZone: string) {
   }).format(new Date(value));
 }
 
+// AntD breakpoint semantics: xs = (max-width: 575px), sm = (min-width: 576px).
+// To guarantee exactly one data view with no breakpoint overlap:
+//   mobile composite column is visible only on xs (<576px)
+//   desktop detail columns are visible from sm onward (>=576px)
+const DESKTOP_ONLY = ['sm', 'md', 'lg', 'xl', 'xxl'] as const;
+const MOBILE_ONLY = ['xs'] as const;
+
 export function SalesFollowUpReportView({
   report,
   offset,
@@ -241,6 +248,7 @@ export function SalesFollowUpReportView({
               {
                 title: 'Müşteri',
                 key: 'customer',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) =>
                   record.customer ? (
                     <Link to={paths.customer(record.customer.id)} aria-label={`${record.customer.name} müşterisini aç`}>
@@ -249,42 +257,41 @@ export function SalesFollowUpReportView({
                   ) : (
                     <span>Müşteri belirtilmedi</span>
                   ),
-                
               },
               {
                 title: 'Planlanan tarih',
                 key: 'scheduledAt',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) =>
                   formatScheduledAt(record.scheduledAt, report.range.timezone),
-                
               },
               {
                 title: 'Atanan personel',
                 key: 'assignee',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) => record.assignee.name,
-                
               },
               {
                 title: 'Durum',
                 key: 'status',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) =>
                   activeWorkflowPresentation[record.status as keyof typeof activeWorkflowPresentation]?.label ?? record.status,
-                
               },
               {
                 title: 'İşlem',
                 key: 'action',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) => (
                   <Link to={paths.job(record.id)} aria-label={`${record.id} işini aç`}>
                     İşi aç
                   </Link>
                 ),
-                
               },
               {
                 title: 'Satış görüşmesi',
                 key: 'mobile',
-                
+                responsive: [...MOBILE_ONLY],
                 render: (_: unknown, record: (typeof report.current.salesMeetings.items)[number]) => (
                   <div className="report-sales-mobile-cell">
                     <div>
@@ -354,6 +361,7 @@ export function SalesFollowUpReportView({
               {
                 title: 'Müşteri',
                 key: 'customer',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
                   record.customer ? (
                     <Link to={paths.customer(record.customer.id)} aria-label={`${record.customer.name} müşterisini aç`}>
@@ -362,40 +370,39 @@ export function SalesFollowUpReportView({
                   ) : (
                     <span>Müşteri belirtilmedi</span>
                   ),
-                
               },
               {
                 title: 'Durum',
                 key: 'status',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
                   activeWorkflowPresentation[record.status as keyof typeof activeWorkflowPresentation]?.label ?? record.status,
-                
               },
               {
                 title: 'Önerilen takip tarihi',
                 key: 'proposedAt',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
                   formatProposedAt(record.proposedFollowUpAt, report.range.timezone),
-                
               },
               {
                 title: 'Önerilen tür',
                 key: 'type',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
                   record.followUpProposedType ? (jobTypeLabels[record.followUpProposedType as keyof typeof jobTypeLabels] ?? record.followUpProposedType) : 'Belirtilmedi',
-                
               },
               {
                 title: 'Önerilen sorumlu',
                 key: 'assignee',
+                responsive: [...DESKTOP_ONLY],
                 render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) =>
                   record.followUpProposedAssignee ? record.followUpProposedAssignee.name : 'Belirtilmedi',
-                
               },
               {
                 title: 'Öneri',
                 key: 'mobile',
-                
+                responsive: [...MOBILE_ONLY],
                 render: (_: unknown, record: (typeof report.current.proposalQueue.items)[number]) => (
                   <div className="report-proposal-mobile-cell">
                     <div>

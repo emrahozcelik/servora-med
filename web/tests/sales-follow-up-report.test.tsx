@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -15,15 +17,117 @@ vi.mock('../src/reports/reports-api', async (importOriginal) => ({
 }));
 
 Object.assign(globalThis, { IS_REACT_ACT_ENVIRONMENT: true });
+
+// AntD v5 `responsive` columns use useBreakpoint, which reads window.matchMedia
+// through responsiveObserver. SSR renders no columns at all (the screens map is
+// empty on the server), so responsive behaviour must be verified with client-side
+// renders keyed on a mutable viewport width. The mock below answers the real AntD
+// breakpoint queries and invokes registered change listeners when the width changes.
+const ANT_BREAKPOINT_QUERIES = {
+  xs: '(max-width: 575px)',
+  sm: '(min-width: 576px)',
+  md: '(min-width: 768px)',
+  lg: '(min-width: 992px)',
+  xl: '(min-width: 1200px)',
+  xxl: '(min-width: 1600px)',
+} as const;
+
+type MediaQueryListener = (event: { matches: boolean; media: string }) => void;
+
+let currentViewportWidth = 1024;
+const listenersByQuery = new Map<string, Set<MediaQueryListener>>();
+const matchMediaMock = vi.fn((query: string) => {
+  const matchesFor = (q: string) => {
+    if (q === ANT_BREAKPOINT_QUERIES.xs) return currentViewportWidth <= 575;
+    if (q === ANT_BREAKPOINT_QUERIES.sm) return currentViewportWidth >= 576;
+    if (q === ANT_BREAKPOINT_QUERIES.md) return currentViewportWidth >= 768;
+    if (q === ANT_BREAKPOINT_QUERIES.lg) return currentViewportWidth >= 992;
+    if (q === ANT_BREAKPOINT_QUERIES.xl) return currentViewportWidth >= 1200;
+    if (q === ANT_BREAKPOINT_QUERIES.xxl) return currentViewportWidth >= 1600;
+    return false;
+  };
+  const matches = matchesFor(query);
+  const set = listenersByQuery.get(query) ?? new Set<MediaQueryListener>();
+  listenersByQuery.set(query, set);
+  return {
+    matches,
+    media: query,
+    onchange: null,
+    addEventListener: (type: string, listener: MediaQueryListener) => {
+      if (type === 'change') set.add(listener);
+    },
+    removeEventListener: (type: string, listener: MediaQueryListener) => {
+      if (type === 'change') set.delete(listener);
+    },
+    addListener: (listener: MediaQueryListener) => set.add(listener),
+    removeListener: (listener: MediaQueryListener) => set.delete(listener),
+    dispatchEvent: () => false,
+  };
+});
+
 Object.defineProperty(window, 'matchMedia', {
   configurable: true,
-  value: vi.fn().mockReturnValue({
-    matches: true,
-    media: '(min-width: 64rem)',
-    addEventListener: vi.fn(),
-    removeEventListener: vi.fn(),
-  }),
+  value: matchMediaMock,
 });
+
+function setViewportWidth(width: number) {
+  currentViewportWidth = width;
+  for (const [query, listeners] of listenersByQuery) {
+    const matches =
+      query === ANT_BREAKPOINT_QUERIES.xs ? width <= 575 :
+      query === ANT_BREAKPOINT_QUERIES.sm ? width >= 576 :
+      query === ANT_BREAKPOINT_QUERIES.md ? width >= 768 :
+      query === ANT_BREAKPOINT_QUERIES.lg ? width >= 992 :
+      query === ANT_BREAKPOINT_QUERIES.xl ? width >= 1200 :
+      query === ANT_BREAKPOINT_QUERIES.xxl ? width >= 1600 : false;
+    for (const listener of listeners) listener({ matches, media: query });
+  }
+}
+
+function renderSalesViewDom(
+  report: SalesFollowUpReportResponse,
+  offset = 0,
+  proposalOffset = 0,
+  width = 1024,
+) {
+  setViewportWidth(width);
+  const container = document.createElement('div');
+  document.body.appendChild(container);
+  const root = createRoot(container);
+  act(() => {
+    root.render(
+      <MemoryRouter>
+        <SalesFollowUpReportView
+          report={report}
+          offset={offset}
+          proposalOffset={proposalOffset}
+          onSalesMeetingPage={() => {}}
+          onProposalPage={() => {}}
+        />
+      </MemoryRouter>,
+    );
+  });
+  return { container, root };
+}
+
+// AntD's responsive observer subscribes inside an effect and triggers a state
+// update on the first matchMedia pass. Flipping the screens map back to the
+// current width inside act() forces the final column set deterministically.
+function viewMarkup(report: SalesFollowUpReportResponse, offset = 0, proposalOffset = 0, width = 1024) {
+  const { container, root } = renderSalesViewDom(report, offset, proposalOffset, width);
+  act(() => {
+    setViewportWidth(width);
+  });
+  act(() => {});
+  const html = container.innerHTML;
+  act(() => { root.unmount(); });
+  container.remove();
+  return html;
+}
+
+function viewMarkupMobile(report: SalesFollowUpReportResponse, offset = 0, proposalOffset = 0) {
+  return viewMarkup(report, offset, proposalOffset, 390);
+}
 
 const range = { from: '2026-07-01', to: '2026-07-31', timezone: 'Europe/Istanbul' };
 
@@ -114,20 +218,6 @@ const baseReport: SalesFollowUpReportResponse = {
     currentCustomerDivergence: 2,
   },
 };
-
-function viewMarkup(report: SalesFollowUpReportResponse, offset = 0, proposalOffset = 0) {
-  return renderToStaticMarkup(
-    <MemoryRouter>
-      <SalesFollowUpReportView
-        report={report}
-        offset={offset}
-        proposalOffset={proposalOffset}
-        onSalesMeetingPage={() => {}}
-        onProposalPage={() => {}}
-      />
-    </MemoryRouter>,
-  );
-}
 
 describe('Sales follow-up strict parser', () => {
   it('parses canonical response', () => {
@@ -284,6 +374,21 @@ describe('Sales follow-up presentation', () => {
     // Instructions are in expandable row, not as a permanent wide table column or details
     expect(html).not.toContain('<details');
     expect(html).not.toContain('Öneri notu');
+  });
+
+  it('expands proposal row and reveals full instruction', () => {
+    const { container, root } = renderSalesViewDom(baseReport);
+    act(() => {});
+    act(() => {});
+    const expandButton = container.querySelector<HTMLButtonElement>('button.ant-table-row-expand-icon');
+    expect(expandButton, 'expand icon is rendered').toBeTruthy();
+    act(() => {
+      expandButton!.click();
+    });
+    expect(container.innerHTML).toContain('Takip talimatı');
+    expect(container.innerHTML).toContain('Hastayı arayın ve yeni randevu planlayın, detaylı not buraya gelecek.');
+    act(() => { root.unmount(); });
+    container.remove();
   });
 
   it('keeps two pagers independent', () => {
@@ -447,11 +552,7 @@ describe('Sales follow-up timezone presentation', () => {
         },
       },
     };
-    const html = renderToStaticMarkup(
-      <MemoryRouter>
-        <SalesFollowUpReportView report={reportWithIstanbul} offset={0} proposalOffset={0} onSalesMeetingPage={() => {}} onProposalPage={() => {}} />
-      </MemoryRouter>,
-    );
+    const html = viewMarkup(reportWithIstanbul, 0, 0, 1024);
     // 2026-08-10T22:30:00Z = 2026-08-11 01:30 in Europe/Istanbul (UTC+3)
     // UTC would be 10 Ağu; org timezone must show 11 Ağu
     expect(html).toContain('11 Ağu');
@@ -493,11 +594,7 @@ describe('Sales follow-up timezone presentation', () => {
         },
       },
     };
-    const html = renderToStaticMarkup(
-      <MemoryRouter>
-        <SalesFollowUpReportView report={reportWithIstanbul} offset={0} proposalOffset={0} onSalesMeetingPage={() => {}} onProposalPage={() => {}} />
-      </MemoryRouter>,
-    );
+    const html = viewMarkup(reportWithIstanbul, 0, 0, 1024);
     // 2026-08-10T21:30:00Z = 2026-08-11 00:30 in Europe/Istanbul
     expect(html).toContain('11 Ağu');
     expect(html).toContain('00:30');
@@ -528,5 +625,92 @@ describe('Sales follow-up timezone presentation', () => {
     expect(html).toContain('ant-pagination');
     expect(html).toContain('data-pager="sales-meeting"');
     expect(html).toContain('data-pager="proposal"');
+  });
+
+  it('configures mutually exclusive responsive contracts on every column', () => {
+    const source = readFileSync(resolve('src/reports/SalesFollowUpReport.tsx'), 'utf8');
+
+    // Breakpoint definitions exist and are mutually exclusive (no overlap => exactly one data view)
+    expect(source).toContain("const DESKTOP_ONLY = ['sm', 'md', 'lg', 'xl', 'xxl']");
+    expect(source).toContain("const MOBILE_ONLY = ['xs']");
+
+    // Desktop-only breakpoint contract on every desktop column
+    const desktopColumns = ['Müşteri', 'Planlanan tarih', 'Atanan personel', 'Durum', 'İşlem',
+      'Önerilen takip tarihi', 'Önerilen tür', 'Önerilen sorumlu'];
+    for (const column of desktopColumns) {
+      const titleIndex = source.indexOf(`title: '${column}'`);
+      expect(titleIndex, `column ${column} exists`).toBeGreaterThan(-1);
+      const nextMobileTitle = source.indexOf("title: 'Satış görüşmesi'", titleIndex) === -1
+        ? source.indexOf("title: 'Öneri'", titleIndex)
+        : Math.min(
+          source.indexOf("title: 'Satış görüşmesi'", titleIndex) === -1 ? Number.MAX_SAFE_INTEGER : source.indexOf("title: 'Satış görüşmesi'", titleIndex),
+          source.indexOf("title: 'Öneri'", titleIndex) === -1 ? Number.MAX_SAFE_INTEGER : source.indexOf("title: 'Öneri'", titleIndex),
+        );
+      const columnBody = source.slice(titleIndex, nextMobileTitle);
+      expect(columnBody, `${column} uses DESKTOP_ONLY responsive`).toContain('responsive: [...DESKTOP_ONLY]');
+    }
+
+    // Mobile-only breakpoint contract on composite columns
+    for (const composite of ['Satış görüşmesi', 'Öneri']) {
+      const titleIndex = source.indexOf(`title: '${composite}'`);
+      expect(titleIndex, `composite ${composite} exists`).toBeGreaterThan(-1);
+      const columnBody = source.slice(titleIndex, titleIndex + 400);
+      expect(columnBody, `${composite} uses MOBILE_ONLY responsive`).toContain('responsive: [...MOBILE_ONLY]');
+    }
+  });
+
+  it('desktop breakpoint: detail columns visible, composite columns absent', () => {
+    const html = viewMarkup(baseReport, 0, 0, 1024);
+    const salesSection = html.split('Satış görüşmesi kuyruğu')[1]?.split('Onay / revizyon')[0] ?? '';
+    for (const heading of ['Müşteri', 'Planlanan tarih', 'Atanan personel', 'Durum', 'İşlem']) {
+      expect(salesSection, `sales desktop heading ${heading}`).toContain(`>${heading}</th>`);
+    }
+    expect(salesSection).not.toContain('report-sales-mobile-cell');
+
+    const proposalSection = html.split('Onay / revizyon')[1] ?? '';
+    for (const heading of ['Müşteri', 'Durum', 'Önerilen takip tarihi', 'Önerilen tür', 'Önerilen sorumlu']) {
+      expect(proposalSection, `proposal desktop heading ${heading}`).toContain(`>${heading}</th>`);
+    }
+    expect(proposalSection).not.toContain('report-proposal-mobile-cell');
+  });
+
+  it('mobile breakpoint (390px): composite visible, desktop detail columns absent', () => {
+    const html = viewMarkupMobile(baseReport);
+    const salesSection = html.split('Satış görüşmesi kuyruğu')[1]?.split('Onay / revizyon')[0] ?? '';
+    expect(salesSection).toContain('report-sales-mobile-cell');
+    expect(salesSection).not.toContain('>Müşteri</th>');
+    expect(salesSection).not.toContain('>Planlanan tarih</th>');
+    expect(salesSection).not.toContain('>Atanan personel</th>');
+    expect(salesSection).not.toContain('>Durum</th>');
+    expect(salesSection).not.toContain('>İşlem</th>');
+
+    const proposalSection = html.split('Onay / revizyon')[1] ?? '';
+    expect(proposalSection).toContain('report-proposal-mobile-cell');
+    expect(proposalSection).not.toContain('>Önerilen takip tarihi</th>');
+    expect(proposalSection).not.toContain('>Önerilen tür</th>');
+    expect(proposalSection).not.toContain('>Önerilen sorumlu</th>');
+  });
+
+  it('mobile-breakpoint composite keeps every queue record reachable at 390px', () => {
+    const html = viewMarkupMobile(baseReport);
+    // Both sales meeting records stay reachable through the mobile composite column
+    expect(html).toContain('DentArt Klinik');
+    expect(html).toContain('Müşteri belirtilmedi');
+    expect(html).toContain('Ayşe Demir');
+    expect(html).toContain('Mehmet Yılmaz');
+    expect(html).toContain('Uygulanıyor');
+    expect(html).toContain('Hazırlanıyor');
+  });
+
+  it('small-mobile 390px has no mandatory horizontal core scroll (desktop columns absent)', () => {
+    const html = viewMarkupMobile(baseReport);
+    // Desktop columns are fully removed from the DOM on xs, so the queue tables
+    // cannot force a mandatory horizontal core scroll at 390px.
+    const salesTable = html.split('Satış görüşmesi kuyruğu')[1]?.split('Onay / revizyon')[0] ?? '';
+    const proposalTable = html.split('Onay / revizyon')[1] ?? '';
+    const desktopHeadings = ['Müşteri', 'Planlanan tarih', 'Atanan personel', 'Durum', 'İşlem', 'Önerilen takip tarihi', 'Önerilen tür', 'Önerilen sorumlu'];
+    for (const heading of desktopHeadings) {
+      expect(salesTable + proposalTable).not.toContain(`>${heading}</th>`);
+    }
   });
 });
