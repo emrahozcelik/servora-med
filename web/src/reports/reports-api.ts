@@ -40,6 +40,8 @@ import type {
   RequestedReportRange,
   ResolvedReportRange,
   CompletionWorkType,
+  SalesFollowUpReportRequest,
+  SalesFollowUpReportResponse,
   StaffCurrentWorkload,
   StaffExecutionMetrics,
   StaffHistoricalPerformance,
@@ -596,6 +598,136 @@ export function parseCustomerReport(value: unknown): CustomerReportResponse {
   };
 }
 
+function parseSalesFollowUpStatusDistribution(value: unknown, field: string) {
+  const values = array(value, field);
+  if (values.length !== ACTIVE_JOB_CARD_STATUSES.length) invalid(field);
+  return values.map((entry, index) => {
+    const row = exactObject(entry, field, ['status', 'count']);
+    const status = oneOf(row.status, `${field}.status`, ACTIVE_JOB_CARD_STATUSES);
+    if (status !== ACTIVE_JOB_CARD_STATUSES[index]) invalid(field);
+    return { status, count: nonNegativeInteger(row.count, `${field}.count`) };
+  });
+}
+
+function parseSalesFollowUpTypeDistribution(value: unknown, field: string) {
+  const values = array(value, field);
+  if (values.length !== JOB_CARD_TYPES.length) invalid(field);
+  return values.map((entry, index) => {
+    const row = exactObject(entry, field, ['type', 'count']);
+    const type = oneOf(row.type, `${field}.type`, JOB_CARD_TYPES);
+    if (type !== JOB_CARD_TYPES[index]) invalid(field);
+    return { type, count: nonNegativeInteger(row.count, `${field}.count`) };
+  });
+}
+
+function parseSalesFollowUpOutcomeDistribution(value: unknown) {
+  const values = array(value, 'meetingOutcomeDistribution');
+  if (values.length !== MEETING_OUTCOMES.length) invalid('meetingOutcomeDistribution');
+  return values.map((entry, index) => {
+    const row = exactObject(entry, 'meetingOutcomeDistribution', ['outcome', 'count']);
+    const outcome = oneOf(row.outcome, 'meetingOutcomeDistribution.outcome', MEETING_OUTCOMES);
+    if (outcome !== MEETING_OUTCOMES[index]) invalid('meetingOutcomeDistribution');
+    return { outcome, count: nonNegativeInteger(row.count, 'meetingOutcomeDistribution.count') };
+  });
+}
+
+function parseSalesFollowUpAssignee(value: unknown, field: string) {
+  const row = exactObject(value, field, ['userId', 'name']);
+  return { userId: string(row.userId, `${field}.userId`), name: string(row.name, `${field}.name`) };
+}
+
+function parseSalesFollowUpCustomer(value: unknown, field: string) {
+  const row = exactObject(value, field, ['id', 'name']);
+  return { id: string(row.id, `${field}.id`), name: string(row.name, `${field}.name`) };
+}
+
+function parseSalesFollowUpQueueItem(value: unknown) {
+  const row = exactObject(value, 'salesMeetingQueueItem', ['id', 'status', 'scheduledAt', 'customer', 'assignee']);
+  return {
+    id: string(row.id, 'salesMeetingQueueItem.id'),
+    status: oneOf(row.status, 'salesMeetingQueueItem.status', ACTIVE_JOB_CARD_STATUSES),
+    scheduledAt: row.scheduledAt === null ? null : string(row.scheduledAt, 'salesMeetingQueueItem.scheduledAt'),
+    customer: row.customer === null ? null : parseSalesFollowUpCustomer(row.customer, 'salesMeetingQueueItem.customer'),
+    assignee: parseSalesFollowUpAssignee(row.assignee, 'salesMeetingQueueItem.assignee'),
+  };
+}
+
+function parseSalesFollowUpProposalItem(value: unknown) {
+  const row = exactObject(value, 'proposalQueueItem', [
+    'id', 'status', 'customer', 'assignee', 'followUpProposedType',
+    'followUpProposedAssignee', 'followUpProposalInstructions',
+    'proposedFollowUpAt', 'followUpProposalOrigin',
+  ]);
+  const followUpProposedType = row.followUpProposedType === null
+    ? null
+    : oneOf(row.followUpProposedType, 'proposalQueueItem.followUpProposedType', JOB_CARD_TYPES);
+  const followUpProposedAssignee = row.followUpProposedAssignee === null
+    ? null
+    : parseSalesFollowUpAssignee(row.followUpProposedAssignee, 'proposalQueueItem.followUpProposedAssignee');
+  const followUpProposalOrigin = row.followUpProposalOrigin === null
+    ? null
+    : oneOf(row.followUpProposalOrigin, 'proposalQueueItem.followUpProposalOrigin', ['SYSTEM', 'STAFF_ADJUSTED'] as const);
+  return {
+    id: string(row.id, 'proposalQueueItem.id'),
+    status: oneOf(row.status, 'proposalQueueItem.status', ['WAITING_APPROVAL', 'REVISION_REQUESTED'] as const),
+    customer: row.customer === null ? null : parseSalesFollowUpCustomer(row.customer, 'proposalQueueItem.customer'),
+    assignee: parseSalesFollowUpAssignee(row.assignee, 'proposalQueueItem.assignee'),
+    followUpProposedType,
+    followUpProposedAssignee,
+    followUpProposalInstructions: row.followUpProposalInstructions === null
+      ? null : string(row.followUpProposalInstructions, 'proposalQueueItem.followUpProposalInstructions'),
+    proposedFollowUpAt: row.proposedFollowUpAt === null
+      ? null : string(row.proposedFollowUpAt, 'proposalQueueItem.proposedFollowUpAt'),
+    followUpProposalOrigin,
+  };
+}
+
+export function parseSalesFollowUpReport(value: unknown): import('./report-types').SalesFollowUpReportResponse {
+  const row = exactObject(value, 'salesFollowUpReport', ['range', 'current', 'period', 'relationships']);
+  const range = parseResolvedRange(row.range);
+  const current = exactObject(row.current, 'current', ['salesMeetings', 'proposalQueue', 'followUpChildren']);
+  const salesMeetings = exactObject(current.salesMeetings, 'current.salesMeetings', ['total', 'statusDistribution', 'items', 'limit', 'offset']);
+  const proposalQueue = exactObject(current.proposalQueue, 'current.proposalQueue', ['total', 'limit', 'offset', 'items']);
+  const followUpChildren = exactObject(current.followUpChildren, 'current.followUpChildren', ['total', 'statusDistribution', 'typeDistribution', 'overdueDueDatedFollowUpChildren']);
+  const period = exactObject(row.period, 'period', ['salesMeetingsCreated', 'salesMeetingsManagerApproved', 'meetingOutcomeDistribution', 'followUpChildrenCreated', 'followUpChildrenCreatedByType']);
+  const relationships = exactObject(row.relationships, 'relationships', ['directFollowUpLinks', 'currentCustomerDivergence']);
+  return {
+    range,
+    current: {
+      salesMeetings: {
+        total: nonNegativeInteger(salesMeetings.total, 'current.salesMeetings.total'),
+        statusDistribution: parseSalesFollowUpStatusDistribution(salesMeetings.statusDistribution, 'current.salesMeetings.statusDistribution'),
+        items: array(salesMeetings.items, 'current.salesMeetings.items').map(parseSalesFollowUpQueueItem),
+        limit: positiveInteger(salesMeetings.limit, 'current.salesMeetings.limit'),
+        offset: nonNegativeInteger(salesMeetings.offset, 'current.salesMeetings.offset'),
+      },
+      proposalQueue: {
+        total: nonNegativeInteger(proposalQueue.total, 'current.proposalQueue.total'),
+        limit: positiveInteger(proposalQueue.limit, 'current.proposalQueue.limit'),
+        offset: nonNegativeInteger(proposalQueue.offset, 'current.proposalQueue.offset'),
+        items: array(proposalQueue.items, 'current.proposalQueue.items').map(parseSalesFollowUpProposalItem),
+      },
+      followUpChildren: {
+        total: nonNegativeInteger(followUpChildren.total, 'current.followUpChildren.total'),
+        statusDistribution: parseSalesFollowUpStatusDistribution(followUpChildren.statusDistribution, 'current.followUpChildren.statusDistribution'),
+        typeDistribution: parseSalesFollowUpTypeDistribution(followUpChildren.typeDistribution, 'current.followUpChildren.typeDistribution'),
+        overdueDueDatedFollowUpChildren: nonNegativeInteger(followUpChildren.overdueDueDatedFollowUpChildren, 'current.followUpChildren.overdueDueDatedFollowUpChildren'),
+      },
+    },
+    period: {
+      salesMeetingsCreated: nonNegativeInteger(period.salesMeetingsCreated, 'period.salesMeetingsCreated'),
+      salesMeetingsManagerApproved: nonNegativeInteger(period.salesMeetingsManagerApproved, 'period.salesMeetingsManagerApproved'),
+      meetingOutcomeDistribution: parseSalesFollowUpOutcomeDistribution(period.meetingOutcomeDistribution),
+      followUpChildrenCreated: nonNegativeInteger(period.followUpChildrenCreated, 'period.followUpChildrenCreated'),
+      followUpChildrenCreatedByType: parseSalesFollowUpTypeDistribution(period.followUpChildrenCreatedByType, 'period.followUpChildrenCreatedByType'),
+    },
+    relationships: {
+      directFollowUpLinks: nonNegativeInteger(relationships.directFollowUpLinks, 'relationships.directFollowUpLinks'),
+      currentCustomerDivergence: nonNegativeInteger(relationships.currentCustomerDivergence, 'relationships.currentCustomerDivergence'),
+    },
+  };
+}
+
 function query(entries: Record<string, string | number | null | undefined>) {
   const search = new URLSearchParams();
   Object.entries(entries).forEach(([key, value]) => {
@@ -630,5 +762,14 @@ export const getCustomerReport = async (input: CustomerReportRequest) => parseCu
     ...rangeQuery(input.requestedRange), search: input.search,
     status: input.status, customerType: input.customerType,
     limit: input.limit, offset: input.offset,
+  })}`),
+);
+export const getSalesFollowUpReport = async (input: SalesFollowUpReportRequest) => parseSalesFollowUpReport(
+  await request(`/api/reports/sales-follow-up${query({
+    ...rangeQuery(input.requestedRange),
+    limit: input.limit,
+    offset: input.offset,
+    proposalLimit: input.proposalLimit,
+    proposalOffset: input.proposalOffset,
   })}`),
 );

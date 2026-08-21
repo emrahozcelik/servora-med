@@ -26,6 +26,7 @@ export const paths = {
   customerReports: '/reports/customers',
   deliveryReports: '/reports/deliveries',
   approvalReports: '/reports/approvals',
+  salesFollowUpReports: '/reports/sales-follow-up',
   customers: '/customers',
   newCustomer: '/customers/new',
   products: '/products',

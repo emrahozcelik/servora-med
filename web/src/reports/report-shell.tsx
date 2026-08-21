@@ -5,7 +5,7 @@ import { EmptyState, IconSegmented, LoadingSkeleton, ResultState } from '../ui/a
 import type { ReportDatePreset } from './report-range';
 import { reportSectionHref, type ReportRangeContext } from './report-navigation';
 
-export type ReportNavSection = 'summary' | 'staff' | 'customers' | 'deliveries' | 'approvals';
+export type ReportNavSection = 'summary' | 'staff' | 'customers' | 'deliveries' | 'approvals' | 'salesFollowUp';
 
 const NAV: Array<{ id: ReportNavSection; label: string }> = [
   { id: 'summary', label: 'Özet' },
@@ -13,6 +13,7 @@ const NAV: Array<{ id: ReportNavSection; label: string }> = [
   { id: 'customers', label: 'Müşteriler' },
   { id: 'deliveries', label: 'Teslimler' },
   { id: 'approvals', label: 'Onaylar' },
+  { id: 'salesFollowUp', label: 'Satış ve takip' },
 ];
 
 export type ReportPresetOption = { id: ReportDatePreset; label: string };
