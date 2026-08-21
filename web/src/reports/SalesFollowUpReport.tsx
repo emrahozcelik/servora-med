@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
+import { useCallback, useEffect, useRef, useState, type FormEvent, type MouseEvent } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
 
 import { jobTypeLabels } from '../jobs/job-labels';
@@ -74,6 +74,56 @@ export function formatProposedAt(value: string | null, timeZone: string) {
     minute: '2-digit',
     timeZone,
   }).format(new Date(value));
+}
+
+// Compact chevron expand control for the proposal queue. Replaces the default
+// AntD +/− pill (which the global `button { min-height }` rule stretches into a
+// tall vertical pill) with a scoped, square, ghost chevron that carries Turkish
+// accessible labels and toggles exactly once per activation.
+function ProposalExpandIcon({
+  expanded,
+  expandable,
+  record,
+  onExpand,
+}: {
+  expanded: boolean;
+  expandable: boolean;
+  record: unknown;
+  onExpand: (record: unknown, event: MouseEvent<HTMLButtonElement>) => void;
+}) {
+  if (!expandable) {
+    return <span className="report-proposal-expand-spacer" aria-hidden="true" />;
+  }
+  return (
+    <button
+      type="button"
+      className="report-proposal-expand"
+      aria-label={expanded ? 'Takip talimatını kapat' : 'Takip talimatını aç'}
+      aria-expanded={expanded}
+      onClick={(event) => {
+        onExpand(record, event);
+        event.stopPropagation();
+      }}
+    >
+      <svg
+        className="report-proposal-expand-chevron"
+        viewBox="0 0 24 24"
+        width="16"
+        height="16"
+        aria-hidden="true"
+        focusable="false"
+      >
+        <path
+          d={expanded ? 'M6 9l6 6 6-6' : 'M9 6l6 6-6 6'}
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    </button>
+  );
 }
 
 // AntD breakpoint semantics: xs = (max-width: 575px), sm = (min-width: 576px).
@@ -355,6 +405,7 @@ export function SalesFollowUpReportView({
                   ) : null,
                 rowExpandable: (record: (typeof report.current.proposalQueue.items)[number]) =>
                   Boolean(record.followUpProposalInstructions),
+                expandIcon: ProposalExpandIcon,
               } as never
             }
             columns={[

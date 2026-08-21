@@ -1,4 +1,6 @@
 /** @vitest-environment jsdom */
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import { renderToStaticMarkup } from 'react-dom/server';
@@ -108,6 +110,24 @@ describe('Customer report presentation', () => {
     const chips = [...view.querySelectorAll('.report-customer-work-types span')]
       .map((chip) => chip.textContent);
     expect(chips).toEqual(['Ürün teslimi 2', 'Genel görev 1', 'Satış görüşmesi 0']);
+  });
+
+  it('keeps exactly one identity, one Şu an, and one Seçilen dönem block per card', () => {
+    const view = markup(baseReport());
+    const card = view.querySelector('li.report-customer-card');
+    expect(card).not.toBeNull();
+    expect(card?.querySelectorAll('.report-customer-identity')).toHaveLength(1);
+    expect(card?.querySelectorAll('.report-customer-current')).toHaveLength(1);
+    expect(card?.querySelectorAll('.report-customer-period')).toHaveLength(1);
+    expect(card?.querySelector('.report-customer-identity a[href="/customers/customer-1"]'))
+      .not.toBeNull();
+  });
+
+  it('spans the identity header across the full card grid and densifies wide metrics', () => {
+    const css = readFileSync(resolve('src/styles.css'), 'utf8');
+    expect(css).toContain('.report-customer-identity { grid-column: 1 / -1; }');
+    expect(css).toContain('.report-customer-metrics--current { grid-template-columns: repeat(3, minmax(0, 1fr)); }');
+    expect(css).toContain('.report-customer-metrics--period { grid-template-columns: repeat(3, minmax(0, 1fr)); }');
   });
 
   it('separates unassigned jobs into their own section above the collection', () => {
