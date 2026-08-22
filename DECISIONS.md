@@ -699,7 +699,7 @@ MVP, betik tabanlı bir yedekleme yığınını (`backup-postgres.sh`, systemd/l
 3. **Yedekleme kurulum seviyesinde (installation-level) altyapı durumudur**, organizasyon kaynağı değildir; backup tabloları `organization_id` taşımaz (gerekçeli istisna, emsal: `schema_migrations`).
 4. **V1 uzak hedefi Cloudflare R2'dir** (özel bucket, en az ayrıcalıklı Object Read & Write token); Bucket Lock ve lifecycle operatör yönetiminde kalır ve Bucket Lock, AWS S3 Object Lock API uyumluluğu olarak ele alınmaz.
 5. **Şifreleme yüklemeye kadar olur**, özel kripto yasaktır; onaylı yön age/X25519 genel anahtarlı şifrelemedir. Üretim sunucusu yalnızca genel recipient tutar; özel decrypt kimliği kalıcı olarak VPS'te bulunmaz.
-6. **Canonical bütünlük, şifreli objenin SHA-256'sıdır** ve uzaktan akış doğrulaması ile kazanılır; ETag kanonik checksum değildir. Yükleme başarısı tek başına yedek başarısı değildir.
+6. **Canonical bütünlük, şifreli objenin SHA-256'sıdır** ve uzaktan akış doğrulaması ile kazanılır; ETag kanonik checksum değildir. Yükleme başarısı tek başına yedek başarısı değildir. Expected ciphertext checksum, `backup_runs`'dan bağımsız olarak R2 obje custom metadata'sında (`x-amz-meta-servora-sha256`) da taşınır; böylece metadata tabloları kaybolsa bile decrypt öncesi doğrulama yapılabilir (metadata bir kriptografik imza değildir; otantiklik age şifrelemesi + bileşen checksum'ları + Bucket Lock'tan gelir).
 7. **Yedek oluşturma asenkronudur**: HTTP istek ömrü içinde yürütülmez; ayrı worker süreci + PostgreSQL iş durumu (Redis/BullMQ yok), kurulum başına en fazla 1 etkin yedek, yedek/geri yükleme karşılıklı dışlayıcıdır.
 8. **V1 geri yükleme operatör kontrollüdür** (`servora-backup` CLI): önce yeni/ayrı bir hedef veritabanına doğrular, üretim DB'sini asla ilk adımda ezmez, üretim geçişi (cutover) ayrı ve kontrollü bir işlemdir; geçiş öncesi PRE_RESTORE güvenlik yedeği zorunludur. Normal web arayüzünde geri yükleme butonu yoktur.
 9. **MVP ürün sınırı ("uygulama içi yedekleme arayüzü/tablosu yok") V1 için OPS-002 ile geçersiz kılınır**; sınır, BR1 (domain) ve BR6 (admin UI) slice'ları gerçekten birleşene kadar yürürlükte kalır. BR5'e kadar mevcut betik yığını işletme sözleşmesi olarak kalır ve operatör uyarı izleyicisi `backup_runs` doğrulanmış yedek kaynağıyla uzlaştırılır (ikinci bir izleme modeli kurulmaz).
@@ -707,6 +707,7 @@ MVP, betik tabanlı bir yedekleme yığınını (`backup-postgres.sh`, systemd/l
 
 ### Consequences
 
+- `backup_runs` durum modelinde `SUCCESS` satırlarında `failure_code` her zaman NULL'dur; doğrulanmış yedek üzerindeki ölümcül olmayan operasyonel durumlar (ör. `CLEANUP_FAILED`) `warning_code` ile taşınır — BR1 migration'ı bu invariant'ı CHECK kısıtı ile korur.
 - Uygulama sırası BR1–BR7 yol haritası ile sabittir (`docs/operations/backup-recovery/architecture.md` §16); slice'lar §2'deki karar kaydını yeniden açamaz, çelişki görürlerse en dar uzlaştırmayı önerirler.
 - Backup yönetimi V1'de yalnızca ADMIN'dir ve bilinçli olarak Manager yeteneklerinden dardır; geri yükleme hiçbir uygulama rolüne açık değildir.
 - `docs/operations/backup-restore.md` MVP yığını için geçerliliğini korur; BR0 bu sayfada yalnızca yönlendirme notu ekler.

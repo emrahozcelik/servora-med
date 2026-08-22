@@ -55,7 +55,7 @@ carried over.
 | 23 | Upload success alone is not backup success | §11 |
 | 24 | Success requires remote integrity verification | §11 |
 | 25 | Do not rely on R2/S3 ETag as canonical integrity checksum | §11, archive-and-storage §7 |
-| 26 | Canonical encrypted-object integrity: SHA-256 of the encrypted object with remote stream verification | §11 |
+| 26 | Canonical encrypted-object integrity: SHA-256 of the encrypted object with remote stream verification; expected value recorded DB-independently in R2 object custom metadata | §11 |
 | 27 | Local temporary artifacts are deleted after successful remote verification | §12 |
 | 28 | Crash/stale temporary workspace recovery is designed explicitly | §12 |
 | 29 | V1 restore is operator-controlled | §13 |
@@ -230,7 +230,7 @@ Rules:
 | API process restarts | No effect on run state. UI reads job state from PostgreSQL and reconciles; no in-memory backup state exists. |
 | Upload temporarily fails | Bounded retry with backoff inside `UPLOAD` (section 11, platform-contracts §6). Exhaustion → `FAILED` / `R2_UPLOAD_FAILED`. |
 | Remote verification fails | `FAILED` / `REMOTE_CHECKSUM_MISMATCH`, fail-closed. The uploaded object is **not** a restore point and must not be presented as verified. |
-| Cleanup fails after remote verification | The remote artifact is verified and intact — do not lose that evidence. Run terminal state is `SUCCESS` with the explicit `cleanup_warning` flag set (platform-contracts §1) and `CLEANUP_FAILED` recorded; stale workspace reclamation is retried by the next preflight (section 12). |
+| Cleanup fails after remote verification | The remote artifact is verified and intact — do not lose that evidence. Run terminal state is `SUCCESS` with `warning_code = CLEANUP_FAILED` recorded (platform-contracts §1, §6); `failure_code` stays null on `SUCCESS` runs; stale workspace reclamation is retried by the next preflight (section 12). |
 
 Ambiguous states are never normalized into `SUCCESS`; they become `FAILED`
 with a stable code.
@@ -314,6 +314,34 @@ Operator holds:         age PRIVATE identity — offline / password manager /
   hashes it, and compares against the locally hashed ciphertext. Only
   this verified value is stored in `backup_runs.sha256` and
   `verified_at`.
+- **The expected ciphertext checksum has a DB-independent source.** At
+  upload, the worker records the canonical SHA-256 in R2 object custom
+  metadata (`x-amz-meta-servora-sha256`, plus backup id and format
+  version — archive-and-storage §3.1). Verification then composes:
+
+```text
+normal case (metadata tables available):
+  backup_runs.sha256 == R2 object metadata sha256 == streamed ciphertext sha256
+
+disaster case (backup_runs lost):
+  R2 object metadata sha256 == streamed ciphertext sha256
+    → decrypt → internal checksums.sha256
+```
+
+  Without this, the restore flow's pre-decrypt checksum step
+  (§13.2 step 3) could not be satisfied when `backup_runs` is lost —
+  the manifest is no substitute, because reading it already requires
+  decryption.
+
+- **R2 object metadata is not a cryptographic signature.** Its purpose
+  is DR-time expected-checksum discovery plus transport/storage
+  corruption detection. Authenticity and tamper resistance come from
+  age authenticated encryption, the internal component checksums, and
+  operator-managed Bucket Lock (metadata is not immutable by itself —
+  an object-rewrite can replace it — but Bucket Lock blocks object
+  overwrite while retention is active; archive-and-storage §3.1, §7).
+  A signed archive descriptor may be considered in a future slice; it
+  is not required for V1.
 - **ETag is not the canonical checksum** (decision 25). Verified
   Cloudflare fact: R2 multipart ETags are a hash of part-MD5s, not the
   content MD5 of the object (archive-and-storage §7). ETags may be logged
@@ -322,7 +350,8 @@ Operator holds:         age PRIVATE identity — offline / password manager /
   decrypted payload: `checksums.sha256` covers `database.dump` and
   `files.tar.zst` (archive-and-storage §1).
 - Reverify (admin request, BR slices) repeats the remote stream check
-  against the stored `sha256`.
+  against the stored `sha256` and the R2 object metadata; a divergence
+  between the two is a fail-closed integrity event.
 
 ## 12. Temporary workspace lifecycle
 
@@ -334,7 +363,7 @@ Operator holds:         age PRIVATE identity — offline / password manager /
   - Workspaces are named by run id, so stale ones are attributable.
   - `PREFLIGHT` of the next run reclaims workspaces of runs that are
     terminal (`FAILED`/`CANCELLED`/`SUCCESS`) — including `SUCCESS` runs
-    whose cleanup failed (`cleanup_warning`).
+    whose cleanup failed (`warning_code = CLEANUP_FAILED`).
   - Workspaces of non-terminal runs are never touched; the crash
     recovery in section 7.3 first terminalizes the run.
 - Temp artifacts use restrictive permissions (`umask 077` precedent in
@@ -357,7 +386,8 @@ Operator holds:         age PRIVATE identity — offline / password manager /
 ```text
 1. acquire backup/restore exclusion lock
 2. download <backup-id>.sbk.age from R2
-3. verify encrypted-object SHA-256 against backup_runs / manifest record
+3. verify encrypted-object SHA-256 against R2 object metadata
+   (+ backup_runs when available)
 4. decrypt with operator-held age private identity
 5. validate manifest (format, formatVersion ≤ supported)
 6. reject unsupported format versions (fail closed)
@@ -393,9 +423,11 @@ are limited to:
 ```
 
 Because the archive is self-describing (manifest + checksums inside the
-encrypted payload), the `backup_runs` table is **not** required to
-understand or restore a valid archive (decision 8): the CLI can
-`list --remote`, download, decrypt, and inspect purely from R2 contents.
+encrypted payload) **and** the expected ciphertext checksum is carried in
+R2 object metadata, the `backup_runs` table is **not** required to
+understand, validate, or restore a valid archive (decision 8): the CLI
+can `list --remote`, download, verify against object metadata, decrypt,
+and inspect purely from R2 contents.
 
 ## 14. Acceptance contract (final BR7 gate)
 

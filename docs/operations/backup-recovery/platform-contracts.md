@@ -41,9 +41,18 @@ files.
 | `size_bytes` | BIGINT NULL CHECK (>= 0) | encrypted object size |
 | `sha256` | TEXT NULL CHECK (64 hex) | **verified** encrypted-object checksum |
 | `verified_at` | TIMESTAMPTZ NULL | set only by REMOTE_VERIFY success or reverify |
-| `cleanup_warning` | BOOLEAN NOT NULL DEFAULT false | remote verified; local cleanup failed (architecture §7.3) |
-| `failure_code` | TEXT NULL | stable code from §6 taxonomy |
+| `warning_code` | TEXT NULL | non-fatal operational warning (e.g. `CLEANUP_FAILED`); see invariants below |
+| `warning_summary` | TEXT NULL | admin-safe warning summary (§6.2) |
+| `failure_code` | TEXT NULL | stable code from §6 taxonomy — **only ever set on `FAILED` runs** |
 | `failure_summary` | TEXT NULL | admin-safe summary (§6) |
+
+Invariant (enforced by CHECK constraint in BR1): a row is `SUCCESS`
+with `failure_code IS NULL`, or `FAILED` with `failure_code IS NOT
+NULL` — never `SUCCESS` with a `failure_code`. Non-fatal conditions on
+successful runs (verified remote artifact exists, but operational
+remediation is needed) use `warning_code` exclusively; anticipated
+future warnings include `RETENTION_CLEANUP_DELAYED` and
+`MONITOR_SYNC_WARNING`.
 
 Additional worker-claiming columns (lease token, heartbeat timestamp)
 are finalized in BR1 following the `reminder-worker` lease precedent;
@@ -164,7 +173,7 @@ Tabs/sections:
 | Section | Contents |
 |---------|----------|
 | Overview | overall backup health; **last VERIFIED backup**; next scheduled backup; storage connectivity; manual **"Backup Now"** action |
-| Backups | history distinguishing `Completed`, `Verified`, `Verification failed`, `Failed` (and cleanup-warning state) |
+| Backups | history distinguishing `Completed`, `Verified`, `Verification failed`, `Failed` (and warning states such as `CLEANUP_FAILED` on verified runs) |
 | Schedule | policy editing (enabled, time, timezone, retention) |
 | Storage | configuration state and connection test |
 
@@ -200,7 +209,8 @@ Restore executes the 13-step flow (architecture §13.2):
 ```text
  1. acquire restore/backup exclusion lock
  2. download backup
- 3. verify encrypted-object SHA-256
+ 3. verify encrypted-object SHA-256 against R2 object custom metadata
+    (and `backup_runs` when available — DR works without it)
  4. decrypt (operator-held age private identity)
  5. validate manifest
  6. reject unsupported format versions (fail closed)
@@ -220,8 +230,10 @@ Restore executes the 13-step flow (architecture §13.2):
   by the CLI, never logged, and never written into any repository or
   host file beyond its operator-managed source.
 - `list --remote` works purely from R2 contents (DR: no metadata DB
-  required); `inspect` reads the decrypted manifest only after checksum
-  and manifest validation.
+  required); `verify`/`restore` use the R2 object custom metadata as the
+  DB-independent expected-checksum source (architecture §11,
+  archive-and-storage §3.1); `inspect` reads the decrypted manifest only
+  after checksum and manifest validation.
 - Results are recorded in `restore_runs` (when an installation DB is
   reachable) and in the operator ops log; identifiers logged are safe
   (backup id, target database name, outcome).
@@ -249,7 +261,6 @@ list authoritative and extend it only additively.
 | `R2_UPLOAD_FAILED` | UPLOAD | transient | bounded exponential backoff, then fail run |
 | `R2_DOWNLOAD_FAILED` | restore | transient | bounded exponential backoff, then fail |
 | `REMOTE_CHECKSUM_MISMATCH` | REMOTE_VERIFY | integrity | **fail closed** — no retry; object is not a restore point |
-| `CLEANUP_FAILED` | CLEANUP | post-success | run stays `SUCCESS` + `cleanup_warning`; next preflight reclaims |
 | `WORKER_LOST` | crash recovery | infrastructure | orphaned RUNNING run terminalized as FAILED |
 | `RESTORE_MANIFEST_INVALID` | restore | integrity | fail closed |
 | `RESTORE_FORMAT_UNSUPPORTED` | restore | compatibility | fail closed |
@@ -257,6 +268,21 @@ list authoritative and extend it only additively.
 | `RESTORE_DATABASE_CREATE_FAILED` | restore | environment | fail; operator reviews target |
 | `RESTORE_PG_RESTORE_FAILED` | restore | deterministic | fail closed |
 | `RESTORE_INTEGRITY_FAILED` | restore | integrity | fail closed — no READY_FOR_CUTOVER |
+
+### 6.1.1 Warning codes (non-fatal, `warning_code` — never `failure_code`)
+
+A `SUCCESS` run always has `failure_code IS NULL`. Non-fatal operational
+conditions are recorded as warnings without downgrading the verified
+restore point:
+
+| Warning code | Meaning | Remediation |
+|--------------|---------|-------------|
+| `CLEANUP_FAILED` | remote artifact verified; local temp workspace cleanup failed | next preflight reclaims the stale workspace (architecture §12) |
+| `RETENTION_CLEANUP_DELAYED` (future) | logical retention pruning pending | monitored; not urgent |
+| `MONITOR_SYNC_WARNING` (future) | monitoring reconciliation lag | monitored |
+
+Future non-fatal conditions extend this table additively; they never
+move into `failure_code`.
 
 ### 6.2 User-safe summary vs internal diagnostics
 
@@ -279,7 +305,8 @@ Not every failure is retried blindly:
 - Checksum mismatches → fail closed, never retried automatically.
 - Authentication failures → fail; requires operator correction.
 - Cleanup failure after successful remote verification → represented
-  explicitly (`cleanup_warning`); the evidence that a **verified remote
+  explicitly as `warning_code = CLEANUP_FAILED` on the `SUCCESS` run
+  (`failure_code` stays null); the evidence that a **verified remote
   artifact exists** is never lost or downgraded.
 
 ## 7. Monitoring / health contract

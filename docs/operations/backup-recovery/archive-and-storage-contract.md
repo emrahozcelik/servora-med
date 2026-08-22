@@ -114,12 +114,13 @@ inspectable metadata and must **never** contain:
 
 ## 3. Checksum contract
 
-Two distinct integrity layers; do not merge them:
+Three distinct integrity artifacts; do not merge them:
 
 | Layer | Covers | Producer | Verifier |
 |-------|--------|----------|----------|
 | Component checksums (`checksums.sha256` inside the archive) | plaintext components (`database.dump`, `files.tar.zst`) | worker, before encryption | restore CLI after decrypt (steps 5–7 of the restore flow) |
 | Canonical encrypted-object checksum (`backup_runs.sha256`) | the whole encrypted `.sbk.age` object | worker, at REMOTE_VERIFY | worker (remote stream), reverify requests, restore CLI step 3 |
+| Expected-checksum metadata (R2 object custom metadata, §3.1) | DB-independent record of the canonical encrypted SHA-256 (+ backup id, format version) | worker, at upload | worker REMOTE_VERIFY, reverify, restore CLI step 3 — works without `backup_runs` |
 
 `checksums.sha256` uses the portable sidecar format already established
 by `ops/scripts/backup-postgres.sh` (exactly two spaces, newline-terminated):
@@ -130,6 +131,43 @@ by `ops/scripts/backup-postgres.sh` (exactly two spaces, newline-terminated):
 ```
 
 The R2/S3 ETag is **not** a checksum contract input (see §7).
+
+### 3.1 DB-independent checksum discovery (R2 object custom metadata)
+
+Disaster recovery must satisfy pre-decrypt ciphertext verification even
+when `backup_runs` is lost, and the manifest cannot help (reading it
+requires decryption). The expected ciphertext checksum therefore also
+travels on the R2 object itself as custom metadata, written at upload:
+
+```text
+<backup-id>.sbk.age
+  x-amz-meta-servora-backup-id: <uuid>
+  x-amz-meta-servora-format:   1
+  x-amz-meta-servora-sha256:   <hex64 ciphertext sha256>
+```
+
+Contract rules:
+
+- Metadata keys/values are opaque, ASCII, non-sensitive (no
+  customer/organization/user data), and small — R2's total object
+  metadata budget is on the order of 8 KiB (§7); the three keys above
+  use a tiny fraction.
+- Verification composition: normal case requires
+  `backup_runs.sha256 == x-amz-meta-servora-sha256 == streamed hash`;
+  DR case requires `x-amz-meta-servora-sha256 == streamed hash` before
+  decrypt. Any divergence is a fail-closed integrity event.
+- **This metadata is not a cryptographic signature.** It provides
+  DR-time expected-checksum discovery and corruption detection.
+  Authenticity/tamper resistance come from age authenticated encryption,
+  internal component checksums, and Bucket Lock. Note the nuance: object
+  metadata is **not immutable by itself** (a same-key copy/replace can
+  rewrite it), but rewriting the object is exactly what Bucket Lock
+  blocks while retention is active (§6, §7) — the controls compose.
+- A remote sidecar object (`<id>.sbk.age.sha256`) was considered and
+  **rejected**: a second object doubles lifecycle/upload-completeness
+  and orphan-handling surface for no additional guarantee.
+- Writing this metadata needs only the same object-level `PutObject`
+  permission the uploader already holds (§6.2) — no extra scope.
 
 ## 4. Retention contract
 
@@ -320,6 +358,15 @@ BR slices must re-verify anything time-sensitive before relying on it.
    documented; do not assume a paid-tier requirement. Activation of R2
    itself is the prerequisite.
    <https://developers.cloudflare.com/r2/pricing/>
+8. **Custom object metadata**: R2 supports `x-amz-meta-*` custom
+   metadata on `PutObject` through the S3-compatible API (Workers API
+   `customMetadata` maps to the same headers). `CopyObject` supports
+   `x-amz-metadata-directive` values `COPY`/`REPLACE` plus the R2
+   extension `MERGE` — i.e. metadata is rewritable only by rewriting
+   (copying) the object, which Bucket Lock blocks during retention.
+   Total object metadata budget is on the order of 8 KiB (key + value).
+   <https://developers.cloudflare.com/r2/api/s3/extensions/>
+   <https://developers.cloudflare.com/r2/platform/limits/>
 
 ### Explicitly unverified (do not build on)
 
