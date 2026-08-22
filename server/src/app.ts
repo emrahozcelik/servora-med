@@ -68,6 +68,10 @@ import { messagingRoutes } from './modules/messaging/routes.js';
 import type { StaffConfidentialNotesRepository } from './modules/staff-confidential-notes/repository.js';
 import { StaffConfidentialNotesService } from './modules/staff-confidential-notes/service.js';
 import { staffConfidentialNotesRoutes } from './modules/staff-confidential-notes/routes.js';
+import type { BackupRepository } from './modules/backup/repository.js';
+import { PostgresBackupRepository } from './modules/backup/repository.js';
+import { BackupService } from './modules/backup/service.js';
+import { backupRoutes } from './modules/backup/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -117,6 +121,7 @@ export type AppDependencies = {
   calendarRepository?: CalendarRepository;
   calendarReminderWorker?: CalendarReminderWorker;
   staffConfidentialNotesRepository?: StaffConfidentialNotesRepository;
+  backupRepository?: BackupRepository;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
   pool?: import('pg').Pool;
@@ -356,6 +361,17 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
           dependencies.staffConfidentialNotesRepository,
           dependencies.realtimePublisher,
         ),
+        authenticate: authenticateDomain,
+      });
+    }
+    // Backup admin API: gated on the domain capability flag. BR1 is metadata
+    // foundation only; BR2–BR4 execution secrets are NOT required to start.
+    if (dependencies.pool && config.capabilities?.backup) {
+      const backupRepository = dependencies.backupRepository
+        ?? new PostgresBackupRepository(dependencies.pool);
+      await app.register(backupRoutes, {
+        prefix: '/api/admin',
+        service: new BackupService(backupRepository),
         authenticate: authenticateDomain,
       });
     }

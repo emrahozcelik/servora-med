@@ -8,6 +8,7 @@ const DEFAULT_CAPABILITIES: AuthenticatedCapabilities = {
   overviewDashboard: false,
   calendar: false,
   messaging: false,
+  backup: false,
 };
 const DEFAULT_SUPPORT: AuthenticatedSupport = {
   displayLabel: 'Sistem yöneticiniz',

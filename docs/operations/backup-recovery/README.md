@@ -2,8 +2,9 @@
 
 ```text
 Date: 2026-08-22
-Slice: BR0 — architecture and contracts only
-Status: DOCUMENTATION_ONLY / IMPLEMENTATION_NOT_AUTHORIZED
+BR0: merged (architecture and contracts only)
+BR1: implemented — Backup Domain Foundation
+Status: BR1 delivered; BR2–BR7 future
 ```
 
 This directory holds the approved architecture and implementation-ready
@@ -11,6 +12,35 @@ contracts for Servora-Med Backup & Recovery V1, and the BR1–BR7
 implementation roadmap. BR0 changed documentation only: no backup engine,
 no migrations, no API endpoints, no UI, and no Cloudflare resources were
 added or configured.
+
+## Implementation status
+
+| Slice | Status |
+|-------|--------|
+| BR0 — architecture + contracts | merged (`eceb94d`, PR #187) |
+| BR1 — backup domain foundation | implemented (see below) |
+| BR2–BR7 | future (engine, encryption, R2, worker, admin UI, restore CLI) |
+
+BR1 delivered (metadata foundation only — no pg_dump, encryption, R2,
+worker, scheduler, UI, or restore execution):
+
+- Migration `030_backup_domain_foundation` — installation-scoped
+  `backup_runs`, `backup_policy` (seeded singleton), `backup_storage`
+  (seeded singleton, safe state only), `restore_runs`; durable
+  single-active partial unique indexes; canonical CHECK vocabularies and
+  invariants; `audit_events` vocabulary extension
+  (`BACKUP_REQUESTED`, `BACKUP_POLICY_UPDATED`).
+- Module `server/src/modules/backup` — canonical types and state machine
+  (status/phase transitions, failure/warning taxonomy, shared
+  `BACKUP_EXCLUSION_ADVISORY_LOCK_KEY`), repository (keyset history,
+  transition primitives, `processed_actions` idempotency), service
+  (ADMIN-only RBAC, atomic run+audit creation, policy validation), routes.
+- API: `GET/POST /api/admin/backups`, `GET /api/admin/backups/:backupId`,
+  `GET/PUT /api/admin/backup-policy`, `GET /api/admin/backup-storage`,
+  gated by `BACKUP_ENABLED` (default false; app starts without BR2–BR4
+  secrets). Deliberately deferred: `POST /api/admin/backups/:id/reverify`
+  and `POST /api/admin/backup-storage/test` (would not be truthful before
+  BR4).
 
 ## File map
 
