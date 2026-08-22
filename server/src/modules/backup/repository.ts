@@ -231,7 +231,8 @@ export interface BackupRepository {
   advancePhase(id: string, fromPhase: NonNullable<BackupRun['phase']>, toPhase: NonNullable<BackupRun['phase']>): Promise<BackupRun | null>;
   markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string, completedAt: Date): Promise<BackupRun | null>;
   markCancelled(id: string, completedAt: Date): Promise<BackupRun | null>;
-  markVerified(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, completedAt: Date): Promise<BackupRun | null>;
+  recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }): Promise<BackupRun | null>;
+  completeRun(id: string, input: { completedAt: Date; cleanupWarning: string | null }): Promise<BackupRun | null>;
   markCleanupWarning(id: string, warningSummary: string): Promise<BackupRun | null>;
   createRestoreRun(input: CreateRestoreRunInput): Promise<RestoreRun>;
   getRestoreRunById(id: string): Promise<RestoreRun | null>;
@@ -458,14 +459,35 @@ export class PostgresBackupRepository implements BackupRepository {
     return result.rows[0] ? mapRun(result.rows[0]) : null;
   }
 
-  async markVerified(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, completedAt: Date) {
+  // REMOTE_VERIFY success: persist the verification result while the run is
+  // still RUNNING. Terminalization happens only in completeRun, after CLEANUP
+  // (BR0 architecture §7.2: UPLOAD → REMOTE_VERIFY → CLEANUP → SUCCESS).
+  async recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }) {
     const result = await this.pool.query<BackupRunRow>(
       `UPDATE backup_runs
-          SET status = 'SUCCESS', remote_key = $2, size_bytes = $3, sha256 = $4,
-              verified_at = $5, completed_at = $5
-        WHERE id = $1 AND status = 'RUNNING'
+          SET remote_key = $2, size_bytes = $3, sha256 = $4
+        WHERE id = $1 AND status = 'RUNNING' AND phase = 'REMOTE_VERIFY'
         RETURNING ${RUN_COLUMNS}`,
-      [id, input.remoteKey, input.sizeBytes, input.sha256, completedAt],
+      [id, input.remoteKey, input.sizeBytes, input.sha256],
+    );
+    return result.rows[0] ? mapRun(result.rows[0]) : null;
+  }
+
+  // Terminal transition after CLEANUP. verified_at is set HERE, never at
+  // REMOTE_VERIFY, so the verified_at → SUCCESS invariant holds while the
+  // verification result itself (sha256/remote_key/size_bytes) was already
+  // recorded by recordVerification. A non-null cleanupWarning records
+  // CLEANUP_FAILED without downgrading the verified restore point.
+  async completeRun(id: string, input: { completedAt: Date; cleanupWarning: string | null }) {
+    const warned = input.cleanupWarning !== null;
+    const result = await this.pool.query<BackupRunRow>(
+      `UPDATE backup_runs
+          SET status = 'SUCCESS', verified_at = $2, completed_at = $2,
+              warning_code = ${warned ? "'CLEANUP_FAILED'" : 'NULL'},
+              warning_summary = ${warned ? '$3' : 'NULL'}
+        WHERE id = $1 AND status = 'RUNNING' AND phase = 'CLEANUP'
+        RETURNING ${RUN_COLUMNS}`,
+      warned ? [id, input.completedAt, input.cleanupWarning] : [id, input.completedAt],
     );
     return result.rows[0] ? mapRun(result.rows[0]) : null;
   }

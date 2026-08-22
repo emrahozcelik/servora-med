@@ -343,28 +343,45 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
     const started = await service!.startRun(run.id);
     expect(started).toMatchObject({ status: 'RUNNING', phase: 'PREFLIGHT', startedAt: expect.any(Date) });
 
-    await service!.advancePhase(run.id, 'DATABASE_DUMP');
-    // FILES_ARCHIVE may be skipped for DATABASE scope.
-    await service!.advancePhase(run.id, 'MANIFEST');
+    // DATABASE scope: FILES_ARCHIVE is not required and may be skipped.
+    await service!.advancePhase(run.id, 'DATABASE_DUMP', false);
+    await service!.advancePhase(run.id, 'MANIFEST', false);
     // Same-phase re-entry is a retry, not a violation.
-    await service!.advancePhase(run.id, 'MANIFEST');
+    await service!.advancePhase(run.id, 'MANIFEST', false);
     // Backward transition is rejected.
-    await expectAppError(service!.advancePhase(run.id, 'DATABASE_DUMP'), 'BACKUP_INVALID_TRANSITION', 409);
-    // Skipping a non-FILES_ARCHIVE phase is rejected.
-    await expectAppError(service!.advancePhase(run.id, 'REMOTE_VERIFY'), 'BACKUP_INVALID_TRANSITION', 409);
+    await expectAppError(service!.advancePhase(run.id, 'DATABASE_DUMP', false), 'BACKUP_INVALID_TRANSITION', 409);
+    // Skipping non-FILES_ARCHIVE phases is rejected.
+    await expectAppError(service!.advancePhase(run.id, 'REMOTE_VERIFY', false), 'BACKUP_INVALID_TRANSITION', 409);
 
+    for (const phase of ['CHECKSUM', 'PACKAGE', 'ENCRYPT', 'UPLOAD'] as const) {
+      await service!.advancePhase(run.id, phase, false);
+    }
+
+    // Verification evidence is only accepted at REMOTE_VERIFY — not earlier.
     const sha256 = 'a'.repeat(64);
-    const verified = await service!.markVerified(run.id, {
+    await expectAppError(
+      service!.recordVerification(run.id, { remoteKey: `production/inst/v1/manual/${run.id}.sbk.age`, sizeBytes: 1024, sha256 }),
+      'BACKUP_INVALID_TRANSITION',
+      409,
+    );
+    await service!.advancePhase(run.id, 'REMOTE_VERIFY', false);
+    const verifiedRun = await service!.recordVerification(run.id, {
       remoteKey: `production/inst/v1/manual/${run.id}.sbk.age`,
       sizeBytes: 1024,
       sha256,
     });
-    expect(verified).toMatchObject({
+    expect(verifiedRun).toMatchObject({ status: 'RUNNING', sha256, verifiedAt: null, completedAt: null });
+
+    await service!.advancePhase(run.id, 'CLEANUP', false);
+
+    const completed = await service!.completeRun(run.id);
+    expect(completed).toMatchObject({
       status: 'SUCCESS',
       sha256,
       verifiedAt: expect.any(Date),
       completedAt: expect.any(Date),
       failureCode: null,
+      warningCode: null,
     });
 
     // Terminal states never return to RUNNING; SUCCESS never carries failure codes.
@@ -376,13 +393,65 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
     expect(warned).toMatchObject({ status: 'SUCCESS', warningCode: 'CLEANUP_FAILED', sha256 });
   });
 
-  it('state machine: FULL_DATA runs may not skip FILES_ARCHIVE; failure paths keep invariants', async () => {
-    const run = await service!.requestManualBackup(adminActor, { clientActionId: 'sm-2', scope: 'FULL_DATA' });
+  it('B2: canonical REMOTE_VERIFY → CLEANUP → SUCCESS with cleanup-warning branch', async () => {
+    const run = await service!.requestManualBackup(adminActor, { clientActionId: 'sm-clean-warn' });
     await service!.startRun(run.id);
-    await service!.advancePhase(run.id, 'DATABASE_DUMP');
-    await expectAppError(service!.advancePhase(run.id, 'MANIFEST'), 'BACKUP_INVALID_TRANSITION', 409);
-    await service!.advancePhase(run.id, 'FILES_ARCHIVE');
-    await service!.advancePhase(run.id, 'MANIFEST');
+    for (const phase of ['DATABASE_DUMP', 'MANIFEST', 'CHECKSUM', 'PACKAGE', 'ENCRYPT', 'UPLOAD'] as const) {
+      await service!.advancePhase(run.id, phase, false);
+    }
+    // Direct SUCCESS from REMOTE_VERIFY (CLEANUP not processed) is rejected.
+    await service!.advancePhase(run.id, 'REMOTE_VERIFY', false);
+    await service!.recordVerification(run.id, {
+      remoteKey: `production/inst/v1/manual/${run.id}.sbk.age`,
+      sizeBytes: 2048,
+      sha256: 'b'.repeat(64),
+    });
+    await expectAppError(service!.completeRun(run.id), 'BACKUP_INVALID_TRANSITION', 409);
+
+    // CLEANUP runs, then terminal transition may carry the cleanup warning.
+    await service!.advancePhase(run.id, 'CLEANUP', false);
+    const completed = await service!.completeRun(run.id, { cleanupWarning: 'geçici dizin silinemedi' });
+    expect(completed).toMatchObject({
+      status: 'SUCCESS',
+      sha256: 'b'.repeat(64),
+      verifiedAt: expect.any(Date),
+      warningCode: 'CLEANUP_FAILED',
+      failureCode: null,
+    });
+  });
+
+  it('B2: completing without verification evidence is rejected', async () => {
+    const run = await service!.requestManualBackup(adminActor, { clientActionId: 'sm-no-verify' });
+    await service!.startRun(run.id);
+    for (const phase of ['DATABASE_DUMP', 'MANIFEST', 'CHECKSUM', 'PACKAGE', 'ENCRYPT', 'UPLOAD', 'REMOTE_VERIFY', 'CLEANUP'] as const) {
+      await service!.advancePhase(run.id, phase, false);
+    }
+    await expectAppError(service!.completeRun(run.id), 'BACKUP_INVALID_TRANSITION', 409);
+    await service!.markFailed(run.id, 'REMOTE_CHECKSUM_MISMATCH', 'uzaktan doğrulama başarısız');
+  });
+
+  it('B1: FILES_ARCHIVE requirement is execution context, not scope alone', async () => {
+    // FULL_DATA with configured persistent files: FILES_ARCHIVE is required.
+    const required = await service!.requestManualBackup(adminActor, { clientActionId: 'sm-full-required', scope: 'FULL_DATA' });
+    await service!.startRun(required.id);
+    await service!.advancePhase(required.id, 'DATABASE_DUMP', true);
+    await expectAppError(service!.advancePhase(required.id, 'MANIFEST', true), 'BACKUP_INVALID_TRANSITION', 409);
+    await service!.advancePhase(required.id, 'FILES_ARCHIVE', true);
+    await service!.advancePhase(required.id, 'MANIFEST', true);
+    await service!.markFailed(required.id, 'PG_DUMP_FAILED', 'test sonlandırma');
+
+    // FULL_DATA WITHOUT configured persistent files: FILES_ARCHIVE is skipped.
+    const skipped = await service!.requestManualBackup(adminActor, { clientActionId: 'sm-full-skip', scope: 'FULL_DATA' });
+    await service!.startRun(skipped.id);
+    await service!.advancePhase(skipped.id, 'DATABASE_DUMP', false);
+    await service!.advancePhase(skipped.id, 'MANIFEST', false);
+    await service!.markCancelled(skipped.id);
+  });
+
+  it('state machine: failure paths keep invariants', async () => {
+    const run = await service!.requestManualBackup(adminActor, { clientActionId: 'sm-fail' });
+    await service!.startRun(run.id);
+    await service!.advancePhase(run.id, 'DATABASE_DUMP', false);
 
     const failed = await service!.markFailed(run.id, 'PG_DUMP_FAILED', 'pg_dump sağlıklı dump üretemedi');
     expect(failed).toMatchObject({
@@ -393,6 +462,15 @@ describe.skipIf(!databaseUrl)('Backup domain PostgreSQL integration', () => {
     });
     await expectAppError(service!.markCleanupWarning(run.id, 'x'), 'BACKUP_INVALID_TRANSITION', 409);
     await expectAppError(service!.markCancelled(run.id), 'BACKUP_INVALID_TRANSITION', 409);
+  });
+
+  it('idempotency namespace does not block sequential distinct requests from the same admin', async () => {
+    const first = await service!.requestManualBackup(adminActor, { clientActionId: 'seq-A' });
+    await service!.markCancelled(first.id);
+    const second = await service!.requestManualBackup(adminActor, { clientActionId: 'seq-B' });
+    expect(second.id).not.toBe(first.id);
+    expect(second).toMatchObject({ status: 'QUEUED', createdBy: adminId });
+    await service!.markCancelled(second.id);
   });
 
   it('policy: seeded defaults, validated updates, audit event, malformed rejection', async () => {

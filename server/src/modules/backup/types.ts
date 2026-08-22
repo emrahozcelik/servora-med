@@ -206,12 +206,19 @@ export function isValidStatusTransition(from: BackupRunStatus, to: BackupRunStat
   return BACKUP_STATUS_TRANSITIONS[from].includes(to);
 }
 
-/** Phases strictly advance while RUNNING; FILES_ARCHIVE may be contractually
- * skipped for DATABASE scope; retry may re-enter the SAME phase. */
+/**
+ * Phases strictly advance while RUNNING; retry may re-enter the SAME phase.
+ *
+ * FILES_ARCHIVE is the only skippable phase, and only when this run does not
+ * require a files archive. Whether a files archive is required is an
+ * EXECUTION-CONTEXT fact resolved by the caller (BR2/BR5 worker):
+ * scope alone does not decide it — a FULL_DATA run without configured
+ * persistent files skips FILES_ARCHIVE too (BR0 architecture §7.2).
+ */
 export function isValidPhaseTransition(
-  scope: BackupScope,
   from: BackupRunPhase,
   to: BackupRunPhase,
+  context: { filesArchiveRequired: boolean },
 ): boolean {
   const order: readonly BackupRunPhase[] = BACKUP_RUN_PHASES;
   const fromIndex = order.indexOf(from);
@@ -220,8 +227,20 @@ export function isValidPhaseTransition(
   if (toIndex < fromIndex) return false; // backward transition
   const skipped = order.slice(fromIndex + 1, toIndex);
   // Only the phases strictly between from and to are "skipped"; the only
-  // skippable phase is FILES_ARCHIVE, and only for DATABASE scope runs.
-  return skipped.every((phase) => phase === 'FILES_ARCHIVE' && scope === 'DATABASE');
+  // skippable phase is FILES_ARCHIVE, and only when it is not required.
+  return skipped.every((phase) => phase === 'FILES_ARCHIVE' && !context.filesArchiveRequired);
+}
+
+/**
+ * Domain derivation of the files-archive requirement for the worker (BR2/BR5):
+ * FILES_ARCHIVE runs only for FULL_DATA scope with configured persistent
+ * files; otherwise it is contractually skipped.
+ */
+export function filesArchiveRequiredFor(
+  scope: BackupScope,
+  persistentFilesConfigured: boolean,
+): boolean {
+  return scope === 'FULL_DATA' && persistentFilesConfigured;
 }
 
 export type BackupCriticalActionClaim = {

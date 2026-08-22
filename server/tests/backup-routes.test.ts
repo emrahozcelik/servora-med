@@ -161,7 +161,7 @@ class MemoryBackupRepository implements BackupRepository {
     return run;
   }
 
-  async advancePhase(id: string, _fromPhase: BackupRun['phase'], toPhase: NonNullable<BackupRun['phase']>) {
+  async advancePhase(id: string, _fromPhase: BackupRun['phase'], toPhase: NonNullable<BackupRun['phase']>, _filesArchiveRequired: boolean) {
     const run = this.runs.find((candidate) => candidate.id === id && candidate.status === 'RUNNING');
     if (!run) return null;
     run.phase = toPhase;
@@ -184,12 +184,27 @@ class MemoryBackupRepository implements BackupRepository {
     return run;
   }
 
-  async markVerified(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, completedAt: Date) {
-    const run = this.runs.find((candidate) => candidate.id === id && candidate.status === 'RUNNING');
+  async recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }) {
+    const run = this.runs.find(
+      (candidate) => candidate.id === id && candidate.status === 'RUNNING' && candidate.phase === 'REMOTE_VERIFY',
+    );
+    if (!run) return null;
+    Object.assign(run, { remoteKey: input.remoteKey, sizeBytes: input.sizeBytes, sha256: input.sha256 });
+    return run;
+  }
+
+  async completeRun(id: string, input: { completedAt: Date; cleanupWarning: string | null }) {
+    const run = this.runs.find(
+      (candidate) => candidate.id === id && candidate.status === 'RUNNING' && candidate.phase === 'CLEANUP',
+    );
     if (!run) return null;
     Object.assign(run, {
-      status: 'SUCCESS', remoteKey: input.remoteKey, sizeBytes: input.sizeBytes,
-      sha256: input.sha256, verifiedAt: completedAt, completedAt,
+      status: 'SUCCESS',
+      verifiedAt: input.completedAt,
+      completedAt: input.completedAt,
+      ...(input.cleanupWarning !== null
+        ? { warningCode: 'CLEANUP_FAILED' as const, warningSummary: input.cleanupWarning }
+        : {}),
     });
     return run;
   }
