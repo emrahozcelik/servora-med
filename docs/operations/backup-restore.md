@@ -5,6 +5,12 @@
 > see [operator-alerting.md](./operator-alerting.md). Backup creation and
 > restore remain manual as documented below.
 
+> Post-MVP direction: the approved Backup & Recovery V1 architecture and
+> contracts (R2 + age encryption + worker) live in
+> [backup-recovery/](./backup-recovery/) (BR0, documentation-only). This page
+> remains the operating contract for the current script-based stack until the
+> BR slices replace it; see `DECISIONS.md` → `OPS-002`.
+
 ## Backup
 
 Script: `ops/scripts/backup-postgres.sh`
