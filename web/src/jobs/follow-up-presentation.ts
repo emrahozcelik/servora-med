@@ -1,4 +1,4 @@
-import type { MeetingOutcome } from './jobs-api';
+import type { JobCardType, MeetingOutcome } from './jobs-api';
 
 export const FOLLOW_UP_BADGE_LABEL = 'Takip';
 export const FOLLOW_UP_SOURCE_TITLE = 'Önceki iş bağlamı';
@@ -31,3 +31,24 @@ export const FOLLOW_UP_ERROR_MESSAGES: Record<string, string> = {
   FOLLOW_UP_CUSTOMER_CONFLICT: 'Aynı müşteriye aynı gün başka bir saha işi planlanmış. Farklı bir gün seçin.',
   FOLLOW_UP_OVERRIDE_REASON_REQUIRED: 'Bu müşteri için ziyaret sıklığı sınırı aşılıyor. Planlamak için neden belirtin.',
 };
+
+const FOLLOW_UP_TYPE_DEFAULTS: Record<JobCardType, JobCardType> = {
+  SALES_MEETING: 'SALES_MEETING',
+  PRODUCT_DELIVERY: 'SALES_MEETING',
+  GENERAL_TASK: 'GENERAL_TASK',
+};
+
+/** Canonical follow-up child type for a completed source, mirroring the server
+ *  `defaultFollowUpType` contract (no server round-trip needed). */
+export function defaultFollowUpType(sourceType: JobCardType): JobCardType {
+  return FOLLOW_UP_TYPE_DEFAULTS[sourceType];
+}
+
+export const FOLLOW_UP_TITLE_PREFIX = 'Takip: ';
+
+/** Editable default title for a direct follow-up. Capped to the JobCard title
+ *  domain limit (255 code points) so the generated default is never invalid. */
+export function defaultFollowUpTitle(sourceTitle: string): string {
+  const title = sourceTitle.trim();
+  return Array.from(`${FOLLOW_UP_TITLE_PREFIX}${title}`).slice(0, 255).join('');
+}

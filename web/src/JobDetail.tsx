@@ -425,7 +425,7 @@ export function JobDetailPanel({
   job, items, user, pending, message, messageIsError = false,
   feedbackRef, onBack, onCommand, onRecordEdit, onSaveSchedule, onSaveDeliveredAt,
   meetingDetails = null, records, realtimeStaleNotice, notes, timeline, children,
-  pendingLabel, continuity, onCreateFollowUp, messagingAction,
+  pendingLabel, continuity, onCreateFollowUp, existingChildrenCount, messagingAction,
   messagingActionVisible = false,
 }: {
   job: JobCard;
@@ -455,6 +455,7 @@ export function JobDetailPanel({
   children?: ReactNode;
   continuity?: ReactNode;
   onCreateFollowUp?: () => void;
+  existingChildrenCount?: number | null;
   messagingAction?: ReactNode;
   messagingActionVisible?: boolean;
 }) {
@@ -609,7 +610,7 @@ export function JobDetailPanel({
         <FollowUpRecommendation job={job} details={meetingDetails} onCreate={onCreateFollowUp} />
       )}
       {showFollowUpCreateAction && onCreateFollowUp && (
-        <FollowUpCreateAction onCreate={onCreateFollowUp} />
+        <FollowUpCreateAction onCreate={onCreateFollowUp} existingChildrenCount={existingChildrenCount} />
       )}
       {presentation.revisionLoop && (
         <div data-job-detail-section="revision">
@@ -863,6 +864,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
   const [lifecycleNoteKey, setLifecycleNoteKey] = useState(0);
   const [notesRealtimeKey, setNotesRealtimeKey] = useState(0);
   const [messagingActionVisible, setMessagingActionVisible] = useState(false);
+  const [followUpChildrenCount, setFollowUpChildrenCount] = useState<number | null>(null);
   const [dialog, setDialog] = useState<JobWorkflowDialogKind | null>(null);
   const [followUp, setFollowUp] = useState<{
     draft: FollowUpDraft | null;
@@ -1845,6 +1847,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     onSaveSchedule={saveSchedule}
     onSaveDeliveredAt={detail.kind === 'PRODUCT_DELIVERY' ? saveDeliveredAt : undefined}
     onCreateFollowUp={onCreateFollowUp}
+    existingChildrenCount={followUpChildrenCount}
     records={recordContent}
     notes={viewNotes ? (
       <JobNotes
@@ -1868,7 +1871,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     messagingActionVisible={messagingActionVisible}
     timeline={<JobTimeline jobId={jobId} refreshKey={timelineKey} />}
   >
-    {isManagementUser(user) && <FollowUpChildrenPanel sourceId={jobId} />}
+    {isManagementUser(user) && <FollowUpChildrenPanel sourceId={jobId} onCountChange={setFollowUpChildrenCount} />}
     {dialog && <JobWorkflowDialog
       dialog={dialog}
       pending={pending}

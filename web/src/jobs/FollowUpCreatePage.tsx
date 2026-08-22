@@ -20,6 +20,8 @@ import {
 } from './jobs-api';
 import {
   CUSTOMERLESS_FOLLOW_UP_EXPLANATION,
+  defaultFollowUpTitle,
+  defaultFollowUpType,
   FOLLOW_UP_ERROR_MESSAGES,
 } from './follow-up-presentation';
 import { AvailableSlotsNotice } from './AvailableSlotsNotice';
@@ -102,12 +104,14 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
   const attempt = useRef<Attempt | null>(null);
   const pendingRef = useRef(false);
   const sourceRef = useRef(sourceId);
+  const titleInitializedSourceRef = useRef<string | null>(null);
   const errorRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     sourceRef.current = sourceId;
     setType('GENERAL_TASK');
     setTitle('');
+    titleInitializedSourceRef.current = null;
     setInstructions('');
     setScheduledLocal('');
     setDueDate('');
@@ -138,8 +142,12 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
         ]);
         if (!active) return;
         const customerless = source.customer === null;
-        const initialType = customerless ? 'GENERAL_TASK' : source.type;
+        const initialType = customerless ? 'GENERAL_TASK' : defaultFollowUpType(source.type);
         setType(initialType);
+        if (titleInitializedSourceRef.current !== source.id) {
+          setTitle(defaultFollowUpTitle(source.title));
+          titleInitializedSourceRef.current = source.id;
+        }
         setEngagementKind(source.type === 'SALES_MEETING'
           ? source.engagementKind ?? 'FOLLOW_UP' : 'FOLLOW_UP');
         setScheduledLocal(meeting?.nextFollowUpAt
@@ -311,17 +319,16 @@ export function FollowUpCreatePage({ sourceId, user, onCancel, onCreated }: {
 
   return <main className="task-create follow-up-create" data-follow-up-create="true">
     <div className="create-heading"><div><p className="eyebrow">Yeni kayıt</p><h1>Takip işi oluştur</h1></div></div>
-    <details className="follow-up-source-disclosure follow-up-source-summary follow-up-create-source-disclosure">
-      <summary><span id="follow-up-create-source-title">Kaynak iş</span></summary>
-      <div className="follow-up-source-disclosure__content">
-        <RecordDescriptions ariaLabel="Kaynak iş özeti" items={[
-          { key: 'type', label: 'İş türü', content: jobTypeLabels[source.type] },
-          { key: 'customer', label: 'Müşteri', content: source.customer?.name ?? 'Müşteri bağlantısı yok' },
-          { key: 'assignee', label: 'Sorumlu personel', content: source.assignee?.name ?? 'Belirtilmedi' },
-          { key: 'completed', label: 'Tamamlanma tarihi', content: formatDate(source.workflowContext.lifecycle.approvedAt) },
-        ]} />
-      </div>
-    </details>
+    <section className="follow-up-source-summary follow-up-create-source-summary" aria-labelledby="follow-up-create-source-title">
+      <h2 id="follow-up-create-source-title" className="follow-up-create-source-heading">Kaynak iş</h2>
+      <p className="follow-up-create-source-job-title">{source.title}</p>
+      <RecordDescriptions ariaLabel="Kaynak iş özeti" items={[
+        { key: 'type', label: 'İş türü', content: jobTypeLabels[source.type] },
+        { key: 'customer', label: 'Müşteri', content: source.customer?.name ?? 'Müşteri bağlantısı yok' },
+        { key: 'assignee', label: 'Sorumlu personel', content: source.assignee?.name ?? 'Belirtilmedi' },
+        { key: 'completed', label: 'Tamamlanma tarihi', content: formatDate(source.workflowContext.lifecycle.approvedAt) },
+      ]} />
+    </section>
     {submitError && <div className="form-error" role="alert" tabIndex={-1} ref={errorRef}>{submitError}</div>}
     <form className="task-form follow-up-form" onSubmit={submit} noValidate>
       <fieldset disabled={pending}>
