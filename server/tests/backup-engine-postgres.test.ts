@@ -360,8 +360,10 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
   });
 
   it('pg_dump failure maps to PG_DUMP_FAILED and removes the partial workspace', async () => {
+    // Reports a version newer than any supported server so the compatibility
+    // gate passes everywhere (CI runs PostgreSQL 17; the local pilot 16).
     const failingShim = writeShim(engineRoot, 'pg-dump-fail.sh',
-      '#!/bin/sh\ncase "$1" in --version) echo "pg_dump (PostgreSQL) 16.13"; exit 0;; *) echo "boom" >&2; exit 2;; esac\n');
+      '#!/bin/sh\ncase "$1" in --version) echo "pg_dump (PostgreSQL) 99.0"; exit 0;; *) echo "boom" >&2; exit 2;; esac\n');
     const prev = process.env.PG_DUMP_BIN;
     process.env.PG_DUMP_BIN = failingShim;
     try {
