@@ -157,12 +157,17 @@ Contract rules:
   DR case requires `x-amz-meta-servora-sha256 == streamed hash` before
   decrypt. Any divergence is a fail-closed integrity event.
 - **This metadata is not a cryptographic signature.** It provides
-  DR-time expected-checksum discovery and corruption detection.
-  Authenticity/tamper resistance come from age authenticated encryption,
-  internal component checksums, and Bucket Lock. Note the nuance: object
-  metadata is **not immutable by itself** (a same-key copy/replace can
-  rewrite it), but rewriting the object is exactly what Bucket Lock
-  blocks while retention is active (§6, §7) — the controls compose.
+  DR-time expected-checksum discovery and corruption detection. Age
+  authenticated encryption provides ciphertext
+  integrity/non-malleability, component checksums detect decrypted
+  corruption, and Bucket Lock blocks delete/overwrite of **existing**
+  objects during retention. These controls do **not** provide producer
+  authenticity: V1 does not attest that an archive was produced by a
+  trusted Servora worker (guarantee matrix and threat model:
+  architecture §11). Note the nuance: object metadata is **not
+  immutable by itself** (a same-key copy/replace can rewrite it), but
+  rewriting the object is exactly what Bucket Lock blocks while
+  retention is active (§6, §7) — the controls compose.
 - A remote sidecar object (`<id>.sbk.age.sha256`) was considered and
   **rejected**: a second object doubles lifecycle/upload-completeness
   and orphan-handling surface for no additional guarantee.
@@ -288,7 +293,9 @@ dependency).
 
 ### 6.3 Operator-managed controls
 
-- **Bucket Lock** (anti-tamper/anti-ransomware control) and **lifecycle**
+- **Bucket Lock** (anti-ransomware control: blocks delete/overwrite of
+  existing objects during retention; does not establish provenance of
+  newly created objects — architecture §11) and **lifecycle**
   (physical expiry, incomplete-multipart cleanup) are configured by the
   operator in Cloudflare, not by Servora.
 - Bucket Lock is Cloudflare-native configuration — it is **not** AWS S3

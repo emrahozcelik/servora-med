@@ -335,13 +335,29 @@ disaster case (backup_runs lost):
 
 - **R2 object metadata is not a cryptographic signature.** Its purpose
   is DR-time expected-checksum discovery plus transport/storage
-  corruption detection. Authenticity and tamper resistance come from
-  age authenticated encryption, the internal component checksums, and
-  operator-managed Bucket Lock (metadata is not immutable by itself —
-  an object-rewrite can replace it — but Bucket Lock blocks object
-  overwrite while retention is active; archive-and-storage §3.1, §7).
-  A signed archive descriptor may be considered in a future slice; it
-  is not required for V1.
+  corruption detection. What each control actually guarantees:
+
+```text
+CONFIDENTIALITY                              age public-recipient encryption  ✅
+CIPHERTEXT INTEGRITY / NON-MALLEABILITY      age authenticated encryption     ✅
+CORRUPTION DETECTION                         SHA-256 (object + components)    ✅
+EXISTING-OBJECT DELETE/OVERWRITE PROTECTION  Bucket Lock during retention     ✅
+PRODUCER AUTHENTICITY (provenance)           ❌ not provided in V1
+```
+
+  **V1 does not cryptographically attest that an R2 archive was
+  produced by a trusted Servora backup worker.** The age recipient is
+  public; anyone who can encrypt to it — in particular a compromised
+  runtime that retains R2 write access and the public recipient — can
+  inject a new, syntactically valid archive (valid manifest, component
+  checksums, and matching object metadata). Bucket Lock protects
+  previously written restore points from overwrite/deletion but does
+  not establish provenance for newly created objects. Metadata is also
+  not immutable by itself (an object-rewrite can replace it) — Bucket
+  Lock blocking the rewrite is what composes the controls
+  (archive-and-storage §3.1, §7). A signed archive descriptor from a
+  separate trust domain remains an optional **future hardening** step;
+  it is deliberately not part of V1.
 - **ETag is not the canonical checksum** (decision 25). Verified
   Cloudflare fact: R2 multipart ETags are a hash of part-MD5s, not the
   content MD5 of the object (archive-and-storage §7). ETags may be logged
