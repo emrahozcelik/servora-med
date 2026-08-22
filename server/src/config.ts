@@ -18,6 +18,11 @@ export type WebPushConfig = {
 
 export type ReverseGeocoderProvider = 'google';
 
+export type BackupLocalEngineConfig = {
+  tempRoot: string | null;
+  filesRoot: string | null;
+};
+
 export type AppConfig = {
   nodeEnv: NodeEnvironment;
   host: string;
@@ -41,6 +46,7 @@ export type AppConfig = {
   calendarReminderLeadMinutes?: number;
   support?: AuthenticatedSupport;
   webPush: WebPushConfig;
+  backupLocalEngine: BackupLocalEngineConfig;
 };
 
 const NODE_ENVIRONMENTS = new Set<NodeEnvironment>(['development', 'test', 'production']);
@@ -467,5 +473,21 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     ),
     support: readSupportConfig(env),
     webPush: readWebPushConfig(env),
+    // BR2 local engine paths. Optional by design: "not configured" is NOT
+    // invalid configuration — the app must keep starting (and BR3/BR4 secrets
+    // stay unnecessary) while these are absent.
+    backupLocalEngine: {
+      tempRoot: readOptionalPath(env.BACKUP_TEMP_ROOT, 'BACKUP_TEMP_ROOT'),
+      filesRoot: readOptionalPath(env.BACKUP_FILES_ROOT, 'BACKUP_FILES_ROOT'),
+    },
   };
+}
+
+function readOptionalPath(value: string | undefined, name: string): string | null {
+  const trimmed = value?.trim() ?? '';
+  if (trimmed.length === 0) return null;
+  if (trimmed.includes('\0') || trimmed.length > 4096) {
+    throw new Error(`${name} must be a single filesystem path`);
+  }
+  return trimmed;
 }

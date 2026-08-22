@@ -77,11 +77,14 @@ describe('loadConfig', () => {
         RATE_LIMIT_WINDOW_MS: '90000',
         TRUSTED_PROXY: '127.0.0.1',
         HEALTH_SCHEMA_VERSION: '007_sales_meeting',
+        BACKUP_TEMP_ROOT: '/var/backups/servora-med/br-workspaces',
+        BACKUP_FILES_ROOT: '',
       }),
     ).toEqual({
       nodeEnv: 'test',
       host: '0.0.0.0',
       port: 4100,
+      backupLocalEngine: { tempRoot: '/var/backups/servora-med/br-workspaces', filesRoot: null },
       databaseUrl: validEnvironment.DATABASE_URL,
       logLevel: 'warn',
       corsOrigin: 'https://med.example.com',
@@ -115,6 +118,7 @@ describe('loadConfig', () => {
         vapidPublicKey: null,
         vapidPrivateKey: null,
       },
+      backupLocalEngine: { tempRoot: '/var/backups/servora-med/br-workspaces', filesRoot: null },
     });
   });
 
@@ -156,7 +160,18 @@ describe('loadConfig', () => {
         vapidPublicKey: null,
         vapidPrivateKey: null,
       },
+      backupLocalEngine: { tempRoot: null, filesRoot: null },
     });
+  });
+
+  it('keeps BR2 local engine paths optional (not configured is not invalid)', () => {
+    expect(loadConfig(validEnvironment).backupLocalEngine).toEqual({ tempRoot: null, filesRoot: null });
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_TEMP_ROOT: '' })).not.toThrow();
+    expect(() => loadConfig({
+      ...validEnvironment,
+      BACKUP_TEMP_ROOT: '/var/backups/servora-med/br-workspaces',
+      BACKUP_FILES_ROOT: '/srv/servora-med/files',
+    })).not.toThrow();
   });
 
   it.each([undefined, '', 'false'])(
