@@ -34,6 +34,7 @@ describe('loadConfig', () => {
       overviewDashboard: false,
       calendar: false,
       messaging: false,
+      backup: false,
     });
   });
 
@@ -101,6 +102,7 @@ describe('loadConfig', () => {
         overviewDashboard: false,
         calendar: false,
         messaging: false,
+        backup: false,
       },
       support: {
         displayLabel: 'Sistem yöneticiniz',
@@ -141,6 +143,7 @@ describe('loadConfig', () => {
         overviewDashboard: false,
         calendar: false,
         messaging: false,
+        backup: false,
       },
       support: {
         displayLabel: 'Sistem yöneticiniz',

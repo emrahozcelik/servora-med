@@ -453,6 +453,10 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       ),
       calendar: readBoolean(env.CALENDAR_ENABLED, 'CALENDAR_ENABLED'),
       messaging: readBoolean(env.MESSAGING_ENABLED, 'MESSAGING_ENABLED'),
+      // Backup & Recovery domain capability (BR1 foundation). BR2–BR4 execution
+      // configuration (age/R2 secrets) is NOT validated here: the app must keep
+      // starting while this flag is off and those secrets are absent.
+      backup: readBoolean(env.BACKUP_ENABLED, 'BACKUP_ENABLED'),
     },
     calendarReminderLeadMinutes: readIntegerInRange(
       env.CALENDAR_REMINDER_LEAD_MINUTES,
