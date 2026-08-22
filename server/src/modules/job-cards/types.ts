@@ -81,6 +81,8 @@ export type FollowUpProposalInput = {
 };
 
 export type ApproveFollowUpInput = FollowUpProposalInput & {
+  priority?: JobCardPriority;
+  dueDate?: string | null;
   overrideReason?: string | null;
 };
 

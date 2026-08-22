@@ -1,7 +1,7 @@
 /** @vitest-environment jsdom */
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import { FollowUpProposalSection } from '../src/jobs/FollowUpProposalSection';
 import { JobDetailScreen } from '../src/JobDetail';
@@ -19,6 +19,10 @@ beforeEach(() => {
   }));
 });
 
+afterEach(() => {
+  document.body.innerHTML = '';
+});
+
 const draft: FollowUpDraft = {
   scheduledAt: '2026-08-08T10:00:00.000Z',
   type: 'SALES_MEETING',
@@ -27,6 +31,7 @@ const draft: FollowUpDraft = {
 };
 
 function renderSection(props: Partial<Parameters<typeof FollowUpProposalSection>[0]> = {}) {
+  document.body.innerHTML = '';
   const host = document.createElement('div');
   document.body.append(host);
   const root = createRoot(host);
@@ -157,6 +162,30 @@ describe('FollowUpProposalSection', () => {
     });
     expect(host.textContent).toContain('yönetici onayında ayrıca değerlendirilecek');
     expect(host.querySelector('#follow-up-override-reason')).toBeNull();
+  });
+
+  it('R2-AP-F1: manager mode shows priority (default normal) and hides due-date for SALES_MEETING', () => {
+    const { host } = renderSection({ mode: 'manager', allowTypeEdit: true });
+    const priority = host.querySelector<HTMLSelectElement>('#follow-up-proposal-priority');
+    expect(priority).not.toBeNull();
+    expect(priority!.value).toBe('normal');
+    expect(host.textContent).toContain('Öncelik');
+    expect(host.querySelector('#follow-up-proposal-due-date')).toBeNull();
+  });
+
+  it('R2-AP-F2: manager mode shows optional due-date for GENERAL_TASK and PRODUCT_DELIVERY', () => {
+    for (const type of ['GENERAL_TASK', 'PRODUCT_DELIVERY'] as const) {
+      const { host } = renderSection({ mode: 'manager', allowTypeEdit: true, draft: { ...draft, type } });
+      expect(host.querySelector('#follow-up-proposal-due-date')).not.toBeNull();
+      expect(host.textContent).toContain('Son tarih');
+    }
+  });
+
+  it('R2-AP-F3: staff mode shows neither priority nor due-date', () => {
+    const { host } = renderSection({ mode: 'staff' });
+    expect(host.querySelector('#follow-up-proposal-priority')).toBeNull();
+    expect(host.querySelector('#follow-up-proposal-due-date')).toBeNull();
+    expect(host.textContent).not.toContain('Son tarih');
   });
 });
 
@@ -354,6 +383,34 @@ describe('JobDetail follow-up proposal integration', () => {
       ));
       const body = JSON.parse(String((approveCall?.[1] as RequestInit).body));
       expect(body.followUp.overrideReason).toBe('Klinik acil takip istedi.');
+    } finally {
+      await act(async () => root.unmount());
+      host.remove();
+    }
+  });
+
+  it('R2-AP-F4: approval payload carries priority and dueDate (defaults normal/null)', async () => {
+    stubFetch({ card: managerCard });
+    const host = document.createElement('div');
+    document.body.append(host);
+    const root = createRoot(host);
+    try {
+      await act(async () => {
+        root.render(<JobDetailScreen jobId="job-1" user={manager} onBack={() => {}} onChanged={() => {}} />);
+        await flush();
+      });
+      const approve = Array.from(host.querySelectorAll('button'))
+        .find((button) => button.textContent === 'Kontrolü tamamla ve işi kapat')!;
+      await act(async () => { approve.click(); await flush(); });
+      const dialog = host.querySelector<HTMLElement>('[role="dialog"]')!;
+      const confirm = Array.from(dialog.querySelectorAll('button'))
+        .find((button) => button.textContent === 'İşi onayla ve takip işini planla')!;
+      await act(async () => { confirm.click(); await flush(); });
+      const approveCall = vi.mocked(fetch).mock.calls.find(([url, init]) => (
+        String(url).endsWith('/approve') && (init as RequestInit | undefined)?.method === 'POST'
+      ));
+      const body = JSON.parse(String((approveCall?.[1] as RequestInit).body));
+      expect(body.followUp).toMatchObject({ priority: 'normal', dueDate: null });
     } finally {
       await act(async () => root.unmount());
       host.remove();

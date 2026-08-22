@@ -83,6 +83,10 @@ import {
   validation,
   boundedTrimmedString,
 } from './validation.js';
+import {
+  normalizeFollowUpDueDate,
+  priority as normalizePriority,
+} from './create-input.js';
 import { JobCardNotesService, type CreateNoteInput } from './notes-service.js';
 import {
   evaluateSubmission,
@@ -1770,6 +1774,8 @@ export class JobCardService {
         let approval: {
           proposal: ValidatedFollowUpProposal;
           overrideReason: string | null;
+          priority: JobCardPriority;
+          dueDate: string | null;
         } | null = null;
         if (definition.command === 'SUBMIT_FOR_APPROVAL') {
           await validateSubmission(tx, actor, job, requestTime);
@@ -1916,8 +1922,8 @@ export class JobCardService {
             followUpInstructions: approval.proposal.followUpInstructions,
             scheduledAt: approval.proposal.scheduledAt.toISOString(),
             assignedTo: approval.proposal.assignedTo,
-            priority: 'normal',
-            dueDate: null,
+            priority: approval.priority,
+            dueDate: approval.dueDate,
             contactId: null,
             engagementKind: approval.proposal.type === 'SALES_MEETING' ? 'FOLLOW_UP' : null,
             clientActionId: input.clientActionId,
@@ -2174,7 +2180,12 @@ export class JobCardService {
     job: JobCard,
     input: ApproveFollowUpInput | undefined,
     requestTime: Date,
-  ): Promise<{ proposal: ValidatedFollowUpProposal; overrideReason: string | null } | null> {
+  ): Promise<{
+    proposal: ValidatedFollowUpProposal;
+    overrideReason: string | null;
+    priority: JobCardPriority;
+    dueDate: string | null;
+  } | null> {
     const persisted = job.followUpProposedAt !== null
       && job.followUpProposedType !== null
       && job.followUpProposedAssignee !== null
@@ -2204,6 +2215,8 @@ export class JobCardService {
       } : undefined),
       requestTime,
     );
+    const priority = normalizePriority(input?.priority);
+    const dueDate = normalizeFollowUpDueDate(input?.dueDate, proposal.type);
     const evaluation = await this.evaluateForApproval(tx, actor, job, proposal, requestTime);
     let overrideReason: string | null = null;
     if (evaluation.level === 'FREQUENCY_EXCEEDED') {
@@ -2227,7 +2240,7 @@ export class JobCardService {
         },
       );
     }
-    return { proposal, overrideReason };
+    return { proposal, overrideReason, priority, dueDate };
   }
 
   private async computeFollowUpSuggestion(
