@@ -340,6 +340,12 @@ export type FollowUpProposalInput = {
   followUpInstructions: string;
 };
 
+export type ApproveFollowUpInput = FollowUpProposalInput & {
+  priority?: JobCardPriority;
+  dueDate?: string | null;
+  overrideReason?: string;
+};
+
 function invalid(field: string): never {
   throw new ApiError(0, 'INVALID_RESPONSE', `Yanıtta ${field} alanı geçersiz.`);
 }
@@ -927,7 +933,7 @@ export const acceptJobCard = (id: string, input: LifecycleInput) => lifecycle(id
 export const startJobCard = (id: string, input: StartJobCardInput) => lifecycle(id, 'start', input);
 export const submitJobCardForApproval = (id: string, input: LifecycleInput & { note: string; followUpProposal?: FollowUpProposalInput }) =>
   lifecycle(id, 'submit-for-approval', input);
-export const approveJobCard = async (id: string, input: LifecycleInput & { note?: string; followUp?: FollowUpProposalInput & { overrideReason?: string } }) => {
+export const approveJobCard = async (id: string, input: LifecycleInput & { note?: string; followUp?: ApproveFollowUpInput }) => {
   const raw = await request(`${jobPath(id)}/approve`, json('POST', input));
   const parsed = parseJobCard(raw);
   const v = raw as Record<string, unknown>;

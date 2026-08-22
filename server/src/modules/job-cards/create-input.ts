@@ -67,7 +67,7 @@ function optionalUuid(value: unknown, field: string) {
   return value === undefined || value === null ? null : uuidString(value, field);
 }
 
-function priority(value: unknown): JobCardPriority {
+export function priority(value: unknown): JobCardPriority {
   if (value === undefined) return 'normal';
   if (!JOB_CARD_PRIORITIES.includes(value as JobCardPriority)) throw validation('priority');
   return value as JobCardPriority;
@@ -75,6 +75,17 @@ function priority(value: unknown): JobCardPriority {
 
 function dueDate(value: unknown) {
   return value === undefined || value === null ? null : isoDate(value, 'dueDate');
+}
+
+/**
+ * Single SSOT for follow-up child dueDate: optional (null) except that a
+ * SALES_MEETING child must never carry a dueDate (scheduledAt/scheduledEndsAt
+ * are the scheduling source of truth).
+ */
+export function normalizeFollowUpDueDate(value: unknown, type: JobCardType): string | null {
+  const normalized = dueDate(value);
+  if (type === 'SALES_MEETING' && normalized !== null) throw validation('dueDate');
+  return normalized;
 }
 
 function optionalScheduledAt(value: unknown) {
@@ -273,7 +284,7 @@ export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
     followUpInstructions: followUpInstructions(input.followUpInstructions),
     assignedTo: uuidString(input.assignedTo, 'assignedTo'),
     priority: priority(input.priority),
-    dueDate: dueDate(input.dueDate),
+    dueDate: normalizeFollowUpDueDate(input.dueDate, input.type),
     contactId,
     overrideReason: optionalOverrideReason(input.overrideReason),
   };
@@ -287,7 +298,6 @@ export function parseFollowUpCreateInput(value: unknown): FollowUpCreateInput {
     };
   }
   if (input.type === 'SALES_MEETING') {
-    if (input.dueDate !== undefined && input.dueDate !== null) throw validation('dueDate');
     return {
       ...common,
       type: input.type,

@@ -10,7 +10,7 @@ import {
   patchDeliveryItem, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
-  type CustomerScheduleEvaluation, type DeliveryItem, type FollowUpProposalInput,
+  type ApproveFollowUpInput, type CustomerScheduleEvaluation, type DeliveryItem, type FollowUpProposalInput,
   type FollowUpProposalOrigin, type JobCard, type LifecycleCommand, type MeetingDetails,
   type PatchJobCardInput, type PatchMeetingDetailsInput, type RelatedName,
   type StartJobCardInput,
@@ -795,7 +795,7 @@ async function executeLifecycleCommand(
   command: LifecycleCommand,
   input: StartJobCardInput & {
     followUpProposal?: FollowUpProposalInput;
-    followUp?: FollowUpProposalInput & { overrideReason?: string };
+    followUp?: ApproveFollowUpInput;
   },
   reason: string,
 ): Promise<JobCard> {
@@ -1158,7 +1158,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     reason = '',
     extra?: {
       followUpProposal?: FollowUpProposalInput;
-      followUp?: FollowUpProposalInput & { overrideReason?: string };
+      followUp?: ApproveFollowUpInput;
     },
   ) {
     if (state.kind !== 'ready' || mutationOwner.current?.sessionToken === sessionLifetime.current.token) return;
@@ -1173,7 +1173,7 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
     try {
       let commandInput: StartJobCardInput & {
         followUpProposal?: FollowUpProposalInput;
-        followUp?: FollowUpProposalInput & { overrideReason?: string };
+        followUp?: ApproveFollowUpInput;
       } = input;
       if (command === 'START' && state.detail.job.workflowContext.startLocationCaptureEnabled) {
         if (startCapture.current?.clientActionId !== input.clientActionId) {
@@ -1646,6 +1646,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
           type: suggestion.type,
           assignedTo: suggestion.assignedTo,
           followUpInstructions: suggestion.followUpInstructions,
+          priority: 'normal',
+          dueDate: null,
         };
       }
     } catch {
@@ -1664,6 +1666,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
             type: persisted.type,
             assignedTo: persisted.assignedTo,
             followUpInstructions: persisted.followUpInstructions,
+            priority: 'normal',
+            dueDate: null,
           }
         : fallbackDraft,
       origin: persisted?.origin ?? null,
@@ -1677,7 +1681,15 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
 
   function updateFollowUpDraft(next: Partial<FollowUpDraft>) {
     setFollowUp((current) => current?.draft
-      ? { ...current, draft: { ...current.draft, ...next }, inlineError: null }
+      ? {
+          ...current,
+          draft: {
+            ...current.draft,
+            ...next,
+            ...(next.type === 'SALES_MEETING' ? { dueDate: null } : {}),
+          },
+          inlineError: null,
+        }
       : current);
   }
 
@@ -1730,6 +1742,8 @@ function JobDetailSessionScreen({ jobId, user, onBack, onChanged, onCreateFollow
           type: followUp.draft.type,
           assignedTo: followUp.draft.assignedTo,
           followUpInstructions: followUp.draft.followUpInstructions.trim(),
+          priority: followUp.draft.priority ?? 'normal',
+          dueDate: followUp.draft.dueDate ?? null,
           ...(followUp.overrideReason.trim()
             ? { overrideReason: followUp.overrideReason.trim() }
             : {}),

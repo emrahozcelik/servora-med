@@ -1205,4 +1205,193 @@ describe.skipIf(!databaseUrl)('mandatory follow-up proposal PostgreSQL contract'
       });
     });
   });
+
+  it('R2-AP-1: approval without priority/dueDate defaults the child to normal/null (backward compat)', async () => {
+    await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT', title: 'Ziyaret', assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+        },
+      });
+      const approved = await service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+      }) as JobCard & { followUpJobCardId: string };
+      const child = await service.detail(manager, approved.followUpJobCardId);
+      expect(child).toMatchObject({ priority: 'normal', dueDate: null });
+    });
+  });
+
+  it('R2-AP-2: approval priority override lands on the child and same-assignee stays ACCEPTED', async () => {
+    await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT', title: 'Ziyaret', assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+        },
+      });
+      const approved = await service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+        followUp: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+          priority: 'urgent',
+        },
+      }) as JobCard & { followUpJobCardId: string };
+      const child = await service.detail(manager, approved.followUpJobCardId);
+      expect(child).toMatchObject({ priority: 'urgent', dueDate: null, status: 'ACCEPTED' });
+      expect(child.workflowContext.lifecycle).toMatchObject({
+        acceptedAt: CLOCK.toISOString(),
+        acceptedBy: { id: staffA.id, name: 'Staff A' },
+      });
+    });
+  });
+
+  it('R2-AP-3: approval priority/dueDate override lands on a GENERAL_TASK child (legacy persisted proposal)', async () => {
+    await withFixture(async ({ service, pool, manager, staffA, organizationId }) => {
+      const job = await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (
+           organization_id, type, status, version, title, assigned_to, created_by,
+           started_at, staff_completed_at, staff_completed_by,
+           follow_up_proposed_at, follow_up_proposed_type, follow_up_proposed_assignee,
+           follow_up_proposal_instructions, follow_up_proposal_origin, follow_up_proposed_by
+         )
+         VALUES ($1, 'GENERAL_TASK', 'WAITING_APPROVAL', 2, 'Eski teklifli iş', $2, $3,
+           NOW(), NOW(), $2, $4, 'GENERAL_TASK', $2, 'Takip: Eski iş takibi', 'SYSTEM', $3)
+         RETURNING id`,
+        [organizationId, staffA.id, manager.id, PROPOSAL_AT],
+      );
+      const approved = await service.approve(manager, job.rows[0]!.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: 2,
+        followUp: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'GENERAL_TASK',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Eski iş takibi',
+          priority: 'urgent',
+          dueDate: '2026-09-15',
+        },
+      }) as JobCard & { followUpJobCardId: string };
+      const child = await service.detail(manager, approved.followUpJobCardId);
+      expect(child).toMatchObject({
+        type: 'GENERAL_TASK',
+        priority: 'urgent',
+        dueDate: '2026-09-15',
+      });
+    });
+  });
+
+  it('R2-AP-4: approval rejects a non-null dueDate for a SALES_MEETING child', async () => {
+    await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT', title: 'Ziyaret', assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+        },
+      });
+      await expect(service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+        followUp: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+          dueDate: '2026-09-15',
+        },
+      })).rejects.toMatchObject(appError('VALIDATION_ERROR', 400));
+    });
+  });
+
+  it('R2-AP-5: approval rejects an invalid priority value', async () => {
+    await withFixture(async ({ service, manager, staffA, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT', title: 'Ziyaret', assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+        },
+      });
+      await expect(service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+        followUp: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+          priority: 'bogus' as never,
+        },
+      })).rejects.toMatchObject(appError('VALIDATION_ERROR', 400));
+    });
+  });
+
+  it('R2-AP-6: different-assignee approval stays NEW with priority override applied', async () => {
+    await withFixture(async ({ service, manager, staffA, staffB, createInProgressJob }) => {
+      const job = await createInProgressJob({
+        type: 'SALES_MEETING', engagementKind: 'CUSTOMER_VISIT', title: 'Ziyaret', assignedTo: staffA.id,
+      });
+      const submitted = await service.submitForApproval(staffA, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: job.version,
+        note: 'Tamamlandı.',
+        followUpProposal: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffA.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+        },
+      });
+      const approved = await service.approve(manager, job.id, {
+        clientActionId: randomUUID(),
+        expectedVersion: submitted.version,
+        followUp: {
+          scheduledAt: PROPOSAL_AT,
+          type: 'SALES_MEETING',
+          assignedTo: staffB.id,
+          followUpInstructions: 'Takip: Klinik ile karar durumunu teyit edin.',
+          priority: 'high',
+        },
+      }) as JobCard & { followUpJobCardId: string };
+      const child = await service.detail(manager, approved.followUpJobCardId);
+      expect(child).toMatchObject({ priority: 'high', dueDate: null, status: 'NEW' });
+      expect(child.workflowContext.lifecycle).toMatchObject({ acceptedAt: null, acceptedBy: null });
+    });
+  });
 });

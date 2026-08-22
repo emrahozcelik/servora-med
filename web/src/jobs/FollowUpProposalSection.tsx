@@ -5,18 +5,23 @@ import {
   localDateTimeToIso,
 } from './scheduling';
 import { jobTypeLabels } from './job-labels';
-import type {
-  CustomerScheduleEvaluation,
-  FollowUpProposalOrigin,
-  JobCardType,
-  RelatedName,
+import {
+  JOB_CARD_PRIORITIES,
+  type CustomerScheduleEvaluation,
+  type FollowUpProposalOrigin,
+  type JobCardPriority,
+  type JobCardType,
+  type RelatedName,
 } from './jobs-api';
+import { priorityChipLabels } from '../ui/PriorityChip';
 
 export type FollowUpDraft = {
   scheduledAt: string;
   type: JobCardType;
   assignedTo: string;
   followUpInstructions: string;
+  priority?: JobCardPriority;
+  dueDate?: string | null;
 };
 
 export type FollowUpProposalSectionProps = {
@@ -176,6 +181,29 @@ export function FollowUpProposalSection({
                   <option key={type} value={type}>{jobTypeLabels[type]}</option>
                 ))}
               </select>
+            </div>
+          )}
+          <div className="field-group">
+            <label htmlFor="follow-up-proposal-priority">Öncelik</label>
+            <select
+              id="follow-up-proposal-priority"
+              value={draft?.priority ?? 'normal'}
+              onChange={(event) => onChange({ priority: event.target.value as JobCardPriority })}
+            >
+              {JOB_CARD_PRIORITIES.map((priority) => (
+                <option key={priority} value={priority}>{priorityChipLabels[priority]}</option>
+              ))}
+            </select>
+          </div>
+          {draft?.type !== 'SALES_MEETING' && (
+            <div className="field-group">
+              <label htmlFor="follow-up-proposal-due-date">Son tarih (isteğe bağlı)</label>
+              <input
+                id="follow-up-proposal-due-date"
+                type="date"
+                value={draft?.dueDate ?? ''}
+                onChange={(event) => onChange({ dueDate: event.target.value || null })}
+              />
             </div>
           )}
           <div className="field-group">
