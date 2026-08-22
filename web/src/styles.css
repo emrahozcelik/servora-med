@@ -1844,6 +1844,31 @@ button:disabled { cursor: wait; opacity: 0.65; }
 .task-create { width: min(100% - 2rem, 42rem); margin: clamp(2rem, 6vh, 4rem) auto; }
 .follow-up-create { min-width: 0; }
 .follow-up-source-summary { margin-bottom: 1.25rem; }
+
+.follow-up-create-source-summary {
+  min-width: 0;
+  padding: 1rem 1.1rem;
+  border: 1px solid var(--rule);
+  border-radius: var(--radius-raised);
+  background: var(--paper);
+}
+.follow-up-create-source-heading {
+  margin: 0;
+  font-size: 0.78rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+.follow-up-create-source-job-title {
+  margin: 0.4rem 0 0.85rem;
+  font-size: 1.1rem;
+  font-weight: 680;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+.follow-up-existing-hint { margin-top: 0.5rem; }
+
 .follow-up-source-disclosure {
   min-width: 0;
   border: 1px solid var(--rule);

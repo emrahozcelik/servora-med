@@ -74,9 +74,18 @@ export function FollowUpRecommendation({ job, details, onCreate }: {
   </section>;
 }
 
-export function FollowUpCreateAction({ onCreate }: { onCreate: () => void }) {
+export function FollowUpCreateAction({ onCreate, existingChildrenCount }: {
+  onCreate: () => void;
+  existingChildrenCount?: number | null;
+}) {
   return <section className="follow-up-create-action surface-flat" aria-label="Takip işi işlemi">
-    <div><h2>Sonraki işi planlayın</h2><p>Tamamlanan kaydı değiştirmeden yeni ve bağlantılı bir iş oluşturun.</p></div>
+    <div>
+      <h2>Sonraki işi planlayın</h2>
+      <p>Tamamlanan kaydı değiştirmeden yeni ve bağlantılı bir iş oluşturun.</p>
+      {existingChildrenCount != null && existingChildrenCount > 0 && (
+        <p className="follow-up-existing-hint">Bu iş için {existingChildrenCount} takip işi mevcut.</p>
+      )}
+    </div>
     <button className="primary-button" type="button" onClick={onCreate}>Takip işi oluştur</button>
   </section>;
 }
@@ -92,7 +101,10 @@ function ChildRow({ item }: { item: FollowUpListItem }) {
   </li>;
 }
 
-export function FollowUpChildrenPanel({ sourceId }: { sourceId: string }) {
+export function FollowUpChildrenPanel({ sourceId, onCountChange }: {
+  sourceId: string;
+  onCountChange?: (count: number) => void;
+}) {
   const [state, setState] = useState<
     | { kind: 'loading' }
     | { kind: 'ready'; items: FollowUpListItem[]; total: number; limit: number; offset: number; loadingMore: boolean }
@@ -118,6 +130,7 @@ export function FollowUpChildrenPanel({ sourceId }: { sourceId: string }) {
           kind: 'ready', items: page.items, total: page.total, limit: page.limit,
           offset: page.offset, loadingMore: false,
         });
+        onCountChange?.(page.total);
       })
       .catch(() => {
         if (requestGeneration.current !== generation) return;

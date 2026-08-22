@@ -111,10 +111,12 @@ describe('JobDetail follow-up continuity', () => {
   async function renderPanel(job: JobCard, user: CurrentUser, props: {
     onCreateFollowUp?: () => void;
     meetingDetails?: MeetingDetails | null;
+    existingChildrenCount?: number | null;
   } = {}) {
     await act(async () => root.render(<JobDetailPanel job={job} items={[]} user={user}
       pending={false} message="" onBack={() => {}} onCommand={() => {}}
-      onCreateFollowUp={props.onCreateFollowUp} meetingDetails={props.meetingDetails ?? null} />));
+      onCreateFollowUp={props.onCreateFollowUp} meetingDetails={props.meetingDetails ?? null}
+      existingChildrenCount={props.existingChildrenCount ?? null} />));
   }
 
   it.each([admin, manager])('shows the create action for completed management role $role', async (user) => {
@@ -129,6 +131,21 @@ describe('JobDetail follow-up continuity', () => {
       await renderPanel({ ...rootJob, status }, manager, { onCreateFollowUp: vi.fn() });
       expect(host.textContent).not.toContain('Takip işi oluştur');
     }
+  });
+
+  it('shows a non-blocking existing-follow-up count near the create action', async () => {
+    await renderPanel(rootJob, manager, { onCreateFollowUp: vi.fn(), existingChildrenCount: 3 });
+    expect(host.textContent).toContain('Bu iş için 3 takip işi mevcut.');
+    expect(Array.from(host.querySelectorAll('button')).filter((button) => button.textContent === 'Takip işi oluştur')).toHaveLength(1);
+  });
+
+  it('uses singular wording for one child and hides the hint for zero or unknown', async () => {
+    await renderPanel(rootJob, manager, { onCreateFollowUp: vi.fn(), existingChildrenCount: 1 });
+    expect(host.textContent).toContain('Bu iş için 1 takip işi mevcut.');
+    await renderPanel(rootJob, manager, { onCreateFollowUp: vi.fn(), existingChildrenCount: 0 });
+    expect(host.textContent).not.toContain('takip işi mevcut');
+    await renderPanel(rootJob, manager, { onCreateFollowUp: vi.fn() });
+    expect(host.textContent).not.toContain('takip işi mevcut');
   });
 
   it('composes one primary recommendation action for completed FOLLOW_UP_REQUIRED meetings', async () => {
@@ -281,6 +298,33 @@ describe('JobDetail follow-up continuity', () => {
       'SOURCE_OPERATIONAL_NOTE_MARKER', 'PRIVATE_MEETING_SUMMARY_MARKER',
       'SOURCE_ACTIVITY_MARKER', 'SOURCE_STAFF_MARKER', 'DELIVERY_DETAIL_MARKER',
     ]) expect(host.textContent).not.toContain(marker);
+  });
+
+  it('surfaces the existing-follow-up count near the create action via the shared children fetch', async () => {
+    const child = {
+      id: 'child-1', type: 'GENERAL_TASK', status: 'NEW', version: 1,
+      title: 'Güvenli takip satırı', priority: 'normal', dueDate: null, scheduledAt: null,
+      engagementKind: null, createdAt: '2026-08-01T10:00:00.000Z',
+      updatedAt: '2026-08-01T10:00:00.000Z', staffCompletedAt: null,
+      customer: { id: 'customer-1', name: 'Klinik' }, contact: null,
+      assignee: { id: 'staff-2', name: 'Bora' }, deliveryItemCount: 0,
+      allowedCommands: ['ACCEPT_ASSIGNMENT'], followUp: { sourceJobCardId: 'job-1' },
+    };
+    api.listFollowUps.mockResolvedValue({ items: [child, { ...child, id: 'child-2' }], total: 2, limit: 100, offset: 0 });
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL) => {
+      const url = String(input);
+      if (url.includes('/activity?')) return Response.json({ items: [], total: 0, limit: 50, offset: 0 });
+      if (url.endsWith('/follow-ups?limit=100&offset=0')) return Response.json({ items: [child], total: 2, limit: 100, offset: 0 });
+      if (url.endsWith('/api/job-cards/job-1')) return Response.json(rootJob);
+      throw new Error(`Unexpected request: ${url}`);
+    }));
+    api.getJobCard.mockImplementation(async () => rootJob);
+    await act(async () => root.render(<JobDetailScreen jobId="job-1" user={manager}
+      onBack={() => {}} onChanged={() => {}} onCreateFollowUp={vi.fn()} />));
+    await flush();
+    expect(api.listFollowUps).toHaveBeenCalledTimes(1);
+    expect(host.textContent).toContain('Bu iş için 2 takip işi mevcut.');
+    expect(host.textContent).toContain('Takip işi oluştur');
   });
 
   it('loads and renders management ancestors from root to current with a cycle guard boundary', async () => {

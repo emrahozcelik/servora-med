@@ -172,47 +172,43 @@ describe('Follow-up create page', () => {
     expect(crm.listContacts).not.toHaveBeenCalled();
     expect((host.querySelector('#follow-up-engagement-kind') as HTMLSelectElement).value).toBe('CUSTOMER_VISIT');
     expect((host.querySelector('#follow-up-instructions') as HTMLTextAreaElement).value).toBe('');
-    expect((host.querySelector('#follow-up-title') as HTMLInputElement).value).toBe('');
+    expect((host.querySelector('#follow-up-title') as HTMLInputElement).value).toBe('Takip: Kaynak görüşme');
     expect(host.textContent).not.toContain('SOURCE_OPERATIONAL_NOTE_MARKER');
     expect(host.textContent).not.toContain('MEETING_SUMMARY_MARKER');
     expect(host.querySelector('form')?.textContent).not.toContain('Source Staff Marker');
   });
 
-  it('defaults the existing source-job summary to a closed native disclosure', async () => {
+  it('renders the source context immediately visible without a disclosure', async () => {
     await render();
-    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-create-source-disclosure');
-    expect(disclosure).not.toBeNull();
-    expect(disclosure?.open).toBe(false);
-    expect(disclosure?.querySelector('summary')?.textContent).toContain('Kaynak iş');
+    expect(host.querySelector('details.follow-up-create-source-disclosure')).toBeNull();
+    const sourceContext = host.querySelector('.follow-up-create-source-summary');
+    expect(sourceContext).not.toBeNull();
+    expect(sourceContext?.textContent).toContain('Kaynak iş');
+    expect(sourceContext?.textContent).toContain('Kaynak görüşme');
     expect(host.querySelector('form')).not.toBeNull();
   });
 
-  it('reveals the existing source summary without blocking the create form', async () => {
+  it('shows the source summary content without blocking the create form', async () => {
     await render();
-    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-create-source-disclosure')!;
-    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
-    expect(disclosure.open).toBe(true);
-    expect(disclosure.textContent).toContain('Çok Uzun İsimli Klinik');
-    expect(disclosure.textContent).toContain('Sorumlu personel');
-    expect(disclosure.textContent).toContain('Source Staff Marker');
-    expect(disclosure.textContent).not.toContain('İlgili kişi');
+    const sourceContext = host.querySelector('.follow-up-create-source-summary')!;
+    expect(sourceContext.textContent).toContain('Çok Uzun İsimli Klinik');
+    expect(sourceContext.textContent).toContain('Sorumlu personel');
+    expect(sourceContext.textContent).toContain('Source Staff Marker');
+    expect(sourceContext.textContent).not.toContain('İlgili kişi');
     expect(host.querySelector('form')).not.toBeNull();
   });
 
   it('uses a safe fallback when the source assignee is unavailable', async () => {
     await render(manager, { ...source, assignee: null as unknown as JobCard['assignee'] });
-    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-create-source-disclosure')!;
-    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
-    expect(disclosure.textContent).toContain('Sorumlu personel');
-    expect(disclosure.textContent).toContain('Belirtilmedi');
+    const sourceContext = host.querySelector('.follow-up-create-source-summary')!;
+    expect(sourceContext.textContent).toContain('Sorumlu personel');
+    expect(sourceContext.textContent).toContain('Belirtilmedi');
   });
 
-  it('does not fetch the source again when the create summary expands', async () => {
+  it('renders the source context once without a second source request', async () => {
     await render();
-    jobs.getJobCard.mockClear();
-    const disclosure = host.querySelector<HTMLDetailsElement>('details.follow-up-create-source-disclosure')!;
-    await act(async () => { (disclosure.querySelector('summary') as HTMLElement).click(); });
-    expect(jobs.getJobCard).not.toHaveBeenCalled();
+    expect(jobs.getJobCard).toHaveBeenCalledTimes(1);
+    expect(host.querySelector('.follow-up-create-source-summary')).not.toBeNull();
   });
 
   it('clears form state and action identity when the source changes on the same route', async () => {
@@ -231,7 +227,7 @@ describe('Follow-up create page', () => {
       onCancel={() => {}} onCreated={onCreated} />));
     await flush();
 
-    expect((host.querySelector('#follow-up-title') as HTMLInputElement).value).toBe('');
+    expect((host.querySelector('#follow-up-title') as HTMLInputElement).value).toBe('Takip: Kaynak görüşme');
     expect((host.querySelector('#follow-up-instructions') as HTMLTextAreaElement).value).toBe('');
     expect((host.querySelector('#follow-up-assignee') as HTMLSelectElement).value).toBe('');
     expect((host.querySelector('#follow-up-priority') as HTMLSelectElement).value).toBe('normal');
@@ -250,6 +246,32 @@ describe('Follow-up create page', () => {
     expect((options[2] as HTMLOptionElement).disabled).toBe(true);
     expect(host.textContent).toContain(CUSTOMERLESS_FOLLOW_UP_EXPLANATION);
     expect(host.querySelector('#follow-up-contact')).toBeNull();
+  });
+
+  it('defaults a Product Delivery source to a Sales Meeting follow-up type', async () => {
+    await render(manager, { ...source, type: 'PRODUCT_DELIVERY', engagementKind: null });
+    expect((host.querySelector('#follow-up-type') as HTMLSelectElement).value).toBe('SALES_MEETING');
+  });
+
+  it('keeps a General Task source default type as General Task', async () => {
+    await render(manager, { ...source, type: 'GENERAL_TASK', engagementKind: null });
+    expect((host.querySelector('#follow-up-type') as HTMLSelectElement).value).toBe('GENERAL_TASK');
+  });
+
+  it('prefills the title with the Takip: prefix and keeps a user edit across a re-render', async () => {
+    await render();
+    const titleInput = host.querySelector('#follow-up-title') as HTMLInputElement;
+    expect(titleInput.value).toBe('Takip: Kaynak görüşme');
+    change(titleInput, 'Özel başlık');
+    change(host.querySelector('#follow-up-type') as HTMLSelectElement, 'PRODUCT_DELIVERY');
+    expect((host.querySelector('#follow-up-title') as HTMLInputElement).value).toBe('Özel başlık');
+  });
+
+  it('caps a very long generated title to the 255 code-point domain limit', async () => {
+    await render(manager, { ...source, title: 'İ'.repeat(300) });
+    const value = (host.querySelector('#follow-up-title') as HTMLInputElement).value;
+    expect(value.startsWith('Takip: ')).toBe(true);
+    expect(Array.from(value).length).toBe(255);
   });
 
   it('organizes the create form into purpose-layered sections with read-only customer context', async () => {
