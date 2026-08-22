@@ -681,3 +681,40 @@ Slice 11 delivered Ubuntu VPS-oriented hardening (systemd, public Caddy TLS temp
 - Client IP for login rate limits flows: `CF-Connecting-IP` → Caddy trusted loopback proxy + `client_ip_headers` → `X-Forwarded-For {client_ip}` + `X-Forwarded-Proto: https` → Fastify `TRUSTED_PROXY=loopback`.
 - Local header spoof toward loopback Caddy is treated as **host compromise**, not a remote rate-limit bypass claim.
 - Ingress validation against non-default config paths must pass explicit `--config` so personal `~/.cloudflared` configs are not silently used.
+
+## OPS-002: Backup & Recovery V1 architecture is R2 + age + worker, with BR0 contracts
+
+- **Date:** 2026-08-22
+- **Status:** Accepted
+- **Scope:** Backup & Recovery V1 mimarisi ve BR1–BR7 uygulama kontratları (BR0, yalnızca dokümantasyon)
+
+### Context
+
+MVP, betik tabanlı bir yedekleme yığınını (`backup-postgres.sh`, systemd/launchd timer, `restore-rehearsal.sh`) teslim etti ve ürün sınırı olarak "backup_status tablosu yok, uygulama içi yedekleme arayüzü yok" kaydedildi. Felaket kurtarma yeteneği (şifreli dış merkez kopya, doğrulanmış geri yükleme) bu sınırın ötesinde kalıyor. Onaylanmış ürün kararları, BR0 dokümantasyon dilimiyle depoya taşınmaya hazır hale getirildi.
+
+### Decision
+
+1. **BR0 yalnızca dokümantasyondur**: `docs/operations/backup-recovery/` altındaki mimari ve kontrat dosyaları; motor, migration, API, UI ve Cloudflare kaynağı eklenmedi.
+2. **Backup/Restore (felaket kurtarma) ile Export/Import (veri taşınabilirliği) ayrı alanlardır**; modelleri, API'leri ve UI kavramları paylaşılmaz.
+3. **Yedekleme kurulum seviyesinde (installation-level) altyapı durumudur**, organizasyon kaynağı değildir; backup tabloları `organization_id` taşımaz (gerekçeli istisna, emsal: `schema_migrations`).
+4. **V1 uzak hedefi Cloudflare R2'dir** (özel bucket, en az ayrıcalıklı Object Read & Write token); Bucket Lock ve lifecycle operatör yönetiminde kalır ve Bucket Lock, AWS S3 Object Lock API uyumluluğu olarak ele alınmaz.
+5. **Şifreleme yüklemeye kadar olur**, özel kripto yasaktır; onaylı yön age/X25519 genel anahtarlı şifrelemedir. Üretim sunucusu yalnızca genel recipient tutar; özel decrypt kimliği kalıcı olarak VPS'te bulunmaz.
+6. **Canonical bütünlük, şifreli objenin SHA-256'sıdır** ve uzaktan akış doğrulaması ile kazanılır; ETag kanonik checksum değildir. Yükleme başarısı tek başına yedek başarısı değildir.
+7. **Yedek oluşturma asenkronudur**: HTTP istek ömrü içinde yürütülmez; ayrı worker süreci + PostgreSQL iş durumu (Redis/BullMQ yok), kurulum başına en fazla 1 etkin yedek, yedek/geri yükleme karşılıklı dışlayıcıdır.
+8. **V1 geri yükleme operatör kontrollüdür** (`servora-backup` CLI): önce yeni/ayrı bir hedef veritabanına doğrular, üretim DB'sini asla ilk adımda ezmez, üretim geçişi (cutover) ayrı ve kontrollü bir işlemdir; geçiş öncesi PRE_RESTORE güvenlik yedeği zorunludur. Normal web arayüzünde geri yükleme butonu yoktur.
+9. **MVP ürün sınırı ("uygulama içi yedekleme arayüzü/tablosu yok") V1 için OPS-002 ile geçersiz kılınır**; sınır, BR1 (domain) ve BR6 (admin UI) slice'ları gerçekten birleşene kadar yürürlükte kalır. BR5'e kadar mevcut betik yığını işletme sözleşmesi olarak kalır ve operatör uyarı izleyicisi `backup_runs` doğrulanmış yedek kaynağıyla uzlaştırılır (ikinci bir izleme modeli kurulmaz).
+10. **Başarı ölçütü geri yükleme kanıtıdır**: temiz hedefe geri yükleme + Servora'nın geri yüklenen veriyle çalışması (16 adımlı kabul testi); yalnızca yedek dosyası oluşması V1'i tamamlamaz.
+
+### Consequences
+
+- Uygulama sırası BR1–BR7 yol haritası ile sabittir (`docs/operations/backup-recovery/architecture.md` §16); slice'lar §2'deki karar kaydını yeniden açamaz, çelişki görürlerse en dar uzlaştırmayı önerirler.
+- Backup yönetimi V1'de yalnızca ADMIN'dir ve bilinçli olarak Manager yeteneklerinden dardır; geri yükleme hiçbir uygulama rolüne açık değildir.
+- `docs/operations/backup-restore.md` MVP yığını için geçerliliğini korur; BR0 bu sayfada yalnızca yönlendirme notu ekler.
+- Backup tabloları, denetim olayları (`BACKUP_*`) ve admin API kontratları BR1'de mevcut şema/API/denetim konvansiyonlarına (CHECK kısıtlı enum'lar, AppError kodları, `audit_events`) uyumla taşınır.
+
+### References
+
+- Mimarî ve karar kaydı: `docs/operations/backup-recovery/architecture.md`
+- Arşiv/depolama kontratı: `docs/operations/backup-recovery/archive-and-storage-contract.md`
+- Platform kontratları: `docs/operations/backup-recovery/platform-contracts.md`
+- MVP yığını: `docs/operations/backup-restore.md`

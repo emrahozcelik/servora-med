@@ -513,6 +513,7 @@ Production secrets must come from the deployment environment. Raw passwords, ses
 ## Backup and restore
 
 Scripts and contracts: [docs/operations/backup-restore.md](docs/operations/backup-restore.md).
+Post-MVP V1 architecture (approved, documentation-only): [docs/operations/backup-recovery/](docs/operations/backup-recovery/).
 
 | Capability | Status |
 |------------|--------|
