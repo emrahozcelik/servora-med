@@ -127,7 +127,7 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at,
                                 started_at, remote_key, size_bytes, sha256, lease_token,
                                 lease_until, heartbeat_at)
-       VALUES ($1, 'RUNNING', 'CLEANUP', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(),
+       VALUES ($1::uuid, 'RUNNING', 'CLEANUP', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(),
                'production/test/v1/daily/' || $1::text || '.sbk.age', 123, $2, $3,
                NOW() - INTERVAL '1 minute', NOW() - INTERVAL '1 minute')`,
       [cleanupId, 'a'.repeat(64), randomUUID()],
