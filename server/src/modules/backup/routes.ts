@@ -19,6 +19,7 @@ export const backupRoutes: FastifyPluginAsync<BackupRoutesOptions> = async (app,
   const auth = { preHandler: options.authenticate };
   app.get('/backups', auth, handlers.list);
   app.get('/backups/:backupId', auth, handlers.get);
+  app.get('/backup-overview', auth, handlers.getOverview);
   app.post('/backups', auth, handlers.create);
   app.get('/backup-policy', auth, handlers.getPolicy);
   app.put('/backup-policy', auth, handlers.updatePolicy);

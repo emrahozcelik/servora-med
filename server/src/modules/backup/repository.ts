@@ -279,6 +279,10 @@ export interface BackupRepository {
   findRunById(id: string): Promise<BackupRun | null>;
   listRuns(query: BackupRunPageQuery): Promise<BackupRunPage>;
   findActiveBackupRun(): Promise<BackupRun | null>;
+  /** Optional read projection used by the admin overview; older adapters may omit it. */
+  findLatestVerifiedRun?(): Promise<BackupRun | null>;
+  /** Optional worker-state projection; never exposes lease tokens. */
+  getWorkerState?(): Promise<BackupWorkerState | null>;
   getPolicy(): Promise<BackupPolicy | null>;
   getStorageState(): Promise<BackupStorageState | null>;
   recordStorageConnectionTest(ok: boolean, testedAt: Date): Promise<void>;
@@ -488,6 +492,16 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       `SELECT ${RUN_COLUMNS} FROM backup_runs
         WHERE status IN ('QUEUED', 'RUNNING')
         ORDER BY created_at DESC LIMIT 1`,
+    );
+    return result.rows[0] ? mapRun(result.rows[0]) : null;
+  }
+
+  async findLatestVerifiedRun() {
+    const result = await this.pool.query<BackupRunRow>(
+      `SELECT ${RUN_COLUMNS} FROM backup_runs
+        WHERE status = 'SUCCESS' AND verified_at IS NOT NULL
+        ORDER BY verified_at DESC, created_at DESC, id DESC
+        LIMIT 1`,
     );
     return result.rows[0] ? mapRun(result.rows[0]) : null;
   }

@@ -12,6 +12,7 @@ export const paths = {
   settingsSecurity: '/settings/security',
   settingsNotifications: '/settings/notifications',
   settingsApplication: '/settings/application',
+  settingsBackupRecovery: '/settings/data-management/backup-recovery',
   newDelivery: '/jobs/new-delivery',
   newTask: '/jobs/new-task',
   newMeeting: '/jobs/new-meeting',

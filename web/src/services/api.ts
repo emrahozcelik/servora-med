@@ -20,6 +20,7 @@ export type AuthenticatedCapabilities = {
   overviewDashboard: boolean;
   calendar: boolean;
   messaging: boolean;
+  backup?: boolean;
 };
 export type AuthenticatedSupport = {
   displayLabel: string;
@@ -138,6 +139,7 @@ function parseCurrentUser(value: unknown): CurrentUser {
       overviewDashboard: rawCapabilities.overviewDashboard === true,
       calendar: rawCapabilities.calendar === true,
       messaging: rawCapabilities.messaging === true,
+      ...(typeof rawCapabilities.backup === 'boolean' ? { backup: rawCapabilities.backup } : {}),
     },
     support: {
       displayLabel: typeof rawSupport.displayLabel === 'string' && rawSupport.displayLabel.trim()

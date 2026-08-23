@@ -174,6 +174,23 @@ export type BackupStorageState = {
   lastConnectionTestOk: boolean | null;
 };
 
+export type BackupWorkerStateDto = {
+  workerHeartbeatAt: string | null;
+  schedulerLastTickAt: string | null;
+  lastScheduledFor: string | null;
+};
+
+export type BackupRunSummaryDto = Omit<BackupRunDto, 'remoteKey' | 'sha256'>;
+
+/** Safe, read-only projection for the admin overview. */
+export type BackupOverviewDto = {
+  lastVerifiedBackup: BackupRunSummaryDto | null;
+  activeRun: BackupRunSummaryDto | null;
+  nextScheduledAt: string | null;
+  scheduleTimezone: string | null;
+  worker: BackupWorkerStateDto | null;
+};
+
 export type BackupWorkerState = {
   workerHeartbeatAt: Date | null;
   schedulerLastTickAt: Date | null;

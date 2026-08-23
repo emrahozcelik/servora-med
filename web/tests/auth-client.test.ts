@@ -45,6 +45,13 @@ describe('auth API client', () => {
     });
   });
 
+  it('preserves the server-owned backup capability without inferring it from role', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
+      user: { ...user, capabilities: { ...user.capabilities, backup: true } },
+    }), { status: 200, headers: { 'content-type': 'application/json' } })));
+    await expect(getCurrentUser()).resolves.toMatchObject({ capabilities: { backup: true } });
+  });
+
   it('fails unsafe optional support links and mailto values closed', async () => {
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(JSON.stringify({
       user: {

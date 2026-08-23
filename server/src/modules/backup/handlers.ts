@@ -108,6 +108,7 @@ export function createBackupHandlers(service: BackupService, storageProbe?: Back
       return { ...response, nextCursor: encodeCursor(response.nextCursor) };
     },
     get: (request: FastifyRequest) => service.getRun(request.currentUser!, backupId(request)),
+    getOverview: (request: FastifyRequest) => service.getOverview(request.currentUser!),
     create: async (request: FastifyRequest, reply: FastifyReply) => {
       const body = bodyOf(request);
       exactFields(body, ['clientActionId', 'scope']);

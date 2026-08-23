@@ -183,8 +183,9 @@ Rules:
 
 ## 4. Admin UI contract (BR6)
 
-Not implemented in BR0. Location follows the pre-designated Settings
-expansion (see the deferred admin data-management plan):
+Implemented in BR6 as an ADMIN-only management surface. Location follows the
+pre-designated Settings expansion (see the deferred admin data-management
+plan):
 
 ```text
 Settings
@@ -218,6 +219,20 @@ Rules:
   `BACKUP_ENABLED`) wired through the navigation model.
 - Loading/success/error states are mandatory for every action
   (AGENTS.md §8).
+
+BR6 implementation notes:
+
+- Navigation is emitted by the existing navigation-model SSOT only when the
+  authenticated user is `ADMIN` and the `backup` capability (`BACKUP_ENABLED`)
+  is true. Direct route and API access remain backend-protected.
+- The read-only `GET /api/admin/backup-overview` projection exposes active and
+  last-verified summaries, next scheduled instant, and safe worker heartbeat
+  fields. Its next-schedule value is resolved by the BR5 IANA/DST scheduler
+  utility; the web client does not reproduce scheduler math.
+- `POST /api/admin/backups` is rendered as a `202 QUEUED` asynchronous action.
+  `POST /api/admin/backups/:backupId/reverify` remains absent, so BR6 exposes
+  no reverify action. Restore, deletion/pruning, credential editing, and
+  production worker/monitoring cutover remain outside this slice.
 
 ## 5. Restore CLI contract (BR7)
 
