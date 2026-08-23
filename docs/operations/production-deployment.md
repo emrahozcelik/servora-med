@@ -118,6 +118,31 @@ node -e "require('fs').accessSync('node_modules/fastify'); require('fs').accessS
 node --input-type=module -e "import 'fastify'; import 'pg'; console.log('deps-ok')"
 ```
 
+## Host prerequisite: age >= 1.3 (BR3 backup encryption)
+
+The current MVP backup stack does **not** require `age`. It becomes a host
+prerequisite only when the BR5 backup worker is enabled (BR3 encryption
+runs the official `age` CLI with a native post-quantum hybrid recipient —
+decision `OPS-003`). Install the official upstream release, pinned and
+checksum-verified (values from the age release page; adjust when bumping):
+
+```bash
+AGE_VERSION="v1.3.1"
+AGE_SHA256="bdc69c09cbdd6cf8b1f333d372a1f58247b3a33146406333e30c0f26e8f51377"
+curl -fsSL -o /tmp/age.tar.gz \
+  "https://github.com/FiloSottile/age/releases/download/${AGE_VERSION}/age-${AGE_VERSION}-linux-amd64.tar.gz"
+echo "${AGE_SHA256}  /tmp/age.tar.gz" | sha256sum --check --strict -
+tar -xzf /tmp/age.tar.gz -C /tmp
+sudo install -m 0755 /tmp/age/age /usr/local/bin/age
+rm -rf /tmp/age /tmp/age.tar.gz
+age --version   # must report >= 1.3.0; older/major-different binaries fail closed
+```
+
+Only `age` is needed at runtime (the worker encrypts; it never decrypts).
+`age-keygen` runs on the **operator's** machine for offline key
+generation — never install or use the private identity on the VPS
+(`docs/operations/backup-recovery/architecture.md` §10).
+
 ## Deploy sequence (fail-closed)
 
 Migration **must** run from the **new release directory**, never from the still-active

@@ -1,11 +1,12 @@
 # Backup & Recovery V1 (BR program) — Servora-Med
 
 ```text
-Date: 2026-08-22
+Date: 2026-08-23
 BR0: merged (architecture and contracts only)
 BR1: merged — Backup Domain Foundation
-BR2: implemented — Local PostgreSQL Backup Engine
-Status: BR2 delivered; BR3–BR7 future
+BR2: merged — Local PostgreSQL Backup Engine
+BR3: implemented — Post-Quantum Backup Encryption (native age HybridRecipient)
+Status: BR3 delivered; BR4–BR7 future
 ```
 
 This directory holds the approved architecture and implementation-ready
@@ -20,8 +21,9 @@ added or configured.
 |-------|--------|
 | BR0 — architecture + contracts | merged (`eceb94d`, PR #187) |
 | BR1 — backup domain foundation | merged (`8530990`, PR #188) |
-| BR2 — local PostgreSQL backup engine | implemented (see below) |
-| BR3–BR7 | future (encryption, R2, worker, admin UI, restore CLI) |
+| BR2 — local PostgreSQL backup engine | merged (`12452f0`, PR #189) |
+| BR3 — post-quantum backup encryption | implemented (see below) |
+| BR4–BR7 | future (R2, worker, admin UI, restore CLI) |
 
 BR1 delivered (metadata foundation only — no pg_dump, encryption, R2,
 worker, scheduler, UI, or restore execution):
@@ -66,6 +68,42 @@ encryption, no R2, no worker/scheduler, no UI, no restore CLI):
   enqueues domain intent.
 - Config: optional `BACKUP_TEMP_ROOT` / `BACKUP_FILES_ROOT` (empty = not
   configured, which is valid; app startup never requires BR3/BR4 secrets).
+
+BR3 delivered (local encryption only — stops at the ENCRYPT phase; no R2,
+no upload, no remote verification, no worker/scheduler, no UI, no restore
+CLI):
+
+- `server/src/modules/backup/encryption.ts` — `LocalEncryptionEngine.encryptLocalBackup`:
+  BR2 plaintext `<run-id>.sbk.tar` (RUNNING @ PACKAGE) → official `age` CLI
+  (argv-safe `spawn`, shell:false, recipient on argv — it is public) with
+  ONE native post-quantum hybrid recipient → binary `<run-id>.sbk.age`.
+  Decision record: `OPS-003` (native HybridRecipient, ML-KEM-768 +
+  X25519, `age1pq1…`; no classic fallback, no mixing; age >= 1.3.0,
+  validated 1.3.1; no custom crypto).
+- Streaming design: age stdout is piped simultaneously into an exclusive
+  0600 partial file (`<run-id>.sbk.age.partial`, `wx`) and a SHA-256
+  hash — the ciphertext never lands in memory; finalization is an
+  atomic no-overwrite hard-link + unlink. Pre-existing final/partial
+  outputs fail closed and the ambiguous workspace is preserved for BR5.
+- The run advances PACKAGE → ENCRYPT and stays RUNNING: never SUCCESS,
+  no `verified_at`, no `backup_runs.sha256`, no `remote_key` (those are
+  BR4 REMOTE_VERIFY semantics). `localCiphertextSha256` is the LOCAL
+  EXPECTED value returned for the BR4 handoff and is deliberately not
+  persisted as the canonical hash.
+- Failures map to `ENCRYPTION_FAILED` (age missing/too old, missing or
+  non-hybrid recipient, process failure, output failure, empty output);
+  the plaintext package is kept only on success — ordinary handled
+  failures best-effort remove the run workspace, collision-class
+  failures preserve everything.
+- Key custody: production config carries only the PUBLIC recipient
+  (`BACKUP_ENCRYPTION_RECIPIENT`, structural validation at startup,
+  full hybrid policy enforced lazily at encryption time). There is no
+  supported private-identity config path; key generation and rotation
+  are operator actions (architecture §10, `OPS-003`).
+- CI installs official `age` 1.3.1 pinned with the published SHA-256
+  (linux-amd64 release artifact, checksum-verified — no curl|sh, no
+  mirrors, no vendored binaries). Production VPS prerequisite:
+  install official age >= 1.3.0 before enabling the future BR5 worker.
 
 ## File map
 

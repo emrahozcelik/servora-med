@@ -148,7 +148,7 @@ operator.
 | Persistent Servora files when configured | no such files exist today; contract supports them |
 | Self-describing manifest | section 8, archive-and-storage §2 |
 | Archive format v1 | `formatVersion = 1` |
-| Encryption | age/X25519 direction (section 10) |
+| Encryption | age/X25519 direction, concretized by BR3 to the native post-quantum hybrid recipient (section 10, `OPS-003`) |
 | SHA-256 integrity | encrypted-object canonical (section 11) |
 | Cloudflare R2 storage | dedicated bucket/prefix |
 | Remote verification | stream re-read after upload |
@@ -291,6 +291,15 @@ ever produces side effects (no partial dumps, no uploads).
   implementation choice (maintained Node age library vs. spawning the
   `age` binary) against repository dependency rules; no blocker is known
   at the contract level.
+- **BR3 concrete selection (supersedes only the recipient-type portion of
+  the direction above — decision record `OPS-003`):** native age
+  post-quantum **HybridRecipient, ML-KEM-768 + X25519**, via the official
+  `age` CLI (>= 1.3.0; validated target 1.3.1). Public recipients encode
+  as `age1pq1…`, private identities as `AGE-SECRET-KEY-PQ-1…`. Classic
+  X25519, SSH, plugin, and passphrase recipients are rejected with **no
+  fallback and no classic+hybrid mixing**; V1 uses exactly ONE hybrid
+  recipient per archive. Encryption does not add producer authenticity
+  (§11 guarantee matrix); there are no signatures in V1.
 - Key model (decisions 12–13):
 
 ```text
@@ -302,6 +311,25 @@ Operator holds:         age PRIVATE identity — offline / password manager /
 
 - A backup can always be created without the private key; decryption is
   only needed for restore/rehearsal, which are operator-controlled.
+- **Operator key generation (offline; never automated by Servora, never
+  exposed over HTTP/API):**
+
+```bash
+# On the OPERATOR's machine (not the VPS):
+age-keygen -pq -o servora-backup-identity.txt      # PRIVATE: keep in secure custody
+age-keygen -y servora-backup-identity.txt           # PUBLIC: -> BACKUP_ENCRYPTION_RECIPIENT
+```
+
+  The private identity must never be copied automatically to the Servora
+  VPS, and there is no supported application config path that accepts it.
+- **Rotation (manual, document-level contract):** new backups always use
+  the currently configured public recipient. Changing
+  `BACKUP_ENCRYPTION_RECIPIENT` affects NEW backups only; existing
+  archives stay encrypted to the prior identity. The operator must retain
+  every old private identity until each archive encrypted to it has
+  passed retention or been intentionally retired — deleting an old
+  identity early makes those backups unrecoverable. No automatic
+  rotation, no private-key escrow, no in-database keyring.
 - The encrypted artifact name carries the `.age` suffix
   (`<backup-id>.sbk.age`).
 - Secret material never enters manifests, job metadata, audit events, UI,
