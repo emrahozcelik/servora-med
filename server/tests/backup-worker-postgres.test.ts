@@ -261,6 +261,7 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
         { completedAt: new Date(), cleanupWarning: null },
         invalidToken,
       )).resolves.toBeNull();
+      await pool.query('DELETE FROM backup_runs WHERE id = $1', [invalidId]);
 
       await pool.query(
         `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at,
@@ -334,6 +335,12 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       [base.createdAt],
     );
     expect(rows.rows).toHaveLength(1);
-    await pool.query('DELETE FROM backup_runs WHERE id = ANY($1::uuid[])', [[firstId, secondId]]);
+    await pool.query(
+      `UPDATE backup_runs
+          SET status = 'FAILED', failure_code = 'WORKER_LOST',
+              failure_summary = 'test fixture cleanup', completed_at = NOW()
+        WHERE id = ANY($1::uuid[])`,
+      [[firstId, secondId]],
+    );
   });
 });
