@@ -115,7 +115,7 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
     await pool.query(
       `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at,
                                 started_at, lease_token, lease_until, heartbeat_at)
-       VALUES ($1, 'RUNNING', 'PREFLIGHT', 'MANUAL', 'DATABASE', 'MANUAL', $2, $2, $3, $4, $4)`,
+       VALUES ($1, 'RUNNING', 'PREFLIGHT', 'SCHEDULED', 'DATABASE', 'DAILY', $2, $2, $3, $4, $4)`,
       [runId, expiredAt, staleToken, expiredAt],
     );
     try {
@@ -303,7 +303,14 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
     expect(audit.rows).toEqual(expect.arrayContaining([
       { event_type: 'BACKUP_REQUESTED', actor_user_id: null },
     ]));
-    await pool.query('DELETE FROM backup_runs WHERE id = $1', [input.id]);
+    await pool.query(
+      `UPDATE backup_runs
+          SET status = 'FAILED', failure_code = 'WORKER_LOST',
+              failure_summary = 'test fixture cleanup', completed_at = NOW(),
+              lease_token = NULL, lease_until = NULL, heartbeat_at = NULL
+        WHERE id = $1`,
+      [input.id],
+    );
   });
 
   it('deduplicates concurrent scheduler processes for one local-day slot', async () => {
