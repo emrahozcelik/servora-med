@@ -30,6 +30,7 @@ export function scrubDiagnostics(value: string): string {
 
 export type RunBinaryOptions = {
   timeoutMs?: number;
+  signal?: AbortSignal;
 };
 
 /**
@@ -49,6 +50,7 @@ export function runBinary(
       {
         shell: false,
         timeout: options.timeoutMs,
+        signal: options.signal,
         maxBuffer: MAX_BUFFER,
         ...(options.env ? { env: options.env } : {}),
       },

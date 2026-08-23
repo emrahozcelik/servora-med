@@ -2,8 +2,8 @@
 
 ```text
 Date: 2026-08-23
-Slice: BR5 — worker / scheduling / retry / cleanup / crash recovery
-Status: BR5 IMPLEMENTED on an isolated Draft PR branch; production enablement is not authorized
+Slice: BR7 — operator restore CLI / disaster-recovery acceptance
+Status: BR7 IMPLEMENTED on an isolated Draft PR branch; exact-head review and production enablement are not authorized
 Decision record: DECISIONS.md → OPS-002
 ```
 
@@ -518,7 +518,7 @@ enabled, the current stack stays the operating contract
 |-------------------|--------------|------------|
 | `ops/scripts/backup-postgres.sh` + systemd/launchd daily timer (02:30 UTC) | worker executes runs from `backup_runs` | script stack remains active until BR5 worker is enabled; then the timer is retired by the operator |
 | `OFFSITE_COPY_HOOK` offsite copy | native R2 upload + remote verify (BR4) | hook path superseded once R2 destination is verified |
-| `ops/scripts/restore-rehearsal.sh` | `servora-backup` restore CLI (BR7) | rehearsal script remains until CLI delivers equivalent guards; its fail-closed conventions carry over |
+| `ops/scripts/restore-rehearsal.sh` | `servora-backup` restore CLI (BR7) | new CLI is implemented; rehearsal script remains preserved until a separately authorized operational transition |
 | operator-alerting backup freshness check (dump age + sidecar sha256) | health derived from **verified** `backup_runs` (platform-contracts §6) | BR5 adds the explicit `SERVORA_ALERT_BACKUP_SOURCE=verified-runs` mode to the same monitor; legacy remains the default and no second monitoring model is created |
 | "No `backup_status` table / no in-app backup UI" product boundary | V1 backup admin domain + BR6 admin UI | boundary remains in force until BR1/BR6 merge; superseded for post-MVP V1 by `OPS-002` |
 
@@ -553,7 +553,7 @@ reconciliations:
 | BR4 | Cloudflare R2 | storage adapter, upload, remote verification, connection test, retention/storage integration |
 | BR5 | Backup worker | PostgreSQL-backed job claiming, locking, scheduler, retry, failure recovery, monitoring reconciliation (implemented in the Draft PR branch) |
 | BR6 | Admin backup UI | Overview, History, Schedule, Storage, Backup Now — **no restore UI** |
-| BR7 | Operator restore CLI | archive discovery/inspect/verify, new-target restore, integrity validation, full disaster-recovery acceptance |
+| BR7 | Operator restore CLI | implemented: archive discovery/inspect/verify, new-target restore, integrity validation, and opt-in full disaster-recovery acceptance |
 
 Later slices must not reopen the decisions in section 2. If an approved
 concept conflicts with a newly discovered repository/architectural
