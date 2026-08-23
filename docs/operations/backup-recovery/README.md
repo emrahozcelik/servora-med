@@ -8,8 +8,9 @@ BR2: merged — Local PostgreSQL Backup Engine
 BR3: merged — Post-Quantum Backup Encryption (native age HybridRecipient)
 BR4: merged — Cloudflare R2 Storage + Upload + Remote Verification
 BR5: merged — worker / scheduling / retry / cleanup / crash recovery
-BR6: implemented — admin Backup & Recovery UI on an isolated Draft PR branch
-Status: BR6 Draft PR / exact-head CI required before external review; Ready, merge, cleanup, and production cutover are not authorized
+BR6: merged — admin Backup & Recovery UI
+BR7: implemented — operator restore CLI + DR acceptance harness on an isolated Draft PR branch
+Status: BR7 Draft PR / exact-head CI and DR acceptance evidence required before external review; Ready, merge, cleanup, and production cutover are not authorized
 ```
 
 This directory holds the approved architecture and implementation-ready
@@ -28,8 +29,8 @@ added or configured.
 | BR3 — post-quantum backup encryption | merged (`d57bca7`, PR #190) |
 | BR4 — Cloudflare R2 storage + verification | merged; REAL_R2 acceptance remains a BR5 production gate |
 | BR5 — worker / scheduling / retry / recovery | merged; production enablement remains separately authorized |
-| BR6 — admin backup UI | implemented on the isolated Draft PR branch; exact-head CI required before external review |
-| BR7 — restore CLI | future |
+| BR6 — admin backup UI | merged; web restore remains intentionally absent |
+| BR7 — restore CLI | implemented on the isolated Draft PR branch; exact-head CI/DR evidence pending |
 
 BR1 delivered (metadata foundation only — no pg_dump, encryption, R2,
 worker, scheduler, UI, or restore execution):
@@ -60,7 +61,9 @@ encryption, no R2, no worker/scheduler, no UI, no restore CLI):
   containment-checked) → `pg_dump -Fc --no-owner --no-acl` (argv-safe
   execFile, connection via libpq child env only — password never on argv,
   disk, or in logs) → optional `files.tar.zst` (system `tar` + `zstd`,
-  symlinks archived as symlinks, single configured `BACKUP_FILES_ROOT`)
+  producer-validated regular files/directories only (symlink, hardlink and
+  special entries fail during `FILES_ARCHIVE`), single configured
+  `BACKUP_FILES_ROOT`)
   → manifest V1 (`dumpVersion` = archive "Dump Version" via `pg_restore -l`, plus additive `dumpToolVersion`; see archive-and-storage §2)
   → streaming SHA-256 components → `checksums.sha256` (two-space sidecar)
   → plaintext package `<run-id>.sbk.tar` (uncompressed tar — decision
@@ -226,6 +229,36 @@ BR6 delivered (admin management UI only; production execution remains gated):
   absent. Restore, deletion/pruning, credential editing, Bucket Lock/lifecycle
   controls, worker enablement, legacy timer retirement, and monitoring cutover
   are not part of BR6.
+
+BR7 delivered (operator CLI only; no production cutover):
+
+- `server/bin/servora-backup.js` exposes `list --remote`, `inspect`, `verify`,
+  and explicit-acknowledgement `restore` commands. The CLI uses only the
+  canonical `production/<instance-id>/v1/` prefix and never writes to R2.
+- Remote verification is metadata-driven and database-independent: required
+  R2 metadata, streamed byte count, and SHA-256 are checked before age
+  decryption. ETag is diagnostic only; it is never the canonical checksum.
+- Decrypted packages are still untrusted. The allowlist reader rejects
+  traversal, absolute paths, duplicates, links, special entries, unexpected
+  members, and component byte/checksum mismatches before `pg_restore`.
+- Restore always creates a new target database. Existing targets, production
+  name/host pairs, `--clean`, `--create`, and automatic migrations/cutover are
+  refused. `READY_FOR_CUTOVER` means an isolated validated target only; it is
+  not `COMPLETED` and is not production cutover.
+- Normal rehearsal uses the BR5 shared advisory-lock session and persists
+  `restore_runs`; explicit `DISASTER_RECOVERY` mode uses a target-side
+  session lock and can proceed without the source metadata database. After a
+  successful target restore it records a separate READY evidence row when
+  possible (or a restrictive operator evidence file).
+- `FULL_DATA` archives require an explicit new files root and reject unsafe
+  nested archive entries. The producer rejects symlinks, hardlinks and
+  special entries during `FILES_ARCHIVE`, so producer and restore contracts
+  are symmetric. The legacy scripts, timer, `OFFSITE_COPY_HOOK`,
+  monitoring source, and `BACKUP_WORKER_ENABLED=false` production state remain
+  unchanged.
+- Real disposable Cloudflare R2 DR acceptance is an opt-in operator gate.
+  Without supplied disposable credentials the truthful status is exactly
+  `REAL_R2_DR_ACCEPTANCE = NOT EXECUTED`.
 
 ## File map
 

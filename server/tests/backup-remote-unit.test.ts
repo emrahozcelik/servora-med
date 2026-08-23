@@ -106,6 +106,26 @@ describe('BR4 backup instance id grammar', () => {
 });
 
 describe('BR4 R2 adapter safety boundary', () => {
+  it('lists remote objects with a bounded continuation token for BR7 discovery', async () => {
+    const seen: Record<string, unknown>[] = [];
+    const client: R2SendableClient = {
+      send: async (command) => {
+        seen.push((command as { input: Record<string, unknown> }).input);
+        return {
+          Contents: [{ Key: 'production/i/v1/daily/id.sbk.age', Size: 12, LastModified: new Date(0), ETag: '"e"' }],
+          IsTruncated: true,
+          NextContinuationToken: 'next-token',
+        };
+      },
+    };
+    const storage = new CloudflareR2Storage({ config: TEST_R2_CONFIG, client });
+    await expect(storage.listObjects('production/i/v1/', 'cursor')).resolves.toEqual({
+      objects: [{ key: 'production/i/v1/daily/id.sbk.age', size: 12, lastModified: new Date(0), etag: '"e"' }],
+      nextContinuationToken: 'next-token',
+    });
+    expect(seen[0]).toMatchObject({ Prefix: 'production/i/v1/', ContinuationToken: 'cursor' });
+  });
+
   it('derives the only allowed endpoint from a validated account id and uses region auto', () => {
     expect(buildR2Endpoint('a'.repeat(32))).toBe(
       `https://${'a'.repeat(32)}.r2.cloudflarestorage.com`,

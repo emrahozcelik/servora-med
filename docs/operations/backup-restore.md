@@ -11,6 +11,11 @@
 > remains the operating contract for the current script-based stack until the
 > BR slices replace it; see `DECISIONS.md` → `OPS-002`.
 
+> BR7 operator restore: the new-target CLI and its DR boundary are documented
+> in [br7-restore-cli.md](./backup-recovery/br7-restore-cli.md). The legacy
+> rehearsal script below remains preserved until a separately authorized
+> production operational transition.
+
 ## Backup
 
 Script: `ops/scripts/backup-postgres.sh`

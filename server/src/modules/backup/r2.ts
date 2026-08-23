@@ -163,6 +163,18 @@ export type R2ObjectStream = {
   body: AsyncIterable<Uint8Array>;
 };
 
+export type R2ListObject = {
+  key: string;
+  size: number | null;
+  lastModified: Date | null;
+  etag: string | null;
+};
+
+export type R2ListResult = {
+  objects: R2ListObject[];
+  nextContinuationToken: string | null;
+};
+
 export type R2UploadOutcome =
   | { outcome: 'created' }
   | { outcome: 'precondition-failed' };
@@ -300,6 +312,37 @@ export class CloudflareR2Storage {
       if (error instanceof R2StorageError && error.errorClass === 'NOT_FOUND') return null;
       throw error;
     }
+  }
+
+  /** Read-only paginated listing used by the operator restore CLI. */
+  async listObjects(prefix: string, continuationToken?: string): Promise<R2ListResult> {
+    const output = requireCommandOutput<{
+      Contents?: Array<{
+        Key?: string;
+        Size?: number;
+        LastModified?: Date;
+        ETag?: string;
+      }>;
+      NextContinuationToken?: string;
+    }>(await this.send(new ListObjectsV2Command({
+      Bucket: this.bucket,
+      Prefix: prefix,
+      MaxKeys: 1_000,
+      ...(continuationToken ? { ContinuationToken: continuationToken } : {}),
+    })));
+    return {
+      objects: (output.Contents ?? [])
+        .filter((entry): entry is { Key: string; Size?: number; LastModified?: Date; ETag?: string } => (
+          typeof entry.Key === 'string'
+        ))
+        .map((entry) => ({
+          key: entry.Key,
+          size: typeof entry.Size === 'number' && Number.isSafeInteger(entry.Size) ? entry.Size : null,
+          lastModified: entry.LastModified ?? null,
+          etag: entry.ETag ?? null,
+        })),
+      nextContinuationToken: output.NextContinuationToken ?? null,
+    };
   }
 
   /**

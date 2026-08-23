@@ -2,6 +2,9 @@
   "name": "servora-med-server",
   "version": "0.1.0",
   "private": true,
+  "bin": {
+    "servora-backup": "bin/servora-backup.js"
+  },
   "type": "module",
   "description": "Servora-Med Fastify API",
   "engines": {

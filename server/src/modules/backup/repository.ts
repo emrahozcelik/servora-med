@@ -248,6 +248,13 @@ export type CreateRestoreRunInput = {
   preRestoreBackupId: string | null;
 };
 
+export type UpdateRestoreRunInput = {
+  status: Extract<RestoreRun['status'], 'READY_FOR_CUTOVER' | 'FAILED' | 'CANCELLED'>;
+  completedAt: Date | null;
+  verificationResult?: Record<string, unknown> | null;
+  failureCode?: RestoreRun['failureCode'];
+};
+
 export type CreateScheduledBackupRunInput = {
   id: string;
   scope: BackupScope;
@@ -295,6 +302,7 @@ export interface BackupRepository {
   markCleanupWarning(id: string, warningSummary: string, leaseToken?: string): Promise<BackupRun | null>;
   createRestoreRun(input: CreateRestoreRunInput): Promise<RestoreRun>;
   getRestoreRunById(id: string): Promise<RestoreRun | null>;
+  updateRestoreRun?(id: string, input: UpdateRestoreRunInput): Promise<RestoreRun | null>;
 }
 
 export interface BackupWorkerRepository extends BackupRepository {
@@ -688,6 +696,22 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
               target_database, pre_restore_backup_id, verification_result, failure_code
          FROM restore_runs WHERE id = $1`,
       [id],
+    );
+    return result.rows[0] ? mapRestoreRun(result.rows[0]) : null;
+  }
+
+  async updateRestoreRun(id: string, input: UpdateRestoreRunInput) {
+    const result = await this.pool.query<RestoreRunRow>(
+      `UPDATE restore_runs
+          SET status = $2,
+              completed_at = $3,
+              verification_result = $4,
+              failure_code = $5
+        WHERE id = $1 AND status = 'RUNNING'
+        RETURNING id, backup_id, mode, status, started_at, completed_at, initiated_by,
+                  target_database, pre_restore_backup_id, verification_result, failure_code`,
+      [id, input.status, input.completedAt, input.verificationResult ? JSON.stringify(input.verificationResult) : null,
+        input.failureCode ?? null],
     );
     return result.rows[0] ? mapRestoreRun(result.rows[0]) : null;
   }

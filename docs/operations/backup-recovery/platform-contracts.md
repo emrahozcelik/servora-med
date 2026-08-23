@@ -2,8 +2,8 @@
 
 ```text
 Date: 2026-08-23
-Slice: BR5 — worker / scheduling / retry / cleanup / crash recovery
-Status: IMPLEMENTED on an isolated Draft PR branch; production enablement is not authorized
+Slice: BR7 — operator restore CLI / disaster-recovery acceptance
+Status: IMPLEMENTED on an isolated Draft PR branch; exact-head review and production enablement are not authorized
 Parent: architecture.md (decision register §2)
 ```
 
@@ -236,10 +236,11 @@ BR6 implementation notes:
 
 ## 5. Restore CLI contract (BR7)
 
-Future operator CLI (`servora-backup`), replacing the role of
-`ops/scripts/restore-rehearsal.sh` with equivalent fail-closed guards
-(explicit destructive-acceptance flag, regex-validated identifiers,
-refusal of production database names/hosts).
+Implemented operator CLI (`servora-backup`), preserving the role of
+`ops/scripts/restore-rehearsal.sh` as a legacy operational script until a
+separate cutover decision. The new path adds explicit destructive
+acknowledgement, regex-validated identifiers, refusal of production
+database names/hosts, and a mandatory new-target boundary.
 
 ```text
 servora-backup list --remote
@@ -270,17 +271,21 @@ Restore executes the 13-step flow (architecture §13.2):
 - The CLI **never automatically overwrites the current production
   database**; cutover is a separate controlled operation.
 - Decryption key handling: the private identity is supplied by the
-  operator at restore time (path/passphrase prompt); it is never stored
-  by the CLI, never logged, and never written into any repository or
-  host file beyond its operator-managed source.
+  operator at restore time through an explicit identity file path or
+  supported age identity environment variable; it is never stored by the
+  CLI, never logged, and never written into any repository or generated
+  evidence.
 - `list --remote` works purely from R2 contents (DR: no metadata DB
   required); `verify`/`restore` use the R2 object custom metadata as the
   DB-independent expected-checksum source (architecture §11,
   archive-and-storage §3.1); `inspect` reads the decrypted manifest only
   after checksum and manifest validation.
 - Results are recorded in `restore_runs` (when an installation DB is
-  reachable) and in the operator ops log; identifiers logged are safe
-  (backup id, target database name, outcome).
+  reachable) and in safe operator evidence; identifiers logged are safe
+  (backup id, target database name, outcome). In explicit DR mode the source
+  metadata DB is not queried. A restored runtime snapshot is observed with
+  aggregate counts only; BR7 does not rewrite stale worker/lease history or
+  fabricate terminal backup SUCCESS.
 
 ## 6. Failure taxonomy and retry contract
 
