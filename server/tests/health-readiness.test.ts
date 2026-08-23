@@ -150,4 +150,62 @@ describe('GET /api/health readiness', () => {
       latestScheduledRunStatus: 'SUCCESS',
     });
   });
+
+  it.each([
+    {
+      label: 'missing verified_at even when latest runs report SUCCESS',
+      verifiedAt: null,
+      scheduledVerifiedAt: null,
+      latestStatus: 'SUCCESS',
+      scheduledLatestStatus: 'SUCCESS',
+      workerHeartbeatAt: new Date('2026-08-23T01:59:00.000Z'),
+      schedulerLastTickAt: new Date('2026-08-23T01:59:00.000Z'),
+    },
+    {
+      label: 'stale worker heartbeat',
+      verifiedAt: new Date('2026-08-23T01:00:00.000Z'),
+      scheduledVerifiedAt: new Date('2026-08-23T01:00:00.000Z'),
+      latestStatus: 'SUCCESS',
+      scheduledLatestStatus: 'SUCCESS',
+      workerHeartbeatAt: new Date('2026-08-22T23:00:00.000Z'),
+      schedulerLastTickAt: new Date('2026-08-23T01:59:00.000Z'),
+    },
+    {
+      label: 'stale scheduler heartbeat',
+      verifiedAt: new Date('2026-08-23T01:00:00.000Z'),
+      scheduledVerifiedAt: new Date('2026-08-23T01:00:00.000Z'),
+      latestStatus: 'SUCCESS',
+      scheduledLatestStatus: 'SUCCESS',
+      workerHeartbeatAt: new Date('2026-08-23T01:59:00.000Z'),
+      schedulerLastTickAt: new Date('2026-08-22T23:00:00.000Z'),
+    },
+  ])('fails closed for $label', async (fixture) => {
+    const pool = {
+      query: async (sql: string) => {
+        if (sql.includes("origin = 'SCHEDULED'") && sql.includes('verified_at IS NOT NULL')) {
+          return { rows: fixture.scheduledVerifiedAt ? [{ verified_at: fixture.scheduledVerifiedAt }] : [] };
+        }
+        if (sql.includes('status = \'SUCCESS\' AND verified_at IS NOT NULL')) {
+          return { rows: fixture.verifiedAt ? [{ verified_at: fixture.verifiedAt }] : [] };
+        }
+        if (sql.includes('worker_heartbeat_at')) {
+          return {
+            rows: [{
+              worker_heartbeat_at: fixture.workerHeartbeatAt,
+              scheduler_last_tick_at: fixture.schedulerLastTickAt,
+            }],
+          };
+        }
+        if (sql.includes("origin = 'SCHEDULED'")) {
+          return { rows: [{ status: fixture.scheduledLatestStatus }] };
+        }
+        return { rows: [{ status: fixture.latestStatus }] };
+      },
+    };
+    const health = createPostgresBackupHealth(pool as never, {
+      workerEnabled: true,
+      now: () => new Date('2026-08-23T02:00:00.000Z'),
+    });
+    await expect(health.check()).resolves.toMatchObject({ status: 'unavailable' });
+  });
 });

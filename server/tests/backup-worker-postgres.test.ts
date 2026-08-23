@@ -108,6 +108,70 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
     );
   });
 
+  it('fences every lease-bound mutation after the lease expires', async () => {
+    const runId = randomUUID();
+    const staleToken = randomUUID();
+    const expiredAt = new Date(Date.now() - 60_000);
+    await pool.query(
+      `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at,
+                                started_at, lease_token, lease_until, heartbeat_at)
+       VALUES ($1, 'RUNNING', 'PREFLIGHT', 'MANUAL', 'DATABASE', 'MANUAL', $2, $2, $3, $4, $4)`,
+      [runId, expiredAt, staleToken, expiredAt],
+    );
+    try {
+      await expect(repository.advancePhase(runId, 'PREFLIGHT', 'DATABASE_DUMP', staleToken)).resolves.toBeNull();
+
+      await pool.query(
+        `UPDATE backup_runs SET phase = 'UPLOAD' WHERE id = $1`,
+        [runId],
+      );
+      await expect(repository.markFailed(
+        runId,
+        'R2_UPLOAD_FAILED',
+        'stale worker must not terminalize',
+        new Date(),
+        staleToken,
+      )).resolves.toBeNull();
+
+      await pool.query(
+        `UPDATE backup_runs SET phase = 'REMOTE_VERIFY' WHERE id = $1`,
+        [runId],
+      );
+      await expect(repository.recordVerification(
+        runId,
+        { remoteKey: 'production/test/stale.sbk.age', sizeBytes: 123, sha256: 'a'.repeat(64) },
+        staleToken,
+      )).resolves.toBeNull();
+
+      await pool.query(
+        `UPDATE backup_runs
+            SET phase = 'CLEANUP', remote_key = 'production/test/stale.sbk.age',
+                size_bytes = 123, sha256 = $2
+          WHERE id = $1`,
+        [runId, 'a'.repeat(64)],
+      );
+      await expect(repository.completeRun(
+        runId,
+        { completedAt: new Date(), cleanupWarning: null },
+        staleToken,
+      )).resolves.toBeNull();
+      await expect(repository.heartbeatRun(
+        runId,
+        staleToken,
+        new Date(),
+        new Date(Date.now() + 60_000),
+      )).resolves.toBe(false);
+
+      const row = await pool.query<{ status: string; phase: string; failure_code: string | null }>(
+        'SELECT status, phase, failure_code FROM backup_runs WHERE id = $1',
+        [runId],
+      );
+      expect(row.rows[0]).toMatchObject({ status: 'RUNNING', phase: 'CLEANUP', failure_code: null });
+    } finally {
+      await pool.query('DELETE FROM backup_runs WHERE id = $1', [runId]);
+    }
+  });
+
   it('terminalizes non-cleanup orphans and only reclaims cleanup with complete proof', async () => {
     const orphanId = randomUUID();
     const orphanToken = randomUUID();
@@ -123,6 +187,7 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
     expect(recovered[0]).toMatchObject({ status: 'FAILED', phase: 'PACKAGE', failureCode: 'WORKER_LOST' });
 
     const cleanupId = randomUUID();
+    const staleCleanupToken = randomUUID();
     await pool.query(
       `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at,
                                 started_at, remote_key, size_bytes, sha256, lease_token,
@@ -130,7 +195,7 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
        VALUES ($1::uuid, 'RUNNING', 'CLEANUP', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(),
                'production/test/v1/daily/' || $1::text || '.sbk.age', 123, $2, $3,
                NOW() - INTERVAL '1 minute', NOW() - INTERVAL '1 minute')`,
-      [cleanupId, 'a'.repeat(64), randomUUID()],
+      [cleanupId, 'a'.repeat(64), staleCleanupToken],
     );
     const freshToken = randomUUID();
     const claim = await repository.claimExpiredCleanupRun(
@@ -139,11 +204,83 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
       new Date(Date.now() + 60_000),
     );
     expect(claim).toMatchObject({ run: { id: cleanupId, phase: 'CLEANUP' }, leaseToken: freshToken });
+    await expect(repository.heartbeatRun(
+      cleanupId,
+      staleCleanupToken,
+      new Date(),
+      new Date(Date.now() + 60_000),
+    )).resolves.toBe(false);
+    await expect(repository.completeRun(
+      cleanupId,
+      { completedAt: new Date(), cleanupWarning: null },
+      staleCleanupToken,
+    )).resolves.toBeNull();
     await expect(repository.completeRun(
       cleanupId,
       { completedAt: new Date(), cleanupWarning: null },
       freshToken,
     )).resolves.toMatchObject({ status: 'SUCCESS', verifiedAt: expect.any(Date) });
+  });
+
+  it('keeps cleanup proof terminal and records CLEANUP_FAILED without losing verification', async () => {
+    const warningId = randomUUID();
+    const warningToken = randomUUID();
+    const invalidId = randomUUID();
+    const invalidToken = randomUUID();
+    const poisonedId = randomUUID();
+    const poisonedToken = randomUUID();
+    const leaseUntil = new Date(Date.now() + 60_000);
+    try {
+      await pool.query(
+        `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at,
+                                  started_at, remote_key, size_bytes, sha256, lease_token,
+                                  lease_until, heartbeat_at)
+         VALUES ($1, 'RUNNING', 'CLEANUP', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(),
+                 'production/test/warning.sbk.age', 123, $2, $3, $4, NOW())`,
+        [warningId, 'a'.repeat(64), warningToken, leaseUntil],
+      );
+      await expect(repository.completeRun(
+        warningId,
+        { completedAt: new Date(), cleanupWarning: 'workspace cleanup failed' },
+        warningToken,
+      )).resolves.toMatchObject({
+        status: 'SUCCESS',
+        verifiedAt: expect.any(Date),
+        failureCode: null,
+        warningCode: 'CLEANUP_FAILED',
+      });
+
+      await pool.query(
+        `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at,
+                                  started_at, lease_token, lease_until, heartbeat_at)
+         VALUES ($1, 'RUNNING', 'CLEANUP', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), $2, $3, NOW())`,
+        [invalidId, invalidToken, leaseUntil],
+      );
+      await expect(repository.completeRun(
+        invalidId,
+        { completedAt: new Date(), cleanupWarning: null },
+        invalidToken,
+      )).resolves.toBeNull();
+
+      await pool.query(
+        `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at,
+                                  started_at, remote_key, size_bytes, sha256, failure_code,
+                                  failure_summary, lease_token, lease_until, heartbeat_at)
+         VALUES ($1, 'RUNNING', 'CLEANUP', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(),
+                 'production/test/poisoned.sbk.age', 123, $2, 'R2_UPLOAD_FAILED', 'old failure', $3, $4, NOW())`,
+        [poisonedId, 'b'.repeat(64), poisonedToken, leaseUntil],
+      );
+      await expect(repository.completeRun(
+        poisonedId,
+        { completedAt: new Date(), cleanupWarning: null },
+        poisonedToken,
+      )).resolves.toBeNull();
+    } finally {
+      await pool.query(
+        'DELETE FROM backup_runs WHERE id = ANY($1::uuid[])',
+        [[warningId, invalidId, poisonedId]],
+      );
+    }
   });
 
   it('consumes one scheduled slot durably and allows a second process to observe it', async () => {
@@ -166,5 +303,30 @@ describe.skipIf(!databaseUrl)('BR5 backup worker PostgreSQL concurrency', () => 
     expect(audit.rows).toEqual(expect.arrayContaining([
       { event_type: 'BACKUP_REQUESTED', actor_user_id: null },
     ]));
+    await pool.query('DELETE FROM backup_runs WHERE id = $1', [input.id]);
+  });
+
+  it('deduplicates concurrent scheduler processes for one local-day slot', async () => {
+    const firstId = randomUUID();
+    const secondId = randomUUID();
+    const base = {
+      scope: 'DATABASE' as const,
+      retentionClass: 'DAILY' as const,
+      createdAt: new Date('2026-08-24T02:31:00Z'),
+      slotKey: 'UTC|2026-08-24|02:30',
+      localDate: '2026-08-24',
+      scheduledFor: new Date('2026-08-24T02:30:00Z'),
+    };
+    const results = await Promise.all([
+      repository.enqueueScheduledRun({ ...base, id: firstId }),
+      repository.enqueueScheduledRun({ ...base, id: secondId }),
+    ]);
+    expect(results.map((result) => result.kind).sort()).toEqual(['already-consumed', 'created']);
+    const rows = await pool.query<{ id: string }>(
+      `SELECT id FROM backup_runs WHERE origin = 'SCHEDULED' AND created_at = $1`,
+      [base.createdAt],
+    );
+    expect(rows.rows).toHaveLength(1);
+    await pool.query('DELETE FROM backup_runs WHERE id = ANY($1::uuid[])', [[firstId, secondId]]);
   });
 });

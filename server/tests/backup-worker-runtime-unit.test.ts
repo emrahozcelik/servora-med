@@ -175,4 +175,35 @@ describe('BR5 backup worker runtime', () => {
     expect(attempts).toBe(3);
     expect(calls).toContain(`failed:R2_VERIFY_FAILED:${firstClaim.leaseToken}`);
   });
+
+  it.each([
+    'R2_AUTH_FAILED',
+    'R2_OBJECT_CONFLICT',
+    'R2_OBJECT_TOO_LARGE',
+    'REMOTE_CHECKSUM_MISMATCH',
+  ] as const)('does not retry deterministic failure %s', async (failureCode) => {
+    const firstClaim = claim();
+    const delays: number[] = [];
+    const { repository, calls } = repositorySpy({
+      claimNextRun: async () => firstClaim,
+    });
+    let attempts = 0;
+    const worker = new BackupWorker({
+      repository,
+      service: serviceSpy(calls),
+      executeRun: async () => {
+        attempts += 1;
+        return { kind: 'retryable-failure', failureCode, failureSummary: 'deterministic' };
+      },
+      enabled: true,
+      now: fixedNow,
+      randomId: () => firstClaim.leaseToken,
+      sleep: async (delay) => { delays.push(delay); },
+    });
+
+    await worker.runOnce();
+    expect(attempts).toBe(1);
+    expect(delays).toEqual([]);
+    expect(calls).toContain(`failed:${failureCode}:${firstClaim.leaseToken}`);
+  });
 });

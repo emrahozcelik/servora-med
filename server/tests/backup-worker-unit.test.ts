@@ -33,6 +33,34 @@ describe('BR5 scheduled retention classification', () => {
     });
   });
 
+  it('catches up only the current local day and emits one key across DST repeats', () => {
+    const lateToday = getDueScheduledSlot(new Date('2026-08-23T23:00:00Z'), '02:30', 'UTC');
+    expect(lateToday).toMatchObject({ localDate: '2026-08-23', slotKey: 'UTC|2026-08-23|02:30' });
+
+    expect(getDueScheduledSlot(new Date('2026-08-24T01:00:00Z'), '02:30', 'UTC')).toBeNull();
+
+    const firstFallOccurrence = getDueScheduledSlot(
+      new Date('2026-11-01T05:45:00Z'),
+      '01:30',
+      'America/New_York',
+    );
+    const repeatedFallOccurrence = getDueScheduledSlot(
+      new Date('2026-11-01T06:45:00Z'),
+      '01:30',
+      'America/New_York',
+    );
+    expect(firstFallOccurrence).toMatchObject({
+      localDate: '2026-11-01',
+      slotKey: 'America/New_York|2026-11-01|01:30',
+      scheduledFor: new Date('2026-11-01T05:30:00Z'),
+    });
+    expect(repeatedFallOccurrence).toMatchObject({
+      localDate: '2026-11-01',
+      slotKey: firstFallOccurrence?.slotKey,
+      scheduledFor: firstFallOccurrence?.scheduledFor,
+    });
+  });
+
   it('centralizes bounded transient failure classes and exponential delay', () => {
     expect(BACKUP_RETRY_MAX_ATTEMPTS).toBe(3);
     expect(isRetryableBackupFailure('PREFLIGHT_DATABASE_UNAVAILABLE')).toBe(true);

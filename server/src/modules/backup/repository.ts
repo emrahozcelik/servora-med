@@ -553,7 +553,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       `UPDATE backup_runs
           SET status = 'RUNNING', started_at = $2, phase = 'PREFLIGHT'
         WHERE id = $1 AND status = 'QUEUED'
-          AND ($3::uuid IS NULL OR lease_token = $3)
+          AND ($3::uuid IS NULL OR (lease_token = $3 AND lease_until > CURRENT_TIMESTAMP))
         RETURNING ${RUN_COLUMNS}`,
       [id, startedAt, leaseToken ?? null],
     );
@@ -570,7 +570,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       `UPDATE backup_runs
           SET phase = $3
         WHERE id = $1 AND status = 'RUNNING' AND phase = $2
-          AND ($4::uuid IS NULL OR lease_token = $4)
+          AND ($4::uuid IS NULL OR (lease_token = $4 AND lease_until > CURRENT_TIMESTAMP))
         RETURNING ${RUN_COLUMNS}`,
       [id, fromPhase, toPhase, leaseToken ?? null],
     );
@@ -583,7 +583,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
           SET status = 'FAILED', failure_code = $2, failure_summary = $3, completed_at = $4,
               lease_token = NULL, lease_until = NULL, heartbeat_at = NULL
         WHERE id = $1 AND status = 'RUNNING'
-          AND ($5::uuid IS NULL OR lease_token = $5)
+          AND ($5::uuid IS NULL OR (lease_token = $5 AND lease_until > CURRENT_TIMESTAMP))
         RETURNING ${RUN_COLUMNS}`,
       [id, failureCode, failureSummary, completedAt, leaseToken ?? null],
     );
@@ -596,7 +596,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
           SET status = 'CANCELLED', completed_at = $2,
               lease_token = NULL, lease_until = NULL, heartbeat_at = NULL
         WHERE id = $1 AND status IN ('QUEUED', 'RUNNING')
-          AND ($3::uuid IS NULL OR lease_token = $3)
+          AND ($3::uuid IS NULL OR (lease_token = $3 AND lease_until > CURRENT_TIMESTAMP))
         RETURNING ${RUN_COLUMNS}`,
       [id, completedAt, leaseToken ?? null],
     );
@@ -612,7 +612,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
           SET remote_key = $2, size_bytes = $3, sha256 = $4
         WHERE id = $1 AND status = 'RUNNING' AND phase = 'REMOTE_VERIFY'
           AND $3::bigint > 0
-          AND ($5::uuid IS NULL OR lease_token = $5)
+          AND ($5::uuid IS NULL OR (lease_token = $5 AND lease_until > CURRENT_TIMESTAMP))
         RETURNING ${RUN_COLUMNS}`,
       [id, input.remoteKey, input.sizeBytes, input.sha256, leaseToken ?? null],
     );
@@ -630,12 +630,14 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
           SET status = 'SUCCESS', verified_at = $2, completed_at = $2,
               warning_code = CASE WHEN $3::text IS NULL THEN NULL ELSE 'CLEANUP_FAILED' END,
               warning_summary = $3,
+              failure_code = NULL, failure_summary = NULL,
               lease_token = NULL, lease_until = NULL, heartbeat_at = NULL
         WHERE id = $1 AND status = 'RUNNING' AND phase = 'CLEANUP'
           AND remote_key IS NOT NULL AND remote_key <> ''
           AND size_bytes > 0
           AND sha256 ~ '^[0-9a-f]{64}$'
-          AND ($4::uuid IS NULL OR lease_token = $4)
+          AND failure_code IS NULL
+          AND ($4::uuid IS NULL OR (lease_token = $4 AND lease_until > CURRENT_TIMESTAMP))
         RETURNING ${RUN_COLUMNS}`,
       [id, input.completedAt, input.cleanupWarning, leaseToken ?? null],
     );
@@ -647,7 +649,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       `UPDATE backup_runs
           SET warning_code = 'CLEANUP_FAILED', warning_summary = $2
         WHERE id = $1 AND status = 'SUCCESS'
-          AND ($3::uuid IS NULL OR lease_token = $3)
+          AND ($3::uuid IS NULL OR (lease_token = $3 AND lease_until > CURRENT_TIMESTAMP))
         RETURNING ${RUN_COLUMNS}`,
       [id, warningSummary, leaseToken ?? null],
     );

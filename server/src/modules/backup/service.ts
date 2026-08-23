@@ -327,6 +327,7 @@ export class BackupService implements BackupServiceTransitionPrimitives {
       || run.sizeBytes <= 0
       || run.sha256 === null
       || !SHA256_PATTERN.test(run.sha256)
+      || run.failureCode !== null
     ) throw invalidTransition();
     const cleanupWarning = options.cleanupWarning === undefined
       ? null

@@ -362,6 +362,10 @@ describe('health probe', () => {
 });
 
 describe('verified-runs backup source', () => {
+  it('keeps legacy backup freshness authoritative until V1 is explicitly selected', () => {
+    assert.equal(loadConfig(BASE_ENV).backupSource, 'legacy');
+  });
+
   it('uses safe health evidence and the existing freshness threshold', () => {
     const config = loadConfig({
       ...BASE_ENV,
@@ -425,6 +429,42 @@ describe('verified-runs backup source', () => {
     }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
     assert.equal(result.ok, false);
     assert.equal(result.errorCategory, 'scheduled-failure');
+  });
+
+  it('does not accept SUCCESS without verified_at and fails on stale worker evidence', () => {
+    const config = loadConfig({
+      ...BASE_ENV,
+      SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs',
+    });
+    const missingVerification = evaluateVerifiedBackup(config, {
+      ok: true,
+      backup: {
+        status: 'ok',
+        latestVerifiedAt: null,
+        latestScheduledVerifiedAt: null,
+        latestRunStatus: 'SUCCESS',
+        latestScheduledRunStatus: 'SUCCESS',
+        workerHeartbeatAt: '2026-08-23T01:59:00.000Z',
+        schedulerLastTickAt: '2026-08-23T01:59:00.000Z',
+      },
+    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
+    assert.equal(missingVerification.ok, false);
+    assert.equal(missingVerification.errorCategory, 'no-verified-backup');
+
+    const staleWorker = evaluateVerifiedBackup(config, {
+      ok: true,
+      backup: {
+        status: 'unavailable',
+        latestVerifiedAt: '2026-08-23T01:00:00.000Z',
+        latestScheduledVerifiedAt: '2026-08-23T01:00:00.000Z',
+        latestRunStatus: 'SUCCESS',
+        latestScheduledRunStatus: 'SUCCESS',
+        workerHeartbeatAt: '2026-08-22T23:00:00.000Z',
+        schedulerLastTickAt: '2026-08-23T01:59:00.000Z',
+      },
+    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
+    assert.equal(staleWorker.ok, false);
+    assert.equal(staleWorker.errorCategory, 'worker-unavailable');
   });
 });
 
