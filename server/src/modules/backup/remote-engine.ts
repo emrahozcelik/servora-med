@@ -11,7 +11,7 @@ import {
   R2StorageError,
 } from './r2.js';
 import type { BackupRepository } from './repository.js';
-import type { BackupService } from './service.js';
+import type { BackupServiceTransitionPrimitives } from './service.js';
 import type { BackupRun } from './types.js';
 import { validateBackupInstanceId } from './object-keys.js';
 import { workspacePathsFor } from './workspace.js';
@@ -79,7 +79,7 @@ class RemoteEngineFailure extends Error {
 
 export type RemoteBackupEngineOptions = {
   repository: BackupRepository;
-  service: BackupService;
+  service: BackupServiceTransitionPrimitives;
   tempRoot: string;
   storage: CloudflareR2Storage;
   instanceId: string;

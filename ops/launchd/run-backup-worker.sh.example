@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+# Servora-Med BR5 backup worker wrapper for launchd (example, NOT installed).
+set -Eeuo pipefail
+
+ENV_FILE="/etc/servora-med/servora-med.env"
+NODE_BIN="/opt/homebrew/bin/node"
+WORKER_JS="/opt/servora-med/current/server/dist/backup-worker.js"
+SERVER_DIR="/opt/servora-med/current/server"
+
+require_abs() {
+  local name="$1"
+  local value="$2"
+  if [[ -z "${value}" || "${value}" != /* ]]; then
+    printf '%s must be an absolute path\n' "${name}" >&2
+    exit 1
+  fi
+}
+
+require_abs ENV_FILE "${ENV_FILE}"
+require_abs NODE_BIN "${NODE_BIN}"
+require_abs WORKER_JS "${WORKER_JS}"
+require_abs SERVER_DIR "${SERVER_DIR}"
+
+if [[ ! -f "${ENV_FILE}" ]]; then
+  printf 'missing env file: %s\n' "${ENV_FILE}" >&2
+  exit 1
+fi
+if [[ ! -x "${NODE_BIN}" ]]; then
+  printf 'node binary missing or not executable: %s\n' "${NODE_BIN}" >&2
+  exit 1
+fi
+if [[ ! -f "${WORKER_JS}" ]]; then
+  printf 'backup worker entry missing: %s\n' "${WORKER_JS}" >&2
+  exit 1
+fi
+
+umask 077
+set -a
+# shellcheck disable=SC1090
+source "${ENV_FILE}"
+set +a
+export PATH="/usr/bin:/bin"
+
+cd "${SERVER_DIR}"
+exec "${NODE_BIN}" "${WORKER_JS}"

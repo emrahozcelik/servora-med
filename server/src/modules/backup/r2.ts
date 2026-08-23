@@ -90,6 +90,8 @@ export const R2_MAX_SINGLE_PUT_BYTES = 5 * 1024 ** 3 - 5 * 1024 ** 2;
 export const R2_OPERATION_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
 /** Overall synchronous ADMIN connection-probe budget. */
 export const R2_CONNECTION_TEST_TIMEOUT_MS = 15_000;
+/** BR5 owns the phase retry budget; the SDK must not add hidden attempts. */
+export const R2_SDK_MAX_ATTEMPTS = 1;
 
 const AUTH_ERROR_NAMES = new Set([
   'InvalidAccessKeyId',
@@ -182,6 +184,7 @@ export class CloudflareR2Storage {
     this.client = options.client ?? new S3Client({
       region: R2_REGION,
       endpoint,
+      maxAttempts: R2_SDK_MAX_ATTEMPTS,
       credentials: {
         accessKeyId: options.config.accessKeyId,
         secretAccessKey: options.config.secretAccessKey,

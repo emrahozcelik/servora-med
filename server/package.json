@@ -12,6 +12,8 @@
     "build": "tsc -p tsconfig.json && node scripts/copy-migrations.mjs",
     "start": "node --env-file-if-exists=.env dist/index.js",
     "start:prod": "node dist/index.js",
+    "backup:worker": "tsx --env-file=.env src/backup-worker.ts",
+    "backup:worker:prod": "node --env-file-if-exists=.env dist/backup-worker.js",
     "migrate": "tsx --env-file=.env src/db/migrate.ts",
     "migrate:prod": "node dist/db/migrate.js",
     "products:import:pilot": "tsx --env-file=.env src/db/import-pilot-products.ts",

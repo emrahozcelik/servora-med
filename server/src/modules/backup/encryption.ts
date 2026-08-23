@@ -12,7 +12,7 @@ import {
   type ParsedToolVersion,
 } from './process.js';
 import type { BackupRepository } from './repository.js';
-import type { BackupService } from './service.js';
+import type { BackupServiceTransitionPrimitives } from './service.js';
 import { removeWorkspace, workspacePathsFor } from './workspace.js';
 
 /**
@@ -127,7 +127,7 @@ export type LocalEncryptionResult =
 
 export type LocalEncryptionEngineOptions = {
   repository: BackupRepository;
-  service: BackupService;
+  service: BackupServiceTransitionPrimitives;
   tempRoot: string;
   /** Public hybrid recipient (BACKUP_ENCRYPTION_RECIPIENT). The private
    * identity has no supported production configuration path. */

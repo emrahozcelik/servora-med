@@ -6,8 +6,9 @@ BR0: merged (architecture and contracts only)
 BR1: merged — Backup Domain Foundation
 BR2: merged — Local PostgreSQL Backup Engine
 BR3: merged — Post-Quantum Backup Encryption (native age HybridRecipient)
-BR4: implemented — Cloudflare R2 Storage + Upload + Remote Verification
-Status: BR4 external review pending; BR5–BR7 future
+BR4: merged — Cloudflare R2 Storage + Upload + Remote Verification
+BR5: implemented — worker / scheduling / retry / cleanup / crash recovery
+Status: BR5 Draft PR / exact-head CI pending; Ready, merge, and production cutover are not authorized
 ```
 
 This directory holds the approved architecture and implementation-ready
@@ -24,8 +25,9 @@ added or configured.
 | BR1 — backup domain foundation | merged (`8530990`, PR #188) |
 | BR2 — local PostgreSQL backup engine | merged (`12452f0`, PR #189) |
 | BR3 — post-quantum backup encryption | merged (`d57bca7`, PR #190) |
-| BR4 — Cloudflare R2 storage + verification | implemented; external review pending (see below) |
-| BR5–BR7 | future (worker, admin UI, restore CLI) |
+| BR4 — Cloudflare R2 storage + verification | merged; REAL_R2 acceptance remains a BR5 production gate |
+| BR5 — worker / scheduling / retry / recovery | implemented on the isolated Draft PR branch; exact-head CI pending |
+| BR6–BR7 | future (admin UI, restore CLI) |
 
 BR1 delivered (metadata foundation only — no pg_dump, encryption, R2,
 worker, scheduler, UI, or restore execution):
@@ -105,7 +107,7 @@ CLI):
 - CI installs official `age` 1.3.1 pinned with the published SHA-256
   (linux-amd64 release artifact, checksum-verified — no curl|sh, no
   mirrors, no vendored binaries). Production VPS prerequisite:
-  install official age >= 1.3.0 before enabling the future BR5 worker.
+  install official age >= 1.3.0 before enabling the BR5 worker.
 
 BR4 implemented (remote boundary only — stops at the CLEANUP phase; no
 worker, no scheduler, no SUCCESS transition, no retention pruning, no
@@ -135,7 +137,7 @@ bucket administration, no UI, no restore CLI):
   (`encryptedPath`, `ciphertextBytes`, `localCiphertextSha256`), which is
   revalidated before upload. `uploadAndVerifyRemoteBackup()` enters from
   ENCRYPT; `retryUploadRemoteBackup()` and `verifyRemoteBackup()` are the
-  future BR5 same-phase re-entry points; `reverify()` is the read-only
+  BR5 same-phase re-entry points; `reverify()` is the read-only
   internal primitive for BR7/future reverify requests.
 - No-overwrite contract: single PUT is a genuinely atomic conditional
   create (412 → §20 resolution). R2 does NOT document an equivalent
@@ -161,8 +163,8 @@ bucket administration, no UI, no restore CLI):
   `ok`/`testedAt`/safe failure class — never credentials or raw SDK
   errors. `BACKUP_STORAGE_TESTED` audit vocabulary remains future work
   (BR0 audit table), not expanded in migration 032 by scope discipline.
-- Reverify HTTP endpoint: intentionally still NOT exposed — BR5 owns
-  async execution; BR4 does not return a misleading 202.
+- Reverify HTTP endpoint: intentionally still NOT exposed — BR5 does not
+  invent a parallel queue solely for reverify; no misleading 202 is returned.
 - Config: optional validated-if-present `BACKUP_R2_ACCOUNT_ID` (32-hex),
   `BACKUP_R2_ACCESS_KEY_ID` / `BACKUP_R2_SECRET_ACCESS_KEY` (env only;
   redacted log paths), `BACKUP_R2_BUCKET`, `BACKUP_INSTANCE_ID`,
@@ -173,6 +175,34 @@ bucket administration, no UI, no restore CLI):
   through a deterministic injected fake client; an opt-in real-R2
   acceptance suite exists behind explicit disposable env credentials
   (REAL_R2_ACCEPTANCE = NOT EXECUTED without them).
+
+BR5 delivered (separate worker process; production enablement remains a
+separate authorized gate):
+
+- Migration `033_backup_worker_runtime` adds lease token/expiry/heartbeat
+  ownership, durable scheduler slot state, and the narrow system-actor audit
+  vocabulary (`BACKUP_STARTED`, `BACKUP_VERIFIED`, `BACKUP_COMPLETED`,
+  `BACKUP_FAILED`). Stale non-CLEANUP runs become `FAILED/WORKER_LOST`;
+  expired `RUNNING@CLEANUP` rows are recoverable only with complete remote
+  evidence (`remote_key`, byte count, and SHA-256).
+- `server/src/backup-worker.ts` is a separate opt-in process. PostgreSQL
+  `FOR UPDATE SKIP LOCKED`, the shared `BACKUP_EXCLUSION_ADVISORY_LOCK_KEY`,
+  lease heartbeats, bounded three-attempt same-phase retry, DST-aware IANA
+  scheduling, current-local-day catch-up, and durable slot dedupe are
+  implemented in `modules/backup/worker.ts`, `scheduler.ts`, `retry.ts`, and
+  `pipeline.ts`.
+- The pipeline composes BR2 → BR3 → BR4. Only remote verification followed by
+  cleanup may call `completeRun()` and produce `SUCCESS`; cleanup failure is a
+  verified `SUCCESS` with `warning_code = CLEANUP_FAILED`. Terminal workspace
+  reclamation is symlink-safe and DB-state-gated.
+- `GET /api/health` may surface aggregate backup evidence, while the existing
+  `ops/scripts/operator-alerting.mjs` remains the sole monitor. Its default
+  source is the legacy local dump/sidecar check; `SERVORA_ALERT_BACKUP_SOURCE=verified-runs`
+  is an explicit reconciliation switch.
+- Systemd and launchd examples supervise the same worker entrypoint. The old
+  MVP timer/script remains untouched. `REAL_R2_ACCEPTANCE = NOT EXECUTED`
+  remains a mandatory disposable-bucket gate before enabling the worker in
+  production.
 
 ## File map
 

@@ -15,8 +15,10 @@ import { ageVersionSupported, LocalEncryptionEngine } from '../src/modules/backu
 import { buildConnectionTestKey } from '../src/modules/backup/object-keys.js';
 import { CloudflareR2Storage, type R2SendableClient } from '../src/modules/backup/r2.js';
 import { RemoteBackupEngine } from '../src/modules/backup/remote-engine.js';
+import { createBackupPipelineExecutor } from '../src/modules/backup/pipeline.js';
 import { PostgresBackupRepository } from '../src/modules/backup/repository.js';
 import { BackupService } from '../src/modules/backup/service.js';
+import { BackupWorker } from '../src/modules/backup/worker.js';
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
 const migrationsDirectory = fileURLToPath(new URL('../src/db/migrations', import.meta.url));
@@ -329,6 +331,58 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
     expect(await stat(path.join(tempRoot, artifact.runId, 'package', `${artifact.runId}.sbk.tar`))
       .then(() => true, () => false)).toBe(true);
     await releaseSlot(artifact.runId);
+  });
+
+  it('BR5 worker composes the accepted engines through SUCCESS and local cleanup', async () => {
+    const store = new FakeR2Store();
+    const runId = await createRun();
+    const storage = new CloudflareR2Storage({
+      config: {
+        accountId: 'a'.repeat(32),
+        accessKeyId: 'test-key',
+        secretAccessKey: 'test-secret',
+        bucket: 'servora-test-bucket',
+      },
+      client: store,
+    });
+    const worker = new BackupWorker({
+      repository: repository!,
+      service: service!,
+      enabled: true,
+      now: () => new Date((clock += 1_000)),
+      sleep: async () => undefined,
+      executeRun: createBackupPipelineExecutor({
+        repository: repository!,
+        pool: sourcePool!,
+        service: service!,
+        databaseUrl: sourceUrl,
+        tempRoot,
+        filesRoot: null,
+        recipient: recipientValue,
+        storage,
+        instanceId: INSTANCE_ID,
+        application: { applicationVersion: 'br5-test-0.1.0', gitCommit: 'b'.repeat(40) },
+      }),
+    });
+
+    try {
+      await expect(worker.runOnce()).resolves.toEqual({ kind: 'claimed', runId });
+      const run = await repository!.findRunById(runId);
+      expect(run).toMatchObject({
+        status: 'SUCCESS',
+        phase: 'CLEANUP',
+        remoteKey: expect.any(String),
+        sizeBytes: expect.any(Number),
+        sha256: expect.stringMatching(/^[0-9a-f]{64}$/),
+        verifiedAt: expect.any(Date),
+        warningCode: null,
+        failureCode: null,
+      });
+      expect(store.objects.size).toBe(1);
+      expect(await stat(path.join(tempRoot, runId)).then(() => true, () => false)).toBe(false);
+    } finally {
+      storage.destroy();
+    }
   });
 
   it('adapter passes unprefixed Metadata + binary content type + If-None-Match on the wire form', async () => {

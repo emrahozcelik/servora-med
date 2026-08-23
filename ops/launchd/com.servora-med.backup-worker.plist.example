@@ -1,0 +1,33 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  Servora-Med BR5 backup worker — persistent LaunchDaemon example (non-root).
+  Install as /Library/LaunchDaemons/com.servora-med.backup-worker.plist
+  (root:wheel, mode 0644) only after the production cutover gate is approved.
+  The wrapper and the Node entrypoint are the same worker used by systemd;
+  launchd supplies supervision only. Secrets stay in the private env file.
+-->
+<plist version="1.0">
+<dict>
+	<key>Label</key>
+	<string>com.servora-med.backup-worker</string>
+	<key>UserName</key>
+	<string>servora-med</string>
+	<key>GroupName</key>
+	<string>servora-med</string>
+	<key>ProgramArguments</key>
+	<array>
+		<string>/usr/local/libexec/servora-med/run-backup-worker.sh</string>
+	</array>
+	<key>RunAtLoad</key>
+	<true/>
+	<key>KeepAlive</key>
+	<true/>
+	<key>StandardOutPath</key>
+	<string>/usr/local/var/log/servora-med/backup-worker.stdout.log</string>
+	<key>StandardErrorPath</key>
+	<string>/usr/local/var/log/servora-med/backup-worker.stderr.log</string>
+	<key>ProcessType</key>
+	<string>Background</string>
+</dict>
+</plist>

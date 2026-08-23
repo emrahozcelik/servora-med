@@ -24,6 +24,7 @@ Internet → Caddy :443 (TLS)
 | `/etc/servora-med/servora-med.env` | App environment (root:servora-med, mode 0640) |
 | `/etc/servora-med/servora-med-backup.env` | Backup identity (required by backup unit) |
 | `/var/backups/servora-med` | Local backups (0700) |
+| `/var/backups/servora-med/br-workspaces` | BR5 worker temporary workspaces (0700) |
 | `/var/log/servora-med` | Backup/restore ops logs |
 
 ## Environment
@@ -36,7 +37,7 @@ Required production highlights:
 - `HOST=127.0.0.1`
 - `CORS_ORIGIN=https://<FQDN>`
 - `TRUSTED_PROXY=loopback`
-- `HEALTH_SCHEMA_VERSION=032_backup_r2_failure_taxonomy` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
+- `HEALTH_SCHEMA_VERSION=033_backup_worker_runtime` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
 
 ### HEALTH_SCHEMA_VERSION verification
 
@@ -143,12 +144,11 @@ Only `age` is needed at runtime (the worker encrypts; it never decrypts).
 generation — never install or use the private identity on the VPS
 (`docs/operations/backup-recovery/architecture.md` §10).
 
-## Cloudflare R2 boundary (BR4; worker execution remains BR5)
+## Cloudflare R2 boundary (BR4 + BR5; production execution is gated)
 
-BR4 adds the private Cloudflare R2 adapter, remote verification engine,
-and ADMIN-only connection test. It does not start a backup worker or
-replace the existing script/timer stack; automated BR2→BR4 execution is
-still a BR5 cutover decision.
+BR4 supplies the private Cloudflare R2 adapter and remote verification
+engine. BR5 supplies the separate opt-in worker, but does not authorize
+production cutover or removal of the MVP timer/script stack.
 
 Operator-managed application env fields:
 
@@ -182,6 +182,21 @@ BACKUP_R2_BUCKET_ALIAS        # optional safe display label
   create/abort capability probe, completes no object, and persists only the
   safe timestamp/outcome. Missing R2 configuration records a `CONFIG`
   failure; no credential or raw SDK diagnostic is returned.
+
+Worker activation requires a separate deployment gate:
+
+- `BACKUP_WORKER_ENABLED=false` remains the safe default; the API never
+  claims backup rows.
+- Before enabling it, execute disposable-bucket `REAL_R2_ACCEPTANCE` for
+  SigV4, `If-None-Match: *`, metadata roundtrip, streamed HEAD/GET, and
+  CreateMultipartUpload → AbortMultipartUpload. Without explicit test
+  credentials this status remains **NOT EXECUTED**.
+- Verify `GET /api/health` includes an aggregate `backup` object with the
+  latest verified timestamp, `latestScheduledVerifiedAt`, and
+  worker/scheduler heartbeat. In verified-runs monitoring mode, scheduled
+  freshness comes from the scheduled field; a manual verified run does not
+  satisfy it. Keep the single operator-alerting monitor in legacy mode until
+  the gate approves `SERVORA_ALERT_BACKUP_SOURCE=verified-runs`.
 
 ## Deploy sequence (fail-closed)
 
@@ -251,12 +266,29 @@ Do **not**:
 sudo cp ops/systemd/servora-med.service /etc/systemd/system/
 sudo cp ops/systemd/servora-med-backup.service /etc/systemd/system/
 sudo cp ops/systemd/servora-med-backup.timer /etc/systemd/system/
+sudo cp ops/systemd/servora-med-backup-worker.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now servora-med
 sudo systemctl enable --now servora-med-backup.timer
+# Do not enable servora-med-backup-worker until the BR5 production gate above is approved.
 ```
 
 `EnvironmentFile=` paths are **required** (no optional `-` prefix). Missing env files fail the unit.
+
+### BR5 worker cutover checklist (documentation only)
+
+This repository does not perform host activation. After the disposable real-R2
+gate is explicitly approved, the operator should:
+
+1. Deploy with `BACKUP_WORKER_ENABLED=false` and apply migration 033.
+2. Verify API readiness, the R2 connection test, and a synthetic worker run
+   reaches `SUCCESS` with `verified_at` and a removed local workspace.
+3. Enable/start `servora-med-backup-worker.service`; confirm both worker and
+   scheduler heartbeat fields are fresh.
+4. Set `SERVORA_ALERT_BACKUP_SOURCE=verified-runs` in the existing operator
+   monitor and verify one real scheduled `SUCCESS` before relying on it.
+5. Only then retire the legacy backup timer / `OFFSITE_COPY_HOOK` path; keep
+   the scripts and unit available for rollback until a separate cleanup decision.
 
 ## Caddy
 
@@ -267,7 +299,7 @@ API responses use `Cache-Control: no-store`. Hashed Vite assets under `/assets/*
 
 ```http
 GET /api/health
-200 {"status":"ok"}           # DB reachable and exact HEALTH_SCHEMA_VERSION present
+200 {"status":"ok"}           # plus safe backup evidence when worker health is wired
 503 {"status":"unavailable"}  # otherwise — no infrastructure details
 ```
 
@@ -275,7 +307,7 @@ GET /api/health
 
 | Claim | Status |
 |-------|--------|
-| Implementation verification (unit/integration/CI) | complete on this branch |
+| Implementation verification (unit/integration/CI) | unit/integration checks complete on the isolated branch; exact-head CI is the Draft PR handoff gate |
 | Disposable PostgreSQL backup/restore acceptance | covered by automated tests when `TEST_DATABASE_URL` is set |
 | Disposable real-R2 BR4 acceptance | **pending** explicit non-production test credentials; never uses production credentials |
 | Live host restore rehearsal record | **pending** operator |

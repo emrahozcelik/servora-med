@@ -2,15 +2,15 @@
 
 ```text
 Date: 2026-08-23
-Slice: BR0 — architecture and contracts only
-Status: DOCUMENTATION_ONLY / IMPLEMENTATION_NOT_AUTHORIZED
+Slice: BR5 — worker / scheduling / retry / cleanup / crash recovery
+Status: IMPLEMENTED on an isolated Draft PR branch; production enablement is not authorized
 Parent: architecture.md (decision register §2)
 ```
 
 ## 1. Data model contract (BR1)
 
-Contract only — **no migrations in BR0**. Types follow repository SQL
-conventions: snake_case tables/columns, `UUID PRIMARY KEY DEFAULT
+The BR0 contract is now implemented through BR1–BR5 migrations. Types
+follow repository SQL conventions: snake_case tables/columns, `UUID PRIMARY KEY DEFAULT
 gen_random_uuid()`, `TIMESTAMPTZ`, enum values via CHECK constraints,
 `<table>_<cols>_idx` indexes.
 
@@ -41,6 +41,8 @@ files.
 | `size_bytes` | BIGINT NULL CHECK (>= 0) | encrypted object size |
 | `sha256` | TEXT NULL CHECK (64 hex) | **verified** encrypted-object checksum |
 | `verified_at` | TIMESTAMPTZ NULL | set only when CLEANUP completion terminalizes an already remote-verified run as SUCCESS |
+| `lease_token` | UUID NULL | opaque worker ownership token; never exposed in DTOs or logs |
+| `lease_until` / `heartbeat_at` | TIMESTAMPTZ NULL | lease expiry and liveness evidence for `RUNNING` claims |
 | `warning_code` | TEXT NULL | non-fatal operational warning (e.g. `CLEANUP_FAILED`); see invariants below |
 | `warning_summary` | TEXT NULL | admin-safe warning summary (§6.2) |
 | `failure_code` | TEXT NULL | stable code from §6 taxonomy — **only ever set on `FAILED` runs** |
@@ -54,14 +56,34 @@ remediation is needed) use `warning_code` exclusively; anticipated
 future warnings include `RETENTION_CLEANUP_DELAYED` and
 `MONITOR_SYNC_WARNING`.
 
-Additional worker-claiming columns (lease token, heartbeat timestamp)
-are finalized in BR1 following the `reminder-worker` lease precedent;
-the contract is: claims are race-free, leases expire, and orphaned
-`RUNNING` rows are terminalized — never silently completed.
+BR5 migration `033_backup_worker_runtime` implements the worker-claiming
+columns following the `reminder-worker` lease precedent. Claims are
+race-free (`FOR UPDATE SKIP LOCKED`), leases expire, and orphaned
+non-CLEANUP `RUNNING` rows are terminalized as `WORKER_LOST` — never
+silently completed. An expired `RUNNING@CLEANUP` row is recoverable only
+when the complete remote evidence is already durable.
 
 Indexes (BR1): active-run lookup (`status` partial where non-terminal),
 history keyset (`created_at DESC`), retention queries
 (`retention_class`, `created_at`).
+
+### 1.5 `backup_worker_state` (BR5 singleton)
+
+Migration `033_backup_worker_runtime` adds one installation-scoped row with
+only operational liveness and scheduler evidence:
+
+| Field | Meaning |
+|-------|---------|
+| `worker_heartbeat_at` | last worker loop/active-lease heartbeat |
+| `scheduler_last_tick_at` | last scheduler evaluation tick |
+| `last_scheduled_slot_key` | consumed `timezone|local-date|HH:MM` key |
+| `last_scheduled_local_date` / `last_scheduled_for` | durable slot calendar/instant |
+| `last_scheduled_run_id` | run created by that slot |
+
+No credentials, filesystem paths, customer data, or process identifiers are
+stored. Slot creation and slot-state advancement commit in one transaction;
+an active backup/restore leaves the current-day slot eligible for a later
+tick.
 
 ### 1.2 `backup_policy` (singleton row)
 
@@ -142,7 +164,7 @@ layer, sensitive payload redaction via logger redact paths.
 | `GET /api/admin/backups?limit&cursor` | backup history | keyset pagination (default limit, bounded max), ordered `created_at DESC` |
 | `GET /api/admin/backups/:backupId` | single run detail | 404 `BACKUP_NOT_FOUND` |
 | `POST /api/admin/backups` | manual backup request | body: `{ scope?, retentionClass? }`; **202** with run resource; idempotency via `clientActionId` (AGENTS.md §7); 409 conflict if an active run or restore exists |
-| `POST /api/admin/backups/:backupId/reverify` | re-run remote verification — **internal primitive delivered in BR4; HTTP endpoint deliberately deferred to BR5** (no truthful durable async execution exists yet) | 202 when delivered; idempotent per run state |
+| `POST /api/admin/backups/:backupId/reverify` | re-run remote verification — **internal primitive delivered in BR4; HTTP endpoint remains deferred** because BR5 does not introduce a parallel queue solely for reverify | no misleading 202 without a durable reverify job |
 | `GET /api/admin/backup-policy` | read schedule/retention policy | |
 | `PUT /api/admin/backup-policy` | update policy | validated; audited |
 | `GET /api/admin/backup-storage` | storage configuration state | safe fields only (§1.3) |
@@ -272,7 +294,7 @@ list authoritative and extend it only additively.
 | `R2_DOWNLOAD_FAILED` | restore | transient | bounded exponential backoff, then fail |
 | `R2_OBJECT_TOO_LARGE` | UPLOAD | deterministic / capability | fail closed before remote write; BR4 does not use race-prone multipart finalization |
 | `R2_OBJECT_CONFLICT` | UPLOAD | integrity | fail closed; never overwrite, delete, or retry automatically |
-| `R2_VERIFY_FAILED` | REMOTE_VERIFY | transient | same-phase bounded retry by future BR5 |
+| `R2_VERIFY_FAILED` | REMOTE_VERIFY | transient | same-phase bounded retry by BR5 (three attempts total) |
 | `REMOTE_CHECKSUM_MISMATCH` | REMOTE_VERIFY | integrity | **fail closed** — no retry; object is not a restore point |
 | `WORKER_LOST` | crash recovery | infrastructure | orphaned RUNNING run terminalized as FAILED |
 | `RESTORE_MANIFEST_INVALID` | restore | integrity | fail closed |
@@ -314,9 +336,10 @@ move into `failure_code`.
 Not every failure is retried blindly:
 
 - Transient R2/network → bounded exponential backoff (same phase).
-- Retryable UPLOAD and REMOTE_VERIFY failures retain the exact BR3 handoff;
-  BR4 exposes `retryUploadRemoteBackup()` and `verifyRemoteBackup()` for
-  future BR5 same-phase re-entry without moving backward.
+- Retryable preflight, UPLOAD, and REMOTE_VERIFY failures retain the exact
+  phase/handoff; BR5 invokes the bounded same-phase retry entry points
+  (`retryUploadRemoteBackup()` / `verifyRemoteBackup()`) without moving
+  backward.
 - Deterministic dump/manifest/package/encryption failures → fail the
   run; retrying cannot change the outcome.
 - Checksum mismatches → fail closed, never retried automatically.
@@ -340,32 +363,34 @@ runs with `verified_at`), not from mere upload existence.
 | `CRITICAL` | no verified backup beyond threshold; scheduled backup failed; remote verification failed; worker/scheduler not functioning |
 
 Integration with existing monitoring: the operator alerting monitor
-(`ops/scripts/operator-alerting.mjs`) currently derives backup
-freshness from local dump files + sha256 sidecars. BR5 **reconciles**
-it with the `backup_runs` source of truth (e.g. an ops-visible health
-endpoint reporting last verified backup) rather than creating a second,
-unrelated monitoring model. BR0 changes no monitoring code; until BR5
-the existing checks stay authoritative.
+(`ops/scripts/operator-alerting.mjs`) remains the **single** monitor.
+Its default `SERVORA_ALERT_BACKUP_SOURCE=legacy` mode derives freshness
+from local dump files + sha256 sidecars. The explicit
+`SERVORA_ALERT_BACKUP_SOURCE=verified-runs` mode reads the safe aggregate
+`backup` evidence surfaced by `/api/health` and reuses the same freshness,
+failure threshold, cooldown, and webhook state machine. In that mode
+`latestScheduledVerifiedAt` is the freshness source; a manual verified run
+does not satisfy scheduled freshness. No second monitor or parallel alert
+state is introduced.
 
 ## 8. Audit contract
 
-Future audit events (SCREAMING_SNAKE, appended to `audit_events`
-following its conventions — CHECK-constrained enums extended by the BR1
-migration):
+BR5 migration `033_backup_worker_runtime` adds the worker lifecycle events
+below (SCREAMING_SNAKE, CHECK-constrained) and permits only these backup
+lifecycle rows to use the explicit system actor (`organization_id = NULL`,
+`actor_user_id = NULL`):
 
 ```text
 BACKUP_REQUESTED          BACKUP_POLICY_UPDATED
-BACKUP_STARTED            BACKUP_STORAGE_TESTED
-BACKUP_COMPLETED
-BACKUP_VERIFIED
-BACKUP_FAILED
-BACKUP_REVERIFY_REQUESTED
+BACKUP_STARTED            BACKUP_COMPLETED
+BACKUP_VERIFIED           BACKUP_FAILED
 ```
 
-BR1's current CHECK vocabulary contains only `BACKUP_REQUESTED` and
-`BACKUP_POLICY_UPDATED`. BR4 does not silently widen that audit contract;
-`BACKUP_STORAGE_TESTED` remains a future additive audit migration even
-though the safe connection-test state itself is now persisted.
+`BACKUP_REQUESTED` and `BACKUP_POLICY_UPDATED` remain unchanged. The
+worker appends `BACKUP_STARTED`, `BACKUP_VERIFIED`, `BACKUP_COMPLETED`, and
+`BACKUP_FAILED` idempotently. Storage-test and reverify audit events remain
+outside this slice because no new durable system operation was introduced
+for either path.
 
 Safe metadata: backup id, scope, origin, retention class, failure code,
 actor user id, timestamps. Restore lifecycle evidence (`RESTORE_*`) is

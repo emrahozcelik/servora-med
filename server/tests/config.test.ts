@@ -29,6 +29,28 @@ const validWebPushEnvironment = {
 };
 
 describe('loadConfig', () => {
+  it('keeps the separate BR5 worker disabled unless explicitly configured', () => {
+    expect(loadConfig(validEnvironment).backupWorker).toBeUndefined();
+    expect(loadConfig({
+      ...validEnvironment,
+      BACKUP_WORKER_ENABLED: 'false',
+      BACKUP_WORKER_LEASE_MS: '60000',
+      BACKUP_WORKER_HEARTBEAT_INTERVAL_MS: '15000',
+      BACKUP_WORKER_POLL_INTERVAL_MS: '5000',
+    }).backupWorker).toEqual({
+      enabled: false,
+      leaseMs: 60000,
+      heartbeatIntervalMs: 15000,
+      pollIntervalMs: 5000,
+    });
+    expect(() => loadConfig({
+      ...validEnvironment,
+      BACKUP_WORKER_ENABLED: 'true',
+      BACKUP_WORKER_LEASE_MS: '1000',
+      BACKUP_WORKER_HEARTBEAT_INTERVAL_MS: '1000',
+    })).toThrow('BACKUP_WORKER_HEARTBEAT_INTERVAL_MS must be less than BACKUP_WORKER_LEASE_MS');
+  });
+
   it('keeps every Phase U capability disabled by default', () => {
     expect(loadConfig(validEnvironment).capabilities).toEqual({
       overviewDashboard: false,

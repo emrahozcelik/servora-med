@@ -10,6 +10,7 @@ import {
 import {
   CloudflareR2Storage,
   R2_MAX_SINGLE_PUT_BYTES,
+  R2_SDK_MAX_ATTEMPTS,
   R2StorageError,
   type R2SendableClient,
 } from '../src/modules/backup/r2.js';
@@ -113,6 +114,16 @@ describe('BR4 R2 adapter safety boundary', () => {
     expect(() => buildR2Endpoint('attacker.example')).toThrow(/account id/);
     expect(validateR2BucketName('servora-backups-01')).toBe(true);
     expect(validateR2BucketName('servora.backups')).toBe(false);
+  });
+
+  it('pins SDK retries to one attempt so BR5 owns the phase retry budget', async () => {
+    const storage = new CloudflareR2Storage({ config: TEST_R2_CONFIG });
+    const internal = storage as unknown as {
+      client: { config: { maxAttempts: () => Promise<number> } };
+    };
+    await expect(internal.client.config.maxAttempts()).resolves.toBe(R2_SDK_MAX_ATTEMPTS);
+    expect(R2_SDK_MAX_ATTEMPTS).toBe(1);
+    storage.destroy();
   });
 
   it('passes AbortSignal through the SDK send options without mutating command input', async () => {

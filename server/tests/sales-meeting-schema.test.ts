@@ -147,8 +147,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(32);
-      expect(firstRun.appliedVersions.at(-1)).toBe('032_backup_r2_failure_taxonomy');
+      expect(firstRun.appliedVersions).toHaveLength(33);
+      expect(firstRun.appliedVersions.at(-1)).toBe('033_backup_worker_runtime');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -206,6 +206,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '030_backup_domain_foundation',
           '031_backup_engine_failure_taxonomy_and_dump_version',
           '032_backup_r2_failure_taxonomy',
+          '033_backup_worker_runtime',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();
