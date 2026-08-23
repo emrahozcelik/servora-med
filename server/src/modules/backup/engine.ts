@@ -203,13 +203,14 @@ export class LocalBackupEngine {
 
       const existing = await stat(workspacePathsFor(tempRoot, runId).workspacePath).catch(() => null);
       if (existing) {
-        // Fail-closed workspace preflight (BR0 table: "temp directory
-        // writable → PREFLIGHT_LOW_DISK") until BR5 owns stale-workspace
-        // recovery. Deliberately NOT PREFLIGHT_STORAGE_UNAVAILABLE — that
-        // code belongs to remote storage (BR4).
+        // Fail-closed workspace conflict: NOT a disk problem (LOW_DISK) and
+        // NOT remote storage (STORAGE_UNAVAILABLE). The collision may mean
+        // an active run's workspace, a crashed run awaiting BR5 lease
+        // recovery, or a failed prior cleanup. BR2 never deletes anything
+        // here — reclamation ownership belongs to BR5.
         throw new EngineFailure(
-          'PREFLIGHT_LOW_DISK',
-          'Geçici yedek dizini bu çalışma için kullanılamıyor (mevcut çalışma dizini var).',
+          'PREFLIGHT_WORKSPACE_CONFLICT',
+          'Bu çalışma için bir çalışma dizini zaten mevcut; kurtarma BR5 sorumluluğundadır.',
         );
       }
 

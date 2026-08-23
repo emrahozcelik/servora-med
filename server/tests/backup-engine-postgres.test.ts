@@ -461,7 +461,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
   });
 
   it('extended failure vocabulary is accepted by the database (migration 031)', async () => {
-    for (const code of ['CHECKSUM_FAILED', 'PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE'] as const) {
+    for (const code of ['CHECKSUM_FAILED', 'PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE', 'PREFLIGHT_WORKSPACE_CONFLICT'] as const) {
       const runId = randomUUID();
       await sourcePool!.query(
         `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at, started_at, completed_at, failure_code)
@@ -470,6 +470,52 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
       );
       const run = await repository!.findRunById(runId);
       expect(run?.failureCode).toBe(code);
+    }
+  });
+
+  it('R3: existing workspace fails closed as PREFLIGHT_WORKSPACE_CONFLICT without deletion or pg_dump', async () => {
+    const runId = await createRun('DATABASE');
+    const { createWorkspace, inspectWorkspace } = await import('../src/modules/backup/workspace.js');
+    const paths = await createWorkspace(tempRoot, runId);
+    const dumpExistsBefore = await import('node:fs/promises').then((fs) =>
+      fs.stat(path.join(paths.payloadPath, 'database.dump')).then(() => true, () => false));
+
+    const result = await buildEngine().buildLocalBackup(runId);
+    expect(result).toMatchObject({ outcome: 'failed', failureCode: 'PREFLIGHT_WORKSPACE_CONFLICT' });
+
+    const run = await repository!.findRunById(runId);
+    expect(run).toMatchObject({ status: 'FAILED', failureCode: 'PREFLIGHT_WORKSPACE_CONFLICT' });
+
+    // Fail closed: the pre-existing workspace is NOT silently deleted and no
+    // dump was produced inside it (pg_dump never executed).
+    const inspection = await inspectWorkspace(tempRoot, runId);
+    expect(inspection.exists).toBe(true);
+    expect(inspection.payloadMembers).toEqual([]);
+    const dumpExistsAfter = await import('node:fs/promises').then((fs) =>
+      fs.stat(path.join(paths.payloadPath, 'database.dump')).then(() => true, () => false));
+    expect(dumpExistsAfter).toBe(dumpExistsBefore);
+    expect(dumpExistsAfter).toBe(false);
+
+    await import('node:fs/promises').then((fs) =>
+      fs.rm(paths.workspacePath, { recursive: true, force: true }));
+  });
+
+  it('R3: ordinary temp-root create/write failure stays PREFLIGHT_LOW_DISK', async () => {
+    const blockedRoot = path.join(engineRoot, 'blocked-root', 'nested');
+    await mkdir(path.dirname(blockedRoot), { recursive: true, mode: 0o700 });
+    await chmod(path.dirname(blockedRoot), 0o500);
+    try {
+      const runId = await createRun('DATABASE');
+      const engine = new LocalBackupEngine({
+        repository: repository!, service: service!, pool: sourcePool!,
+        databaseUrl: sourceUrl, tempRoot: blockedRoot, filesRoot: null,
+        now: () => new Date(clock += 1_000),
+        application: { applicationVersion: 't', gitCommit: null },
+      });
+      const result = await engine.buildLocalBackup(runId);
+      expect(result).toMatchObject({ outcome: 'failed', failureCode: 'PREFLIGHT_LOW_DISK' });
+    } finally {
+      await chmod(path.dirname(blockedRoot), 0o700);
     }
   });
 
