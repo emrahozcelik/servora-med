@@ -85,6 +85,19 @@ function isSingleActiveViolation(error: unknown): boolean {
     && (error as { constraint?: string }).constraint === SINGLE_ACTIVE_CONSTRAINT;
 }
 
+export type BackupStorageProbeResult =
+  | { ok: true }
+  | { ok: false; errorClass: 'CONFIG' | 'AUTH' | 'TRANSPORT' | 'SERVICE' | 'UNKNOWN' };
+
+/** Lazy storage probe built by the app wiring (real R2 adapter when fully
+ * configured, CONFIG-class otherwise). The service never sees credentials. */
+export type BackupStorageProbe = () => Promise<BackupStorageProbeResult>;
+
+export type BackupStorageRuntimeState = Pick<
+  BackupStorageState,
+  'bucketAlias' | 'prefix' | 'enabled'
+>;
+
 export type ManualBackupRequestInput = {
   clientActionId: unknown;
   scope?: unknown;
@@ -104,6 +117,7 @@ export class BackupService implements BackupServiceTransitionPrimitives {
   constructor(
     private readonly repository: BackupRepository,
     private readonly now: () => Date = () => new Date(),
+    private readonly storageRuntimeState: BackupStorageRuntimeState | null = null,
   ) {}
 
   async requestManualBackup(actor: SafeUser, input: ManualBackupRequestInput) {
@@ -209,7 +223,37 @@ export class BackupService implements BackupServiceTransitionPrimitives {
     requireAdmin(actor);
     const state = await this.repository.getStorageState();
     if (!state) throw storageUnavailable();
-    return state;
+    return this.storageRuntimeState ? { ...state, ...this.storageRuntimeState } : state;
+  }
+
+  /**
+   * BR4 storage connection test: short synchronous connectivity + capability
+   * probe (list + create/abort multipart on a reserved key), ADMIN only.
+   * Persists only the safe timestamp/outcome on the backup_storage singleton.
+   * Never echoes credentials or raw SDK errors.
+   */
+  async testStorageConnection(actor: SafeUser, probe: BackupStorageProbe): Promise<{
+    ok: boolean;
+    testedAt: string;
+    failureClass: 'CONFIG' | 'AUTH' | 'TRANSPORT' | 'SERVICE' | 'UNKNOWN' | undefined;
+  }> {
+    requireAdmin(actor);
+    const testedAt = this.now();
+    let result: BackupStorageProbeResult;
+    try {
+      result = await probe();
+    } catch {
+      // A probe implementation must normally classify its own failures, but
+      // unexpected adapter/wiring errors still persist a truthful failed test
+      // without exposing raw diagnostics through the HTTP response.
+      result = { ok: false, errorClass: 'UNKNOWN' };
+    }
+    await this.repository.recordStorageConnectionTest(result.ok, testedAt);
+    return {
+      ok: result.ok,
+      testedAt: testedAt.toISOString(),
+      failureClass: result.ok ? undefined : result.errorClass,
+    };
   }
 
   private async defaultScope(): Promise<BackupScope> {

@@ -227,6 +227,7 @@ export interface BackupRepository {
   findActiveBackupRun(): Promise<BackupRun | null>;
   getPolicy(): Promise<BackupPolicy | null>;
   getStorageState(): Promise<BackupStorageState | null>;
+  recordStorageConnectionTest(ok: boolean, testedAt: Date): Promise<void>;
   startRun(id: string, startedAt: Date): Promise<BackupRun | null>;
   advancePhase(id: string, fromPhase: NonNullable<BackupRun['phase']>, toPhase: NonNullable<BackupRun['phase']>): Promise<BackupRun | null>;
   markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string, completedAt: Date): Promise<BackupRun | null>;
@@ -402,6 +403,19 @@ export class PostgresBackupRepository implements BackupRepository {
       `SELECT ${POLICY_COLUMNS} FROM backup_policy LIMIT 1`,
     );
     return result.rows[0] ? mapPolicy(result.rows[0]) : null;
+  }
+
+  async recordStorageConnectionTest(ok: boolean, testedAt: Date): Promise<void> {
+    const result = await this.pool.query(
+      `UPDATE backup_storage
+          SET last_connection_test_at = $1, last_connection_test_ok = $2
+        WHERE singleton
+        RETURNING id`,
+      [testedAt, ok],
+    );
+    if (result.rowCount !== 1) {
+      throw new Error('backup storage singleton is unavailable');
+    }
   }
 
   async getStorageState() {

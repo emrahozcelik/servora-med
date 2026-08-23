@@ -1,7 +1,7 @@
 # Backup platform contracts — Servora-Med
 
 ```text
-Date: 2026-08-22
+Date: 2026-08-23
 Slice: BR0 — architecture and contracts only
 Status: DOCUMENTATION_ONLY / IMPLEMENTATION_NOT_AUTHORIZED
 Parent: architecture.md (decision register §2)
@@ -37,10 +37,10 @@ files.
 | `schema_version` | TEXT | latest applied migration id |
 | `database_server_version` | TEXT | |
 | `dump_version` | INT | |
-| `remote_key` | TEXT NULL | full object key, set at upload |
+| `remote_key` | TEXT NULL | full object key, set only after streamed remote verification succeeds |
 | `size_bytes` | BIGINT NULL CHECK (>= 0) | encrypted object size |
 | `sha256` | TEXT NULL CHECK (64 hex) | **verified** encrypted-object checksum |
-| `verified_at` | TIMESTAMPTZ NULL | set only by REMOTE_VERIFY success or reverify |
+| `verified_at` | TIMESTAMPTZ NULL | set only when CLEANUP completion terminalizes an already remote-verified run as SUCCESS |
 | `warning_code` | TEXT NULL | non-fatal operational warning (e.g. `CLEANUP_FAILED`); see invariants below |
 | `warning_summary` | TEXT NULL | admin-safe warning summary (§6.2) |
 | `failure_code` | TEXT NULL | stable code from §6 taxonomy — **only ever set on `FAILED` runs** |
@@ -92,6 +92,13 @@ describes **configuration state** for display and connection testing.
 | `last_connection_test_at` | TIMESTAMPTZ NULL | |
 | `last_connection_test_ok` | BOOLEAN NULL | |
 
+BR4 keeps credentials in env and returns configuration truth as a safe
+runtime overlay: `enabled` means all required R2 fields are present,
+`bucket_alias` is the optional safe display alias, and `prefix` is the
+fixed canonical `production/`. The DB singleton remains the source of
+truth for `last_connection_test_*`; secrets are never synchronized into
+the row.
+
 ### 1.4 `restore_runs`
 
 | Column | Type | Notes |
@@ -135,11 +142,11 @@ layer, sensitive payload redaction via logger redact paths.
 | `GET /api/admin/backups?limit&cursor` | backup history | keyset pagination (default limit, bounded max), ordered `created_at DESC` |
 | `GET /api/admin/backups/:backupId` | single run detail | 404 `BACKUP_NOT_FOUND` |
 | `POST /api/admin/backups` | manual backup request | body: `{ scope?, retentionClass? }`; **202** with run resource; idempotency via `clientActionId` (AGENTS.md §7); 409 conflict if an active run or restore exists |
-| `POST /api/admin/backups/:backupId/reverify` | re-run remote verification | 202; idempotent per run state |
+| `POST /api/admin/backups/:backupId/reverify` | re-run remote verification — **internal primitive delivered in BR4; HTTP endpoint deliberately deferred to BR5** (no truthful durable async execution exists yet) | 202 when delivered; idempotent per run state |
 | `GET /api/admin/backup-policy` | read schedule/retention policy | |
 | `PUT /api/admin/backup-policy` | update policy | validated; audited |
 | `GET /api/admin/backup-storage` | storage configuration state | safe fields only (§1.3) |
-| `POST /api/admin/backup-storage/test` | storage connection test | updates `last_connection_test_*`; never echoes credentials |
+| `POST /api/admin/backup-storage/test` | storage connection test — **implemented in BR4** (ADMIN only; safe probe: list + create/abort multipart on a reserved key; updates `last_connection_test_*`; never echoes credentials) | synchronous short probe is intentional; never a backup/reverify stream |
 
 Rules:
 
@@ -263,6 +270,9 @@ list authoritative and extend it only additively.
 | `R2_AUTH_FAILED` | UPLOAD / REMOTE_VERIFY | auth | fail; operator must correct credentials |
 | `R2_UPLOAD_FAILED` | UPLOAD | transient | bounded exponential backoff, then fail run |
 | `R2_DOWNLOAD_FAILED` | restore | transient | bounded exponential backoff, then fail |
+| `R2_OBJECT_TOO_LARGE` | UPLOAD | deterministic / capability | fail closed before remote write; BR4 does not use race-prone multipart finalization |
+| `R2_OBJECT_CONFLICT` | UPLOAD | integrity | fail closed; never overwrite, delete, or retry automatically |
+| `R2_VERIFY_FAILED` | REMOTE_VERIFY | transient | same-phase bounded retry by future BR5 |
 | `REMOTE_CHECKSUM_MISMATCH` | REMOTE_VERIFY | integrity | **fail closed** — no retry; object is not a restore point |
 | `WORKER_LOST` | crash recovery | infrastructure | orphaned RUNNING run terminalized as FAILED |
 | `RESTORE_MANIFEST_INVALID` | restore | integrity | fail closed |
@@ -292,9 +302,10 @@ move into `failure_code`.
 - **Admin/user-safe summary** (`failure_summary`, UI, Turkish): one
   sentence, no internals — e.g. "Uzaktan doğrulama başarısız oldu;
   yedek doğrulanmış olarak işaretlenmedi."
-- **Internal diagnostics** (server logs only): SDK errors, endpoints,
-  object keys. Never returned by the API and never written to audit
-  events.
+- **Internal diagnostics**: bounded stable SDK error names/status classes
+  only. Raw SDK messages, endpoints, canonical requests, signed headers,
+  and credentials are discarded at the adapter boundary; diagnostics are
+  never returned by the API or written to audit events.
 - Secrets, raw credentials, and secret-bearing subprocess command lines
   never enter user-visible fields, logs, or audit records.
 
@@ -303,10 +314,15 @@ move into `failure_code`.
 Not every failure is retried blindly:
 
 - Transient R2/network → bounded exponential backoff (same phase).
+- Retryable UPLOAD and REMOTE_VERIFY failures retain the exact BR3 handoff;
+  BR4 exposes `retryUploadRemoteBackup()` and `verifyRemoteBackup()` for
+  future BR5 same-phase re-entry without moving backward.
 - Deterministic dump/manifest/package/encryption failures → fail the
   run; retrying cannot change the outcome.
 - Checksum mismatches → fail closed, never retried automatically.
 - Authentication failures → fail; requires operator correction.
+- Ciphertext above the atomic R2 single-PUT ceiling → fail terminally with
+  `R2_OBJECT_TOO_LARGE`; no automatic retry or multipart fallback.
 - Cleanup failure after successful remote verification → represented
   explicitly as `warning_code = CLEANUP_FAILED` on the `SUCCESS` run
   (`failure_code` stays null); the evidence that a **verified remote
@@ -345,6 +361,11 @@ BACKUP_VERIFIED
 BACKUP_FAILED
 BACKUP_REVERIFY_REQUESTED
 ```
+
+BR1's current CHECK vocabulary contains only `BACKUP_REQUESTED` and
+`BACKUP_POLICY_UPDATED`. BR4 does not silently widen that audit contract;
+`BACKUP_STORAGE_TESTED` remains a future additive audit migration even
+though the safe connection-test state itself is now persisted.
 
 Safe metadata: backup id, scope, origin, retention class, failure code,
 actor user id, timestamps. Restore lifecycle evidence (`RESTORE_*`) is

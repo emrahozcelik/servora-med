@@ -69,6 +69,20 @@ describe('buildApp serialized logger redaction', () => {
           vapidPrivateKey: body.vapidPrivateKey,
         },
       }, 'push-probe');
+      request.log.info({
+        backupR2: {
+          accessKeyId: body.r2AccessKeyId,
+          secretAccessKey: body.r2SecretAccessKey,
+        },
+      }, 'r2-probe');
+      request.log.info({
+        config: {
+          backupR2: {
+            accessKeyId: body.r2NestedAccessKeyId,
+            secretAccessKey: body.r2NestedSecretAccessKey,
+          },
+        },
+      }, 'nested-r2-probe');
       return { ok: true };
     });
 
@@ -103,6 +117,10 @@ describe('buildApp serialized logger redaction', () => {
         vapidSubject: 'mailto:private@example.com',
         vapidPublicKey: 'raw-vapid-public-key',
         vapidPrivateKey: 'raw-vapid-private-key',
+        r2AccessKeyId: 'raw-r2-access-key-id',
+        r2SecretAccessKey: 'raw-r2-secret-access-key',
+        r2NestedAccessKeyId: 'nested-r2-access-key-id',
+        r2NestedSecretAccessKey: 'nested-r2-secret-access-key',
       },
     });
 
@@ -129,6 +147,10 @@ describe('buildApp serialized logger redaction', () => {
       'private@example.com',
       'raw-vapid-public-key',
       'raw-vapid-private-key',
+      'raw-r2-access-key-id',
+      'raw-r2-secret-access-key',
+      'nested-r2-access-key-id',
+      'nested-r2-secret-access-key',
     ]) {
       expect(joined).not.toContain(secret);
     }

@@ -154,6 +154,10 @@ class MemoryBackupRepository implements BackupRepository {
     return this.storage;
   }
 
+  async recordStorageConnectionTest(ok: boolean, testedAt: Date) {
+    this.storage = { ...this.storage, lastConnectionTestAt: testedAt, lastConnectionTestOk: ok };
+  }
+
   async startRun(id: string, startedAt: Date) {
     const run = this.runs.find((candidate) => candidate.id === id && candidate.status === 'QUEUED');
     if (!run) return null;
@@ -241,7 +245,11 @@ class MemoryBackupRepository implements BackupRepository {
 
 const apps: Array<ReturnType<typeof Fastify>> = [];
 
-function createApp(user: SafeUser | null) {
+function createApp(
+  user: SafeUser | null,
+  storageProbe?: () => Promise<{ ok: true } | { ok: false; errorClass: 'CONFIG' | 'AUTH' | 'TRANSPORT' | 'SERVICE' | 'UNKNOWN' }>,
+  storageRuntimeState?: { enabled: boolean; bucketAlias: string | null; prefix: string },
+) {
   const app = Fastify({ logger: false });
   app.setErrorHandler((error, _request, reply) => {
     const response = toErrorResponse(error);
@@ -252,8 +260,8 @@ function createApp(user: SafeUser | null) {
     request.currentUser = user;
   };
   const repository = new MemoryBackupRepository();
-  const service = new BackupService(repository);
-  void app.register(backupRoutes, { prefix: '/api/admin', service, authenticate });
+  const service = new BackupService(repository, undefined, storageRuntimeState ?? null);
+  void app.register(backupRoutes, { prefix: '/api/admin', service, authenticate, ...(storageProbe ? { storageProbe } : {}) });
   apps.push(app);
   return { app, repository };
 }
@@ -425,6 +433,24 @@ describe('backup admin routes', () => {
     });
   });
 
+  it('ADMIN: storage state overlays only safe runtime configuration truth', async () => {
+    const { app } = createApp(admin, undefined, {
+      enabled: true,
+      bucketAlias: 'Primary Backup Bucket',
+      prefix: 'production/',
+    });
+    const response = await app.inject({ method: 'GET', url: '/api/admin/backup-storage' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toEqual({
+      provider: 'CLOUDFLARE_R2',
+      bucketAlias: 'Primary Backup Bucket',
+      prefix: 'production/',
+      enabled: true,
+      lastConnectionTestAt: null,
+      lastConnectionTestOk: null,
+    });
+  });
+
   it('conflicts surface as canonical 409 responses', async () => {
     const { app } = createApp(admin);
     await app.inject({ method: 'POST', url: '/api/admin/backups', payload: { clientActionId: 'active-1' } });
@@ -450,3 +476,71 @@ function policyPayload(overrides: Record<string, unknown> = {}) {
     ...overrides,
   };
 }
+
+
+describe('BR4 storage connection test route', () => {
+  const admin = userWith('ADMIN');
+  const manager = userWith('MANAGER');
+  const staff = userWith('STAFF');
+
+  it('ADMIN: successful probe persists safe state and returns no credentials', async () => {
+    const { app, repository } = createApp(admin, async () => ({ ok: true }));
+    const response = await app.inject({ method: 'POST', url: '/api/admin/backup-storage/test' });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { ok: boolean; testedAt: string; failureClass?: string };
+    expect(body.ok).toBe(true);
+    expect(body.failureClass).toBeUndefined();
+    expect(new Date(body.testedAt).toISOString()).toBe(body.testedAt);
+    expect(JSON.stringify(body)).not.toMatch(/access|secret|key|credential/i);
+    expect(repository.storage.lastConnectionTestOk).toBe(true);
+    expect(repository.storage.lastConnectionTestAt).not.toBeNull();
+  });
+
+  it('ADMIN: failed probe persists ok=false with a safe failure class', async () => {
+    const { app, repository } = createApp(admin, async () => ({ ok: false, errorClass: 'AUTH' }));
+    const response = await app.inject({ method: 'POST', url: '/api/admin/backup-storage/test' });
+    expect(response.statusCode).toBe(200);
+    const body = response.json() as { ok: boolean; failureClass: string };
+    expect(body.ok).toBe(false);
+    expect(body.failureClass).toBe('AUTH');
+    expect(repository.storage.lastConnectionTestOk).toBe(false);
+    expect(repository.storage.lastConnectionTestAt).not.toBeNull();
+  });
+
+  it('ADMIN: unexpected probe errors persist a safe UNKNOWN failure', async () => {
+    const { app, repository } = createApp(admin, async () => {
+      throw new Error('raw SDK details that must not escape');
+    });
+    const response = await app.inject({ method: 'POST', url: '/api/admin/backup-storage/test' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ ok: false, failureClass: 'UNKNOWN' });
+    expect(response.body).not.toContain('raw SDK details');
+    expect(repository.storage.lastConnectionTestOk).toBe(false);
+    expect(repository.storage.lastConnectionTestAt).not.toBeNull();
+  });
+
+  it('MANAGER and STAFF are forbidden', async () => {
+    const managerApp = createApp(manager, async () => ({ ok: true }));
+    const managerResponse = await managerApp.app.inject({ method: 'POST', url: '/api/admin/backup-storage/test' });
+    expect(managerResponse.statusCode).toBe(403);
+
+    const staffApp = createApp(staff, async () => ({ ok: true }));
+    const staffResponse = await staffApp.app.inject({ method: 'POST', url: '/api/admin/backup-storage/test' });
+    expect(staffResponse.statusCode).toBe(403);
+  });
+
+  it('unauthenticated requests are rejected', async () => {
+    const { app } = createApp(null, async () => ({ ok: true }));
+    const response = await app.inject({ method: 'POST', url: '/api/admin/backup-storage/test' });
+    expect(response.statusCode).toBe(401);
+  });
+
+  it('missing probe wiring yields BACKUP_STORAGE_UNAVAILABLE, not a fake success', async () => {
+    const { app } = createApp(admin);
+    const response = await app.inject({ method: 'POST', url: '/api/admin/backup-storage/test' });
+    expect(response.statusCode).toBe(500);
+    expect(response.json()).toMatchObject({
+      error: expect.stringContaining('Yedekleme depolama yapılandırması'),
+    });
+  });
+});

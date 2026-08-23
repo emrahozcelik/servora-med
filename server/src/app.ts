@@ -68,6 +68,14 @@ import { messagingRoutes } from './modules/messaging/routes.js';
 import type { StaffConfidentialNotesRepository } from './modules/staff-confidential-notes/repository.js';
 import { StaffConfidentialNotesService } from './modules/staff-confidential-notes/service.js';
 import { staffConfidentialNotesRoutes } from './modules/staff-confidential-notes/routes.js';
+import { randomUUID } from 'node:crypto';
+
+import { buildConnectionTestKey } from './modules/backup/object-keys.js';
+import {
+  CloudflareR2Storage,
+  R2_CONNECTION_TEST_TIMEOUT_MS,
+  type R2ErrorClass,
+} from './modules/backup/r2.js';
 import type { BackupRepository } from './modules/backup/repository.js';
 import { PostgresBackupRepository } from './modules/backup/repository.js';
 import { BackupService } from './modules/backup/service.js';
@@ -98,6 +106,10 @@ export const LOGGER_REDACT_PATHS = [
   'webPush.vapidPublicKey',
   'webPush.vapidPrivateKey',
   'req.body.body',
+  'backupR2.accessKeyId',
+  'backupR2.secretAccessKey',
+  'config.backupR2.accessKeyId',
+  'config.backupR2.secretAccessKey',
 ];
 
 export type AppDependencies = {
@@ -369,10 +381,49 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
     if (dependencies.pool && config.capabilities?.backup) {
       const backupRepository = dependencies.backupRepository
         ?? new PostgresBackupRepository(dependencies.pool);
+      const r2 = config.backupR2;
+      const r2Configured = Boolean(
+        r2.accountId && r2.accessKeyId && r2.secretAccessKey && r2.bucket && r2.instanceId,
+      );
+      const storageProbe = r2Configured
+        ? async () => {
+            const storage = new CloudflareR2Storage({
+              config: {
+                accountId: r2.accountId!,
+                accessKeyId: r2.accessKeyId!,
+                secretAccessKey: r2.secretAccessKey!,
+                bucket: r2.bucket!,
+              },
+              signal: AbortSignal.timeout(R2_CONNECTION_TEST_TIMEOUT_MS),
+            });
+            try {
+              const result = await storage.testConnection(
+                buildConnectionTestKey(r2.instanceId!, randomUUID()),
+              );
+              if (result.ok) return { ok: true } as const;
+              switch (result.errorClass as R2ErrorClass) {
+                case 'AUTH': return { ok: false, errorClass: 'AUTH' } as const;
+                case 'NOT_FOUND':
+                case 'PRECONDITION_FAILED': return { ok: false, errorClass: 'CONFIG' } as const;
+                case 'OBJECT_TOO_LARGE': return { ok: false, errorClass: 'CONFIG' } as const;
+                case 'TRANSPORT': return { ok: false, errorClass: 'TRANSPORT' } as const;
+                case 'SERVICE': return { ok: false, errorClass: 'SERVICE' } as const;
+                default: return { ok: false, errorClass: 'UNKNOWN' } as const;
+              }
+            } finally {
+              storage.destroy();
+            }
+          }
+        : async () => ({ ok: false, errorClass: 'CONFIG' as const });
       await app.register(backupRoutes, {
         prefix: '/api/admin',
-        service: new BackupService(backupRepository),
+        service: new BackupService(backupRepository, undefined, {
+          enabled: r2Configured,
+          bucketAlias: r2.bucketAlias,
+          prefix: 'production/',
+        }),
         authenticate: authenticateDomain,
+        storageProbe,
       });
     }
   }
