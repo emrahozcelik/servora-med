@@ -4,6 +4,12 @@ import type {
   AuthenticatedCapabilities,
   AuthenticatedSupport,
 } from './modules/capabilities/types.js';
+import { validateBackupInstanceId } from './modules/backup/object-keys.js';
+import {
+  validateR2AccountId,
+  validateR2BucketName,
+  validateR2Credential,
+} from './modules/backup/r2-config.js';
 
 export type NodeEnvironment = 'development' | 'test' | 'production';
 
@@ -25,6 +31,15 @@ export type BackupLocalEngineConfig = {
 
 export type BackupEncryptionConfig = {
   recipient: string | null;
+};
+
+export type BackupR2Config = {
+  accountId: string | null;
+  accessKeyId: string | null;
+  secretAccessKey: string | null;
+  bucket: string | null;
+  bucketAlias: string | null;
+  instanceId: string | null;
 };
 
 export type AppConfig = {
@@ -52,6 +67,7 @@ export type AppConfig = {
   webPush: WebPushConfig;
   backupLocalEngine: BackupLocalEngineConfig;
   backupEncryption: BackupEncryptionConfig;
+  backupR2: BackupR2Config;
 };
 
 const NODE_ENVIRONMENTS = new Set<NodeEnvironment>(['development', 'test', 'production']);
@@ -465,8 +481,8 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       calendar: readBoolean(env.CALENDAR_ENABLED, 'CALENDAR_ENABLED'),
       messaging: readBoolean(env.MESSAGING_ENABLED, 'MESSAGING_ENABLED'),
       // Backup & Recovery domain capability (BR1 foundation). BR2–BR4 execution
-      // configuration (age/R2 secrets) is NOT validated here: the app must keep
-      // starting while this flag is off and those secrets are absent.
+      // configuration is optional; present values are validated, but the app
+      // must keep starting while this flag is off and those values are absent.
       backup: readBoolean(env.BACKUP_ENABLED, 'BACKUP_ENABLED'),
     },
     calendarReminderLeadMinutes: readIntegerInRange(
@@ -493,6 +509,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     backupEncryption: {
       recipient: readOptionalRecipient(env.BACKUP_ENCRYPTION_RECIPIENT, 'BACKUP_ENCRYPTION_RECIPIENT'),
     },
+    // BR4 remote storage config. All fields optional: "not configured" is a
+    // valid state (lazy validation at connection test / remote stage time),
+    // so a disabled deployment starts without any R2 credentials. Values
+    // present-but-invalid fail fast with a precise message. The secret never
+    // appears in any DTO, audit row, or log field.
+    backupR2: {
+      accountId: readOptionalValidated(env.BACKUP_R2_ACCOUNT_ID, 'BACKUP_R2_ACCOUNT_ID', validateR2AccountId),
+      accessKeyId: readOptionalCredential(env.BACKUP_R2_ACCESS_KEY_ID, 'BACKUP_R2_ACCESS_KEY_ID'),
+      secretAccessKey: readOptionalCredential(env.BACKUP_R2_SECRET_ACCESS_KEY, 'BACKUP_R2_SECRET_ACCESS_KEY'),
+      bucket: readOptionalValidated(env.BACKUP_R2_BUCKET, 'BACKUP_R2_BUCKET', validateR2BucketName),
+      bucketAlias: readOptionalSafeLabel(env.BACKUP_R2_BUCKET_ALIAS, 'BACKUP_R2_BUCKET_ALIAS', 200),
+      instanceId: readOptionalInstanceId(env.BACKUP_INSTANCE_ID, 'BACKUP_INSTANCE_ID'),
+    },
   };
 }
 
@@ -503,6 +532,52 @@ function readOptionalPath(value: string | undefined, name: string): string | nul
     throw new Error(`${name} must be a single filesystem path`);
   }
   return trimmed;
+}
+
+function readOptionalValidated(
+  value: string | undefined,
+  name: string,
+  validate: (candidate: string) => boolean,
+): string | null {
+  const raw = value ?? '';
+  if (raw.length === 0) return null;
+  if (raw !== raw.trim() || !validate(raw)) throw new Error(`${name} is not a valid value`);
+  return raw;
+}
+
+/** Credential-shaped env value: non-empty single line, no whitespace or
+ * control characters, bounded. Never echoed anywhere. */
+function readOptionalCredential(value: string | undefined, name: string): string | null {
+  const raw = value ?? '';
+  if (raw.length === 0) return null;
+  if (raw !== raw.trim() || !validateR2Credential(raw)) {
+    throw new Error(`${name} must be a single-line credential value`);
+  }
+  return raw;
+}
+
+function readOptionalSafeLabel(
+  value: string | undefined,
+  name: string,
+  maxLength: number,
+): string | null {
+  const trimmed = value?.trim() ?? '';
+  if (trimmed.length === 0) return null;
+  if (trimmed.length > maxLength || /[\u0000-\u001f\u007f]/.test(trimmed)) {
+    throw new Error(`${name} must be a safe display label of at most ${maxLength} characters`);
+  }
+  return trimmed;
+}
+
+/** Opaque installation identifier (BR0 grammar): visible ASCII slug without
+ * separators' dangerous forms; no silent normalization. */
+function readOptionalInstanceId(value: string | undefined, name: string): string | null {
+  const raw = value ?? '';
+  if (raw.length === 0) return null;
+  if (raw !== raw.trim() || !validateBackupInstanceId(raw)) {
+    throw new Error(`${name} must be an opaque identifier (ASCII letters, digits, . _ -; no "..", max 63 chars)`);
+  }
+  return raw;
 }
 
 /** Optional single-line PUBLIC recipient value. Empty = not configured

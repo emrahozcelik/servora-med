@@ -147,7 +147,7 @@ jobs:
           npm ci --omit=dev
           test -d node_modules/fastify
           test -d node_modules/pg
-          node --input-type=module -e "import 'fastify'; import 'pg'; console.log('deps-ok')"
+          node --input-type=module -e "import '@aws-sdk/client-s3'; import 'fastify'; import 'pg'; console.log('deps-ok')"
           test -f dist/index.js
           test -f dist/db/migrate.js
       - run: npx tsx src/db/migrate.ts

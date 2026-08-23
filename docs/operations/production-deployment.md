@@ -36,7 +36,7 @@ Required production highlights:
 - `HOST=127.0.0.1`
 - `CORS_ORIGIN=https://<FQDN>`
 - `TRUSTED_PROXY=loopback`
-- `HEALTH_SCHEMA_VERSION=026_messaging_participant_lifecycle` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
+- `HEALTH_SCHEMA_VERSION=032_backup_r2_failure_taxonomy` (must equal the exact latest canonical migration identifier included in the deployed release; update every release that adds a migration)
 
 ### HEALTH_SCHEMA_VERSION verification
 
@@ -143,6 +143,46 @@ Only `age` is needed at runtime (the worker encrypts; it never decrypts).
 generation — never install or use the private identity on the VPS
 (`docs/operations/backup-recovery/architecture.md` §10).
 
+## Cloudflare R2 boundary (BR4; worker execution remains BR5)
+
+BR4 adds the private Cloudflare R2 adapter, remote verification engine,
+and ADMIN-only connection test. It does not start a backup worker or
+replace the existing script/timer stack; automated BR2→BR4 execution is
+still a BR5 cutover decision.
+
+Operator-managed application env fields:
+
+```text
+BACKUP_INSTANCE_ID
+BACKUP_R2_ACCOUNT_ID
+BACKUP_R2_ACCESS_KEY_ID
+BACKUP_R2_SECRET_ACCESS_KEY
+BACKUP_R2_BUCKET
+BACKUP_R2_BUCKET_ALIAS        # optional safe display label
+```
+
+- Use a private, operator-created R2 bucket and an `Object Read & Write`
+  token scoped to that bucket. Do not give the runtime Cloudflare account,
+  Bucket Lock, lifecycle, public-domain, or bucket-administration authority.
+- `BACKUP_INSTANCE_ID` must be a stable opaque identifier that survives DB
+  loss; never derive it from an organization, customer, hostname containing
+  a customer name, database name, email, or username.
+- The endpoint is derived from the validated account ID and uses
+  `region=auto`; no operator-provided endpoint is accepted.
+- Completed backup objects use streaming `PutObject` with
+  `If-None-Match: *`. BR4 deliberately fails closed with
+  `R2_OBJECT_TOO_LARGE` above R2's effective 5 GiB − 5 MiB
+  (5,363,466,240-byte) single-PUT ceiling because R2 does
+  not document an equivalent atomic no-overwrite condition for multipart
+  finalization. Do not treat multipart backup upload as enabled.
+- Configure Bucket Lock and lifecycle manually according to the retention
+  contract. Bucket Lock takes precedence over lifecycle and the application
+  neither configures nor claims to observe it.
+- `POST /api/admin/backup-storage/test` performs a 15-second-bounded list + multipart
+  create/abort capability probe, completes no object, and persists only the
+  safe timestamp/outcome. Missing R2 configuration records a `CONFIG`
+  failure; no credential or raw SDK diagnostic is returned.
+
 ## Deploy sequence (fail-closed)
 
 Migration **must** run from the **new release directory**, never from the still-active
@@ -237,6 +277,7 @@ GET /api/health
 |-------|--------|
 | Implementation verification (unit/integration/CI) | complete on this branch |
 | Disposable PostgreSQL backup/restore acceptance | covered by automated tests when `TEST_DATABASE_URL` is set |
+| Disposable real-R2 BR4 acceptance | **pending** explicit non-production test credentials; never uses production credentials |
 | Live host restore rehearsal record | **pending** operator |
 | Offsite copy execution | **pending** operator hook |
 | TLS/VPS cutover | **pending** operator |

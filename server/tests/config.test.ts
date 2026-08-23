@@ -86,6 +86,7 @@ describe('loadConfig', () => {
       port: 4100,
       backupLocalEngine: { tempRoot: '/var/backups/servora-med/br-workspaces', filesRoot: null },
       backupEncryption: { recipient: null },
+      backupR2: { accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null },
       databaseUrl: validEnvironment.DATABASE_URL,
       logLevel: 'warn',
       corsOrigin: 'https://med.example.com',
@@ -121,6 +122,7 @@ describe('loadConfig', () => {
       },
       backupLocalEngine: { tempRoot: '/var/backups/servora-med/br-workspaces', filesRoot: null },
       backupEncryption: { recipient: null },
+      backupR2: { accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null },
     });
   });
 
@@ -164,6 +166,7 @@ describe('loadConfig', () => {
       },
       backupLocalEngine: { tempRoot: null, filesRoot: null },
       backupEncryption: { recipient: null },
+      backupR2: { accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null },
     });
   });
 
@@ -175,6 +178,55 @@ describe('loadConfig', () => {
       BACKUP_TEMP_ROOT: '/var/backups/servora-med/br-workspaces',
       BACKUP_FILES_ROOT: '/srv/servora-med/files',
     })).not.toThrow();
+  });
+
+  it('keeps BR4 R2 configuration optional, validated-if-present, and secret-safe', () => {
+    expect(loadConfig(validEnvironment).backupR2).toEqual({
+      accountId: null, accessKeyId: null, secretAccessKey: null, bucket: null, bucketAlias: null, instanceId: null,
+    });
+    const configured = loadConfig({
+      ...validEnvironment,
+      BACKUP_R2_ACCOUNT_ID: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+      BACKUP_R2_ACCESS_KEY_ID: 'test-access-key-id',
+      BACKUP_R2_SECRET_ACCESS_KEY: 'test-secret',
+      BACKUP_R2_BUCKET: 'servora-med-backups',
+      BACKUP_R2_BUCKET_ALIAS: 'Servora Backup Bucket',
+      BACKUP_INSTANCE_ID: 'b7f3e2a1-9c4d-4e5f-8a6b-2d1c0b9a8e7f',
+    }).backupR2;
+    expect(configured).toEqual({
+      accountId: 'a1b2c3d4e5f6a7b8c9d0e1f2a3b4c5d6',
+      accessKeyId: 'test-access-key-id',
+      secretAccessKey: 'test-secret',
+      bucket: 'servora-med-backups',
+      bucketAlias: 'Servora Backup Bucket',
+      instanceId: 'b7f3e2a1-9c4d-4e5f-8a6b-2d1c0b9a8e7f',
+    });
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_R2_ACCOUNT_ID: 'not-hex' }))
+      .toThrow('BACKUP_R2_ACCOUNT_ID is not a valid value');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_R2_BUCKET: 'Invalid_Bucket!' }))
+      .toThrow('BACKUP_R2_BUCKET is not a valid value');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_R2_BUCKET: 'servora.backups' }))
+      .toThrow('BACKUP_R2_BUCKET is not a valid value');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_R2_BUCKET: 'ab' }))
+      .toThrow('BACKUP_R2_BUCKET is not a valid value');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_R2_ACCOUNT_ID: ` ${'a'.repeat(32)}` }))
+      .toThrow('BACKUP_R2_ACCOUNT_ID is not a valid value');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_INSTANCE_ID: '../etc' }))
+      .toThrow('BACKUP_INSTANCE_ID must be an opaque identifier');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_INSTANCE_ID: 'has space' }))
+      .toThrow('BACKUP_INSTANCE_ID must be an opaque identifier');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_INSTANCE_ID: ' padded-id ' }))
+      .toThrow('BACKUP_INSTANCE_ID must be an opaque identifier');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_R2_SECRET_ACCESS_KEY: 'line1\nline2' }))
+      .toThrow('BACKUP_R2_SECRET_ACCESS_KEY must be a single-line credential value');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_R2_SECRET_ACCESS_KEY: ' padded-secret ' }))
+      .toThrow('BACKUP_R2_SECRET_ACCESS_KEY must be a single-line credential value');
+    expect(() => loadConfig({ ...validEnvironment, BACKUP_R2_BUCKET_ALIAS: 'unsafe\ttab' }))
+      .toThrow('BACKUP_R2_BUCKET_ALIAS must be a safe display label');
+    // Only the six safe fields exist on the config surface.
+    expect(Object.keys(loadConfig(validEnvironment).backupR2).sort()).toEqual(
+      ['accessKeyId', 'accountId', 'bucket', 'bucketAlias', 'instanceId', 'secretAccessKey'],
+    );
   });
 
   it('keeps the BR3 encryption recipient optional and public-only', () => {

@@ -91,9 +91,10 @@ describe('runMigrations', () => {
       '029_messaging_conversation_archive.sql',
       '030_backup_domain_foundation.sql',
       '031_backup_engine_failure_taxonomy_and_dump_version.sql',
+      '032_backup_r2_failure_taxonomy.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('031_backup_engine_failure_taxonomy_and_dump_version.sql');
-    expect(expectedSchemaVersion).toBe(31);
+    expect(migrations.at(-1)?.name).toBe('032_backup_r2_failure_taxonomy.sql');
+    expect(expectedSchemaVersion).toBe(32);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

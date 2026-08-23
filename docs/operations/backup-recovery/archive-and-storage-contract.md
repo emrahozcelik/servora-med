@@ -1,7 +1,7 @@
 # Backup archive and storage contract — Servora-Med
 
 ```text
-Date: 2026-08-22
+Date: 2026-08-23
 Slice: BR0 — architecture and contracts only
 Status: DOCUMENTATION_ONLY / IMPLEMENTATION_NOT_AUTHORIZED
 Parent: architecture.md (decision register §2)
@@ -334,11 +334,36 @@ Explicitly NOT granted to the runtime token:
 | `BACKUP_R2_BUCKET` | dedicated backup bucket |
 | `BACKUP_R2_ACCESS_KEY_ID` | runtime token access key |
 | `BACKUP_R2_SECRET_ACCESS_KEY` | runtime token secret |
-| `BACKUP_R2_PREFIX` | optional sub-prefix (default `production/`) |
+| `BACKUP_R2_BUCKET_ALIAS` | optional safe display-only alias; never a credential |
 
-Exact validation rules are fixed in BR1's `config.ts` extension, which
-must follow the strict hand-rolled validator conventions (no new
+Exact validation rules are implemented in `config.ts` using the
+repository's strict hand-rolled validator conventions (no validation
 dependency).
+
+### 6.2.1 BR4 implementation notes (S3 surface)
+
+- Single-PUT path uses a genuinely atomic conditional create
+  (`If-None-Match: *`, supported by R2 for PutObject). R2 does not
+  document an equivalent atomic destination condition for
+  `CompleteMultipartUpload`. The approved 2026-08-23 reconciliation is
+  fail-closed: completed backup objects use conditional single PUT only,
+  up to R2's effective 5 GiB − 5 MiB (5,363,466,240-byte) ceiling.
+  Larger ciphertexts fail before any R2 command
+  with `R2_OBJECT_TOO_LARGE`; completed-object multipart is deferred
+  until no-overwrite can be guaranteed. Pre-upload HEAD still resolves
+  idempotent already-existing objects (§20), but is never treated as an
+  atomic write guard.
+- Custom metadata is sent through the SDK `Metadata` map with the logical
+  names (`servora-backup-id`, `servora-format`, `servora-sha256`); the
+  SDK applies the `x-amz-meta-*` wire prefix itself (no double prefix).
+- Multipart create/abort is used only by the connection probe to prove
+  write capability without completing a retained object. An abort failure
+  makes the probe fail; R2's default incomplete-upload lifecycle remains
+  the final cleanup boundary for that probe upload.
+- Every SDK operation carries a finite six-hour abort deadline (generous for
+  the maximum atomic stream); BR5 may combine its cooperative `AbortSignal`.
+  The synchronous ADMIN connection probe has a separate 15-second overall
+  deadline so an unavailable provider cannot hold the HTTP request open.
 
 ### 6.3 Operator-managed controls
 
@@ -358,9 +383,9 @@ dependency).
   degraded/critical health (platform-contracts §6); nothing silently
   degrades to "backup ok".
 
-## 7. Verified Cloudflare facts (2026-08-22)
+## 7. Verified Cloudflare facts (2026-08-23)
 
-Facts verified against official Cloudflare documentation on 2026-08-22.
+Facts verified against official Cloudflare documentation on 2026-08-23.
 BR slices must re-verify anything time-sensitive before relying on it.
 
 1. **S3-compatible API**: R2 implements the S3 API (SigV4) including
@@ -403,12 +428,14 @@ BR slices must re-verify anything time-sensitive before relying on it.
    (architecture §11).
    <https://developers.cloudflare.com/r2/objects/upload-objects/#etags>
    <https://developers.cloudflare.com/r2/api/s3/api/>
-6. **Size limits relevant to multi-GB backups**: max object 5 TiB; max
-   single PUT/part ~5 GiB; multipart: min part 5 MiB (except last), max
+6. **Size limits relevant to multi-GB backups**: max object 5 TiB; effective
+   single PUT/part max 5 GiB − 5 MiB (5,363,466,240 bytes); multipart:
+   min part 5 MiB (except last), max
    10,000 parts; ~1 concurrent write per second per key; incomplete
-   multipart uploads aborted after 7 days by default. BR4's uploader
-   must use multipart with consistent part sizes for large dumps and
-   abort incomplete uploads on failure.
+   multipart uploads aborted after 7 days by default. These are provider
+   capabilities, not a claim that BR4 completes multipart backups: because
+   multipart finalization has no documented atomic no-overwrite condition,
+   BR4 fails closed above the single-PUT limit as recorded in §6.2.1.
    <https://developers.cloudflare.com/r2/platform/limits/>
 7. **Plan availability of Bucket Lock**: no plan restriction is
    documented; do not assume a paid-tier requirement. Activation of R2
@@ -423,6 +450,15 @@ BR slices must re-verify anything time-sensitive before relying on it.
    Total object metadata budget is on the order of 8 KiB (key + value).
    <https://developers.cloudflare.com/r2/api/s3/extensions/>
    <https://developers.cloudflare.com/r2/platform/limits/>
+9. **Consistency**: R2 provides strong consistency for object writes and
+   reads, so the immediate post-upload HEAD/GET verification observes the
+   committed object. This does not replace the conditional no-overwrite
+   guard or the streamed integrity proof.
+   <https://developers.cloudflare.com/r2/reference/consistency/>
+10. **Bucket-name grammar**: 3–63 characters; lowercase ASCII letters,
+    digits, and hyphens only; the first and last character must be
+    alphanumeric. BR4 validates this before constructing the SDK client.
+    <https://developers.cloudflare.com/r2/buckets/create-buckets/>
 
 ### Explicitly unverified (do not build on)
 

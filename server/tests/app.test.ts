@@ -61,6 +61,10 @@ describe('logger security defaults', () => {
         'req.body.token',
         'req.body.sessionToken',
         'req.body.locationCapture',
+        'backupR2.accessKeyId',
+        'backupR2.secretAccessKey',
+        'config.backupR2.accessKeyId',
+        'config.backupR2.secretAccessKey',
       ]),
     );
   });

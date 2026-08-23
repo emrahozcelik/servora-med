@@ -5,8 +5,9 @@ Date: 2026-08-23
 BR0: merged (architecture and contracts only)
 BR1: merged — Backup Domain Foundation
 BR2: merged — Local PostgreSQL Backup Engine
-BR3: implemented — Post-Quantum Backup Encryption (native age HybridRecipient)
-Status: BR3 delivered; BR4–BR7 future
+BR3: merged — Post-Quantum Backup Encryption (native age HybridRecipient)
+BR4: implemented — Cloudflare R2 Storage + Upload + Remote Verification
+Status: BR4 external review pending; BR5–BR7 future
 ```
 
 This directory holds the approved architecture and implementation-ready
@@ -22,8 +23,9 @@ added or configured.
 | BR0 — architecture + contracts | merged (`eceb94d`, PR #187) |
 | BR1 — backup domain foundation | merged (`8530990`, PR #188) |
 | BR2 — local PostgreSQL backup engine | merged (`12452f0`, PR #189) |
-| BR3 — post-quantum backup encryption | implemented (see below) |
-| BR4–BR7 | future (R2, worker, admin UI, restore CLI) |
+| BR3 — post-quantum backup encryption | merged (`d57bca7`, PR #190) |
+| BR4 — Cloudflare R2 storage + verification | implemented; external review pending (see below) |
+| BR5–BR7 | future (worker, admin UI, restore CLI) |
 
 BR1 delivered (metadata foundation only — no pg_dump, encryption, R2,
 worker, scheduler, UI, or restore execution):
@@ -104,6 +106,73 @@ CLI):
   (linux-amd64 release artifact, checksum-verified — no curl|sh, no
   mirrors, no vendored binaries). Production VPS prerequisite:
   install official age >= 1.3.0 before enabling the future BR5 worker.
+
+BR4 implemented (remote boundary only — stops at the CLEANUP phase; no
+worker, no scheduler, no SUCCESS transition, no retention pruning, no
+bucket administration, no UI, no restore CLI):
+
+- `server/src/modules/backup/r2.ts` — `CloudflareR2Storage` adapter over
+  the official `@aws-sdk/client-s3` (the only new dependency; justified:
+  SigV4 signing and streaming S3 mechanics are not reimplementable by
+  hand under the no-custom-crypto rule). Endpoint derived strictly from
+  the validated `BACKUP_R2_ACCOUNT_ID` (`region: auto`); no arbitrary
+  endpoint override exists. Provides: HEAD, atomic conditional single PUT
+  (`If-None-Match: *` — R2-documented), streamed conditional GET, and the
+  connection-test probe
+  (List + Create/Abort multipart on a reserved `.connection-test` key —
+  no completed object, nothing retained by Bucket Lock).
+- `server/src/modules/backup/object-keys.ts` — canonical key builder
+  `production/<instance-id>/v1/<retention>/<backup-id>.sbk.age` with a
+  conservative opaque `BACKUP_INSTANCE_ID` grammar; retention → path
+  mapping (daily/weekly/monthly/manual/pre-restore).
+- `server/src/modules/backup/remote-engine.ts` — `RemoteBackupEngine`:
+  RUNNING@ENCRYPT → UPLOAD → REMOTE_VERIFY → `recordVerification()` →
+  RUNNING@CLEANUP (STOP). Upload is byte-exact streaming with
+  `servora-backup-id`/`servora-format`/`servora-sha256` metadata
+  (`application/octet-stream`); verification is the canonical three-way
+  composition (expected SHA == object metadata SHA == streamed remote
+  SHA, plus exact byte count). The methods require the exact BR3 handoff
+  (`encryptedPath`, `ciphertextBytes`, `localCiphertextSha256`), which is
+  revalidated before upload. `uploadAndVerifyRemoteBackup()` enters from
+  ENCRYPT; `retryUploadRemoteBackup()` and `verifyRemoteBackup()` are the
+  future BR5 same-phase re-entry points; `reverify()` is the read-only
+  internal primitive for BR7/future reverify requests.
+- No-overwrite contract: single PUT is a genuinely atomic conditional
+  create (412 → §20 resolution). R2 does NOT document an equivalent
+  conditional destination operation for multipart finalization. The
+  2026-08-23 reconciliation therefore limits BR4 to R2's effective
+  single-PUT maximum: 5 GiB − 5 MiB (5,363,466,240 bytes). A larger
+  artifact fails before any R2 command with
+  `R2_OBJECT_TOO_LARGE`; completed backup multipart is deferred rather
+  than falling back to a destructive race. Multipart create/abort remains
+  only in the non-object-producing connection probe.
+- Failure taxonomy (migration `032`): new `R2_OBJECT_TOO_LARGE`
+  (terminal approved-limit failure), `R2_OBJECT_CONFLICT` (terminal
+  integrity conflict, never overwrite/delete/retry), and
+  `R2_VERIFY_FAILED` (retryable verify transport). Terminal failures persist FAILED;
+  retryable transport failures (`R2_UPLOAD_FAILED`, `R2_VERIFY_FAILED`)
+  deliberately leave the run RUNNING at its phase for the BR5 bounded
+  phase retry. `R2_AUTH_FAILED` / `REMOTE_CHECKSUM_MISMATCH` keep their
+  BR0 meanings. Upload-then-verify-failure leaves the remote object in
+  place (forensics/Bucket Lock); no blind DeleteObject anywhere.
+- Connection test: `POST /api/admin/backup-storage/test` (ADMIN only via
+  service layer; MANAGER/STAFF 403). Persists only
+  `backup_storage.last_connection_test_at/_ok`; response carries
+  `ok`/`testedAt`/safe failure class — never credentials or raw SDK
+  errors. `BACKUP_STORAGE_TESTED` audit vocabulary remains future work
+  (BR0 audit table), not expanded in migration 032 by scope discipline.
+- Reverify HTTP endpoint: intentionally still NOT exposed — BR5 owns
+  async execution; BR4 does not return a misleading 202.
+- Config: optional validated-if-present `BACKUP_R2_ACCOUNT_ID` (32-hex),
+  `BACKUP_R2_ACCESS_KEY_ID` / `BACKUP_R2_SECRET_ACCESS_KEY` (env only;
+  redacted log paths), `BACKUP_R2_BUCKET`, `BACKUP_INSTANCE_ID`,
+  `BACKUP_R2_BUCKET_ALIAS`; absent config keeps startup valid and a
+  connection-test request records a safe `CONFIG` failure. The safe
+  storage-state response overlays configured/alias truth from runtime env
+  while retaining DB-backed last-test evidence. Tests run
+  through a deterministic injected fake client; an opt-in real-R2
+  acceptance suite exists behind explicit disposable env credentials
+  (REAL_R2_ACCEPTANCE = NOT EXECUTED without them).
 
 ## File map
 

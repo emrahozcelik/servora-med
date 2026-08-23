@@ -2,6 +2,7 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
 import type { BackupService } from './service.js';
+import type { BackupStorageProbe } from './service.js';
 import type { BackupCursor } from './types.js';
 
 const LIST_FIELDS = ['limit', 'cursor'] as const;
@@ -100,7 +101,7 @@ function scopeField(value: unknown) {
   return value;
 }
 
-export function createBackupHandlers(service: BackupService) {
+export function createBackupHandlers(service: BackupService, storageProbe?: BackupStorageProbe) {
   return {
     list: async (request: FastifyRequest) => {
       const response = await service.listRuns(request.currentUser!, listQuery(request));
@@ -134,5 +135,9 @@ export function createBackupHandlers(service: BackupService) {
       });
     },
     getStorage: (request: FastifyRequest) => service.getStorageState(request.currentUser!),
+    testStorage: (request: FastifyRequest) => {
+      if (!storageProbe) throw new AppError('BACKUP_STORAGE_UNAVAILABLE', 500, 'Yedekleme depolama yapılandırması kullanılamıyor.');
+      return service.testStorageConnection(request.currentUser!, storageProbe);
+    },
   };
 }
