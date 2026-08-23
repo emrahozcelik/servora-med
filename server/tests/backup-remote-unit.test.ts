@@ -9,7 +9,7 @@ import {
 } from '../src/modules/backup/object-keys.js';
 import {
   CloudflareR2Storage,
-  MAX_ATOMIC_PUT_BYTES,
+  R2_MAX_SINGLE_PUT_BYTES,
   R2StorageError,
   type R2SendableClient,
 } from '../src/modules/backup/r2.js';
@@ -153,7 +153,33 @@ describe('BR4 R2 adapter safety boundary', () => {
     expect(calls).toBe(0);
   });
 
-  it('enforces the atomic single-PUT ceiling before any client call', async () => {
+  it('allows the exact effective R2 single-PUT maximum', async () => {
+    let calls = 0;
+    let contentLength: number | undefined;
+    const client: R2SendableClient = {
+      send: async (command) => {
+        calls += 1;
+        contentLength = (command as { input: { ContentLength?: number } }).input.ContentLength;
+        return {};
+      },
+    };
+    const storage = new CloudflareR2Storage({ config: TEST_R2_CONFIG, client });
+
+    expect(R2_MAX_SINGLE_PUT_BYTES).toBe(5_363_466_240);
+    await expect(storage.putObjectIfAbsent('safe-key', {
+      body: Readable.from([Buffer.from('x')]),
+      contentLength: R2_MAX_SINGLE_PUT_BYTES,
+      metadata: {
+        'servora-backup-id': randomUUID(),
+        'servora-format': '1',
+        'servora-sha256': '0'.repeat(64),
+      },
+    })).resolves.toEqual({ outcome: 'created' });
+    expect(calls).toBe(1);
+    expect(contentLength).toBe(R2_MAX_SINGLE_PUT_BYTES);
+  });
+
+  it('rejects one byte above the effective R2 single-PUT maximum before any client call', async () => {
     let calls = 0;
     const client: R2SendableClient = {
       send: async () => {
@@ -164,7 +190,32 @@ describe('BR4 R2 adapter safety boundary', () => {
     const storage = new CloudflareR2Storage({ config: TEST_R2_CONFIG, client });
     const upload = storage.putObjectIfAbsent('safe-key', {
       body: Readable.from([Buffer.from('x')]),
-      contentLength: MAX_ATOMIC_PUT_BYTES + 1,
+      contentLength: R2_MAX_SINGLE_PUT_BYTES + 1,
+      metadata: {
+        'servora-backup-id': randomUUID(),
+        'servora-format': '1',
+        'servora-sha256': '0'.repeat(64),
+      },
+    });
+
+    await expect(upload).rejects.toMatchObject({
+      errorClass: 'OBJECT_TOO_LARGE',
+    });
+    expect(calls).toBe(0);
+  });
+
+  it('rejects a literal 5 GiB single PUT before any client call', async () => {
+    let calls = 0;
+    const client: R2SendableClient = {
+      send: async () => {
+        calls += 1;
+        return {};
+      },
+    };
+    const storage = new CloudflareR2Storage({ config: TEST_R2_CONFIG, client });
+    const upload = storage.putObjectIfAbsent('safe-key', {
+      body: Readable.from([Buffer.from('x')]),
+      contentLength: 5 * 1024 ** 3,
       metadata: {
         'servora-backup-id': randomUUID(),
         'servora-format': '1',

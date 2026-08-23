@@ -497,7 +497,12 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
     const remote = buildRemote(store);
     const result = await remote.uploadAndVerifyRemoteBackup(artifact);
 
-    expect(result).toMatchObject({ outcome: 'failed', failureCode: 'R2_UPLOAD_FAILED', retryable: true });
+    expect(result).toMatchObject({
+      outcome: 'failed',
+      failureCode: 'R2_UPLOAD_FAILED',
+      retryable: true,
+      phase: 'UPLOAD',
+    });
     const run = await repository!.findRunById(artifact.runId);
     expect(run).toMatchObject({ status: 'RUNNING', phase: 'UPLOAD', failureCode: null, sha256: null });
     expect(store.objects.size).toBe(0);
@@ -523,13 +528,22 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
     await releaseSlot(artifact.runId);
   });
 
-  it('verify transport failure is retryable and verifyRemoteBackup() re-enters cleanly', async () => {
+  it.each([
+    ['HEAD', 'HeadObjectCommand', true],
+    ['GET', 'GetObjectCommand', false],
+  ] as const)('verify %s transport failure is retryable and same-phase re-entry succeeds', async (_label, operation, skipFirst) => {
     const store = new FakeR2Store();
     const artifact = await pipeline();
-    store.failNext('GetObjectCommand', () => { throw transportError(); });
+    if (skipFirst) store.failNext(operation, () => undefined);
+    store.failNext(operation, () => { throw transportError(); });
 
     const first = await buildRemote(store).uploadAndVerifyRemoteBackup(artifact);
-    expect(first).toMatchObject({ outcome: 'failed', failureCode: 'R2_VERIFY_FAILED', retryable: true });
+    expect(first).toMatchObject({
+      outcome: 'failed',
+      failureCode: 'R2_VERIFY_FAILED',
+      retryable: true,
+      phase: 'REMOTE_VERIFY',
+    });
     expect(await repository!.findRunById(artifact.runId)).toMatchObject({
       status: 'RUNNING',
       phase: 'REMOTE_VERIFY',
@@ -579,6 +593,7 @@ describe.skipIf(!databaseUrl)('BR4 remote engine + R2 adapter (PostgreSQL + real
     });
     expect(store.ops('PutObjectCommand')).toHaveLength(0);
     expect(store.ops('CreateMultipartUploadCommand')).toHaveLength(0);
+    expect(store.calls).toHaveLength(0);
     expect(store.objects.size).toBe(0);
     expect(await repository!.findRunById(artifact.runId)).toMatchObject({
       status: 'FAILED',

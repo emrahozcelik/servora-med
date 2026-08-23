@@ -347,7 +347,8 @@ dependency).
   document an equivalent atomic destination condition for
   `CompleteMultipartUpload`. The approved 2026-08-23 reconciliation is
   fail-closed: completed backup objects use conditional single PUT only,
-  up to R2's 5 GiB ceiling. Larger ciphertexts fail before remote write
+  up to R2's effective 5 GiB − 5 MiB (5,363,466,240-byte) ceiling.
+  Larger ciphertexts fail before any R2 command
   with `R2_OBJECT_TOO_LARGE`; completed-object multipart is deferred
   until no-overwrite can be guaranteed. Pre-upload HEAD still resolves
   idempotent already-existing objects (§20), but is never treated as an
@@ -427,8 +428,9 @@ BR slices must re-verify anything time-sensitive before relying on it.
    (architecture §11).
    <https://developers.cloudflare.com/r2/objects/upload-objects/#etags>
    <https://developers.cloudflare.com/r2/api/s3/api/>
-6. **Size limits relevant to multi-GB backups**: max object 5 TiB; max
-   single PUT/part ~5 GiB; multipart: min part 5 MiB (except last), max
+6. **Size limits relevant to multi-GB backups**: max object 5 TiB; effective
+   single PUT/part max 5 GiB − 5 MiB (5,363,466,240 bytes); multipart:
+   min part 5 MiB (except last), max
    10,000 parts; ~1 concurrent write per second per key; incomplete
    multipart uploads aborted after 7 days by default. These are provider
    capabilities, not a claim that BR4 completes multipart backups: because

@@ -82,10 +82,11 @@ export type R2AdapterOptions = {
 // Current R2 S3 compatibility documents If-None-Match for PutObject but no
 // equivalent atomic destination condition for CompleteMultipartUpload.
 // BR4 therefore supports only the conditionally created single-PUT surface.
-// Larger objects fail closed before any remote write; multipart remains a
-// separately reconciled future slice.
-export const MAX_ATOMIC_PUT_BYTES = 5 * 1024 * 1024 * 1024;
-/** Per SDK operation, deliberately generous for a 5 GiB stream but finite. */
+// Cloudflare labels the limit as 5 GiB, but its limits footnote defines the
+// effective maximum as 5 MiB less than 5 GiB. Larger objects fail closed
+// before any remote command; multipart remains a separately reconciled slice.
+export const R2_MAX_SINGLE_PUT_BYTES = 5 * 1024 ** 3 - 5 * 1024 ** 2;
+/** Per SDK operation, deliberately generous for the largest supported stream. */
 export const R2_OPERATION_TIMEOUT_MS = 6 * 60 * 60 * 1_000;
 /** Overall synchronous ADMIN connection-probe budget. */
 export const R2_CONNECTION_TEST_TIMEOUT_MS = 15_000;
@@ -248,7 +249,7 @@ export class CloudflareR2Storage {
     if (!Number.isSafeInteger(input.contentLength) || input.contentLength <= 0) {
       throw new R2StorageError('UNKNOWN', 'PutObject', 'invalid content length');
     }
-    if (input.contentLength > MAX_ATOMIC_PUT_BYTES) {
+    if (input.contentLength > R2_MAX_SINGLE_PUT_BYTES) {
       throw new R2StorageError(
         'OBJECT_TOO_LARGE',
         'PutObject',

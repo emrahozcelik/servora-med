@@ -171,7 +171,8 @@ BACKUP_R2_BUCKET_ALIAS        # optional safe display label
   `region=auto`; no operator-provided endpoint is accepted.
 - Completed backup objects use streaming `PutObject` with
   `If-None-Match: *`. BR4 deliberately fails closed with
-  `R2_OBJECT_TOO_LARGE` above R2's 5 GiB single-PUT ceiling because R2 does
+  `R2_OBJECT_TOO_LARGE` above R2's effective 5 GiB − 5 MiB
+  (5,363,466,240-byte) single-PUT ceiling because R2 does
   not document an equivalent atomic no-overwrite condition for multipart
   finalization. Do not treat multipart backup upload as enabled.
 - Configure Bucket Lock and lifecycle manually according to the retention

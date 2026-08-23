@@ -7,7 +7,7 @@ import { hashFile } from './engine.js';
 import { buildRemoteObjectKey } from './object-keys.js';
 import {
   CloudflareR2Storage,
-  MAX_ATOMIC_PUT_BYTES,
+  R2_MAX_SINGLE_PUT_BYTES,
   R2StorageError,
 } from './r2.js';
 import type { BackupRepository } from './repository.js';
@@ -105,8 +105,8 @@ export class RemoteBackupEngine {
     if (!validateBackupInstanceId(options.instanceId)) {
       throw new Error('backup instance id is not a valid opaque identifier');
     }
-    const limit = options.maxAtomicPutBytes ?? MAX_ATOMIC_PUT_BYTES;
-    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > MAX_ATOMIC_PUT_BYTES) {
+    const limit = options.maxAtomicPutBytes ?? R2_MAX_SINGLE_PUT_BYTES;
+    if (!Number.isSafeInteger(limit) || limit <= 0 || limit > R2_MAX_SINGLE_PUT_BYTES) {
       throw new Error('max atomic put bytes must be within the supported R2 single-put limit');
     }
     this.maxAtomicPutBytes = limit;
@@ -175,6 +175,7 @@ export class RemoteBackupEngine {
 
       if (mode.upload) {
         if (mode.enterUpload) await service.advancePhase(run.id, 'UPLOAD', false);
+        this.assertWithinSinglePutLimit(artifact.bytes);
 
         const existing = await this.headWithFailureMapping(remoteKey);
         if (existing) {
@@ -303,6 +304,17 @@ export class RemoteBackupEngine {
     }
   }
 
+  private assertWithinSinglePutLimit(bytes: number): void {
+    if (bytes > this.maxAtomicPutBytes) {
+      throw new RemoteEngineFailure(
+        'R2_OBJECT_TOO_LARGE',
+        'Şifreli yedek atomik R2 yükleme sınırını aşıyor.',
+        null,
+        false,
+      );
+    }
+  }
+
   private mapStorageFailure(error: unknown, stage: 'upload' | 'verify'): RemoteEngineFailure {
     if (!(error instanceof R2StorageError)) {
       return new RemoteEngineFailure(
@@ -338,14 +350,6 @@ export class RemoteBackupEngine {
     metadata: { 'servora-backup-id': string; 'servora-format': string; 'servora-sha256': string },
   ): Promise<void> {
     const { storage } = this.options;
-    if (artifact.bytes > this.maxAtomicPutBytes) {
-      throw new RemoteEngineFailure(
-        'R2_OBJECT_TOO_LARGE',
-        'Şifreli yedek atomik R2 yükleme sınırını aşıyor.',
-        null,
-        false,
-      );
-    }
     let outcome: { outcome: 'created' } | { outcome: 'precondition-failed' };
     try {
       outcome = await storage.putObjectIfAbsent(remoteKey, {

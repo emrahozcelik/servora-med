@@ -140,8 +140,9 @@ bucket administration, no UI, no restore CLI):
 - No-overwrite contract: single PUT is a genuinely atomic conditional
   create (412 → §20 resolution). R2 does NOT document an equivalent
   conditional destination operation for multipart finalization. The
-  2026-08-23 reconciliation therefore limits BR4 to R2's 5 GiB atomic
-  single-PUT ceiling: a larger artifact fails before remote write with
+  2026-08-23 reconciliation therefore limits BR4 to R2's effective
+  single-PUT maximum: 5 GiB − 5 MiB (5,363,466,240 bytes). A larger
+  artifact fails before any R2 command with
   `R2_OBJECT_TOO_LARGE`; completed backup multipart is deferred rather
   than falling back to a destructive race. Multipart create/abort remains
   only in the non-object-producing connection probe.
