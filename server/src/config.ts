@@ -23,6 +23,10 @@ export type BackupLocalEngineConfig = {
   filesRoot: string | null;
 };
 
+export type BackupEncryptionConfig = {
+  recipient: string | null;
+};
+
 export type AppConfig = {
   nodeEnv: NodeEnvironment;
   host: string;
@@ -47,6 +51,7 @@ export type AppConfig = {
   support?: AuthenticatedSupport;
   webPush: WebPushConfig;
   backupLocalEngine: BackupLocalEngineConfig;
+  backupEncryption: BackupEncryptionConfig;
 };
 
 const NODE_ENVIRONMENTS = new Set<NodeEnvironment>(['development', 'test', 'production']);
@@ -480,6 +485,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       tempRoot: readOptionalPath(env.BACKUP_TEMP_ROOT, 'BACKUP_TEMP_ROOT'),
       filesRoot: readOptionalPath(env.BACKUP_FILES_ROOT, 'BACKUP_FILES_ROOT'),
     },
+    // BR3 encryption config: the PUBLIC age hybrid recipient only. Structural
+    // sanity here; the full hybrid-recipient policy is validated lazily by
+    // the encryption engine when encryption is actually invoked, so a
+    // disabled deployment never needs age or a recipient to start. There is
+    // deliberately NO private-identity field (operator-held only).
+    backupEncryption: {
+      recipient: readOptionalRecipient(env.BACKUP_ENCRYPTION_RECIPIENT, 'BACKUP_ENCRYPTION_RECIPIENT'),
+    },
   };
 }
 
@@ -488,6 +501,17 @@ function readOptionalPath(value: string | undefined, name: string): string | nul
   if (trimmed.length === 0) return null;
   if (trimmed.includes('\0') || trimmed.length > 4096) {
     throw new Error(`${name} must be a single filesystem path`);
+  }
+  return trimmed;
+}
+
+/** Optional single-line PUBLIC recipient value. Empty = not configured
+ * (valid: encryption simply cannot run until BR5 enables the worker). */
+function readOptionalRecipient(value: string | undefined, name: string): string | null {
+  const trimmed = value?.trim() ?? '';
+  if (trimmed.length === 0) return null;
+  if (trimmed.includes('\n') || trimmed.includes('\r') || trimmed.includes('\0') || trimmed.length > 4096) {
+    throw new Error(`${name} must be a single-line recipient value`);
   }
   return trimmed;
 }

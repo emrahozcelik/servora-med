@@ -41,8 +41,11 @@ Contract rules:
   need a format change later. When absent, the manifest `contents.files`
   is `null` and the file must not be present.
 - The encrypted remote artifact is named `<backup-id>.sbk.age`
-  (single encrypted object; `.age` = age/X25519 recipient encryption,
-  `.sbk` = Servora backup).
+  (single encrypted object; `.age` = native age encryption, `.sbk` =
+  Servora backup). Per the BR3 concrete selection (`OPS-003`), the
+  recipient is the **native age post-quantum HybridRecipient (ML-KEM-768
+  + X25519, `age1pq1…`)**; `.sbk.age` is always a real binary age file
+  (never armor, never a renamed custom container).
 
 ### 1.1 Physical local package — BR2 implementation decision
 
@@ -326,7 +329,7 @@ Explicitly NOT granted to the runtime token:
 |----------|---------|
 | `BACKUP_ENABLED` | feature/capability gate for the whole domain |
 | `BACKUP_INSTANCE_ID` | stable opaque installation identifier (object keys) |
-| `BACKUP_ENCRYPTION_RECIPIENT` | age public recipient (never the private identity) |
+| `BACKUP_ENCRYPTION_RECIPIENT` | age public recipient — must be the native post-quantum hybrid encoding (`age1pq1…`, age >= 1.3; never the private identity, never classic/SSH/plugin) |
 | `BACKUP_R2_ACCOUNT_ID` | S3 endpoint account id |
 | `BACKUP_R2_BUCKET` | dedicated backup bucket |
 | `BACKUP_R2_ACCESS_KEY_ID` | runtime token access key |

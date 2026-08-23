@@ -85,6 +85,7 @@ describe('loadConfig', () => {
       host: '0.0.0.0',
       port: 4100,
       backupLocalEngine: { tempRoot: '/var/backups/servora-med/br-workspaces', filesRoot: null },
+      backupEncryption: { recipient: null },
       databaseUrl: validEnvironment.DATABASE_URL,
       logLevel: 'warn',
       corsOrigin: 'https://med.example.com',
@@ -119,6 +120,7 @@ describe('loadConfig', () => {
         vapidPrivateKey: null,
       },
       backupLocalEngine: { tempRoot: '/var/backups/servora-med/br-workspaces', filesRoot: null },
+      backupEncryption: { recipient: null },
     });
   });
 
@@ -161,6 +163,7 @@ describe('loadConfig', () => {
         vapidPrivateKey: null,
       },
       backupLocalEngine: { tempRoot: null, filesRoot: null },
+      backupEncryption: { recipient: null },
     });
   });
 
@@ -172,6 +175,21 @@ describe('loadConfig', () => {
       BACKUP_TEMP_ROOT: '/var/backups/servora-med/br-workspaces',
       BACKUP_FILES_ROOT: '/srv/servora-med/files',
     })).not.toThrow();
+  });
+
+  it('keeps the BR3 encryption recipient optional and public-only', () => {
+    expect(loadConfig(validEnvironment).backupEncryption).toEqual({ recipient: null });
+    expect(loadConfig({ ...validEnvironment, BACKUP_ENCRYPTION_RECIPIENT: '' }).backupEncryption)
+      .toEqual({ recipient: null });
+    expect(loadConfig({ ...validEnvironment, BACKUP_ENCRYPTION_RECIPIENT: '  age1pq1qpzry9x8  ' }).backupEncryption)
+      .toEqual({ recipient: 'age1pq1qpzry9x8' });
+    expect(() => loadConfig({
+      ...validEnvironment,
+      BACKUP_ENCRYPTION_RECIPIENT: 'age1pq1first\nAGE-SECRET-KEY-PQ-1SECOND',
+    })).toThrow('BACKUP_ENCRYPTION_RECIPIENT must be a single-line recipient value');
+    // The config surface owns exactly one public field — no private identity
+    // path may ever appear here (BR3 key custody contract).
+    expect(Object.keys(loadConfig(validEnvironment).backupEncryption)).toEqual(['recipient']);
   });
 
   it.each([undefined, '', 'false'])(

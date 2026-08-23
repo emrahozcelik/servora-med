@@ -719,3 +719,35 @@ MVP, betik tabanlı bir yedekleme yığınını (`backup-postgres.sh`, systemd/l
 - Arşiv/depolama kontratı: `docs/operations/backup-recovery/archive-and-storage-contract.md`
 - Platform kontratları: `docs/operations/backup-recovery/platform-contracts.md`
 - MVP yığını: `docs/operations/backup-restore.md`
+
+## OPS-003: BR3 yedek şifrelemesi native age post-quantum HybridRecipient kullanır (ML-KEM-768 + X25519)
+
+- **Date:** 2026-08-23
+- **Status:** Accepted
+- **Scope:** Backup & Recovery V1 şifreleme dilimi (BR3): recipient türü, araç sürümü ve anahtar custodysi
+
+### Context
+
+OPS-002, BR0 zamanında henüz somut uygulama seçimi yapılmadan önce şifreleme yönünü "age/X25519 genel anahtarlı şifreleme" olarak kaydetmişti ve BR3'te bu noktanın güncel upstream durumuyla yeniden değerlendirilmesini açıkça şart koşmuştu (kayıtlı reviewer notu: classic X25519 ile güncel post-quantum hibrit yöneliminin BR3'te karşılaştırılması). BR3'te bu kapı çözüldü: age 1.3.0 (Aralık 2025) native post-quantum recipient desteğini getirdi — HPKE temelli, ML-KEM-768 + X25519 hibrit KEM. Yedek arşivleri on yıllar saklanabildiğinden ("harvest now, decrypt later" tehdidi) uzun süreli gizlilik için post-quantum recipient makul maliyetsizdir ve upstream tarafından birinci sınıf desteklenir; ayrı bir eklenti/kriptografi katmanı gerektirmez.
+
+### Decision
+
+1. **Native age HybridRecipient (ML-KEM-768 + X25519) kullanılır.** Karar yalnızca OPS-002'nin "recipient türü" yönünü yerinden alır; OPS-002'nin geri kalanı (şifreleme yükleme öncesi olur, özel kripto yasak, üretim yalnız public recipient tutar, canonical bütünlük uzaktan doğrulanmış ciphertext SHA-256'sıdır) aynen yürürlüktedir.
+2. **Encoding aileleri:** public recipient `age1pq1…` (~1.959 karakter), private identity `AGE-SECRET-KEY-PQ-1…` ile başlar. Üretimde kabul edilen tek recipient ailesi `age1pq1` native hibrit biçimidir; classic X25519 (`age1…`), SSH recipient, plugin recipient ve passphrase modu reddedilir — **classic fallback yoktur, classic+hibrit karıştırma yoktur**.
+3. **Resmî age uygulaması zorunludur** (FiloSottile/age CLI); JavaScript age yeniden uygulaması, npm sarmalayıcısı veya özel zarf kriptografisi kullanılmaz. Üretim alt sınırı **age >= 1.3.0 (major=1)**; doğrulanmış hedef sürüm **1.3.1** (resmî release artifact'i yayın checksum'ıyla doğrulanarak kurulur). Daha yaşlı/major'ı farklı binary `ENCRYPTION_FAILED` ile fail-closed döner; eski binary nedeniyle classic X25519'a düşülmez.
+4. **Anahtar custodisi değişmez:** üretim worker/VPS'i yalnızca PUBLIC recipient'ı (`BACKUP_ENCRYPTION_RECIPIENT`) tutar; PRIVATE identity (`AGE-SECRET-KEY-PQ-1…`) operatör elinde, VPS dışında tutulur ve uygulama için desteklenen hiçbir config yolu onu kabul etmez. Anahtar üretimi operatör eylemidir: `age-keygen -pq -o <identity>` + `age-keygen -y <identity>`; uygulama anahtar üretmez, saklamaz, döndürmez.
+5. **V1'de tek hibrit recipient** kullanılır; recipient karıştırma / çoklu-recipient anahtar yönetimi eklenmez. Rotasyon elle yapılır: `BACKUP_ENCRYPTION_RECIPIENT` değişikliği yalnızca YENİ yedekleri etkiler; eski arşivler eski identity'ye şifreli kalır ve operatör, ona şifreli her arşiv retention süresi dolana kadar eski private identity'leri saklamak zorundadır (erken silme o yedekleri kurtarılamaz yapar). Özel anahtar escrow'u yoktur.
+6. **Üretici otantikliği (provenance) hâlâ V1 dışındadır** (OPS-002 madde 6 garanti matrisi aynen geçerli): age gizlilik ve ciphertext bütünlüğü sağlar, imza/üretici kanıtı sağlamaz; BR3'te imza yoktur.
+
+### Consequences
+
+- BR3 çıktısı `<backup-id>.sbk.age` binary native age formatındadır (armor yok); plaintext `<backup-id>.sbk.tar` paketi başarılı şifrelemeden sonra da workspace'te kalır (silme yalnız BR4 REMOTE_VERIFY sonrası).
+- BR3 motorunun döndürdüğü `localCiphertextSha256` YEREL BEKLENEN değerdir ve BR4 el sıkışma sözleşmesidir; `backup_runs.sha256` (kanonik, uzaktan doğrulanmış) değildir ve BR3 onu asla yazmaz.
+- CI ve üretim önkoşulu: resmî age >= 1.3.0 kurulumu (VPS dağıtım dokümanında operatör adımı olarak kayıtlıdır).
+- Geriye dönük uyumluluk: 1.3 öncesi age binary'si ile üretilmiş yedek yoktur (BR3'ten önce şifreleme yoktu); compat katmanı gerekmez.
+
+### References
+
+- Yerine aldığı yön (yalnız recipient türü): `DECISIONS.md` OPS-002 madde 5; `docs/operations/backup-recovery/architecture.md` §10 (uzlaştırma notu eklendi)
+- Uygulama: `server/src/modules/backup/encryption.ts` (LocalEncryptionEngine, recipient policy)
+- age 1.3.0 sürüm notları (native post-quantum recipients, `age1pq1…`, `AGE-SECRET-KEY-PQ-1…`, `age-keygen -pq`, `age-inspect`)
