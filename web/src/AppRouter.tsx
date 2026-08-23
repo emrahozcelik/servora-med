@@ -176,6 +176,9 @@ const NotificationSettingsPage = lazy(() =>
 const ApplicationSettingsPage = lazy(() =>
   import('./settings/SettingsPages').then((module) => ({ default: module.ApplicationSettingsPage })),
 );
+const BackupRecoveryPage = lazy(() =>
+  import('./settings/BackupRecoveryPage').then((module) => ({ default: module.BackupRecoveryPage })),
+);
 
 const MessagingPage = lazy(() =>
   import('./messaging/MessagingPage').then((module) => ({ default: module.MessagingPage })),
@@ -344,11 +347,13 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
           ? <MessagingPage user={user} /> : <Navigate to={paths.jobs} replace />} />
         <Route path={paths.docs} element={<DocumentationPage user={user} />} />
         <Route path={paths.help} element={<HelpCenterPage user={user} />} />
-        <Route path={paths.settings} element={<SettingsLandingPage />} />
+        <Route path={paths.settings} element={<SettingsLandingPage user={user} />} />
         <Route path={paths.settingsProfile} element={<ProfileSettingsPage user={user} />} />
         <Route path={paths.settingsSecurity} element={<SecuritySettingsPage onSessionEnded={onSessionEnded} />} />
         <Route path={paths.settingsNotifications} element={<NotificationSettingsPage />} />
         <Route path={paths.settingsApplication} element={<ApplicationSettingsPage />} />
+        <Route path={paths.settingsBackupRecovery} element={user.role === 'ADMIN' && user.capabilities?.backup === true
+          ? <BackupRecoveryPage /> : <ForbiddenView />} />
         <Route path={paths.jobs} element={<JobWorkspace user={user} notice={notice}
           onCreateDelivery={() => { onClearNotice(); navigate(paths.newDelivery); }}
           onCreateTask={() => { onClearNotice(); navigate(paths.newTask); }}

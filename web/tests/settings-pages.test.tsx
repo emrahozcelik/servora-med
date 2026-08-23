@@ -40,6 +40,12 @@ const user: CurrentUser = {
   support: { displayLabel: 'Destek', email: null, helpUrl: null },
 };
 
+const backupAdmin: CurrentUser = {
+  ...user,
+  role: 'ADMIN',
+  capabilities: { ...user.capabilities, backup: true },
+};
+
 async function render(element: React.ReactNode) {
   const container = document.createElement('div');
   const root = createRoot(container);
@@ -128,6 +134,14 @@ describe('settings pages', () => {
     expect(html).toContain('Güvenlik');
     expect(html).toContain('Bildirimler');
     expect(html).toContain('Uygulama');
+  });
+
+  it('shows the admin-only Backup & Recovery entry only when the capability is enabled', async () => {
+    const hidden = await render(<SettingsLandingPage user={user} />);
+    expect(hidden).not.toContain('/settings/data-management/backup-recovery');
+    const visible = await render(<SettingsLandingPage user={backupAdmin} />);
+    expect(visible).toContain('/settings/data-management/backup-recovery');
+    expect(visible).toContain('Yedekleme ve Kurtarma');
   });
 
   it('suppresses only the landing route duplicate while keeping nested headings visible', async () => {

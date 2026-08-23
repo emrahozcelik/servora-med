@@ -249,6 +249,7 @@ function createApp(
   user: SafeUser | null,
   storageProbe?: () => Promise<{ ok: true } | { ok: false; errorClass: 'CONFIG' | 'AUTH' | 'TRANSPORT' | 'SERVICE' | 'UNKNOWN' }>,
   storageRuntimeState?: { enabled: boolean; bucketAlias: string | null; prefix: string },
+  now: () => Date = () => new Date(),
 ) {
   const app = Fastify({ logger: false });
   app.setErrorHandler((error, _request, reply) => {
@@ -260,7 +261,7 @@ function createApp(
     request.currentUser = user;
   };
   const repository = new MemoryBackupRepository();
-  const service = new BackupService(repository, undefined, storageRuntimeState ?? null);
+  const service = new BackupService(repository, now, storageRuntimeState ?? null);
   void app.register(backupRoutes, { prefix: '/api/admin', service, authenticate, ...(storageProbe ? { storageProbe } : {}) });
   apps.push(app);
   return { app, repository };
@@ -288,6 +289,7 @@ describe('backup admin routes', () => {
       for (const request of [
         { method: 'GET', url: '/api/admin/backups' },
         { method: 'GET', url: `/api/admin/backups/${randomUUID()}` },
+        { method: 'GET', url: '/api/admin/backup-overview' },
         { method: 'POST', url: '/api/admin/backups', payload: { clientActionId: 'x' } },
         { method: 'GET', url: '/api/admin/backup-policy' },
         { method: 'PUT', url: '/api/admin/backup-policy', payload: policyPayload() },
@@ -417,6 +419,57 @@ describe('backup admin routes', () => {
       payload: { ...policyPayload(), cronExpression: '* * * * *' },
     });
     expect(unknownField.statusCode).toBe(400);
+  });
+
+  it('ADMIN: overview exposes a safe next scheduled instant without scheduler math in the client', async () => {
+    const { app, repository } = createApp(
+      admin,
+      undefined,
+      undefined,
+      () => new Date('2026-08-22T05:00:00.000Z'),
+    );
+    repository.policy = {
+      ...repository.policy,
+      enabled: true,
+      scheduleTimeLocal: '04:05',
+      timezone: 'UTC',
+    };
+
+    const response = await app.inject({ method: 'GET', url: '/api/admin/backup-overview' });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      nextScheduledAt: '2026-08-23T04:05:00.000Z',
+      scheduleTimezone: 'UTC',
+      activeRun: null,
+      lastVerifiedBackup: null,
+      worker: null,
+    });
+  });
+
+  it('ADMIN: overview returns active and verified summaries without remote object details', async () => {
+    const { app, repository } = createApp(admin, undefined, undefined, () => new Date('2026-08-22T05:00:00.000Z'));
+    const verified = await repository.execute((tx) => tx.insertQueuedRun({
+      id: randomUUID(), origin: 'SCHEDULED', scope: 'DATABASE', retentionClass: 'DAILY',
+      createdBy: admin.id, createdAt: new Date('2026-08-21T04:00:00.000Z'),
+    }));
+    Object.assign(verified, {
+      status: 'SUCCESS', phase: 'CLEANUP', verifiedAt: new Date('2026-08-21T04:03:00.000Z'),
+      completedAt: new Date('2026-08-21T04:03:00.000Z'), remoteKey: 'private/key',
+      sizeBytes: 1024, sha256: 'a'.repeat(64),
+    });
+    await repository.execute((tx) => tx.insertQueuedRun({
+      id: randomUUID(), origin: 'MANUAL', scope: 'FULL_DATA', retentionClass: 'MANUAL',
+      createdBy: admin.id, createdAt: new Date('2026-08-22T04:00:00.000Z'),
+    }));
+
+    const response = await app.inject({ method: 'GET', url: '/api/admin/backup-overview' });
+    expect(response.statusCode).toBe(200);
+    const body = response.json();
+    expect(body.lastVerifiedBackup).toMatchObject({ id: verified.id, verifiedAt: '2026-08-21T04:03:00.000Z' });
+    expect(body.activeRun).toMatchObject({ scope: 'FULL_DATA', status: 'QUEUED' });
+    expect(body.lastVerifiedBackup).not.toHaveProperty('remoteKey');
+    expect(body.lastVerifiedBackup).not.toHaveProperty('sha256');
   });
 
   it('ADMIN: storage state exposes safe configuration fields only', async () => {

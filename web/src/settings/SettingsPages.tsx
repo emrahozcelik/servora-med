@@ -33,13 +33,22 @@ const settingsLandingItems = [
   { key: 'application', title: 'Uygulama', description: 'Dünya Dental uygulamasını bu cihaza ekleyin ve kurulum durumunu görüntüleyin.', to: paths.settingsApplication },
 ];
 
-export function SettingsLandingPage() {
+export function SettingsLandingPage({ user }: { user?: CurrentUser } = {}) {
+  const showBackupRecovery = user?.role === 'ADMIN' && user.capabilities?.backup === true;
+  const landingItems = showBackupRecovery
+    ? [...settingsLandingItems, {
+      key: 'backup-recovery',
+      title: 'Yedekleme ve Kurtarma',
+      description: 'Yönetici yedekleme durumunu, geçmişini ve zamanlamasını yönetin.',
+      to: paths.settingsBackupRecovery,
+    }]
+    : settingsLandingItems;
   return <main className="workspace settings-workspace">
     <header className="workspace-heading workspace-heading--semantic-only">
       <h1 className="route-identity-heading">Ayarlar</h1>
     </header>
     <nav className="settings-card-grid" aria-label="Ayar bölümleri">
-      {settingsLandingItems.map((item) => (
+      {landingItems.map((item) => (
         <Link key={item.key} to={item.to} className="settings-card-link">
           <OperationalCard title={item.title}>
             <small>{item.description}</small>

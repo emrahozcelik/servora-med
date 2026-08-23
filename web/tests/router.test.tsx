@@ -31,6 +31,7 @@ const staff: CurrentUser = {
 };
 const manager: CurrentUser = { ...staff, id: 'manager-1', name: 'Murat Yönetici', role: 'MANAGER' };
 const admin: CurrentUser = { ...manager, id: 'admin-1', name: 'Deniz Admin', role: 'ADMIN' };
+const backupAdmin: CurrentUser = { ...admin, capabilities: { ...admin.capabilities, backup: true } };
 
 beforeEach(() => {
   vi.stubGlobal('fetch', vi.fn(() => new Promise<Response>(() => {})));
@@ -90,6 +91,9 @@ describe('application routes', () => {
     ['/settings/profile', 'Ayşe Personel', staff],
     ['/settings/security', 'Parola değiştir', staff],
     ['/settings/notifications', 'Bu cihaz', staff],
+    ['/settings/data-management/backup-recovery', 'Erişim yetkiniz yok', manager],
+    ['/settings/data-management/backup-recovery', 'Erişim yetkiniz yok', staff],
+    ['/settings/data-management/backup-recovery', 'Yedekleme ve Kurtarma', backupAdmin],
   ] as const)('renders %s at a stable URL', async (path, expected, user) => {
     expect(await render(path, user)).toContain(expected);
   });
@@ -172,6 +176,7 @@ describe('application routes', () => {
     expect(paths.docs).toBe('/docs');
     expect(paths.help).toBe('/help');
     expect(paths.settingsNotifications).toBe('/settings/notifications');
+    expect(paths.settingsBackupRecovery).toBe('/settings/data-management/backup-recovery');
   });
 
   it('shows Product navigation to every role', async () => {

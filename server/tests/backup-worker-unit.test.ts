@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vitest';
 import {
   classifyScheduledRetention,
   getDueScheduledSlot,
+  getNextScheduledSlot,
   resolveLocalDateTime,
 } from '../src/modules/backup/scheduler.js';
 import {
@@ -59,6 +60,13 @@ describe('BR5 scheduled retention classification', () => {
       slotKey: firstFallOccurrence?.slotKey,
       scheduledFor: firstFallOccurrence?.scheduledFor,
     });
+  });
+
+  it('projects the next scheduled instant with the same IANA/DST resolver', () => {
+    expect(getNextScheduledSlot(new Date('2026-08-22T05:00:00Z'), '04:05', 'UTC').scheduledFor)
+      .toEqual(new Date('2026-08-23T04:05:00.000Z'));
+    expect(getNextScheduledSlot(new Date('2026-11-01T05:45:00Z'), '01:30', 'America/New_York').scheduledFor)
+      .toEqual(new Date('2026-11-02T06:30:00.000Z'));
   });
 
   it('centralizes bounded transient failure classes and exponential delay', () => {

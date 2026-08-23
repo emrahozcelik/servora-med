@@ -7,8 +7,9 @@ BR1: merged — Backup Domain Foundation
 BR2: merged — Local PostgreSQL Backup Engine
 BR3: merged — Post-Quantum Backup Encryption (native age HybridRecipient)
 BR4: merged — Cloudflare R2 Storage + Upload + Remote Verification
-BR5: implemented — worker / scheduling / retry / cleanup / crash recovery
-Status: BR5 Draft PR / exact-head CI pending; Ready, merge, and production cutover are not authorized
+BR5: merged — worker / scheduling / retry / cleanup / crash recovery
+BR6: implemented — admin Backup & Recovery UI on an isolated Draft PR branch
+Status: BR6 Draft PR / exact-head CI required before external review; Ready, merge, cleanup, and production cutover are not authorized
 ```
 
 This directory holds the approved architecture and implementation-ready
@@ -26,8 +27,9 @@ added or configured.
 | BR2 — local PostgreSQL backup engine | merged (`12452f0`, PR #189) |
 | BR3 — post-quantum backup encryption | merged (`d57bca7`, PR #190) |
 | BR4 — Cloudflare R2 storage + verification | merged; REAL_R2 acceptance remains a BR5 production gate |
-| BR5 — worker / scheduling / retry / recovery | implemented on the isolated Draft PR branch; exact-head CI pending |
-| BR6–BR7 | future (admin UI, restore CLI) |
+| BR5 — worker / scheduling / retry / recovery | merged; production enablement remains separately authorized |
+| BR6 — admin backup UI | implemented on the isolated Draft PR branch; exact-head CI required before external review |
+| BR7 — restore CLI | future |
 
 BR1 delivered (metadata foundation only — no pg_dump, encryption, R2,
 worker, scheduler, UI, or restore execution):
@@ -203,6 +205,27 @@ separate authorized gate):
   MVP timer/script remains untouched. `REAL_R2_ACCEPTANCE = NOT EXECUTED`
   remains a mandatory disposable-bucket gate before enabling the worker in
   production.
+
+BR6 delivered (admin management UI only; production execution remains gated):
+
+- Admin path: `Settings → Data Management → Backup & Recovery`, visible only
+  to `ADMIN` users when the `BACKUP_ENABLED` capability is present. Manager and
+  staff users remain forbidden by the backend and the UI navigation model.
+- Sections: Overview, Backups, Schedule, and Storage. `POST /api/admin/backups`
+  remains an asynchronous `202 QUEUED` request with client idempotency; history
+  uses bounded keyset pagination. A narrow read-only
+  `GET /api/admin/backup-overview` projection supplies the next scheduled
+  instant using the BR5 scheduler utility and excludes remote object details.
+- Storage is status-only: no credential values or masked secrets are rendered.
+  The connection test remains the bounded BR4 probe and is not a real-R2 or
+  production-readiness acceptance.
+- Status axes remain separate (execution, verification, and cleanup warning).
+  `SUCCESS + verified_at + CLEANUP_FAILED` remains a verified success with a
+  warning; `SUCCESS` without `verified_at` is never healthy.
+- Reverify UI is deferred because the durable HTTP reverify endpoint remains
+  absent. Restore, deletion/pruning, credential editing, Bucket Lock/lifecycle
+  controls, worker enablement, legacy timer retirement, and monitoring cutover
+  are not part of BR6.
 
 ## File map
 

@@ -58,6 +58,19 @@ describe('buildNavigationModel', () => {
     expect(model.destinations.find((d) => d.label === 'Kullanıcılar')?.section).toBe('Ekip');
   });
 
+  it('shows Backup & Recovery only for an ADMIN when the backup capability is enabled', () => {
+    const enabled = buildNavigationModel({
+      ...admin,
+      capabilities: { ...admin.capabilities, backup: true },
+    });
+    expect(enabled.destinations.map((item) => item.label)).toContain('Yedekleme ve Kurtarma');
+    expect(enabled.destinations.find((item) => item.label === 'Yedekleme ve Kurtarma')?.to).toBe('/settings/data-management/backup-recovery');
+    expect(buildNavigationModel({ ...admin, capabilities: { ...admin.capabilities, backup: false } }).destinations)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ label: 'Yedekleme ve Kurtarma' })]));
+    expect(buildNavigationModel({ ...manager, capabilities: { ...manager.capabilities, backup: true } }).destinations)
+      .not.toEqual(expect.arrayContaining([expect.objectContaining({ label: 'Yedekleme ve Kurtarma' })]));
+  });
+
   it('shows overview only when enabled and keeps support/account in a four-item mobile model', () => {
     const enabled = buildNavigationModel({
       ...staff,

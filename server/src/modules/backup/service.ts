@@ -4,6 +4,7 @@ import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
 import { presentRun, type BackupRepository } from './repository.js';
 import type {
+  BackupOverviewDto,
   BackupFailureCode,
   BackupPolicy,
   BackupPolicyUpdate,
@@ -13,7 +14,9 @@ import type {
   BackupRunDto,
   BackupScope,
   BackupStorageState,
+  BackupWorkerState,
 } from './types.js';
+import { getNextScheduledSlot } from './scheduler.js';
 import {
   isValidPhaseTransition as phaseTransitionValid,
   isValidStatusTransition as statusTransitionValid,
@@ -187,6 +190,41 @@ export class BackupService implements BackupServiceTransitionPrimitives {
     return presentRun(run);
   }
 
+  async getOverview(actor: SafeUser): Promise<BackupOverviewDto> {
+    requireAdmin(actor);
+    const policy = await this.repository.getPolicy();
+    if (!policy) throw policyUnavailable();
+    const [activeRun, latestVerifiedRun, workerState] = await Promise.all([
+      this.repository.findActiveBackupRun(),
+      this.repository.findLatestVerifiedRun
+        ? this.repository.findLatestVerifiedRun()
+        : this.repository.listRuns({ limit: 50, cursor: null }).then((page) =>
+          page.items.find((run) => run.status === 'SUCCESS' && run.verifiedAt !== null) ?? null),
+      this.repository.getWorkerState ? this.repository.getWorkerState() : Promise.resolve(null),
+    ]);
+
+    let nextScheduledAt: string | null = null;
+    if (policy.enabled) {
+      try {
+        nextScheduledAt = getNextScheduledSlot(
+          this.now(), policy.scheduleTimeLocal, policy.timezone,
+        ).scheduledFor.toISOString();
+      } catch {
+        // A policy persisted by an older deployment must fail closed in the
+        // projection; policy validation remains owned by the service.
+        nextScheduledAt = null;
+      }
+    }
+
+    return {
+      lastVerifiedBackup: latestVerifiedRun ? presentSummary(latestVerifiedRun) : null,
+      activeRun: activeRun ? presentSummary(activeRun) : null,
+      nextScheduledAt,
+      scheduleTimezone: policy.timezone,
+      worker: workerState ? presentWorkerState(workerState) : null,
+    };
+  }
+
   async getPolicy(actor: SafeUser): Promise<BackupPolicy> {
     requireAdmin(actor);
     const policy = await this.repository.getPolicy();
@@ -350,6 +388,19 @@ export class BackupService implements BackupServiceTransitionPrimitives {
     if (!run) throw backupNotFound();
     return run;
   }
+}
+
+function presentSummary(run: BackupRun): BackupOverviewDto['activeRun'] {
+  const { remoteKey: _remoteKey, sha256: _sha256, ...summary } = presentRun(run);
+  return summary;
+}
+
+function presentWorkerState(state: BackupWorkerState): NonNullable<BackupOverviewDto['worker']> {
+  return {
+    workerHeartbeatAt: state.workerHeartbeatAt?.toISOString() ?? null,
+    schedulerLastTickAt: state.schedulerLastTickAt?.toISOString() ?? null,
+    lastScheduledFor: state.lastScheduledFor?.toISOString() ?? null,
+  };
 }
 
 function policySubjectId(policy: BackupPolicy): string {

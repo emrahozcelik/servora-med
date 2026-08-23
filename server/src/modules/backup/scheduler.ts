@@ -149,6 +149,8 @@ export type DueScheduledSlot = {
   retentionClass: BackupRetentionClass;
 };
 
+export type NextScheduledSlot = Pick<DueScheduledSlot, 'scheduledFor'>;
+
 function localDateString(parts: LocalDateTimeParts): string {
   return [parts.year, String(parts.month).padStart(2, '0'), String(parts.day).padStart(2, '0')].join('-');
 }
@@ -168,4 +170,29 @@ export function getDueScheduledSlot(
     scheduledFor,
     retentionClass: classifyScheduledRetention(now, timezone),
   };
+}
+
+/**
+ * Resolve the next wall-clock schedule without duplicating the scheduler's
+ * IANA/DST rules in a presentation client. This is a read-only projection for
+ * admin surfaces; it does not claim or enqueue a run.
+ */
+export function getNextScheduledSlot(
+  now: Date,
+  scheduleTimeLocal: string,
+  timezone: string,
+): NextScheduledSlot {
+  const local = getLocalDateParts(now, timezone);
+  const localDate = new Date(Date.UTC(local.year, local.month - 1, local.day));
+  for (let offset = 0; offset <= 2; offset += 1) {
+    const candidateDate = new Date(localDate.getTime() + offset * 86_400_000);
+    const date = [
+      candidateDate.getUTCFullYear(),
+      String(candidateDate.getUTCMonth() + 1).padStart(2, '0'),
+      String(candidateDate.getUTCDate()).padStart(2, '0'),
+    ].join('-');
+    const scheduledFor = resolveLocalDateTime(date, scheduleTimeLocal, timezone);
+    if (scheduledFor.getTime() > now.getTime()) return { scheduledFor };
+  }
+  throw new Error('next local schedule cannot be resolved');
 }

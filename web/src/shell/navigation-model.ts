@@ -52,6 +52,13 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
   const docs: NavLinkItem = { kind: 'link', id: 'docs', label: 'Dokümantasyon', to: paths.docs, section: 'Destek' };
   const help: NavLinkItem = { kind: 'link', id: 'help', label: 'Yardım Merkezi', to: paths.help, section: 'Destek' };
   const settings: NavLinkItem = { kind: 'link', id: 'settings', label: 'Ayarlar', to: paths.settings, section: 'Hesap' };
+  const backupRecovery: NavLinkItem = {
+    kind: 'link',
+    id: 'backup-recovery',
+    label: 'Yedekleme ve Kurtarma',
+    to: paths.settingsBackupRecovery,
+    section: 'Hesap',
+  };
 
   const destinations: NavLinkItem[] = [
     ...(user.capabilities?.overviewDashboard ? [overview] : []),
@@ -66,6 +73,7 @@ export function buildNavigationModel(user: CurrentUser): NavigationModel {
     docs,
     help,
     settings,
+    ...(user.role === 'ADMIN' && user.capabilities?.backup === true ? [backupRecovery] : []),
   ];
 
   if (user.role === 'STAFF') {
@@ -103,6 +111,7 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
   if (pathname.startsWith('/messages')) return 'Mesajlar';
   if (pathname.startsWith('/docs')) return 'Dokümantasyon';
   if (pathname.startsWith('/help')) return 'Yardım Merkezi';
+  if (pathname.startsWith(paths.settingsBackupRecovery)) return 'Yedekleme ve Kurtarma';
   if (pathname.startsWith('/settings')) return 'Ayarlar';
   if (pathname.startsWith('/jobs/new-')) return 'Yeni iş';
   if (/^\/jobs\/[^/]+/.test(pathname)) return 'İş detayı';
@@ -127,6 +136,7 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
 
 /** Parent path for nested routes; null on top-level sections. */
 export function resolveShellBackTo(pathname: string): string | null {
+  if (pathname.startsWith(paths.settingsBackupRecovery)) return paths.settings;
   if (pathname.startsWith('/jobs/new-') || /^\/jobs\/[^/]+/.test(pathname)) return paths.jobs;
 
   const contactMatch = pathname.match(/^\/customers\/([^/]+)\/contacts\//);
