@@ -44,6 +44,30 @@ Contract rules:
   (single encrypted object; `.age` = age/X25519 recipient encryption,
   `.sbk` = Servora backup).
 
+### 1.1 Physical local package — BR2 implementation decision
+
+BR2 produces the pre-encryption plaintext package as a single
+**uncompressed tar**:
+
+```text
+<temp-root>/<run-id>/package/<run-id>.sbk.tar
+```
+
+Why uncompressed tar (BR2 design decision, consumed by BR3 and BR7):
+
+- The two large components are already compressed where it matters
+  (`database.dump` is compressed inside the pg_dump custom format;
+  `files.tar.zst` is zstd-compressed) — a compressed container would
+  double-compress for no benefit and lose streamability.
+- `tar` is present on every supported deployment/restore platform
+  (GNU tar on the Ubuntu VPS reference, bsdtar on the macOS pilot),
+  keeps component bytes exact, supports streaming into BR3 encryption,
+  and is independently inspectable (`tar -t`, `tar -x`).
+- Member list is fixed and explicit (`manifest.json`, `database.dump`,
+  optional `files.tar.zst`, `checksums.sha256`) — no directory wildcards.
+- `.sbk.age` stays reserved for the BR3 encrypted artifact; the plaintext
+  package deliberately uses `.sbk.tar`.
+
 ## 2. Manifest v1 contract
 
 TypeScript-style contract (camelCase, matching repository DTO style in
@@ -69,9 +93,10 @@ interface BackupManifestV1 {
   database: {
     engine: 'postgresql';
     serverVersion: string;              // source SELECT version()
-    dumpVersion: number;                // pg_dump custom-format version
+    dumpVersion: string;                // archive "Dump Version" (e.g. "1.15-0"), see note
+    dumpToolVersion: string;            // producer pg_dump version (additive, BR2)
     schemaVersion: string;              // latest applied migration id,
-                                        // e.g. '029_messaging_conversation_archive'
+                                        // e.g. '030_backup_domain_foundation'
                                         // (same value family as HEALTH_SCHEMA_VERSION)
   };
 
@@ -93,6 +118,27 @@ interface BackupManifestV1 {
   };
 }
 ```
+
+### `dumpVersion` semantics — BR2 reconciliation of a BR0 type gap
+
+BR0 defined `dumpVersion` as the pg_dump custom-format version but typed it
+as `number`. PostgreSQL's own `pg_restore -l` header exposes the archive
+format version as a dotted string, distinct from the producer tool version:
+
+```text
+; Dump Version: 1.15-0                          ← archive format version
+; Dumped from database version: 16.13 (Homebrew)
+; Dumped by pg_dump version: 16.13 (Homebrew)   ← producer tool version
+```
+
+Reconciled semantics (external review of PR #189; recorded here explicitly):
+
+- `dumpVersion: string` = the produced archive's **"Dump Version"** header
+  value (e.g. `"1.15-0"`), read from `pg_restore -l` of the artifact itself.
+- `dumpToolVersion: string` (additive, BR2) = the producer pg_dump version
+  from the same header ("Dumped by pg_dump version").
+- The two concepts are never conflated; the manifest's own v1 compatibility
+  rule (additive optional fields tolerated) covers the extra field.
 
 ### Forbidden manifest content
 

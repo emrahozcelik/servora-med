@@ -3,8 +3,9 @@
 ```text
 Date: 2026-08-22
 BR0: merged (architecture and contracts only)
-BR1: implemented — Backup Domain Foundation
-Status: BR1 delivered; BR2–BR7 future
+BR1: merged — Backup Domain Foundation
+BR2: implemented — Local PostgreSQL Backup Engine
+Status: BR2 delivered; BR3–BR7 future
 ```
 
 This directory holds the approved architecture and implementation-ready
@@ -18,8 +19,9 @@ added or configured.
 | Slice | Status |
 |-------|--------|
 | BR0 — architecture + contracts | merged (`eceb94d`, PR #187) |
-| BR1 — backup domain foundation | implemented (see below) |
-| BR2–BR7 | future (engine, encryption, R2, worker, admin UI, restore CLI) |
+| BR1 — backup domain foundation | merged (`8530990`, PR #188) |
+| BR2 — local PostgreSQL backup engine | implemented (see below) |
+| BR3–BR7 | future (encryption, R2, worker, admin UI, restore CLI) |
 
 BR1 delivered (metadata foundation only — no pg_dump, encryption, R2,
 worker, scheduler, UI, or restore execution):
@@ -41,6 +43,29 @@ worker, scheduler, UI, or restore execution):
   secrets). Deliberately deferred: `POST /api/admin/backups/:id/reverify`
   and `POST /api/admin/backup-storage/test` (would not be truthful before
   BR4).
+
+BR2 delivered (local engine only — stops at the PACKAGE phase; no age
+encryption, no R2, no worker/scheduler, no UI, no restore CLI):
+
+- `server/src/modules/backup/engine.ts` — `LocalBackupEngine.buildLocalBackup`:
+  PostgreSQL source → isolated 0700 workspace (`workspace.ts`, UUID-derived,
+  containment-checked) → `pg_dump -Fc --no-owner --no-acl` (argv-safe
+  execFile, connection via libpq child env only — password never on argv,
+  disk, or in logs) → optional `files.tar.zst` (system `tar` + `zstd`,
+  symlinks archived as symlinks, single configured `BACKUP_FILES_ROOT`)
+  → manifest V1 (`dumpVersion` = archive "Dump Version" via `pg_restore -l`, plus additive `dumpToolVersion`; see archive-and-storage §2)
+  → streaming SHA-256 components → `checksums.sha256` (two-space sidecar)
+  → plaintext package `<run-id>.sbk.tar` (uncompressed tar — decision
+  recorded in archive-and-storage §1.1).
+- Phase progression exclusively through BR1 service primitives; a completed
+  run stays `RUNNING` at `PACKAGE` (never SUCCESS, no `verified_at`, no
+  canonical sha256 — those belong to BR3/BR4).
+- Local preflight subset only (temp root + disk headroom, pg_dump presence
+  and server-major compatibility, database reachability, files-archive
+  prerequisites). No HTTP surface: `POST /api/admin/backups` still only
+  enqueues domain intent.
+- Config: optional `BACKUP_TEMP_ROOT` / `BACKUP_FILES_ROOT` (empty = not
+  configured, which is valid; app startup never requires BR3/BR4 secrets).
 
 ## File map
 

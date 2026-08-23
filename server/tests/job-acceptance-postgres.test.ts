@@ -174,6 +174,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '028_notification_center_dismissal',
           '029_messaging_conversation_archive',
           '030_backup_domain_foundation',
+          '031_backup_engine_failure_taxonomy_and_dump_version',
         ],
       });
 

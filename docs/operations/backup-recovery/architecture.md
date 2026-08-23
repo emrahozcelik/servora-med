@@ -246,6 +246,8 @@ storage connection test).
 | `pg_dump` binary available | `PREFLIGHT_PG_DUMP_UNAVAILABLE` | no — requires operator fix |
 | `pg_dump`/server version compatibility | `PREFLIGHT_PG_DUMP_UNAVAILABLE` | no |
 | Temp directory writable | `PREFLIGHT_LOW_DISK` (I/O error) | no |
+| Workspace slot free (no existing run workspace) | `PREFLIGHT_WORKSPACE_CONFLICT` — fail-closed; no automatic deletion or retry; reclamation ownership is BR5's (DB run-state/lease based) | no |
+| Files-archive prerequisites (configured root usable; tar/zstd present when required) | `PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE` | no — operator fix |
 | Sufficient temp disk headroom | `PREFLIGHT_LOW_DISK` | yes — may pass on retry after space frees |
 | Encryption public recipient configured | `ENCRYPTION_FAILED` pre-classified as preflight hard failure | no |
 | R2/storage configuration available | `PREFLIGHT_STORAGE_UNAVAILABLE` | retry with backoff before failing |
