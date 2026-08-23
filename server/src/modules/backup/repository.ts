@@ -539,10 +539,10 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
     await this.pool.query(
       `INSERT INTO audit_events
         (organization_id, actor_user_id, subject_type, subject_id, event_type, metadata)
-       SELECT NULL, NULL, 'BACKUP_RUN', $1, $2, $3
+       SELECT NULL, NULL, 'BACKUP_RUN', $1, $2::varchar, $3
         WHERE NOT EXISTS (
           SELECT 1 FROM audit_events
-           WHERE subject_type = 'BACKUP_RUN' AND subject_id = $1 AND event_type = $2
+           WHERE subject_type = 'BACKUP_RUN' AND subject_id = $1 AND event_type = $2::varchar
         )`,
       [runId, eventType, JSON.stringify({ ...metadata, actorType: 'SYSTEM', backupId: runId })],
     );
@@ -864,12 +864,12 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
       await client.query(
         `UPDATE backup_worker_state
             SET scheduler_last_tick_at = CURRENT_TIMESTAMP,
-                last_scheduled_slot_key = $2,
-                last_scheduled_local_date = $3::date,
-                last_scheduled_for = $4,
-                last_scheduled_run_id = $5
+                last_scheduled_slot_key = $1,
+                last_scheduled_local_date = $2::date,
+                last_scheduled_for = $3,
+                last_scheduled_run_id = $4
           WHERE singleton`,
-        [input.createdAt, input.slotKey, input.localDate, input.scheduledFor, run.id],
+        [input.slotKey, input.localDate, input.scheduledFor, run.id],
       );
       await client.query('COMMIT');
       return { kind: 'created' as const, run };
