@@ -101,6 +101,21 @@ const RUN_COLUMNS = `id, status, phase, origin, scope, retention_class, created_
   sha256, verified_at, lease_until, heartbeat_at, warning_code, warning_summary,
   failure_code, failure_summary`;
 
+// UPDATE ... FROM statements have both the target row and a candidate CTE in
+// scope. Qualify every returned column there so PostgreSQL cannot resolve
+// `id` (or another shared column) ambiguously.
+const RUN_COLUMNS_QUALIFIED = `r.id AS id, r.status AS status, r.phase AS phase,
+  r.origin AS origin, r.scope AS scope, r.retention_class AS retention_class,
+  r.created_by AS created_by, r.created_at AS created_at, r.started_at AS started_at,
+  r.completed_at AS completed_at, r.format_version AS format_version,
+  r.app_version AS app_version, r.git_commit AS git_commit,
+  r.schema_version AS schema_version, r.database_server_version AS database_server_version,
+  r.dump_version AS dump_version, r.remote_key AS remote_key, r.size_bytes AS size_bytes,
+  r.sha256 AS sha256, r.verified_at AS verified_at, r.lease_until AS lease_until,
+  r.heartbeat_at AS heartbeat_at, r.warning_code AS warning_code,
+  r.warning_summary AS warning_summary, r.failure_code AS failure_code,
+  r.failure_summary AS failure_summary`;
+
 const POLICY_COLUMNS = `id, enabled, schedule_time_local, timezone, daily_retention,
   weekly_retention, monthly_retention, default_scope, updated_at, updated_by`;
 
@@ -679,7 +694,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
               heartbeat_at = CURRENT_TIMESTAMP
          FROM candidate
         WHERE r.id = candidate.id
-        RETURNING ${RUN_COLUMNS}`,
+        RETURNING ${RUN_COLUMNS_QUALIFIED}`,
       [leaseToken, leaseDurationMs],
     );
     const row = result.rows[0];
@@ -716,7 +731,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
               heartbeat_at = CURRENT_TIMESTAMP
          FROM candidate
         WHERE r.id = candidate.id
-        RETURNING ${RUN_COLUMNS}`,
+        RETURNING ${RUN_COLUMNS_QUALIFIED}`,
       [leaseToken, leaseDurationMs],
     );
     const row = result.rows[0];
@@ -752,7 +767,7 @@ export class PostgresBackupRepository implements BackupWorkerRepository {
               heartbeat_at = NULL
          FROM expired
         WHERE r.id = expired.id
-        RETURNING ${RUN_COLUMNS}`,
+        RETURNING ${RUN_COLUMNS_QUALIFIED}`,
       [],
     );
     return result.rows.map(mapRun);
