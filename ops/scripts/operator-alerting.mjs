@@ -154,6 +154,14 @@ function absoluteDirectory(raw, name) {
   return raw;
 }
 
+function backupSource(raw) {
+  const value = raw === undefined || raw === '' ? 'legacy' : String(raw).trim();
+  if (value !== 'legacy' && value !== 'verified-runs') {
+    throw new ConfigError('SERVORA_ALERT_BACKUP_SOURCE must be legacy or verified-runs');
+  }
+  return value;
+}
+
 export function parseWebhookUrl(raw) {
   if (typeof raw !== 'string' || raw.trim() === '') throw new ConfigError('SERVORA_ALERT_WEBHOOK_URL is required when alerting is enabled');
   let url;
@@ -220,6 +228,7 @@ export function loadConfig(env) {
     stateDir: absoluteDirectory(env.SERVORA_ALERT_STATE_DIR, 'SERVORA_ALERT_STATE_DIR'),
     environment: safeLabel(env.SERVORA_ALERT_ENVIRONMENT, 'SERVORA_ALERT_ENVIRONMENT', 'local'),
     instanceLabel: safeLabel(env.SERVORA_ALERT_INSTANCE_LABEL, 'SERVORA_ALERT_INSTANCE_LABEL', 'servora-med'),
+    backupSource: backupSource(env.SERVORA_ALERT_BACKUP_SOURCE),
   };
 }
 
@@ -233,7 +242,7 @@ export function redactWebhookUrl(url) {
 
 export async function probeHealth(config, deps) {
   const started = deps.now();
-  const result = { ok: false, httpStatus: null, timeout: false, errorCategory: null, latencyMs: null };
+  const result = { ok: false, httpStatus: null, timeout: false, errorCategory: null, latencyMs: null, backup: null };
   try {
     const response = await deps.fetch(config.healthUrl, {
       method: 'GET',
@@ -262,6 +271,18 @@ export async function probeHealth(config, deps) {
       result.errorCategory = 'invalid-body';
       return result;
     }
+    const backup = body?.backup;
+    if (backup && typeof backup === 'object') {
+      result.backup = {
+        status: backup.status === 'ok' ? 'ok' : 'unavailable',
+        latestVerifiedAt: typeof backup.latestVerifiedAt === 'string' ? backup.latestVerifiedAt : null,
+        latestScheduledVerifiedAt: typeof backup.latestScheduledVerifiedAt === 'string' ? backup.latestScheduledVerifiedAt : null,
+        latestRunStatus: typeof backup.latestRunStatus === 'string' ? backup.latestRunStatus : null,
+        latestScheduledRunStatus: typeof backup.latestScheduledRunStatus === 'string' ? backup.latestScheduledRunStatus : null,
+        workerHeartbeatAt: typeof backup.workerHeartbeatAt === 'string' ? backup.workerHeartbeatAt : null,
+        schedulerLastTickAt: typeof backup.schedulerLastTickAt === 'string' ? backup.schedulerLastTickAt : null,
+      };
+    }
     result.ok = true;
     result.errorCategory = null;
     return result;
@@ -275,6 +296,51 @@ export async function probeHealth(config, deps) {
     }
     return result;
   }
+}
+
+export function evaluateVerifiedBackup(config, healthResult, deps) {
+  const result = {
+    ok: false,
+    errorCategory: null,
+    latestProblem: null,
+    ageHours: null,
+    basename: null,
+    checksumValid: null,
+    latestBackupTimestamp: null,
+    workerHeartbeatAt: null,
+    schedulerLastTickAt: null,
+  };
+  const evidence = healthResult?.backup;
+  if (!healthResult?.ok || !evidence) {
+    result.errorCategory = 'health-unavailable';
+    return result;
+  }
+  result.workerHeartbeatAt = evidence.workerHeartbeatAt;
+  result.schedulerLastTickAt = evidence.schedulerLastTickAt;
+  if (evidence.latestScheduledRunStatus === 'FAILED') {
+    result.errorCategory = 'scheduled-failure';
+    result.latestProblem = 'FAILED';
+    return result;
+  }
+  const verifiedAt = evidence.latestScheduledVerifiedAt
+    ? new Date(evidence.latestScheduledVerifiedAt)
+    : null;
+  if (!verifiedAt || !Number.isFinite(verifiedAt.getTime())) {
+    result.errorCategory = 'no-verified-backup';
+    result.latestProblem = evidence.latestScheduledRunStatus ?? 'no-scheduled-success';
+    return result;
+  }
+  const now = deps.now();
+  if (verifiedAt.getTime() > now) {
+    result.errorCategory = 'invalid-backup';
+    result.latestProblem = 'future-timestamp';
+    return result;
+  }
+  result.latestBackupTimestamp = verifiedAt.toISOString();
+  result.ageHours = (now - verifiedAt.getTime()) / 3_600_000;
+  result.ok = evidence.status === 'ok' && result.ageHours <= config.backupMaxAgeHours;
+  result.errorCategory = result.ok ? null : (evidence.status === 'ok' ? 'stale' : 'worker-unavailable');
+  return result;
 }
 
 // ---------------------------------------------------------------------------
@@ -1001,9 +1067,12 @@ export async function runMonitor(config, deps) {
     }
   }
 
+  const health = await probeHealth(config, deps);
   const outcomes = {
-    health: await probeHealth(config, deps),
-    backup: await evaluateBackup(config, deps),
+    health,
+    backup: config.backupSource === 'verified-runs'
+      ? evaluateVerifiedBackup(config, health, deps)
+      : await evaluateBackup(config, deps),
     disk: probeDisk(config, deps),
   };
 
@@ -1077,6 +1146,8 @@ function detailsForCheck(name, outcome, previous, config) {
       basename: outcome.basename,
       checksumValid: outcome.checksumValid,
       latestBackupTimestamp: outcome.latestBackupTimestamp,
+      workerHeartbeatAt: outcome.workerHeartbeatAt ?? null,
+      schedulerLastTickAt: outcome.schedulerLastTickAt ?? null,
     };
   }
   if (name === 'disk') {

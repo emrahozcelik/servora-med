@@ -14,7 +14,8 @@ import {
   type ParsedToolVersion,
 } from './process.js';
 import type { BackupRepository } from './repository.js';
-import type { BackupService } from './service.js';
+import type { BackupServiceTransitionPrimitives } from './service.js';
+import { isRetryableBackupFailure } from './retry.js';
 import type {
   BackupFailureCode,
   BackupOrigin,
@@ -65,6 +66,7 @@ export type LocalBackupResult =
     failureCode: BackupFailureCode;
     failureSummary: string;
     diagnostics: string | null;
+    retryable: boolean;
   };
 
 class EngineFailure extends Error {
@@ -72,6 +74,7 @@ class EngineFailure extends Error {
     readonly failureCode: BackupFailureCode,
     readonly summary: string,
     readonly diagnostics: string | null = null,
+    readonly retryable = false,
   ) {
     super(summary);
     this.name = 'EngineFailure';
@@ -145,13 +148,15 @@ function pgConnectionEnv(databaseUrl: string): NodeJS.ProcessEnv {
 
 export type LocalBackupEngineOptions = {
   repository: BackupRepository;
-  service: BackupService;
+  service: BackupServiceTransitionPrimitives;
   pool: Pool;
   databaseUrl: string;
   tempRoot: string;
   filesRoot: string | null;
   now?: () => Date;
   application?: { applicationVersion: string; gitCommit: string | null };
+  /** BR5 keeps retryable preflight failures RUNNING at the same phase. */
+  deferRetryableFailures?: boolean;
 };
 
 type PreflightMetadata = {
@@ -345,7 +350,11 @@ export class LocalBackupEngine {
           'Yedek üretimi beklenmeyen bir hatayla kesildi.',
           error instanceof Error ? tail(String(error.message ?? '')) : null,
         );
-      await service.markFailed(runId, failure.failureCode, failure.summary);
+      const retryable = this.options.deferRetryableFailures === true
+        && isRetryableBackupFailure(failure.failureCode);
+      if (!retryable) {
+        await service.markFailed(runId, failure.failureCode, failure.summary);
+      }
       // LOCAL FAILURE CLEANUP (deliberately distinct from the state-machine
       // CLEANUP phase): best-effort removal of THIS run's partial workspace.
       // The original deterministic failure is never replaced or downgraded,
@@ -360,6 +369,7 @@ export class LocalBackupEngine {
         failureCode: failure.failureCode,
         failureSummary: failure.summary,
         diagnostics: failure.diagnostics,
+        retryable,
       };
     }
   }

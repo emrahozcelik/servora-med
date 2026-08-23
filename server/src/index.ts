@@ -2,6 +2,7 @@ import { buildApp } from './app.js';
 import { loadConfig } from './config.js';
 import { closeDatabase, createDatabase } from './db/index.js';
 import { createPostgresReadiness } from './modules/health/postgres-readiness.js';
+import { createPostgresBackupHealth } from './modules/health/postgres-backup-health.js';
 import { PostgresAuthRepository } from './modules/auth/repository.js';
 import { PostgresJobCardRepository } from './modules/job-cards/repository.js';
 import {
@@ -107,6 +108,9 @@ async function main() {
         database.pool,
       ),
       healthReadiness: createPostgresReadiness(database.pool, config.healthSchemaVersion),
+      backupHealthReadiness: createPostgresBackupHealth(database.pool, {
+        workerEnabled: config.backupWorker?.enabled === true,
+      }),
       realtimeService,
       realtimePublisher: realtimeBus,
       notificationRepository: new PostgresNotificationRepository(database.pool),

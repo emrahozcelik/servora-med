@@ -3,7 +3,9 @@ import { afterEach, describe, expect, it } from 'vitest';
 import { buildApp } from '../src/app.js';
 import type { AppConfig } from '../src/config.js';
 import type { HealthReadinessPort } from '../src/modules/health/service.js';
+import type { BackupHealthReadinessPort } from '../src/modules/health/service.js';
 import { createPostgresReadiness } from '../src/modules/health/postgres-readiness.js';
+import { createPostgresBackupHealth } from '../src/modules/health/postgres-backup-health.js';
 
 const testConfig: AppConfig = {
   nodeEnv: 'test',
@@ -94,5 +96,58 @@ describe('GET /api/health readiness', () => {
     const missing = createPostgresReadiness(pool as never, '008_missing');
     await expect(ready.check()).resolves.toBe('ok');
     await expect(missing.check()).resolves.toBe('unavailable');
+  });
+
+  it('surfaces safe backup worker evidence without changing the generic status contract', async () => {
+    const backupReadiness: BackupHealthReadinessPort = {
+      check: async () => ({
+        status: 'ok',
+        latestVerifiedAt: '2026-08-23T01:00:00.000Z',
+        latestScheduledVerifiedAt: '2026-08-23T01:00:00.000Z',
+        latestRunStatus: 'SUCCESS',
+        latestScheduledRunStatus: 'SUCCESS',
+        workerHeartbeatAt: '2026-08-23T01:01:00.000Z',
+        schedulerLastTickAt: '2026-08-23T01:00:00.000Z',
+      }),
+    };
+    const app = await buildApp(testConfig, {
+      healthReadiness: { check: async () => 'ok' },
+      backupHealthReadiness: backupReadiness,
+    });
+    apps.push(app);
+    const response = await app.inject({ method: 'GET', url: '/api/health' });
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({ status: 'ok', backup: { status: 'ok', latestRunStatus: 'SUCCESS' } });
+    const backup = await app.inject({ method: 'GET', url: '/api/health/backup' });
+    expect(backup.statusCode).toBe(200);
+    expect(backup.json()).toMatchObject({ status: 'ok', workerHeartbeatAt: expect.any(String) });
+  });
+
+  it('uses scheduled verified evidence and both liveness timestamps for backup health', async () => {
+    const now = new Date('2026-08-23T02:00:00.000Z');
+    const pool = {
+      query: async (sql: string) => {
+        if (sql.includes("origin = 'SCHEDULED'") && sql.includes('verified_at')) {
+          return { rows: [{ verified_at: new Date('2026-08-23T01:00:00.000Z') }] };
+        }
+        if (sql.includes("origin = 'SCHEDULED'")) return { rows: [{ status: 'SUCCESS' }] };
+        if (sql.includes('worker_heartbeat_at')) {
+          return {
+            rows: [{
+              worker_heartbeat_at: new Date('2026-08-23T01:59:00.000Z'),
+              scheduler_last_tick_at: new Date('2026-08-23T01:58:00.000Z'),
+            }],
+          };
+        }
+        return { rows: [{ verified_at: new Date('2026-08-23T01:00:00.000Z') }] };
+      },
+    };
+    const health = createPostgresBackupHealth(pool as never, { workerEnabled: true, now: () => now });
+    await expect(health.check()).resolves.toMatchObject({
+      status: 'ok',
+      latestVerifiedAt: '2026-08-23T01:00:00.000Z',
+      latestScheduledVerifiedAt: '2026-08-23T01:00:00.000Z',
+      latestScheduledRunStatus: 'SUCCESS',
+    });
   });
 });

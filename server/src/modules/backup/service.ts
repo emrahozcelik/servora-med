@@ -104,13 +104,13 @@ export type ManualBackupRequestInput = {
 };
 
 export type BackupServiceTransitionPrimitives = {
-  startRun(id: string): Promise<BackupRun>;
-  advancePhase(id: string, toPhase: NonNullable<BackupRun['phase']>, filesArchiveRequired: boolean): Promise<BackupRun>;
-  markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string): Promise<BackupRun>;
-  markCancelled(id: string): Promise<BackupRun>;
-  recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }): Promise<BackupRun>;
-  completeRun(id: string, options?: { cleanupWarning?: string }): Promise<BackupRun>;
-  markCleanupWarning(id: string, warningSummary: string): Promise<BackupRun>;
+  startRun(id: string, leaseToken?: string): Promise<BackupRun>;
+  advancePhase(id: string, toPhase: NonNullable<BackupRun['phase']>, filesArchiveRequired: boolean, leaseToken?: string): Promise<BackupRun>;
+  markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string, leaseToken?: string): Promise<BackupRun>;
+  markCancelled(id: string, leaseToken?: string): Promise<BackupRun>;
+  recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, leaseToken?: string): Promise<BackupRun>;
+  completeRun(id: string, options?: { cleanupWarning?: string }, leaseToken?: string): Promise<BackupRun>;
+  markCleanupWarning(id: string, warningSummary: string, leaseToken?: string): Promise<BackupRun>;
 };
 
 export class BackupService implements BackupServiceTransitionPrimitives {
@@ -267,49 +267,49 @@ export class BackupService implements BackupServiceTransitionPrimitives {
   // generic updateBackupRun(fields) surface.
   // -------------------------------------------------------------------------
 
-  async startRun(id: string): Promise<BackupRun> {
+  async startRun(id: string, leaseToken?: string): Promise<BackupRun> {
     const run = await this.requireRun(id);
     if (!statusTransitionValid(run.status, 'RUNNING')) throw invalidTransition();
-    const updated = await this.repository.startRun(id, this.now());
+    const updated = await this.repository.startRun(id, this.now(), leaseToken);
     if (!updated) throw invalidTransition();
     return updated;
   }
 
-  async advancePhase(id: string, toPhase: NonNullable<BackupRun['phase']>, filesArchiveRequired: boolean): Promise<BackupRun> {
+  async advancePhase(id: string, toPhase: NonNullable<BackupRun['phase']>, filesArchiveRequired: boolean, leaseToken?: string): Promise<BackupRun> {
     const run = await this.requireRun(id);
     if (run.status !== 'RUNNING' || run.phase === null) throw invalidTransition();
     if (!phaseTransitionValid(run.phase, toPhase, { filesArchiveRequired })) throw invalidTransition();
-    const updated = await this.repository.advancePhase(id, run.phase, toPhase);
+    const updated = await this.repository.advancePhase(id, run.phase, toPhase, leaseToken);
     if (!updated) throw invalidTransition();
     return updated;
   }
 
-  async markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string): Promise<BackupRun> {
+  async markFailed(id: string, failureCode: BackupFailureCode, failureSummary: string, leaseToken?: string): Promise<BackupRun> {
     const run = await this.requireRun(id);
     if (!statusTransitionValid(run.status, 'FAILED')) throw invalidTransition();
-    const updated = await this.repository.markFailed(id, failureCode, boundedTrimmedString(failureSummary, 'failureSummary', 1, 500), this.now());
+    const updated = await this.repository.markFailed(id, failureCode, boundedTrimmedString(failureSummary, 'failureSummary', 1, 500), this.now(), leaseToken);
     if (!updated) throw invalidTransition();
     return updated;
   }
 
-  async markCancelled(id: string): Promise<BackupRun> {
+  async markCancelled(id: string, leaseToken?: string): Promise<BackupRun> {
     const run = await this.requireRun(id);
     if (!statusTransitionValid(run.status, 'CANCELLED')) throw invalidTransition();
-    const updated = await this.repository.markCancelled(id, this.now());
+    const updated = await this.repository.markCancelled(id, this.now(), leaseToken);
     if (!updated) throw invalidTransition();
     return updated;
   }
 
   // REMOTE_VERIFY success: persist verification evidence without terminalizing.
   // The run stays RUNNING; only completeRun (after CLEANUP) may reach SUCCESS.
-  async recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }): Promise<BackupRun> {
+  async recordVerification(id: string, input: { remoteKey: string; sizeBytes: number; sha256: string }, leaseToken?: string): Promise<BackupRun> {
     const run = await this.requireRun(id);
     if (run.status !== 'RUNNING' || run.phase !== 'REMOTE_VERIFY') throw invalidTransition();
     const remoteKey = boundedTrimmedString(input.remoteKey, 'remoteKey', 1, 500);
-    if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes < 0) throw validation('sizeBytes');
+    if (!Number.isSafeInteger(input.sizeBytes) || input.sizeBytes <= 0) throw validation('sizeBytes');
     const sha256 = input.sha256.trim().toLowerCase();
     if (!SHA256_PATTERN.test(sha256)) throw validation('sha256');
-    const updated = await this.repository.recordVerification(id, { remoteKey, sizeBytes: input.sizeBytes, sha256 });
+    const updated = await this.repository.recordVerification(id, { remoteKey, sizeBytes: input.sizeBytes, sha256 }, leaseToken);
     if (!updated) throw invalidTransition();
     return updated;
   }
@@ -317,22 +317,29 @@ export class BackupService implements BackupServiceTransitionPrimitives {
   // Terminal transition after CLEANUP: verification evidence must already
   // exist (recordVerification). A cleanup warning records CLEANUP_FAILED on a
   // fully verified SUCCESS run and never downgrades it to a failure.
-  async completeRun(id: string, options: { cleanupWarning?: string } = {}): Promise<BackupRun> {
+  async completeRun(id: string, options: { cleanupWarning?: string } = {}, leaseToken?: string): Promise<BackupRun> {
     const run = await this.requireRun(id);
     if (run.status !== 'RUNNING' || run.phase !== 'CLEANUP') throw invalidTransition();
-    if (run.sha256 === null) throw invalidTransition();
+    if (
+      run.remoteKey === null
+      || run.remoteKey.trim().length === 0
+      || run.sizeBytes === null
+      || run.sizeBytes <= 0
+      || run.sha256 === null
+      || !SHA256_PATTERN.test(run.sha256)
+    ) throw invalidTransition();
     const cleanupWarning = options.cleanupWarning === undefined
       ? null
       : boundedTrimmedString(options.cleanupWarning, 'cleanupWarning', 1, 500);
-    const updated = await this.repository.completeRun(id, { completedAt: this.now(), cleanupWarning });
+    const updated = await this.repository.completeRun(id, { completedAt: this.now(), cleanupWarning }, leaseToken);
     if (!updated) throw invalidTransition();
     return updated;
   }
 
-  async markCleanupWarning(id: string, warningSummary: string): Promise<BackupRun> {
+  async markCleanupWarning(id: string, warningSummary: string, leaseToken?: string): Promise<BackupRun> {
     const run = await this.requireRun(id);
     if (run.status !== 'SUCCESS') throw invalidTransition();
-    const updated = await this.repository.markCleanupWarning(id, boundedTrimmedString(warningSummary, 'warningSummary', 1, 500));
+    const updated = await this.repository.markCleanupWarning(id, boundedTrimmedString(warningSummary, 'warningSummary', 1, 500), leaseToken);
     if (!updated) throw invalidTransition();
     return updated;
   }

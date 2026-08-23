@@ -2,9 +2,12 @@
 
 Host-level monitoring for the operators of a Servora-Med deployment. The
 monitor is a separate one-shot process that reports application health,
-PostgreSQL backup freshness, disk free space and its own state health through
-a vendor-neutral HTTPS JSON webhook. It is **default disabled**, is **not
-installed by default**, and is **not** part of the in-app Notification Center.
+backup freshness, disk free space and its own state health through a
+vendor-neutral HTTPS JSON webhook. Backup freshness uses the legacy local
+dump/sidecar source by default; an explicit `verified-runs` mode reads the
+safe verified `backup_runs` health evidence from `/api/health`. It is
+**default disabled**, is **not installed by default**, and is **not** part of
+the in-app Notification Center.
 
 ## Purpose and threat model
 
@@ -28,7 +31,7 @@ The monitor:
 | Check | Condition |
 |-------|-----------|
 | `health` | GET the configured health URL. Failure = timeout, connection/TLS error, redirect, non-200, or a body that does not match the Servora-Med contract (`{"status":"ok"}`). |
-| `backup` | Read-only inspection of the backup directory. The **newest** canonical completed pair `servora-med-YYYYMMDDTHHMMSSZ.dump` + `.dump.sha256` is authoritative: it must exist, be a regular file (symlinks rejected), match the portable sidecar contract (digest + basename only, no absolute paths), pass SHA-256 verification and be at most `SERVORA_ALERT_BACKUP_MAX_AGE_HOURS` old. `.partial` files and future-dated timestamps are rejected. An invalid newest backup **fails closed** — older backups are never hashed or accepted as a fallback, so the failure becomes alertable. |
+| `backup` | In `legacy` mode, read-only inspection of the backup directory. In `verified-runs` mode, the newest verified scheduled `SUCCESS` (`verified_at` present), worker/scheduler liveness, and latest scheduled failure from the safe `/api/health` aggregate are authoritative; a manual verified run does not satisfy scheduled freshness. |
 | `disk` | Free space on the configured path via `statfs`. Failure below `SERVORA_ALERT_DISK_MIN_FREE_PERCENT`. |
 | `monitor` | The monitor's own state file: corruption is quarantined, a fresh default state is created and a `monitor` alert is emitted. Unsupported future state versions fail the run without overwriting. |
 
@@ -51,6 +54,7 @@ Private operator environment file, e.g. `/etc/servora-med/servora-med-alerting.e
 | `SERVORA_ALERT_WEBHOOK_URL` | — | HTTPS webhook (plain http allowed only for loopback hosts). Required when enabled. |
 | `SERVORA_ALERT_HEALTH_URL` | `http://127.0.0.1:3000/api/health` | Application health endpoint (app contract is unchanged). |
 | `SERVORA_ALERT_BACKUP_DIR` | — | Read-only backup directory. Required when enabled. |
+| `SERVORA_ALERT_BACKUP_SOURCE` | `legacy` | `legacy` keeps the current dump/sidecar check; `verified-runs` consumes verified scheduled `backup_runs` health evidence. This is an explicit cutover switch, not a second monitor. |
 | `SERVORA_ALERT_BACKUP_MAX_AGE_HOURS` | `26` | Max accepted age of the latest valid backup. |
 | `SERVORA_ALERT_DISK_PATH` | `/` | Filesystem to check (internal only, never leaves the host). |
 | `SERVORA_ALERT_DISK_LABEL` | `disk-target` | Safe payload label for the disk target; validated as a safe label and must not equal the disk path. |
@@ -91,7 +95,8 @@ Versioned, vendor-neutral JSON (`schemaVersion: 1`):
 - `severity`: `critical` (health, backup, monitor) or `warning` (disk).
 - `details` carries only allowlisted safe metrics: health — consecutive
   failures, timeout flag, HTTP status, latency; backup — age hours, canonical
-  basename, checksum validity, latest backup timestamp, error category;
+  basename (legacy), checksum validity (legacy), latest backup timestamp,
+  error category, and worker/scheduler heartbeat timestamps (verified-runs);
   disk — free percent, free/used bytes, and the configured safe target label (`SERVORA_ALERT_DISK_LABEL`, default `disk-target`) — never the filesystem path; `consecutiveFailures` appears only on failed disk alerts/reminders, never on a successful recovery payload.
 
 The payload never contains: the webhook URL or tokens, `DATABASE_URL`, DB
@@ -354,6 +359,8 @@ Deleting `$SERVORA_ALERT_STATE_DIR` resets all deduplication state.
 - Production enablement requires separate operator authorization; a real
   webhook endpoint is never configured by this repository.
 - Real webhook credentials are never committed to the repository.
-- Backup creation and restore remain fully manual
-  (see [backup-restore.md](./backup-restore.md)); this monitor only checks
-  freshness and checksum validity.
+- Backup creation and restore remain outside this monitor (see
+  [backup-restore.md](./backup-restore.md)); it only consumes safe freshness
+  evidence. Keep `legacy` until the BR5 disposable REAL_R2 acceptance and
+  explicit production cutover gate are complete. `REAL_R2_ACCEPTANCE = NOT
+  EXECUTED` does not become a pass by switching this variable.

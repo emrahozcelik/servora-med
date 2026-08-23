@@ -1,7 +1,7 @@
-// Backup & Recovery V1 domain foundation (BR1).
+// Backup & Recovery V1 domain foundation (BR1), extended by BR5 worker leases.
 // Contracts are authoritative in docs/operations/backup-recovery/ (BR0) and
-// DECISIONS.md OPS-002. This module owns metadata only — no pg_dump, no
-// encryption, no R2, no worker, no restore execution.
+// DECISIONS.md OPS-002. This module owns durable metadata/state-machine
+// vocabulary; execution stays in the BR2/BR3/BR4 engines and BR5 worker.
 
 export const BACKUP_RUN_STATUSES = [
   'QUEUED', 'RUNNING', 'SUCCESS', 'FAILED', 'CANCELLED',
@@ -99,6 +99,9 @@ export type BackupRun = {
   sizeBytes: number | null;
   sha256: string | null;
   verifiedAt: Date | null;
+  /** Worker runtime ownership evidence; never included in BackupRunDto. */
+  leaseUntil?: Date | null;
+  heartbeatAt?: Date | null;
   warningCode: BackupWarningCode | null;
   warningSummary: string | null;
   failureCode: BackupFailureCode | null;
@@ -171,6 +174,15 @@ export type BackupStorageState = {
   lastConnectionTestOk: boolean | null;
 };
 
+export type BackupWorkerState = {
+  workerHeartbeatAt: Date | null;
+  schedulerLastTickAt: Date | null;
+  lastScheduledSlotKey: string | null;
+  lastScheduledLocalDate: string | null;
+  lastScheduledFor: Date | null;
+  lastScheduledRunId: string | null;
+};
+
 export type RestoreRun = {
   id: string;
   backupId: string | null;
@@ -186,12 +198,24 @@ export type RestoreRun = {
 };
 
 export type BackupAuditInput = {
-  organizationId: string;
-  actorUserId: string;
+  organizationId: string | null;
+  actorUserId: string | null;
   subjectType: 'BACKUP_RUN' | 'BACKUP_POLICY';
   subjectId: string;
-  eventType: 'BACKUP_REQUESTED' | 'BACKUP_POLICY_UPDATED';
+  eventType:
+    | 'BACKUP_REQUESTED'
+    | 'BACKUP_POLICY_UPDATED'
+    | 'BACKUP_STARTED'
+    | 'BACKUP_VERIFIED'
+    | 'BACKUP_COMPLETED'
+    | 'BACKUP_FAILED';
   metadata: Record<string, unknown>;
+};
+
+export type BackupWorkerClaim = {
+  run: BackupRun;
+  leaseToken: string;
+  leaseUntil: Date;
 };
 
 // ---------------------------------------------------------------------------

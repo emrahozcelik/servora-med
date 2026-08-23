@@ -1,9 +1,9 @@
 # Backup & Recovery V1 architecture — Servora-Med
 
 ```text
-Date: 2026-08-22
-Slice: BR0 — architecture and contracts only
-Status: DOCUMENTATION_ONLY / IMPLEMENTATION_NOT_AUTHORIZED
+Date: 2026-08-23
+Slice: BR5 — worker / scheduling / retry / cleanup / crash recovery
+Status: BR5 IMPLEMENTED on an isolated Draft PR branch; production enablement is not authorized
 Decision record: DECISIONS.md → OPS-002
 ```
 
@@ -226,7 +226,7 @@ Rules:
 | Event | Required behavior |
 |-------|-------------------|
 | Worker process crashes mid-run | Job state lives in PostgreSQL, not memory. Lease/heartbeat expiry (worker-crash detection following the `reminder-worker` lease precedent) lets the next worker pass mark the orphaned `RUNNING` row `FAILED` with `WORKER_LOST` plus the interrupted phase. Never silently `SUCCESS`. |
-| Process receives termination (`SIGTERM`/`SIGINT`) | Cooperative cancel: finish the current atomic step, mark `CANCELLED`, best-effort temp cleanup within the graceful-shutdown window (`server/src/shutdown.ts` pattern). If the worker dies before writing, crash handling above applies. |
+| Process receives termination (`SIGTERM`/`SIGINT`) | Stop new claims, keep the active lease heartbeat while the current safe pipeline step finishes, then close resources. If the worker dies before a durable phase boundary, lease expiry/recovery applies; shutdown never fabricates `SUCCESS`. |
 | API process restarts | No effect on run state. UI reads job state from PostgreSQL and reconciles; no in-memory backup state exists. |
 | Upload temporarily fails | Bounded retry with backoff inside `UPLOAD` (section 11, platform-contracts §6). Exhaustion → `FAILED` / `R2_UPLOAD_FAILED`. |
 | Remote verification fails | `FAILED` / `REMOTE_CHECKSUM_MISMATCH`, fail-closed. The uploaded object is **not** a restore point and must not be presented as verified. |
@@ -279,9 +279,16 @@ ever produces side effects (no partial dumps, no uploads).
     download (platform-contracts §5, step 1). Exact lock keys are fixed
     in BR1; the contract is that API worker and CLI share one locking
     namespace owned by the backup domain.
-- **Scheduling** (BR5): the worker evaluates `backup_policy` (time-of-day
-  + timezone) and enqueues `SCHEDULED` runs. The existing systemd/launchd
-  timer remains the MVP mechanism until BR5 is enabled (section 15).
+- **Scheduling** (BR5): the worker evaluates `backup_policy` (one local
+  time-of-day slot per IANA local calendar date) and enqueues `SCHEDULED`
+  runs. A durable slot key makes repeated ticks, restarts, and concurrent
+  workers at-most-once; a missed slot catches up only on the current local
+  date. DST gaps run at the first valid instant after the gap, and repeated
+  fall-back times resolve to one earliest instant. Retention is classified
+  before manifest creation as `MONTHLY` (day 1) > `WEEKLY` (Sunday) >
+  `DAILY`; `backup_policy.default_scope` is preserved. The existing
+  systemd/launchd timer remains the MVP mechanism until BR5 is enabled
+  (section 15).
 
 ## 10. Encryption and key custody
 
@@ -512,7 +519,7 @@ enabled, the current stack stays the operating contract
 | `ops/scripts/backup-postgres.sh` + systemd/launchd daily timer (02:30 UTC) | worker executes runs from `backup_runs` | script stack remains active until BR5 worker is enabled; then the timer is retired by the operator |
 | `OFFSITE_COPY_HOOK` offsite copy | native R2 upload + remote verify (BR4) | hook path superseded once R2 destination is verified |
 | `ops/scripts/restore-rehearsal.sh` | `servora-backup` restore CLI (BR7) | rehearsal script remains until CLI delivers equivalent guards; its fail-closed conventions carry over |
-| operator-alerting backup freshness check (dump age + sidecar sha256) | health derived from **verified** `backup_runs` (platform-contracts §6) | BR5 reconciles the monitor to the new source of truth; no second monitoring model is created; monitor code is not rewritten in BR0 |
+| operator-alerting backup freshness check (dump age + sidecar sha256) | health derived from **verified** `backup_runs` (platform-contracts §6) | BR5 adds the explicit `SERVORA_ALERT_BACKUP_SOURCE=verified-runs` mode to the same monitor; legacy remains the default and no second monitoring model is created |
 | "No `backup_status` table / no in-app backup UI" product boundary | V1 backup admin domain + BR6 admin UI | boundary remains in force until BR1/BR6 merge; superseded for post-MVP V1 by `OPS-002` |
 
 Known conflicts found during BR0 repository research, and their
@@ -544,7 +551,7 @@ reconciliations:
 | BR2 | Local PostgreSQL backup engine | temp workspace, `pg_dump`, manifest, component checksums, archive packaging, cleanup |
 | BR3 | Encryption | encrypted archive, ciphertext SHA-256, age key-handling contract implementation (library/binary decision) |
 | BR4 | Cloudflare R2 | storage adapter, upload, remote verification, connection test, retention/storage integration |
-| BR5 | Backup worker | PostgreSQL-backed job claiming, locking, scheduler, retry, failure recovery, monitoring reconciliation |
+| BR5 | Backup worker | PostgreSQL-backed job claiming, locking, scheduler, retry, failure recovery, monitoring reconciliation (implemented in the Draft PR branch) |
 | BR6 | Admin backup UI | Overview, History, Schedule, Storage, Backup Now — **no restore UI** |
 | BR7 | Operator restore CLI | archive discovery/inspect/verify, new-target restore, integrity validation, full disaster-recovery acceptance |
 
@@ -560,9 +567,10 @@ Genuine unresolved points (none block BR0; each is assigned to its slice):
 1. **age implementation choice** (BR3): maintained Node age library vs.
    `age` binary subprocess — to be decided under the dependency rules in
    AGENTS.md §10.
-2. **Worker hosting on the macOS pilot** (BR5): launchd agent/unit
-   equivalent of the systemd worker service — operational decision when
-   BR5 lands.
+2. **Worker hosting on the macOS pilot** (BR5): resolved with a launchd
+   persistent LaunchDaemon example that invokes the same
+   `dist/backup-worker.js` entrypoint as systemd; production activation is
+   still a separate cutover authorization.
 3. **Files-archive container details** (BR2): concrete container and
    compression choice for `files.tar.zst` (no persistent files exist
    today, so this does not block BR2's database path).

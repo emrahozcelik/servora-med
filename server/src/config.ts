@@ -42,6 +42,13 @@ export type BackupR2Config = {
   instanceId: string | null;
 };
 
+export type BackupWorkerConfig = {
+  enabled: boolean;
+  leaseMs: number;
+  heartbeatIntervalMs: number;
+  pollIntervalMs: number;
+};
+
 export type AppConfig = {
   nodeEnv: NodeEnvironment;
   host: string;
@@ -68,6 +75,8 @@ export type AppConfig = {
   backupLocalEngine: BackupLocalEngineConfig;
   backupEncryption: BackupEncryptionConfig;
   backupR2: BackupR2Config;
+  /** Optional so existing API-only config fixtures remain source-compatible. */
+  backupWorker?: BackupWorkerConfig;
 };
 
 const NODE_ENVIRONMENTS = new Set<NodeEnvironment>(['development', 'test', 'production']);
@@ -129,6 +138,29 @@ function readBoolean(value: string | undefined, name: string): boolean {
   if (!resolved || resolved === 'false') return false;
   if (resolved === 'true') return true;
   throw new Error(`${name} must be true or false`);
+}
+
+function readBackupWorkerConfig(env: NodeJS.ProcessEnv): BackupWorkerConfig {
+  const leaseMs = readPositiveInteger(env.BACKUP_WORKER_LEASE_MS, 60_000, 'BACKUP_WORKER_LEASE_MS');
+  const heartbeatIntervalMs = readPositiveInteger(
+    env.BACKUP_WORKER_HEARTBEAT_INTERVAL_MS,
+    15_000,
+    'BACKUP_WORKER_HEARTBEAT_INTERVAL_MS',
+  );
+  const pollIntervalMs = readPositiveInteger(
+    env.BACKUP_WORKER_POLL_INTERVAL_MS,
+    5_000,
+    'BACKUP_WORKER_POLL_INTERVAL_MS',
+  );
+  if (heartbeatIntervalMs >= leaseMs) {
+    throw new Error('BACKUP_WORKER_HEARTBEAT_INTERVAL_MS must be less than BACKUP_WORKER_LEASE_MS');
+  }
+  return {
+    enabled: readBoolean(env.BACKUP_WORKER_ENABLED, 'BACKUP_WORKER_ENABLED'),
+    leaseMs,
+    heartbeatIntervalMs,
+    pollIntervalMs,
+  };
 }
 
 function readSupportConfig(env: NodeJS.ProcessEnv): AuthenticatedSupport {
@@ -458,6 +490,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     'ACTION_SCOPED_GEOLOCATION_ENABLED',
   );
   const geocoding = readGeocodingConfig(env, actionScopedGeolocationEnabled);
+  const hasBackupWorkerConfig = Object.keys(env).some((key) => key.startsWith('BACKUP_WORKER_'));
 
   return {
     nodeEnv: typedNodeEnv,
@@ -522,6 +555,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       bucketAlias: readOptionalSafeLabel(env.BACKUP_R2_BUCKET_ALIAS, 'BACKUP_R2_BUCKET_ALIAS', 200),
       instanceId: readOptionalInstanceId(env.BACKUP_INSTANCE_ID, 'BACKUP_INSTANCE_ID'),
     },
+    ...(hasBackupWorkerConfig ? { backupWorker: readBackupWorkerConfig(env) } : {}),
   };
 }
 

@@ -58,6 +58,7 @@ jobs:
             ../ops/ci/verify-operator-alerting.sh \
             ../ops/launchd/start-api.sh.example \
             ../ops/launchd/run-backup.sh.example \
+            ../ops/launchd/run-backup-worker.sh.example \
             ../ops/launchd/run-alerting.sh.example
       - name: shellcheck ops scripts
         run: |
@@ -80,6 +81,7 @@ jobs:
             ../ops/ci/verify-operator-alerting.sh \
             ../ops/launchd/start-api.sh.example \
             ../ops/launchd/run-backup.sh.example \
+            ../ops/launchd/run-backup-worker.sh.example \
             ../ops/launchd/run-alerting.sh.example
       - name: systemd-analyze verify units
         run: |

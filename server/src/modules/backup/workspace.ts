@@ -1,4 +1,4 @@
-import { mkdir, readdir, rm, stat } from 'node:fs/promises';
+import { lstat, mkdir, readdir, realpath, rm, stat } from 'node:fs/promises';
 import path from 'node:path';
 
 const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -16,6 +16,13 @@ export type WorkspaceInspection = WorkspacePaths & {
   exists: boolean;
   payloadMembers: string[];
   packageFile: string | null;
+};
+
+export type WorkspaceReclamationRepository = {
+  findRunById(id: string): Promise<{
+    status: string;
+    verifiedAt: Date | null;
+  } | null>;
 };
 
 /**
@@ -58,7 +65,78 @@ export async function createWorkspace(tempRoot: string, runId: string): Promise<
  * root or at another run's directory. */
 export async function removeWorkspace(tempRoot: string, runId: string): Promise<void> {
   const paths = workspacePathsFor(tempRoot, runId);
+  const existing = await lstat(paths.workspacePath).catch(() => null);
+  if (!existing) return;
+  if (!existing.isDirectory() || existing.isSymbolicLink()) {
+    throw new Error(`refusing to remove non-directory workspace for run ${runId}`);
+  }
+  await assertNoSymlinkTree(paths.workspacePath);
   await rm(paths.workspacePath, { recursive: true, force: true });
+}
+
+async function assertNoSymlinkTree(root: string): Promise<void> {
+  const entries = await readdir(root, { withFileTypes: true });
+  for (const entry of entries) {
+    if (entry.isSymbolicLink()) {
+      throw new Error(`workspace contains a symbolic link: ${entry.name}`);
+    }
+    if (entry.isDirectory()) {
+      await assertNoSymlinkTree(path.join(root, entry.name));
+    }
+  }
+}
+
+/**
+ * Reclaims only UUID-named workspaces whose durable run is terminal. Active,
+ * queued, unknown, symlinked, and unverified rows are left untouched. This is
+ * intentionally conservative: a stale directory is cheaper than deleting a
+ * workspace that a still-live worker may own.
+ */
+export async function reclaimTerminalWorkspaces(
+  tempRoot: string,
+  repository: WorkspaceReclamationRepository,
+): Promise<{ removed: string[]; skipped: string[] }> {
+  const root = path.resolve(tempRoot);
+  const rootStat = await lstat(root).catch(() => null);
+  if (!rootStat) return { removed: [], skipped: [] };
+  if (!rootStat.isDirectory() || rootStat.isSymbolicLink()) {
+    throw new Error('backup temp root must be a real directory');
+  }
+  const rootReal = await realpath(root);
+  const removed: string[] = [];
+  const skipped: string[] = [];
+  for (const entry of await readdir(root, { withFileTypes: true })) {
+    if (!UUID_PATTERN.test(entry.name)) continue;
+    const candidate = path.join(root, entry.name);
+    if (!entry.isDirectory() || entry.isSymbolicLink()) {
+      skipped.push(entry.name);
+      continue;
+    }
+    const candidateReal = await realpath(candidate).catch(() => null);
+    if (!candidateReal) {
+      skipped.push(entry.name);
+      continue;
+    }
+    const relative = path.relative(rootReal, candidateReal);
+    if (!relative || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative)) {
+      skipped.push(entry.name);
+      continue;
+    }
+    const run = await repository.findRunById(entry.name);
+    if (!run || !['FAILED', 'CANCELLED', 'SUCCESS'].includes(run.status)
+      || (run.status === 'SUCCESS' && !run.verifiedAt)) {
+      skipped.push(entry.name);
+      continue;
+    }
+    try {
+      await assertNoSymlinkTree(candidate);
+      await rm(candidate, { recursive: true, force: true });
+      removed.push(entry.name);
+    } catch {
+      skipped.push(entry.name);
+    }
+  }
+  return { removed, skipped };
 }
 
 export async function inspectWorkspace(tempRoot: string, runId: string): Promise<WorkspaceInspection> {

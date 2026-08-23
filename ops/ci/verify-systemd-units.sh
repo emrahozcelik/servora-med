@@ -14,6 +14,7 @@ mkdir -p \
   "$TMP/etc/servora-med" \
   "$TMP/usr/bin" \
   "$TMP/var/backups/servora-med" \
+  "$TMP/var/backups/servora-med/br-workspaces" \
   "$TMP/var/lib/servora-med-alerting" \
   "$TMP/var/log/servora-med" \
   "$TMP/units"
@@ -30,6 +31,8 @@ chmod +x "$TMP/opt/servora-med/current/ops/scripts/operator-alerting.mjs"
 mkdir -p "$TMP/opt/servora-med/current/server"
 printf '#!/bin/sh\nexit 0\n' >"$TMP/opt/servora-med/current/server/dist-index.js"
 chmod +x "$TMP/opt/servora-med/current/server/dist-index.js"
+printf '#!/bin/sh\nexit 0\n' >"$TMP/opt/servora-med/current/server/dist-backup-worker.js"
+chmod +x "$TMP/opt/servora-med/current/server/dist-backup-worker.js"
 
 # Required EnvironmentFile paths must exist (non-optional).
 : >"$TMP/etc/servora-med/servora-med.env"
@@ -46,14 +49,17 @@ rewrite_unit() {
     -e "s|EnvironmentFile=/etc/servora-med/|EnvironmentFile=${TMP}/etc/servora-med/|g" \
     -e "s|ExecStart=/opt/servora-med/current/ops/scripts/backup-postgres.sh|ExecStart=${TMP}/opt/servora-med/current/ops/scripts/backup-postgres.sh|g" \
     -e "s|ExecStart=/usr/bin/node /opt/servora-med/current/ops/scripts/operator-alerting.mjs|ExecStart=${TMP}/usr/bin/node ${TMP}/opt/servora-med/current/ops/scripts/operator-alerting.mjs|g" \
+    -e "s|ExecStart=/usr/bin/node /opt/servora-med/current/server/dist/backup-worker.js|ExecStart=${TMP}/usr/bin/node ${TMP}/opt/servora-med/current/server/dist-backup-worker.js|g" \
     -e "s|ReadWritePaths=/var/backups/servora-med /var/log/servora-med|ReadWritePaths=${TMP}/var/backups/servora-med ${TMP}/var/log/servora-med|g" \
     -e "s|ReadOnlyPaths=/var/backups/servora-med|ReadOnlyPaths=${TMP}/var/backups/servora-med|g" \
+    -e "s|ReadWritePaths=/var/backups/servora-med/br-workspaces|ReadWritePaths=${TMP}/var/backups/servora-med/br-workspaces|g" \
     -e "s|ReadWritePaths=/var/lib/servora-med-alerting /var/log/servora-med|ReadWritePaths=${TMP}/var/lib/servora-med-alerting ${TMP}/var/log/servora-med|g" \
     "$src" >"$dest"
 }
 
 rewrite_unit "$ROOT/ops/systemd/servora-med.service" "$TMP/units/servora-med.service"
 rewrite_unit "$ROOT/ops/systemd/servora-med-backup.service" "$TMP/units/servora-med-backup.service"
+rewrite_unit "$ROOT/ops/systemd/servora-med-backup-worker.service" "$TMP/units/servora-med-backup-worker.service"
 rewrite_unit "$ROOT/ops/systemd/servora-med-alerting.service" "$TMP/units/servora-med-alerting.service"
 # Timers have no absolute host paths beyond Unit= reference.
 cp "$ROOT/ops/systemd/servora-med-backup.timer" "$TMP/units/servora-med-backup.timer"
@@ -68,6 +74,7 @@ fi
 systemd-analyze verify \
   "$TMP/units/servora-med.service" \
   "$TMP/units/servora-med-backup.service" \
+  "$TMP/units/servora-med-backup-worker.service" \
   "$TMP/units/servora-med-backup.timer" \
   "$TMP/units/servora-med-alerting.service" \
   "$TMP/units/servora-med-alerting.timer"

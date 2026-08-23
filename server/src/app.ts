@@ -9,6 +9,7 @@ import { toErrorResponse } from './errors/index.js';
 import { healthRoutes } from './modules/health/routes.js';
 import {
   alwaysOkReadiness,
+  type BackupHealthReadinessPort,
   type HealthReadinessPort,
 } from './modules/health/service.js';
 import { AuthService } from './modules/auth/service.js';
@@ -122,6 +123,7 @@ export type AppDependencies = {
   approvalQueueItemPort?: ApprovalQueueItemPort;
   reportsRepository?: ReportsReadModel;
   healthReadiness?: HealthReadinessPort;
+  backupHealthReadiness?: BackupHealthReadinessPort;
   realtimeService?: RealtimeService;
   realtimePublisher?: RealtimeEventPublisher;
   notificationRepository?: NotificationRepository;
@@ -187,6 +189,7 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
   await app.register(healthRoutes, {
     prefix: '/api/health',
     readiness: dependencies.healthReadiness ?? alwaysOkReadiness,
+    backupReadiness: dependencies.backupHealthReadiness,
   });
   if (dependencies.authRepository) {
     const authService = new AuthService(dependencies.authRepository, config.sessionTtlSeconds);

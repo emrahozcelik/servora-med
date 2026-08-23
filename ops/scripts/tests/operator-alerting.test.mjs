@@ -33,6 +33,7 @@ import {
   createDefaultState,
   deliverWebhook,
   evaluateBackup,
+  evaluateVerifiedBackup,
   loadConfig,
   loadState,
   main,
@@ -357,6 +358,73 @@ describe('health probe', () => {
     const result = await probeHealth(config, deps);
     assert.equal(result.ok, false);
     assert.equal(result.errorCategory, 'invalid-body');
+  });
+});
+
+describe('verified-runs backup source', () => {
+  it('uses safe health evidence and the existing freshness threshold', () => {
+    const config = loadConfig({
+      ...BASE_ENV,
+      SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs',
+    });
+    assert.equal(config.backupSource, 'verified-runs');
+    const result = evaluateVerifiedBackup(config, {
+      ok: true,
+      backup: {
+        status: 'ok',
+        latestVerifiedAt: '2026-08-23T00:00:00.000Z',
+        latestScheduledVerifiedAt: '2026-08-23T00:00:00.000Z',
+        latestRunStatus: 'SUCCESS',
+        latestScheduledRunStatus: 'SUCCESS',
+        workerHeartbeatAt: '2026-08-23T01:00:00.000Z',
+        schedulerLastTickAt: '2026-08-23T01:00:00.000Z',
+      },
+    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
+    assert.equal(result.ok, true);
+    assert.equal(result.ageHours, 2);
+  });
+
+  it('does not let a manual verified run satisfy scheduled freshness', () => {
+    const config = loadConfig({
+      ...BASE_ENV,
+      SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs',
+    });
+    const result = evaluateVerifiedBackup(config, {
+      ok: true,
+      backup: {
+        status: 'ok',
+        latestVerifiedAt: '2026-08-23T00:00:00.000Z',
+        latestScheduledVerifiedAt: null,
+        latestRunStatus: 'SUCCESS',
+        latestScheduledRunStatus: 'FAILED',
+        workerHeartbeatAt: '2026-08-23T01:00:00.000Z',
+        schedulerLastTickAt: '2026-08-23T01:00:00.000Z',
+      },
+    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'scheduled-failure');
+    assert.equal(result.latestProblem, 'FAILED');
+  });
+
+  it('treats the latest scheduled failure as unhealthy despite an older verified run', () => {
+    const config = loadConfig({
+      ...BASE_ENV,
+      SERVORA_ALERT_BACKUP_SOURCE: 'verified-runs',
+    });
+    const result = evaluateVerifiedBackup(config, {
+      ok: true,
+      backup: {
+        status: 'ok',
+        latestVerifiedAt: '2026-08-23T00:00:00.000Z',
+        latestScheduledVerifiedAt: '2026-08-23T00:00:00.000Z',
+        latestRunStatus: 'FAILED',
+        latestScheduledRunStatus: 'FAILED',
+        workerHeartbeatAt: '2026-08-23T01:00:00.000Z',
+        schedulerLastTickAt: '2026-08-23T01:00:00.000Z',
+      },
+    }, { now: () => new Date('2026-08-23T02:00:00.000Z') });
+    assert.equal(result.ok, false);
+    assert.equal(result.errorCategory, 'scheduled-failure');
   });
 });
 
@@ -2780,5 +2848,19 @@ describe('unit definitions', () => {
     assert.match(timer, /OnUnitActiveSec=5m/);
     assert.match(timer, /Persistent=true/);
     assert.match(timer, /Unit=servora-med-alerting\.service/);
+  });
+
+  it('keeps the BR5 worker persistent and separate from the legacy timer', () => {
+    const service = readFileSync(resolve(root, 'ops/systemd/servora-med-backup-worker.service'), 'utf8');
+    assert.match(service, /Type=simple/);
+    assert.match(service, /Restart=on-failure/);
+    assert.match(service, /dist\/backup-worker\.js/);
+    assert.match(service, /EnvironmentFile=\/etc\/servora-med\/servora-med\.env/);
+    assert.match(service, /NoNewPrivileges=true/);
+    const plist = readFileSync(resolve(root, 'ops/launchd/com.servora-med.backup-worker.plist.example'), 'utf8');
+    assert.match(plist, /com\.servora-med\.backup-worker/);
+    assert.match(plist, /KeepAlive/);
+    assert.match(plist, /run-backup-worker\.sh/);
+    assert.ok(!plist.includes('secret'));
   });
 });
