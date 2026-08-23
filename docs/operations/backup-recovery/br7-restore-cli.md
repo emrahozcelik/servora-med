@@ -92,6 +92,11 @@ roots, and is never overwritten. The compressed archive is inspected before
 extraction; traversal, absolute paths, links, hardlinks, devices, FIFOs and
 duplicates fail closed.
 
+The producer contract is symmetric: BR2 validates the configured files root
+with `lstat` before `FILES_ARCHIVE`; any symlink, hardlink, device, FIFO or
+socket makes the run `FAILED` with `FILES_ARCHIVE_FAILED`, before PACKAGE,
+ENCRYPT, UPLOAD, REMOTE_VERIFY or SUCCESS.
+
 ## Evidence and acceptance
 
 Normal mode persists `RUNNING` then `READY_FOR_CUTOVER`/`FAILED`/`CANCELLED`

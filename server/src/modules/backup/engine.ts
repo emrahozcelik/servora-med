@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { createReadStream } from 'node:fs';
-import { readdir, stat, unlink, writeFile } from 'node:fs/promises';
+import { lstat, readdir, stat, unlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import type { Pool } from 'pg';
@@ -106,6 +106,40 @@ function readPackageVersion(): string {
 
 const ARCHIVE_DUMP_VERSION_PATTERN = /^\s*;\s*Dump Version:\s*(\S+)\s*$/;
 const ARCHIVE_TOOL_VERSION_PATTERN = /^\s*;\s*Dumped by pg_dump version:\s*(.+?)\s*$/;
+
+/**
+ * FULL_DATA producer boundary: only regular files and directories may enter
+ * a V1 files archive. lstat deliberately never follows a link. Inode
+ * tracking rejects hardlinks so the producer and BR7 consumer share the same
+ * no-link contract.
+ */
+export async function validateFilesArchiveSource(root: string): Promise<void> {
+  const rootInfo = await lstat(root).catch(() => null);
+  if (!rootInfo?.isDirectory() || rootInfo.isSymbolicLink()) {
+    throw new Error('FULL_DATA files root must be a real directory');
+  }
+  const seenInodes = new Set<string>();
+  const visit = async (current: string): Promise<void> => {
+    const entries = await readdir(current, { withFileTypes: true });
+    for (const entry of entries) {
+      const entryPath = path.join(current, entry.name);
+      const info = await lstat(entryPath);
+      if (info.isSymbolicLink()) throw new Error('FULL_DATA files root contains a symlink');
+      if (info.isBlockDevice() || info.isCharacterDevice() || info.isFIFO() || info.isSocket()) {
+        throw new Error('FULL_DATA files root contains an unsupported special entry');
+      }
+      if (info.isDirectory()) {
+        await visit(entryPath);
+        continue;
+      }
+      if (!info.isFile()) throw new Error('FULL_DATA files root contains an unsupported entry');
+      const inode = `${info.dev}:${info.ino}`;
+      if (seenInodes.has(inode)) throw new Error('FULL_DATA files root contains a hardlink');
+      seenInodes.add(inode);
+    }
+  };
+  await visit(root);
+}
 
 /** Read the produced custom archive's own header through `pg_restore -l`.
  * The header distinguishes the ARCHIVE FORMAT version ("Dump Version:
@@ -486,9 +520,15 @@ export class LocalBackupEngine {
     const intermediate = path.join(payloadPath, 'files.tar');
     const target = path.join(payloadPath, 'files.tar.zst');
     try {
-      // Symlinks are archived AS symlinks (tar is not told to dereference):
-      // nothing outside the configured root is ever read.
+      await validateFilesArchiveSource(filesRoot);
       await runBinary(tarBin, ['-c', '-f', intermediate, '-C', filesRoot, '.']);
+      const listing = await runBinary(tarBin, ['-t', '-v', '-f', intermediate], { timeoutMs: 60_000 });
+      for (const line of listing.stdout.split(/\r?\n/).filter(Boolean)) {
+        const type = line[0];
+        if (type !== '-' && type !== 'd') {
+          throw new Error('FULL_DATA files archive contains an unsupported entry');
+        }
+      }
       await runBinary(zstdBin, ['-q', '-f', '-o', target, intermediate]);
     } catch (error) {
       throw new EngineFailure(

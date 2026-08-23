@@ -1,7 +1,7 @@
 import { execFileSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 import { fileURLToPath } from 'node:url';
-import { mkdtemp, rm } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -96,6 +96,8 @@ describe.skipIf(
 )('BR7 full DR acceptance (real PostgreSQL + real age + deterministic/opt-in real R2)', () => {
   it('proves BR2→BR5 backup, source metadata loss, BR7 restore, API health and auth', async () => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'br7-full-dr-'));
+    const sourceFilesRoot = path.join(root, 'source-files');
+    const restoredFilesRoot = path.join(root, 'restored-files');
     const admin = new Pool({ connectionString: databaseUrl! });
     const sourceDb = `br7_e2e_src_${randomUUID().replaceAll('-', '').slice(0, 10)}`;
     const targetDb = `br7_e2e_dst_${randomUUID().replaceAll('-', '').slice(0, 10)}`;
@@ -104,6 +106,8 @@ describe.skipIf(
     let app: Awaited<ReturnType<typeof buildApp>> | null = null;
     try {
       await admin.query(`CREATE DATABASE ${sourceDb}`);
+      await mkdir(sourceFilesRoot, { recursive: true });
+      await writeFile(path.join(sourceFilesRoot, 'payload.txt'), 'BR7 FULL_DATA synthetic payload\n');
       const sourceUrl = new URL(databaseUrl!);
       sourceUrl.pathname = `/${sourceDb}`;
       sourcePool = new Pool({ connectionString: sourceUrl.toString() });
@@ -134,7 +138,7 @@ describe.skipIf(
       const repository = new PostgresBackupRepository(sourcePool);
       const service = new BackupService(repository);
       const actor = { id: user.id, organizationId: org.id, name: 'BR7 E2E Admin', email, role: 'ADMIN' as const, mustChangePassword: false, isActive: true, version: 1 };
-      const queued = await service.requestManualBackup(actor, { clientActionId: `br7-e2e-${randomUUID()}`, scope: 'DATABASE' });
+      const queued = await service.requestManualBackup(actor, { clientActionId: `br7-e2e-${randomUUID()}`, scope: 'FULL_DATA' });
       const realR2 = process.env.BR7_REAL_R2_ACCEPTANCE === '1';
       const instanceId = realR2 ? process.env.BR7_REAL_R2_INSTANCE_ID ?? '' : deterministicInstanceId;
       if (realR2 && (!instanceId || !process.env.BACKUP_R2_ACCOUNT_ID || !process.env.BACKUP_R2_ACCESS_KEY_ID
@@ -153,7 +157,7 @@ describe.skipIf(
       const worker = new BackupWorker({
         repository, service, enabled: true, now: () => new Date(), sleep: async () => undefined,
         executeRun: createBackupPipelineExecutor({
-          repository, pool: sourcePool, service, databaseUrl: sourceUrl.toString(), tempRoot, filesRoot: null,
+          repository, pool: sourcePool, service, databaseUrl: sourceUrl.toString(), tempRoot, filesRoot: sourceFilesRoot,
           recipient, storage, instanceId, application: { applicationVersion: 'br7-e2e', gitCommit: null },
         }),
       });
@@ -174,13 +178,21 @@ describe.skipIf(
       const restoreService = new RestoreService({
         storage: restoreStorage, instanceId, identityPath,
         targetAdminDatabaseUrl: databaseUrl!, productionDatabaseUrl: sourceUrl.toString(),
-        workspaceRoot: path.join(root, 'restore-workspaces'),
+        workspaceRoot: path.join(root, 'restore-workspaces'), filesRoot: sourceFilesRoot,
       });
       await expect(restoreService.listRemote()).resolves.toMatchObject({ items: [expect.objectContaining({ backupId: queued.id })] });
       await expect(restoreService.verify({ archiveOrId: queued.id })).resolves.toMatchObject({ outcome: 'VERIFIED', backupId: queued.id });
       await expect(restoreService.inspect({ archiveOrId: queued.id })).resolves.toMatchObject({ outcome: 'INSPECTED', backupId: queued.id });
-      const restored = await restoreService.restore({ archiveOrId: queued.id, mode: 'DISASTER_RECOVERY', targetDatabase: targetDb, acknowledgeDestructiveRestore: true });
+      const restored = await restoreService.restore({
+        archiveOrId: queued.id,
+        mode: 'DISASTER_RECOVERY',
+        targetDatabase: targetDb,
+        targetFilesRoot: restoredFilesRoot,
+        acknowledgeDestructiveRestore: true,
+      });
       expect(restored.outcome).toBe('READY_FOR_CUTOVER');
+      await expect(readFile(path.join(restoredFilesRoot, 'payload.txt'), 'utf8'))
+        .resolves.toBe('BR7 FULL_DATA synthetic payload\n');
       storage.destroy();
       restoreStorage.destroy();
 

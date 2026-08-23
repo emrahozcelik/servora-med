@@ -82,6 +82,8 @@ describe.skipIf(!databaseUrl || process.env.BR7_DB_ACCEPTANCE !== '1')('BR7 DR P
       const target = new Pool({ connectionString: targetUrl.toString() });
       try {
         await expect(target.query(`SELECT name FROM organizations WHERE name = 'BR7 Synthetic Org'`)).resolves.toMatchObject({ rows: [{ name: 'BR7 Synthetic Org' }] });
+        await expect(target.query('SELECT version FROM schema_migrations ORDER BY applied_at DESC, version DESC LIMIT 1'))
+          .resolves.toMatchObject({ rows: [{ version: manifest.database.schemaVersion }] });
         await expect(target.query(`SELECT status FROM restore_runs WHERE id = $1`, [result.restoreRunId])).resolves.toMatchObject({ rows: [{ status: 'READY_FOR_CUTOVER' }] });
       } finally {
         await target.end();

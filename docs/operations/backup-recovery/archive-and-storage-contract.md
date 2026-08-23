@@ -37,9 +37,11 @@ Contract rules:
   (`pg_dump` custom format), matching the existing MVP script
   properties (`-Fc --no-owner --no-acl`).
 - `files.tar.zst` covers only explicitly configured persistent Servora
-  files. No such files exist today; the slot exists so FULL_DATA does not
-  need a format change later. When absent, the manifest `contents.files`
-  is `null` and the file must not be present.
+  files. The V1 producer accepts regular files/directories only: symlinks,
+  hardlinks, devices, FIFOs and sockets fail closed during `FILES_ARCHIVE`
+  before manifest/package/encryption/upload. BR7 applies the same rejection
+  policy while restoring. When absent, the manifest `contents.files` is
+  `null` and the file must not be present.
 - The encrypted remote artifact is named `<backup-id>.sbk.age`
   (single encrypted object; `.age` = native age encryption, `.sbk` =
   Servora backup). Per the BR3 concrete selection (`OPS-003`), the

@@ -2,7 +2,7 @@ import { execFile } from 'node:child_process';
 import { randomUUID } from 'node:crypto';
 import { createHash } from 'node:crypto';
 import { writeFileSync } from 'node:fs';
-import { chmod, mkdir, mkdtemp, readFile, readdir, rm, symlink, writeFile } from 'node:fs/promises';
+import { chmod, mkdir, mkdtemp, readFile, readdir, rm, stat, symlink, writeFile } from 'node:fs/promises';
 import { createReadStream } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -247,15 +247,11 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
     await releaseSlot(runId);
   });
 
-  it('FULL_DATA with configured root archives only that root (symlinks not followed)', async () => {
+  it('FULL_DATA with configured root archives regular files byte-for-byte', async () => {
     filesRoot = path.join(engineRoot, 'servora-files');
     const nested = path.join(filesRoot, 'uploads', 'nested');
     await mkdir(nested, { recursive: true });
     await writeFile(path.join(nested, 'report.txt'), 'BR2 persistent file payload');
-    const outsideDir = path.join(engineRoot, 'outside');
-    await mkdir(outsideDir, { recursive: true });
-    await writeFile(path.join(outsideDir, 'secret-outside.txt'), 'must not be archived');
-    await symlink(path.join(outsideDir, 'secret-outside.txt'), path.join(filesRoot, 'leak-link'));
 
     const runId = await createRun('FULL_DATA');
     const result = await buildEngine({ filesRoot }).buildLocalBackup(runId);
@@ -274,11 +270,6 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
     const listing = (await promisifiedExecFile(process.env.TAR_BIN ?? 'tar',
       ['-t', '-v', '-f', path.join(decompressDir, 'files.tar')])).stdout;
     expect(listing).toContain('uploads/nested/report.txt');
-    // The symlink is archived AS a symlink (entry type `l`) — its target
-    // outside the root is never READ, so the outside file never appears as
-    // an archived regular file of its own.
-    expect(listing).toMatch(/^l.*leak-link ->/m);
-    expect(listing).not.toMatch(/^-.*secret-outside\.txt/);
     const extracted = (await promisifiedExecFile(process.env.TAR_BIN ?? 'tar',
       ['-x', '-O', '-f', path.join(decompressDir, 'files.tar'), './uploads/nested/report.txt'])).stdout;
     expect(extracted).toBe('BR2 persistent file payload');
@@ -288,6 +279,22 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
     )).stdout.trim().split('\n').sort();
     expect(packageMembers).toEqual(['checksums.sha256', 'database.dump', 'files.tar.zst', 'manifest.json']);
     await rm(filesRoot!, { recursive: true, force: true });
+    filesRoot = null;
+  });
+
+  it('FULL_DATA with a symlink fails in FILES_ARCHIVE before packaging', async () => {
+    filesRoot = path.join(engineRoot, 'servora-files-symlink');
+    await mkdir(filesRoot, { recursive: true });
+    await writeFile(path.join(filesRoot, 'regular.txt'), 'safe');
+    await symlink('/tmp/br2-producer-outside', path.join(filesRoot, 'unsupported-link'));
+
+    const runId = await createRun('FULL_DATA');
+    const result = await buildEngine({ filesRoot }).buildLocalBackup(runId);
+    expect(result).toMatchObject({ outcome: 'failed', failureCode: 'FILES_ARCHIVE_FAILED' });
+    const run = await repository!.findRunById(runId);
+    expect(run).toMatchObject({ status: 'FAILED', phase: 'FILES_ARCHIVE', failureCode: 'FILES_ARCHIVE_FAILED' });
+    await expect(stat(path.join(tempRoot, runId))).rejects.toThrow();
+    await rm(filesRoot, { recursive: true, force: true });
     filesRoot = null;
   });
 

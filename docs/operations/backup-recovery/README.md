@@ -61,7 +61,9 @@ encryption, no R2, no worker/scheduler, no UI, no restore CLI):
   containment-checked) → `pg_dump -Fc --no-owner --no-acl` (argv-safe
   execFile, connection via libpq child env only — password never on argv,
   disk, or in logs) → optional `files.tar.zst` (system `tar` + `zstd`,
-  symlinks archived as symlinks, single configured `BACKUP_FILES_ROOT`)
+  producer-validated regular files/directories only (symlink, hardlink and
+  special entries fail during `FILES_ARCHIVE`), single configured
+  `BACKUP_FILES_ROOT`)
   → manifest V1 (`dumpVersion` = archive "Dump Version" via `pg_restore -l`, plus additive `dumpToolVersion`; see archive-and-storage §2)
   → streaming SHA-256 components → `checksums.sha256` (two-space sidecar)
   → plaintext package `<run-id>.sbk.tar` (uncompressed tar — decision
@@ -249,7 +251,9 @@ BR7 delivered (operator CLI only; no production cutover):
   successful target restore it records a separate READY evidence row when
   possible (or a restrictive operator evidence file).
 - `FULL_DATA` archives require an explicit new files root and reject unsafe
-  nested archive entries. The legacy scripts, timer, `OFFSITE_COPY_HOOK`,
+  nested archive entries. The producer rejects symlinks, hardlinks and
+  special entries during `FILES_ARCHIVE`, so producer and restore contracts
+  are symmetric. The legacy scripts, timer, `OFFSITE_COPY_HOOK`,
   monitoring source, and `BACKUP_WORKER_ENABLED=false` production state remain
   unchanged.
 - Real disposable Cloudflare R2 DR acceptance is an opt-in operator gate.

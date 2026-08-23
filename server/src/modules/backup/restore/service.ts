@@ -37,8 +37,6 @@ import { createRestoreWorkspace, removeRestoreWorkspace, type RestoreWorkspace }
 import type { RestoreMode } from '../types.js';
 import { restoreFullDataArchive } from './files.js';
 
-export const BR7_HEALTH_SCHEMA_VERSION = '033_backup_worker_runtime';
-
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 const SHA256 = /^[0-9a-f]{64}$/;
 const MAX_RESTORE_COMPONENT_BYTES = 5_363_466_240;
@@ -294,9 +292,6 @@ export class RestoreService {
       const manifest = parseRestoreManifest(manifestRaw);
       if (descriptor && manifest.backupId !== descriptor.backupId) {
         throw new RestoreOperationError('manifest backup id does not match the remote object', 'RESTORE_MANIFEST_INVALID');
-      }
-      if (manifest.database.schemaVersion !== BR7_HEALTH_SCHEMA_VERSION) {
-        throw new RestoreOperationError('manifest schema version is not the current supported version', 'RESTORE_FORMAT_UNSUPPORTED');
       }
       const filesExpected = manifest.contents.files !== null;
       if (archive.members.includes('files.tar.zst') !== filesExpected) {

@@ -35,4 +35,32 @@ describe('BR7 restore service package verification', () => {
       await rm(root, { recursive: true, force: true });
     }
   });
+
+  it('does not hardcode the current migration in the restore package gate', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'br7-schema-'));
+    try {
+      const dump = Buffer.from('dump');
+      const digest = createHash('sha256').update(dump).digest('hex');
+      const manifest = {
+        format: 'servora-backup', formatVersion: 1,
+        backupId: '11111111-2222-4333-8444-555555555555',
+        createdAt: '2026-08-23T10:00:00.000Z',
+        application: { applicationVersion: '0.1.0', gitCommit: null },
+        backupScope: 'DATABASE', origin: 'MANUAL', retentionClass: 'MANUAL',
+        database: { engine: 'postgresql', serverVersion: '16.13', dumpVersion: '1.15', dumpToolVersion: '16.13', schemaVersion: '032_backup_r2_failure_taxonomy' },
+        contents: { database: { file: 'database.dump', bytes: dump.length, sha256: digest }, files: null },
+        checksums: { file: 'checksums.sha256' },
+      };
+      await writeFile(path.join(root, 'manifest.json'), JSON.stringify(manifest));
+      await writeFile(path.join(root, 'database.dump'), dump);
+      await writeFile(path.join(root, 'checksums.sha256'), `${digest}  database.dump\n`);
+      const packagePath = path.join(root, 'package.sbk.tar');
+      execFileSync('tar', ['-cf', packagePath, '-C', root, 'manifest.json', 'database.dump', 'checksums.sha256']);
+
+      await expect(new RestoreService({ workspaceRoot: path.join(root, 'work') }).inspect({ archiveOrId: packagePath }))
+        .resolves.toMatchObject({ outcome: 'INSPECTED', schemaVersion: '032_backup_r2_failure_taxonomy' });
+    } finally {
+      await rm(root, { recursive: true, force: true });
+    }
+  });
 });

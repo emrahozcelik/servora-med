@@ -562,7 +562,7 @@ narrowest reconciliation instead of silently changing the decision.
 
 ## 17. Open questions
 
-Genuine unresolved points (none block BR0; each is assigned to its slice):
+Remaining open points (none block BR0; each is assigned to its slice):
 
 1. **age implementation choice** (BR3): maintained Node age library vs.
    `age` binary subprocess — to be decided under the dependency rules in
@@ -571,6 +571,6 @@ Genuine unresolved points (none block BR0; each is assigned to its slice):
    persistent LaunchDaemon example that invokes the same
    `dist/backup-worker.js` entrypoint as systemd; production activation is
    still a separate cutover authorization.
-3. **Files-archive container details** (BR2): concrete container and
-   compression choice for `files.tar.zst` (no persistent files exist
-   today, so this does not block BR2's database path).
+3. **Files-archive container details** (BR2): resolved as tar + zstd. The
+   V1 producer and BR7 consumer both allow only regular files/directories;
+   symlinks, hardlinks and special entries fail closed.
