@@ -53,7 +53,7 @@ encryption, no R2, no worker/scheduler, no UI, no restore CLI):
   execFile, connection via libpq child env only — password never on argv,
   disk, or in logs) → optional `files.tar.zst` (system `tar` + `zstd`,
   symlinks archived as symlinks, single configured `BACKUP_FILES_ROOT`)
-  → manifest V1 (`dumpVersion` reconciliation: archive-and-storage §2)
+  → manifest V1 (`dumpVersion` = archive "Dump Version" via `pg_restore -l`, plus additive `dumpToolVersion`; see archive-and-storage §2)
   → streaming SHA-256 components → `checksums.sha256` (two-space sidecar)
   → plaintext package `<run-id>.sbk.tar` (uncompressed tar — decision
   recorded in archive-and-storage §1.1).

@@ -166,8 +166,9 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
       application: { applicationVersion: 'test-0.1.0', gitCommit: 'a'.repeat(40) },
     });
     expect(manifest.database.engine).toBe('postgresql');
-    expect(manifest.database.schemaVersion).toBe('030_backup_domain_foundation');
-    expect(manifest.database.dumpVersion).toBeGreaterThanOrEqual(1600);
+    expect(manifest.database.schemaVersion).toBe('031_backup_engine_failure_taxonomy_and_dump_version');
+    expect(manifest.database.dumpVersion).toMatch(/^\d+\.\d+(-\d+)?$/);
+    expect(manifest.database.dumpToolVersion).toMatch(/\d+\.\d+/);
     expect(manifest.contents.files).toBeNull();
 
     const checksums = await readFile(path.join(payloadPath, 'checksums.sha256'), 'utf8');
@@ -221,7 +222,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
         const migrations = await targetPool.query<{ version: string }>(
           'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
         );
-        expect(migrations.rows[0]!.version).toBe('030_backup_domain_foundation');
+        expect(migrations.rows[0]!.version).toBe('031_backup_engine_failure_taxonomy_and_dump_version');
       } finally {
         await targetPool.end();
       }
@@ -356,7 +357,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
     const filesRun = await createRun('FULL_DATA');
     const filesResult = await buildEngine({ filesRoot: path.join(engineRoot, 'missing-root') })
       .buildLocalBackup(filesRun);
-    expect(filesResult).toMatchObject({ outcome: 'failed', failureCode: 'PREFLIGHT_STORAGE_UNAVAILABLE' });
+    expect(filesResult).toMatchObject({ outcome: 'failed', failureCode: 'PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE' });
   });
 
   it('pg_dump failure maps to PG_DUMP_FAILED and removes the partial workspace', async () => {
@@ -385,7 +386,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
     }
   });
 
-  it('zstd unavailable for required files archive maps to PREFLIGHT_STORAGE_UNAVAILABLE', async () => {
+  it('zstd unavailable for required files archive maps to PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE', async () => {
     const zstdFilesRoot = path.join(engineRoot, 'zstd-files');
     await mkdir(zstdFilesRoot, { recursive: true });
     await writeFile(path.join(zstdFilesRoot, 'a.txt'), 'x');
@@ -394,7 +395,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
     try {
       const runId = await createRun('FULL_DATA');
       const result = await buildEngine({ filesRoot: zstdFilesRoot }).buildLocalBackup(runId);
-      expect(result).toMatchObject({ outcome: 'failed', failureCode: 'PREFLIGHT_STORAGE_UNAVAILABLE' });
+      expect(result).toMatchObject({ outcome: 'failed', failureCode: 'PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE' });
     } finally {
       if (prev === undefined) delete process.env.ZSTD_BIN;
       else process.env.ZSTD_BIN = prev;
@@ -457,6 +458,19 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
     await rm(work, { recursive: true, force: true });
     await releaseSlot(runId);
     await rm(bigFilesRoot, { recursive: true, force: true });
+  });
+
+  it('extended failure vocabulary is accepted by the database (migration 031)', async () => {
+    for (const code of ['CHECKSUM_FAILED', 'PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE'] as const) {
+      const runId = randomUUID();
+      await sourcePool!.query(
+        `INSERT INTO backup_runs (id, status, phase, origin, scope, retention_class, created_at, started_at, completed_at, failure_code)
+         VALUES ($1, 'FAILED', 'CHECKSUM', 'SCHEDULED', 'DATABASE', 'DAILY', NOW(), NOW(), NOW(), $2)`,
+        [runId, code],
+      );
+      const run = await repository!.findRunById(runId);
+      expect(run?.failureCode).toBe(code);
+    }
   });
 
   it('engine refuses to run a non-PREFLIGHT or terminal run', async () => {

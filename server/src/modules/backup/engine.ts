@@ -39,7 +39,8 @@ export type BackupManifestV1 = {
   database: {
     engine: 'postgresql';
     serverVersion: string;
-    dumpVersion: number;
+    dumpVersion: string;
+    dumpToolVersion: string;
     schemaVersion: string;
   };
   contents: {
@@ -98,6 +99,30 @@ function readPackageVersion(): string {
   } catch {
     return 'unknown';
   }
+}
+
+const ARCHIVE_DUMP_VERSION_PATTERN = /^\s*;\s*Dump Version:\s*(\S+)\s*$/;
+const ARCHIVE_TOOL_VERSION_PATTERN = /^\s*;\s*Dumped by pg_dump version:\s*(.+?)\s*$/;
+
+/** Read the produced custom archive's own header through `pg_restore -l`.
+ * The header distinguishes the ARCHIVE FORMAT version ("Dump Version:
+ * 1.15-0") from the PRODUCER tool version ("Dumped by pg_dump version:
+ * 16.13"); both are recorded, never conflated. */
+async function readArchiveMetadata(pgRestoreBin: string, dumpPath: string) {
+  const listing = await runBinary(pgRestoreBin, ['-l', dumpPath], { timeoutMs: 30_000 });
+  let dumpVersion: string | null = null;
+  let dumpToolVersion: string | null = null;
+  for (const line of listing.stdout.split('\n')) {
+    const formatMatch = ARCHIVE_DUMP_VERSION_PATTERN.exec(line);
+    if (formatMatch) dumpVersion = formatMatch[1]!;
+    const toolMatch = ARCHIVE_TOOL_VERSION_PATTERN.exec(line);
+    if (toolMatch) dumpToolVersion = toolMatch[1]!;
+    if (dumpVersion && dumpToolVersion) break;
+  }
+  if (!dumpVersion || !dumpToolVersion) {
+    throw new Error('archive header did not expose dump/tool versions');
+  }
+  return { dumpVersion, dumpToolVersion };
 }
 
 function pgConnectionEnv(databaseUrl: string): NodeJS.ProcessEnv {
@@ -178,9 +203,13 @@ export class LocalBackupEngine {
 
       const existing = await stat(workspacePathsFor(tempRoot, runId).workspacePath).catch(() => null);
       if (existing) {
+        // Fail-closed workspace preflight (BR0 table: "temp directory
+        // writable → PREFLIGHT_LOW_DISK") until BR5 owns stale-workspace
+        // recovery. Deliberately NOT PREFLIGHT_STORAGE_UNAVAILABLE — that
+        // code belongs to remote storage (BR4).
         throw new EngineFailure(
-          'PREFLIGHT_STORAGE_UNAVAILABLE',
-          'Bu yedek çalışması için çalışma dizini zaten mevcut.',
+          'PREFLIGHT_LOW_DISK',
+          'Geçici yedek dizini bu çalışma için kullanılamıyor (mevcut çalışma dizini var).',
         );
       }
 
@@ -215,6 +244,19 @@ export class LocalBackupEngine {
       // BY CONTRACT; the CHECKSUM phase only materializes checksums.sha256
       // from the already-computed values (BR0 phase order preserved).
       await service.advancePhase(runId, 'MANIFEST', filesArchiveRequired);
+      let archiveMetadata: { dumpVersion: string; dumpToolVersion: string };
+      try {
+        archiveMetadata = await readArchiveMetadata(
+          resolveBinary(process.env.PG_RESTORE_BIN, 'pg_restore'),
+          path.join(paths.payloadPath, 'database.dump'),
+        );
+      } catch (error) {
+        throw new EngineFailure(
+          'MANIFEST_FAILED',
+          'Arşiv sürüm bilgisi okunamadı.',
+          error instanceof Error ? tail(error.message) : null,
+        );
+      }
       const databaseComponent = await this.component(paths.payloadPath, 'database.dump') as {
         file: 'database.dump';
         bytes: number;
@@ -232,7 +274,8 @@ export class LocalBackupEngine {
         database: {
           engine: 'postgresql',
           serverVersion: preflight.serverVersion,
-          dumpVersion: preflight.pgDumpVersion.major * 100 + preflight.pgDumpVersion.minor,
+          dumpVersion: archiveMetadata.dumpVersion,
+          dumpToolVersion: archiveMetadata.dumpToolVersion,
           schemaVersion: preflight.schemaVersion,
         },
         contents: { database: databaseComponent, files: filesComponent },
@@ -248,9 +291,9 @@ export class LocalBackupEngine {
         throw new EngineFailure('MANIFEST_FAILED', 'Yedek manifesti yazılamadı.');
       }
 
-      // CHECKSUM phase: two spaces, newline-terminated sidecar. I/O failures
-      // here map to MANIFEST_FAILED (integrity-metadata generation) — the
-      // narrowest existing code; flagged for taxonomy review in the handoff.
+      // CHECKSUM phase: two spaces, newline-terminated sidecar. Failures in
+      // this phase map to their own stable code (CHECKSUM_FAILED) — the
+      // manifest already exists at this point.
       await service.advancePhase(runId, 'CHECKSUM', filesArchiveRequired);
       const lines = [`${databaseComponent.sha256}  database.dump`];
       if (filesComponent) lines.push(`${filesComponent.sha256}  files.tar.zst`);
@@ -261,7 +304,7 @@ export class LocalBackupEngine {
           { mode: 0o600 },
         );
       } catch {
-        throw new EngineFailure('MANIFEST_FAILED', 'Bileşen checksum dosyası yazılamadı.');
+        throw new EngineFailure('CHECKSUM_FAILED', 'Bileşen checksum dosyası yazılamadı.');
       }
 
       // PACKAGE phase: re-validate components against the manifest (tamper
@@ -379,20 +422,30 @@ export class LocalBackupEngine {
     }
 
     if (filesArchiveRequiredFor(scope, filesRoot !== null)) {
+      // Local files-archive prerequisites use their OWN preflight code:
+      // PREFLIGHT_STORAGE_UNAVAILABLE is reserved for remote storage (BR4).
       try {
         const rootStat = await stat(filesRoot!);
         if (!rootStat.isDirectory()) throw new Error('not a directory');
         await readdir(filesRoot!);
       } catch {
-        throw new EngineFailure('PREFLIGHT_STORAGE_UNAVAILABLE', 'Kalıcı dosya kökü kullanılamıyor.');
-      }
-      try {
-        await runBinary(resolveBinary(process.env.ZSTD_BIN, 'zstd'), ['--version'], { timeoutMs: 5_000 });
-      } catch {
         throw new EngineFailure(
-          'PREFLIGHT_STORAGE_UNAVAILABLE',
-          'Dosya arşivi için zstd aracı kullanılamıyor.',
+          'PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE',
+          'Kalıcı dosya kökü kullanılamıyor.',
         );
+      }
+      for (const [envKey, fallback, label] of [
+        ['TAR_BIN', 'tar', 'tar'],
+        ['ZSTD_BIN', 'zstd', 'zstd'],
+      ] as const) {
+        try {
+          await runBinary(resolveBinary(process.env[envKey], fallback), ['--version'], { timeoutMs: 5_000 });
+        } catch {
+          throw new EngineFailure(
+            'PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE',
+            `Dosya arşivi için ${label} aracı kullanılamıyor.`,
+          );
+        }
       }
     }
 

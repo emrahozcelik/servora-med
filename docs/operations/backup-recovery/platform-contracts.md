@@ -252,9 +252,11 @@ list authoritative and extend it only additively.
 | `PREFLIGHT_PG_DUMP_UNAVAILABLE` | PREFLIGHT | configuration | no retry — operator fix |
 | `PREFLIGHT_LOW_DISK` | PREFLIGHT | environment | bounded retry (space may free), then fail run |
 | `PREFLIGHT_STORAGE_UNAVAILABLE` | PREFLIGHT | environment | bounded retry, then fail run |
+| `PREFLIGHT_FILES_ARCHIVE_UNAVAILABLE` | PREFLIGHT | configuration | no retry — operator fix (missing/unreadable `BACKUP_FILES_ROOT`, or required tar/zstd unavailable) |
 | `PG_DUMP_FAILED` | DATABASE_DUMP | deterministic | fail run; no loop |
 | `FILES_ARCHIVE_FAILED` | FILES_ARCHIVE | deterministic | fail run |
 | `MANIFEST_FAILED` | MANIFEST | deterministic | fail run |
+| `CHECKSUM_FAILED` | CHECKSUM | deterministic | fail run (checksums.sha256 materialization I/O) |
 | `PACKAGE_FAILED` | PACKAGE | deterministic | fail run |
 | `ENCRYPTION_FAILED` | ENCRYPT | deterministic | fail run |
 | `R2_AUTH_FAILED` | UPLOAD / REMOTE_VERIFY | auth | fail; operator must correct credentials |
