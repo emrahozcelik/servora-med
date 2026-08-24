@@ -105,21 +105,29 @@ database may be gone; a separate READY row is inserted into the restored
 target when possible, otherwise a 0600 evidence JSON is emitted under
 `RESTORE_EVIDENCE_DIR`.
 
-The deterministic acceptance harness uses disposable PostgreSQL and, when
-enabled, official age plus an injected R2-semantic transport. The real
-Cloudflare R2 harness is opt-in and must use a disposable bucket/prefix,
-synthetic data, an opaque test instance ID, and an ephemeral identity. Never
-use production credentials or customer data. Without those credentials the
-status is:
+The deterministic acceptance harness uses disposable PostgreSQL, official age,
+and an injected R2-semantic transport. The authoritative real Cloudflare R2
+path is a separate opt-in FULL_DATA DR acceptance. It accepts only dedicated
+acceptance credentials, a disposable bucket, synthetic data, an internally
+generated opaque instance ID, and an ephemeral identity. Never use production
+credentials or customer data. Without dedicated credentials the status is:
 
 ```text
 REAL_R2_DR_ACCEPTANCE = NOT EXECUTED
 ```
 
-The runnable harness is `ops/scripts/restore-dr-acceptance.sh`. Set
-`BR7_REAL_R2_ACCEPTANCE=1` plus disposable R2 credentials and opaque
-`BR7_REAL_R2_INSTANCE_ID` to exercise the actual Cloudflare adapter; otherwise
-the deterministic R2 transport is used. The script never deletes R2 objects.
+The deterministic entrypoint is `ops/scripts/restore-dr-acceptance.sh`. The
+intentional real-R2 entrypoint is:
+
+```bash
+npm --prefix server run backup:real-r2-acceptance
+```
+
+It requires the separate `SERVORA_ACCEPTANCE_R2_*` contract and never falls
+back to normal production R2 variables. Full prerequisites, evidence fields,
+the exact external-operation sequence, and cleanup semantics are in
+[`real-r2-dr-acceptance.md`](./real-r2-dr-acceptance.md). Cleanup may target
+only the current run's exact object key; Bucket Lock is never changed.
 
 V1 integrity verification is not producer authentication: R2 metadata, SHA,
 and Bucket Lock do not prove that a trusted Servora producer created the

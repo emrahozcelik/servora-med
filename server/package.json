@@ -17,6 +17,7 @@
     "start:prod": "node dist/index.js",
     "backup:worker": "tsx --env-file=.env src/backup-worker.ts",
     "backup:worker:prod": "node --env-file-if-exists=.env dist/backup-worker.js",
+    "backup:real-r2-acceptance": "../ops/scripts/restore-dr-acceptance.sh --i-accept-real-r2-test",
     "migrate": "tsx --env-file=.env src/db/migrate.ts",
     "migrate:prod": "node dist/db/migrate.js",
     "products:import:pilot": "tsx --env-file=.env src/db/import-pilot-products.ts",

@@ -8,24 +8,33 @@ import { describe, expect, it } from 'vitest';
 
 import { buildConnectionTestKey } from '../src/modules/backup/object-keys.js';
 import { CloudflareR2Storage } from '../src/modules/backup/r2.js';
+import { buildR2Endpoint } from '../src/modules/backup/r2-config.js';
 
 /**
- * OPT-IN REAL R2 ACCEPTANCE (spec §47). Never runs in CI: it activates only
- * when explicit DISPOSABLE test credentials are exported. Requirements:
+ * OPTIONAL BR4-ONLY REAL R2 TRANSPORT PROBE. The full DR acceptance lives in
+ * backup-dr-full-acceptance.test.ts. This narrow regression never runs in CI:
+ * it activates only when the shared dedicated acceptance credentials and an
+ * additional BR4-probe opt-in are exported. Requirements:
  * dedicated non-production test bucket, synthetic artifact only, unique test
  * instance id, no production backup keys, and cleanup limited to objects this
  * run created. Never fabricate or search for production credentials — without
- * these env vars the suite reports REAL_R2_ACCEPTANCE = NOT EXECUTED.
+ * these env vars the test is skipped. It is not authoritative DR evidence.
  */
 
-const accountId = process.env.BACKUP_R2_REAL_TEST_ACCOUNT_ID?.trim();
-const accessKeyId = process.env.BACKUP_R2_REAL_TEST_ACCESS_KEY_ID?.trim();
-const secretAccessKey = process.env.BACKUP_R2_REAL_TEST_SECRET_ACCESS_KEY?.trim();
-const bucket = process.env.BACKUP_R2_REAL_TEST_BUCKET?.trim();
-const instanceId = process.env.BACKUP_R2_REAL_TEST_INSTANCE_ID?.trim();
+const accountId = process.env.SERVORA_ACCEPTANCE_R2_ACCOUNT_ID?.trim();
+const accessKeyId = process.env.SERVORA_ACCEPTANCE_R2_ACCESS_KEY_ID?.trim();
+const secretAccessKey = process.env.SERVORA_ACCEPTANCE_R2_SECRET_ACCESS_KEY?.trim();
+const bucket = process.env.SERVORA_ACCEPTANCE_R2_BUCKET?.trim();
+const instanceId = `acceptance-br4-${randomUUID().replaceAll('-', '').slice(0, 16)}`;
+const productionDistinct = bucket !== process.env.BACKUP_R2_BUCKET?.trim()
+  && !(accessKeyId === process.env.BACKUP_R2_ACCESS_KEY_ID?.trim()
+    && secretAccessKey === process.env.BACKUP_R2_SECRET_ACCESS_KEY?.trim());
 
 const enabled = Boolean(accountId && accessKeyId && secretAccessKey && bucket && instanceId
-  && process.env.BACKUP_R2_REAL_TEST_CONFIRM === 'yes-dedicated-disposable-test-bucket');
+  && productionDistinct
+  && process.env.SERVORA_ACCEPTANCE_REAL_R2 === '1'
+  && process.env.SERVORA_ACCEPTANCE_REAL_R2_CONFIRM === 'explicit-operator-opt-in'
+  && process.env.SERVORA_ACCEPTANCE_BR4_R2_PROBE === '1');
 
 function sha256OfFile(filePath: string): Promise<string> {
   const hash = createHash('sha256');
@@ -107,7 +116,8 @@ describe.skipIf(!enabled)('BR4 REAL R2 acceptance (disposable test bucket)', () 
       // Cleanup: ONLY the object this test created.
       const client = new S3Client({
         region: 'auto',
-        endpoint: `https://${accountId}.r2.cloudflarestorage.com`,
+        endpoint: buildR2Endpoint(accountId!),
+        maxAttempts: 1,
         credentials: { accessKeyId: accessKeyId!, secretAccessKey: secretAccessKey! },
       });
       try {

@@ -1,7 +1,7 @@
 # Backup & Recovery V1 (BR program) — Servora-Med
 
 ```text
-Date: 2026-08-23
+Date: 2026-08-24
 BR0: merged (architecture and contracts only)
 BR1: merged — Backup Domain Foundation
 BR2: merged — Local PostgreSQL Backup Engine
@@ -9,8 +9,9 @@ BR3: merged — Post-Quantum Backup Encryption (native age HybridRecipient)
 BR4: merged — Cloudflare R2 Storage + Upload + Remote Verification
 BR5: merged — worker / scheduling / retry / cleanup / crash recovery
 BR6: merged — admin Backup & Recovery UI
-BR7: implemented — operator restore CLI + DR acceptance harness on an isolated Draft PR branch
-Status: BR7 Draft PR / exact-head CI and DR acceptance evidence required before external review; Ready, merge, cleanup, and production cutover are not authorized
+BR7: merged — operator restore CLI + deterministic DR acceptance harness (PR #194)
+Readiness slice: real-R2 harness/runbooks implemented; real R2 and production host gates not executed
+Status: production worker, legacy retirement, monitoring cutover, production restore, and production cutover are not authorized
 ```
 
 This directory holds the approved architecture and implementation-ready
@@ -27,10 +28,11 @@ added or configured.
 | BR1 — backup domain foundation | merged (`8530990`, PR #188) |
 | BR2 — local PostgreSQL backup engine | merged (`12452f0`, PR #189) |
 | BR3 — post-quantum backup encryption | merged (`d57bca7`, PR #190) |
-| BR4 — Cloudflare R2 storage + verification | merged; REAL_R2 acceptance remains a BR5 production gate |
+| BR4 — Cloudflare R2 storage + verification | merged; real-R2 DR acceptance remains an external infrastructure gate |
 | BR5 — worker / scheduling / retry / recovery | merged; production enablement remains separately authorized |
 | BR6 — admin backup UI | merged; web restore remains intentionally absent |
-| BR7 — restore CLI | implemented on the isolated Draft PR branch; exact-head CI/DR evidence pending |
+| BR7 — restore CLI | merged (`6c7a48b`, PR #194); real-R2 DR evidence remains pending dedicated acceptance credentials |
+| Operational acceptance / cutover readiness | harness and runbooks implemented; `REAL_R2_DR_ACCEPTANCE = NOT EXECUTED`, host configuration not verified |
 
 BR1 delivered (metadata foundation only — no pg_dump, encryption, R2,
 worker, scheduler, UI, or restore execution):
@@ -177,9 +179,9 @@ bucket administration, no UI, no restore CLI):
   connection-test request records a safe `CONFIG` failure. The safe
   storage-state response overlays configured/alias truth from runtime env
   while retaining DB-backed last-test evidence. Tests run
-  through a deterministic injected fake client; an opt-in real-R2
-  acceptance suite exists behind explicit disposable env credentials
-  (REAL_R2_ACCEPTANCE = NOT EXECUTED without them).
+  through a deterministic injected fake client; the opt-in real-R2 FULL_DATA
+  DR acceptance uses separate disposable credentials
+  (`REAL_R2_DR_ACCEPTANCE = NOT EXECUTED` without them).
 
 BR5 delivered (separate worker process; production enablement remains a
 separate authorized gate):
@@ -205,7 +207,7 @@ separate authorized gate):
   source is the legacy local dump/sidecar check; `SERVORA_ALERT_BACKUP_SOURCE=verified-runs`
   is an explicit reconciliation switch.
 - Systemd and launchd examples supervise the same worker entrypoint. The old
-  MVP timer/script remains untouched. `REAL_R2_ACCEPTANCE = NOT EXECUTED`
+  MVP timer/script remains untouched. `REAL_R2_DR_ACCEPTANCE = NOT EXECUTED`
   remains a mandatory disposable-bucket gate before enabling the worker in
   production.
 
@@ -258,7 +260,9 @@ BR7 delivered (operator CLI only; no production cutover):
   unchanged.
 - Real disposable Cloudflare R2 DR acceptance is an opt-in operator gate.
   Without supplied disposable credentials the truthful status is exactly
-  `REAL_R2_DR_ACCEPTANCE = NOT EXECUTED`.
+  `REAL_R2_DR_ACCEPTANCE = NOT EXECUTED`. The intentional command, dedicated
+  configuration, evidence schema, and cleanup boundary are in
+  [`real-r2-dr-acceptance.md`](./real-r2-dr-acceptance.md).
 
 ## File map
 
@@ -267,6 +271,9 @@ BR7 delivered (operator CLI only; no production cutover):
 | [architecture.md](./architecture.md) | Approved decision register, domain boundaries, V1 scope, terminology, job state machine, preflight, execution model, encryption and key custody, integrity model, restore and disaster recovery, acceptance contract, BR1–BR7 roadmap, reconciliation with the current MVP backup stack |
 | [archive-and-storage-contract.md](./archive-and-storage-contract.md) | Archive format v1, manifest v1 schema, checksum contract, Cloudflare R2 object key contract, retention contract, R2 infrastructure and least-privilege credential contract, verified Cloudflare facts |
 | [platform-contracts.md](./platform-contracts.md) | Data model contract (BR1), RBAC contract, admin API contract (BR slices), admin UI contract (BR6), operator restore CLI contract (BR7), failure taxonomy, retry contract, monitoring/health contract, audit contract |
+| [br7-restore-cli.md](./br7-restore-cli.md) | Operator-only list/inspect/verify/new-target restore contract |
+| [real-r2-dr-acceptance.md](./real-r2-dr-acceptance.md) | Dedicated real Cloudflare R2 synthetic DR acceptance command, evidence, cleanup, and security boundary |
+| [production-cutover-runbook.md](./production-cutover-runbook.md) | Read-only production readiness matrix, G0–G10 future authorization order, monitoring transition, and rollback |
 
 ## Relationship to existing documents
 
@@ -290,3 +297,6 @@ BR7 delivered (operator CLI only; no production cutover):
 1. `architecture.md` — start here for decisions and boundaries.
 2. `archive-and-storage-contract.md` — what a backup artifact is.
 3. `platform-contracts.md` — how Servora models, exposes, and audits it.
+4. `br7-restore-cli.md` — how an operator verifies and restores to a new target.
+5. `real-r2-dr-acceptance.md` — how to prove the path on disposable R2.
+6. `production-cutover-runbook.md` — how a later authorized worker transition is gated.
