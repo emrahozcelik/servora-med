@@ -24,6 +24,9 @@ const staffUser: CurrentUser = {
 const managerUser: CurrentUser = {
   ...staffUser, id: 'm1', name: 'Yönetici', role: 'MANAGER', email: 'm@x',
 };
+const adminUser: CurrentUser = {
+  ...staffUser, id: 'a1', name: 'Sistem yöneticisi', role: 'ADMIN', email: 'admin@x',
+};
 
 const baseLifecycle: JobLifecycleFacts = {
   createdAt: '2026-07-17T08:00:00.000Z', acceptedAt: null, acceptedBy: null,
@@ -184,6 +187,27 @@ function cancelledJob(lifecycle: Partial<JobLifecycleFacts>): JobCard {
   };
 }
 
+function invalidatedJob(): JobCard {
+  return {
+    ...job,
+    status: 'INVALIDATED',
+    invalidatedAt: '2026-07-17T12:00:00.000Z',
+    invalidatedBy: 'a1',
+    invalidationReasonCode: 'WRONG_CUSTOMER',
+    workflowContext: contextWith({
+      allowedCommands: [],
+      allowedActions: ['VIEW_NOTES'],
+      lifecycle: {
+        ...baseLifecycle,
+        invalidatedAt: '2026-07-17T12:00:00.000Z',
+        invalidatedBy: { id: 'a1', name: 'Sistem yöneticisi' },
+        invalidationReasonCode: 'WRONG_CUSTOMER',
+        invalidatedFromStatus: 'NEW',
+      },
+    }),
+  };
+}
+
 function waitingApprovalJob(): JobCard {
   return {
     ...job,
@@ -318,6 +342,24 @@ describe('Staff JobCard detail', () => {
     expect(host.textContent).toContain(job.title);
     expect(fetch.mock.calls.some(([input]) => String(input).endsWith(`/api/job-cards/${job.id}`))).toBe(true);
     expect(host.textContent).not.toContain('Size yeni bir iş atandı.');
+  });
+
+  it('shows the invalidation action only to Admin on an operational JobCard', async () => {
+    const baseFetch = mockDetailFetch(job);
+    const fetch = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes('/follow-ups')) {
+        return Response.json({ items: [], total: 0, limit: 100, offset: 0 });
+      }
+      return baseFetch(input);
+    });
+    await renderScreen(job, adminUser, fetch);
+    expect(host.querySelector('[data-job-invalidation="true"]')).not.toBeNull();
+    expect(host.textContent).toContain('Geçersiz olarak işaretle');
+  });
+
+  it('does not render the Admin invalidation action for Manager or Staff', async () => {
+    await renderScreen(job, managerUser);
+    expect(host.querySelector('[data-job-invalidation="true"]')).toBeNull();
   });
 
   it('shows canonical not-found error without rendering push title/body as job content', async () => {
@@ -2433,6 +2475,17 @@ describe('Staff JobCard detail', () => {
     // Terminal before facts
     const facts = section('facts')!;
     expect(terminal.compareDocumentPosition(facts) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it('renders labeled invalidation facts without exposing the raw reason enum', async () => {
+    await renderDetail(invalidatedJob(), adminUser);
+    const terminal = section('terminal')!;
+    expect(terminal).not.toBeNull();
+    expect(terminal.textContent).toContain('Geçersiz');
+    expect(terminal.textContent).toContain('Yanlış müşteriye bağlı');
+    expect(terminal.textContent).not.toContain('WRONG_CUSTOMER');
+    expect(terminal.textContent).toContain('Sistem yöneticisi');
+    expect(host.querySelector('[data-job-invalidation="true"]')).toBeNull();
   });
 
   it('hides Staff primary lifecycle actions when the viewer is not the assignee', async () => {

@@ -4,7 +4,7 @@ import {
   acceptJobCard, addJobCardNote, approveJobCard, cancelJobCard, createFollowUp, createJobCard, getJobCard,
   createProductDelivery,
   getJobCardBoard, getMeetingDetails, listActivity, listDeliveryItems, listJobCardNotes,
-  listFollowUps, listJobCards, findAvailableSlots, patchJobCard, patchMeetingDetails,
+  listFollowUps, listJobCards, findAvailableSlots, invalidateJobCard, patchJobCard, patchMeetingDetails,
   requestJobCardRevision, resumeJobCard, startJobCard, submitJobCardForApproval,
   withdrawJobCardFromApproval,
 } from '../src/jobs/jobs-api';
@@ -58,6 +58,73 @@ function json(body: unknown, status = 200) {
 }
 
 describe('JobCard workspace transport', () => {
+  it('posts invalidation with the exact body and validates the authoritative mutation response', async () => {
+    const invalidatedAt = '2026-08-18T08:00:00.000Z';
+    const fetchMock = vi.fn().mockResolvedValue(json({
+      ...job,
+      status: 'INVALIDATED',
+      version: 8,
+      invalidatedAt,
+      invalidatedBy: 'admin-1',
+      invalidationReasonCode: 'OTHER',
+      workflowContext: {
+        ...workflowContext,
+        allowedCommands: [],
+        allowedActions: ['VIEW_NOTES'],
+        lifecycle: {
+          ...workflowContext.lifecycle,
+          invalidatedAt,
+          invalidatedBy: { id: 'admin-1', name: 'Yönetici' },
+          invalidationReasonCode: 'OTHER',
+          invalidatedFromStatus: 'NEW',
+        },
+      },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(invalidateJobCard('job-1', {
+      clientActionId: 'invalidate-1', expectedVersion: 7, reasonCode: 'OTHER', note: 'Demo kayıt',
+    }, 'NEW')).resolves.toMatchObject({
+      id: 'job-1', status: 'INVALIDATED', version: 8,
+      invalidationReasonCode: 'OTHER', invalidatedAt,
+      invalidatedBy: 'admin-1',
+    });
+    expect(fetchMock).toHaveBeenCalledWith('/api/job-cards/job-1/invalidate', expect.objectContaining({
+      method: 'POST',
+      body: JSON.stringify({
+        clientActionId: 'invalidate-1', expectedVersion: 7, reasonCode: 'OTHER', note: 'Demo kayıt',
+      }),
+    }));
+  });
+
+  it('rejects an invalidation response whose lifecycle reason disagrees with the mutation request', async () => {
+    const invalidatedAt = '2026-08-18T08:00:00.000Z';
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json({
+      ...job,
+      status: 'INVALIDATED',
+      version: 8,
+      invalidatedAt,
+      invalidatedBy: 'admin-1',
+      invalidationReasonCode: 'OTHER',
+      workflowContext: {
+        ...workflowContext,
+        allowedCommands: [],
+        allowedActions: ['VIEW_NOTES'],
+        lifecycle: {
+          ...workflowContext.lifecycle,
+          invalidatedAt,
+          invalidatedBy: { id: 'admin-1', name: 'Yönetici' },
+          invalidationReasonCode: 'DUPLICATE',
+          invalidatedFromStatus: 'NEW',
+        },
+      },
+    })));
+
+    await expect(invalidateJobCard('job-1', {
+      clientActionId: 'invalidate-1', expectedVersion: 7, reasonCode: 'OTHER', note: 'Demo kayıt',
+    }, 'NEW')).rejects.toMatchObject({ code: 'INVALID_RESPONSE', status: 0 });
+  });
+
   it('posts the atomic multi-product delivery create and parses its final version', async () => {
     const fetchMock = vi.fn().mockResolvedValue(json({ jobCardId: 'job-1', version: 4 }));
     vi.stubGlobal('fetch', fetchMock);

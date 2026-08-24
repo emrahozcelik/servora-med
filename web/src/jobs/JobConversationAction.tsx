@@ -32,11 +32,13 @@ export function JobConversationAction({
   user,
   onOpenMessaging,
   onVisibilityChange,
+  disabled = false,
 }: {
   job: JobCard;
   user: CurrentUser;
   onOpenMessaging: (conversationId: string) => void;
   onVisibilityChange?: (visible: boolean) => void;
+  disabled?: boolean;
 }) {
   const [resolution, setResolution] = useState<Resolution>({ kind: 'resolving' });
   const [busy, setBusy] = useState(false);
@@ -91,7 +93,7 @@ export function JobConversationAction({
   if (effective.kind === 'none') return null;
 
   async function handleClick() {
-    if (busy) return;
+    if (busy || disabled) return;
     if (effective.kind === 'open') {
       onOpenMessaging(effective.conversationId);
       return;
@@ -128,7 +130,7 @@ export function JobConversationAction({
         className="secondary-button"
         type="button"
         onClick={() => void handleClick()}
-        disabled={busy}
+        disabled={busy || disabled}
         aria-busy={busy}
       >
         {busy ? 'Açılıyor…' : label}

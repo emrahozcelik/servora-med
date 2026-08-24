@@ -343,6 +343,12 @@ type DeliveryInput = {
   deliveryNote?: string | null;
 };
 type LifecycleInput = { clientActionId: string; expectedVersion: number };
+export type JobCardInvalidationInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  reasonCode: JobCardInvalidationReasonCode;
+  note?: string | null;
+};
 export type StartJobCardInput = LifecycleInput & { locationCapture?: StartLocationCapture };
 export type FollowUpProposalInput = {
   scheduledAt: string;
@@ -988,3 +994,26 @@ export const requestJobCardRevision = (id: string, input: LifecycleInput & { rev
 export const withdrawJobCardFromApproval = (id: string, input: LifecycleInput) => lifecycle(id, 'withdraw-from-approval', input);
 export const resumeJobCard = (id: string, input: LifecycleInput) => lifecycle(id, 'resume', input);
 export const cancelJobCard = (id: string, input: LifecycleInput & { cancelReason: string }) => lifecycle(id, 'cancel', input);
+
+export const invalidateJobCard = async (
+  id: string,
+  input: JobCardInvalidationInput,
+  expectedSourceStatus: JobCardStatus,
+) => {
+  const raw = await request(`${jobPath(id)}/invalidate`, json('POST', input));
+  const parsed = parseJobCard(raw);
+  if (parsed.id !== id
+    || parsed.status !== 'INVALIDATED'
+    || parsed.version !== input.expectedVersion + 1
+    || parsed.invalidationReasonCode !== input.reasonCode
+    || parsed.invalidatedAt === undefined
+    || parsed.invalidatedAt === null
+    || parsed.invalidatedBy === undefined
+    || parsed.invalidatedBy === null
+    || parsed.workflowContext.lifecycle.invalidatedFromStatus !== expectedSourceStatus
+    || parsed.workflowContext.lifecycle.invalidationReasonCode !== input.reasonCode
+    || parsed.workflowContext.lifecycle.invalidatedBy === null) {
+    invalid('invalidation');
+  }
+  return parsed;
+};

@@ -56,16 +56,17 @@ export function FollowUpSourcePanel({ job }: { job: JobCard }) {
   </section>;
 }
 
-export function FollowUpRecommendation({ job, details, onCreate }: {
+export function FollowUpRecommendation({ job, details, onCreate, disabled = false }: {
   job: JobCard;
   details: MeetingDetails | null;
   onCreate: () => void;
+  disabled?: boolean;
 }) {
   if (job.type !== 'SALES_MEETING' || job.status !== 'COMPLETED'
     || details?.outcome !== 'FOLLOW_UP_REQUIRED') return null;
   return <section className="follow-up-recommendation" aria-labelledby="follow-up-recommendation-title">
     <OperationalCard tone="attention" title={<h2 id="follow-up-recommendation-title">Takip gerekli</h2>}
-      actions={<button className="primary-button" type="button" onClick={onCreate}>Takip işi oluştur</button>}>
+      actions={<button className="primary-button" type="button" onClick={onCreate} disabled={disabled}>Takip işi oluştur</button>}>
       <p>Personel bu görüşmenin ardından yeni bir takip işi önerdi.</p>
       {details.nextFollowUpAt && <p><strong>Personelin önerdiği takip zamanı:</strong>{' '}
         <time dateTime={details.nextFollowUpAt}>{formatInstant(details.nextFollowUpAt)}</time></p>}
@@ -74,9 +75,10 @@ export function FollowUpRecommendation({ job, details, onCreate }: {
   </section>;
 }
 
-export function FollowUpCreateAction({ onCreate, existingChildrenCount }: {
+export function FollowUpCreateAction({ onCreate, existingChildrenCount, disabled = false }: {
   onCreate: () => void;
   existingChildrenCount?: number | null;
+  disabled?: boolean;
 }) {
   return <section className="follow-up-create-action surface-flat" aria-label="Takip işi işlemi">
     <div>
@@ -86,7 +88,7 @@ export function FollowUpCreateAction({ onCreate, existingChildrenCount }: {
         <p className="follow-up-existing-hint">Bu iş için {existingChildrenCount} takip işi mevcut.</p>
       )}
     </div>
-    <button className="primary-button" type="button" onClick={onCreate}>Takip işi oluştur</button>
+    <button className="primary-button" type="button" onClick={onCreate} disabled={disabled}>Takip işi oluştur</button>
   </section>;
 }
 
