@@ -144,6 +144,20 @@ describe('settings pages', () => {
     expect(visible).toContain('Yedekleme ve Kurtarma');
   });
 
+  it('shows the Demo Data entry only to ADMIN users', async () => {
+    const manager = { ...user, role: 'MANAGER' as const };
+    const admin = { ...user, role: 'ADMIN' as const };
+
+    const staffHtml = await render(<SettingsLandingPage user={user} />);
+    const managerHtml = await render(<SettingsLandingPage user={manager} />);
+    const adminHtml = await render(<SettingsLandingPage user={admin} />);
+
+    expect(adminHtml).toContain('/settings/data-management/demo-data');
+    expect(adminHtml).toContain('Demo verileri');
+    expect(staffHtml).not.toContain('/settings/data-management/demo-data');
+    expect(managerHtml).not.toContain('/settings/data-management/demo-data');
+  });
+
   it('suppresses only the landing route duplicate while keeping nested headings visible', async () => {
     const landing = await render(<SettingsLandingPage />);
     expect(landing).toContain('<h1 class="route-identity-heading">Ayarlar</h1>');

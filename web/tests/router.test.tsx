@@ -91,6 +91,7 @@ describe('application routes', () => {
     ['/settings/profile', 'Ayşe Personel', staff],
     ['/settings/security', 'Parola değiştir', staff],
     ['/settings/notifications', 'Bu cihaz', staff],
+    ['/settings/data-management/demo-data', 'Demo verileri', admin],
     ['/settings/data-management/backup-recovery', 'Erişim yetkiniz yok', manager],
     ['/settings/data-management/backup-recovery', 'Erişim yetkiniz yok', staff],
     ['/settings/data-management/backup-recovery', 'Yedekleme ve Kurtarma', backupAdmin],
@@ -102,6 +103,8 @@ describe('application routes', () => {
     ['/users', staff],
     ['/products/new', staff],
     ['/staff/staff-1/reports', staff],
+    ['/settings/data-management/demo-data', manager],
+    ['/settings/data-management/demo-data', staff],
   ] as const)('renders the established forbidden state for unauthorized direct route %s', async (path, user) => {
     const html = await render(path, user);
     expect(html).toContain('Erişim yetkiniz yok');
