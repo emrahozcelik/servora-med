@@ -49,6 +49,7 @@ let databaseCreated = false;
 let postgresClusterDirectory = '';
 let postgresStarted = false;
 let failure = null;
+let serverEnvironmentFileCreated = false;
 
 function sanitize(value) {
   return String(value)
@@ -79,6 +80,16 @@ function commandEnvironment(overrides = {}) {
     ACTION_SCOPED_GEOLOCATION_ENABLED: 'false',
     ...overrides,
   };
+}
+
+function ensureServerEnvironmentFile(environment) {
+  const environmentFile = `${serverDirectory}/.env`;
+  if (existsSync(environmentFile)) return;
+  writeFileSync(environmentFile, [
+    `DATABASE_URL=${environment.DATABASE_URL}`,
+    '',
+  ].join('\n'), { mode: 0o600 });
+  serverEnvironmentFileCreated = true;
 }
 
 async function runCommand(command, args, options = {}) {
@@ -478,6 +489,7 @@ try {
   await startIsolatedPostgres();
   await createDisposableDatabase();
   const environment = commandEnvironment();
+  ensureServerEnvironmentFile(environment);
   await runCommand('npm', ['run', 'build'], { cwd: serverDirectory, env: environment });
   await runCommand('npm', ['run', 'migrate'], { cwd: serverDirectory, env: environment });
   record('POSTGRES-MIGRATIONS-001-035', true, 'All repository migrations completed on the disposable database');
@@ -517,6 +529,10 @@ try {
   try { await browser?.close(); } catch { /* best effort */ }
   await stopProcess(viteProcess);
   await stopProcess(serverProcess);
+  if (serverEnvironmentFileCreated) {
+    unlinkSync(`${serverDirectory}/.env`);
+    serverEnvironmentFileCreated = false;
+  }
   try {
     await dropDisposableDatabase();
     if (!failure) record('POSTGRES-DISPOSABLE-DROPPED', true, 'Disposable PostgreSQL database was removed');
