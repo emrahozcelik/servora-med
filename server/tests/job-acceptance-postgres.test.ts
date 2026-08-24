@@ -178,6 +178,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '032_backup_r2_failure_taxonomy',
           '033_backup_worker_runtime',
           '034_demo_data_foundation',
+          '035_demo_data_purge_foundation',
         ],
       });
 

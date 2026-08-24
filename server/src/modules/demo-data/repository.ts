@@ -1,12 +1,18 @@
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
+import { DemoDatasetImpactAnalyzer } from './analyzer.js';
+import { demoDatasetPlanHash } from './plan.js';
 import type {
   DemoDatasetBlocker,
-  DemoDatasetImpactCounts,
+  DemoDatasetPurgePlan,
+  DemoDatasetPurgeRequest,
+  DemoDatasetPurgeResponse,
   DemoDatasetPreviewData,
   DemoDatasetRecord,
   DemoDatasetRepository,
 } from './types.js';
+
+import { AppError } from '../../errors/index.js';
 
 type DemoDatasetRow = {
   id: string;
@@ -15,45 +21,15 @@ type DemoDatasetRow = {
   seed_version: string;
   status: 'ACTIVE' | 'PURGED';
   created_at: Date;
-  created_by: string;
+  created_by: string | null;
+  created_by_user_id_snapshot: string | null;
   purged_at: Date | null;
   organization_name: string;
 };
 
-type ImpactCountRow = {
-  users: number;
-  staff_profiles: number;
-  customers: number;
-  contacts: number;
-  products: number;
-  job_cards: number;
-  delivery_items: number;
-  notes: number;
-  confidential_notes: number;
-  activities: number;
-  follow_ups: number;
-  calendar_events: number;
-  conversations: number;
-  messages: number;
-  notifications: number;
-  reminders: number;
-  realtime_events: number;
-};
-
-type BlockerRow = {
-  code: string;
-  message: string;
-  source_type: string;
-  source_id: string;
-  related_type: string | null;
-  related_id: string | null;
-};
-
-type PlanKeyRow = {
-  plan_key: string;
-};
-
 function mapDataset(row: DemoDatasetRow): DemoDatasetRecord {
+  const createdBy = row.created_by ?? row.created_by_user_id_snapshot;
+  if (!createdBy) throw new Error('demo dataset creator attribution is missing');
   return {
     id: row.id,
     organizationId: row.organization_id,
@@ -61,764 +37,496 @@ function mapDataset(row: DemoDatasetRow): DemoDatasetRecord {
     seedVersion: row.seed_version,
     status: row.status,
     createdAt: row.created_at,
-    createdBy: row.created_by,
+    createdBy,
     purgedAt: row.purged_at,
   };
 }
 
 const DATASET_COLUMNS = `d.id, d.organization_id, d.dataset_key, d.seed_version,
-  d.status, d.created_at, d.created_by, d.purged_at, o.name AS organization_name`;
+  d.status, d.created_at, d.created_by, d.created_by_user_id_snapshot,
+  d.purged_at, o.name AS organization_name`;
 
 const DATASET_FROM = `
   FROM demo_datasets d
   JOIN organizations o ON o.id = d.organization_id`;
 
-const IMPACT_COUNTS_SQL = `
-WITH demo_users AS (
-  SELECT id FROM users
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_customers AS (
-  SELECT id FROM customers
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_products AS (
-  SELECT id FROM products
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_jobs AS (
-  SELECT id, source_job_card_id FROM job_cards
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_conversations AS (
-  SELECT id FROM conversations
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_calendar_events AS (
-  SELECT id FROM calendar_events
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_realtime_events AS (
-  SELECT re.id
-  FROM realtime_events re
-  WHERE re.organization_id = $1
-    AND (
-      EXISTS (
-        SELECT 1
-        FROM job_card_activity_logs a
-        JOIN demo_jobs j
-          ON j.id = a.job_card_id
-        WHERE a.organization_id = re.organization_id
-          AND a.id = re.source_activity_id
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM calendar_event_activity_logs a
-        JOIN demo_calendar_events e
-          ON e.id = a.calendar_event_id
-        WHERE a.organization_id = re.organization_id
-          AND a.id = re.calendar_activity_id
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM calendar_reminders r
-        WHERE r.organization_id = re.organization_id
-          AND r.id = re.calendar_reminder_id
-          AND (
-            r.job_card_id IN (SELECT id FROM demo_jobs)
-            OR r.calendar_event_id IN (SELECT id FROM demo_calendar_events)
-          )
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM messaging_activity_logs a
-        JOIN demo_conversations c
-          ON c.id = a.conversation_id
-        WHERE a.organization_id = re.organization_id
-          AND a.id = re.messaging_activity_id
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM staff_confidential_notes n
-        JOIN demo_users u
-          ON u.id = n.staff_user_id
-        WHERE n.organization_id = re.organization_id
-          AND n.id = re.staff_note_id
-      )
-    )
-)
-SELECT
-  (SELECT COUNT(*)::int FROM demo_users) AS users,
-  (SELECT COUNT(*)::int
-     FROM staff_profiles sp
-     JOIN demo_users u ON u.id = sp.user_id) AS staff_profiles,
-  (SELECT COUNT(*)::int FROM demo_customers) AS customers,
-  (SELECT COUNT(*)::int
-     FROM contacts c
-     JOIN demo_customers customer ON customer.id = c.customer_id
-     WHERE c.organization_id = $1) AS contacts,
-  (SELECT COUNT(*)::int FROM demo_products) AS products,
-  (SELECT COUNT(*)::int FROM demo_jobs) AS job_cards,
-  (SELECT COUNT(*)::int
-     FROM job_card_delivery_items di
-     JOIN demo_jobs j ON j.id = di.job_card_id
-     WHERE di.organization_id = $1) AS delivery_items,
-  (SELECT COUNT(*)::int
-     FROM job_card_notes n
-     JOIN demo_jobs j ON j.id = n.job_card_id
-     WHERE n.organization_id = $1) AS notes,
-  (SELECT COUNT(*)::int
-     FROM staff_confidential_notes n
-     JOIN demo_users u ON u.id = n.staff_user_id
-     WHERE n.organization_id = $1) AS confidential_notes,
-  (
-    (SELECT COUNT(*)::int
-       FROM job_card_activity_logs a
-       JOIN demo_jobs j ON j.id = a.job_card_id
-       WHERE a.organization_id = $1)
-    + (SELECT COUNT(*)::int
-         FROM calendar_event_activity_logs a
-         JOIN demo_calendar_events e ON e.id = a.calendar_event_id
-         WHERE a.organization_id = $1)
-    + (SELECT COUNT(*)::int
-         FROM messaging_activity_logs a
-         JOIN demo_conversations c ON c.id = a.conversation_id
-         WHERE a.organization_id = $1)
-  ) AS activities,
-  (SELECT COUNT(*)::int
-     FROM demo_jobs
-     WHERE source_job_card_id IS NOT NULL) AS follow_ups,
-  (SELECT COUNT(*)::int FROM demo_calendar_events) AS calendar_events,
-  (SELECT COUNT(*)::int FROM demo_conversations) AS conversations,
-  (SELECT COUNT(*)::int
-     FROM messages m
-     JOIN demo_conversations c ON c.id = m.conversation_id
-     WHERE m.organization_id = $1) AS messages,
-  (SELECT COUNT(*)::int
-     FROM in_app_notifications n
-     JOIN demo_realtime_events re ON re.id = n.source_realtime_event_id
-     WHERE n.organization_id = $1) AS notifications,
-  (SELECT COUNT(*)::int
-     FROM calendar_reminders r
-     WHERE r.organization_id = $1
-       AND (
-         r.job_card_id IN (SELECT id FROM demo_jobs)
-         OR r.calendar_event_id IN (SELECT id FROM demo_calendar_events)
-       )) AS reminders,
-  (SELECT COUNT(*)::int FROM demo_realtime_events) AS realtime_events`;
-
-const BLOCKERS_SQL = `
-WITH demo_users AS (
-  SELECT id FROM users
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_customers AS (
-  SELECT id FROM customers
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_products AS (
-  SELECT id FROM products
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_jobs AS (
-  SELECT id,
-         assigned_to,
-         created_by,
-         staff_completed_by,
-         manager_approved_by,
-         revision_requested_by,
-         cancelled_by,
-         source_job_card_id,
-         customer_id
-  FROM job_cards
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_conversations AS (
-  SELECT id, organization_id, job_id, customer_id
-  FROM conversations
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_calendar_events AS (
-  SELECT id,
-         assigned_user_id,
-         created_by,
-         updated_by,
-         cancelled_by
-  FROM calendar_events
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-)
-SELECT * FROM (
-  SELECT 'DEMO_USER_TO_BUSINESS_CUSTOMER' AS code,
-         'Demo personel gerçek müşteriye atanmış.' AS message,
-         'USER' AS source_type, u.id AS source_id,
-         'CUSTOMER' AS related_type, c.id AS related_id
-    FROM demo_users u
-    JOIN customers c
-      ON c.organization_id = $1
-     AND c.assigned_staff_user_id = u.id
-     AND c.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_USER_TO_BUSINESS_STAFF_PROFILE',
-         'Demo personel gerçek personel profilinin yöneticisi olarak atanmış.',
-         'USER', u.id, 'STAFF_PROFILE', sp.id
-    FROM demo_users u
-    JOIN staff_profiles sp
-      ON sp.organization_id = $1
-     AND sp.manager_user_id = u.id
-    JOIN users staff_user
-      ON staff_user.organization_id = sp.organization_id
-     AND staff_user.id = sp.user_id
-     AND staff_user.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'BUSINESS_STAFF_PROFILE_TO_DEMO_USER',
-         'Gerçek personel profilinin yöneticisi demo personel.',
-         'STAFF_PROFILE', sp.id, 'USER', u.id
-    FROM staff_profiles sp
-    JOIN users staff_user
-      ON staff_user.organization_id = sp.organization_id
-     AND staff_user.id = sp.user_id
-     AND staff_user.data_class = 'DEMO'
-    JOIN users u
-      ON u.organization_id = sp.organization_id
-     AND u.id = sp.manager_user_id
-     AND u.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'BUSINESS_USER_TO_DEMO_CUSTOMER',
-         'Gerçek personel demo müşteriye atanmış.',
-         'CUSTOMER', c.id, 'USER', u.id
-    FROM demo_customers c
-    JOIN customers customer
-      ON customer.organization_id = $1
-     AND customer.id = c.id
-    JOIN users u
-      ON u.organization_id = $1
-     AND u.id = customer.assigned_staff_user_id
-     AND u.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_USER_TO_BUSINESS_JOB',
-         'Demo personel gerçek JobCard''a atanmış.',
-         'USER', u.id, 'JOB_CARD', j.id
-    FROM demo_users u
-    JOIN job_cards j
-      ON j.organization_id = $1
-     AND u.id IN (
-       j.assigned_to, j.created_by, j.staff_completed_by,
-       j.manager_approved_by, j.revision_requested_by, j.cancelled_by
-     )
-     AND j.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'BUSINESS_USER_TO_DEMO_JOB',
-         'Gerçek personel demo JobCard''a atanmış.',
-         'JOB_CARD', j.id, 'USER', u.id
-    FROM demo_jobs j
-    JOIN users u
-      ON u.organization_id = $1
-     AND u.id IN (
-       j.assigned_to, j.created_by, j.staff_completed_by,
-       j.manager_approved_by, j.revision_requested_by, j.cancelled_by
-     )
-     AND u.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_USER_TO_BUSINESS_CALENDAR_EVENT',
-         'Demo personel gerçek takvim kaydına bağlı.',
-         'USER', u.id, 'CALENDAR_EVENT', e.id
-    FROM demo_users u
-    JOIN calendar_events e
-      ON e.organization_id = $1
-     AND u.id IN (e.assigned_user_id, e.created_by, e.updated_by, e.cancelled_by)
-     AND e.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'BUSINESS_CALENDAR_EVENT_TO_DEMO_USER',
-         'Demo takvim kaydı gerçek personele bağlı.',
-         'CALENDAR_EVENT', e.id, 'USER', u.id
-    FROM demo_calendar_events e
-    JOIN users u
-      ON u.organization_id = $1
-     AND u.id IN (e.assigned_user_id, e.created_by, e.updated_by, e.cancelled_by)
-     AND u.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_CUSTOMER_TO_BUSINESS_JOB',
-         'Demo müşteri gerçek JobCard''a bağlı.',
-         'CUSTOMER', c.id, 'JOB_CARD', j.id
-    FROM demo_customers c
-    JOIN job_cards j
-      ON j.organization_id = $1
-     AND j.customer_id = c.id
-     AND j.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'BUSINESS_CUSTOMER_TO_DEMO_JOB',
-         'Demo JobCard gerçek müşteriye bağlı.',
-         'JOB_CARD', j.id, 'CUSTOMER', c.id
-    FROM demo_jobs j
-    JOIN customers c
-      ON c.organization_id = $1
-     AND c.id = j.customer_id
-     AND c.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_PRODUCT_TO_BUSINESS_JOB',
-         'Demo ürün gerçek JobCard teslimatında kullanılmış.',
-         'PRODUCT', p.id, 'JOB_CARD', j.id
-    FROM demo_products p
-    JOIN job_card_delivery_items di
-      ON di.organization_id = $1
-     AND di.product_id = p.id
-    JOIN job_cards j
-      ON j.organization_id = di.organization_id
-     AND j.id = di.job_card_id
-     AND j.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'BUSINESS_PRODUCT_TO_DEMO_JOB',
-         'Demo JobCard gerçek ürün teslimatında kullanılmış.',
-         'JOB_CARD', j.id, 'PRODUCT', p.id
-    FROM demo_jobs j
-    JOIN job_card_delivery_items di
-      ON di.organization_id = $1
-     AND di.job_card_id = j.id
-    JOIN products p
-      ON p.organization_id = di.organization_id
-     AND p.id = di.product_id
-     AND p.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_JOB_TO_BUSINESS_FOLLOW_UP',
-         'Demo JobCard gerçek JobCard''a follow-up ilişkisiyle bağlı.',
-         'JOB_CARD', child.id, 'JOB_CARD', source.id
-    FROM demo_jobs child
-    JOIN job_cards source
-      ON source.organization_id = $1
-     AND source.id = child.source_job_card_id
-     AND source.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_JOB_TO_BUSINESS_FOLLOW_UP',
-         'Gerçek JobCard demo JobCard''a follow-up ilişkisiyle bağlı.',
-         'JOB_CARD', source.id, 'JOB_CARD', child.id
-    FROM demo_jobs source
-    JOIN job_cards child
-      ON child.organization_id = $1
-     AND child.source_job_card_id = source.id
-     AND child.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_JOB_TO_BUSINESS_CONVERSATION',
-         'Demo JobCard gerçek konuşmaya bağlı.',
-         'JOB_CARD', j.id, 'CONVERSATION', c.id
-    FROM demo_jobs j
-    JOIN conversations c
-      ON c.organization_id = $1
-     AND c.job_id = j.id
-     AND c.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_CONVERSATION_TO_BUSINESS_JOB',
-         'Demo konuşma gerçek JobCard''a bağlı.',
-         'CONVERSATION', c.id, 'JOB_CARD', j.id
-    FROM demo_conversations c
-    JOIN job_cards j
-      ON j.organization_id = $1
-     AND j.id = c.job_id
-     AND j.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_USER_TO_BUSINESS_CONVERSATION',
-         'Demo personel gerçek konuşmaya katılmış.',
-         'USER', u.id, 'CONVERSATION', c.id
-    FROM demo_users u
-    JOIN conversations c
-      ON c.organization_id = $1
-     AND c.data_class = 'BUSINESS'
-     AND (
-       EXISTS (
-         SELECT 1 FROM conversation_participants cp
-         WHERE cp.organization_id = c.organization_id
-           AND cp.conversation_id = c.id
-           AND cp.user_id = u.id
-       )
-       OR EXISTS (
-         SELECT 1 FROM messages m
-         WHERE m.organization_id = c.organization_id
-           AND m.conversation_id = c.id
-           AND m.sender_user_id = u.id
-       )
-       OR EXISTS (
-         SELECT 1 FROM messaging_activity_logs a
-         WHERE a.organization_id = c.organization_id
-           AND a.conversation_id = c.id
-           AND a.actor_user_id = u.id
-       )
-     )
-  UNION ALL
-  SELECT 'BUSINESS_CONVERSATION_TO_DEMO_USER',
-         'Gerçek konuşmaya demo personel katılmış.',
-         'CONVERSATION', c.id, 'USER', u.id
-    FROM demo_conversations c
-    JOIN users u
-      ON u.organization_id = $1
-     AND u.data_class = 'BUSINESS'
-     AND (
-       EXISTS (
-         SELECT 1 FROM conversation_participants cp
-         WHERE cp.organization_id = c.organization_id
-           AND cp.conversation_id = c.id
-           AND cp.user_id = u.id
-       )
-       OR EXISTS (
-         SELECT 1 FROM messages m
-         WHERE m.organization_id = c.organization_id
-           AND m.conversation_id = c.id
-           AND m.sender_user_id = u.id
-       )
-       OR EXISTS (
-         SELECT 1 FROM messaging_activity_logs a
-         WHERE a.organization_id = c.organization_id
-           AND a.conversation_id = c.id
-           AND a.actor_user_id = u.id
-       )
-     )
-  UNION ALL
-  SELECT 'DEMO_CUSTOMER_TO_BUSINESS_CONVERSATION',
-         'Demo müşteri gerçek konuşmaya bağlı.',
-         'CUSTOMER', customer.id, 'CONVERSATION', c.id
-    FROM demo_customers customer
-    JOIN conversations c
-      ON c.organization_id = $1
-     AND c.customer_id = customer.id
-     AND c.data_class = 'BUSINESS'
-  UNION ALL
-  SELECT 'DEMO_CONVERSATION_TO_BUSINESS_CUSTOMER',
-         'Demo konuşma gerçek müşteriye bağlı.',
-         'CONVERSATION', c.id, 'CUSTOMER', customer.id
-    FROM demo_conversations c
-    JOIN customers customer
-      ON customer.organization_id = $1
-     AND customer.id = c.customer_id
-     AND customer.data_class = 'BUSINESS'
-) blockers
-ORDER BY code, source_type, source_id, related_type NULLS FIRST, related_id NULLS FIRST`;
-
-const PLAN_KEYS_SQL = `
-WITH demo_users AS (
-  SELECT id FROM users
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_customers AS (
-  SELECT id FROM customers
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_products AS (
-  SELECT id FROM products
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_jobs AS (
-  SELECT id FROM job_cards
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_conversations AS (
-  SELECT id FROM conversations
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_calendar_events AS (
-  SELECT id FROM calendar_events
-  WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
-),
-demo_realtime_events AS (
-  SELECT re.id, re.source_activity_id, re.calendar_activity_id,
-         re.calendar_reminder_id, re.messaging_activity_id, re.staff_note_id
-  FROM realtime_events re
-  WHERE re.organization_id = $1
-    AND (
-      EXISTS (
-        SELECT 1
-        FROM job_card_activity_logs a
-        JOIN demo_jobs j ON j.id = a.job_card_id
-        WHERE a.organization_id = re.organization_id
-          AND a.id = re.source_activity_id
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM calendar_event_activity_logs a
-        JOIN demo_calendar_events e ON e.id = a.calendar_event_id
-        WHERE a.organization_id = re.organization_id
-          AND a.id = re.calendar_activity_id
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM calendar_reminders r
-        WHERE r.organization_id = re.organization_id
-          AND r.id = re.calendar_reminder_id
-          AND (
-            r.job_card_id IN (SELECT id FROM demo_jobs)
-            OR r.calendar_event_id IN (SELECT id FROM demo_calendar_events)
-          )
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM messaging_activity_logs a
-        JOIN demo_conversations c ON c.id = a.conversation_id
-        WHERE a.organization_id = re.organization_id
-          AND a.id = re.messaging_activity_id
-      )
-      OR EXISTS (
-        SELECT 1
-        FROM staff_confidential_notes n
-        JOIN demo_users u ON u.id = n.staff_user_id
-        WHERE n.organization_id = re.organization_id
-          AND n.id = re.staff_note_id
-      )
-    )
-)
-SELECT plan_key
-FROM (
-  SELECT 'USER:' || u.id::text AS plan_key FROM demo_users u
-  UNION
-  SELECT 'STAFF_PROFILE:' || sp.id::text
-    FROM staff_profiles sp
-    JOIN demo_users u ON u.id = sp.user_id
-  UNION
-  SELECT 'CUSTOMER:' || c.id::text FROM demo_customers c
-  UNION
-  SELECT 'CONTACT:' || c.id::text
-    FROM contacts c
-    JOIN demo_customers customer ON customer.id = c.customer_id
-    WHERE c.organization_id = $1
-  UNION
-  SELECT 'PRODUCT:' || p.id::text FROM demo_products p
-  UNION
-  SELECT 'JOB_CARD:' || j.id::text FROM demo_jobs j
-  UNION
-  SELECT 'DELIVERY_ITEM:' || di.id::text
-    FROM job_card_delivery_items di
-    JOIN demo_jobs j ON j.id = di.job_card_id
-    WHERE di.organization_id = $1
-  UNION
-  SELECT 'JOB_NOTE:' || n.id::text
-    FROM job_card_notes n
-    JOIN demo_jobs j ON j.id = n.job_card_id
-    WHERE n.organization_id = $1
-  UNION
-  SELECT 'STAFF_CONFIDENTIAL_NOTE:' || n.id::text
-    FROM staff_confidential_notes n
-    JOIN demo_users u ON u.id = n.staff_user_id
-    WHERE n.organization_id = $1
-  UNION
-  SELECT 'JOB_ACTIVITY:' || a.id::text
-    FROM job_card_activity_logs a
-    JOIN demo_jobs j ON j.id = a.job_card_id
-    WHERE a.organization_id = $1
-  UNION
-  SELECT 'CALENDAR_EVENT_ACTIVITY:' || a.id::text
-    FROM calendar_event_activity_logs a
-    JOIN demo_calendar_events e ON e.id = a.calendar_event_id
-    WHERE a.organization_id = $1
-  UNION
-  SELECT 'MESSAGING_ACTIVITY:' || a.id::text
-    FROM messaging_activity_logs a
-    JOIN demo_conversations c ON c.id = a.conversation_id
-    WHERE a.organization_id = $1
-  UNION
-  SELECT 'CALENDAR_EVENT:' || e.id::text FROM demo_calendar_events e
-  UNION
-  SELECT 'CONVERSATION:' || c.id::text FROM demo_conversations c
-  UNION
-  SELECT 'MESSAGE:' || m.id::text
-    FROM messages m
-    JOIN demo_conversations c ON c.id = m.conversation_id
-    WHERE m.organization_id = $1
-  UNION
-  SELECT 'CONVERSATION_PARTICIPANT:' || cp.conversation_id::text || ':' || cp.user_id::text
-    FROM conversation_participants cp
-    JOIN demo_conversations c ON c.id = cp.conversation_id
-    WHERE cp.organization_id = $1
-  UNION
-  SELECT 'IN_APP_NOTIFICATION:' || n.id::text
-    FROM in_app_notifications n
-    JOIN demo_realtime_events re ON re.id = n.source_realtime_event_id
-    WHERE n.organization_id = $1
-  UNION
-  SELECT 'CALENDAR_REMINDER:' || r.id::text
-    FROM calendar_reminders r
-    WHERE r.organization_id = $1
-      AND (
-        r.job_card_id IN (SELECT id FROM demo_jobs)
-        OR r.calendar_event_id IN (SELECT id FROM demo_calendar_events)
-      )
-  UNION
-  SELECT 'REALTIME_EVENT:' || re.id::text FROM demo_realtime_events re
-  UNION
-  SELECT 'STAFF_PROFILE_USER_EDGE:' || sp.id::text || ':' || sp.user_id::text
-    FROM staff_profiles sp
-    JOIN demo_users u ON u.id = sp.user_id
-  UNION
-  SELECT 'STAFF_PROFILE_MANAGER_EDGE:' || sp.id::text || ':' || sp.manager_user_id::text
-    FROM staff_profiles sp
-    JOIN demo_users u ON u.id = sp.user_id
-    WHERE sp.manager_user_id IS NOT NULL
-  UNION
-  SELECT 'CUSTOMER_ASSIGNED_USER_EDGE:' || c.id::text || ':' || c.assigned_staff_user_id::text
-    FROM customers c
-    JOIN demo_customers demo_customer ON demo_customer.id = c.id
-    WHERE c.assigned_staff_user_id IS NOT NULL
-  UNION
-  SELECT 'JOB_CUSTOMER_EDGE:' || j.id::text || ':' || j.customer_id::text
-    FROM job_cards j
-    JOIN demo_jobs demo_job ON demo_job.id = j.id
-    WHERE j.customer_id IS NOT NULL
-  UNION
-  SELECT 'JOB_CONTACT_EDGE:' || j.id::text || ':' || j.contact_id::text
-    FROM job_cards j
-    JOIN demo_jobs demo_job ON demo_job.id = j.id
-    WHERE j.contact_id IS NOT NULL
-  UNION
-  SELECT 'JOB_USER_EDGE:' || j.id::text || ':' || refs.role || ':' || refs.user_id::text
-    FROM job_cards j
-    JOIN demo_jobs demo_job ON demo_job.id = j.id
-    CROSS JOIN LATERAL (VALUES
-      ('assigned_to'::text, j.assigned_to),
-      ('created_by'::text, j.created_by),
-      ('staff_completed_by'::text, j.staff_completed_by),
-      ('manager_approved_by'::text, j.manager_approved_by),
-      ('revision_requested_by'::text, j.revision_requested_by),
-      ('cancelled_by'::text, j.cancelled_by)
-    ) refs(role, user_id)
-    WHERE refs.user_id IS NOT NULL
-  UNION
-  SELECT 'JOB_PRODUCT_EDGE:' || di.job_card_id::text || ':' || di.product_id::text
-    FROM job_card_delivery_items di
-    JOIN demo_jobs j ON j.id = di.job_card_id
-    WHERE di.organization_id = $1
-  UNION
-  SELECT 'JOB_SOURCE_EDGE:' || child.id::text || ':' || child.source_job_card_id::text
-    FROM job_cards child
-    JOIN demo_jobs demo_job ON demo_job.id = child.id
-    WHERE child.source_job_card_id IS NOT NULL
-  UNION
-  SELECT 'JOB_ACTIVITY_ACTOR_EDGE:' || a.id::text || ':' || a.actor_id::text
-    FROM job_card_activity_logs a
-    JOIN demo_jobs j ON j.id = a.job_card_id
-    WHERE a.organization_id = $1 AND a.actor_id IS NOT NULL
-  UNION
-  SELECT 'JOB_NOTE_AUTHOR_EDGE:' || n.id::text || ':' || n.author_id::text
-    FROM job_card_notes n
-    JOIN demo_jobs j ON j.id = n.job_card_id
-    WHERE n.organization_id = $1
-  UNION
-  SELECT 'STAFF_NOTE_STAFF_EDGE:' || n.id::text || ':' || n.staff_user_id::text
-    FROM staff_confidential_notes n
-    JOIN demo_users u ON u.id = n.staff_user_id
-    WHERE n.organization_id = $1
-  UNION
-  SELECT 'STAFF_NOTE_AUTHOR_EDGE:' || n.id::text || ':' || n.author_user_id::text
-    FROM staff_confidential_notes n
-    JOIN demo_users u ON u.id = n.staff_user_id
-    WHERE n.organization_id = $1
-  UNION
-  SELECT 'CALENDAR_EVENT_USER_EDGE:' || e.id::text || ':' || refs.role || ':' || refs.user_id::text
-    FROM calendar_events e
-    JOIN demo_calendar_events demo_event ON demo_event.id = e.id
-    CROSS JOIN LATERAL (VALUES
-      ('assigned_user_id'::text, e.assigned_user_id),
-      ('created_by'::text, e.created_by),
-      ('updated_by'::text, e.updated_by),
-      ('cancelled_by'::text, e.cancelled_by)
-    ) refs(role, user_id)
-    WHERE refs.user_id IS NOT NULL
-  UNION
-  SELECT 'CALENDAR_ACTIVITY_ACTOR_EDGE:' || a.id::text || ':' || a.actor_user_id::text
-    FROM calendar_event_activity_logs a
-    JOIN demo_calendar_events e ON e.id = a.calendar_event_id
-    WHERE a.organization_id = $1
-  UNION
-  SELECT 'CONVERSATION_JOB_EDGE:' || c.id::text || ':' || c.job_id::text
-    FROM conversations c
-    JOIN demo_conversations demo_conversation ON demo_conversation.id = c.id
-    WHERE c.job_id IS NOT NULL
-  UNION
-  SELECT 'MESSAGE_SENDER_EDGE:' || m.id::text || ':' || m.sender_user_id::text
-    FROM messages m
-    JOIN demo_conversations c ON c.id = m.conversation_id
-    WHERE m.organization_id = $1
-  UNION
-  SELECT 'MESSAGING_ACTIVITY_ACTOR_EDGE:' || a.id::text || ':' || a.actor_user_id::text
-    FROM messaging_activity_logs a
-    JOIN demo_conversations c ON c.id = a.conversation_id
-    WHERE a.organization_id = $1
-  UNION
-  SELECT 'NOTIFICATION_RECIPIENT_EDGE:' || n.id::text || ':' || n.recipient_user_id::text
-    FROM in_app_notifications n
-    JOIN demo_realtime_events re ON re.id = n.source_realtime_event_id
-    WHERE n.organization_id = $1
-  UNION
-  SELECT 'NOTIFICATION_EVENT_EDGE:' || n.id::text || ':' || n.source_realtime_event_id::text
-    FROM in_app_notifications n
-    JOIN demo_realtime_events re ON re.id = n.source_realtime_event_id
-    WHERE n.organization_id = $1
-  UNION
-  SELECT 'REMINDER_JOB_EDGE:' || r.id::text || ':' || r.job_card_id::text
-    FROM calendar_reminders r
-    JOIN demo_jobs j ON j.id = r.job_card_id
-    WHERE r.organization_id = $1
-  UNION
-  SELECT 'REMINDER_EVENT_EDGE:' || r.id::text || ':' || r.calendar_event_id::text
-    FROM calendar_reminders r
-    JOIN demo_calendar_events e ON e.id = r.calendar_event_id
-    WHERE r.organization_id = $1
-  UNION
-  SELECT 'REMINDER_RECIPIENT_EDGE:' || r.id::text || ':' || r.recipient_user_id::text
-    FROM calendar_reminders r
-    WHERE r.organization_id = $1
-      AND (
-        r.job_card_id IN (SELECT id FROM demo_jobs)
-        OR r.calendar_event_id IN (SELECT id FROM demo_calendar_events)
-      )
-  UNION
-  SELECT 'REALTIME_JOB_ACTIVITY_EDGE:' || re.id::text || ':' || re.source_activity_id::text
-    FROM demo_realtime_events re
-    WHERE re.source_activity_id IS NOT NULL
-  UNION
-  SELECT 'REALTIME_CALENDAR_ACTIVITY_EDGE:' || re.id::text || ':' || re.calendar_activity_id::text
-    FROM demo_realtime_events re
-    WHERE re.calendar_activity_id IS NOT NULL
-  UNION
-  SELECT 'REALTIME_REMINDER_EDGE:' || re.id::text || ':' || re.calendar_reminder_id::text
-    FROM demo_realtime_events re
-    WHERE re.calendar_reminder_id IS NOT NULL
-  UNION
-  SELECT 'REALTIME_MESSAGING_ACTIVITY_EDGE:' || re.id::text || ':' || re.messaging_activity_id::text
-    FROM demo_realtime_events re
-    WHERE re.messaging_activity_id IS NOT NULL
-  UNION
-  SELECT 'REALTIME_STAFF_NOTE_EDGE:' || re.id::text || ':' || re.staff_note_id::text
-    FROM demo_realtime_events re
-    WHERE re.staff_note_id IS NOT NULL
-) plan_keys
-ORDER BY plan_key`;
-
-function mapCounts(row: ImpactCountRow): DemoDatasetImpactCounts {
-  return {
-    users: row.users,
-    staffProfiles: row.staff_profiles,
-    customers: row.customers,
-    contacts: row.contacts,
-    products: row.products,
-    jobCards: row.job_cards,
-    deliveryItems: row.delivery_items,
-    notes: row.notes,
-    confidentialNotes: row.confidential_notes,
-    activities: row.activities,
-    followUps: row.follow_ups,
-    calendarEvents: row.calendar_events,
-    conversations: row.conversations,
-    messages: row.messages,
-    notifications: row.notifications,
-    reminders: row.reminders,
-    realtimeEvents: row.realtime_events,
-  };
+function databaseCode(error: unknown) {
+  return typeof error === 'object' && error !== null && 'code' in error
+    ? String(error.code)
+    : null;
 }
 
-function mapBlocker(row: BlockerRow): DemoDatasetBlocker {
+function notFound() {
+  return new AppError('DEMO_DATASET_NOT_FOUND', 404, 'Demo veri kümesi bulunamadı.');
+}
+
+function assertExactIds(table: string, planned: readonly string[], returned: readonly string[]) {
+  const expected = [...new Set(planned)].sort();
+  const actual = [...new Set(returned)].sort();
+  if (expected.length !== actual.length || expected.some((id, index) => id !== actual[index])) {
+    throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+      'Demo veri kümesi beklenmeyen bir bağımlılık nedeniyle değiştirilemedi.',
+      { table });
+  }
+}
+
+async function lockUuidRows(
+  client: PoolClient,
+  table: string,
+  organizationId: string,
+  ids: readonly string[],
+  idColumn = 'id',
+) {
+  if (ids.length === 0) return;
+  await client.query(
+    `SELECT ${idColumn} FROM ${table}
+     WHERE organization_id = $1 AND ${idColumn} = ANY($2::uuid[])
+     ORDER BY ${idColumn}
+     FOR UPDATE`,
+    [organizationId, ids],
+  );
+}
+
+async function lockBigintRows(
+  client: PoolClient,
+  table: string,
+  organizationId: string,
+  ids: readonly string[],
+) {
+  if (ids.length === 0) return;
+  await client.query(
+    `SELECT id FROM ${table}
+     WHERE organization_id = $1 AND id = ANY($2::bigint[])
+     ORDER BY id
+     FOR UPDATE`,
+    [organizationId, ids],
+  );
+}
+
+async function deleteUuidRows(
+  client: PoolClient,
+  table: string,
+  organizationId: string,
+  ids: readonly string[],
+  idColumn = 'id',
+) {
+  if (ids.length === 0) return;
+  const result = await client.query<{ id: string }>(
+    `DELETE FROM ${table}
+     WHERE organization_id = $1 AND ${idColumn} = ANY($2::uuid[])
+     RETURNING ${idColumn}::text AS id`,
+    [organizationId, ids],
+  );
+  assertExactIds(table, ids, result.rows.map((row) => row.id));
+}
+
+async function deleteRootRows(
+  client: PoolClient,
+  table: string,
+  organizationId: string,
+  datasetId: string,
+  ids: readonly string[],
+) {
+  if (ids.length === 0) return;
+  const result = await client.query<{ id: string }>(
+    `DELETE FROM ${table}
+     WHERE organization_id = $1
+       AND id = ANY($2::uuid[])
+       AND data_class = 'DEMO'
+       AND demo_dataset_id = $3
+     RETURNING id::text AS id`,
+    [organizationId, ids, datasetId],
+  );
+  assertExactIds(table, ids, result.rows.map((row) => row.id));
+}
+
+async function deleteBigintRows(
+  client: PoolClient,
+  table: string,
+  organizationId: string,
+  ids: readonly string[],
+) {
+  if (ids.length === 0) return;
+  const result = await client.query<{ id: string }>(
+    `DELETE FROM ${table}
+     WHERE organization_id = $1 AND id = ANY($2::bigint[])
+     RETURNING id::text AS id`,
+    [organizationId, ids],
+  );
+  assertExactIds(table, ids, result.rows.map((row) => row.id));
+}
+
+async function deleteSessions(client: PoolClient, plan: DemoDatasetPurgePlan) {
+  if (plan.sessions.length === 0) return;
+  const result = await client.query<{ id: string }>(
+    `DELETE FROM sessions
+     WHERE id = ANY($1::uuid[]) AND user_id = ANY($2::uuid[])
+     RETURNING id::text AS id`,
+    [plan.sessions, plan.users],
+  );
+  assertExactIds('sessions', plan.sessions, result.rows.map((row) => row.id));
+}
+
+async function deleteConversationPairs(
+  client: PoolClient,
+  table: 'conversation_participants' | 'conversation_user_states',
+  organizationId: string,
+  pairs: readonly Readonly<{ conversationId: string; userId: string }>[],
+) {
+  if (pairs.length === 0) return;
+  const result = await client.query<{ conversation_id: string; user_id: string }>(
+    `DELETE FROM ${table} AS target
+     USING unnest($2::uuid[], $3::uuid[]) AS planned(conversation_id, user_id)
+     WHERE target.organization_id = $1
+       AND target.conversation_id = planned.conversation_id
+       AND target.user_id = planned.user_id
+     RETURNING target.conversation_id, target.user_id`,
+    [organizationId, pairs.map((pair) => pair.conversationId), pairs.map((pair) => pair.userId)],
+  );
+  const expected = pairs.map((pair) => `${pair.conversationId}:${pair.userId}`).sort();
+  const actual = result.rows.map((row) => `${row.conversation_id}:${row.user_id}`).sort();
+  if (expected.length !== actual.length || expected.some((id, index) => id !== actual[index])) {
+    throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+      'Demo konuşma durumu beklenmeyen bir bağımlılık nedeniyle değiştirilemedi.', { table });
+  }
+}
+
+async function lockConversationPairs(
+  client: PoolClient,
+  table: 'conversation_participants' | 'conversation_user_states',
+  organizationId: string,
+  pairs: readonly Readonly<{ conversationId: string; userId: string }>[],
+) {
+  if (pairs.length === 0) return;
+  await client.query(
+    `SELECT target.conversation_id, target.user_id
+     FROM ${table} AS target
+     JOIN unnest($2::uuid[], $3::uuid[]) AS planned(conversation_id, user_id)
+       ON target.conversation_id = planned.conversation_id
+      AND target.user_id = planned.user_id
+     WHERE target.organization_id = $1
+     ORDER BY target.conversation_id, target.user_id
+     FOR UPDATE`,
+    [organizationId, pairs.map((pair) => pair.conversationId), pairs.map((pair) => pair.userId)],
+  );
+}
+
+async function detachAuditActors(
+  client: PoolClient,
+  organizationId: string,
+  links: readonly Readonly<{ auditEventId: string; actorUserId: string }>[],
+) {
+  if (links.length === 0) return 0;
+  const result = await client.query<{ id: string }>(
+    `UPDATE audit_events AS event
+     SET actor_user_id = NULL,
+         actor_user_id_snapshot = planned.actor_user_id
+     FROM unnest($2::uuid[], $3::uuid[]) AS planned(audit_event_id, actor_user_id)
+     WHERE event.organization_id = $1
+       AND event.id = planned.audit_event_id
+       AND event.actor_user_id = planned.actor_user_id
+     RETURNING event.id`,
+    [organizationId, links.map((link) => link.auditEventId), links.map((link) => link.actorUserId)],
+  );
+  assertExactIds('audit_events', links.map((link) => link.auditEventId), result.rows.map((row) => row.id));
+  return result.rows.length;
+}
+
+async function claimOperation(
+  client: PoolClient,
+  organizationId: string,
+  datasetId: string,
+  actorUserId: string,
+  request: DemoDatasetPurgeRequest,
+  dataset: DemoDatasetRecord,
+) {
+  const insertResult = await client.query<{ id: string }>(
+    `INSERT INTO demo_dataset_purge_operations
+       (organization_id, dataset_id, client_action_id, plan_hash,
+        requested_by_user_id_snapshot, dataset_key, seed_version)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
+     ON CONFLICT (organization_id, client_action_id) DO NOTHING
+     RETURNING id`,
+    [organizationId, datasetId, request.clientActionId, request.planHash, actorUserId,
+      dataset.datasetKey, dataset.seedVersion],
+  );
+  const result = await client.query<{
+    id: string;
+    dataset_id: string;
+    plan_hash: string;
+    status: 'PROCESSING' | 'COMPLETED';
+    response_body: unknown;
+  }>(
+    `SELECT id, dataset_id, plan_hash, status, response_body
+     FROM demo_dataset_purge_operations
+     WHERE organization_id = $1 AND client_action_id = $2
+     FOR UPDATE`,
+    [organizationId, request.clientActionId],
+  );
+  const operation = result.rows[0];
+  if (!operation) throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409, 'Purge işlemi kaydedilemedi.');
+  if (operation.dataset_id !== datasetId || operation.plan_hash.trim() !== request.planHash) {
+    throw new AppError('CLIENT_ACTION_REUSED', 409, 'İstemci işlem anahtarı farklı bir purge işlemi için kullanıldı.');
+  }
+  if (operation.status === 'COMPLETED') {
+    return { operationId: operation.id, replay: operation.response_body as DemoDatasetPurgeResponse, created: false };
+  }
+  return { operationId: operation.id, replay: null, created: insertResult.rows.length === 1 };
+}
+
+async function lockPlan(client: PoolClient, organizationId: string, plan: DemoDatasetPurgePlan) {
+  await lockUuidRows(client, 'users', organizationId, plan.users);
+  await lockUuidRows(client, 'staff_profiles', organizationId, plan.staffProfiles);
+  await lockUuidRows(client, 'customers', organizationId, plan.customers);
+  await lockUuidRows(client, 'contacts', organizationId, plan.contacts);
+  await lockUuidRows(client, 'products', organizationId, plan.products);
+  await lockUuidRows(client, 'job_cards', organizationId, plan.jobCards);
+  await lockUuidRows(client, 'job_card_delivery_items', organizationId, plan.deliveryItems);
+  await lockUuidRows(client, 'job_card_notes', organizationId, plan.jobNotes);
+  await lockUuidRows(client, 'job_card_meeting_details', organizationId, plan.meetingDetails, 'job_card_id');
+  await lockUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
+  await lockUuidRows(client, 'job_action_locations', organizationId, plan.jobActionLocations);
+  await lockUuidRows(client, 'staff_confidential_notes', organizationId, plan.confidentialNotes);
+  await lockUuidRows(client, 'calendar_events', organizationId, plan.calendarEvents);
+  await lockUuidRows(client, 'calendar_event_activity_logs', organizationId, plan.calendarActivities);
+  await lockUuidRows(client, 'calendar_reminders', organizationId, plan.reminders);
+  await lockUuidRows(client, 'conversations', organizationId, plan.conversations);
+  await lockConversationPairs(client, 'conversation_user_states', organizationId, plan.conversationUserStates);
+  await lockConversationPairs(client, 'conversation_participants', organizationId, plan.conversationParticipants);
+  await lockUuidRows(client, 'messages', organizationId, plan.messages);
+  await lockUuidRows(client, 'messaging_activity_logs', organizationId, plan.messagingActivities);
+  await lockBigintRows(client, 'realtime_events', organizationId, plan.realtimeEvents);
+  await lockUuidRows(client, 'in_app_notifications', organizationId, plan.notifications);
+  await lockUuidRows(client, 'web_push_subscriptions', organizationId, plan.webPushSubscriptions);
+  await lockUuidRows(client, 'web_push_deliveries', organizationId, plan.webPushDeliveries);
+  await lockUuidRows(client, 'processed_actions', organizationId, plan.processedActions);
+  await lockUuidRows(client, 'audit_events', organizationId, plan.retainedAuditActorLinks.map((link) => link.auditEventId));
+}
+
+async function executePlan(client: PoolClient, organizationId: string, plan: DemoDatasetPurgePlan) {
+  await deleteUuidRows(client, 'web_push_deliveries', organizationId, plan.webPushDeliveries);
+  await deleteUuidRows(client, 'in_app_notifications', organizationId, plan.notifications);
+  await deleteBigintRows(client, 'realtime_events', organizationId, plan.realtimeEvents);
+  await deleteUuidRows(client, 'web_push_subscriptions', organizationId, plan.webPushSubscriptions);
+  await deleteConversationPairs(client, 'conversation_user_states', organizationId, plan.conversationUserStates);
+  await deleteConversationPairs(client, 'conversation_participants', organizationId, plan.conversationParticipants);
+  await deleteUuidRows(client, 'messages', organizationId, plan.messages);
+  await deleteUuidRows(client, 'messaging_activity_logs', organizationId, plan.messagingActivities);
+  await deleteUuidRows(client, 'conversations', organizationId, plan.conversations);
+  await deleteUuidRows(client, 'job_action_locations', organizationId, plan.jobActionLocations);
+  await deleteUuidRows(client, 'job_card_notes', organizationId, plan.jobNotes);
+  await deleteUuidRows(client, 'job_card_delivery_items', organizationId, plan.deliveryItems);
+  await deleteUuidRows(client, 'job_card_meeting_details', organizationId, plan.meetingDetails, 'job_card_id');
+  await deleteUuidRows(client, 'calendar_event_activity_logs', organizationId, plan.calendarActivities);
+  await deleteUuidRows(client, 'calendar_reminders', organizationId, plan.reminders);
+  await deleteUuidRows(client, 'staff_confidential_notes', organizationId, plan.confidentialNotes);
+  await deleteUuidRows(client, 'job_card_activity_logs', organizationId, plan.jobActivities);
+  await deleteRootRows(client, 'calendar_events', organizationId, plan.datasetId, plan.calendarEvents);
+  for (const jobCardId of plan.jobCardDeleteOrder) {
+    await deleteRootRows(client, 'job_cards', organizationId, plan.datasetId, [jobCardId]);
+  }
+  await deleteUuidRows(client, 'contacts', organizationId, plan.contacts);
+  await deleteRootRows(client, 'customers', organizationId, plan.datasetId, plan.customers);
+  await deleteRootRows(client, 'products', organizationId, plan.datasetId, plan.products);
+  await deleteSessions(client, plan);
+  await deleteUuidRows(client, 'processed_actions', organizationId, plan.processedActions);
+  await deleteUuidRows(client, 'staff_profiles', organizationId, plan.staffProfiles);
+}
+
+function datasetDto(dataset: DemoDatasetRecord) {
   return {
-    code: row.code,
-    message: row.message,
-    sourceType: row.source_type,
-    sourceId: row.source_id,
-    relatedType: row.related_type,
-    relatedId: row.related_id,
-  };
+    id: dataset.id,
+    organizationId: dataset.organizationId,
+    datasetKey: dataset.datasetKey,
+    seedVersion: dataset.seedVersion,
+    status: dataset.status,
+    createdAt: dataset.createdAt.toISOString(),
+    createdBy: dataset.createdBy,
+    purgedAt: dataset.purgedAt?.toISOString() ?? null,
+  } as const;
+}
+
+function purgeBlocked(blockers: readonly DemoDatasetBlocker[]) {
+  return new AppError('DEMO_DATASET_PURGE_BLOCKED', 409,
+    'Demo veri kümesi güvenli biçimde silinemiyor.', {
+      blockerCodes: [...new Set(blockers.map((blocker) => blocker.code))].sort(),
+      blockerCount: blockers.length,
+    });
+}
+
+async function lockDataset(client: PoolClient, organizationId: string, datasetId: string) {
+  try {
+    await client.query(
+      `SELECT id FROM demo_datasets
+       WHERE organization_id = $1 AND id = $2
+       FOR UPDATE NOWAIT`,
+      [organizationId, datasetId],
+    );
+  } catch (error) {
+    if (databaseCode(error) === '55P03') {
+      throw new AppError('DEMO_DATASET_PURGE_IN_PROGRESS', 409,
+        'Bu demo veri kümesi üzerinde başka bir işlem devam ediyor.');
+    }
+    throw error;
+  }
+}
+
+async function updateDatasetToPurged(
+  client: PoolClient,
+  organizationId: string,
+  datasetId: string,
+  creatorUserId: string | null,
+) {
+  const result = creatorUserId
+    ? await client.query(
+      `UPDATE demo_datasets
+       SET created_by_user_id_snapshot = created_by,
+           created_by = NULL,
+           status = 'PURGED',
+           purged_at = NOW()
+       WHERE organization_id = $1 AND id = $2 AND status = 'ACTIVE'
+         AND created_by = $3
+       RETURNING id`,
+      [organizationId, datasetId, creatorUserId],
+    )
+    : await client.query(
+      `UPDATE demo_datasets
+       SET status = 'PURGED', purged_at = NOW()
+       WHERE organization_id = $1 AND id = $2 AND status = 'ACTIVE'
+       RETURNING id`,
+      [organizationId, datasetId],
+    );
+  if (result.rows.length !== 1) {
+    throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+      'Demo veri kümesi tombstone durumu güvenli biçimde güncellenemedi.');
+  }
+  return Boolean(creatorUserId);
+}
+
+async function assertNoTargetUserReferences(
+  client: PoolClient,
+  organizationId: string,
+  userIds: readonly string[],
+) {
+  if (userIds.length === 0) return;
+  const result = await client.query<{ source: string }>(
+    `SELECT 'customers' AS source
+       WHERE EXISTS (SELECT 1 FROM customers WHERE organization_id = $1 AND assigned_staff_user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'staff_profiles'
+       WHERE EXISTS (SELECT 1 FROM staff_profiles WHERE organization_id = $1 AND (user_id = ANY($2::uuid[]) OR manager_user_id = ANY($2::uuid[])))
+     UNION ALL
+     SELECT 'job_cards'
+       WHERE EXISTS (SELECT 1 FROM job_cards WHERE organization_id = $1 AND (
+         assigned_to = ANY($2::uuid[]) OR created_by = ANY($2::uuid[]) OR accepted_by = ANY($2::uuid[])
+         OR staff_completed_by = ANY($2::uuid[]) OR manager_approved_by = ANY($2::uuid[])
+         OR revision_requested_by = ANY($2::uuid[]) OR cancelled_by = ANY($2::uuid[])
+         OR follow_up_proposed_assignee = ANY($2::uuid[]) OR follow_up_proposed_by = ANY($2::uuid[])
+       ))
+     UNION ALL
+     SELECT 'job_card_activity_logs'
+       WHERE EXISTS (SELECT 1 FROM job_card_activity_logs WHERE organization_id = $1 AND actor_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'job_card_notes'
+       WHERE EXISTS (SELECT 1 FROM job_card_notes WHERE organization_id = $1 AND author_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'job_action_locations'
+       WHERE EXISTS (SELECT 1 FROM job_action_locations WHERE organization_id = $1 AND actor_user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'staff_confidential_notes'
+       WHERE EXISTS (SELECT 1 FROM staff_confidential_notes WHERE organization_id = $1 AND (staff_user_id = ANY($2::uuid[]) OR author_user_id = ANY($2::uuid[])))
+     UNION ALL
+     SELECT 'calendar_events'
+       WHERE EXISTS (SELECT 1 FROM calendar_events WHERE organization_id = $1 AND (
+         assigned_user_id = ANY($2::uuid[]) OR created_by = ANY($2::uuid[]) OR updated_by = ANY($2::uuid[]) OR cancelled_by = ANY($2::uuid[])
+       ))
+     UNION ALL
+     SELECT 'calendar_event_activity_logs'
+       WHERE EXISTS (SELECT 1 FROM calendar_event_activity_logs WHERE organization_id = $1 AND actor_user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'calendar_reminders'
+       WHERE EXISTS (SELECT 1 FROM calendar_reminders WHERE organization_id = $1 AND recipient_user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'conversation_participants'
+       WHERE EXISTS (SELECT 1 FROM conversation_participants WHERE organization_id = $1 AND user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'conversation_user_states'
+       WHERE EXISTS (SELECT 1 FROM conversation_user_states WHERE organization_id = $1 AND user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'messages'
+       WHERE EXISTS (SELECT 1 FROM messages WHERE organization_id = $1 AND sender_user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'messaging_activity_logs'
+       WHERE EXISTS (SELECT 1 FROM messaging_activity_logs WHERE organization_id = $1 AND actor_user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'in_app_notifications'
+       WHERE EXISTS (SELECT 1 FROM in_app_notifications WHERE organization_id = $1 AND recipient_user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'web_push_subscriptions'
+       WHERE EXISTS (SELECT 1 FROM web_push_subscriptions WHERE organization_id = $1 AND recipient_user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'sessions'
+       WHERE EXISTS (SELECT 1 FROM sessions WHERE user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'processed_actions'
+       WHERE EXISTS (SELECT 1 FROM processed_actions WHERE organization_id = $1 AND user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'realtime_events'
+       WHERE EXISTS (
+         SELECT 1 FROM realtime_events
+         WHERE actor_user_id = ANY($2::uuid[])
+            OR audience_user_ids && $2::uuid[]
+       )
+     UNION ALL
+     SELECT 'backup_runs'
+       WHERE EXISTS (SELECT 1 FROM backup_runs WHERE created_by = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'backup_policy'
+       WHERE EXISTS (SELECT 1 FROM backup_policy WHERE updated_by = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'audit_events'
+       WHERE EXISTS (SELECT 1 FROM audit_events WHERE organization_id = $1 AND actor_user_id = ANY($2::uuid[]))
+     UNION ALL
+     SELECT 'demo_datasets'
+       WHERE EXISTS (SELECT 1 FROM demo_datasets WHERE organization_id = $1 AND created_by = ANY($2::uuid[]))`,
+    [organizationId, userIds],
+  );
+  if (result.rows.length > 0) {
+    throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+      'Demo kullanıcılar silinmeden önce tüm canlı FK ilişkileri ayrıştırılamadı.', {
+        sources: result.rows.map((row) => row.source),
+      });
+  }
+}
+
+async function assertRootPostconditions(client: PoolClient, organizationId: string, datasetId: string) {
+  const result = await client.query<{ table_name: string; count: string }>(
+    `SELECT 'users' AS table_name, COUNT(*)::text AS count
+       FROM users WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
+     UNION ALL
+     SELECT 'customers', COUNT(*)::text
+       FROM customers WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
+     UNION ALL
+     SELECT 'products', COUNT(*)::text
+       FROM products WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
+     UNION ALL
+     SELECT 'job_cards', COUNT(*)::text
+       FROM job_cards WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
+     UNION ALL
+     SELECT 'conversations', COUNT(*)::text
+       FROM conversations WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
+     UNION ALL
+     SELECT 'calendar_events', COUNT(*)::text
+       FROM calendar_events WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2`,
+    [organizationId, datasetId],
+  );
+  const leftovers = result.rows.filter((row) => Number(row.count) !== 0);
+  if (leftovers.length > 0) {
+    throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+      'Demo veri kümesi silme sonrası beklenmeyen kayıt bıraktı.', {
+        tables: leftovers.map((row) => row.table_name),
+      });
+  }
 }
 
 export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
@@ -849,31 +557,209 @@ export class PostgresDemoDatasetRepository implements DemoDatasetRepository {
     const client = await this.pool.connect();
     try {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-      const datasetResult = await client.query<DemoDatasetRow>(
+      const analysis = await new DemoDatasetImpactAnalyzer(client).analyze(organizationId, datasetId);
+      await client.query('COMMIT');
+      return analysis;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
+  async purge(
+    organizationId: string,
+    datasetId: string,
+    actorUserId: string,
+    request: DemoDatasetPurgeRequest,
+  ): Promise<DemoDatasetPurgeResponse> {
+    const client = await this.pool.connect();
+    let inTransaction = false;
+    try {
+      await client.query('BEGIN ISOLATION LEVEL SERIALIZABLE');
+      inTransaction = true;
+
+      const initialDatasetResult = await client.query<DemoDatasetRow>(
         `SELECT ${DATASET_COLUMNS}
          ${DATASET_FROM}
          WHERE d.organization_id = $1 AND d.id = $2`,
         [organizationId, datasetId],
       );
-      const dataset = datasetResult.rows[0];
-      if (!dataset) {
-        await client.query('COMMIT');
-        return null;
+      const initialDatasetRow = initialDatasetResult.rows[0];
+      if (!initialDatasetRow) throw notFound();
+      let dataset = mapDataset(initialDatasetRow);
+
+      const existingOperationResult = await client.query<{
+        id: string;
+        dataset_id: string;
+        plan_hash: string;
+        status: 'PROCESSING' | 'COMPLETED';
+        response_body: unknown;
+      }>(
+        `SELECT id, dataset_id, plan_hash, status, response_body
+         FROM demo_dataset_purge_operations
+         WHERE organization_id = $1 AND client_action_id = $2`,
+        [organizationId, request.clientActionId],
+      );
+      const existingOperation = existingOperationResult.rows[0];
+      if (existingOperation) {
+        if (existingOperation.dataset_id !== datasetId
+          || existingOperation.plan_hash.trim() !== request.planHash) {
+          throw new AppError('CLIENT_ACTION_REUSED', 409,
+            'İstemci işlem anahtarı farklı bir purge işlemi için kullanıldı.');
+        }
+        if (existingOperation.status === 'COMPLETED' && existingOperation.response_body) {
+          await client.query('COMMIT');
+          inTransaction = false;
+          return existingOperation.response_body as DemoDatasetPurgeResponse;
+        }
+        throw new AppError('DEMO_DATASET_PURGE_IN_PROGRESS', 409,
+          'Bu demo veri kümesi üzerinde başka bir işlem devam ediyor.');
       }
 
-      const counts = await client.query<ImpactCountRow>(IMPACT_COUNTS_SQL, [organizationId, datasetId]);
-      const blockers = await client.query<BlockerRow>(BLOCKERS_SQL, [organizationId, datasetId]);
-      const planKeys = await client.query<PlanKeyRow>(PLAN_KEYS_SQL, [organizationId, datasetId]);
-      await client.query('COMMIT');
-      return {
-        dataset: mapDataset(dataset),
-        organizationName: dataset.organization_name,
-        affectedCounts: mapCounts(counts.rows[0]!),
-        blockers: blockers.rows.map(mapBlocker),
-        planKeys: planKeys.rows.map((row) => row.plan_key),
+      if (dataset.status !== 'ACTIVE') {
+        throw new AppError('DEMO_DATASET_ALREADY_PURGED', 409,
+          'Demo veri kümesi daha önce purge edildi.');
+      }
+
+      await lockDataset(client, organizationId, datasetId);
+      const lockedDatasetResult = await client.query<DemoDatasetRow>(
+        `SELECT ${DATASET_COLUMNS}
+         ${DATASET_FROM}
+         WHERE d.organization_id = $1 AND d.id = $2`,
+        [organizationId, datasetId],
+      );
+      const lockedDatasetRow = lockedDatasetResult.rows[0];
+      if (!lockedDatasetRow) throw notFound();
+      dataset = mapDataset(lockedDatasetRow);
+      if (dataset.status !== 'ACTIVE') {
+        throw new AppError('DEMO_DATASET_ALREADY_PURGED', 409,
+          'Demo veri kümesi daha önce purge edildi.');
+      }
+
+      const firstAnalysis = await new DemoDatasetImpactAnalyzer(client).analyze(organizationId, datasetId);
+      if (!firstAnalysis) throw notFound();
+      const firstBlockers = [...firstAnalysis.blockers];
+      if (firstAnalysis.purgePlan.users.includes(actorUserId)) {
+        firstBlockers.push({
+          code: 'PURGE_ACTOR_IN_DATASET',
+          message: 'Purge işlemini başlatan kullanıcı hedef demo veri kümesine ait olamaz.',
+          sourceType: 'USER',
+          sourceId: actorUserId,
+          relatedType: 'DEMO_DATASET',
+          relatedId: datasetId,
+        });
+      }
+      if (firstBlockers.length > 0) throw purgeBlocked(firstBlockers);
+
+      await lockPlan(client, organizationId, firstAnalysis.purgePlan);
+      const secondAnalysis = await new DemoDatasetImpactAnalyzer(client).analyze(organizationId, datasetId);
+      if (!secondAnalysis) throw notFound();
+      const secondBlockers = [...secondAnalysis.blockers];
+      if (secondAnalysis.purgePlan.users.includes(actorUserId)) {
+        secondBlockers.push({
+          code: 'PURGE_ACTOR_IN_DATASET',
+          message: 'Purge işlemini başlatan kullanıcı hedef demo veri kümesine ait olamaz.',
+          sourceType: 'USER',
+          sourceId: actorUserId,
+          relatedType: 'DEMO_DATASET',
+          relatedId: datasetId,
+        });
+      }
+      if (secondBlockers.length > 0) throw purgeBlocked(secondBlockers);
+
+      const currentPlanHash = demoDatasetPlanHash(secondAnalysis, secondBlockers);
+      if (currentPlanHash !== request.planHash) {
+        throw new AppError('DEMO_DATASET_PLAN_STALE', 409,
+          'Demo veri kümesi önizleme planı artık güncel değil.');
+      }
+
+      const operation = await claimOperation(
+        client, organizationId, datasetId, actorUserId, request, dataset,
+      );
+      if (operation.replay) {
+        await client.query('COMMIT');
+        inTransaction = false;
+        return operation.replay;
+      }
+      if (!operation.created) {
+        throw new AppError('DEMO_DATASET_PURGE_IN_PROGRESS', 409,
+          'Bu demo veri kümesi üzerinde başka bir işlem devam ediyor.');
+      }
+
+      await executePlan(client, organizationId, secondAnalysis.purgePlan);
+      const detachedAuditActors = await detachAuditActors(
+        client, organizationId, secondAnalysis.purgePlan.retainedAuditActorLinks,
+      );
+      const detachedDatasetCreator = await updateDatasetToPurged(
+        client, organizationId, datasetId, secondAnalysis.purgePlan.datasetCreatorUserId,
+      );
+      await assertNoTargetUserReferences(client, organizationId, secondAnalysis.purgePlan.users);
+      await deleteRootRows(
+        client,
+        'users',
+        organizationId,
+        datasetId,
+        secondAnalysis.purgePlan.users,
+      );
+      await assertRootPostconditions(client, organizationId, datasetId);
+
+      const finalDatasetResult = await client.query<DemoDatasetRow>(
+        `SELECT ${DATASET_COLUMNS}
+         ${DATASET_FROM}
+         WHERE d.organization_id = $1 AND d.id = $2`,
+        [organizationId, datasetId],
+      );
+      const finalDatasetRow = finalDatasetResult.rows[0];
+      if (!finalDatasetRow) throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+        'Purge sonrası demo veri kümesi tombstone kaydı bulunamadı.');
+      const finalDataset = mapDataset(finalDatasetRow);
+      const completedAt = new Date();
+      const response: DemoDatasetPurgeResponse = {
+        operationId: operation.operationId,
+        status: 'COMPLETED',
+        dataset: datasetDto(finalDataset),
+        datasetKey: finalDataset.datasetKey,
+        seedVersion: finalDataset.seedVersion,
+        planHash: request.planHash,
+        affectedCounts: secondAnalysis.affectedCounts,
+        retained: {
+          auditActorDetaches: detachedAuditActors,
+          datasetCreatorDetached: detachedDatasetCreator,
+        },
+        completedAt: completedAt.toISOString(),
       };
+      const completedOperation = await client.query(
+        `UPDATE demo_dataset_purge_operations
+         SET status = 'COMPLETED', response_body = $2::jsonb, completed_at = $3
+         WHERE id = $1 AND status = 'PROCESSING'
+         RETURNING id`,
+        [operation.operationId, JSON.stringify(response), completedAt],
+      );
+      if (completedOperation.rows.length !== 1) {
+        throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+          'Purge işlemi tamamlanma kaydını yazamadı.');
+      }
+      await client.query('COMMIT');
+      inTransaction = false;
+      return response;
     } catch (error) {
-      await client.query('ROLLBACK');
+      if (inTransaction) await client.query('ROLLBACK').catch(() => undefined);
+      const code = databaseCode(error);
+      if (error instanceof AppError) throw error;
+      if (code === '55P03') {
+        throw new AppError('DEMO_DATASET_PURGE_IN_PROGRESS', 409,
+          'Bu demo veri kümesi üzerinde başka bir işlem devam ediyor.');
+      }
+      if (code === '40001') {
+        throw new AppError('DEMO_DATASET_PLAN_STALE', 409,
+          'Demo veri kümesi planı eşzamanlı bir değişiklik nedeniyle güncel değil.');
+      }
+      if (code === '23503') {
+        throw new AppError('DEMO_DATASET_UNEXPECTED_DEPENDENCY', 409,
+          'Demo veri kümesi beklenmeyen bir bağımlılık nedeniyle değiştirilemedi.');
+      }
       throw error;
     } finally {
       client.release();

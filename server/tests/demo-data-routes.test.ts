@@ -6,6 +6,7 @@ import type { SafeUser } from '../src/modules/auth/types.js';
 import { demoDatasetRoutes } from '../src/modules/demo-data/routes.js';
 import { DemoDatasetService } from '../src/modules/demo-data/service.js';
 import type {
+  DemoDatasetPurgeResponse,
   DemoDatasetPreviewData,
   DemoDatasetRepository,
 } from '../src/modules/demo-data/types.js';
@@ -32,6 +33,28 @@ class MemoryRepository implements DemoDatasetRepository {
   }
   async getPreviewData(organizationId: string) {
     return organizationId === dataset.dataset.organizationId ? dataset : null;
+  }
+  async purge(_organizationId: string, _datasetId: string, _actorUserId: string, _request: { clientActionId: string; planHash: string }): Promise<DemoDatasetPurgeResponse> {
+    return {
+      operationId: '22222222-2222-4222-8222-222222222222',
+      status: 'COMPLETED',
+      dataset: {
+        id: dataset.dataset.id,
+        organizationId: dataset.dataset.organizationId,
+        datasetKey: dataset.dataset.datasetKey,
+        seedVersion: dataset.dataset.seedVersion,
+        status: 'PURGED',
+        createdAt: dataset.dataset.createdAt.toISOString(),
+        createdBy: dataset.dataset.createdBy,
+        purgedAt: '2026-08-24T11:00:00.000Z',
+      },
+      datasetKey: dataset.dataset.datasetKey,
+      seedVersion: dataset.dataset.seedVersion,
+      planHash: _request.planHash,
+      affectedCounts: dataset.affectedCounts,
+      retained: { auditActorDetaches: 0, datasetCreatorDetached: true },
+      completedAt: '2026-08-24T11:00:00.000Z',
+    };
   }
 }
 
@@ -85,5 +108,32 @@ describe('Demo data HTTP routes', () => {
       });
       expect(clientOrganization.statusCode).toBe(400);
     }
+  });
+
+  it('accepts the exact Admin purge contract and rejects malformed input', async () => {
+    const app = await createApp(actor('ADMIN'));
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/admin/demo-datasets/11111111-1111-4111-8111-111111111111/purge',
+      payload: {
+        clientActionId: '33333333-3333-4333-8333-333333333333',
+        planHash: 'a'.repeat(64),
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(response.json()).toMatchObject({
+      status: 'COMPLETED',
+      dataset: { status: 'PURGED' },
+      planHash: 'a'.repeat(64),
+    });
+
+    const invalid = await app.inject({
+      method: 'POST',
+      url: '/api/admin/demo-datasets/11111111-1111-4111-8111-111111111111/purge',
+      payload: { clientActionId: 'not-a-uuid', planHash: 'a'.repeat(64) },
+    });
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json().code).toBe('VALIDATION_ERROR');
   });
 });

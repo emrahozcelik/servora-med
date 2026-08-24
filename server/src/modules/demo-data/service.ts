@@ -1,11 +1,11 @@
-import { createHash } from 'node:crypto';
-
 import { AppError } from '../../errors/index.js';
 import type { SafeUser } from '../auth/types.js';
+import { demoDatasetPlanHash } from './plan.js';
 import type {
   DemoDatasetBlocker,
   DemoDatasetDto,
-  DemoDatasetImpactCounts,
+  DemoDatasetPurgeRequest,
+  DemoDatasetPurgeResponse,
   DemoDatasetPreviewData,
   DemoDatasetPreviewDto,
   DemoDatasetRepository,
@@ -54,44 +54,6 @@ function stableBlockers(blockers: readonly DemoDatasetBlocker[]) {
       || compareText(left.message, right.message));
 }
 
-function canonicalCounts(counts: DemoDatasetImpactCounts): DemoDatasetImpactCounts {
-  return {
-    users: counts.users,
-    staffProfiles: counts.staffProfiles,
-    customers: counts.customers,
-    contacts: counts.contacts,
-    products: counts.products,
-    jobCards: counts.jobCards,
-    deliveryItems: counts.deliveryItems,
-    notes: counts.notes,
-    confidentialNotes: counts.confidentialNotes,
-    activities: counts.activities,
-    followUps: counts.followUps,
-    calendarEvents: counts.calendarEvents,
-    conversations: counts.conversations,
-    messages: counts.messages,
-    notifications: counts.notifications,
-    reminders: counts.reminders,
-    realtimeEvents: counts.realtimeEvents,
-  };
-}
-
-function planHash(data: DemoDatasetPreviewData, blockers: readonly DemoDatasetBlocker[]) {
-  const canonical = {
-    dataset: {
-      id: data.dataset.id,
-      organizationId: data.dataset.organizationId,
-      datasetKey: data.dataset.datasetKey,
-      seedVersion: data.dataset.seedVersion,
-      status: data.dataset.status,
-    },
-    affectedCounts: canonicalCounts(data.affectedCounts),
-    planKeys: [...new Set(data.planKeys)].sort(compareText),
-    blockers,
-  };
-  return createHash('sha256').update(JSON.stringify(canonical)).digest('hex');
-}
-
 function previewDto(data: DemoDatasetPreviewData): DemoDatasetPreviewDto {
   const blockers = stableBlockers(data.blockers);
   const statusBlocker = data.dataset.status === 'ACTIVE' ? [] : [{
@@ -109,7 +71,7 @@ function previewDto(data: DemoDatasetPreviewData): DemoDatasetPreviewDto {
     affectedCounts: data.affectedCounts,
     blockers: allBlockers,
     safeToPurge: allBlockers.length === 0,
-    planHash: planHash(data, allBlockers),
+    planHash: demoDatasetPlanHash(data, allBlockers),
   };
 }
 
@@ -134,5 +96,14 @@ export class DemoDatasetService {
     const data = await this.repository.getPreviewData(actor.organizationId, datasetId);
     if (!data) throw notFound();
     return previewDto(data);
+  }
+
+  async purge(
+    actor: SafeUser,
+    datasetId: string,
+    request: DemoDatasetPurgeRequest,
+  ): Promise<DemoDatasetPurgeResponse> {
+    requireAdmin(actor);
+    return this.repository.purge(actor.organizationId, datasetId, actor.id, request);
   }
 }
