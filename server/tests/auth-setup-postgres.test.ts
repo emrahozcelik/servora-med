@@ -25,6 +25,7 @@ afterEach(async () => {
   await pool.query('DELETE FROM contacts WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM customers WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM staff_profiles WHERE organization_id=$1', [organizationId]);
+  await pool.query("UPDATE users SET data_class='BUSINESS', demo_dataset_id=NULL WHERE organization_id=$1", [organizationId]);
   await pool.query('DELETE FROM demo_datasets WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM users WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM organizations WHERE id=$1', [organizationId]);

@@ -198,11 +198,6 @@ describe.skipIf(!databaseUrl)('Demo data PostgreSQL preview', () => {
        VALUES ($1, $2, $3, 'SALE', NOW(), 1, 'adet', 'Chain Product', 'CHAIN-R1')`,
       [organizationId, jobId, product.rows[0]!.id],
     );
-    await pool!.query(
-      `INSERT INTO job_card_notes (organization_id, job_card_id, author_id, note)
-       VALUES ($1, $2, $3, 'Chain note')`,
-      [organizationId, jobId, staffUser.id],
-    );
     const activity = await pool!.query<{ id: string }>(
       `INSERT INTO job_card_activity_logs
          (organization_id, job_card_id, actor_id, event_type, metadata)
@@ -210,11 +205,18 @@ describe.skipIf(!databaseUrl)('Demo data PostgreSQL preview', () => {
        RETURNING id`,
       [organizationId, jobId, adminUser.id],
     );
+    await pool!.query(
+      `INSERT INTO job_card_notes
+         (organization_id, job_card_id, author_id, note, author_name_snapshot,
+          author_role_snapshot, workflow_stage, context, related_activity_id, record_version)
+       VALUES ($1, $2, $3, 'Chain note', 'R1 Chain Staff', 'STAFF', 'NEW', 'GENERAL', $4, 1)`,
+      [organizationId, jobId, staffUser.id, activity.rows[0]!.id],
+    );
     const realtime = await pool!.query<{ id: string }>(
       `INSERT INTO realtime_events
          (organization_id, source_activity_id, event_type, entity_type, entity_id, actor_user_id,
           audience_roles, resource_keys)
-       VALUES ($1, $2, 'job.created', 'job-card', $3, $4, ARRAY['ADMIN']::VARCHAR(20)[], ARRAY['job-card:' || $3])
+       VALUES ($1, $2, 'job.created', 'job-card', $3::uuid, $4, ARRAY['ADMIN']::VARCHAR(20)[], ARRAY['job-card:' || $3::uuid::text])
        RETURNING id`,
       [organizationId, activity.rows[0]!.id, jobId, adminUser.id],
     );
@@ -289,5 +291,146 @@ describe.skipIf(!databaseUrl)('Demo data PostgreSQL preview', () => {
       notification_count: '1',
       reminder_count: '1',
     });
+  });
+
+  it('defaults rows without explicit demo lineage to BUSINESS on the real schema', async () => {
+    const client = await pool!.connect();
+    try {
+      await client.query('BEGIN');
+      const organization = await client.query<{ id: string }>(
+        'INSERT INTO organizations (name) VALUES ($1) RETURNING id',
+        [`${organizationName} legacy defaults`],
+      );
+      const legacyOrganizationId = organization.rows[0]!.id;
+      const user = await client.query<{ id: string }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Legacy Staff', $2, 'test-hash', 'STAFF')
+         RETURNING id`,
+        [legacyOrganizationId, `r1-legacy-${randomUUID()}@example.com`],
+      );
+      const customer = await client.query<{ id: string }>(
+        `INSERT INTO customers (organization_id, name, customer_type, status)
+         VALUES ($1, 'Legacy Clinic', 'clinic', 'active')
+         RETURNING id`,
+        [legacyOrganizationId],
+      );
+      const product = await client.query<{ id: string }>(
+        `INSERT INTO products (organization_id, sku, name, unit)
+         VALUES ($1, $2, 'Legacy Product', 'adet')
+         RETURNING id`,
+        [legacyOrganizationId, `R1-LEGACY-${randomUUID()}`],
+      );
+
+      const rows = await client.query<{
+        entity_type: string;
+        data_class: string;
+        demo_dataset_id: string | null;
+      }>(
+        `SELECT 'USER' AS entity_type, data_class, demo_dataset_id
+           FROM users WHERE organization_id = $1 AND id = $2
+         UNION ALL
+         SELECT 'CUSTOMER', data_class, demo_dataset_id
+           FROM customers WHERE organization_id = $1 AND id = $3
+         UNION ALL
+         SELECT 'PRODUCT', data_class, demo_dataset_id
+           FROM products WHERE organization_id = $1 AND id = $4
+         ORDER BY entity_type`,
+        [legacyOrganizationId, user.rows[0]!.id, customer.rows[0]!.id, product.rows[0]!.id],
+      );
+
+      expect(rows.rows).toEqual([
+        { entity_type: 'CUSTOMER', data_class: 'BUSINESS', demo_dataset_id: null },
+        { entity_type: 'PRODUCT', data_class: 'BUSINESS', demo_dataset_id: null },
+        { entity_type: 'USER', data_class: 'BUSINESS', demo_dataset_id: null },
+      ]);
+      await client.query('ROLLBACK');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
+  });
+
+  it('rejects cross-organization demo dataset lineage at the database boundary', async () => {
+    const client = await pool!.connect();
+    try {
+      await client.query('BEGIN');
+      const organizations = await client.query<{ id: string }>(
+        `INSERT INTO organizations (name)
+         VALUES ($1), ($2)
+         RETURNING id`,
+        [`${organizationName} lineage A`, `${organizationName} lineage B`],
+      );
+      const organizationA = organizations.rows[0]!.id;
+      const organizationB = organizations.rows[1]!.id;
+      const adminB = await client.query<{ id: string }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Lineage Admin B', $2, 'test-hash', 'ADMIN')
+         RETURNING id`,
+        [organizationB, `r1-lineage-b-${randomUUID()}@example.com`],
+      );
+      const adminA = await client.query<{ id: string }>(
+        `INSERT INTO users (organization_id, name, email, password_hash, role)
+         VALUES ($1, 'Lineage Admin A', $2, 'test-hash', 'ADMIN')
+         RETURNING id`,
+        [organizationA, `r1-lineage-a-${randomUUID()}@example.com`],
+      );
+      const datasetB = await client.query<{ id: string }>(
+        `INSERT INTO demo_datasets (organization_id, dataset_key, seed_version, created_by)
+         VALUES ($1, $2, 'r1-lineage-test', $3)
+         RETURNING id`,
+        [organizationB, `lineage-${randomUUID()}`, adminB.rows[0]!.id],
+      );
+      const customerA = await client.query<{ id: string }>(
+        `INSERT INTO customers (organization_id, name, customer_type, status)
+         VALUES ($1, 'Lineage Clinic A', 'clinic', 'active')
+         RETURNING id`,
+        [organizationA],
+      );
+
+      await client.query('SAVEPOINT cross_org_user');
+      await expect(client.query(
+        `INSERT INTO users
+           (organization_id, name, email, password_hash, role, data_class, demo_dataset_id)
+         VALUES ($1, 'Invalid Demo User', $2, 'test-hash', 'STAFF', 'DEMO', $3)`,
+        [organizationA, `r1-invalid-user-${randomUUID()}@example.com`, datasetB.rows[0]!.id],
+      )).rejects.toMatchObject({ code: '23503' });
+      await client.query('ROLLBACK TO SAVEPOINT cross_org_user');
+
+      await client.query('SAVEPOINT cross_org_customer');
+      await expect(client.query(
+        `INSERT INTO customers
+           (organization_id, name, customer_type, status, data_class, demo_dataset_id)
+         VALUES ($1, 'Invalid Demo Clinic', 'clinic', 'active', 'DEMO', $2)`,
+        [organizationA, datasetB.rows[0]!.id],
+      )).rejects.toMatchObject({ code: '23503' });
+      await client.query('ROLLBACK TO SAVEPOINT cross_org_customer');
+
+      await client.query('SAVEPOINT cross_org_product');
+      await expect(client.query(
+        `INSERT INTO products
+           (organization_id, sku, name, unit, data_class, demo_dataset_id)
+         VALUES ($1, $2, 'Invalid Demo Product', 'adet', 'DEMO', $3)`,
+        [organizationA, `R1-INVALID-${randomUUID()}`, datasetB.rows[0]!.id],
+      )).rejects.toMatchObject({ code: '23503' });
+      await client.query('ROLLBACK TO SAVEPOINT cross_org_product');
+
+      await client.query('SAVEPOINT cross_org_job');
+      await expect(client.query(
+        `INSERT INTO job_cards
+           (organization_id, type, status, title, customer_id, assigned_to, created_by, priority, data_class, demo_dataset_id)
+         VALUES ($1, 'GENERAL_TASK', 'NEW', 'Invalid Demo Job', $2, $3, $4, 'normal', 'DEMO', $5)`,
+        [organizationA, customerA.rows[0]!.id, adminA.rows[0]!.id, adminA.rows[0]!.id, datasetB.rows[0]!.id],
+      )).rejects.toMatchObject({ code: '23503' });
+      await client.query('ROLLBACK TO SAVEPOINT cross_org_job');
+
+      await client.query('ROLLBACK');
+    } catch (error) {
+      await client.query('ROLLBACK').catch(() => undefined);
+      throw error;
+    } finally {
+      client.release();
+    }
   });
 });

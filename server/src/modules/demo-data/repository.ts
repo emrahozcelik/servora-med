@@ -221,15 +221,30 @@ demo_products AS (
   WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
 ),
 demo_jobs AS (
-  SELECT id FROM job_cards
+  SELECT id,
+         assigned_to,
+         created_by,
+         staff_completed_by,
+         manager_approved_by,
+         revision_requested_by,
+         cancelled_by,
+         source_job_card_id,
+         customer_id
+  FROM job_cards
   WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
 ),
 demo_conversations AS (
-  SELECT id FROM conversations
+  SELECT id, organization_id, job_id, customer_id
+  FROM conversations
   WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
 ),
 demo_calendar_events AS (
-  SELECT id FROM calendar_events
+  SELECT id,
+         assigned_user_id,
+         created_by,
+         updated_by,
+         cancelled_by
+  FROM calendar_events
   WHERE organization_id = $1 AND data_class = 'DEMO' AND demo_dataset_id = $2
 )
 SELECT * FROM (
