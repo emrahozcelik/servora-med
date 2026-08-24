@@ -12,6 +12,7 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest",
+    "acceptance:r2b-demo-data": "node scripts/r2b-demo-data-acceptance.mjs",
     "smoke:responsive": "node scripts/responsive-smoke.mjs && node scripts/calendar-responsive-smoke.mjs",
     "bundle:report": "node scripts/report-bundle-sizes.mjs",
     "bundle:check": "BUNDLE_ENFORCE=1 node scripts/report-bundle-sizes.mjs",

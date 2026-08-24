@@ -105,6 +105,16 @@ describe('ConfirmationAction', () => {
     expect(onConfirm).not.toHaveBeenCalled();
   });
 
+  it('announces pending work and marks the dialog busy', async () => {
+    await render({ open: true, pending: true, pendingLabel: 'Demo verileri kaldırılıyor…' });
+
+    const dialog = host.querySelector('[role="dialog"]');
+    const announcement = host.querySelector('[role="status"]');
+    expect(dialog?.getAttribute('aria-busy')).toBe('true');
+    expect(announcement?.getAttribute('aria-live')).toBe('polite');
+    expect(announcement?.textContent).toBe('Demo verileri kaldırılıyor…');
+  });
+
   it('calls onConfirm once when enabled', async () => {
     const onConfirm = vi.fn();
     await render({ open: true, pending: false, onConfirm });
