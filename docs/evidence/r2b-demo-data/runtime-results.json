@@ -1,7 +1,7 @@
 {
   "gate": "R2B_DESTRUCTIVE_ADMIN_UI_REAL_RUNTIME_ACCEPTANCE",
-  "executedAt": "2026-08-24T15:35:03.269Z",
-  "featureHead": "19ac87397d463553a2ca82b543b7885808585a21",
+  "executedAt": "2026-08-24T16:22:22.366Z",
+  "featureHead": "404c2796050ce9e0751312eacf4c5cf041c689ec",
   "runtime": {
     "vite": "real",
     "fastify": "real",
