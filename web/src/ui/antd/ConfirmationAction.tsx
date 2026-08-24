@@ -107,6 +107,7 @@ export function ConfirmationAction({
         aria-modal="true"
         aria-labelledby={titleId}
         aria-describedby={description ? descriptionId : undefined}
+        aria-busy={pending}
         tabIndex={-1}
         onKeyDown={handleKeyDown}
       >
@@ -119,6 +120,9 @@ export function ConfirmationAction({
             {details.map((entry) => <li key={entry}>{entry}</li>)}
           </ul>
         )}
+        <p className="sr-only" role="status" aria-live="polite" aria-atomic="true">
+          {pending ? pendingLabel : ''}
+        </p>
         <div className="product-dialog-actions review-buttons">
           <button
             ref={cancelRef}

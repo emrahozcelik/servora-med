@@ -1,0 +1,129 @@
+{
+  "gate": "R2B_DESTRUCTIVE_ADMIN_UI_REAL_RUNTIME_ACCEPTANCE",
+  "executedAt": "2026-08-24T16:22:22.366Z",
+  "featureHead": "404c2796050ce9e0751312eacf4c5cf041c689ec",
+  "runtime": {
+    "vite": "real",
+    "fastify": "real",
+    "postgresql": "disposable-real",
+    "browser": "playwright-chromium"
+  },
+  "result": "PASS",
+  "assertions": [
+    {
+      "id": "POSTGRES-ISOLATED-CLUSTER",
+      "status": "PASS",
+      "observed": "A private PostgreSQL cluster was started under /private/tmp for this acceptance only"
+    },
+    {
+      "id": "POSTGRES-DISPOSABLE-CREATED",
+      "status": "PASS",
+      "observed": "A dedicated disposable PostgreSQL database was created"
+    },
+    {
+      "id": "POSTGRES-MIGRATIONS-001-035",
+      "status": "PASS",
+      "observed": "All repository migrations completed on the disposable database"
+    },
+    {
+      "id": "REAL-VITE-FASTIFY-LOGIN",
+      "status": "PASS",
+      "observed": "Synthetic BUSINESS Admin loaded the real Demo Data route"
+    },
+    {
+      "id": "UI-NO-INTERNAL-HASH",
+      "status": "PASS",
+      "observed": "No 64-character plan hash is visible in the Admin UI"
+    },
+    {
+      "id": "DIALOG-INITIAL-FOCUS",
+      "status": "PASS",
+      "observed": "Initial dialog focus=Vazgeç"
+    },
+    {
+      "id": "DIALOG-COUNTS",
+      "status": "PASS",
+      "observed": "Confirmation contains the server preview count snapshot"
+    },
+    {
+      "id": "PENDING-SURFACE-LOCK",
+      "status": "PASS",
+      "observed": "dataset=true, trigger=true, dialog=true"
+    },
+    {
+      "id": "AMBIGUOUS-COPY",
+      "status": "PASS",
+      "observed": "Ambiguous transport state does not claim that data is unchanged"
+    },
+    {
+      "id": "LOST-RESPONSE-RECOVERY",
+      "status": "PASS",
+      "observed": "Backend receipt http=200, status=COMPLETED, dataset=PURGED"
+    },
+    {
+      "id": "NO-AUTOMATIC-POST-RETRY",
+      "status": "PASS",
+      "observed": "Observed purge POST count=1"
+    },
+    {
+      "id": "UI-PURGED-TOMBSTONE",
+      "status": "PASS",
+      "observed": "Dataset list shows one Kaldırıldı tombstone"
+    },
+    {
+      "id": "SUCCESS-NO-DESTRUCTIVE-ACTION",
+      "status": "PASS",
+      "observed": "No purge action remains after confirmed completion"
+    },
+    {
+      "id": "RELOAD-PERSISTS-TOMBSTONE",
+      "status": "PASS",
+      "observed": "Reload reads the persisted PURGED tombstone without previewing it"
+    },
+    {
+      "id": "MOBILE-REFLOW",
+      "status": "PASS",
+      "observed": "scrollWidth=390, clientWidth=390"
+    },
+    {
+      "id": "BROWSER-NO-PAGE-ERRORS",
+      "status": "PASS",
+      "observed": "No uncaught page errors"
+    },
+    {
+      "id": "POSTGRES-TOMBSTONE",
+      "status": "PASS",
+      "observed": "Dataset status=PURGED, purgedAt=true"
+    },
+    {
+      "id": "POSTGRES-DEMO-PURGED",
+      "status": "PASS",
+      "observed": "Remaining DEMO customers=0, products=0"
+    },
+    {
+      "id": "POSTGRES-BUSINESS-PRESERVED",
+      "status": "PASS",
+      "observed": "BUSINESS sentinels customers=1, products=1"
+    },
+    {
+      "id": "POSTGRES-ONE-COMPLETION",
+      "status": "PASS",
+      "observed": "Completed purge operations=1"
+    },
+    {
+      "id": "POSTGRES-DISPOSABLE-DROPPED",
+      "status": "PASS",
+      "observed": "Disposable PostgreSQL database was removed"
+    }
+  ],
+  "screenshots": [
+    "screenshots/01-safe-preview-desktop.png",
+    "screenshots/02-confirmation-desktop.png",
+    "screenshots/03-purge-pending-desktop.png",
+    "screenshots/04-ambiguous-reconciliation-desktop.png",
+    "screenshots/05-recovered-success-desktop.png",
+    "screenshots/06-persisted-tombstone-desktop.png",
+    "screenshots/07-persisted-tombstone-mobile.png"
+  ],
+  "failure": null
+}

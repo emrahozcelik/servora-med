@@ -2,6 +2,7 @@ import {
   ApiError,
   boolean,
   items,
+  json,
   nullableString,
   number,
   object,
@@ -60,6 +61,26 @@ export type DemoDatasetPreview = {
   planHash: string;
 };
 
+export type DemoDatasetPurgeResponse = {
+  operationId: string;
+  status: 'COMPLETED';
+  dataset: DemoDataset;
+  datasetKey: string;
+  seedVersion: string;
+  planHash: string;
+  affectedCounts: DemoDatasetImpactCounts;
+  retained: {
+    auditActorDetaches: number;
+    datasetCreatorDetached: boolean;
+  };
+  completedAt: string;
+};
+
+export type DemoDatasetPurgeRequest = {
+  clientActionId: string;
+  planHash: string;
+};
+
 const DATASET_STATUSES = ['ACTIVE', 'PURGED'] as const;
 const COUNT_FIELDS = [
   'users', 'staffProfiles', 'customers', 'contacts', 'products', 'jobCards',
@@ -80,15 +101,18 @@ function enumValue<T extends string>(value: unknown, field: string, values: read
 
 function parseDataset(value: unknown): DemoDataset {
   const item = object(value);
+  const status = enumValue(item.status, 'status', DATASET_STATUSES);
+  const purgedAt = item.purgedAt === null ? null : nullableString(item.purgedAt, 'purgedAt');
+  if ((status === 'ACTIVE') !== (purgedAt === null)) invalid('purgedAt');
   return {
     id: string(item.id, 'id'),
     organizationId: string(item.organizationId, 'organizationId'),
     datasetKey: string(item.datasetKey, 'datasetKey'),
     seedVersion: string(item.seedVersion, 'seedVersion'),
-    status: enumValue(item.status, 'status', DATASET_STATUSES),
+    status,
     createdAt: string(item.createdAt, 'createdAt'),
     createdBy: string(item.createdBy, 'createdBy'),
-    purgedAt: item.purgedAt === null ? null : nullableString(item.purgedAt, 'purgedAt'),
+    purgedAt,
   };
 }
 
@@ -120,6 +144,9 @@ export function parseDemoDatasetPreview(value: unknown): DemoDatasetPreview {
   const organization = object(item.organization);
   const blockers = item.blockers;
   if (!Array.isArray(blockers)) invalid('blockers');
+  const parsedBlockers = blockers.map(parseBlocker);
+  const safeToPurge = boolean(item.safeToPurge, 'safeToPurge');
+  if (safeToPurge !== (parsedBlockers.length === 0)) invalid('safeToPurge');
   const planHash = string(item.planHash, 'planHash');
   if (!/^[0-9a-f]{64}$/.test(planHash)) invalid('planHash');
   return {
@@ -129,9 +156,47 @@ export function parseDemoDatasetPreview(value: unknown): DemoDatasetPreview {
       name: string(organization.name, 'organization.name'),
     },
     affectedCounts: parseCounts(item.affectedCounts),
-    blockers: blockers.map(parseBlocker),
-    safeToPurge: boolean(item.safeToPurge, 'safeToPurge'),
+    blockers: parsedBlockers,
+    safeToPurge,
     planHash,
+  };
+}
+
+export function parseDemoDatasetPurgeResponse(
+  value: unknown,
+  expected: { datasetId: string; datasetKey: string; seedVersion: string; planHash: string },
+): DemoDatasetPurgeResponse {
+  const item = object(value);
+  const retained = object(item.retained);
+  const dataset = parseDataset(item.dataset);
+  const datasetKey = string(item.datasetKey, 'datasetKey');
+  const seedVersion = string(item.seedVersion, 'seedVersion');
+  const planHash = string(item.planHash, 'planHash');
+  const auditActorDetaches = number(retained.auditActorDetaches, 'retained.auditActorDetaches');
+  if (dataset.id !== expected.datasetId) invalid('dataset.id');
+  if (dataset.datasetKey !== expected.datasetKey) invalid('dataset.datasetKey');
+  if (dataset.seedVersion !== expected.seedVersion) invalid('dataset.seedVersion');
+  if (dataset.status !== 'PURGED') invalid('dataset.status');
+  if (dataset.purgedAt === null) invalid('dataset.purgedAt');
+  if (datasetKey !== dataset.datasetKey) invalid('datasetKey');
+  if (seedVersion !== dataset.seedVersion) invalid('seedVersion');
+  if (!/^[0-9a-f]{64}$/.test(planHash) || planHash !== expected.planHash) invalid('planHash');
+  if (!Number.isInteger(auditActorDetaches) || auditActorDetaches < 0) {
+    invalid('retained.auditActorDetaches');
+  }
+  return {
+    operationId: string(item.operationId, 'operationId'),
+    status: enumValue(item.status, 'status', ['COMPLETED'] as const),
+    dataset,
+    datasetKey,
+    seedVersion,
+    planHash,
+    affectedCounts: parseCounts(item.affectedCounts),
+    retained: {
+      auditActorDetaches,
+      datasetCreatorDetached: boolean(retained.datasetCreatorDetached, 'retained.datasetCreatorDetached'),
+    },
+    completedAt: string(item.completedAt, 'completedAt'),
   };
 }
 
@@ -140,11 +205,31 @@ export async function listDemoDatasets(): Promise<DemoDataset[]> {
 }
 
 export async function getDemoDataset(datasetId: string): Promise<DemoDataset> {
-  return parseDataset(await request(`/api/admin/demo-datasets/${encodeURIComponent(datasetId)}`));
+  const dataset = parseDataset(await request(`/api/admin/demo-datasets/${encodeURIComponent(datasetId)}`));
+  if (dataset.id !== datasetId) invalid('dataset.id');
+  return dataset;
 }
 
 export async function previewDemoDataset(datasetId: string): Promise<DemoDatasetPreview> {
-  return parseDemoDatasetPreview(await request(
+  const preview = parseDemoDatasetPreview(await request(
     `/api/admin/demo-datasets/${encodeURIComponent(datasetId)}/preview`,
   ));
+  if (preview.dataset.id !== datasetId) invalid('dataset.id');
+  return preview;
+}
+
+export async function purgeDemoDataset(
+  datasetId: string,
+  input: DemoDatasetPurgeRequest,
+  expectedDataset: Pick<DemoDataset, 'datasetKey' | 'seedVersion'>,
+): Promise<DemoDatasetPurgeResponse> {
+  return parseDemoDatasetPurgeResponse(await request(
+    `/api/admin/demo-datasets/${encodeURIComponent(datasetId)}/purge`,
+    json('POST', input),
+  ), {
+    datasetId,
+    datasetKey: expectedDataset.datasetKey,
+    seedVersion: expectedDataset.seedVersion,
+    planHash: input.planHash,
+  });
 }
