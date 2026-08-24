@@ -34,15 +34,23 @@ const settingsLandingItems = [
 ];
 
 export function SettingsLandingPage({ user }: { user?: CurrentUser } = {}) {
+  const showDemoData = user?.role === 'ADMIN';
   const showBackupRecovery = user?.role === 'ADMIN' && user.capabilities?.backup === true;
-  const landingItems = showBackupRecovery
-    ? [...settingsLandingItems, {
+  const landingItems = [
+    ...settingsLandingItems,
+    ...(showDemoData ? [{
+      key: 'demo-data',
+      title: 'Demo verileri',
+      description: 'Demo dataset kayıtlarını ve güvenli silme önizlemesini görüntüleyin.',
+      to: paths.settingsDemoData,
+    }] : []),
+    ...(showBackupRecovery ? [{
       key: 'backup-recovery',
       title: 'Yedekleme ve Kurtarma',
       description: 'Yönetici yedekleme durumunu, geçmişini ve zamanlamasını yönetin.',
       to: paths.settingsBackupRecovery,
-    }]
-    : settingsLandingItems;
+    }] : []),
+  ];
   return <main className="workspace settings-workspace">
     <header className="workspace-heading workspace-heading--semantic-only">
       <h1 className="route-identity-heading">Ayarlar</h1>

@@ -55,7 +55,7 @@ describe.skipIf(!databaseUrl || process.env.BR7_DB_ACCEPTANCE !== '1')('BR7 DR P
         createdAt: new Date().toISOString(),
         application: { applicationVersion: 'br7-test', gitCommit: null },
         backupScope: 'DATABASE', origin: 'MANUAL', retentionClass: 'MANUAL',
-        database: { engine: 'postgresql', serverVersion: '16.13', dumpVersion, dumpToolVersion, schemaVersion: '033_backup_worker_runtime' },
+        database: { engine: 'postgresql', serverVersion: '16.13', dumpVersion, dumpToolVersion, schemaVersion: '034_demo_data_foundation' },
         contents: { database: { file: 'database.dump', bytes: dump.byteLength, sha256: digest }, files: null },
         checksums: { file: 'checksums.sha256' },
       };

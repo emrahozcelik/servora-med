@@ -81,6 +81,10 @@ import type { BackupRepository } from './modules/backup/repository.js';
 import { PostgresBackupRepository } from './modules/backup/repository.js';
 import { BackupService } from './modules/backup/service.js';
 import { backupRoutes } from './modules/backup/routes.js';
+import type { DemoDatasetRepository } from './modules/demo-data/types.js';
+import { DemoDatasetService } from './modules/demo-data/service.js';
+import { PostgresDemoDatasetRepository } from './modules/demo-data/repository.js';
+import { demoDatasetRoutes } from './modules/demo-data/routes.js';
 
 export const LOGGER_REDACT_PATHS = [
   'req.headers.authorization',
@@ -136,6 +140,7 @@ export type AppDependencies = {
   calendarReminderWorker?: CalendarReminderWorker;
   staffConfidentialNotesRepository?: StaffConfidentialNotesRepository;
   backupRepository?: BackupRepository;
+  demoDatasetRepository?: DemoDatasetRepository;
   /** Optional Pino destination for tests that capture serialized log lines. */
   loggerDestination?: NodeJS.WritableStream;
   pool?: import('pg').Pool;
@@ -375,6 +380,16 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         service: new StaffConfidentialNotesService(
           dependencies.staffConfidentialNotesRepository,
           dependencies.realtimePublisher,
+        ),
+        authenticate: authenticateDomain,
+      });
+    }
+    if (dependencies.demoDatasetRepository || dependencies.pool) {
+      await app.register(demoDatasetRoutes, {
+        prefix: '/api/admin',
+        service: new DemoDatasetService(
+          dependencies.demoDatasetRepository
+            ?? new PostgresDemoDatasetRepository(dependencies.pool!),
         ),
         authenticate: authenticateDomain,
       });

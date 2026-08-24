@@ -25,6 +25,8 @@ afterEach(async () => {
   await pool.query('DELETE FROM contacts WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM customers WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM staff_profiles WHERE organization_id=$1', [organizationId]);
+  await pool.query("UPDATE users SET data_class='BUSINESS', demo_dataset_id=NULL WHERE organization_id=$1", [organizationId]);
+  await pool.query('DELETE FROM demo_datasets WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM users WHERE organization_id=$1', [organizationId]);
   await pool.query('DELETE FROM organizations WHERE id=$1', [organizationId]);
 });
@@ -52,6 +54,11 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
       linked_job_count: string;
       job_created_count: string;
       management_audit_count: string;
+      demo_dataset_count: string;
+      demo_user_count: string;
+      demo_customer_count: string;
+      demo_product_count: string;
+      demo_job_count: string;
     }>(`
       SELECT
         (SELECT COUNT(*) FROM users WHERE organization_id=o.id)::text AS user_count,
@@ -82,6 +89,11 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
           WHERE a.organization_id=o.id AND a.event_type='JOB_CREATED'
             AND a.actor_id=j.assigned_to)::text AS job_created_count,
         (SELECT COUNT(*) FROM audit_events WHERE organization_id=o.id)::text AS management_audit_count
+        ,(SELECT COUNT(*) FROM demo_datasets WHERE organization_id=o.id)::text AS demo_dataset_count
+        ,(SELECT COUNT(*) FROM users WHERE organization_id=o.id AND data_class='DEMO')::text AS demo_user_count
+        ,(SELECT COUNT(*) FROM customers WHERE organization_id=o.id AND data_class='DEMO')::text AS demo_customer_count
+        ,(SELECT COUNT(*) FROM products WHERE organization_id=o.id AND data_class='DEMO')::text AS demo_product_count
+        ,(SELECT COUNT(*) FROM job_cards WHERE organization_id=o.id AND data_class='DEMO')::text AS demo_job_count
       FROM organizations o
       WHERE o.name=$1
     `, [organizationName]);
@@ -100,6 +112,11 @@ describe.skipIf(!databaseUrl)('development seed PostgreSQL contract', () => {
       linked_job_count: '1',
       job_created_count: '1',
       management_audit_count: '0',
+      demo_dataset_count: '1',
+      demo_user_count: '3',
+      demo_customer_count: '1',
+      demo_product_count: '1',
+      demo_job_count: '1',
     }]);
 
     const nameOnly = await pool!.query<{

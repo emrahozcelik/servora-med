@@ -69,6 +69,19 @@ describe('auth setup', () => {
     });
   });
 
+  it('marks new development seed roots with an explicit demo dataset request', async () => {
+    const repository = new MemorySetupRepository();
+
+    await seedDevelopment(repository, {
+      organizationName: 'Demo Org', password: 'development-password',
+    }, 'development');
+
+    expect(repository.requests[0]!.demoDataset).toEqual({
+      datasetKey: 'servora-development-seed',
+      seedVersion: 'r1',
+    });
+  });
+
   it('does not create a Staff profile for Admin bootstrap', async () => {
     const repository = new MemorySetupRepository();
     await bootstrapAdmin(repository, {

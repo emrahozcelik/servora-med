@@ -111,6 +111,7 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
   if (pathname.startsWith('/messages')) return 'Mesajlar';
   if (pathname.startsWith('/docs')) return 'Dokümantasyon';
   if (pathname.startsWith('/help')) return 'Yardım Merkezi';
+  if (pathname.startsWith(paths.settingsDemoData)) return 'Demo verileri';
   if (pathname.startsWith(paths.settingsBackupRecovery)) return 'Yedekleme ve Kurtarma';
   if (pathname.startsWith('/settings')) return 'Ayarlar';
   if (pathname.startsWith('/jobs/new-')) return 'Yeni iş';
@@ -136,6 +137,7 @@ export function resolveShellTitle(pathname: string, role: CurrentUser['role']): 
 
 /** Parent path for nested routes; null on top-level sections. */
 export function resolveShellBackTo(pathname: string): string | null {
+  if (pathname.startsWith(paths.settingsDemoData)) return paths.settings;
   if (pathname.startsWith(paths.settingsBackupRecovery)) return paths.settings;
   if (pathname.startsWith('/jobs/new-') || /^\/jobs\/[^/]+/.test(pathname)) return paths.jobs;
 

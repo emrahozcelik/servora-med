@@ -23,6 +23,10 @@ export type SetupReferenceData = {
 export type SetupRequest = {
   organizationName: string;
   users: SetupUser[];
+  demoDataset?: {
+    datasetKey: string;
+    seedVersion: string;
+  };
   staffProfile?: {
     title: string | null;
     phone: string | null;
@@ -84,6 +88,10 @@ export async function seedDevelopment(repository: SetupRepository, input: SeedIn
   await repository.createOrganizationWithUsers({
     organizationName,
     users,
+    demoDataset: {
+      datasetKey: 'servora-development-seed',
+      seedVersion: 'r1',
+    },
     staffProfile: {
       title: 'Saha Personeli', phone: null, region: null, managerRole: 'MANAGER',
     },
@@ -116,6 +124,7 @@ export class PostgresSetupRepository implements SetupRepository {
       const organization = await client.query<{ id: string }>(
         'INSERT INTO organizations (name) VALUES ($1) RETURNING id', [request.organizationName],
       );
+      const organizationId = organization.rows[0]!.id;
       const userIds = new Map<UserRole, string>();
       for (const user of request.users) {
         const inserted = await client.query<{ id: string }>(
@@ -123,9 +132,28 @@ export class PostgresSetupRepository implements SetupRepository {
              (organization_id, name, email, password_hash, role, must_change_password)
            VALUES ($1, $2, $3, $4, $5, $6)
            RETURNING id`,
-          [organization.rows[0]!.id, user.name, user.email, user.passwordHash, user.role, user.mustChangePassword],
+          [organizationId, user.name, user.email, user.passwordHash, user.role, user.mustChangePassword],
         );
         userIds.set(user.role, inserted.rows[0]!.id);
+      }
+      let demoDatasetId: string | null = null;
+      const dataClass = request.demoDataset ? 'DEMO' : 'BUSINESS';
+      if (request.demoDataset) {
+        const adminUserId = userIds.get('ADMIN');
+        if (!adminUserId) throw new AppError('INVALID_SETUP_INPUT', 400, 'Demo veri kümesi için Admin kullanıcı eksik.');
+        const insertedDataset = await client.query<{ id: string }>(
+          `INSERT INTO demo_datasets (organization_id, dataset_key, seed_version, created_by)
+           VALUES ($1, $2, $3, $4)
+           RETURNING id`,
+          [organizationId, request.demoDataset.datasetKey, request.demoDataset.seedVersion, adminUserId],
+        );
+        demoDatasetId = insertedDataset.rows[0]!.id;
+        await client.query(
+          `UPDATE users
+           SET data_class = 'DEMO', demo_dataset_id = $2
+           WHERE organization_id = $1`,
+          [organizationId, demoDatasetId],
+        );
       }
       if (request.staffProfile) {
         const staffUserId = userIds.get('STAFF');
@@ -137,7 +165,7 @@ export class PostgresSetupRepository implements SetupRepository {
           `INSERT INTO staff_profiles
              (organization_id, user_id, title, phone, region, manager_user_id)
            VALUES ($1, $2, $3, $4, $5, $6)`,
-          [organization.rows[0]!.id, staffUserId, request.staffProfile.title,
+          [organizationId, staffUserId, request.staffProfile.title,
             request.staffProfile.phone, request.staffProfile.region, managerUserId],
         );
       }
@@ -145,35 +173,36 @@ export class PostgresSetupRepository implements SetupRepository {
         const { customer, contact, product, jobCard } = request.referenceData;
         const insertedCustomer = await client.query<{ id: string }>(
           `INSERT INTO customers
-             (organization_id, name, customer_type, assigned_staff_user_id, status)
-           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
-          [organization.rows[0]!.id, customer.name, customer.customerType, userIds.get('STAFF'), customer.status],
+             (organization_id, name, customer_type, assigned_staff_user_id, status, data_class, demo_dataset_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING id`,
+          [organizationId, customer.name, customer.customerType, userIds.get('STAFF'), customer.status,
+            dataClass, demoDatasetId],
         );
         const insertedContact = await client.query<{ id: string }>(
           `INSERT INTO contacts (organization_id, customer_id, name, title, is_primary)
            VALUES ($1,$2,$3,$4,$5) RETURNING id`,
-          [organization.rows[0]!.id, insertedCustomer.rows[0]!.id,
+          [organizationId, insertedCustomer.rows[0]!.id,
             contact.name, contact.title, contact.isPrimary],
         );
         await client.query(
-          `INSERT INTO products (organization_id, sku, name, unit)
-           VALUES ($1, $2, $3, $4)`,
-          [organization.rows[0]!.id, product.sku, product.name, product.unit],
+          `INSERT INTO products (organization_id, sku, name, unit, data_class, demo_dataset_id)
+           VALUES ($1, $2, $3, $4, $5, $6)`,
+          [organizationId, product.sku, product.name, product.unit, dataClass, demoDatasetId],
         );
         const insertedJob = await client.query<{ id: string }>(
           `INSERT INTO job_cards
              (organization_id, type, status, title, customer_id, contact_id,
-              assigned_to, created_by, priority)
-           VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8) RETURNING id`,
-          [organization.rows[0]!.id, jobCard.type, jobCard.status, jobCard.title,
+              assigned_to, created_by, priority, data_class, demo_dataset_id)
+           VALUES ($1,$2,$3,$4,$5,$6,$7,$7,$8,$9,$10) RETURNING id`,
+          [organizationId, jobCard.type, jobCard.status, jobCard.title,
             insertedCustomer.rows[0]!.id, insertedContact.rows[0]!.id,
-            userIds.get('STAFF'), jobCard.priority],
+            userIds.get('STAFF'), jobCard.priority, dataClass, demoDatasetId],
         );
         await client.query(
           `INSERT INTO job_card_activity_logs
              (organization_id, job_card_id, actor_id, event_type, new_value)
            VALUES ($1,$2,$3,'JOB_CREATED',$4)`,
-          [organization.rows[0]!.id, insertedJob.rows[0]!.id, userIds.get('STAFF'),
+          [organizationId, insertedJob.rows[0]!.id, userIds.get('STAFF'),
             { status: jobCard.status, assignedTo: userIds.get('STAFF'), version: 1 }],
         );
       }
