@@ -557,6 +557,8 @@ async function runBrowserAcceptance(fixture) {
   await page.getByRole('button', { name: 'Durumu yeniden kontrol et', exact: true }).click();
   await page.locator('[data-terminal-state="INVALIDATED"]').waitFor();
   await page.getByText('Kayıt zaten geçersiz durumda.', { exact: true }).waitFor();
+  await page.locator('.job-note-body', { hasText: 'R3B lost response acceptance note' }).waitFor();
+  await page.locator('.activity-timeline-action', { hasText: 'İş geçersiz kılındı' }).waitFor();
   const recoveredText = await page.locator('body').innerText();
   record('UI-LOST-RESPONSE-GET-RECOVERY', backendReceipt?.status === 200
     && backendReceipt?.body?.status === 'INVALIDATED'
