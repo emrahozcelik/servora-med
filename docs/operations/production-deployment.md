@@ -187,10 +187,10 @@ Worker activation requires a separate deployment gate:
 
 - `BACKUP_WORKER_ENABLED=false` remains the safe default; the API never
   claims backup rows.
-- Before enabling it, execute disposable-bucket `REAL_R2_ACCEPTANCE` for
-  SigV4, `If-None-Match: *`, metadata roundtrip, streamed HEAD/GET, and
-  CreateMultipartUpload → AbortMultipartUpload. Without explicit test
-  credentials this status remains **NOT EXECUTED**.
+- Before enabling it, execute the disposable-bucket FULL_DATA DR gate in
+  [`real-r2-dr-acceptance.md`](./backup-recovery/real-r2-dr-acceptance.md).
+  A BR4 connection probe alone is insufficient. Without dedicated acceptance
+  credentials, `REAL_R2_DR_ACCEPTANCE` remains **NOT EXECUTED**.
 - Verify `GET /api/health` includes an aggregate `backup` object with the
   latest verified timestamp, `latestScheduledVerifiedAt`, and
   worker/scheduler heartbeat. In verified-runs monitoring mode, scheduled
@@ -277,18 +277,14 @@ sudo systemctl enable --now servora-med-backup.timer
 
 ### BR5 worker cutover checklist (documentation only)
 
-This repository does not perform host activation. After the disposable real-R2
-gate is explicitly approved, the operator should:
-
-1. Deploy with `BACKUP_WORKER_ENABLED=false` and apply migration 033.
-2. Verify API readiness, the R2 connection test, and a synthetic worker run
-   reaches `SUCCESS` with `verified_at` and a removed local workspace.
-3. Enable/start `servora-med-backup-worker.service`; confirm both worker and
-   scheduler heartbeat fields are fresh.
-4. Set `SERVORA_ALERT_BACKUP_SOURCE=verified-runs` in the existing operator
-   monitor and verify one real scheduled `SUCCESS` before relying on it.
-5. Only then retire the legacy backup timer / `OFFSITE_COPY_HOOK` path; keep
-   the scripts and unit available for rollback until a separate cleanup decision.
+This repository does not perform host activation. Follow the separately gated
+G0–G10 sequence in
+[`production-cutover-runbook.md`](./backup-recovery/production-cutover-runbook.md).
+Real-R2 DR PASS, read-only host preflight, worker authorization, first verified
+manual and scheduled backups, monitoring observation, and legacy retirement
+are separate gates. Keep `BACKUP_WORKER_ENABLED=false`, the legacy timer,
+`OFFSITE_COPY_HOOK`, and legacy monitoring unchanged until their respective
+authorization points.
 
 ## Caddy
 
@@ -309,7 +305,7 @@ GET /api/health
 |-------|--------|
 | Implementation verification (unit/integration/CI) | unit/integration checks complete on the isolated branch; exact-head CI is the Draft PR handoff gate |
 | Disposable PostgreSQL backup/restore acceptance | covered by automated tests when `TEST_DATABASE_URL` is set |
-| Disposable real-R2 BR4 acceptance | **pending** explicit non-production test credentials; never uses production credentials |
+| Disposable real-R2 FULL_DATA DR acceptance | **NOT EXECUTED** — dedicated acceptance credentials unavailable; never falls back to production credentials |
 | Live host restore rehearsal record | **pending** operator |
 | Offsite copy execution | **pending** operator hook |
 | TLS/VPS cutover | **pending** operator |

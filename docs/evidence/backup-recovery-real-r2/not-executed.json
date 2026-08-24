@@ -1,0 +1,17 @@
+{
+  "acceptanceVersion": 1,
+  "timestamp": "2026-08-24T07:06:42Z",
+  "baselineGitCommit": "6c7a48b7eafee5ad3b68525f62bd9c7410d2b805",
+  "result": "NOT_EXECUTED",
+  "reason": "dedicated disposable Cloudflare R2 acceptance credentials unavailable",
+  "acceptanceBucketConfigured": false,
+  "acceptanceCredentialsConfigured": false,
+  "explicitOptInSupplied": true,
+  "ephemeralAgeIdentityGenerated": false,
+  "sourceDatabaseSynthetic": false,
+  "acceptanceInstanceIdProductionDistinct": false,
+  "realR2": false,
+  "productionHostVerified": false,
+  "productionWorkerEnablementPerformed": false,
+  "productionCutoverPerformed": false
+}

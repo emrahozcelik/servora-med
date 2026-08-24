@@ -361,6 +361,8 @@ Deleting `$SERVORA_ALERT_STATE_DIR` resets all deduplication state.
 - Real webhook credentials are never committed to the repository.
 - Backup creation and restore remain outside this monitor (see
   [backup-restore.md](./backup-restore.md)); it only consumes safe freshness
-  evidence. Keep `legacy` until the BR5 disposable REAL_R2 acceptance and
-  explicit production cutover gate are complete. `REAL_R2_ACCEPTANCE = NOT
-  EXECUTED` does not become a pass by switching this variable.
+  evidence. Keep `legacy` until the disposable FULL_DATA real-R2 DR acceptance
+  and the separately authorized G0–G9 production gates are complete; see the
+  [production cutover runbook](./backup-recovery/production-cutover-runbook.md).
+  `REAL_R2_DR_ACCEPTANCE = NOT EXECUTED` does not become a pass by switching
+  this variable.

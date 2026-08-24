@@ -1,0 +1,33 @@
+{
+  "assessmentVersion": 1,
+  "timestamp": "2026-08-24T07:06:42Z",
+  "baselineGitCommit": "6c7a48b7eafee5ad3b68525f62bd9c7410d2b805",
+  "realR2DrAcceptance": "NOT_EXECUTED",
+  "hostConfiguration": "NOT_VERIFIED",
+  "productionCutoverReadiness": "BLOCKED",
+  "checks": {
+    "r2BucketConfigured": "NOT_VERIFIED",
+    "runtimeCredentialsPresent": "NOT_VERIFIED",
+    "runtimeCredentialScopeAppropriate": "NOT_VERIFIED",
+    "backupInstanceIdStableOpaque": "NOT_VERIFIED",
+    "agePublicRecipientConfigured": "NOT_VERIFIED",
+    "privateIdentityAbsentFromRuntime": "NOT_VERIFIED",
+    "workerServiceDefinitionReady": "PASS",
+    "workerDisabled": "NOT_VERIFIED",
+    "backupTempStorageReady": "NOT_VERIFIED",
+    "schedulePolicyReady": "NOT_VERIFIED",
+    "monitoringTransitionReady": "PASS",
+    "legacyRollbackReady": "PASS",
+    "bucketLockConfigured": "NOT_VERIFIED",
+    "lifecycleConfigured": "NOT_VERIFIED",
+    "operatorPrivateKeyCustodyVerified": "NOT_VERIFIED",
+    "restoreCliAvailable": "PASS",
+    "restoreRunbookAvailable": "PASS"
+  },
+  "productionWorkerObservedState": "NOT_VERIFIED",
+  "productionWorkerEnablementPerformed": false,
+  "legacyStackChanged": false,
+  "monitoringSourceChanged": false,
+  "productionRestorePerformed": false,
+  "productionCutoverPerformed": false
+}
