@@ -61,6 +61,7 @@ class MemoryDemoDatasetRepository implements DemoDatasetRepository {
   async listDatasets() { return [this.data.dataset]; }
   async findDataset() { return this.data.dataset; }
   async getPreviewData(): Promise<DemoDatasetPreviewData | null> { return this.data; }
+  async purge(): Promise<never> { throw new Error('not used in preview tests'); }
 }
 
 describe('DemoDatasetService', () => {
@@ -116,6 +117,19 @@ describe('DemoDatasetService', () => {
     });
   });
 
+  it.each(['MANAGER', 'STAFF'] as const)('denies %s before purge repository access', async (role) => {
+    const service = new DemoDatasetService(new MemoryDemoDatasetRepository());
+    const actor = { ...admin, role };
+
+    await expect(service.purge(actor, 'dataset-1', {
+      clientActionId: '33333333-3333-4333-8333-333333333333',
+      planHash: 'a'.repeat(64),
+    })).rejects.toMatchObject({
+      code: 'FORBIDDEN',
+      statusCode: 403,
+    });
+  });
+
   it('blocks a mixed graph and changes the planHash', async () => {
     const mixed: DemoDatasetPreviewData = {
       ...previewData,
@@ -136,5 +150,32 @@ describe('DemoDatasetService', () => {
     expect(result.safeToPurge).toBe(false);
     expect(result.blockers).toHaveLength(1);
     expect(result.planHash).not.toBe(baseline.planHash);
+  });
+
+  it('does not change the planHash when only a blocker message is localized differently', async () => {
+    const first = await new DemoDatasetService(new MemoryDemoDatasetRepository({
+      ...previewData,
+      blockers: [{
+        code: 'DEMO_TO_BUSINESS_JOB',
+        message: 'Demo personel gerçek işe bağlı.',
+        sourceType: 'USER',
+        sourceId: 'staff-1',
+        relatedType: 'JOB_CARD',
+        relatedId: 'business-job-1',
+      }],
+    })).preview(admin, 'dataset-1');
+    const second = await new DemoDatasetService(new MemoryDemoDatasetRepository({
+      ...previewData,
+      blockers: [{
+        code: 'DEMO_TO_BUSINESS_JOB',
+        message: 'Demo personel bir BUSINESS JobCard kaydına bağlı.',
+        sourceType: 'USER',
+        sourceId: 'staff-1',
+        relatedType: 'JOB_CARD',
+        relatedId: 'business-job-1',
+      }],
+    })).preview(admin, 'dataset-1');
+
+    expect(second.planHash).toBe(first.planHash);
   });
 });

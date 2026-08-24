@@ -17,4 +17,5 @@ export const demoDatasetRoutes: FastifyPluginAsync<DemoDatasetRoutesOptions> = a
   app.get('/demo-datasets', auth, handlers.list);
   app.get('/demo-datasets/:datasetId', auth, handlers.inspect);
   app.get('/demo-datasets/:datasetId/preview', auth, handlers.preview);
+  app.post('/demo-datasets/:datasetId/purge', auth, handlers.purge);
 };
