@@ -1,0 +1,247 @@
+{
+  "gate": "R3B_JOBCARD_INVALIDATION_ADMIN_UI_REAL_RUNTIME_ACCEPTANCE",
+  "executedAt": "2026-08-24T21:23:34.984Z",
+  "featureHead": "8fe0f86158ce0d43238a7797e9db001880fbb950",
+  "runtime": {
+    "vite": "real",
+    "fastify": "real",
+    "postgresql": "disposable-real",
+    "browser": "playwright-chromium"
+  },
+  "result": "PASS",
+  "assertions": [
+    {
+      "id": "POSTGRES-ISOLATED-CLUSTER",
+      "status": "PASS",
+      "observed": "Disposable PostgreSQL cluster started under /private/tmp"
+    },
+    {
+      "id": "POSTGRES-DISPOSABLE-CREATED",
+      "status": "PASS",
+      "observed": "Dedicated disposable database created"
+    },
+    {
+      "id": "POSTGRES-MIGRATIONS-001-036",
+      "status": "PASS",
+      "observed": "All repository migrations completed on the disposable database"
+    },
+    {
+      "id": "REAL-FASTIFY-ADMIN-LOGIN",
+      "status": "PASS",
+      "observed": "role=ADMIN"
+    },
+    {
+      "id": "REAL-FASTIFY-MANAGER-LOGIN",
+      "status": "PASS",
+      "observed": "role=MANAGER"
+    },
+    {
+      "id": "REAL-FASTIFY-STAFF-LOGIN",
+      "status": "PASS",
+      "observed": "role=STAFF"
+    },
+    {
+      "id": "ROLE-MANAGER-403",
+      "status": "PASS",
+      "observed": "status=403"
+    },
+    {
+      "id": "ROLE-STAFF-403",
+      "status": "PASS",
+      "observed": "status=403"
+    },
+    {
+      "id": "CROSS-SCOPE-OPAQUE-404",
+      "status": "PASS",
+      "observed": "status=404, code=JOB_CARD_NOT_FOUND"
+    },
+    {
+      "id": "VERSION-CONFLICT-409",
+      "status": "PASS",
+      "observed": "status=409, code=VERSION_CONFLICT"
+    },
+    {
+      "id": "ACTIVE-FOLLOW-UP-BLOCKER-409",
+      "status": "PASS",
+      "observed": "status=409, code=JOB_HAS_ACTIVE_FOLLOW_UPS"
+    },
+    {
+      "id": "DIRECT-CANCELLED-INVALIDATION",
+      "status": "PASS",
+      "observed": "status=200, state=INVALIDATED, version=2"
+    },
+    {
+      "id": "MESSAGING-HISTORY-SEED",
+      "status": "PASS",
+      "observed": "status=201"
+    },
+    {
+      "id": "MESSAGING-HISTORY-MESSAGE",
+      "status": "PASS",
+      "observed": "status=201"
+    },
+    {
+      "id": "DIRECT-COMPLETED-INVALIDATION",
+      "status": "PASS",
+      "observed": "status=200, state=INVALIDATED, version=2"
+    },
+    {
+      "id": "SAME-ID-IDEMPOTENT-REPLAY",
+      "status": "PASS",
+      "observed": "status=200, version=2"
+    },
+    {
+      "id": "CLIENT-ACTION-REUSED-FAIL-CLOSED",
+      "status": "PASS",
+      "observed": "status=409, code=CLIENT_ACTION_REUSED"
+    },
+    {
+      "id": "ALREADY-INVALIDATED-409",
+      "status": "PASS",
+      "observed": "status=409, code=JOB_ALREADY_INVALIDATED"
+    },
+    {
+      "id": "INVALIDATED-HISTORY-READ",
+      "status": "PASS",
+      "observed": "notes=200, activity=200"
+    },
+    {
+      "id": "UI-ADMIN-ACTION-VISIBLE",
+      "status": "PASS",
+      "observed": "Admin Job Detail exposes the inline invalidation form"
+    },
+    {
+      "id": "UI-FORM-NO-NESTED-DIALOG",
+      "status": "PASS",
+      "observed": "Reason capture remains inline before confirmation"
+    },
+    {
+      "id": "UI-SINGLE-CONFIRMATION",
+      "status": "PASS",
+      "observed": "Only the final confirmation owns role=dialog"
+    },
+    {
+      "id": "UI-CONFIRMATION-REASON-LABEL",
+      "status": "PASS",
+      "observed": "Confirmation shows the user-facing reason label"
+    },
+    {
+      "id": "UI-CONFIRMATION-INITIAL-FOCUS",
+      "status": "PASS",
+      "observed": "Confirmation restores its documented initial focus"
+    },
+    {
+      "id": "UI-PENDING-DIALOG-LOCK",
+      "status": "PASS",
+      "observed": "Confirmation controls stay disabled while the request is pending"
+    },
+    {
+      "id": "UI-NAVIGATION-REMAINS-AVAILABLE",
+      "status": "PASS",
+      "observed": "Navigation remains available during the JobCard-local mutation"
+    },
+    {
+      "id": "UI-AMBIGUOUS-RECOVERY-CTA",
+      "status": "PASS",
+      "observed": "Lost response exposes status recheck as the first recovery CTA"
+    },
+    {
+      "id": "UI-NO-AUTOMATIC-POST-RETRY",
+      "status": "PASS",
+      "observed": "Observed POST count=1"
+    },
+    {
+      "id": "UI-LOST-RESPONSE-GET-RECOVERY",
+      "status": "PASS",
+      "observed": "backend=200, status=INVALIDATED"
+    },
+    {
+      "id": "UI-ALREADY-INVALIDATED-NO-CELEBRATION",
+      "status": "PASS",
+      "observed": "Already-invalidated recovery does not attribute the current attempt as a success"
+    },
+    {
+      "id": "UI-INVALIDATION-REASON-LABEL",
+      "status": "PASS",
+      "observed": "Terminal history uses the Turkish reason label"
+    },
+    {
+      "id": "UI-INVALIDATION-NOTE-HISTORY",
+      "status": "PASS",
+      "observed": "OTHER note is visible in read-only Notes history"
+    },
+    {
+      "id": "UI-NOTES-READ-ONLY",
+      "status": "PASS",
+      "observed": "Historical notes remain visible without a writable note composer"
+    },
+    {
+      "id": "UI-TIMELINE-PRESERVED",
+      "status": "PASS",
+      "observed": "The invalidation activity remains in the read-only timeline"
+    },
+    {
+      "id": "UI-INVALIDATION-ACTION-REMOVED",
+      "status": "PASS",
+      "observed": "Terminal JobCard has no destructive action"
+    },
+    {
+      "id": "UI-EXPLICIT-INVALIDATED-FILTER-LIST",
+      "status": "PASS",
+      "observed": "Explicit Geçersiz filter forces list mode while Tümü remains separate"
+    },
+    {
+      "id": "UI-390PX-REFLOW",
+      "status": "PASS",
+      "observed": "scrollWidth=390, clientWidth=390"
+    },
+    {
+      "id": "UI-200-400PCT-REFLOW",
+      "status": "PASS",
+      "observed": "scrollWidth=390, clientWidth=390"
+    },
+    {
+      "id": "BROWSER-NO-PAGE-ERRORS",
+      "status": "PASS",
+      "observed": "No uncaught page errors"
+    },
+    {
+      "id": "MESSAGING-HISTORY-PRESERVED",
+      "status": "PASS",
+      "observed": "status=200"
+    },
+    {
+      "id": "MESSAGING-SEND-BLOCKED",
+      "status": "PASS",
+      "observed": "status=403, code=FORBIDDEN"
+    },
+    {
+      "id": "POSTGRES-UI-PERSISTED-INVALIDATION",
+      "status": "PASS",
+      "observed": "status=INVALIDATED, reason=OTHER, activity=1, notes=1"
+    },
+    {
+      "id": "POSTGRES-NO-FOLLOW-UP-CASCADE",
+      "status": "PASS",
+      "observed": "parent=COMPLETED, child=NEW"
+    },
+    {
+      "id": "POSTGRES-IDEMPOTENCY-SINGLE-RECEIPT",
+      "status": "PASS",
+      "observed": "completedJob=INVALIDATED, actionRows=1"
+    },
+    {
+      "id": "POSTGRES-DISPOSABLE-DROPPED",
+      "status": "PASS",
+      "observed": "Disposable database removed"
+    }
+  ],
+  "screenshots": [
+    "screenshots/01-r3b-confirmation-desktop.png",
+    "screenshots/02-r3b-pending-desktop.png",
+    "screenshots/03-r3b-ambiguous-recovery-desktop.png",
+    "screenshots/04-r3b-recovered-invalidated-desktop.png",
+    "screenshots/05-r3b-responsive-mobile.png"
+  ],
+  "failure": null
+}
