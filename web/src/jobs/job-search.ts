@@ -21,7 +21,7 @@ const ALLOWED_KEYS = [
 ] as const;
 const STATUSES = [
   'active', 'closed', 'all', 'NEW', 'ACCEPTED', 'IN_PROGRESS',
-  'WAITING_APPROVAL', 'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
+  'WAITING_APPROVAL', 'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED', 'INVALIDATED',
 ] as const;
 const PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
 const TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;

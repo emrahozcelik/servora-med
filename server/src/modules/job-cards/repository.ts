@@ -9,6 +9,7 @@ import {
   type JobCardBoard,
   type JobCardBoardQuery,
   type JobCardListQuery,
+  type JobCardInvalidationReasonCode,
   type JobCardOperationalNoteContext,
   type JobCardPriority,
   type JobCardStatus,
@@ -78,6 +79,25 @@ export type CriticalActionClaim = {
   userId: string;
   clientActionId: string;
   operationKey: string;
+  requestHash?: string;
+};
+
+export type JobCardInvalidationUpdateInput = {
+  organizationId: string;
+  jobCardId: string;
+  expectedVersion: number;
+  invalidatedAt: Date;
+  invalidatedBy: string;
+  reasonCode: JobCardInvalidationReasonCode;
+};
+
+export type JobCardAuditInput = {
+  organizationId: string;
+  actorUserId: string;
+  subjectId: string;
+  oldValue: unknown;
+  newValue: unknown;
+  metadata?: Record<string, unknown>;
 };
 
 export type TransitionInput = {
@@ -260,8 +280,14 @@ export interface JobCardTransaction extends SubmissionReader {
     organizationId: string,
     sourceJobCardId: string,
   ): Promise<FollowUpSourceReference | null>;
+  listActiveFollowUpChildrenForUpdate(
+    organizationId: string,
+    sourceJobCardId: string,
+  ): Promise<Array<{ id: string; status: JobCardStatus }>>;
   transitionWithVersion(input: TransitionInput): Promise<JobCard | null>;
+  invalidateWithVersion(input: JobCardInvalidationUpdateInput): Promise<JobCard | null>;
   appendActivity(input: ActivityInput): Promise<AppendedActivity>;
+  appendAudit(input: JobCardAuditInput): Promise<void>;
   appendJobActionLocation(
     input: AppendJobActionLocationInput,
   ): Promise<JobActionLocationRecord>;
@@ -337,6 +363,19 @@ export type CriticalActionResult<T> =
       realtimeEvents: readonly [];
     }
   | { kind: 'processing' };
+
+function assertCriticalActionRequestHash(
+  expected: string | undefined,
+  stored: string | null | undefined,
+) {
+  if (expected !== undefined && stored !== expected) {
+    throw new AppError(
+      'CLIENT_ACTION_REUSED',
+      409,
+      'clientActionId farklı bir işlem içeriğiyle yeniden kullanılamaz.',
+    );
+  }
+}
 
 export interface JobCardRepository extends SubmissionReader {
   findCompletedCriticalAction<T>(
@@ -425,6 +464,9 @@ type JobCardRow = {
   follow_up_proposal_instructions: string | null;
   follow_up_proposal_origin: JobCard['followUpProposalOrigin'];
   follow_up_proposed_by: string | null;
+  invalidated_at: Date | null;
+  invalidated_by: string | null;
+  invalidation_reason_code: JobCardInvalidationReasonCode | null;
 };
 type JobCardDetailRow = JobCardRow & {
   organization_timezone: string;
@@ -453,6 +495,9 @@ type JobCardDetailRow = JobCardRow & {
   cancellation_actor_id: string | null;
   cancellation_actor_name: string | null;
   cancelled_from_status: string | null;
+  invalidated_actor_id: string | null;
+  invalidated_actor_name: string | null;
+  invalidated_from_status: string | null;
   proposer_id: string | null;
   proposer_name: string | null;
 };
@@ -630,6 +675,9 @@ function mapJobCard(row: JobCardRow): JobCard {
     followUpProposalInstructions: row.follow_up_proposal_instructions,
     followUpProposalOrigin: row.follow_up_proposal_origin,
     followUpProposedBy: row.follow_up_proposed_by,
+    invalidatedAt: mapInstant(row.invalidated_at),
+    invalidatedBy: row.invalidated_by,
+    invalidationReasonCode: row.invalidation_reason_code,
   };
 }
 
@@ -637,7 +685,8 @@ const JOB_CARD_BASE_COLUMNS = `id, organization_id, type, status, version, title
   customer_id, contact_id, assigned_to, created_by, priority, due_date, scheduled_at,
   scheduled_ends_at, engagement_kind, source_job_card_id, follow_up_instructions,
   follow_up_proposed_at, follow_up_proposed_type, follow_up_proposed_assignee,
-  follow_up_proposal_instructions, follow_up_proposal_origin, follow_up_proposed_by`;
+  follow_up_proposal_instructions, follow_up_proposal_origin, follow_up_proposed_by,
+  invalidated_at, invalidated_by, invalidation_reason_code`;
 
 const FOLLOW_UP_SOURCE_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        j.customer_id, j.contact_id, j.assigned_to, j.source_job_card_id,
@@ -713,10 +762,11 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
         j.follow_up_proposed_assignee, j.follow_up_proposal_instructions,
         j.follow_up_proposal_origin, j.follow_up_proposed_by,
         j.created_at, j.accepted_at, j.started_at,
-       j.staff_completed_at, j.staff_completion_note,
+        j.staff_completed_at, j.staff_completion_note,
        j.manager_approved_at, j.manager_approval_note,
        j.revision_requested_at, j.revision_reason,
        j.cancelled_at, j.cancel_reason,
+       j.invalidated_at, j.invalidated_by, j.invalidation_reason_code,
        assignee.id AS assignee_id, assignee.name AS assignee_name,
        customer.id AS customer_id_join, customer.name AS customer_name,
        contact.id AS contact_id_join, contact.name AS contact_name,
@@ -726,8 +776,11 @@ const JOB_CARD_DETAIL_QUERY = `SELECT j.id, j.organization_id, j.type, j.status,
        revision_actor.id AS revision_actor_id, revision_actor.name AS revision_actor_name,
        cancellation_actor.id AS cancellation_actor_id,
        cancellation_actor.name AS cancellation_actor_name,
+       invalidated_actor.id AS invalidated_actor_id,
+       invalidated_actor.name AS invalidated_actor_name,
        proposer.id AS proposer_id, proposer.name AS proposer_name,
-       cancellation.cancelled_from_status
+       cancellation.cancelled_from_status,
+       invalidation.invalidated_from_status
 FROM job_cards j
 JOIN organizations org
   ON org.id = j.organization_id
@@ -749,6 +802,9 @@ LEFT JOIN users revision_actor
 LEFT JOIN users cancellation_actor
   ON cancellation_actor.organization_id = j.organization_id
   AND cancellation_actor.id = j.cancelled_by
+LEFT JOIN users invalidated_actor
+  ON invalidated_actor.organization_id = j.organization_id
+  AND invalidated_actor.id = j.invalidated_by
 LEFT JOIN users proposer
   ON proposer.organization_id = j.organization_id
   AND proposer.id = j.follow_up_proposed_by
@@ -761,6 +817,15 @@ LEFT JOIN LATERAL (
   ORDER BY a.created_at DESC, a.id DESC
   LIMIT 1
 ) cancellation ON TRUE
+LEFT JOIN LATERAL (
+  SELECT a.old_value->>'status' AS invalidated_from_status
+  FROM job_card_activity_logs a
+  WHERE a.organization_id = j.organization_id
+    AND a.job_card_id = j.id
+    AND a.event_type = 'JOB_INVALIDATED'
+  ORDER BY a.created_at DESC, a.id DESC
+  LIMIT 1
+) invalidation ON TRUE
 WHERE j.organization_id = $1 AND j.id = $2`;
 
 function mapInstant(value: Date | null): string | null {
@@ -773,9 +838,14 @@ function mapRelatedIdentity(id: string | null | undefined, name: string | null |
 }
 
 function mapCancelledFromStatus(value: string | null): JobCardStatus | null {
-  if (value === null) return null;
-  if (!(JOB_CARD_STATUSES as readonly string[]).includes(value)) return null;
-  if (value === 'COMPLETED' || value === 'CANCELLED') return null;
+  const status = mapActivityStatus(value);
+  if (status === null) return null;
+  if (status === 'COMPLETED' || status === 'CANCELLED') return null;
+  return status;
+}
+
+function mapActivityStatus(value: string | null): JobCardStatus | null {
+  if (value === null || !(JOB_CARD_STATUSES as readonly string[]).includes(value)) return null;
   return value as JobCardStatus;
 }
 
@@ -798,6 +868,10 @@ function mapLifecycleFacts(row: JobCardDetailRow): JobLifecycleFacts {
     cancelledBy: mapRelatedIdentity(row.cancellation_actor_id, row.cancellation_actor_name),
     cancelReason: row.cancel_reason,
     cancelledFromStatus: mapCancelledFromStatus(row.cancelled_from_status),
+    invalidatedAt: mapInstant(row.invalidated_at),
+    invalidatedBy: mapRelatedIdentity(row.invalidated_actor_id, row.invalidated_actor_name),
+    invalidationReasonCode: row.invalidation_reason_code,
+    invalidatedFromStatus: mapActivityStatus(row.invalidated_from_status),
   };
 }
 
@@ -1046,6 +1120,23 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ? mapFollowUpSource(result.rows[0]) : null;
   }
 
+  async listActiveFollowUpChildrenForUpdate(
+    organizationId: string,
+    sourceJobCardId: string,
+  ) {
+    const result = await this.client.query<{ id: string; status: JobCardStatus }>(
+      `SELECT id, status
+         FROM job_cards
+        WHERE organization_id = $1
+          AND source_job_card_id = $2
+          AND status = ANY($3::varchar[])
+        ORDER BY id ASC
+        FOR UPDATE`,
+      [organizationId, sourceJobCardId, [...ACTIVE_JOB_CARD_STATUSES]],
+    );
+    return result.rows;
+  }
+
   async transitionWithVersion(input: TransitionInput) {
     const result = await this.client.query<JobCardRow>(
       `UPDATE job_cards
@@ -1088,6 +1179,32 @@ class PostgresJobCardTransaction implements JobCardTransaction {
     return result.rows[0] ? mapJobCard(result.rows[0]) : null;
   }
 
+  async invalidateWithVersion(input: JobCardInvalidationUpdateInput) {
+    const result = await this.client.query<JobCardRow>(
+      `UPDATE job_cards
+          SET status = 'INVALIDATED',
+              version = version + 1,
+              invalidated_at = $4,
+              invalidated_by = $5,
+              invalidation_reason_code = $6,
+              updated_at = $4
+        WHERE organization_id = $1
+          AND id = $2
+          AND version = $3
+          AND status <> 'INVALIDATED'
+       RETURNING ${JOB_CARD_BASE_COLUMNS}`,
+      [
+        input.organizationId,
+        input.jobCardId,
+        input.expectedVersion,
+        input.invalidatedAt,
+        input.invalidatedBy,
+        input.reasonCode,
+      ],
+    );
+    return result.rows[0] ? mapJobCard(result.rows[0]) : null;
+  }
+
   async appendActivity(input: ActivityInput): Promise<AppendedActivity> {
     const result = await this.client.query<{ id: string; created_at: Date }>(
       `INSERT INTO job_card_activity_logs
@@ -1099,6 +1216,23 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         input.clientActionId ?? null],
     );
     return { id: result.rows[0]!.id, createdAt: result.rows[0]!.created_at };
+  }
+
+  async appendAudit(input: JobCardAuditInput): Promise<void> {
+    await this.client.query(
+      `INSERT INTO audit_events
+         (organization_id, actor_user_id, subject_type, subject_id,
+          event_type, old_value, new_value, metadata)
+       VALUES ($1, $2, 'JOB_CARD', $3, 'JOB_CARD_INVALIDATED', $4, $5, $6)`,
+      [
+        input.organizationId,
+        input.actorUserId,
+        input.subjectId,
+        input.oldValue,
+        input.newValue,
+        input.metadata ?? {},
+      ],
+    );
   }
 
   async appendJobActionLocation(
@@ -1274,7 +1408,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
          JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
         WHERE j.organization_id = $1 AND j.customer_id = $2
           AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
-          AND j.status NOT IN ('COMPLETED', 'CANCELLED')
+          AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
           AND j.scheduled_at IS NOT NULL
           AND j.scheduled_at >= $3 AND j.scheduled_at <= $4
         ORDER BY j.scheduled_at ASC, j.id ASC`,
@@ -1354,7 +1488,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
         WHERE j.organization_id = $1 AND j.assigned_to = $2
           AND ($5::uuid IS NULL OR j.id <> $5)
           AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
-          AND j.status NOT IN ('COMPLETED', 'CANCELLED')
+        AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
           AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
           AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
         ORDER BY starts_at ASC, ends_at ASC`,
@@ -1501,7 +1635,7 @@ class PostgresJobCardTransaction implements JobCardTransaction {
          AND ($5::uuid IS NULL OR j.id <> $5)
          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-         AND j.status NOT IN ('COMPLETED', 'CANCELLED')
+         AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
          AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
        ORDER BY starts_at ASC, id ASC LIMIT 10`,
       [
@@ -1634,14 +1768,17 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
   constructor(private readonly pool: Pool) {}
 
   async findCompletedCriticalAction<T>(claim: CriticalActionClaim): Promise<T | null> {
-    const result = await this.pool.query<{ response_body: T }>(
-      `SELECT response_body
+    const result = await this.pool.query<{ response_body: T; request_hash: string | null }>(
+      `SELECT response_body, request_hash
        FROM processed_actions
        WHERE organization_id = $1 AND user_id = $2
          AND client_action_id = $3 AND operation_key = $4
          AND status = 'completed' AND response_body IS NOT NULL`,
       [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
     );
+    if (result.rows[0]) {
+      assertCriticalActionRequestHash(claim.requestHash, result.rows[0].request_hash);
+    }
     return result.rows[0]?.response_body ?? null;
   }
 
@@ -1656,22 +1793,27 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
       await client.query('BEGIN');
       const claimed = await client.query<{ id: string }>(
         `INSERT INTO processed_actions
-           (organization_id, user_id, client_action_id, operation_key, status)
-         VALUES ($1, $2, $3, $4, 'processing')
+           (organization_id, user_id, client_action_id, operation_key, request_hash, status)
+         VALUES ($1, $2, $3, $4, $5, 'processing')
          ON CONFLICT (organization_id, user_id, client_action_id, operation_key) DO NOTHING
          RETURNING id`,
-        [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
+        [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey, claim.requestHash ?? null],
       );
 
       if (claimed.rowCount === 0) {
-        const existing = await client.query<{ status: string; response_body: T | null }>(
-          `SELECT status, response_body FROM processed_actions
+        const existing = await client.query<{
+          status: string;
+          response_body: T | null;
+          request_hash: string | null;
+        }>(
+          `SELECT status, response_body, request_hash FROM processed_actions
            WHERE organization_id = $1 AND user_id = $2
              AND client_action_id = $3 AND operation_key = $4`,
           [claim.organizationId, claim.userId, claim.clientActionId, claim.operationKey],
         );
-        await client.query('COMMIT');
         const action = existing.rows[0];
+        assertCriticalActionRequestHash(claim.requestHash, action?.request_hash);
+        await client.query('COMMIT');
         if (action?.status === 'completed' && action.response_body !== null) {
           return { kind: 'replay', response: action.response_body, realtimeEvents: [] };
         }
@@ -1861,7 +2003,7 @@ implements JobCardRepository, ApprovalQueueItemPort, JobHistoryReadPort {
          JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
         WHERE j.organization_id = $1 AND j.customer_id = $2
           AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
-          AND j.status NOT IN ('COMPLETED', 'CANCELLED')
+          AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
           AND j.scheduled_at IS NOT NULL
           AND j.scheduled_at >= $3 AND j.scheduled_at <= $4
         ORDER BY j.scheduled_at ASC, j.id ASC`,

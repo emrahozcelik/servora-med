@@ -24,6 +24,23 @@ const MIGRATIONS = [
   '017_calendar.sql',
   '018_messaging.sql',
   '024_job_card_notes_invoice_number.sql',
+  '019_job_card_operational_note_context.sql',
+  '020_job_card_transition_note_contexts.sql',
+  '021_job_card_note_added_notification_kind.sql',
+  '022_job_card_follow_up_links.sql',
+  '023_staff_confidential_notes.sql',
+  '025_messaging_context_ready.sql',
+  '026_messaging_participant_lifecycle.sql',
+  '027_follow_up_proposals.sql',
+  '028_notification_center_dismissal.sql',
+  '029_messaging_conversation_archive.sql',
+  '030_backup_domain_foundation.sql',
+  '031_backup_engine_failure_taxonomy_and_dump_version.sql',
+  '032_backup_r2_failure_taxonomy.sql',
+  '033_backup_worker_runtime.sql',
+  '034_demo_data_foundation.sql',
+  '035_demo_data_purge_foundation.sql',
+  '036_job_card_invalidated.sql',
 
 ] as const;
 

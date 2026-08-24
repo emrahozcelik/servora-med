@@ -13,6 +13,8 @@ export const workflowContext: JobWorkflowContext = {
     approvalNote: null, revisionRequestedAt: null, revisionRequestedBy: null,
     revisionReason: null, cancelledAt: null, cancelledBy: null,
     cancelReason: null, cancelledFromStatus: null,
+    invalidatedAt: null, invalidatedBy: null,
+    invalidationReasonCode: null, invalidatedFromStatus: null,
   },
   submissionReadiness: {
     evaluatedAt: '2026-07-17T12:00:00.000Z', ready: false,

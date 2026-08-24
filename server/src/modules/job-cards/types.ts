@@ -2,12 +2,22 @@ import type { UserRole } from '../auth/types.js';
 
 export const JOB_CARD_STATUSES = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
-  'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
+  'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED', 'INVALIDATED',
 ] as const;
 export type JobCardStatus = (typeof JOB_CARD_STATUSES)[number];
+export const JOB_CARD_INVALIDATION_REASON_CODES = [
+  'DUPLICATE', 'WRONG_CUSTOMER', 'CREATED_BY_MISTAKE', 'TRAINING_OR_TEST_RECORD', 'OTHER',
+] as const;
+export type JobCardInvalidationReasonCode = (typeof JOB_CARD_INVALIDATION_REASON_CODES)[number];
 export const ACTIVE_JOB_CARD_STATUSES = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
 ] as const satisfies readonly JobCardStatus[];
+export const TERMINAL_JOB_CARD_STATUSES = [
+  'COMPLETED', 'CANCELLED', 'INVALIDATED',
+] as const satisfies readonly JobCardStatus[];
+export function isOperationallyValidJobCard(status: JobCardStatus): boolean {
+  return status !== 'INVALIDATED';
+}
 export const JOB_CARD_TYPES = ['PRODUCT_DELIVERY', 'GENERAL_TASK', 'SALES_MEETING'] as const;
 export type JobCardType = (typeof JOB_CARD_TYPES)[number];
 
@@ -35,7 +45,7 @@ export type JobCardPriority = (typeof JOB_CARD_PRIORITIES)[number];
 export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
-  'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
+  'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_INVALIDATED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
   'MEETING_DETAILS_UPDATED', 'JOB_APPROVAL_WITHDRAWN',
 ] as const;
@@ -69,6 +79,16 @@ export type JobCard = {
   followUpProposalInstructions: string | null;
   followUpProposalOrigin: FollowUpProposalOrigin | null;
   followUpProposedBy: string | null;
+  invalidatedAt: string | null;
+  invalidatedBy: string | null;
+  invalidationReasonCode: JobCardInvalidationReasonCode | null;
+};
+
+export type JobCardInvalidationInput = {
+  clientActionId: string;
+  expectedVersion: number;
+  reasonCode: JobCardInvalidationReasonCode;
+  note: string | null;
 };
 
 export type FollowUpProposalOrigin = 'SYSTEM' | 'STAFF_ADJUSTED';
@@ -230,6 +250,10 @@ export type JobLifecycleFacts = {
   cancelledBy: RelatedIdentity | null;
   cancelReason: string | null;
   cancelledFromStatus: JobCardStatus | null;
+  invalidatedAt: string | null;
+  invalidatedBy: RelatedIdentity | null;
+  invalidationReasonCode: JobCardInvalidationReasonCode | null;
+  invalidatedFromStatus: JobCardStatus | null;
 };
 
 export type PersistedJobCardDetail = JobCard & {
@@ -444,7 +468,8 @@ export type JobCardOperationalNoteContext =
   | 'SUBMIT_FOR_APPROVAL'
   | 'APPROVE'
   | 'REQUEST_REVISION'
-  | 'CANCEL';
+  | 'CANCEL'
+  | 'INVALIDATE';
 
 export type JobCardNoteDto = JobCardNoteBase & (
   | {

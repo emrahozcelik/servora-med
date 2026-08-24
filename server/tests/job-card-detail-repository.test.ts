@@ -12,6 +12,7 @@ const baseRow = {
   follow_up_proposed_at: null, follow_up_proposed_type: null,
   follow_up_proposed_assignee: null, follow_up_proposal_instructions: null,
   follow_up_proposal_origin: null, follow_up_proposed_by: null,
+  invalidated_at: null, invalidated_by: null, invalidation_reason_code: null,
   assignee_id: 'staff-1', assignee_name: 'Emrah Demir',
   customer_id_join: 'customer-1', customer_name: 'Demo Dental Klinik',
   contact_id_join: null, contact_name: null,
@@ -35,6 +36,7 @@ const lifecycleRow = {
   cancelled_at: null, cancel_reason: null,
   cancellation_actor_id: null, cancellation_actor_name: null,
   cancelled_from_status: null,
+  invalidated_from_status: null,
 };
 
 const expectedLifecycle = {
@@ -51,6 +53,8 @@ const expectedLifecycle = {
   revisionReason: 'İkinci miktarı düzeltin',
   cancelledAt: null, cancelledBy: null, cancelReason: null,
   cancelledFromStatus: null,
+  invalidatedAt: null, invalidatedBy: null,
+  invalidationReasonCode: null, invalidatedFromStatus: null,
 };
 
 function repositoryDouble(row: Record<string, unknown> = { ...baseRow, ...lifecycleRow }) {
@@ -86,6 +90,9 @@ describe('Postgres JobCard detail projection', () => {
       followUpProposalInstructions: null,
       followUpProposalOrigin: null,
       followUpProposedBy: null,
+      invalidatedAt: null,
+      invalidatedBy: null,
+      invalidationReasonCode: null,
       assignee: { id: 'staff-1', name: 'Emrah Demir' },
       customer: { id: 'customer-1', name: 'Demo Dental Klinik' },
       contact: null,

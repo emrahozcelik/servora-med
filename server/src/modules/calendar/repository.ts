@@ -78,6 +78,7 @@ WHERE j.organization_id = $1
   AND j.scheduled_at IS NOT NULL
   AND j.scheduled_at < $4
   AND COALESCE(j.scheduled_ends_at, j.scheduled_at) >= $3
+  AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
 UNION ALL
 SELECT e.id, 'MANUAL'::text AS source, e.title, e.description,
   e.starts_at, e.ends_at, e.timezone,
@@ -416,7 +417,7 @@ export class PostgresCalendarRepository implements CalendarRepository {
        WHERE j.organization_id = $1 AND j.assigned_to = $2
          AND j.type IN ('SALES_MEETING', 'PRODUCT_DELIVERY')
          AND j.scheduled_at IS NOT NULL AND j.scheduled_ends_at IS NOT NULL
-         AND j.status NOT IN ('COMPLETED', 'CANCELLED')
+         AND j.status IN ('NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED')
          AND j.scheduled_at < $4 AND $3 < j.scheduled_ends_at
        ORDER BY starts_at ASC, id ASC LIMIT 10`,
       [organizationId, assignedUserId, startsAt, endsAt, excludedEventId],

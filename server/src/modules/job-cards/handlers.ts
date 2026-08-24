@@ -18,6 +18,7 @@ import {
   validation,
 } from './validation.js';
 import { parseJobCardBoardQuery, parseJobCardListQuery } from './workspace-query.js';
+import { parseJobCardInvalidationInput } from './invalidation-input.js';
 
 type Params = { id: string; itemId?: string };
 
@@ -177,6 +178,12 @@ export function createJobCardHandlers(service: JobCardService) {
       service.resume(actor(request), request.params.id, body(request, LIFECYCLE_FIELDS) as never),
     cancel: async (request: FastifyRequest<{ Params: Params }>) =>
       service.cancel(actor(request), request.params.id, body(request, ['clientActionId', 'expectedVersion', 'cancelReason']) as never),
+    invalidate: async (request: FastifyRequest<{ Params: Params }>) =>
+      service.invalidate(
+        actor(request),
+        request.params.id,
+        parseJobCardInvalidationInput(request.body),
+      ),
     activity: async (request: FastifyRequest<{ Params: Params }>) =>
       service.listActivity(actor(request), request.params.id, page(request.query, 50)),
     listNotes: async (request: FastifyRequest<{ Params: Params }>) =>

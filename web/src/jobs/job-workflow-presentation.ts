@@ -3,6 +3,7 @@ import { jobStatusLabels } from './job-labels';
 import type {
   DeliveryItem,
   JobCard,
+  JobCardInvalidationReasonCode,
   JobCardStatus,
   JobLifecycleFacts,
   JobWorkflowContext,
@@ -60,11 +61,16 @@ export type JobWorkflowPresentation = {
   scheduleEdit: ScheduleEditPresentation | null;
   primaryTransition: TransitionPresentation | null;
   secondaryTransitions: TransitionPresentation[];
-  terminalState: 'COMPLETED' | 'CANCELLED' | null;
+  terminalState: 'COMPLETED' | 'CANCELLED' | 'INVALIDATED' | null;
   terminalDetails:
     | { kind: 'COMPLETED'; actorName: string | null; at: string | null }
     | {
       kind: 'CANCELLED'; actorName: string | null; at: string | null; reason: string | null;
+      sourceStatus: JobCardStatus | null; sourceLabel: string | null;
+    }
+    | {
+      kind: 'INVALIDATED'; actorName: string | null; at: string | null;
+      reasonCode: JobCardInvalidationReasonCode | null;
       sourceStatus: JobCardStatus | null; sourceLabel: string | null;
     }
     | null;
@@ -168,6 +174,7 @@ export function expectedRoleForStatus(status: JobCardStatus): ExpectedRole {
       return 'MANAGEMENT';
     case 'COMPLETED':
     case 'CANCELLED':
+    case 'INVALIDATED':
       return null;
   }
 }
@@ -186,6 +193,7 @@ function statusToPhase(status: JobCardStatus): WorkflowPhase | null {
     case 'COMPLETED':
       return 'COMPLETION';
     case 'CANCELLED':
+    case 'INVALIDATED':
       return null;
   }
 }
@@ -300,9 +308,12 @@ function derivePhaseItems(
 ): { currentPhase: WorkflowPhase | null; phaseItems: JobWorkflowPresentation['phaseItems'] } {
   const missingAcceptance = acceptanceMissing(lifecycle);
 
-  if (status === 'CANCELLED') {
-    const sourcePhase = lifecycle.cancelledFromStatus
-      ? statusToPhase(lifecycle.cancelledFromStatus)
+  if (status === 'CANCELLED' || status === 'INVALIDATED') {
+    const sourceStatus = status === 'CANCELLED'
+      ? lifecycle.cancelledFromStatus
+      : lifecycle.invalidatedFromStatus ?? null;
+    const sourcePhase = sourceStatus
+      ? statusToPhase(sourceStatus)
       : null;
     if (!sourcePhase) {
       return {
@@ -433,6 +444,14 @@ function responsibilityFor(
         role: null,
         title: 'İptal edildi',
         description: 'İş iptal edildi ve yeniden açılamaz.',
+        consequence: null,
+        submission: null,
+      };
+    case 'INVALIDATED':
+      return {
+        role: null,
+        title: 'Geçersiz',
+        description: 'İş kaydı geçersiz kılındı ve yeniden açılamaz.',
         consequence: null,
         submission: null,
       };
@@ -610,7 +629,9 @@ export function deriveJobWorkflowPresentation(
     job, user, workflowContext, revisionActive, hideWithdraw,
   );
 
-  const isTerminal = job.status === 'COMPLETED' || job.status === 'CANCELLED';
+  const isTerminal = job.status === 'COMPLETED'
+    || job.status === 'CANCELLED'
+    || job.status === 'INVALIDATED';
   const requirements = isTerminal
     ? []
     : (workflowContext.submissionReadiness?.items ?? []).map((item) => ({
@@ -621,6 +642,7 @@ export function deriveJobWorkflowPresentation(
   let terminalState: JobWorkflowPresentation['terminalState'] = null;
   if (job.status === 'COMPLETED') terminalState = 'COMPLETED';
   if (job.status === 'CANCELLED') terminalState = 'CANCELLED';
+  if (job.status === 'INVALIDATED') terminalState = 'INVALIDATED';
   let terminalDetails: JobWorkflowPresentation['terminalDetails'] = null;
   if (job.status === 'COMPLETED') {
     terminalDetails = {
@@ -638,6 +660,19 @@ export function deriveJobWorkflowPresentation(
       sourceStatus: lifecycle.cancelledFromStatus,
       sourceLabel: lifecycle.cancelledFromStatus
         ? jobStatusLabels[lifecycle.cancelledFromStatus]
+        : null,
+    };
+  }
+  if (job.status === 'INVALIDATED') {
+    const invalidatedFromStatus = lifecycle.invalidatedFromStatus ?? null;
+    terminalDetails = {
+      kind: 'INVALIDATED',
+      actorName: lifecycle.invalidatedBy?.name?.trim() || null,
+      at: lifecycle.invalidatedAt ?? null,
+      reasonCode: lifecycle.invalidationReasonCode ?? null,
+      sourceStatus: invalidatedFromStatus,
+      sourceLabel: invalidatedFromStatus
+        ? jobStatusLabels[invalidatedFromStatus]
         : null,
     };
   }
@@ -679,6 +714,7 @@ const COMPACT_ORDINAL: Record<JobCardStatus, CompactWorkflowSummary['ordinal']> 
   WAITING_APPROVAL: 4,
   COMPLETED: 5,
   CANCELLED: null,
+  INVALIDATED: null,
 };
 
 export function deriveCompactWorkflowSummary(input: {

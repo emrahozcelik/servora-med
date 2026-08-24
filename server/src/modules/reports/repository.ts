@@ -394,6 +394,7 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
   FROM days
   CROSS JOIN organization_range
   LEFT JOIN job_cards jc ON jc.organization_id = $1
+    AND jc.status <> 'INVALIDATED'
     AND jc.created_at >=
       (days.day::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.created_at <
@@ -419,6 +420,7 @@ const DASHBOARD_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, counters AS (
   CROSS JOIN organization_range
   LEFT JOIN job_cards jc ON jc.organization_id = $1
     AND jc.type = work_types.type
+    AND jc.status <> 'INVALIDATED'
     AND jc.created_at >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.created_at <
@@ -592,6 +594,7 @@ const STAFF_EXECUTION_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, requested AS (
   WHERE jc.organization_id = $1
     AND jc.staff_completed_at IS NOT NULL
     AND jc.staff_completed_by IS NOT NULL
+    AND jc.status <> 'INVALIDATED'
     AND jc.staff_completed_at >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.staff_completed_at <
@@ -680,6 +683,7 @@ SELECT requested.staff_user_id, COUNT(activity.id)::int AS count
 FROM requested
 JOIN job_cards jc ON jc.organization_id = $1
   AND jc.assigned_to = requested.staff_user_id
+  AND jc.status <> 'INVALIDATED'
 JOIN job_card_activity_logs activity ON activity.organization_id = jc.organization_id
   AND activity.job_card_id = jc.id
 CROSS JOIN organization_range
@@ -698,6 +702,9 @@ SELECT requested.staff_user_id, COUNT(n.id)::int AS count
 FROM requested
 JOIN job_card_notes n ON n.organization_id = $1
   AND n.author_id = requested.staff_user_id
+JOIN job_cards jc ON jc.organization_id = n.organization_id
+  AND jc.id = n.job_card_id
+  AND jc.status <> 'INVALIDATED'
 CROSS JOIN organization_range
 WHERE (n.record_version = 0 OR n.context = 'GENERAL')
   AND n.created_at >=
@@ -963,6 +970,7 @@ const CUSTOMER_REPORT_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, customer_scope AS (
   FROM job_cards jc
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
+    AND jc.status <> 'INVALIDATED'
   GROUP BY jc.customer_id
 )
 SELECT customer_page.id, customer_page.name, customer_page.customer_type,
@@ -987,6 +995,7 @@ SELECT${CUSTOMER_REPORT_ACTIVITY_COLUMNS}
 FROM job_cards jc
 CROSS JOIN organization_range
 WHERE jc.organization_id = $1
+  AND jc.status <> 'INVALIDATED'
   AND jc.customer_id IS NULL`;
 
 /**
@@ -1030,6 +1039,8 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
     AND parent.id = jc.source_job_card_id
   WHERE jc.organization_id = $1
     AND jc.source_job_card_id IS NOT NULL
+    AND jc.status <> 'INVALIDATED'
+    AND parent.status <> 'INVALIDATED'
 ), active_children AS (
   SELECT * FROM follow_up_children
   WHERE status IN (${ACTIVE_STATUS_LIST_SQL})
@@ -1089,6 +1100,7 @@ const SALES_FOLLOW_UP_AGGREGATE_SQL = `WITH ${ORGANIZATION_RANGE_CTE}, active_st
   CROSS JOIN organization_range
   WHERE jc.organization_id = $1
     AND jc.type = 'SALES_MEETING'
+    AND jc.status <> 'INVALIDATED'
     AND jc.created_at >=
       (organization_range.from_date::timestamp AT TIME ZONE organization_range.timezone)
     AND jc.created_at <
@@ -1826,9 +1838,10 @@ OFFSET $${offsetParameter}`;
     if (input.staffUserId) values.push(input.staffUserId);
     const result = await this.pool.query<{ type: string; count: string }>(
       `SELECT j.type, COUNT(*)::int AS count
-         FROM job_cards j
+        FROM job_cards j
          JOIN organizations o ON o.id = j.organization_id
         WHERE j.organization_id = $1
+          AND j.status <> 'INVALIDATED'
           AND j.created_at >= ($2::date AT TIME ZONE o.timezone)
           AND j.created_at < (($3::date + 1) AT TIME ZONE o.timezone)
           ${staffFilter}

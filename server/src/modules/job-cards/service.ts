@@ -5,6 +5,7 @@ import {
   assertCanCreateForAssignee,
   assertCanCreateFollowUp,
   assertCanListFollowUps,
+  assertCanInvalidate,
   assertCanEdit, assertCanEditDeliveryActualTime,
   assertCanEditMeetingResult,
   assertCanTransition,
@@ -13,6 +14,7 @@ import {
   assertProductDeliveryJob,
   assertFollowUpSourceEligible,
   assertSalesMeetingJob,
+  isTerminalJobStatus,
   getAllowedJobActions,
   getAllowedLifecycleCommands,
   resolveSourceAccess,
@@ -30,8 +32,10 @@ import type {
   SubmissionReader,
 } from './repository.js';
 import {
+  ACTIVE_JOB_CARD_STATUSES,
   DELIVERY_PURPOSES,
   JOB_CARD_ENGAGEMENT_KINDS,
+  JOB_CARD_INVALIDATION_REASON_CODES,
   JOB_CARD_PRIORITIES,
   JOB_CARD_TYPES,
   type DeliveryPurpose,
@@ -73,7 +77,11 @@ import {
   type CustomerSchedulePreviewInput,
   type AvailableSlotsInput,
   type AvailableSlotsResponse,
+  type JobCardInvalidationInput,
 } from './types.js';
+import {
+  jobCardInvalidationRequestHash,
+} from './invalidation-input.js';
 import {
   isoInstant,
   optionalLifecycleNote,
@@ -448,6 +456,161 @@ export class JobCardService {
       this.publishRealtime(result.realtimeEvents);
     }
     return result.response;
+  }
+
+  async invalidate(
+    actor: JobCardActor,
+    jobCardId: string,
+    input: JobCardInvalidationInput,
+  ) {
+    assertCanInvalidate(actor);
+    const clientActionId = requireActionId(input.clientActionId);
+    if (!Number.isInteger(input.expectedVersion) || input.expectedVersion < 1) {
+      throw validation('expectedVersion');
+    }
+    if (!(JOB_CARD_INVALIDATION_REASON_CODES as readonly string[]).includes(input.reasonCode)) {
+      throw validation('reasonCode');
+    }
+    const note = input.note === null ? null : optionalLifecycleNote(input.note);
+    if (input.reasonCode === 'OTHER' && note === null) {
+      throw new AppError(
+        'INVALIDATION_NOTE_REQUIRED',
+        400,
+        'OTHER nedeni için açıklama zorunludur.',
+      );
+    }
+    const normalizedInput: JobCardInvalidationInput = {
+      clientActionId,
+      expectedVersion: input.expectedVersion,
+      reasonCode: input.reasonCode,
+      note,
+    };
+    const requestTime = this.now();
+    const operationKey = `JOB_INVALIDATE:${jobCardId}`;
+    const result = await this.repository.executeCriticalAction<JobCardMutationReceipt>(
+      {
+        organizationId: actor.organizationId,
+        userId: actor.id,
+        clientActionId,
+        operationKey,
+        requestHash: jobCardInvalidationRequestHash(jobCardId, normalizedInput),
+      },
+      async (tx) => {
+        const job = await tx.getJobForUpdate(actor.organizationId, jobCardId);
+        if (!job) throw new AppError('JOB_CARD_NOT_FOUND', 404, 'JobCard bulunamadı.');
+        if (job.status === 'INVALIDATED') {
+          throw new AppError('JOB_ALREADY_INVALIDATED', 409, 'JobCard zaten geçersiz kılınmış.');
+        }
+        if (job.version !== normalizedInput.expectedVersion) {
+          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        }
+        const activeChildren = await tx.listActiveFollowUpChildrenForUpdate(
+          actor.organizationId,
+          jobCardId,
+        );
+        if (activeChildren.length > 0) {
+          throw new AppError(
+            'JOB_HAS_ACTIVE_FOLLOW_UPS',
+            409,
+            'Aktif takip işleri bulunan JobCard geçersiz kılınamaz.',
+          );
+        }
+        const updated = await tx.invalidateWithVersion({
+          organizationId: actor.organizationId,
+          jobCardId,
+          expectedVersion: normalizedInput.expectedVersion,
+          invalidatedAt: requestTime,
+          invalidatedBy: actor.id,
+          reasonCode: normalizedInput.reasonCode,
+        });
+        if (!updated) {
+          throw new AppError('VERSION_CONFLICT', 409, 'JobCard başka bir işlem tarafından güncellendi.');
+        }
+
+        const noteId = note === null ? null : randomUUID();
+        const author = noteId === null
+          ? null
+          : await tx.getNoteAuthorSnapshot(actor.organizationId, actor.id);
+        if (noteId !== null && !author?.isActive) {
+          throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
+        }
+        const activity = await tx.appendActivity({
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorId: actor.id,
+          event: 'JOB_INVALIDATED',
+          clientActionId,
+          oldValue: { status: job.status, version: job.version },
+          newValue: { status: updated.status, version: updated.version },
+          metadata: {
+            reasonCode: normalizedInput.reasonCode,
+            ...(noteId ? { noteId } : {}),
+          },
+        });
+        await tx.appendAudit({
+          organizationId: actor.organizationId,
+          actorUserId: actor.id,
+          subjectId: jobCardId,
+          oldValue: { status: job.status, version: job.version },
+          newValue: { status: updated.status, version: updated.version },
+          metadata: {
+            reasonCode: normalizedInput.reasonCode,
+            clientActionId,
+            operationKey,
+          },
+        });
+        if (note !== null && noteId !== null && author) {
+          await tx.createNote({
+            id: noteId,
+            organizationId: actor.organizationId,
+            jobCardId,
+            authorId: actor.id,
+            authorNameSnapshot: author.name,
+            authorRoleSnapshot: author.role,
+            workflowStage: job.status,
+            context: 'INVALIDATE',
+            relatedActivityId: activity.id,
+            note,
+            invoiceNumber: null,
+          });
+        }
+        await tx.synchronizeCalendarReminder({
+          organizationId: actor.organizationId,
+          jobCardId,
+          assignedUserId: updated.assignedTo,
+          startsAt: updated.scheduledAt,
+          endsAt: updated.scheduledEndsAt,
+          version: updated.version,
+          active: false,
+          now: requestTime,
+          reminderLeadMinutes: this.calendar.reminderLeadMinutes,
+        });
+        const realtimeEvents = await this.appendRealtimeForActivity(tx, {
+          activity,
+          organizationId: actor.organizationId,
+          jobCardId,
+          actorUserId: actor.id,
+          event: 'JOB_INVALIDATED',
+          beforeAssigneeId: job.assignedTo,
+          afterAssigneeId: updated.assignedTo,
+          calendarAffected: true,
+          customerId: updated.customerId,
+        });
+        return {
+          response: {
+            jobCardId,
+            evaluatedAt: requestTime.toISOString(),
+          },
+          realtimeEvents,
+        };
+      },
+    );
+    if (result.kind === 'processing') {
+      throw new AppError('ACTION_IN_PROGRESS', 409, 'Aynı işlem halen devam ediyor.');
+    }
+    if (result.kind === 'completed') this.publishRealtime(result.realtimeEvents);
+    const receipt = decodeJobCardMutationReceipt(result.response);
+    return this.detailAt(actor, receipt.jobCardId, receipt.evaluatedAt ?? requestTime);
   }
 
   async create(actor: JobCardActor, input: NormalizedJobCardCreateInput) {
@@ -1385,7 +1548,7 @@ export class JobCardService {
           startsAt: updated.scheduledAt,
           endsAt: updated.scheduledEndsAt,
           version: updated.version,
-          active: !['COMPLETED', 'CANCELLED'].includes(updated.status),
+          active: (ACTIVE_JOB_CARD_STATUSES as readonly string[]).includes(updated.status),
           now: requestTime,
           reminderLeadMinutes: this.calendar.reminderLeadMinutes,
         });
@@ -2333,7 +2496,7 @@ export class JobCardService {
     at?: string,
   ): Promise<FollowUpSuggestion> {
     const detail = await this.detail(actor, jobCardId);
-    if (detail.status === 'COMPLETED' || detail.status === 'CANCELLED') {
+    if (isTerminalJobStatus(detail.status)) {
       throw new AppError('INVALID_TRANSITION', 409, 'Bu iş için takip önerisi oluşturulamaz.');
     }
     if (at === undefined && !requiresMandatoryFollowUpProposal(detail)) {

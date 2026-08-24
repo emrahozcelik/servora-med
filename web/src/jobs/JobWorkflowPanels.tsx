@@ -154,6 +154,37 @@ export function TerminalJobBanner(props: {
     </section>;
   }
 
+  if (details.kind === 'INVALIDATED') {
+    return <section
+      className="cancelled-job-banner surface job-workflow-panel"
+      role="status"
+      aria-labelledby="invalidated-job-title"
+      data-terminal-state="INVALIDATED"
+      data-job-workflow-panel="terminal-invalidated"
+    >
+      <h2 id="invalidated-job-title">Geçersiz</h2>
+      <p>İş kaydı geçersiz kılındı ve yeniden açılamaz.</p>
+      <dl className="cancelled-job-facts">
+        <div>
+          <dt>Geçersiz kılma öncesi aşama</dt>
+          <dd>{details.sourceLabel ?? 'Bilgi kaydedilmemiş'}</dd>
+        </div>
+        <div>
+          <dt>İşlemi yapan</dt>
+          <dd>{details.actorName ?? 'Bilgi kaydedilmemiş'}</dd>
+        </div>
+        <div>
+          <dt>İşlem zamanı</dt>
+          <dd>{details.at ? <time dateTime={details.at}>{formatInstant(details.at)}</time> : 'Bilgi kaydedilmemiş'}</dd>
+        </div>
+        <div>
+          <dt>Neden kodu</dt>
+          <dd>{details.reasonCode ?? 'Bilgi kaydedilmemiş'}</dd>
+        </div>
+      </dl>
+    </section>;
+  }
+
   return (
     <section
       className="cancelled-job-banner surface job-workflow-panel"

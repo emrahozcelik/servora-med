@@ -36,6 +36,7 @@ export const jobStatusLabels: Record<JobCardActivityStatus, string> = {
   REVISION_REQUESTED: activeWorkflowPresentation.REVISION_REQUESTED.label,
   COMPLETED: 'Tamamlandı',
   CANCELLED: 'İptal edildi',
+  INVALIDATED: 'Geçersiz',
 };
 
 /** Immutable wording for status transitions already recorded in the activity timeline. */
@@ -48,6 +49,7 @@ export const historicalJobStatusLabels: Record<JobCardActivityStatus, string> = 
   REVISION_REQUESTED: 'Düzeltme gerekiyor',
   COMPLETED: 'Tamamlandı',
   CANCELLED: 'İptal edildi',
+  INVALIDATED: 'Geçersiz',
 };
 
 export function jobCardStatusLabel(status: JobCardStatus): string {
@@ -57,7 +59,7 @@ export function jobCardStatusLabel(status: JobCardStatus): string {
 export const JOB_CARD_ACTIVITY_EVENTS = [
   'JOB_CREATED', 'JOB_ASSIGNED', 'JOB_PLANNED', 'JOB_ACCEPTED', 'JOB_STARTED',
   'JOB_SUBMITTED_FOR_APPROVAL', 'JOB_APPROVED', 'JOB_REVISION_REQUESTED',
-  'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
+  'JOB_RESUMED', 'JOB_CANCELLED', 'JOB_INVALIDATED', 'JOB_FIELDS_UPDATED', 'DELIVERY_ITEM_ADDED',
   'DELIVERY_ITEM_UPDATED', 'DELIVERY_ITEM_REMOVED', 'NOTE_ADDED',
   'MEETING_DETAILS_UPDATED',
   'JOB_APPROVAL_WITHDRAWN',
@@ -76,6 +78,7 @@ const LABELS: Record<KnownJobCardActivityEvent, string> = {
   JOB_REVISION_REQUESTED: 'Düzeltme için geri gönderildi',
   JOB_RESUMED: 'İş yeniden başlatıldı',
   JOB_CANCELLED: 'İş iptal edildi',
+  JOB_INVALIDATED: 'İş geçersiz kılındı',
   JOB_FIELDS_UPDATED: 'İş bilgileri güncellendi',
   DELIVERY_ITEM_ADDED: 'Teslim ürünü eklendi',
   DELIVERY_ITEM_UPDATED: 'Teslim ürünü güncellendi',

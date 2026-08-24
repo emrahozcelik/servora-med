@@ -680,7 +680,7 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
     const migration = await pool!.query<{ version: string }>(
       "SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1",
     );
-    expect(migration.rows[0]?.version).toBe('035_demo_data_purge_foundation');
+    expect(migration.rows[0]?.version).toBe('036_job_card_invalidated');
     const constraints = await pool!.query<{ conname: string }>(
       `SELECT conname FROM pg_constraint
        WHERE conname = ANY($1::text[])
@@ -1013,7 +1013,7 @@ describe.skipIf(!databaseUrl)('R2A destructive PostgreSQL acceptance', () => {
 
     await expect(fixture.service.purge(fixture.admin, fixture.datasetId, {
       clientActionId: request.clientActionId,
-      planHash: `0${preview.planHash.slice(1)}`,
+      planHash: `${preview.planHash[0] === 'f' ? 'e' : 'f'}${preview.planHash.slice(1)}`,
     })).rejects.toMatchObject({ code: 'CLIENT_ACTION_REUSED' });
     const secondDatasetId = await addDataset(fixture);
     await expect(fixture.service.purge(fixture.admin, secondDatasetId, request)).rejects.toMatchObject({
