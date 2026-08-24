@@ -16,6 +16,10 @@ function forbidden(): never {
   throw new AppError('FORBIDDEN', 403, 'Bu işlem için yetkiniz bulunmuyor.');
 }
 
+export function assertCanInvalidate(actor: JobCardActor) {
+  if (actor.role !== 'ADMIN') forbidden();
+}
+
 function notEditable(): never {
   throw new AppError('JOB_NOT_EDITABLE', 409, 'JobCard bu durumda düzenlenemez.');
 }
@@ -34,7 +38,7 @@ function actorCanReachJob(actor: JobCardActor, job: JobPermissionSubject) {
 }
 
 export function isTerminalJobStatus(status: JobCardStatus): boolean {
-  return status === 'COMPLETED' || status === 'CANCELLED';
+  return status === 'COMPLETED' || status === 'CANCELLED' || status === 'INVALIDATED';
 }
 
 export function getAllowedLifecycleCommands(
@@ -75,8 +79,11 @@ export function getAllowedJobActions(
   const addNoteActions = () => {
     actions.push('VIEW_NOTES');
     if (
+      job.status !== 'INVALIDATED'
+      && (
       actor.role !== 'STAFF'
       || ['ACCEPTED', 'IN_PROGRESS', 'REVISION_REQUESTED'].includes(job.status)
+      )
     ) {
       actions.push('ADD_NOTE');
     }
@@ -196,7 +203,7 @@ export function assertCanTransition(
 ) {
   assertSameOrganization(actor, job.organizationId);
   if (actor.role === 'STAFF' && actor.id !== job.assignedTo) forbidden();
-  if (job.status === 'COMPLETED' || job.status === 'CANCELLED') invalidTransition();
+  if (isTerminalJobStatus(job.status)) invalidTransition();
   if (actor.role === 'STAFF' && ['APPROVE', 'REQUEST_REVISION'].includes(command)) forbidden();
   if (command === 'ACCEPT_ASSIGNMENT' && actor.role !== 'STAFF') forbidden();
   if (!getAllowedLifecycleCommands(actor, job, requestTime).includes(command)) invalidTransition();

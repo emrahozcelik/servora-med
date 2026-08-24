@@ -166,7 +166,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
       application: { applicationVersion: 'test-0.1.0', gitCommit: 'a'.repeat(40) },
     });
     expect(manifest.database.engine).toBe('postgresql');
-    expect(manifest.database.schemaVersion).toBe('035_demo_data_purge_foundation');
+    expect(manifest.database.schemaVersion).toBe('036_job_card_invalidated');
     expect(manifest.database.dumpVersion).toMatch(/^\d+\.\d+(-\d+)?$/);
     expect(manifest.database.dumpToolVersion).toMatch(/\d+\.\d+/);
     expect(manifest.contents.files).toBeNull();
@@ -222,7 +222,7 @@ describe.skipIf(!databaseUrl)('BR2 local backup engine (PostgreSQL integration)'
         const migrations = await targetPool.query<{ version: string }>(
           'SELECT version FROM schema_migrations ORDER BY version DESC LIMIT 1',
         );
-        expect(migrations.rows[0]!.version).toBe('035_demo_data_purge_foundation');
+          expect(migrations.rows[0]!.version).toBe('036_job_card_invalidated');
       } finally {
         await targetPool.end();
       }

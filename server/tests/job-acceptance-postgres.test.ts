@@ -179,6 +179,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '033_backup_worker_runtime',
           '034_demo_data_foundation',
           '035_demo_data_purge_foundation',
+          '036_job_card_invalidated',
         ],
       });
 
@@ -229,7 +230,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
       const statuses = await readCheckValues(pool, 'job_cards_status_check');
       expect(new Set(statuses)).toEqual(new Set([
         'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
-        'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
+        'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED', 'INVALIDATED',
       ]));
       expect(statuses).not.toContain('PLANNED');
 

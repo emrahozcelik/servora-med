@@ -69,6 +69,35 @@ implements CalendarReminderWorkerRepository {
     webPushEnabled: boolean,
   ): Promise<RealtimeEventRecord | null> {
     return this.transaction(async (client) => {
+      if (claim.jobCardId !== null) {
+        const jobState = await client.query<{
+          status: string;
+          assigned_to: string;
+          scheduled_at: Date | null;
+        }>(
+          `SELECT status, assigned_to, scheduled_at
+             FROM job_cards
+            WHERE organization_id = $1 AND id = $2
+            FOR SHARE`,
+          [claim.organizationId, claim.jobCardId],
+        );
+        const job = jobState.rows[0];
+        const operational = job !== undefined
+          && job.assigned_to === claim.recipientUserId
+          && ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED']
+            .includes(job.status)
+          && job.scheduled_at !== null
+          && job.scheduled_at.valueOf() > now.valueOf();
+        if (!operational) {
+          await client.query(
+            `UPDATE calendar_reminders SET state = 'CANCELLED', cancelled_at = $3,
+              lease_token = NULL, lease_until = NULL, updated_at = $3
+             WHERE id = $1 AND lease_token = $2`,
+            [claim.id, claim.leaseToken, now],
+          );
+          return null;
+        }
+      }
       const source = await client.query<{
         entity_type: 'job-card' | 'calendar-event'; entity_id: string;
       }>(
@@ -78,7 +107,8 @@ implements CalendarReminderWorkerRepository {
          JOIN users u ON u.organization_id = r.organization_id AND u.id = r.recipient_user_id
          WHERE r.id = $1 AND r.lease_token = $2 AND r.state = 'CLAIMED'
            AND j.assigned_to = r.recipient_user_id AND u.is_active = TRUE
-           AND j.status NOT IN ('COMPLETED','CANCELLED') AND j.scheduled_at > $3
+           AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
+           AND j.scheduled_at > $3
          UNION ALL
          SELECT 'calendar-event', e.id
          FROM calendar_reminders r

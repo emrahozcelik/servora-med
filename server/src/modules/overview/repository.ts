@@ -71,6 +71,7 @@ JOIN organizations o ON o.id = n.organization_id
 JOIN users author
   ON author.organization_id = n.organization_id AND author.id = n.author_id
 WHERE n.organization_id = $1
+  AND j.status <> 'INVALIDATED'
   AND n.created_at >= ($2::date AT TIME ZONE o.timezone)
   AND n.created_at < (($3::date + 1) AT TIME ZONE o.timezone)
   AND ($4::uuid IS NULL OR j.assigned_to = $4)
@@ -176,7 +177,7 @@ export class PostgresOverviewRepository implements OverviewReadModel {
        JOIN users u ON u.organization_id = j.organization_id AND u.id = j.assigned_to
        WHERE j.organization_id = $1
          AND ($2::text <> 'STAFF' OR j.assigned_to = $3)
-         AND j.status NOT IN ('COMPLETED','CANCELLED')
+         AND j.status IN ('NEW','ACCEPTED','IN_PROGRESS','WAITING_APPROVAL','REVISION_REQUESTED')
          AND j.scheduled_at >= $4 AND j.scheduled_at < $5
        UNION ALL
        SELECT e.id, 'MANUAL', e.title, e.starts_at, e.ends_at, u.name

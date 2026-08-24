@@ -9,6 +9,7 @@ export const REALTIME_EVENT_TYPES = [
   'job.approved',
   'job.revision_requested',
   'job.cancelled',
+  'job.invalidated',
   'job.updated',
   'calendar.created',
   'calendar.updated',

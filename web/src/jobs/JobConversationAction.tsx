@@ -8,7 +8,7 @@ import {
 import { useRealtimeInvalidation } from '../realtime/RealtimeProvider';
 import type { JobCard } from './jobs-api';
 
-const TERMINAL_STATUSES = new Set(['COMPLETED', 'CANCELLED']);
+const TERMINAL_STATUSES = new Set(['COMPLETED', 'CANCELLED', 'INVALIDATED']);
 
 type Resolution =
   | { kind: 'resolving' }

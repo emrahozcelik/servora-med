@@ -30,6 +30,7 @@ const job = {
   engagementKind: null,
   title: 'Klinik teslimi', description: null, customerId: 'c1', contactId: 'ct1',
   assignedTo: 's1', createdBy: 's1', priority: 'normal', dueDate: null,
+  invalidatedAt: null, invalidatedBy: null, invalidationReasonCode: null,
   scheduledAt: '2026-07-20T09:00:00.000Z',
   assignee: related('s1', 'Ayşe Personel'), customer: related('c1', 'ABC Klinik'),
   contact: related('ct1', 'Dr. Deniz'),

@@ -5,11 +5,15 @@ import type { StartLocationCapture } from './start-location-capture.js';
 
 export const JOB_CARD_STATUSES = [
   'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL',
-  'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED',
+  'REVISION_REQUESTED', 'COMPLETED', 'CANCELLED', 'INVALIDATED',
 ] as const;
-export const ACTIVE_JOB_CARD_STATUSES = JOB_CARD_STATUSES.filter(
-  (status) => status !== 'COMPLETED' && status !== 'CANCELLED',
-);
+export const ACTIVE_JOB_CARD_STATUSES = [
+  'NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED',
+] as const;
+export const JOB_CARD_INVALIDATION_REASON_CODES = [
+  'DUPLICATE', 'WRONG_CUSTOMER', 'CREATED_BY_MISTAKE', 'TRAINING_OR_TEST_RECORD', 'OTHER',
+] as const;
+export type JobCardInvalidationReasonCode = (typeof JOB_CARD_INVALIDATION_REASON_CODES)[number];
 /** Active statuses plus legacy PLANNED retained only for historical activity presentation. */
 export const JOB_CARD_ACTIVITY_STATUSES = [...JOB_CARD_STATUSES, 'PLANNED'] as const;
 export const JOB_CARD_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
@@ -38,7 +42,7 @@ export const LIFECYCLE_COMMANDS = [
 ] as const;
 export const USER_ROLES = ['ADMIN', 'MANAGER', 'STAFF'] as const;
 export const JOB_CARD_OPERATIONAL_NOTE_CONTEXTS = [
-  'GENERAL', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION', 'CANCEL',
+  'GENERAL', 'SUBMIT_FOR_APPROVAL', 'APPROVE', 'REQUEST_REVISION', 'CANCEL', 'INVALIDATE',
 ] as const;
 export type LifecycleCommand = (typeof LIFECYCLE_COMMANDS)[number];
 export type JobCardOperationalNoteContext = (typeof JOB_CARD_OPERATIONAL_NOTE_CONTEXTS)[number];
@@ -92,6 +96,10 @@ export type JobLifecycleFacts = {
   cancelledBy: RelatedName | null;
   cancelReason: string | null;
   cancelledFromStatus: JobCardStatus | null;
+  invalidatedAt?: string | null;
+  invalidatedBy?: RelatedName | null;
+  invalidationReasonCode?: JobCardInvalidationReasonCode | null;
+  invalidatedFromStatus?: JobCardStatus | null;
 };
 export type JobWorkflowContext = {
   allowedCommands: LifecycleCommand[];
@@ -173,6 +181,9 @@ export type JobCard = {
   contactId: string | null; assignedTo: string; createdBy: string; priority: JobCardPriority;
   dueDate: string | null; scheduledAt: string | null; scheduledEndsAt?: string | null;
   engagementKind: JobCardEngagementKind | null;
+  invalidatedAt?: string | null;
+  invalidatedBy?: string | null;
+  invalidationReasonCode?: JobCardInvalidationReasonCode | null;
   assignee: RelatedName;
   customer: RelatedName | null; contact: RelatedName | null; workflowContext: JobWorkflowContext;
   followUpContext: JobCardFollowUpContext | null;
@@ -405,12 +416,16 @@ function parseCancelledFromStatus(value: unknown, field: string): JobCardStatus 
   if (status === 'COMPLETED' || status === 'CANCELLED') invalid(field);
   return status;
 }
+function parseInvalidatedFromStatus(value: unknown, field: string): JobCardStatus | null {
+  return value === null ? null : oneOf(value, field, JOB_CARD_STATUSES);
+}
 function parseLifecycleFacts(value: unknown): JobLifecycleFacts {
   const v = exactObject(value, 'lifecycle', [
     'createdAt', 'acceptedAt', 'acceptedBy', 'startedAt', 'submittedAt', 'submittedBy',
     'submissionNote', 'approvedAt', 'approvedBy', 'approvalNote', 'revisionRequestedAt',
     'revisionRequestedBy', 'revisionReason', 'cancelledAt', 'cancelledBy', 'cancelReason',
-    'cancelledFromStatus',
+    'cancelledFromStatus', 'invalidatedAt', 'invalidatedBy', 'invalidationReasonCode',
+    'invalidatedFromStatus',
   ]);
   return {
     createdAt: canonicalInstant(v.createdAt, 'createdAt'),
@@ -430,6 +445,12 @@ function parseLifecycleFacts(value: unknown): JobLifecycleFacts {
     cancelledBy: nullableRelated(v.cancelledBy, 'cancelledBy'),
     cancelReason: nullableString(v.cancelReason, 'cancelReason'),
     cancelledFromStatus: parseCancelledFromStatus(v.cancelledFromStatus, 'cancelledFromStatus'),
+    invalidatedAt: v.invalidatedAt === undefined ? null : nullableCanonicalInstant(v.invalidatedAt, 'invalidatedAt'),
+    invalidatedBy: v.invalidatedBy === undefined ? null : nullableRelated(v.invalidatedBy, 'invalidatedBy'),
+    invalidationReasonCode: v.invalidationReasonCode === undefined || v.invalidationReasonCode === null
+      ? null : oneOf(v.invalidationReasonCode, 'invalidationReasonCode', JOB_CARD_INVALIDATION_REASON_CODES),
+    invalidatedFromStatus: v.invalidatedFromStatus === undefined
+      ? null : parseInvalidatedFromStatus(v.invalidatedFromStatus, 'invalidatedFromStatus'),
   };
 }
 function parseRequirement(value: unknown): SubmissionRequirement {
@@ -624,6 +645,10 @@ function parseJobCard(value: unknown): JobCard {
       scheduledEndsAt: nullableCanonicalInstant(v.scheduledEndsAt, 'scheduledEndsAt'),
     }),
     engagementKind: parseEngagementKind(v.engagementKind, type),
+    invalidatedAt: v.invalidatedAt === undefined ? null : nullableCanonicalInstant(v.invalidatedAt, 'invalidatedAt'),
+    invalidatedBy: v.invalidatedBy === undefined || v.invalidatedBy === null ? null : string(v.invalidatedBy, 'invalidatedBy'),
+    invalidationReasonCode: v.invalidationReasonCode === undefined || v.invalidationReasonCode === null
+      ? null : oneOf(v.invalidationReasonCode, 'invalidationReasonCode', JOB_CARD_INVALIDATION_REASON_CODES),
     assignee: related(v.assignee, 'assignee'), customer: nullableRelated(v.customer, 'customer'),
     contact: nullableRelated(v.contact, 'contact'),
     workflowContext: parseWorkflowContext(v.workflowContext),

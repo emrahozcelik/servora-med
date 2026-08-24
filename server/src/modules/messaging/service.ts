@@ -256,6 +256,18 @@ export class MessagingService {
       }
     }
 
+    if (contextType === 'JOB' && jobId) {
+      const jobAccess = await this.fetchJobAccess(actor.organizationId, jobId);
+      if (!jobAccess) throw notFound();
+      if (jobAccess.status === 'INVALIDATED') {
+        throw new AppError(
+          'JOB_NOT_OPERATIONAL',
+          409,
+          'Geçersiz kılınmış JobCard için yeni konuşma başlatılamaz.',
+        );
+      }
+    }
+
     // New-contract GENERAL threads must be titled: the UI no longer has a
     // titleless creation path, and titleless rows stay reserved for legacy.
     const title = normalizeTitle(

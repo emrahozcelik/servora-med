@@ -23,7 +23,8 @@ type LifecycleEvent =
   | 'JOB_REVISION_REQUESTED'
   | 'JOB_APPROVAL_WITHDRAWN'
   | 'JOB_RESUMED'
-  | 'JOB_CANCELLED';
+  | 'JOB_CANCELLED'
+  | 'JOB_INVALIDATED';
 
 const ACTIVITY_STATUSES: readonly JobCardActivityStatus[] = [...JOB_CARD_STATUSES, 'PLANNED'];
 
@@ -46,6 +47,15 @@ const LIFECYCLE_TRANSITIONS: Record<
     ['IN_PROGRESS', 'CANCELLED'],
     ['REVISION_REQUESTED', 'CANCELLED'],
     ['WAITING_APPROVAL', 'CANCELLED'],
+  ],
+  JOB_INVALIDATED: [
+    ['NEW', 'INVALIDATED'],
+    ['ACCEPTED', 'INVALIDATED'],
+    ['IN_PROGRESS', 'INVALIDATED'],
+    ['WAITING_APPROVAL', 'INVALIDATED'],
+    ['REVISION_REQUESTED', 'INVALIDATED'],
+    ['COMPLETED', 'INVALIDATED'],
+    ['CANCELLED', 'INVALIDATED'],
   ],
 };
 
@@ -199,6 +209,7 @@ function details(record: ActivityRecord): JobCardActivityDetails {
     case 'JOB_APPROVAL_WITHDRAWN':
     case 'JOB_RESUMED':
     case 'JOB_CANCELLED':
+    case 'JOB_INVALIDATED':
       return statusDetails(
         record.eventType,
         record.oldValue,

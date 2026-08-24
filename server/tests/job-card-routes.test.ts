@@ -46,6 +46,7 @@ function serviceDouble() {
     withdrawFromApproval: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     resume: vi.fn().mockResolvedValue({ ...result, status: 'IN_PROGRESS' }),
     cancel: vi.fn().mockResolvedValue({ ...result, status: 'CANCELLED' }),
+    invalidate: vi.fn().mockResolvedValue({ ...result, status: 'INVALIDATED' }),
     listActivity: vi.fn().mockResolvedValue({ items: [], total: 0, limit: 50, offset: 0 }),
     listNotes: vi.fn().mockResolvedValue({ items: [], limit: 25, nextCursor: null }),
     addNote: vi.fn().mockResolvedValue({
@@ -445,6 +446,39 @@ describe('JobCard routes', () => {
     const { app, service } = await createApp();
     expect((await app.inject({ method: 'POST', url: `/api/job-cards/job-1/${path}`, payload })).statusCode).toBe(200);
     expect(service[method as 'submitForApproval']).toHaveBeenCalledWith(expect.anything(), 'job-1', payload);
+  });
+
+  it('parses the Admin invalidation contract and rejects client-owned fields', async () => {
+    const { app, service } = await createApp();
+    const response = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/job-1/invalidate',
+      payload: {
+        clientActionId: 'invalidate-route-1', expectedVersion: 4,
+        reasonCode: 'DUPLICATE', note: '  Tekrarlı kayıt.  ',
+      },
+    });
+
+    expect(response.statusCode).toBe(200);
+    expect(service.invalidate).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'staff-1', organizationId: 'org-1' }),
+      'job-1',
+      {
+        clientActionId: 'invalidate-route-1', expectedVersion: 4,
+        reasonCode: 'DUPLICATE', note: 'Tekrarlı kayıt.',
+      },
+    );
+
+    const unknownField = await app.inject({
+      method: 'POST',
+      url: '/api/job-cards/job-1/invalidate',
+      payload: {
+        clientActionId: 'invalidate-route-2', expectedVersion: 4,
+        reasonCode: 'DUPLICATE', organizationId: 'org-2',
+      },
+    });
+    expect(unknownField.statusCode).toBe(400);
+    expect(unknownField.json()).toMatchObject({ code: 'VALIDATION_ERROR' });
   });
 
   it('forwards the exact location capture envelope only on start', async () => {

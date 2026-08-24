@@ -29,6 +29,7 @@ const TYPES: Partial<Record<JobCardActivityEvent, RealtimeEventType>> = {
   JOB_REVISION_REQUESTED: 'job.revision_requested',
   JOB_RESUMED: 'job.updated',
   JOB_CANCELLED: 'job.cancelled',
+  JOB_INVALIDATED: 'job.invalidated',
   JOB_FIELDS_UPDATED: 'job.updated',
   JOB_APPROVAL_WITHDRAWN: 'job.updated',
   NOTE_ADDED: 'job.updated',
@@ -39,6 +40,7 @@ const APPROVAL_EVENTS = new Set<JobCardActivityEvent>([
   'JOB_APPROVED',
   'JOB_REVISION_REQUESTED',
   'JOB_CANCELLED',
+  'JOB_INVALIDATED',
   'JOB_APPROVAL_WITHDRAWN',
 ]);
 

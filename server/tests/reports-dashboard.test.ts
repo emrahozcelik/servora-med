@@ -247,6 +247,22 @@ describe('PostgresReportsRepository dashboard', () => {
     );
   });
 
+  it('excludes invalidated JobCards from created business metrics', async () => {
+    const { pool, query } = recordingPool();
+    const repository = new PostgresReportsRepository(pool);
+
+    await repository.getDashboard({
+      organizationId: ORG_ID,
+      requestedRange: { from: '2026-07-01', to: '2026-07-03' },
+      requestTime,
+    });
+
+    const sql = query.mock.calls[0]?.[0] ?? '';
+    expect(sql).toContain("AND jc.status <> 'INVALIDATED'");
+    expect((sql.match(/AND jc\.status <> 'INVALIDATED'/g) ?? []).length)
+      .toBeGreaterThanOrEqual(2);
+  });
+
   it('counts overdue with the canonical due_date predicate only', async () => {
     const { pool, query } = recordingPool();
     const repository = new PostgresReportsRepository(pool);

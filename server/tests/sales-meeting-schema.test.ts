@@ -42,6 +42,7 @@ const EXPECTED_ACTIVITY_EVENTS = [
   'NOTE_ADDED',
   'MEETING_DETAILS_UPDATED',
   'JOB_APPROVAL_WITHDRAWN',
+  'JOB_INVALIDATED',
 ] as const;
 
 const databaseUrl = process.env.TEST_DATABASE_URL;
@@ -147,8 +148,8 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
         migrationsDirectory: MIGRATIONS_DIRECTORY,
         store,
       });
-      expect(firstRun.appliedVersions).toHaveLength(35);
-      expect(firstRun.appliedVersions.at(-1)).toBe('035_demo_data_purge_foundation');
+      expect(firstRun.appliedVersions).toHaveLength(36);
+      expect(firstRun.appliedVersions.at(-1)).toBe('036_job_card_invalidated');
 
       const jobCardTypes = await readCheckValues(pool, 'job_cards_type_check');
       const activityEvents = await readCheckValues(
@@ -157,7 +158,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
       );
       expect(jobCardTypes).toHaveLength(3);
       expect(new Set(jobCardTypes)).toEqual(new Set(EXPECTED_JOB_CARD_TYPES));
-      expect(activityEvents).toHaveLength(17);
+      expect(activityEvents).toHaveLength(18);
       expect(new Set(activityEvents)).toEqual(new Set(EXPECTED_ACTIVITY_EVENTS));
 
       const secondRun = await runMigrations({
@@ -209,6 +210,7 @@ describe.skipIf(!databaseUrl)('Sales Meeting PostgreSQL migrations', () => {
           '033_backup_worker_runtime',
           '034_demo_data_foundation',
           '035_demo_data_purge_foundation',
+          '036_job_card_invalidated',
         ],
       });
       await expect(pool.query('SELECT 1 FROM job_card_meeting_details')).resolves.toBeDefined();

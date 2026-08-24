@@ -17,6 +17,7 @@ export const NOTIFICATION_MESSAGES: Record<NotificationKind, Readonly<{ title: s
   'job.approved': { title: 'İş onaylandı', body: 'İşiniz onaylandı.' },
   'job.revision_requested': { title: 'Düzeltme istendi', body: 'İşiniz düzeltme için geri gönderildi.' },
   'job.cancelled': { title: 'İş iptal edildi', body: 'İşiniz iptal edildi.' },
+  'job.invalidated': { title: 'İş geçersiz kılındı', body: 'Bir iş kaydı geçersiz kılındı.' },
   'job.note_added': { title: 'Operasyon notu', body: 'Operasyon notu eklendi.' },
   'calendar.assigned': {
     title: 'Yeni takvim planı',

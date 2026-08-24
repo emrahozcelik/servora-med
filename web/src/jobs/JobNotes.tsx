@@ -26,6 +26,7 @@ const contextLabels = {
   APPROVE: 'Yönetici onayı',
   REQUEST_REVISION: 'Revizyon isteği',
   CANCEL: 'İptal',
+  INVALIDATE: 'Geçersiz kılma',
 } as const;
 
 type NotesState =

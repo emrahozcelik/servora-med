@@ -29,6 +29,16 @@ const MIGRATIONS = [
   '024_job_card_notes_invoice_number.sql',
   '025_messaging_context_ready.sql',
   '026_messaging_participant_lifecycle.sql',
+  '027_follow_up_proposals.sql',
+  '028_notification_center_dismissal.sql',
+  '029_messaging_conversation_archive.sql',
+  '030_backup_domain_foundation.sql',
+  '031_backup_engine_failure_taxonomy_and_dump_version.sql',
+  '032_backup_r2_failure_taxonomy.sql',
+  '033_backup_worker_runtime.sql',
+  '034_demo_data_foundation.sql',
+  '035_demo_data_purge_foundation.sql',
+  '036_job_card_invalidated.sql',
 ] as const;
 
 const requestTime = new Date('2026-07-26T08:00:00.000Z');

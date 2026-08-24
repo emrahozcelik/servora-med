@@ -38,6 +38,7 @@ describe('Work-type distribution manager-scope regression', () => {
       .toBe(true);
     const organizationSql = pool.query.mock.calls[0]![0];
     expect(organizationSql).toContain('j.organization_id = $1');
+    expect(organizationSql).toContain("j.status <> 'INVALIDATED'");
     expect(organizationSql).not.toContain('staff_profiles');
     expect(pool.query).toHaveBeenCalledWith(expect.any(String), [
       input.organizationId,

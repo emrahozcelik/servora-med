@@ -6,7 +6,9 @@ import {
   assertCanCreateForAssignee,
   assertCanCreateFollowUp,
   assertCanListFollowUps,
+  assertCanInvalidate,
   assertCanEdit,
+  assertCanAddNote,
   assertCanTransition,
   assertDeliveryReadyForSubmission,
   assertFollowUpSourceEligible,
@@ -115,6 +117,35 @@ describe('JobCard policy', () => {
     expect(getAllowedLifecycleCommands(admin, { ...job, status: 'COMPLETED' })).toEqual([]);
   });
 
+  it('treats INVALIDATED as a terminal JobCard state', () => {
+    const invalidated = { ...job, status: 'INVALIDATED' as never };
+
+    expect(getAllowedLifecycleCommands(admin, invalidated)).toEqual([]);
+    for (const command of [
+      'ACCEPT_ASSIGNMENT', 'START', 'SUBMIT_FOR_APPROVAL', 'APPROVE',
+      'REQUEST_REVISION', 'WITHDRAW_FROM_APPROVAL', 'RESUME', 'CANCEL',
+    ] as const) {
+      expect(() => assertCanTransition(admin, invalidated, command))
+        .toThrowError(expect.objectContaining({ code: 'INVALID_TRANSITION', statusCode: 409 }));
+    }
+  });
+
+  it('keeps invalidation capability exclusive to ADMIN actors', () => {
+    expect(() => assertCanInvalidate(admin)).not.toThrow();
+    for (const actor of [manager, staff]) {
+      expect(() => assertCanInvalidate(actor))
+        .toThrowError(expect.objectContaining({ code: 'FORBIDDEN', statusCode: 403 }));
+    }
+  });
+
+  it('keeps INVALIDATED history readable but rejects new operational notes', () => {
+    const invalidated = { ...job, status: 'INVALIDATED' as const };
+    expect(getAllowedJobActions(admin, invalidated)).toContain('VIEW_NOTES');
+    expect(getAllowedJobActions(admin, invalidated)).not.toContain('ADD_NOTE');
+    expect(() => assertCanAddNote(admin, invalidated))
+      .toThrowError(expect.objectContaining({ code: 'JOB_NOT_EDITABLE', statusCode: 409 }));
+  });
+
   it('returns actor-scoped acceptance commands without management accept or NEW start', () => {
     const assignedNew = { ...job, status: 'NEW' as const };
     const accepted = { ...job, status: 'ACCEPTED' as const };
@@ -191,8 +222,10 @@ describe('JobCard policy', () => {
           .includes(status);
         expect(getAllowedJobActions(staff, candidate).includes('ADD_NOTE'))
           .toBe(staffCanAdd);
-        expect(getAllowedJobActions(manager, candidate)).toContain('ADD_NOTE');
-        expect(getAllowedJobActions(admin, candidate)).toContain('ADD_NOTE');
+        expect(getAllowedJobActions(manager, candidate).includes('ADD_NOTE'))
+          .toBe(status !== 'INVALIDATED');
+        expect(getAllowedJobActions(admin, candidate).includes('ADD_NOTE'))
+          .toBe(status !== 'INVALIDATED');
         expect(getAllowedJobActions({ ...staff, id: 'staff-2' }, candidate))
           .not.toContain('ADD_NOTE');
       }

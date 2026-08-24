@@ -40,6 +40,7 @@ export function createJobCardNotificationDrafts(
     JOB_APPROVED: 'job.approved',
     JOB_REVISION_REQUESTED: 'job.revision_requested',
     JOB_CANCELLED: 'job.cancelled',
+    JOB_INVALIDATED: 'job.invalidated',
   };
   const kind = assignedKinds[input.event];
   if (kind) {
