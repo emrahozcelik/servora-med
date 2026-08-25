@@ -736,6 +736,27 @@ button:disabled { cursor: wait; opacity: 0.65; }
   max-width: min(7rem, 32%);
 }
 .mobile-top-bar-start .dunya-dental-brand--topbar img { max-width: 100%; }
+/* Extreme text zoom: the actions zone shrinks and wraps internally so the
+   bell + menu button never push the page past the viewport. Icon-sized
+   controls keep a px floor (44px) instead of scaling with rem. */
+.mobile-top-bar-actions {
+  flex: 0 1 auto;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  min-width: 0;
+}
+.mobile-top-bar .shell-menu-button {
+  min-width: min(2.75rem, 44px);
+}
+.mobile-top-bar .shell-notification-trigger {
+  flex: 0 0 min(2.75rem, 44px);
+  width: min(2.75rem, 44px);
+  min-width: min(2.75rem, 44px);
+}
+.mobile-top-bar .shell-notification-icon {
+  width: min(1.2rem, 20px);
+  height: min(1.2rem, 20px);
+}
 .mobile-shell-title {
   margin: 0;
   min-width: 0;
@@ -4089,6 +4110,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   border-bottom: 1px solid var(--rule);
   display: flex;
   justify-content: space-between;
+  min-width: 0;
+  gap: 0.75rem;
   padding-bottom: 0.75rem;
 }
 
@@ -4096,10 +4119,129 @@ button:disabled { cursor: wait; opacity: 0.65; }
   font-size: 1.15rem;
   font-weight: 700;
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.form-drawer-header .compact-button {
+  min-width: var(--control-height);
 }
 
 .form-drawer-body {
   min-height: 0;
+}
+
+/* R4B: Staff offboarding extends the existing People command surface. */
+.form-drawer:has(.offboarding-form) {
+  width: min(42rem, 92vw);
+}
+.offboarding-drawer-root ~ .product-dialog-backdrop.dialog-backdrop {
+  z-index: 110;
+}
+.offboarding-form {
+  display: grid;
+  gap: 1.5rem;
+  min-width: 0;
+}
+.offboarding-intro {
+  padding-block: 0.25rem 1.25rem;
+  border-bottom: 1px solid var(--rule);
+}
+.offboarding-intro > p {
+  max-width: 68ch;
+  margin: 0;
+  color: var(--muted);
+  line-height: 1.6;
+}
+.offboarding-intro dl {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.75rem;
+  margin: 1rem 0;
+}
+.offboarding-intro dl div {
+  padding-block: 0.7rem;
+  border-block: 1px solid var(--rule);
+}
+.offboarding-intro dt,
+.offboarding-responsibility-heading span,
+.offboarding-responsibility-heading small {
+  color: var(--muted);
+  font-size: 0.8125rem;
+}
+.offboarding-intro dd {
+  margin: 0.3rem 0 0;
+  font-size: 1.25rem;
+  font-weight: 720;
+  font-variant-numeric: tabular-nums;
+}
+.offboarding-preservation-note {
+  color: var(--ink) !important;
+  font-weight: 650;
+}
+.offboarding-control {
+  display: grid;
+  gap: 0.4rem;
+  min-width: 0;
+  color: var(--ink);
+  font-weight: 650;
+}
+.offboarding-control select {
+  width: 100%;
+  min-width: 0;
+}
+.offboarding-section {
+  display: grid;
+  gap: 0;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.offboarding-section h3 {
+  margin: 0 0 0.25rem;
+  font-size: 1rem;
+}
+.offboarding-responsibility {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(12rem, 0.8fr);
+  align-items: end;
+  gap: 1rem;
+  min-width: 0;
+  padding-block: 1rem;
+  border-bottom: 1px solid var(--rule);
+}
+.offboarding-responsibility-heading {
+  display: grid;
+  gap: 0.25rem;
+  min-width: 0;
+}
+.offboarding-responsibility-heading strong,
+.offboarding-responsibility-heading span,
+.offboarding-responsibility-heading small {
+  overflow-wrap: anywhere;
+}
+.offboarding-alert {
+  padding: 0.8rem 0.9rem;
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-control);
+  color: var(--ink);
+  background: var(--warning-soft);
+  line-height: 1.55;
+}
+.offboarding-result-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 0.75rem;
+}
+.offboarding-success-copy {
+  max-width: 68ch;
+  text-align: left;
+}
+.offboarding-success-copy ul {
+  padding-left: 1.2rem;
+  font-variant-numeric: tabular-nums;
 }
 
 /* Mobile: near-full-width drawer */
@@ -4113,6 +4255,21 @@ button:disabled { cursor: wait; opacity: 0.65; }
   }
 
   .calendar-form-times > * {
+    width: 100%;
+  }
+
+  .offboarding-intro dl,
+  .offboarding-responsibility {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .offboarding-form .form-actions,
+  .offboarding-result-actions {
+    flex-direction: column;
+  }
+
+  .offboarding-form .form-actions button,
+  .offboarding-result-actions button {
     width: 100%;
   }
 }
@@ -4180,6 +4337,8 @@ button:disabled { cursor: wait; opacity: 0.65; }
   border-bottom: 1px solid var(--rule);
   display: flex;
   justify-content: space-between;
+  min-width: 0;
+  gap: 0.75rem;
   padding-bottom: 0.75rem;
 }
 
@@ -4187,6 +4346,12 @@ button:disabled { cursor: wait; opacity: 0.65; }
   font-size: 1.15rem;
   font-weight: 700;
   margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+.form-drawer-header .compact-button {
+  min-width: var(--control-height);
 }
 
 .form-drawer-body {

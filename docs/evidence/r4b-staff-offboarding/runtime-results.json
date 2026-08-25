@@ -1,0 +1,180 @@
+{
+  "gate": "R4B_STAFF_OFFBOARDING_ADMIN_UI_REAL_RUNTIME_ACCEPTANCE",
+  "executedAt": "2026-08-25T17:05:33.360Z",
+  "featureHead": "1c5e9c1d1d85fddff213b2723f277f900b3316d3",
+  "runtime": {
+    "vite": "real",
+    "fastify": "real",
+    "postgresql": "disposable-real",
+    "browser": "playwright-chromium"
+  },
+  "result": "PASS",
+  "assertions": [
+    {
+      "id": "POSTGRES-ISOLATED-CLUSTER",
+      "status": "PASS",
+      "observed": "Disposable PostgreSQL cluster started under /private/tmp"
+    },
+    {
+      "id": "POSTGRES-DISPOSABLE-CREATED",
+      "status": "PASS",
+      "observed": "Dedicated disposable database created"
+    },
+    {
+      "id": "POSTGRES-MIGRATIONS-001-037",
+      "status": "PASS",
+      "observed": "All repository migrations completed on disposable PostgreSQL"
+    },
+    {
+      "id": "REAL-FASTIFY-ADMIN-PREVIEW",
+      "status": "PASS",
+      "observed": "status=200"
+    },
+    {
+      "id": "REAL-FASTIFY-MANAGER-403",
+      "status": "PASS",
+      "observed": "status=403"
+    },
+    {
+      "id": "REAL-FASTIFY-STAFF-403",
+      "status": "PASS",
+      "observed": "status=403"
+    },
+    {
+      "id": "UI-MIXED-PREVIEW-REAL-DATA",
+      "status": "PASS",
+      "observed": "All real R4A responsibility categories are visible"
+    },
+    {
+      "id": "UI-NO-FREE-TEXT-REASON",
+      "status": "PASS",
+      "observed": "Offboarding reason remains enum-only"
+    },
+    {
+      "id": "UI-FINAL-CONFIRMATION",
+      "status": "PASS",
+      "observed": "Final destructive confirmation summarizes consequences"
+    },
+    {
+      "id": "UI-HAPPY-AUTHORITATIVE-SUCCESS",
+      "status": "PASS",
+      "observed": "execute count=1"
+    },
+    {
+      "id": "UI-ZERO-RESPONSIBILITY-EMPTY-STATE",
+      "status": "PASS",
+      "observed": "Server-authoritative zero-business state is explicit"
+    },
+    {
+      "id": "UI-ZERO-SECURITY-CONSEQUENCE",
+      "status": "PASS",
+      "observed": "Session consequence remains visible"
+    },
+    {
+      "id": "UI-ZERO-NO-REPLACEMENT",
+      "status": "PASS",
+      "observed": "No replacement decision is required"
+    },
+    {
+      "id": "UI-ZERO-EXECUTE",
+      "status": "PASS",
+      "observed": "execute count=1"
+    },
+    {
+      "id": "UI-STALE-PLAN-REFRESH",
+      "status": "PASS",
+      "observed": "Stale plan did not show success and fresh graph is visible"
+    },
+    {
+      "id": "UI-STALE-RECONFIRM",
+      "status": "PASS",
+      "observed": "execute count=2"
+    },
+    {
+      "id": "UI-AMBIGUOUS-SAME-ID-REPLAY",
+      "status": "PASS",
+      "observed": "requests=2, backend=200"
+    },
+    {
+      "id": "UI-MALFORMED-2XX-SAME-ID-RECONCILIATION",
+      "status": "PASS",
+      "observed": "requests=2"
+    },
+    {
+      "id": "UI-ACTION-IN-PROGRESS-SAME-ID",
+      "status": "PASS",
+      "observed": "requests=2"
+    },
+    {
+      "id": "UI-CLIENT-ACTION-REUSED-FAIL-CLOSED",
+      "status": "PASS",
+      "observed": "execute count=1"
+    },
+    {
+      "id": "UI-390PX-REFLOW",
+      "status": "PASS",
+      "observed": "scrollWidth=390, clientWidth=390"
+    },
+    {
+      "id": "UI-200PCT-TEXT",
+      "status": "PASS",
+      "observed": "scrollWidth=390, clientWidth=390"
+    },
+    {
+      "id": "UI-400PCT-REFLOW",
+      "status": "PASS",
+      "observed": "scrollWidth=390, clientWidth=390"
+    },
+    {
+      "id": "UI-FOCUS-RESTORATION",
+      "status": "PASS",
+      "observed": "Drawer close restores focus to the trigger"
+    },
+    {
+      "id": "UI-INVALID-REPLACEMENT-REFRESH",
+      "status": "PASS",
+      "observed": "Invalid replacement caused fresh preview and no optimistic success"
+    },
+    {
+      "id": "BROWSER-NO-PAGE-ERRORS",
+      "status": "PASS",
+      "observed": "No uncaught page errors"
+    },
+    {
+      "id": "POSTGRES-OFFBOARDED-TARGETS-INACTIVE",
+      "status": "PASS",
+      "observed": "rows=6"
+    },
+    {
+      "id": "POSTGRES-FAILED-TARGETS-PRESERVED",
+      "status": "PASS",
+      "observed": "rows=2"
+    },
+    {
+      "id": "POSTGRES-EXPLICIT-DECISIONS-PERSISTED",
+      "status": "PASS",
+      "observed": "{\"happy_job_owner\":\"3707c360-32da-4321-ade1-0a7c9e19a5ce\",\"happy_customer_owner\":null,\"happy_calendar_owner\":\"3707c360-32da-4321-ade1-0a7c9e19a5ce\",\"happy_follow_up_owner\":\"3707c360-32da-4321-ade1-0a7c9e19a5ce\",\"happy_reminder_state\":\"CANCELLED\",\"audit_count\":6}"
+    },
+    {
+      "id": "POSTGRES-SINGLE-OFFBOARDING-AUDIT-PER-TARGET",
+      "status": "PASS",
+      "observed": "audit count=6"
+    },
+    {
+      "id": "POSTGRES-AMBIGUOUS-SINGLE-RECEIPT",
+      "status": "PASS",
+      "observed": "receipts=1"
+    },
+    {
+      "id": "POSTGRES-DISPOSABLE-DROPPED",
+      "status": "PASS",
+      "observed": "Disposable database removed"
+    }
+  ],
+  "screenshots": [
+    "screenshots/01-mixed-confirmation-desktop.png",
+    "screenshots/02-mixed-success-desktop.png",
+    "screenshots/03-responsive-400pct.png"
+  ],
+  "failure": null
+}
