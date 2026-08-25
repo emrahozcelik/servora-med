@@ -51,20 +51,29 @@ export class MigrationCatalogError extends Error {
 }
 
 /**
- * Canonical migration filename convention: NNN_description.sql
+ * Canonical migration VERSION convention (stored in schema_migrations.version):
+ * NNN_description — e.g. 037_staff_offboarding_audit
  * NNN is zero-padded 3-digit numeric prefix, description is [A-Za-z0-9_]+.
+ * Filename convention is the same plus .sql suffix: NNN_description.sql
  * Only *.sql files are considered; non-sql files are intentionally ignored.
  * Any *.sql file not matching the convention makes the catalog invalid.
+ *
+ * Single canonical semantic rule shared by filename and version parsing.
  */
-const MIGRATION_FILENAME_PATTERN = /^(\d{3})_([A-Za-z0-9_]+)\.sql$/;
+const MIGRATION_VERSION_PATTERN = /^(\d{3})_([A-Za-z0-9_]+)$/;
 
-export function parseMigrationFilename(filename: string): { number: number; version: string } | null {
-  const match = MIGRATION_FILENAME_PATTERN.exec(filename);
+export function parseMigrationVersion(version: string): { number: number; version: string } | null {
+  const match = MIGRATION_VERSION_PATTERN.exec(version);
   if (!match) return null;
   const number = Number.parseInt(match[1]!, 10);
   if (!Number.isInteger(number)) return null;
-  const version = filename.slice(0, -'.sql'.length);
   return { number, version };
+}
+
+export function parseMigrationFilename(filename: string): { number: number; version: string } | null {
+  if (!filename.endsWith('.sql')) return null;
+  const version = filename.slice(0, -'.sql'.length);
+  return parseMigrationVersion(version);
 }
 
 export async function loadMigrationCatalog(migrationsDirectory: string): Promise<MigrationCatalog> {
@@ -317,6 +326,67 @@ export function compareMigrationState(
   }
 
   if (allCatalogApplied && !noUnexpected) {
+    // AHEAD is allowed only when every unexpected is a valid canonical VERSION with number > head.
+    // Any invalid syntax, non-future number, or duplicate future number -> DIVERGED (operator diagnostics).
+    if (!catalog.head) {
+      return {
+        status: 'DIVERGED',
+        catalog,
+        appliedVersions: [...appliedVersions],
+        unexpectedVersions,
+        missingVersions: [],
+        duplicateVersions: [],
+        pendingVersions: [],
+        pendingEntries: [],
+        reason: 'INVALID_APPLIED_VERSION',
+      };
+    }
+    const headNumber = catalog.head.number;
+    const seenUnexpectedNumbers = new Map<number, string>();
+    for (const v of unexpectedVersions) {
+      const parsed = parseMigrationVersion(v);
+      if (!parsed) {
+        return {
+          status: 'DIVERGED',
+          catalog,
+          appliedVersions: [...appliedVersions],
+          unexpectedVersions,
+          missingVersions: [],
+          duplicateVersions: [],
+          pendingVersions: [],
+          pendingEntries: [],
+          reason: 'INVALID_APPLIED_VERSION',
+        };
+      }
+      if (parsed.number <= headNumber) {
+        return {
+          status: 'DIVERGED',
+          catalog,
+          appliedVersions: [...appliedVersions],
+          unexpectedVersions,
+          missingVersions: [],
+          duplicateVersions: [],
+          pendingVersions: [],
+          pendingEntries: [],
+          reason: 'NON_FUTURE_UNEXPECTED_VERSION',
+        };
+      }
+      const dup = seenUnexpectedNumbers.get(parsed.number);
+      if (dup !== undefined) {
+        return {
+          status: 'DIVERGED',
+          catalog,
+          appliedVersions: [...appliedVersions],
+          unexpectedVersions,
+          missingVersions: [],
+          duplicateVersions: [],
+          pendingVersions: [],
+          pendingEntries: [],
+          reason: 'DUPLICATE_APPLIED_MIGRATION_NUMBER',
+        };
+      }
+      seenUnexpectedNumbers.set(parsed.number, v);
+    }
     return {
       status: 'AHEAD',
       catalog,
