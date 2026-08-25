@@ -1,5 +1,6 @@
-import { readdir, readFile } from 'node:fs/promises';
-import path from 'node:path';
+import { readFile } from 'node:fs/promises';
+
+import { loadMigrationCatalog } from './migration-catalog.js';
 
 export interface MigrationStore {
   initialize(): Promise<void>;
@@ -27,24 +28,21 @@ async function applyPending(
   await store.initialize();
 
   const appliedVersions = new Set(await store.getAppliedVersions());
-  const files = (await readdir(migrationsDirectory))
-    .filter((file) => file.endsWith('.sql'))
-    .sort();
+  const catalog = await loadMigrationCatalog(migrationsDirectory);
   const newlyApplied: string[] = [];
 
-  for (const file of files) {
-    const version = file.slice(0, -'.sql'.length);
-    if (appliedVersions.has(version)) {
+  for (const entry of catalog.entries) {
+    if (appliedVersions.has(entry.version)) {
       continue;
     }
 
-    const sql = await readFile(path.join(migrationsDirectory, file), 'utf8');
+    const sql = await readFile(entry.path, 'utf8');
     try {
-      await store.applyMigration(version, sql);
-      newlyApplied.push(version);
-      logger.info(`Migration applied: ${file}`);
+      await store.applyMigration(entry.version, sql);
+      newlyApplied.push(entry.version);
+      logger.info(`Migration applied: ${entry.filename}`);
     } catch (error) {
-      logger.error(`Migration failed: ${file}`);
+      logger.error(`Migration failed: ${entry.filename}`);
       throw error;
     }
   }
