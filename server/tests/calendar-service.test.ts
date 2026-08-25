@@ -64,6 +64,9 @@ class MemoryCalendarRepository implements CalendarRepository {
   async getAssignableUser(_actor: CalendarActor, userId: string) {
     return this.users.find((user) => user.id === userId) ?? null;
   }
+  async getCalendarUser(_actor: CalendarActor, userId: string) {
+    return this.users.find((user) => user.id === userId) ?? null;
+  }
   async getManualEvent() { return manual; }
   async createManual(_actor: CalendarActor, _input: ManualEventCreateInput) {
     return manual;
