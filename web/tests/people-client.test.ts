@@ -1,8 +1,8 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
-  changeUserRole, createUser, getOwnStaffProfile, listOwnStaffJobs, listStaff, listStaffJobs, listUsers,
-  resetUserPassword, updateStaffProfile,
+  changeUserRole, createUser, executeStaffOffboarding, getOwnStaffProfile, listOwnStaffJobs, listStaff, listStaffJobs, listUsers,
+  previewStaffOffboarding, resetUserPassword, updateStaffProfile,
 } from '../src/services/people-api';
 
 afterEach(() => vi.unstubAllGlobals());
@@ -14,6 +14,57 @@ const profile = { id: 'profile-1', user, title: null, phone: null, region: null,
   managerName: null, version: 1, counters: { open: 1, waitingApproval: 2, revisionRequested: 3, completedThisMonth: 4, overdue: 5 } };
 
 describe('People API client', () => {
+  it('parses the exact Staff offboarding preview and execute contracts', async () => {
+    const preview = {
+      target: { id: 'staff/1', organizationId: 'org-1', role: 'STAFF', isActive: true, version: 4 },
+      jobs: [{ id: 'job-1', status: 'IN_PROGRESS', version: 2, assignedTo: 'staff/1' }],
+      customers: [{ id: 'customer-1', assignedStaffUserId: 'staff/1', version: 3 }],
+      calendar: [{ id: 'event-1', assignedUserId: 'staff/1', status: 'ACTIVE', version: 2,
+        startsAt: '2026-09-01T08:00:00.000Z', endsAt: '2026-09-01T09:00:00.000Z' }],
+      followUps: [{ jobCardId: 'job-2', proposedAssignee: 'staff/1', proposedAt: '2026-09-02T08:00:00.000Z', version: 5 }],
+      reminders: [{ id: 'reminder-1', recipientUserId: 'staff/1', state: 'PENDING',
+        remindAt: '2026-09-01T07:45:00.000Z', nextAttemptAt: '2026-09-01T07:45:00.000Z' }],
+      jobConversations: [{ jobCardId: 'job-1', conversationId: 'conversation-1' }],
+      sessions: { activeCount: 2 },
+      planHash: 'a'.repeat(64),
+    };
+    const request = {
+      clientActionId: 'r4b-action-1', planHash: preview.planHash, reasonCode: 'ACCESS_ENDED' as const,
+      jobDecisions: [{ jobCardId: 'job-1', replacementUserId: 'staff-2' }],
+      calendarDecisions: [{ calendarEventId: 'event-1', replacementUserId: 'staff-2' }],
+      followUpDecisions: [{ jobCardId: 'job-2', replacementUserId: 'staff-2' }],
+      customerDecisions: [{ customerId: 'customer-1', action: 'UNASSIGN' as const }],
+      reminderDecisions: [{ reminderId: 'reminder-1', action: 'CANCEL' as const }],
+    };
+    const response = { status: 'OFFBOARDED', targetUserId: 'staff/1', planHash: preview.planHash,
+      summary: { jobCardsTransferred: 1, customersReassigned: 0, customersUnassigned: 1,
+        calendarAssignmentsTransferred: 1, followUpAssignmentsTransferred: 1, remindersHandled: 1 } };
+    const fetchMock = vi.fn().mockResolvedValueOnce(json(preview)).mockResolvedValueOnce(json(response));
+    vi.stubGlobal('fetch', fetchMock);
+
+    await expect(previewStaffOffboarding('staff/1')).resolves.toEqual(preview);
+    await expect(executeStaffOffboarding('staff/1', request)).resolves.toEqual(response);
+    expect(fetchMock).toHaveBeenNthCalledWith(1, '/api/users/staff%2F1/offboarding/preview', expect.objectContaining({
+      method: 'POST', body: JSON.stringify({}), credentials: 'include',
+      headers: { 'content-type': 'application/json' },
+    }));
+    expect(fetchMock).toHaveBeenNthCalledWith(2, '/api/users/staff%2F1/offboarding/execute', expect.objectContaining({
+      method: 'POST', body: JSON.stringify(request), credentials: 'include',
+    }));
+  });
+
+  it('rejects semantically malformed Staff offboarding success responses', async () => {
+    const malformed = { status: 'OFFBOARDED', targetUserId: 'another-staff', planHash: 'b'.repeat(64),
+      summary: { jobCardsTransferred: -1, customersReassigned: 0, customersUnassigned: 0,
+        calendarAssignmentsTransferred: 0, followUpAssignmentsTransferred: 0, remindersHandled: 0 } };
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(json(malformed)));
+
+    await expect(executeStaffOffboarding('staff-1', {
+      clientActionId: 'r4b-action-2', planHash: 'a'.repeat(64), reasonCode: 'ACCESS_ENDED',
+      jobDecisions: [], calendarDecisions: [], followUpDecisions: [], customerDecisions: [], reminderDecisions: [],
+    })).rejects.toMatchObject({ code: 'INVALID_RESPONSE' });
+  });
+
   it('fetches own and managed Staff history through the role-scoped routes', async () => {
     const history = { items: [], total: 0, limit: 20, offset: 0 };
     const fetchMock = vi.fn().mockImplementation(() => Promise.resolve(json(history)));

@@ -239,4 +239,14 @@ describe('shared accessibility CSS contract', () => {
     expect(css).toMatch(/\.workflow-dialog \.review-buttons button, \.reason-dialog \.review-buttons button \{[^}]*min-height: var\(--control-height\);/);
     expect(css).toMatch(/@media \(max-width: 720px\)[\s\S]*\.approval-review-summary \{[^}]*grid-template-columns: 1fr;/);
   });
+
+  it('keeps Staff offboarding confirmation above its owning form drawer', () => {
+    expect(css).toMatch(/\.offboarding-drawer-root ~ \.product-dialog-backdrop\.dialog-backdrop \{[^}]*z-index:\s*110;/);
+  });
+
+  it('lets form drawer headings and close controls reflow at extreme text scaling', () => {
+    expect(css).toMatch(/\.form-drawer-header \{[^}]*min-width:\s*0;[^}]*gap:/s);
+    expect(css).toMatch(/\.form-drawer-header h2 \{[^}]*min-width:\s*0;[^}]*overflow-wrap:\s*anywhere;/s);
+    expect(css).toMatch(/\.form-drawer-header \.compact-button \{[^}]*min-width:\s*var\(--control-height\);/s);
+  });
 });

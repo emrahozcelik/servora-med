@@ -10,6 +10,7 @@ import { PASSWORD_LENGTH_HINT_TR } from './ui/password-policy';
 import { EmptyState } from './ui/antd/EmptyState';
 import { ResultState } from './ui/antd/ResultState';
 import { isInteractiveTarget } from './ui/clickable-card';
+import { StaffOffboardingWorkflow } from './people/StaffOffboardingWorkflow';
 
 const roleLabel = { ADMIN: 'Sistem yöneticisi', MANAGER: 'Yönetici', STAFF: 'Personel' } as const;
 
@@ -74,7 +75,9 @@ function Field({ id, label, children, hint, hintId }: {
     {hint && hintId ? <p id={hintId} className="field-hint">{hint}</p> : null}</div>;
 }
 
-export function UserDetailView({ user: initial, onBack, onChanged }: { user: ManagedUser; onBack: () => void; onChanged: (user: ManagedUser) => void }) {
+export function UserDetailView({ user: initial, viewerRole, onBack, onChanged }: {
+  user: ManagedUser; viewerRole: ManagedUser['role']; onBack: () => void; onChanged: (user: ManagedUser) => void;
+}) {
   const [user, setUser] = useState(initial); const [error, setError] = useState(''); const [notice, setNotice] = useState('');
   async function run(action: () => Promise<ManagedUser>, message: string) { setError(''); try { const next = await action(); setUser(next); onChanged(next); setNotice(message); } catch (e) { setError(e instanceof Error ? e.message : 'İşlem tamamlanamadı.'); } }
   return <main className="people-form"><div className="detail-heading"><div><p className="eyebrow">Kullanıcı</p><h1>{user.name}</h1></div><button className="secondary-button" onClick={onBack}>Listeye dön</button></div>
@@ -87,6 +90,14 @@ export function UserDetailView({ user: initial, onBack, onChanged }: { user: Man
         <Field id="reset-password" label="Geçici parola belirle" hintId="reset-password-hint" hint={PASSWORD_LENGTH_HINT_TR}>
           <input id="reset-password" name="temporaryPassword" type="password" minLength={12} maxLength={128} required aria-describedby="reset-password-hint" /></Field>
         <button className="secondary-button command-button">Parolayı sıfırla</button></form>
+      {viewerRole === 'ADMIN' && user.role === 'STAFF' && <StaffOffboardingWorkflow target={user}
+        onCompleted={() => {
+          setNotice('Personel erişimi sonlandırıldı.');
+          getUser(user.id).then((next) => { setUser(next); onChanged(next); }).catch(() => {
+            const inactive = { ...user, isActive: false };
+            setUser(inactive); onChanged(inactive);
+          });
+        }} />}
     </section></main>;
 }
 
@@ -120,7 +131,7 @@ export function UserCreateScreen() {
     onCreated={(created) => navigate(paths.user(created.id))} />;
 }
 
-export function UserDetailScreen() {
+export function UserDetailScreen({ viewerRole }: { viewerRole: ManagedUser['role'] }) {
   const { userId } = useParams();
   const navigate = useNavigate();
   const [user, setUser] = useState<ManagedUser | null>(null);
@@ -144,7 +155,7 @@ export function UserDetailScreen() {
   if (loading) return <main className="workspace" aria-busy="true"><h1>Kullanıcı yükleniyor</h1></main>;
   if (!user) return <main className="workspace"><ResultState status="error" title="Kullanıcı yüklenemedi" description={error} headingLevel={1}
     action={<button className="secondary-button" type="button" onClick={() => navigate(paths.users)}>Listeye dön</button>} /></main>;
-  return <UserDetailView user={user} onBack={() => navigate(paths.users)} onChanged={setUser} />;
+  return <UserDetailView viewerRole={viewerRole} user={user} onBack={() => navigate(paths.users)} onChanged={setUser} />;
 }
 
 /** @deprecated Prefer routed screens; kept for existing imports. */

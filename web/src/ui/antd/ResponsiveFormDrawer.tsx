@@ -14,6 +14,7 @@ export type ResponsiveFormDrawerProps = {
   onDismiss: () => void;
   children: ReactNode;
   returnFocusRef?: RefObject<HTMLElement | null>;
+  rootClassName?: string;
 };
 
 /**
@@ -27,6 +28,7 @@ export function ResponsiveFormDrawer({
   onDismiss,
   children,
   returnFocusRef,
+  rootClassName,
 }: ResponsiveFormDrawerProps): ReactNode {
   const titleId = useId();
   const panelRef = useRef<HTMLDivElement>(null);
@@ -64,7 +66,7 @@ export function ResponsiveFormDrawer({
   if (!open) return null;
 
   return (
-    <div className="form-drawer-root" data-servora-form-drawer="true">
+    <div className={`form-drawer-root${rootClassName ? ` ${rootClassName}` : ''}`} data-servora-form-drawer="true">
       <button
         type="button"
         className="form-drawer-backdrop"

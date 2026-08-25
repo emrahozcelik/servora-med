@@ -37,12 +37,19 @@ describe('Admin user management views', () => {
     expect(html).toContain('Unvan'); expect(html).toContain('Bölge'); expect(html).toContain('Yönetici');
   });
 
-  it('keeps security commands separate from the name form without lifecycle actions', () => {
-    const html = renderToStaticMarkup(<UserDetailView user={user} onBack={() => {}} onChanged={() => {}} />);
+  it('keeps security commands separate and exposes the active Staff lifecycle only to Admin', () => {
+    const html = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN" user={user} onBack={() => {}} onChanged={() => {}} />);
     expect(html).toContain('Temel bilgiler'); expect(html).toContain('Rol ve erişim');
     expect(html).toContain('Geçici parola belirle');
-    expect(html).not.toContain('Kullanıcıyı pasifleştir');
+    expect(html).toContain('Personeli devre dışı bırak');
     expect(html).not.toContain('Kullanıcıyı aktifleştir');
+
+    for (const viewerRole of ['MANAGER', 'STAFF'] as const) {
+      const hidden = renderToStaticMarkup(<UserDetailView viewerRole={viewerRole} user={user} onBack={() => {}} onChanged={() => {}} />);
+      expect(hidden).not.toContain('Personeli devre dışı bırak');
+    }
+    const inactive = renderToStaticMarkup(<UserDetailView viewerRole="ADMIN" user={{ ...user, isActive: false }} onBack={() => {}} onChanged={() => {}} />);
+    expect(inactive).not.toContain('Personeli devre dışı bırak');
   });
 
   it('user create uses create-heading and form-actions with Vazgeç before submit and no heading cancel', () => {
@@ -118,7 +125,7 @@ describe('User detail route race protection', () => {
       .mockImplementationOnce(() => new Promise<ManagedUser>((resolve) => { resolveSecond = resolve; }));
 
     const router = createMemoryRouter([
-      { path: '/users/:userId', element: <UserDetailScreen /> },
+      { path: '/users/:userId', element: <UserDetailScreen viewerRole="ADMIN" /> },
     ], { initialEntries: ['/users/user-a'] });
     await act(async () => root.render(<RouterProvider router={router} />));
     await act(async () => { await router.navigate('/users/user-b'); });

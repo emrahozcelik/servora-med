@@ -375,7 +375,7 @@ export function AppRouter({ user, notice, onClearNotice, onDeliveryCreated, onSe
         <Route path="/jobs/:jobCardId" element={<JobDetailRoute user={user} />} />
         <Route path={paths.users} element={user.role === 'ADMIN' ? <UserListScreen /> : <ForbiddenView />} />
         <Route path={paths.newUser} element={user.role === 'ADMIN' ? <UserCreateScreen /> : <ForbiddenView />} />
-        <Route path="/users/:userId" element={user.role === 'ADMIN' ? <UserDetailScreen /> : <ForbiddenView />} />
+        <Route path="/users/:userId" element={user.role === 'ADMIN' ? <UserDetailScreen viewerRole={user.role} /> : <ForbiddenView />} />
         <Route path={paths.staff} element={<StaffRoute user={user} />} />
         <Route path="/staff/:staffUserId" element={<StaffRoute user={user} />} />
         <Route path="/staff/:staffUserId/reports" element={<StaffReportRoute user={user} />} />
