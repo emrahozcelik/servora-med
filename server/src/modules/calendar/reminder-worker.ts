@@ -69,7 +69,50 @@ implements CalendarReminderWorkerRepository {
     webPushEnabled: boolean,
   ): Promise<RealtimeEventRecord | null> {
     return this.transaction(async (client) => {
-      if (claim.jobCardId !== null) {
+      const initialReminder = await client.query<{ recipient_user_id: string }>(
+        `SELECT recipient_user_id FROM calendar_reminders
+          WHERE organization_id = $1 AND id = $2
+            AND lease_token = $3 AND state = 'CLAIMED'`,
+        [claim.organizationId, claim.id, claim.leaseToken],
+      );
+      const initialRecipientUserId = initialReminder.rows[0]?.recipient_user_id;
+      if (!initialRecipientUserId) return null;
+      const initiallyActive = await this.lockRecipient(client, claim.organizationId, initialRecipientUserId);
+
+      const reminder = await client.query<{
+        recipient_user_id: string;
+        job_card_id: string | null;
+        calendar_event_id: string | null;
+      }>(
+        `SELECT recipient_user_id, job_card_id, calendar_event_id
+           FROM calendar_reminders
+          WHERE organization_id = $1 AND id = $2
+            AND lease_token = $3 AND state = 'CLAIMED'
+          FOR UPDATE`,
+        [claim.organizationId, claim.id, claim.leaseToken],
+      );
+      const currentReminder = reminder.rows[0];
+      if (!currentReminder) return null;
+      let recipientActive = initiallyActive;
+      if (currentReminder.recipient_user_id !== initialRecipientUserId) {
+        recipientActive = await this.lockRecipient(
+          client,
+          claim.organizationId,
+          currentReminder.recipient_user_id,
+        );
+      }
+      const recipientUserId = currentReminder.recipient_user_id;
+      if (!recipientActive) {
+        await client.query(
+          `UPDATE calendar_reminders SET state = 'CANCELLED', cancelled_at = $3,
+            lease_token = NULL, lease_until = NULL, updated_at = $3
+           WHERE id = $1 AND lease_token = $2`,
+          [claim.id, claim.leaseToken, now],
+        );
+        return null;
+      }
+
+      if (currentReminder.job_card_id !== null) {
         const jobState = await client.query<{
           status: string;
           assigned_to: string;
@@ -79,11 +122,11 @@ implements CalendarReminderWorkerRepository {
              FROM job_cards
             WHERE organization_id = $1 AND id = $2
             FOR SHARE`,
-          [claim.organizationId, claim.jobCardId],
+          [claim.organizationId, currentReminder.job_card_id],
         );
         const job = jobState.rows[0];
         const operational = job !== undefined
-          && job.assigned_to === claim.recipientUserId
+          && job.assigned_to === recipientUserId
           && ['NEW', 'ACCEPTED', 'IN_PROGRESS', 'WAITING_APPROVAL', 'REVISION_REQUESTED']
             .includes(job.status)
           && job.scheduled_at !== null
@@ -141,7 +184,7 @@ implements CalendarReminderWorkerRepository {
            '{}',ARRAY[$5]::uuid[],ARRAY['calendar','calendar:' || $5::text,'overview','notifications'],$6)
          RETURNING id, resource_keys, created_at`,
         [claim.organizationId, claim.id, current.entity_type, current.entity_id,
-          claim.recipientUserId, now],
+          recipientUserId, now],
       );
       const notification = await client.query<{ id: string }>(
         `INSERT INTO in_app_notifications
@@ -150,7 +193,7 @@ implements CalendarReminderWorkerRepository {
          VALUES ($1,$2,$3,'calendar.reminder',$4,$5,$6)
          ON CONFLICT (recipient_user_id, source_realtime_event_id) DO NOTHING
          RETURNING id`,
-        [claim.organizationId, claim.recipientUserId, realtime.rows[0]!.id,
+        [claim.organizationId, recipientUserId, realtime.rows[0]!.id,
           current.entity_type, current.entity_id, now],
       );
       if (webPushEnabled && notification.rows[0]) {
@@ -161,7 +204,7 @@ implements CalendarReminderWorkerRepository {
            WHERE s.organization_id = $3 AND s.recipient_user_id = $4
              AND s.disabled_at IS NULL
            ON CONFLICT (notification_id, subscription_id) DO NOTHING`,
-          [notification.rows[0].id, now, claim.organizationId, claim.recipientUserId],
+          [notification.rows[0].id, now, claim.organizationId, recipientUserId],
         );
       }
       await client.query(
@@ -179,7 +222,7 @@ implements CalendarReminderWorkerRepository {
         entityType: current.entity_type,
         entityId: current.entity_id,
         actorUserId: null,
-        audience: { roles: [], userIds: [claim.recipientUserId] },
+        audience: { roles: [], userIds: [recipientUserId] },
         resourceKeys: realtime.rows[0]!.resource_keys,
         occurredAt: realtime.rows[0]!.created_at,
       };
@@ -211,6 +254,14 @@ implements CalendarReminderWorkerRepository {
        WHERE state = 'CLAIMED' AND lease_token = $1`,
       [leaseToken, now],
     );
+  }
+
+  private async lockRecipient(client: PoolClient, organizationId: string, userId: string) {
+    const result = await client.query<{ is_active: boolean }>(
+      `SELECT is_active FROM users WHERE organization_id = $1 AND id = $2 FOR SHARE`,
+      [organizationId, userId],
+    );
+    return result.rows[0]?.is_active === true;
   }
 
   private async transaction<T>(work: (client: PoolClient) => Promise<T>) {

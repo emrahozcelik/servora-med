@@ -182,22 +182,22 @@ describe('PeopleService policy', () => {
     await expect(people.changeRole(admin, 'admin-2', { expectedVersion: 1, role: 'MANAGER' })).resolves.toMatchObject({ role: 'MANAGER', version: 2 });
   });
 
-  it('blocks unsafe deactivation and revokes sessions for an eligible user', async () => {
+  it('requires Staff offboarding instead of allowing the legacy deactivation bypass', async () => {
     const { repository, service: people } = service();
     repository.activeJobCards = true;
-    await expect(people.deactivate(admin, 'staff-1', 1)).rejects.toMatchObject({ code: 'USER_HAS_ACTIVE_JOB_CARDS' });
+    await expect(people.deactivate(admin, 'staff-1', 1)).rejects.toMatchObject({ code: 'OFFBOARDING_REQUIRED' });
     repository.activeJobCards = false;
-    await expect(people.deactivate(admin, 'staff-1', 1)).resolves.toMatchObject({ isActive: false, version: 2 });
-    expect(repository.revoked).toEqual(['staff-1']);
-    expect(repository.cleanupCalls).toEqual(['staff-1']);
-    expect(repository.customerAssignments).toEqual([]);
-    expect(repository.audits.at(-1)).toMatchObject({ eventType: 'USER_DEACTIVATED' });
+    await expect(people.deactivate(admin, 'staff-1', 1)).rejects.toMatchObject({ code: 'OFFBOARDING_REQUIRED' });
+    expect(repository.revoked).toEqual([]);
+    expect(repository.cleanupCalls).toEqual([]);
+    expect(repository.customerAssignments).toHaveLength(2);
+    expect(repository.audits).toEqual([]);
   });
 
-  it('rolls back Staff state, sessions, and Customer cleanup when audit fails', async () => {
+  it('rolls back non-Staff state and sessions when audit fails', async () => {
     const { repository, service: people } = service(); repository.failAudit = true;
-    await expect(people.deactivate(admin, 'staff-1', 1)).rejects.toThrow('audit failed');
-    expect(repository.users.find((item) => item.id === 'staff-1')).toMatchObject({ isActive: true, version: 1 });
+    await expect(people.deactivate(admin, 'manager-1', 1)).rejects.toThrow('audit failed');
+    expect(repository.users.find((item) => item.id === 'manager-1')).toMatchObject({ isActive: true, version: 1 });
     expect(repository.revoked).toEqual([]);
     expect(repository.customerAssignments).toHaveLength(2);
   });

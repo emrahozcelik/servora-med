@@ -209,18 +209,14 @@ export class PeopleService {
       if (target.version !== expectedVersion) throw userVersionConflict();
       if (target.isActive === active) return safe(target);
       if (!active) {
+        if (target.role === 'STAFF') {
+          throw new AppError('OFFBOARDING_REQUIRED', 409, 'Personel pasifleştirme işlemi offboarding akışıyla yapılmalıdır.');
+        }
         if (target.role === 'ADMIN' && await tx.countActiveAdmins(actor.organizationId) <= 1) {
           throw new AppError('LAST_ACTIVE_ADMIN_REQUIRED', 409, 'En az bir aktif sistem yöneticisi bulunmalıdır.');
         }
-        if (target.role === 'STAFF' && await tx.hasActiveJobCards(target.id)) {
-          throw new AppError('USER_HAS_ACTIVE_JOB_CARDS', 409, 'Personelin açık işleri bulunuyor.');
-        }
         if (target.role === 'MANAGER' && await tx.hasAssignedActiveStaff(target.id)) {
           throw new AppError('MANAGER_HAS_ASSIGNED_STAFF', 409, 'Yöneticiye bağlı aktif personel bulunuyor.');
-        }
-        if (target.role === 'STAFF') {
-          await tx.clearCustomerAssignments({ organizationId: actor.organizationId,
-            staffUserId: target.id, actorUserId: actor.id });
         }
       }
       const updated = await tx.setActive(target.id, expectedVersion, active);

@@ -6,6 +6,7 @@ import { Pool } from 'pg';
 import { describe, expect, it } from 'vitest';
 
 import { PostgresWebPushRepository } from '../src/modules/web-push/repository.js';
+import { createDispatcher } from '../src/modules/web-push/dispatcher.js';
 import { buildPushPayload } from '../src/modules/web-push/payload.js';
 import { presentNotification } from '../src/modules/notifications/presenter.js';
 import type { NotificationRecord } from '../src/modules/notifications/types.js';
@@ -293,6 +294,116 @@ describe('Web Push dispatch — PostgreSQL', () => {
 
       const total = resultA.length + resultB.length;
       expect(total).toBe(1);
+    });
+  });
+
+  it('suppresses a claimed delivery when offboarding wins the user lifecycle lock', async () => {
+    await runWithFixture(async ({ pool, userId, deliveryId, at }) => {
+      const repo = new PostgresWebPushRepository(pool);
+      const claimed = (await repo.claimDueDeliveries({ limit: 4, at }))[0]!;
+      const offboarding = await pool.connect();
+      try {
+        await offboarding.query('BEGIN');
+        await offboarding.query(
+          `SELECT id FROM users WHERE id = $1 FOR UPDATE`,
+          [userId],
+        );
+        await offboarding.query(
+          `UPDATE users SET is_active = FALSE, version = version + 1 WHERE id = $1`,
+          [userId],
+        );
+
+        let providerCalls = 0;
+        const worker = repo.withDeliveryLifecycleLock(claimed, new Date(at.getTime() + 1_000), async (guard) => {
+          if (guard.eligible) providerCalls++;
+          return guard.eligible;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        expect(providerCalls).toBe(0);
+        await offboarding.query('COMMIT');
+        await expect(worker).resolves.toBe(false);
+        expect(providerCalls).toBe(0);
+        const row = await pool.query<{ state: string; last_error_code: string | null }>(
+          `SELECT state, last_error_code FROM web_push_deliveries WHERE id = $1`,
+          [deliveryId],
+        );
+        expect(row.rows[0]).toMatchObject({ state: 'ABANDONED', last_error_code: 'SESSION_INACTIVE' });
+      } finally {
+        offboarding.release();
+      }
+    });
+  });
+
+  it('holds the user lifecycle lock through provider bookkeeping when dispatcher wins', async () => {
+    await runWithFixture(async ({ pool, userId, subscriptionId, at }) => {
+      const repo = new PostgresWebPushRepository(pool);
+      const claimed = (await repo.claimDueDeliveries({ limit: 4, at }))[0]!;
+      let providerStarted!: () => void;
+      const providerReady = new Promise<void>((resolve) => { providerStarted = resolve; });
+      let releaseProvider!: () => void;
+      const providerRelease = new Promise<void>((resolve) => { releaseProvider = resolve; });
+      const worker = repo.withDeliveryLifecycleLock(claimed, new Date(at.getTime() + 1_000), async (guard) => {
+        expect(guard.eligible).toBe(true);
+        providerStarted();
+        await providerRelease;
+        await guard.recordDelivered({
+          deliveryId: claimed.deliveryId,
+          leaseToken: claimed.leaseToken,
+          subscriptionId,
+          at: new Date(at.getTime() + 2_000),
+        });
+        return 'delivered';
+      });
+      await providerReady;
+
+      const offboarding = await pool.connect();
+      let offboardingCommitted = false;
+      try {
+        await offboarding.query('BEGIN');
+        const offboardingUpdate = offboarding.query(
+          `UPDATE users SET is_active = FALSE, version = version + 1 WHERE id = $1`,
+          [userId],
+        ).then(async () => {
+          await offboarding.query('COMMIT');
+          offboardingCommitted = true;
+        });
+        await new Promise((resolve) => setTimeout(resolve, 25));
+        expect(offboardingCommitted).toBe(false);
+        releaseProvider();
+        await expect(worker).resolves.toBe('delivered');
+        await offboardingUpdate;
+        expect(offboardingCommitted).toBe(true);
+      } finally {
+        if (!offboardingCommitted) await offboarding.query('ROLLBACK').catch(() => undefined);
+        offboarding.release();
+      }
+    });
+  });
+
+  it('uses the protected lifecycle phase on the real dispatcher-to-provider path', async () => {
+    await runWithFixture(async ({ pool, at }) => {
+      const repository = new PostgresWebPushRepository(pool);
+      let providerCalls = 0;
+      const dispatcher = createDispatcher({ pollIntervalMs: 10, gracePeriodMs: 500 }, {
+        repository,
+        sender: {
+          send: async () => {
+            providerCalls++;
+            return { type: 'response' as const, statusCode: 201 };
+          },
+        },
+        buildPayload: () => ({
+          version: 1 as const,
+          notificationId: 'notification-1',
+          title: 'Test', body: 'Test', url: '/notifications',
+        }),
+        topicBuilder: () => 'topic-1',
+        clock: () => at,
+      });
+      dispatcher.start();
+      await new Promise((resolve) => setTimeout(resolve, 100));
+      await dispatcher.stop();
+      expect(providerCalls).toBe(1);
     });
   });
 

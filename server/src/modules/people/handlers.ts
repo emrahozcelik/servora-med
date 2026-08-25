@@ -2,6 +2,13 @@ import type { FastifyReply, FastifyRequest } from 'fastify';
 
 import { AppError } from '../../errors/index.js';
 import { JOB_CARD_TYPES } from '../job-cards/types.js';
+import type {
+  OffboardingCustomerAction,
+  OffboardingDecisionInput,
+  OffboardingReminderAction,
+  PostgresStaffOffboardingService,
+  StaffOffboardingReasonCode,
+} from './offboarding.js';
 import type { PeopleService } from './service.js';
 import type { CreateUserInput, StaffProfileInput, StaffStatusFilter } from './types.js';
 
@@ -37,6 +44,83 @@ function expectedVersion(value: unknown) {
     throw new AppError('VALIDATION_ERROR', 400, 'expectedVersion pozitif bir tam sayı olmalıdır.');
   }
   return value as number;
+}
+
+function stringArray(value: unknown, field: string) {
+  if (!Array.isArray(value)) throw new AppError('VALIDATION_ERROR', 400, `${field} dizi olmalıdır.`);
+  return value;
+}
+
+function decisionObject(value: unknown, field: string) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new AppError('VALIDATION_ERROR', 400, `${field} nesne olmalıdır.`);
+  }
+  return value as Record<string, unknown>;
+}
+
+function optionalString(value: unknown, field: string) {
+  if (value === undefined) return undefined;
+  return requiredString(value, field);
+}
+
+function offboardingDecisions(body: Record<string, unknown>): OffboardingDecisionInput {
+  exactFields(body, [
+    'clientActionId', 'planHash', 'reasonCode', 'jobDecisions', 'calendarDecisions',
+    'followUpDecisions', 'customerDecisions', 'reminderDecisions',
+  ]);
+
+  const parseSimple = <T extends 'jobCardId' | 'calendarEventId'>(
+    value: unknown,
+    field: string,
+    idField: T,
+  ): Array<{ [K in T]: string } & { replacementUserId: string }> => stringArray(value, field).map((raw, index) => {
+    const item = decisionObject(raw, `${field}[${index}]`);
+    exactFields(item, [idField, 'replacementUserId']);
+    return {
+      [idField]: requiredString(item[idField], `${field}[${index}].${idField}`),
+      replacementUserId: requiredString(item.replacementUserId, `${field}[${index}].replacementUserId`),
+    } as { [K in T]: string } & { replacementUserId: string };
+  });
+
+  const parseCustomers = stringArray(body.customerDecisions, 'customerDecisions').map((raw, index) => {
+    const item = decisionObject(raw, `customerDecisions[${index}]`);
+    exactFields(item, ['customerId', 'action', 'replacementUserId']);
+    if (item.action !== 'REASSIGN' && item.action !== 'UNASSIGN') {
+      throw new AppError('VALIDATION_ERROR', 400, `customerDecisions[${index}].action geçersizdir.`);
+    }
+    return {
+      customerId: requiredString(item.customerId, `customerDecisions[${index}].customerId`),
+      action: item.action as OffboardingCustomerAction,
+      replacementUserId: optionalString(item.replacementUserId, `customerDecisions[${index}].replacementUserId`),
+    };
+  });
+
+  const parseReminders = stringArray(body.reminderDecisions, 'reminderDecisions').map((raw, index) => {
+    const item = decisionObject(raw, `reminderDecisions[${index}]`);
+    exactFields(item, ['reminderId', 'action', 'replacementUserId']);
+    if (item.action !== 'TRANSFER' && item.action !== 'CANCEL') {
+      throw new AppError('VALIDATION_ERROR', 400, `reminderDecisions[${index}].action geçersizdir.`);
+    }
+    return {
+      reminderId: requiredString(item.reminderId, `reminderDecisions[${index}].reminderId`),
+      action: item.action as OffboardingReminderAction,
+      replacementUserId: optionalString(item.replacementUserId, `reminderDecisions[${index}].replacementUserId`),
+    };
+  });
+
+  if (typeof body.reasonCode !== 'string') {
+    throw new AppError('VALIDATION_ERROR', 400, 'reasonCode alanı zorunludur.');
+  }
+  return {
+    clientActionId: requiredString(body.clientActionId, 'clientActionId'),
+    planHash: requiredString(body.planHash, 'planHash'),
+    reasonCode: body.reasonCode as StaffOffboardingReasonCode,
+    jobDecisions: parseSimple(body.jobDecisions, 'jobDecisions', 'jobCardId'),
+    calendarDecisions: parseSimple(body.calendarDecisions, 'calendarDecisions', 'calendarEventId'),
+    followUpDecisions: parseSimple(body.followUpDecisions, 'followUpDecisions', 'jobCardId'),
+    customerDecisions: parseCustomers,
+    reminderDecisions: parseReminders,
+  };
 }
 
 function userId(request: FastifyRequest) {
@@ -95,7 +179,7 @@ function staffProfile(value: unknown): StaffProfileInput | undefined {
   };
 }
 
-export function createPeopleHandlers(service: PeopleService) {
+export function createPeopleHandlers(service: PeopleService, offboardingService?: PostgresStaffOffboardingService) {
   return {
     listOwnStaffJobHistory: (request: FastifyRequest) => service.listOwnStaffJobHistory(
       request.currentUser!, historyQuery(request),
@@ -143,6 +227,16 @@ export function createPeopleHandlers(service: PeopleService) {
         expectedVersion: expectedVersion(body.expectedVersion),
         temporaryPassword: requiredString(body.temporaryPassword, 'temporaryPassword'),
       });
+    },
+    offboardingPreview: (request: FastifyRequest) => {
+      if (!offboardingService) throw new AppError('OFFBOARDING_UNAVAILABLE', 404, 'Offboarding akışı kullanılamıyor.');
+      const body = bodyOf(request);
+      exactFields(body, []);
+      return offboardingService.preview(request.currentUser!, userId(request));
+    },
+    offboardingExecute: (request: FastifyRequest) => {
+      if (!offboardingService) throw new AppError('OFFBOARDING_UNAVAILABLE', 404, 'Offboarding akışı kullanılamıyor.');
+      return offboardingService.execute(request.currentUser!, userId(request), offboardingDecisions(bodyOf(request)));
     },
     listStaff: (request: FastifyRequest) => {
       const value = (request.query as { status?: unknown }).status ?? 'active';

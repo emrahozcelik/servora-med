@@ -96,9 +96,10 @@ describe('runMigrations', () => {
       '034_demo_data_foundation.sql',
       '035_demo_data_purge_foundation.sql',
       '036_job_card_invalidated.sql',
+      '037_staff_offboarding_audit.sql',
     ]);
-    expect(migrations.at(-1)?.name).toBe('036_job_card_invalidated.sql');
-    expect(expectedSchemaVersion).toBe(36);
+    expect(migrations.at(-1)?.name).toBe('037_staff_offboarding_audit.sql');
+    expect(expectedSchemaVersion).toBe(37);
   });
 
   it('applies pending SQL files in lexical order and skips applied versions', async () => {

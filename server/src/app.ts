@@ -23,6 +23,7 @@ import { jobCardRoutes } from './modules/job-cards/routes.js';
 import { requireAuthentication, requirePasswordChanged } from './modules/auth/middleware.js';
 import { referenceRoutes } from './modules/job-cards/reference-routes.js';
 import type { PeopleRepository } from './modules/people/repository.js';
+import { PostgresStaffOffboardingService } from './modules/people/offboarding.js';
 import { PeopleService } from './modules/people/service.js';
 import { peopleRoutes } from './modules/people/routes.js';
 import { AuthCredentialAdministration } from './modules/auth/admin-ports.js';
@@ -247,6 +248,9 @@ export async function buildApp(config: AppConfig, dependencies: AppDependencies 
         ),
         authenticate: authenticateDomain,
         jobHistoryReadPort: dependencies.jobHistoryReadPort,
+        offboardingService: dependencies.pool
+          ? new PostgresStaffOffboardingService(dependencies.pool, dependencies.realtimeService)
+          : undefined,
       });
     }
     if (dependencies.reportsRepository && dependencies.approvalQueueItemPort) {

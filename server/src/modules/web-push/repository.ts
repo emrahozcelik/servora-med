@@ -129,6 +129,14 @@ function mapSubscription(row: WebPushSubscriptionRow): WebPushSubscriptionRecord
 
 type WebPushPool = Pick<Pool, 'query' | 'connect'>;
 
+export type ProtectedWebPushDeliveryGuard = Readonly<{
+  eligible: boolean;
+  recordDelivered(input: RecordDeliveredInput): Promise<boolean>;
+  recordRetry(input: RecordRetryInput): Promise<boolean>;
+  recordAbandoned(input: RecordAbandonedInput): Promise<boolean>;
+  recordProviderStale(input: RecordProviderStaleInput): Promise<boolean>;
+}>;
+
 export interface WebPushRepository {
   findCurrentSession(identity: WebPushIdentity): Promise<WebPushSubscriptionRecord | null>;
   upsert(input: UpsertWebPushSubscriptionInput): Promise<WebPushSubscriptionRecord>;
@@ -140,6 +148,11 @@ export interface WebPushRepository {
   ): Promise<WebPushSubscriptionRecord | null>;
   cleanupDueDeliveries(at: Date): Promise<number>;
   claimDueDeliveries(input: ClaimDueWebPushDeliveriesInput): Promise<readonly ClaimedWebPushDelivery[]>;
+  withDeliveryLifecycleLock<T>(
+    delivery: ClaimedWebPushDelivery,
+    at: Date,
+    work: (guard: ProtectedWebPushDeliveryGuard) => Promise<T>,
+  ): Promise<T>;
   recordDelivered(input: RecordDeliveredInput): Promise<boolean>;
   recordRetry(input: RecordRetryInput): Promise<boolean>;
   recordAbandoned(input: RecordAbandonedInput): Promise<boolean>;
@@ -452,6 +465,88 @@ export class PostgresWebPushRepository implements WebPushRepository {
 
   // ── Dispatch port ──────────────────────────────────────────────────────
 
+  async withDeliveryLifecycleLock<T>(
+    delivery: ClaimedWebPushDelivery,
+    at: Date,
+    work: (guard: ProtectedWebPushDeliveryGuard) => Promise<T>,
+  ): Promise<T> {
+    const client = await this.pool.connect();
+    try {
+      await client.query('BEGIN');
+
+      // This is the shared lifecycle seam with Staff Offboarding. The lock is
+      // acquired before delivery-row inspection so the lock order is user →
+      // delivery for both protected sends and offboarding mutations.
+      const userResult = await client.query<{ id: string; is_active: boolean }>(
+        `SELECT id, is_active
+           FROM users
+          WHERE organization_id = $1 AND id = $2
+          FOR SHARE`,
+        [delivery.notification.organizationId, delivery.notification.recipientUserId],
+      );
+
+      const eligibilityResult = userResult.rows[0]?.is_active
+        ? await client.query<{ id: string; subscription_id: string }>(
+          `SELECT delivery.id, delivery.subscription_id
+             FROM web_push_deliveries delivery
+             JOIN in_app_notifications notification
+               ON notification.id = delivery.notification_id
+              AND notification.organization_id = $1
+              AND notification.read_at IS NULL
+             JOIN web_push_subscriptions subscription
+               ON subscription.id = delivery.subscription_id
+              AND subscription.organization_id = $1
+              AND subscription.recipient_user_id = $2
+              AND subscription.disabled_at IS NULL
+              AND (subscription.expiration_time IS NULL OR subscription.expiration_time > $3)
+             JOIN sessions session_record
+               ON session_record.id = subscription.session_id
+              AND session_record.user_id = $2
+              AND session_record.revoked_at IS NULL
+              AND session_record.expires_at > $3
+            WHERE delivery.id = $4
+              AND delivery.lease_token = $5
+              AND delivery.state = 'CLAIMED'
+            FOR SHARE OF delivery, subscription, session_record`,
+          [
+            delivery.notification.organizationId,
+            delivery.notification.recipientUserId,
+            at,
+            delivery.deliveryId,
+            delivery.leaseToken,
+          ],
+        )
+        : { rows: [] };
+
+      const eligible = userResult.rows[0]?.is_active === true && eligibilityResult.rows.length > 0;
+      if (!eligible) {
+        await client.query(
+          `UPDATE web_push_deliveries
+              SET state = 'ABANDONED', lease_token = NULL, lease_until = NULL,
+                  abandoned_at = $3, last_error_code = 'SESSION_INACTIVE', updated_at = $3
+            WHERE id = $1 AND state = 'CLAIMED' AND lease_token = $2`,
+          [delivery.deliveryId, delivery.leaseToken, at],
+        );
+      }
+
+      const guard: ProtectedWebPushDeliveryGuard = {
+        eligible,
+        recordDelivered: (input) => this.recordDeliveredWithClient(client, input),
+        recordRetry: (input) => this.recordRetryWithClient(client, input),
+        recordAbandoned: (input) => this.recordAbandonedWithClient(client, input),
+        recordProviderStale: (input) => this.recordProviderStaleWithClient(client, input),
+      };
+      const result = await work(guard);
+      await client.query('COMMIT');
+      return result;
+    } catch (error) {
+      await client.query('ROLLBACK');
+      throw error;
+    } finally {
+      client.release();
+    }
+  }
+
   async cleanupDueDeliveries(at: Date): Promise<number> {
     const client = await this.pool.connect();
     try {
@@ -588,6 +683,97 @@ export class PostgresWebPushRepository implements WebPushRepository {
     } finally {
       client.release();
     }
+  }
+
+  private async recordDeliveredWithClient(
+    client: Pick<PoolClient, 'query'>,
+    input: RecordDeliveredInput,
+  ): Promise<boolean> {
+    const result = await client.query(
+      `UPDATE web_push_deliveries
+          SET state = 'DELIVERED', lease_token = NULL, lease_until = NULL,
+              delivered_at = $3, last_error_code = NULL, updated_at = $3
+        WHERE id = $1 AND state = 'CLAIMED' AND lease_token = $2`,
+      [input.deliveryId, input.leaseToken, input.at],
+    );
+    if ((result.rowCount ?? 0) === 0) return false;
+    const subscription = await client.query(
+      `UPDATE web_push_subscriptions
+          SET consecutive_failures = 0, last_success_at = $2,
+              last_failure_at = NULL, updated_at = $2
+        WHERE id = $1`,
+      [input.subscriptionId, input.at],
+    );
+    return (subscription.rowCount ?? 0) > 0;
+  }
+
+  private async recordRetryWithClient(
+    client: Pick<PoolClient, 'query'>,
+    input: RecordRetryInput,
+  ): Promise<boolean> {
+    const result = await client.query(
+      `UPDATE web_push_deliveries
+          SET state = 'PENDING', lease_token = NULL, lease_until = NULL,
+              next_attempt_at = $4, last_error_code = $5, updated_at = $3
+        WHERE id = $1 AND state = 'CLAIMED' AND lease_token = $2`,
+      [input.deliveryId, input.leaseToken, input.at, input.nextAttemptAt, input.errorCode],
+    );
+    if ((result.rowCount ?? 0) === 0) return false;
+    const subscription = await client.query(
+      `UPDATE web_push_subscriptions
+          SET consecutive_failures = consecutive_failures + 1,
+              last_failure_at = $2, updated_at = $2
+        WHERE id = $1`,
+      [input.subscriptionId, input.at],
+    );
+    return (subscription.rowCount ?? 0) > 0;
+  }
+
+  private async recordAbandonedWithClient(
+    client: Pick<PoolClient, 'query'>,
+    input: RecordAbandonedInput,
+  ): Promise<boolean> {
+    const result = await client.query(
+      `UPDATE web_push_deliveries
+          SET state = 'ABANDONED', lease_token = NULL, lease_until = NULL,
+              abandoned_at = $3, last_error_code = $4, updated_at = $3
+        WHERE id = $1 AND state = 'CLAIMED' AND lease_token = $2`,
+      [input.deliveryId, input.leaseToken, input.at, input.errorCode],
+    );
+    return (result.rowCount ?? 0) > 0;
+  }
+
+  private async recordProviderStaleWithClient(
+    client: Pick<PoolClient, 'query'>,
+    input: RecordProviderStaleInput,
+  ): Promise<boolean> {
+    const deliveryResult = await client.query<{ subscription_id: string }>(
+      `UPDATE web_push_deliveries
+          SET state = 'ABANDONED', lease_token = NULL, lease_until = NULL,
+              abandoned_at = $3, last_error_code = $4, updated_at = $3
+        WHERE id = $1 AND state = 'CLAIMED' AND lease_token = $2
+        RETURNING subscription_id`,
+      [input.deliveryId, input.leaseToken, input.at, input.errorCode],
+    );
+    const subscriptionId = deliveryResult.rows[0]?.subscription_id;
+    if (!subscriptionId) return false;
+    await client.query(
+      `UPDATE web_push_subscriptions
+          SET disabled_at = $2, disabled_reason = 'PROVIDER_STALE',
+              consecutive_failures = consecutive_failures + 1,
+              last_failure_at = $2, updated_at = $2
+        WHERE id = $1 AND disabled_at IS NULL`,
+      [subscriptionId, input.at],
+    );
+    await client.query(
+      `UPDATE web_push_deliveries
+          SET state = 'ABANDONED', lease_token = NULL, lease_until = NULL,
+              abandoned_at = $2, updated_at = $2, last_error_code = 'SUBSCRIPTION_DISABLED'
+        WHERE subscription_id = $1 AND state IN ('PENDING', 'CLAIMED')
+          AND (state != 'CLAIMED' OR lease_until <= $2)`,
+      [subscriptionId, input.at],
+    );
+    return true;
   }
 
   async recordDelivered(input: RecordDeliveredInput): Promise<boolean> {
