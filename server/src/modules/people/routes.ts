@@ -1,6 +1,7 @@
 import type { FastifyPluginAsync, FastifyReply, FastifyRequest } from 'fastify';
 
 import { createPeopleHandlers } from './handlers.js';
+import type { PostgresStaffOffboardingService } from './offboarding.js';
 import type { PeopleService } from './service.js';
 import type { JobHistoryReadPort } from '../job-cards/history-port.js';
 
@@ -9,10 +10,11 @@ export type PeopleRoutesOptions = {
   service: PeopleService;
   authenticate: Authenticate;
   jobHistoryReadPort?: JobHistoryReadPort;
+  offboardingService?: PostgresStaffOffboardingService;
 };
 
 export const peopleRoutes: FastifyPluginAsync<PeopleRoutesOptions> = async (app, options) => {
-  const handlers = createPeopleHandlers(options.service);
+  const handlers = createPeopleHandlers(options.service, options.offboardingService);
   const auth = { preHandler: options.authenticate };
 
   if (options.jobHistoryReadPort) {
@@ -27,6 +29,10 @@ export const peopleRoutes: FastifyPluginAsync<PeopleRoutesOptions> = async (app,
   app.post('/users/:userId/activate', auth, handlers.activate);
   app.post('/users/:userId/deactivate', auth, handlers.deactivate);
   app.post('/users/:userId/reset-password', auth, handlers.resetPassword);
+  if (options.offboardingService) {
+    app.post('/users/:userId/offboarding/preview', auth, handlers.offboardingPreview);
+    app.post('/users/:userId/offboarding/execute', auth, handlers.offboardingExecute);
+  }
 
   app.get('/staff', auth, handlers.listStaff);
   app.get('/staff/me', auth, handlers.getOwnStaffProfile);

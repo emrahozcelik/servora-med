@@ -73,6 +73,37 @@ describe('WebPush dispatch repository SQL patterns', () => {
     expect(queries).toHaveLength(0);
   });
 
+  it('protects provider delivery with a recipient lifecycle lock and authoritative re-check', async () => {
+    const { pool, client, queries } = mockPool();
+    client.query.mockImplementation((sql: string) => {
+      queries.push(sql);
+      if (/FROM users/i.test(sql)) {
+        return { rows: [{ id: 'user-1', is_active: true }], rowCount: 1 };
+      }
+      if (/FROM web_push_deliveries/i.test(sql)) {
+        return { rows: [{ id: 'del-1', subscription_id: 'sub-1' }], rowCount: 1 };
+      }
+      return { rows: [], rowCount: 1 };
+    });
+    const repo = new PostgresWebPushRepository(pool as never);
+    const result = await repo.withDeliveryLifecycleLock({
+      deliveryId: 'del-1', leaseToken: 'tok-1', attemptCount: 1,
+      notification: {
+        id: 'notification-1', organizationId: 'org-1', recipientUserId: 'user-1',
+        kind: 'job.assigned', entityType: 'job-card', entityId: 'job-1',
+        createdAt: new Date(), readAt: null,
+      },
+      subscription: { id: 'sub-1', endpoint: 'https://example.test', p256dh: 'p', auth: 'a' },
+    }, new Date('2026-07-22T10:00:00.000Z'), async (guard) => {
+      expect(guard.eligible).toBe(true);
+      return 'protected';
+    });
+
+    expect(result).toBe('protected');
+    expect(queries.join('\n')).toMatch(/FROM users[\s\S]*FOR SHARE/i);
+    expect(queries.join('\n')).toMatch(/FROM web_push_deliveries/i);
+  });
+
   it('recordDelivered updates state to DELIVERED with matching lease token', async () => {
     const { pool, queries } = mockPool();
     // Override the default mock to add rowCount

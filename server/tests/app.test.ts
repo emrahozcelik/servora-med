@@ -99,6 +99,25 @@ describe('AppDependencies', () => {
     expect(withReports.hasRoute({ method: 'GET', url: '/api/staff' })).toBe(true);
   });
 
+  it('registers Staff offboarding only when the People route also has a PostgreSQL pool', async () => {
+    const withoutPool = await buildApp(testConfig, {
+      authRepository: {} as never,
+      peopleRepository: {} as never,
+      reportsRepository: {} as never,
+    });
+    const withPool = await buildApp(testConfig, {
+      authRepository: {} as never,
+      peopleRepository: {} as never,
+      reportsRepository: {} as never,
+      pool: {} as never,
+    });
+    apps.push(withoutPool, withPool);
+
+    expect(withoutPool.hasRoute({ method: 'POST', url: '/api/users/:userId/offboarding/preview' })).toBe(false);
+    expect(withPool.hasRoute({ method: 'POST', url: '/api/users/:userId/offboarding/preview' })).toBe(true);
+    expect(withPool.hasRoute({ method: 'POST', url: '/api/users/:userId/offboarding/execute' })).toBe(true);
+  });
+
   it('registers Reports only with both read-model and approval-item ports', async () => {
     const withoutApprovalItems = await buildApp(testConfig, {
       authRepository: {} as never,

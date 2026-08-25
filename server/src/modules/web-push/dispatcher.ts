@@ -7,6 +7,7 @@ import type {
   RecordDeliveredInput,
   RecordProviderStaleInput,
   RecordRetryInput,
+  ProtectedWebPushDeliveryGuard,
 } from './repository.js';
 import type { PublicNotification } from '../notifications/presenter.js';
 import { presentNotification } from '../notifications/presenter.js';
@@ -71,6 +72,11 @@ export type DispatcherDeps = Readonly<{
   repository: {
     cleanupDueDeliveries(at: Date): Promise<number>;
     claimDueDeliveries(input: ClaimDueWebPushDeliveriesInput): Promise<readonly ClaimedWebPushDelivery[]>;
+    withDeliveryLifecycleLock<T>(
+      delivery: ClaimedWebPushDelivery,
+      at: Date,
+      work: (guard: ProtectedWebPushDeliveryGuard) => Promise<T>,
+    ): Promise<T>;
     recordDelivered(input: RecordDeliveredInput): Promise<boolean>;
     recordRetry(input: RecordRetryInput): Promise<boolean>;
     recordAbandoned(input: RecordAbandonedInput): Promise<boolean>;
@@ -133,18 +139,6 @@ export function createDispatcher(
   ): Promise<void> {
     const { deliveryId, leaseToken, subscription, notification } = delivery;
 
-    let payload: PushPayloadV1;
-    try {
-      const record = toNotificationRecord(notification);
-      const publicNotification: PublicNotification = presentNotification(record);
-      payload = deps.buildPayload(publicNotification);
-    } catch {
-      await deps.repository.recordAbandoned({
-        deliveryId, leaseToken, at: now(), errorCode: 'INVALID_PAYLOAD',
-      } satisfies RecordAbandonedInput);
-      return;
-    }
-
     const controller = new AbortController();
 
     // Track the slot before any provider call so concurrent polls cannot oversell.
@@ -155,78 +149,95 @@ export function createDispatcher(
     activeSends.set(deliveryId, { controller, promise: trackedPromise });
 
     try {
-      const topic = deps.topicBuilder(notification.id);
+      await deps.repository.withDeliveryLifecycleLock(delivery, now(), async (guard) => {
+        if (!guard.eligible) return;
 
-      const result: WebPushSendResult = await deps.sender.send({
-        subscription: {
-          endpoint: subscription.endpoint,
-          p256dh: subscription.p256dh,
-          auth: subscription.auth,
-        },
-        payload,
-        topic,
-        signal: controller.signal,
-      });
-
-      if (result.type === 'aborted') return;
-
-      // Capture result timestamp only after the provider returns.
-      const resultAt = now();
-
-      if (result.type === 'response') {
-        const outcome = classifyResponse(result.statusCode);
-
-        switch (outcome) {
-          case 'DELIVERED':
-            await deps.repository.recordDelivered({
-              deliveryId, leaseToken, subscriptionId: subscription.id, at: resultAt,
-            } satisfies RecordDeliveredInput);
-            break;
-
-          case 'PROVIDER_STALE':
-            await deps.repository.recordProviderStale({
-              deliveryId, leaseToken, at: resultAt,
-              errorCode: errorCodeForStatus(result.statusCode),
-            } satisfies RecordProviderStaleInput);
-            break;
-
-          case 'RETRYABLE': {
-            const delayMs = retryDelayForAttempt(delivery.attemptCount);
-            if (delayMs === null) {
-              await deps.repository.recordAbandoned({
-                deliveryId, leaseToken, at: resultAt, errorCode: 'MAX_ATTEMPTS',
-              } satisfies RecordAbandonedInput);
-            } else {
-              await deps.repository.recordRetry({
-                deliveryId, leaseToken, subscriptionId: subscription.id, at: resultAt,
-                nextAttemptAt: new Date(resultAt.getTime() + delayMs),
-                errorCode: errorCodeForStatus(result.statusCode),
-              } satisfies RecordRetryInput);
-            }
-            break;
-          }
-
-          case 'TERMINAL':
-            await deps.repository.recordAbandoned({
-              deliveryId, leaseToken, at: resultAt,
-              errorCode: errorCodeForStatus(result.statusCode),
-            } satisfies RecordAbandonedInput);
-            break;
-        }
-      } else {
-        const delayMs = retryDelayForAttempt(delivery.attemptCount);
-        if (delayMs === null) {
-          await deps.repository.recordAbandoned({
-            deliveryId, leaseToken, at: resultAt, errorCode: 'MAX_ATTEMPTS',
+        let payload: PushPayloadV1;
+        try {
+          const record = toNotificationRecord(notification);
+          const publicNotification: PublicNotification = presentNotification(record);
+          payload = deps.buildPayload(publicNotification);
+        } catch {
+          await guard.recordAbandoned({
+            deliveryId, leaseToken, at: now(), errorCode: 'INVALID_PAYLOAD',
           } satisfies RecordAbandonedInput);
-        } else {
-          await deps.repository.recordRetry({
-            deliveryId, leaseToken, subscriptionId: subscription.id, at: resultAt,
-            nextAttemptAt: new Date(resultAt.getTime() + delayMs),
-            errorCode: result.type === 'timeout' ? 'TIMEOUT' : 'NETWORK',
-          } satisfies RecordRetryInput);
+          return;
         }
-      }
+
+        const topic = deps.topicBuilder(notification.id);
+        const result: WebPushSendResult = await deps.sender.send({
+          subscription: {
+            endpoint: subscription.endpoint,
+            p256dh: subscription.p256dh,
+            auth: subscription.auth,
+          },
+          payload,
+          topic,
+          signal: controller.signal,
+          timeoutMs: WEB_PUSH_SEND_TIMEOUT_MS,
+        });
+
+        if (result.type === 'aborted') return;
+
+        // Capture result timestamp only after the provider returns while the
+        // recipient lifecycle lock is still held.
+        const resultAt = now();
+
+        if (result.type === 'response') {
+          const outcome = classifyResponse(result.statusCode);
+
+          switch (outcome) {
+            case 'DELIVERED':
+              await guard.recordDelivered({
+                deliveryId, leaseToken, subscriptionId: subscription.id, at: resultAt,
+              } satisfies RecordDeliveredInput);
+              break;
+
+            case 'PROVIDER_STALE':
+              await guard.recordProviderStale({
+                deliveryId, leaseToken, at: resultAt,
+                errorCode: errorCodeForStatus(result.statusCode),
+              } satisfies RecordProviderStaleInput);
+              break;
+
+            case 'RETRYABLE': {
+              const delayMs = retryDelayForAttempt(delivery.attemptCount);
+              if (delayMs === null) {
+                await guard.recordAbandoned({
+                  deliveryId, leaseToken, at: resultAt, errorCode: 'MAX_ATTEMPTS',
+                } satisfies RecordAbandonedInput);
+              } else {
+                await guard.recordRetry({
+                  deliveryId, leaseToken, subscriptionId: subscription.id, at: resultAt,
+                  nextAttemptAt: new Date(resultAt.getTime() + delayMs),
+                  errorCode: errorCodeForStatus(result.statusCode),
+                } satisfies RecordRetryInput);
+              }
+              break;
+            }
+
+            case 'TERMINAL':
+              await guard.recordAbandoned({
+                deliveryId, leaseToken, at: resultAt,
+                errorCode: errorCodeForStatus(result.statusCode),
+              } satisfies RecordAbandonedInput);
+              break;
+          }
+        } else {
+          const delayMs = retryDelayForAttempt(delivery.attemptCount);
+          if (delayMs === null) {
+            await guard.recordAbandoned({
+              deliveryId, leaseToken, at: resultAt, errorCode: 'MAX_ATTEMPTS',
+            } satisfies RecordAbandonedInput);
+          } else {
+            await guard.recordRetry({
+              deliveryId, leaseToken, subscriptionId: subscription.id, at: resultAt,
+              nextAttemptAt: new Date(resultAt.getTime() + delayMs),
+              errorCode: result.type === 'timeout' ? 'TIMEOUT' : 'NETWORK',
+            } satisfies RecordRetryInput);
+          }
+        }
+      });
     } finally {
       activeSends.delete(deliveryId);
       resolveTracked();

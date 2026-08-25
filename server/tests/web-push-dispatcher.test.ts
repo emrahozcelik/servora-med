@@ -59,6 +59,14 @@ function makeDeps() {
     recordAbandoned: vi.fn().mockResolvedValue(true),
     recordProviderStale: vi.fn().mockResolvedValue(true),
   };
+  const withDeliveryLifecycleLock = vi.fn(async (_delivery, _at, work) => work({
+    eligible: true,
+    recordDelivered: repository.recordDelivered,
+    recordRetry: repository.recordRetry,
+    recordAbandoned: repository.recordAbandoned,
+    recordProviderStale: repository.recordProviderStale,
+  }));
+  Object.assign(repository, { withDeliveryLifecycleLock });
   const sender = {
     send: vi.fn().mockResolvedValue({ type: 'response' as const, statusCode: 201 }),
   };

@@ -180,6 +180,7 @@ describe.skipIf(!databaseUrl)('Job acceptance PostgreSQL migration 009', () => {
           '034_demo_data_foundation',
           '035_demo_data_purge_foundation',
           '036_job_card_invalidated',
+          '037_staff_offboarding_audit',
         ],
       });
 

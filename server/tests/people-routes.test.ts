@@ -29,13 +29,22 @@ function serviceDouble() {
   };
 }
 
-async function createApp(current = actor, withHistory = false) {
+async function createApp(current = actor, withHistory = false, withOffboarding = false) {
   const app = Fastify({ logger: false }); const service = serviceDouble();
+  const offboardingService = withOffboarding ? {
+    preview: vi.fn().mockResolvedValue({ target: { id: 'staff-1' }, planHash: 'a'.repeat(64) }),
+    execute: vi.fn().mockResolvedValue({ status: 'OFFBOARDED', targetUserId: 'staff-1', planHash: 'a'.repeat(64), summary: {
+      jobCardsTransferred: 0, customersReassigned: 0, customersUnassigned: 0,
+      calendarAssignmentsTransferred: 0, followUpAssignmentsTransferred: 0, remindersHandled: 0,
+    } }),
+  } : undefined;
   app.setErrorHandler((error, _request, reply) => { const result = toErrorResponse(error); reply.code(result.statusCode).send(result.body); });
   const authenticate = async (request: FastifyRequest, _reply: FastifyReply) => { request.currentUser = current; };
   await app.register(peopleRoutes, { prefix: '/api', service: service as never, authenticate,
-    ...(withHistory ? { jobHistoryReadPort: {} as never } : {}) });
-  apps.push(app); return { app, service };
+    ...(withHistory ? { jobHistoryReadPort: {} as never } : {}),
+    ...(withOffboarding ? { offboardingService: offboardingService as never } : {}),
+  });
+  apps.push(app); return { app, service, offboardingService };
 }
 
 afterEach(async () => { await Promise.all(apps.splice(0).map((app) => app.close())); });
@@ -102,6 +111,34 @@ describe('People HTTP routes', () => {
     expect(invalid.statusCode).toBe(400);
     expect(service.updateUser).not.toHaveBeenCalled();
     expect(service.deactivate).not.toHaveBeenCalled();
+  });
+
+  it('keeps offboarding preview read-only and validates the execute contract exactly', async () => {
+    const { app, offboardingService } = await createApp(actor, false, true);
+    const preview = await app.inject({ method: 'POST', url: '/api/users/staff-1/offboarding/preview', payload: {} });
+    expect(preview.statusCode).toBe(200);
+    expect(offboardingService!.preview).toHaveBeenCalledWith(expect.objectContaining({ id: 'admin-1' }), 'staff-1');
+
+    const invalidPreview = await app.inject({ method: 'POST', url: '/api/users/staff-1/offboarding/preview', payload: { reasonCode: 'ACCESS_ENDED' } });
+    expect(invalidPreview.statusCode).toBe(400);
+
+    const execute = await app.inject({ method: 'POST', url: '/api/users/staff-1/offboarding/execute', payload: {
+      clientActionId: 'offboard-1', planHash: 'a'.repeat(64), reasonCode: 'ACCESS_ENDED',
+      jobDecisions: [], calendarDecisions: [], followUpDecisions: [], customerDecisions: [], reminderDecisions: [],
+    } });
+    expect(execute.statusCode).toBe(200);
+    expect(offboardingService!.execute).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 'admin-1' }),
+      'staff-1',
+      expect.objectContaining({ clientActionId: 'offboard-1', reasonCode: 'ACCESS_ENDED' }),
+    );
+
+    const freeText = await app.inject({ method: 'POST', url: '/api/users/staff-1/offboarding/execute', payload: {
+      clientActionId: 'offboard-2', planHash: 'a'.repeat(64), reasonCode: 'ACCESS_ENDED', reasonNote: 'test',
+      jobDecisions: [], calendarDecisions: [], followUpDecisions: [], customerDecisions: [], reminderDecisions: [],
+    } });
+    expect(freeText.statusCode).toBe(400);
+    expect(offboardingService!.execute).toHaveBeenCalledTimes(1);
   });
 
   it('does not serialize credential fields in user responses', async () => {
