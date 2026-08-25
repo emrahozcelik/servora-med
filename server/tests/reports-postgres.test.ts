@@ -832,13 +832,13 @@ async function seedReportFixture(pool: Pool): Promise<ReportFixture> {
   });
 
   // July staff purpose rows for activeStaff (default month at requestTime):
-  // SALE Kutu 5.000 + 3.000 reassigned = 8.000
+  // SALE Kutu 5.000 (the 3.000 reassigned delivery belongs to inactiveStaff)
   // SALE adet 1.000 + 2.000 snapshots = 3.000
   // SAMPLE kutu 1.500
   // CONSIGNMENT null 0.250
   // Order: purpose SALE/SAMPLE/CONSIGNMENT..., unit COLLATE "C" (K before a)
   const purposeRows: DeliveryPurposeItem[] = [
-    { purpose: 'SALE', unit: 'Kutu', quantity: '8.000' },
+    { purpose: 'SALE', unit: 'Kutu', quantity: '5.000' },
     { purpose: 'SALE', unit: 'adet', quantity: '3.000' },
     { purpose: 'SAMPLE', unit: 'kutu', quantity: '1.500' },
     { purpose: 'CONSIGNMENT', unit: null, quantity: '0.250' },
@@ -988,9 +988,9 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   expect(staffReport.staff.isActive).toBe(true);
   expect(staffReport.deliveriesByPurpose).toEqual(fixture.expected.purposeRows);
   expect(staffReport.performance).toEqual({
-    completedJobs: 5,
-    completionDays: 4,
-    jobsPerCompletionDay: 1.25,
+    completedJobs: 4,
+    completionDays: 3,
+    jobsPerCompletionDay: 4 / 3,
     correctionRequestEvents: 2,
     authoredOperationalNotes: 2,
   });
@@ -1008,9 +1008,9 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     },
   });
   expect(staffReport.staffExecution).toEqual({
-    staffCompletedJobs: 5,
-    staffCompletionDays: 4,
-    jobsPerStaffCompletionDay: 1.25,
+    staffCompletedJobs: 4,
+    staffCompletionDays: 3,
+    jobsPerStaffCompletionDay: 4 / 3,
     missingStaffCompletionTimestamp: 0,
   });
   expect(staffReport.staffSubmissionAttribution).toEqual({
@@ -1018,14 +1018,14 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     recordedSubmissionDays: 7,
   });
   expect(staffReport.onTime).toEqual({
-    eligibleScheduledCompletedJobs: 3,
+    eligibleScheduledCompletedJobs: 2,
     onTimeCompletedJobs: 2,
-    lateCompletedJobs: 1,
+    lateCompletedJobs: 0,
     ineligibleOrNoDeadlineCompletedJobs: 2,
-    onTimeRate: 2 / 3,
+    onTimeRate: 1,
   });
   expect(staffReport.completionWorkTypes).toEqual([
-    { type: 'PRODUCT_DELIVERY', count: 3 },
+    { type: 'PRODUCT_DELIVERY', count: 2 },
     { type: 'GENERAL_TASK', count: 2 },
     { type: 'SALES_MEETING', count: 0 },
   ]);
@@ -1060,10 +1060,17 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   );
   expect(inactiveReport.staff.userId).toBe(fixture.inactiveStaff.id);
   expect(inactiveReport.staff.isActive).toBe(false);
-  // Reassigned job is no longer on inactiveStaff despite staff_completed_by
-  expect(inactiveReport.performance.completedJobs).toBe(0);
-  expect(inactiveReport.performance.jobsPerCompletionDay).toBe(0);
-  expect(inactiveReport.deliveriesByPurpose).toEqual([]);
+  // Historical work stays with inactiveStaff despite the current assignment.
+  expect(inactiveReport.performance).toEqual({
+    completedJobs: 1,
+    completionDays: 1,
+    jobsPerCompletionDay: 1,
+    correctionRequestEvents: 0,
+    authoredOperationalNotes: 0,
+  });
+  expect(inactiveReport.deliveriesByPurpose).toEqual([
+    { purpose: 'SALE', unit: 'Kutu', quantity: '3.000' },
+  ]);
   expect(inactiveReport.staffSubmissionAttribution).toEqual({
     recordedSubmissionCount: 1,
     recordedSubmissionDays: 1,
@@ -1102,9 +1109,9 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       isActive: true,
     },
     performance: {
-      completedJobs: 5,
-      completionDays: 4,
-      jobsPerCompletionDay: 1.25,
+      completedJobs: 4,
+      completionDays: 3,
+      jobsPerCompletionDay: 4 / 3,
       correctionRequestEvents: 2,
       authoredOperationalNotes: 2,
     },
@@ -1119,9 +1126,9 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       },
     },
     staffExecution: {
-      staffCompletedJobs: 5,
-      staffCompletionDays: 4,
-      jobsPerStaffCompletionDay: 1.25,
+      staffCompletedJobs: 4,
+      staffCompletionDays: 3,
+      jobsPerStaffCompletionDay: 4 / 3,
       missingStaffCompletionTimestamp: 0,
     },
     staffSubmissionAttribution: {
@@ -1129,14 +1136,14 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       recordedSubmissionDays: 7,
     },
     onTime: {
-      eligibleScheduledCompletedJobs: 3,
+      eligibleScheduledCompletedJobs: 2,
       onTimeCompletedJobs: 2,
-      lateCompletedJobs: 1,
+      lateCompletedJobs: 0,
       ineligibleOrNoDeadlineCompletedJobs: 2,
-      onTimeRate: 2 / 3,
+      onTimeRate: 1,
     },
     completionWorkTypes: [
-      { type: 'PRODUCT_DELIVERY', count: 3 },
+      { type: 'PRODUCT_DELIVERY', count: 2 },
       { type: 'GENERAL_TASK', count: 2 },
       { type: 'SALES_MEETING', count: 0 },
     ],
@@ -1159,9 +1166,9 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       isActive: false,
     },
     performance: {
-      completedJobs: 0,
-      completionDays: 0,
-      jobsPerCompletionDay: 0,
+      completedJobs: 1,
+      completionDays: 1,
+      jobsPerCompletionDay: 1,
       correctionRequestEvents: 0,
       authoredOperationalNotes: 0,
     },
@@ -1176,9 +1183,9 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       },
     },
     staffExecution: {
-      staffCompletedJobs: 0,
-      staffCompletionDays: 0,
-      jobsPerStaffCompletionDay: 0,
+      staffCompletedJobs: 1,
+      staffCompletionDays: 1,
+      jobsPerStaffCompletionDay: 1,
       missingStaffCompletionTimestamp: 0,
     },
     staffSubmissionAttribution: {
@@ -1186,14 +1193,14 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
       recordedSubmissionDays: 1,
     },
     onTime: {
-      eligibleScheduledCompletedJobs: 0,
+      eligibleScheduledCompletedJobs: 1,
       onTimeCompletedJobs: 0,
-      lateCompletedJobs: 0,
+      lateCompletedJobs: 1,
       ineligibleOrNoDeadlineCompletedJobs: 0,
-      onTimeRate: null,
+      onTimeRate: 0,
     },
     completionWorkTypes: [
-      { type: 'PRODUCT_DELIVERY', count: 0 },
+      { type: 'PRODUCT_DELIVERY', count: 1 },
       { type: 'GENERAL_TASK', count: 0 },
       { type: 'SALES_MEETING', count: 0 },
     ],
@@ -1218,9 +1225,9 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     fixture.inactiveStaff.id,
   ]);
   expect(adminPerformance.items[1]?.performance).toEqual({
-    completedJobs: 0,
-    completionDays: 0,
-    jobsPerCompletionDay: 0,
+    completedJobs: 1,
+    completionDays: 1,
+    jobsPerCompletionDay: 1,
     correctionRequestEvents: 0,
     authoredOperationalNotes: 0,
   });
@@ -1290,10 +1297,10 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
     limit: 50,
     offset: 0,
   });
-  expect(staffDeliveries.items.every((item) => item.staff.userId === fixture.activeStaff.id))
-    .toBe(true);
-  expect(staffDeliveries.items.some((item) => item.staff.userId === fixture.inactiveStaff.id))
-    .toBe(false);
+  expect(new Set(staffDeliveries.items.map((item) => item.staff.userId))).toEqual(new Set([
+    fixture.activeStaff.id,
+    fixture.inactiveStaff.id,
+  ]));
 
   const reassignedStaffDeliveries = await reports.getDeliveryReport({
     organizationId: fixture.organizationOne,
@@ -1307,7 +1314,7 @@ async function verifyReports(pool: Pool, fixture: ReportFixture) {
   const reassignedQty = reassignedStaffDeliveries.items
     .filter((item) => item.unit === 'Kutu')
     .map((item) => item.quantity);
-  expect(reassignedQty).toContain('8.000'); // 5 July + 3 reassigned
+  expect(reassignedQty).toContain('5.000'); // only activeStaff's immutable execution
 
   const approvals = await service.getApprovals(fixture.admin, {
     limit: 50,
@@ -1485,7 +1492,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
     }
   });
 
-  it('pre-aggregates execution cohorts and preserves actor attribution in PostgreSQL', async () => {
+  it('pre-aggregates execution cohorts and preserves immutable actor attribution after reassignment in PostgreSQL', async () => {
     const adminPool = new Pool({ connectionString: databaseUrl });
     const schema = `staff_execution_${randomUUID().replaceAll('-', '')}`;
     let pool: Pool | null = null;
@@ -1550,7 +1557,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
         staffCompletedBy?: string | null;
         managerApprovedAt: string;
       }) {
-        await pool!.query(
+        return (await pool!.query<{ id: string }>(
           `INSERT INTO job_cards (
              organization_id, type, status, title,
              assigned_to, created_by,
@@ -1563,7 +1570,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
              $7,
              $5, $6,
              $8, $4
-           )`,
+           ) RETURNING id`,
           [
             organizationId,
             input.title,
@@ -1574,7 +1581,7 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
             input.managerApprovedAt,
             input.managerApprovedAt,
           ],
-        );
+        )).rows[0]!.id;
       }
 
       await insertCompletedJob({
@@ -1602,13 +1609,93 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
           managerApprovedAt: approvedAt,
         });
       }
-      await insertCompletedJob({
+      const reassignedJobId = await insertCompletedJob({
         title: 'A submission reassigned to B',
-        assignedTo: staffB.id,
+        assignedTo: staffA.id,
         staffCompletedAt: '2026-07-15T08:00:00.000Z',
         staffCompletedBy: staffA.id,
         managerApprovedAt: '2026-07-15T12:00:00.000Z',
       });
+      await pool.query(
+        `UPDATE job_cards
+            SET assigned_to = $2,
+                scheduled_at = $3
+          WHERE id = $1 AND organization_id = $4`,
+        [reassignedJobId, staffB.id, '2026-07-15T08:00:00.000Z', organizationId],
+      );
+      await insertCompletedJob({
+        title: 'B own execution after reassignment',
+        assignedTo: staffB.id,
+        staffCompletedAt: '2026-07-16T08:00:00.000Z',
+        staffCompletedBy: staffB.id,
+        managerApprovedAt: '2026-07-16T12:00:00.000Z',
+      });
+      const correctionJobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (
+           organization_id, type, status, title,
+           assigned_to, created_by, started_at,
+           staff_completed_at, staff_completed_by,
+           revision_requested_at, revision_requested_by, revision_reason
+         ) VALUES (
+           $1, 'GENERAL_TASK', 'REVISION_REQUESTED', 'A correction after reassignment',
+           $2, $3, $4, $5, $6, $7, $3, 'Correction required'
+         ) RETURNING id`,
+        [
+          organizationId,
+          staffB.id,
+          manager.id,
+          '2026-07-16T07:00:00.000Z',
+          '2026-07-16T08:00:00.000Z',
+          staffA.id,
+          '2026-07-16T09:00:00.000Z',
+        ],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_card_activity_logs (
+           organization_id, job_card_id, actor_id, event_type, created_at
+         ) VALUES ($1, $2, $3, 'JOB_REVISION_REQUESTED', $4)`,
+        [organizationId, correctionJobId, manager.id, '2026-07-16T09:00:00.000Z'],
+      );
+      await pool.query(
+        `INSERT INTO job_card_notes (
+           organization_id, job_card_id, author_id, note, record_version, created_at
+         ) VALUES ($1, $2, $3, 'A authored note', 0, $4)`,
+        [organizationId, correctionJobId, staffA.id, '2026-07-16T09:30:00.000Z'],
+      );
+      const invalidatedJobId = (await pool.query<{ id: string }>(
+        `INSERT INTO job_cards (
+           organization_id, type, status, title,
+           assigned_to, created_by, started_at,
+           staff_completed_at, staff_completed_by,
+           manager_approved_at, manager_approved_by,
+           invalidated_at, invalidated_by, invalidation_reason_code
+         ) VALUES (
+           $1, 'GENERAL_TASK', 'INVALIDATED', 'Invalidated historical row',
+           $2, $3, $4, $5, $6, $7, $3, $8, $3, 'OTHER'
+         ) RETURNING id`,
+        [
+          organizationId,
+          staffB.id,
+          manager.id,
+          '2026-07-17T07:00:00.000Z',
+          '2026-07-17T08:00:00.000Z',
+          staffA.id,
+          '2026-07-17T12:00:00.000Z',
+          '2026-07-17T13:00:00.000Z',
+        ],
+      )).rows[0]!.id;
+      await pool.query(
+        `INSERT INTO job_card_activity_logs (
+           organization_id, job_card_id, actor_id, event_type, created_at
+         ) VALUES ($1, $2, $3, 'JOB_REVISION_REQUESTED', $4)`,
+        [organizationId, invalidatedJobId, manager.id, '2026-07-17T09:00:00.000Z'],
+      );
+      await pool.query(
+        `INSERT INTO job_card_notes (
+           organization_id, job_card_id, author_id, note, record_version, created_at
+         ) VALUES ($1, $2, $3, 'Invalidated note', 0, $4)`,
+        [organizationId, invalidatedJobId, staffA.id, '2026-07-17T09:30:00.000Z'],
+      );
 
       const reports = new PostgresReportsRepository(pool);
       const service = new ReportsService(
@@ -1622,20 +1709,29 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
       expect(performance.items).toHaveLength(3);
 
       const staffAReport = performance.items.find(({ staff }) => staff.userId === staffA.id)!;
-      expect(staffAReport.performance.completedJobs).toBe(5);
+      expect(staffAReport.performance.completedJobs).toBe(3);
       expect(staffAReport.staffExecution).toEqual({
-        staffCompletedJobs: 2,
-        staffCompletionDays: 2,
+        staffCompletedJobs: 3,
+        staffCompletionDays: 3,
         jobsPerStaffCompletionDay: 1,
         missingStaffCompletionTimestamp: 3,
       });
       expect(staffAReport.staffSubmissionAttribution).toEqual({
-        recordedSubmissionCount: 3,
-        recordedSubmissionDays: 3,
+        recordedSubmissionCount: 4,
+        recordedSubmissionDays: 4,
+      });
+      expect(staffAReport.performance.correctionRequestEvents).toBe(1);
+      expect(staffAReport.performance.authoredOperationalNotes).toBe(1);
+      expect(staffAReport.onTime).toEqual({
+        eligibleScheduledCompletedJobs: 1,
+        onTimeCompletedJobs: 1,
+        lateCompletedJobs: 0,
+        ineligibleOrNoDeadlineCompletedJobs: 2,
+        onTimeRate: 1,
       });
       expect(staffAReport.completionWorkTypes).toEqual([
         { type: 'PRODUCT_DELIVERY', count: 0 },
-        { type: 'GENERAL_TASK', count: 5 },
+        { type: 'GENERAL_TASK', count: 3 },
         { type: 'SALES_MEETING', count: 0 },
       ]);
       expect(staffAReport.currentWorkloadByType).toEqual([
@@ -1646,10 +1742,30 @@ describe.skipIf(!databaseUrl)('Operational reports PostgreSQL contract', () => {
 
       const staffBReport = performance.items.find(({ staff }) => staff.userId === staffB.id)!;
       expect(staffBReport.performance.completedJobs).toBe(1);
-      expect(staffBReport.staffSubmissionAttribution).toEqual({
-        recordedSubmissionCount: 0,
-        recordedSubmissionDays: 0,
+      expect(staffBReport.performance.correctionRequestEvents).toBe(0);
+      expect(staffBReport.performance.authoredOperationalNotes).toBe(0);
+      expect(staffBReport.staffExecution).toEqual({
+        staffCompletedJobs: 1,
+        staffCompletionDays: 1,
+        jobsPerStaffCompletionDay: 1,
+        missingStaffCompletionTimestamp: 0,
       });
+      expect(staffBReport.staffSubmissionAttribution).toEqual({
+        recordedSubmissionCount: 1,
+        recordedSubmissionDays: 1,
+      });
+      expect(staffBReport.onTime).toEqual({
+        eligibleScheduledCompletedJobs: 0,
+        onTimeCompletedJobs: 0,
+        lateCompletedJobs: 0,
+        ineligibleOrNoDeadlineCompletedJobs: 1,
+        onTimeRate: null,
+      });
+      expect(staffBReport.completionWorkTypes).toEqual([
+        { type: 'PRODUCT_DELIVERY', count: 0 },
+        { type: 'GENERAL_TASK', count: 1 },
+        { type: 'SALES_MEETING', count: 0 },
+      ]);
       const inactiveReport = performance.items.find(
         ({ staff }) => staff.userId === inactiveStaff.id,
       );

@@ -44,7 +44,7 @@ describe('PostgresReportsRepository Staff meeting outcomes', () => {
     expect(sql).toContain("('NOT_INTERESTED', 4)");
     expect(sql).toContain("jc.type = 'SALES_MEETING'");
     expect(sql).toContain("jc.status = 'COMPLETED'");
-    expect(sql).toContain('jc.assigned_to = $2');
+    expect(sql).toContain('jc.staff_completed_by = $2');
     expect(sql).toContain('md.meeting_at >=');
     expect(sql).toContain('md.meeting_at <');
     expect(sql).toContain('AT TIME ZONE organization_range.timezone');

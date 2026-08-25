@@ -85,7 +85,7 @@ describe('PostgresReportsRepository Staff report reads', () => {
     expect(query).toHaveBeenCalledTimes(3);
   });
 
-  it('keeps all Staff counters assigned_to-owned and JobCard-type agnostic', async () => {
+  it('keeps current counters assigned_to-owned while historical completion uses the immutable submitter', async () => {
     const { pool, query } = queuedPool([{ rows: [{
       staff_user_id: STAFF_ONE,
       from_date: '2026-07-01',
@@ -116,7 +116,8 @@ describe('PostgresReportsRepository Staff report reads', () => {
 
     const sql = query.mock.calls[0]?.[0] ?? '';
     expect(sql).toContain('jc.assigned_to = requested.staff_user_id');
-    expect(sql).not.toMatch(/staff_completed_by|created_by|manager_approved_by/i);
+    expect(sql).toContain('completed_job.staff_completed_by = requested.staff_user_id');
+    expect(sql).not.toMatch(/created_by|manager_approved_by/i);
     expect(sql).not.toMatch(/job_card_activities|activity/i);
     expect(sql).not.toMatch(/jc\.type\s*=/i);
     expect(sql).toContain('jc.due_date IS NOT NULL');
@@ -188,14 +189,14 @@ describe('PostgresReportsRepository Staff report reads', () => {
       requestTime,
     ]);
     const sql = query.mock.calls[0]?.[0] ?? '';
-    expect(sql).toContain('jc.assigned_to = $2');
+    expect(sql).toContain('jc.staff_completed_by = $2');
     expect(sql).toContain("jc.type = 'PRODUCT_DELIVERY'");
     expect(sql).toContain("jc.status = 'COMPLETED'");
     expect(sql).toContain('jc.manager_approved_at IS NOT NULL');
     expect(sql).toContain('di.delivered_at >=');
     expect(sql).toContain('di.delivered_at <');
     expect(sql).not.toMatch(/manager_approved_at\s*(?:>=|<)/i);
-    expect(sql).not.toMatch(/staff_completed_by|created_by|manager_approved_by/i);
+    expect(sql).not.toMatch(/created_by|manager_approved_by/i);
     expect(sql).not.toMatch(/job_card_activities|activity/i);
     expect(sql).toContain("WHEN 'SALE' THEN 1");
     expect(sql).toContain("WHEN 'SAMPLE' THEN 2");

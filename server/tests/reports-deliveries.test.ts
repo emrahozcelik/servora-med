@@ -166,7 +166,7 @@ describe('PostgresReportsRepository grouped delivery reports', () => {
     expect(groupedSql).not.toMatch(/JOIN products/i);
   });
 
-  it('attributes staff groups through assigned_to and keeps inactive Staff visible', async () => {
+  it('attributes staff groups through immutable completion and keeps inactive Staff visible', async () => {
     const { pool, calls } = reportingPool([{
       staff_user_id: STAFF_ONE,
       staff_name: 'Eski Personel',
@@ -193,7 +193,7 @@ describe('PostgresReportsRepository grouped delivery reports', () => {
     expect(result.items[0]).not.toHaveProperty('productId');
     expectCanonicalDeliverySql(calls);
     const groupedSql = groupedSqlFromCount(calls[1]?.text ?? '');
-    expect(groupedSql).toContain('u.id = jc.assigned_to');
+    expect(groupedSql).toContain('u.id = jc.staff_completed_by');
     expect(groupedSql).toContain("u.role = 'STAFF'");
     expect(groupedSql).toMatch(/JOIN staff_profiles sp/i);
     expect(groupedSql).not.toMatch(/u\.is_active\s*=/i);
@@ -217,7 +217,7 @@ describe('PostgresReportsRepository grouped delivery reports', () => {
     expect(calls[2]?.values).toEqual([
       ORG_ONE, range.from, range.to, requestTime, STAFF_ONE, 25, 50,
     ]);
-    expect(calls[1]?.text).toContain('jc.assigned_to = $5');
+    expect(calls[1]?.text).toContain('jc.staff_completed_by = $5');
     expect(calls[2]?.text).toContain('LIMIT $6');
     expect(calls[2]?.text).toContain('OFFSET $7');
     expectCanonicalDeliverySql(calls);
