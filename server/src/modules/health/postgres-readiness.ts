@@ -14,15 +14,7 @@ import type { HealthReadinessPort } from './service.js';
  * config assertion validated at startup (see db/schema-compatibility).
  */
 
-export function createPostgresReadiness(
-  pool: Pool,
-  catalogOrVersion: MigrationCatalog | string | null = null,
-): HealthReadinessPort {
-  // Backward compatibility for existing tests that still pass a string healthSchemaVersion.
-  if (typeof catalogOrVersion === 'string' || catalogOrVersion === null) {
-    return createLegacyPostgresReadiness(pool, catalogOrVersion as string | null);
-  }
-  const catalog = catalogOrVersion as MigrationCatalog;
+export function createPostgresReadiness(pool: Pool, catalog: MigrationCatalog): HealthReadinessPort {
   return {
     async check() {
       try {
@@ -43,36 +35,6 @@ export function createPostgresReadiness(
         }
         const result = compareMigrationState(catalog, appliedVersions);
         return result.status === 'COMPATIBLE' ? 'ok' : 'unavailable';
-      } catch {
-        return 'unavailable';
-      }
-    },
-  };
-}
-
-/**
- * @deprecated Legacy health check that used HEALTH_SCHEMA_VERSION exact match.
- * Kept only for historical tests; new code should use catalog-aware variant above.
- */
-export function createLegacyPostgresReadiness(
-  pool: Pool,
-  healthSchemaVersion: string | null = null,
-): HealthReadinessPort {
-  return {
-    async check() {
-      try {
-        await pool.query('SELECT 1');
-        if (healthSchemaVersion) {
-          const exact = await pool.query<{ version: string }>(
-            'SELECT version FROM schema_migrations WHERE version = $1 LIMIT 1',
-            [healthSchemaVersion],
-          );
-          return exact.rows[0] ? 'ok' : 'unavailable';
-        }
-        const count = await pool.query<{ count: string }>(
-          'SELECT COUNT(*)::text AS count FROM schema_migrations',
-        );
-        return Number(count.rows[0]?.count ?? 0) >= 1 ? 'ok' : 'unavailable';
       } catch {
         return 'unavailable';
       }
