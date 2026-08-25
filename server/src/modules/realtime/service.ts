@@ -22,6 +22,8 @@ export interface RealtimeSubscription {
 }
 
 interface RealtimeSubscriptionInternal extends RealtimeSubscription {
+  organizationId: string;
+  userId: string;
   close(): void;
 }
 
@@ -37,10 +39,37 @@ export class RealtimeService {
 
   close() {
     this.shuttingDown = true;
-    for (const sub of this.activeSubscriptions) {
-      sub.close();
+    for (const sub of [...this.activeSubscriptions]) {
+      try {
+        sub.close();
+      } catch {
+        // A failed sink must not prevent global shutdown from closing others.
+      }
     }
     this.activeSubscriptions.clear();
+  }
+
+  /**
+   * Ends in-memory streams after the caller's durable access transaction commits.
+   * This seam does not mutate database state and must not run for rolled-back work.
+   */
+  disconnectUser(organizationId: string, userId: string): number {
+    const matchingSubscriptions = [...this.activeSubscriptions].filter(
+      (subscription) => (
+        subscription.organizationId === organizationId
+        && subscription.userId === userId
+      ),
+    );
+
+    for (const subscription of matchingSubscriptions) {
+      try {
+        subscription.close();
+      } catch {
+        // A failed sink must not prevent other matching streams from closing.
+      }
+    }
+
+    return matchingSubscriptions.length;
   }
 
   async open(
@@ -64,10 +93,20 @@ export class RealtimeService {
     const closeConnection = (error?: unknown) => {
       if (closed) return;
       closed = true;
-      clearListeners();
-      sink.close?.();
+      let cleanupError: unknown;
+      try {
+        clearListeners();
+      } catch (closeError) {
+        cleanupError = closeError;
+      }
+      try {
+        sink.close?.();
+      } catch (closeError) {
+        cleanupError ??= closeError;
+      }
       this.activeSubscriptions.delete(internal);
       if (error) throw error;
+      if (cleanupError) throw cleanupError;
     };
 
     const send = (event: RealtimeEventEnvelope) => {
@@ -135,12 +174,10 @@ export class RealtimeService {
     };
 
     const internal: RealtimeSubscriptionInternal = {
+      organizationId: viewer.organizationId,
+      userId: viewer.userId,
       close: () => {
-        if (closed) return;
-        closed = true;
-        clearListeners();
-        sink.close?.();
-        this.activeSubscriptions.delete(internal);
+        closeConnection();
       },
     };
     this.activeSubscriptions.add(internal);
